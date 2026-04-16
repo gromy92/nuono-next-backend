@@ -1,0 +1,10 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+
+nuono:
+  local-db:
+    database: nuono_new_dev
+    note: >
+      当前阶段先完成新系统骨架。等第一批核心表初始化后，再接入真实本地数据库连接与持久层。

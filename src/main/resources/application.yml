@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: nuono-next-backend
+  profiles:
+    active: local
+
+server:
+  port: 18080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+nuono:
+  stage: local-bootstrap
+  bootstrap:
+    db-enabled: false
+    schema: nuono_new_dev
+    expected-core-tables:
+      - role
+      - menu
+      - role_menu
+      - user
+      - user_menu
+      - user_store

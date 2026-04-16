@@ -1,0 +1,22 @@
+spring:
+  datasource:
+    url: ${NUONO_NEXT_DB_URL:jdbc:mysql://127.0.0.1:3306/nuono_new_dev?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true}
+    username: ${NUONO_NEXT_DB_USERNAME:root}
+    password: ${NUONO_NEXT_DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      idle-timeout: 30000
+      connection-timeout: 30000
+      max-lifetime: 1800000
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+nuono:
+  stage: local-db
+  bootstrap:
+    db-enabled: true
+    schema: ${NUONO_NEXT_DB_SCHEMA:nuono_new_dev}
