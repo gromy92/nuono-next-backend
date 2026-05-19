@@ -1,0 +1,355 @@
+package com.nuono.next.permission.access;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
+
+import com.nuono.next.auth.AuthSessionTokenService;
+import com.nuono.next.auth.AuthenticatedSession;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.server.ResponseStatusException;
+
+@ExtendWith(MockitoExtension.class)
+class BusinessAccessResolverTest {
+
+    @Mock
+    private AuthSessionTokenService sessionTokenService;
+
+    @Mock
+    private BusinessAccessMapper accessMapper;
+
+    @Test
+    void bossContextOwnsAllResolvedStores() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.BOSS)
+                .roleLevel(1)
+                .roleName("老板")
+                .storeCodes(Set.of("STR-A", "PROJECT-A"))
+                .menuPaths(Set.of("/api/sku/manage"))
+                .build();
+
+        assertThat(context.isBossAccount()).isTrue();
+        assertThat(context.isSystemAdmin()).isFalse();
+        assertThat(context.canAccessStore("STR-A")).isTrue();
+        assertThat(context.canAccessStore("PROJECT-A")).isTrue();
+        assertThat(context.canAccessStore("STR-B")).isFalse();
+    }
+
+    @Test
+    void storeOwnerMapNormalizesKeysAndExtendsAccessibleStores() {
+        Map<String, Long> storeOwnerUserIds = new LinkedHashMap<>();
+        storeOwnerUserIds.put(" str-a ", 307L);
+        storeOwnerUserIds.put("project-b", 408L);
+        storeOwnerUserIds.put(" ", 509L);
+        storeOwnerUserIds.put("STR-C", null);
+
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(501L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .storeCodes(Set.of(" explicit-store "))
+                .storeOwnerUserIds(storeOwnerUserIds)
+                .build();
+
+        assertThat(context.getStoreCodes()).containsExactlyInAnyOrder("EXPLICIT-STORE", "STR-A", "PROJECT-B");
+        assertThat(context.getStoreOwnerUserIds())
+                .containsEntry("STR-A", 307L)
+                .containsEntry("PROJECT-B", 408L)
+                .doesNotContainKeys("", "STR-C");
+        assertThat(context.canAccessStore("str-a")).isTrue();
+        assertThat(context.canAccessStore(" PROJECT-B ")).isTrue();
+        assertThat(context.canAccessStore("explicit-store")).isTrue();
+        assertThat(context.resolveOwnerUserIdForStore("str-a")).isEqualTo(307L);
+        assertThat(context.resolveOwnerUserIdForStore(" PROJECT-B ")).isEqualTo(408L);
+        assertThat(context.resolveOwnerUserIdForStore("explicit-store")).isNull();
+        assertThat(context.resolveOwnerUserIdForStore("unknown")).isNull();
+    }
+
+    @Test
+    void capabilityRequiresExactPathOrSubPathBoundary() {
+        BusinessAccessContext exact = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/sku/manage"))
+                .build();
+        BusinessAccessContext subPath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/sku/manage/detail"))
+                .build();
+        BusinessAccessContext siblingPrefix = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/sku/manage-archive"))
+                .build();
+
+        assertThat(exact.hasCapability(BusinessCapability.PRODUCT_MASTER)).isTrue();
+        assertThat(subPath.hasCapability(BusinessCapability.PRODUCT_MASTER)).isTrue();
+        assertThat(siblingPrefix.hasCapability(BusinessCapability.PRODUCT_MASTER)).isFalse();
+    }
+
+    @Test
+    void exposedCollectionsAreImmutable() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .storeCodes(Set.of("STR-A"))
+                .storeOwnerUserIds(Map.of("STR-B", 307L))
+                .menuPaths(Set.of("/api/sku/manage"))
+                .build();
+
+        assertThatThrownBy(() -> context.getStoreCodes().add("STR-C"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> context.getStoreOwnerUserIds().put("STR-C", 408L))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> context.getMenuPaths().add("/api/sku/manage/detail"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void systemAdminIsNeverBusinessAccount() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(346L)
+                .businessOwnerUserId(null)
+                .accountType(BusinessAccountType.SYSTEM_ADMIN)
+                .roleLevel(0)
+                .roleName("系统管理员")
+                .storeCodes(Set.of())
+                .menuPaths(Set.of("/system/role"))
+                .build();
+
+        assertThat(context.isSystemAdmin()).isTrue();
+        assertThat(context.isBusinessAccount()).isFalse();
+    }
+
+    @Test
+    void guardRejectsSystemAdminForBusinessCapability() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(346L)
+                .accountType(BusinessAccountType.SYSTEM_ADMIN)
+                .roleLevel(0)
+                .roleName("系统管理员")
+                .menuPaths(Set.of("/system/role"))
+                .storeCodes(Set.of())
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThatThrownBy(() -> guard.requireBusinessCapability(context, BusinessCapability.PRODUCT_MASTER))
+                .isInstanceOf(BusinessAccessDeniedException.class)
+                .hasMessageContaining("系统管理员不能操作店铺业务");
+    }
+
+    @Test
+    void guardRequiresMenuAndStoreForOperator() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(357L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .roleLevel(3)
+                .roleName("采购")
+                .menuPaths(Set.of("/api/purchase/order"))
+                .storeCodes(Set.of("STR-A"))
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThat(guard.requireStore(context, "STR-A")).isSameAs(context);
+        assertThat(guard.requireBusinessCapability(context, BusinessCapability.PROCUREMENT)).isSameAs(context);
+        assertThatThrownBy(() -> guard.requireStore(context, "STR-B"))
+                .isInstanceOf(BusinessAccessDeniedException.class)
+                .hasMessageContaining("当前账号不能操作该店铺");
+        assertThatThrownBy(() -> guard.requireStore(context, " "))
+                .isInstanceOf(BusinessAccessDeniedException.class)
+                .hasMessageContaining("当前账号不能操作该店铺");
+    }
+
+    @Test
+    void guardRequiresCapabilityForBoss() {
+        BusinessAccessContext bossWithoutCapability = BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.BOSS)
+                .roleLevel(1)
+                .roleName("老板")
+                .menuPaths(Set.of())
+                .storeCodes(Set.of("STR-A"))
+                .build();
+        BusinessAccessContext bossWithCapability = BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.BOSS)
+                .roleLevel(1)
+                .roleName("老板")
+                .menuPaths(Set.of("/api/sku/manage"))
+                .storeCodes(Set.of("STR-A"))
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThatThrownBy(() -> guard.requireBusinessCapability(
+                bossWithoutCapability,
+                BusinessCapability.PRODUCT_MASTER
+        ))
+                .isInstanceOf(BusinessAccessDeniedException.class)
+                .hasMessageContaining("当前账号没有对应业务菜单权限");
+        assertThat(guard.requireBusinessCapability(bossWithCapability, BusinessCapability.PRODUCT_MASTER))
+                .isSameAs(bossWithCapability);
+    }
+
+    @Test
+    void resolverMapsStoreOwnerPerStoreForOperatorAcrossOwners() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessUserAccessRow user = new BusinessUserAccessRow();
+        user.setUserId(357L);
+        user.setAccountType("internal");
+        user.setCreatedBy(307L);
+        user.setRoleId(3L);
+        user.setRoleName("采购");
+        user.setUserLevel(3);
+        user.setRoleLevel(3);
+        user.setStatus(1);
+        BusinessStoreScopeRow firstOwnerStore = storeScope(307L, "STR-A");
+        BusinessStoreScopeRow secondOwnerStore = storeScope(408L, "str-b");
+
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(357L, 3L, 3));
+        when(accessMapper.selectUserAccess(357L)).thenReturn(user);
+        when(accessMapper.selectGrantedMenuPaths(357L)).thenReturn(List.of("/api/purchase/order"));
+        when(accessMapper.selectStoreScope(357L)).thenReturn(List.of(firstOwnerStore, secondOwnerStore));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                accessMapper,
+                new BusinessAccessGuard()
+        );
+
+        BusinessAccessContext context = resolver.resolve(request);
+
+        assertThat(context.getAccountType()).isEqualTo(BusinessAccountType.OPERATOR);
+        assertThat(context.getBusinessOwnerUserId()).isEqualTo(307L);
+        assertThat(context.getStoreCodes()).containsExactlyInAnyOrder("STR-A", "STR-B");
+        assertThat(context.getStoreOwnerUserIds())
+                .containsEntry("STR-A", 307L)
+                .containsEntry("STR-B", 408L);
+        assertThat(context.resolveOwnerUserIdForStore("str-a")).isEqualTo(307L);
+        assertThat(context.resolveOwnerUserIdForStore(" STR-B ")).isEqualTo(408L);
+    }
+
+    @Test
+    void resolverUsesRoleLevelBeforeUserLevelForBusinessRole() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessUserAccessRow user = new BusinessUserAccessRow();
+        user.setUserId(346L);
+        user.setAccountType("internal");
+        user.setRoleId(3L);
+        user.setRoleName("运营");
+        user.setUserLevel(1);
+        user.setRoleLevel(3);
+        user.setStatus(1);
+
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(346L, 3L, 1));
+        when(accessMapper.selectUserAccess(346L)).thenReturn(user);
+        when(accessMapper.selectGrantedMenuPaths(346L)).thenReturn(List.of("/api/purchase/order"));
+        when(accessMapper.selectStoreScope(346L)).thenReturn(List.of(storeScope(307L, "STR-A")));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                accessMapper,
+                new BusinessAccessGuard()
+        );
+
+        BusinessAccessContext context = resolver.resolve(request);
+
+        assertThat(context.getRoleLevel()).isEqualTo(3);
+        assertThat(context.getAccountType()).isEqualTo(BusinessAccountType.OPERATOR);
+    }
+
+    @Test
+    void resolverTreatsExternalBossLikeAccountAsUnknown() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessUserAccessRow user = new BusinessUserAccessRow();
+        user.setUserId(48435L);
+        user.setAccountType("external");
+        user.setCreatedBy(307L);
+        user.setRoleId(2L);
+        user.setRoleName("老板");
+        user.setUserLevel(1);
+        user.setRoleLevel(1);
+        user.setStatus(1);
+
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(48435L, 2L, 1));
+        when(accessMapper.selectUserAccess(48435L)).thenReturn(user);
+        when(accessMapper.selectGrantedMenuPaths(48435L)).thenReturn(List.of("/api/sku/manage"));
+        when(accessMapper.selectStoreScope(48435L)).thenReturn(List.of(storeScope(307L, "STR-A")));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                accessMapper,
+                new BusinessAccessGuard()
+        );
+
+        BusinessAccessContext context = resolver.resolve(request);
+
+        assertThat(context.getAccountType()).isEqualTo(BusinessAccountType.UNKNOWN);
+        assertThat(context.isBusinessAccount()).isFalse();
+    }
+
+    @Test
+    void requireStoreAccessRejectsBlankStoreCode() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessUserAccessRow user = new BusinessUserAccessRow();
+        user.setUserId(357L);
+        user.setAccountType("internal");
+        user.setCreatedBy(307L);
+        user.setRoleId(3L);
+        user.setRoleName("采购");
+        user.setUserLevel(3);
+        user.setRoleLevel(3);
+        user.setStatus(1);
+
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(357L, 3L, 3));
+        when(accessMapper.selectUserAccess(357L)).thenReturn(user);
+        when(accessMapper.selectGrantedMenuPaths(357L)).thenReturn(List.of("/api/purchase/order"));
+        when(accessMapper.selectStoreScope(357L)).thenReturn(List.of(storeScope(307L, "STR-A")));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                accessMapper,
+                new BusinessAccessGuard()
+        );
+
+        assertThatThrownBy(() -> resolver.requireStoreAccess(request, BusinessCapability.PROCUREMENT, " "))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+                    assertThat(exception.getReason()).isEqualTo("当前账号不能操作该店铺。");
+                });
+    }
+
+    @Test
+    void resolveReturnsServiceUnavailableWhenMapperIsMissing() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(357L, 3L, 3));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                (BusinessAccessMapper) null,
+                new BusinessAccessGuard()
+        );
+
+        assertThatThrownBy(() -> resolver.resolve(request))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(exception.getReason()).isEqualTo("业务访问控制暂时不可用。");
+                });
+    }
+
+    private static BusinessStoreScopeRow storeScope(Long ownerUserId, String storeCode) {
+        BusinessStoreScopeRow row = new BusinessStoreScopeRow();
+        row.setOwnerUserId(ownerUserId);
+        row.setStoreCode(storeCode);
+        return row;
+    }
+}

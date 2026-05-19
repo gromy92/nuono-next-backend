@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:file:.env.local[.properties]
   datasource:
     url: ${NUONO_NEXT_DB_URL:jdbc:mysql://127.0.0.1:3306/nuono_new_dev?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true}
     username: ${NUONO_NEXT_DB_USERNAME:root}
@@ -15,8 +17,50 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+server:
+  error:
+    include-message: always
+
 nuono:
   stage: local-db
   bootstrap:
     db-enabled: true
     schema: ${NUONO_NEXT_DB_SCHEMA:nuono_new_dev}
+    expected-core-tables:
+      - role
+      - menu
+      - role_menu
+      - user
+      - user_menu
+      - user_store
+  noon:
+    chrome-cookie-fallback-enabled: true
+    auth:
+      partner-identity-enabled: true
+      signin-fallback-enabled: true
+    account-min-request-interval-millis: 1200
+    max-concurrent-account-tasks: 3
+    force-http11: true
+    accept-language: en-SA,en;q=0.9
+    locale-header: en-sa
+    lang-header: en
+    proxy:
+      enabled: false
+      type: HTTP
+      host:
+      port: 0
+      provider-url:
+  procurement:
+    ali-ai-bulk-inquiry:
+      create-enabled: ${NUONO_PROCUREMENT_ALI_AI_CREATE_ENABLED:false}
+    ali-unpaid-order:
+      create-enabled: ${NUONO_PROCUREMENT_ALI_UNPAID_ORDER_CREATE_ENABLED:false}
+    auto-inquiry:
+      dispatch-enabled: ${NUONO_PROCUREMENT_AUTO_INQUIRY_DISPATCH_ENABLED:false}
+      scheduler:
+        enabled: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SCHEDULER_ENABLED:false}
+        dispatch-enabled: ${NUONO_PROCUREMENT_AUTO_INQUIRY_DISPATCH_ENABLED:false}
+        fixed-delay-ms: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SCHEDULER_FIXED_DELAY_MS:60000}
+        initial-delay-ms: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SCHEDULER_INITIAL_DELAY_MS:15000}
+        max-items-per-tick: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SCHEDULER_MAX_ITEMS:10}
+        system-operator-user-id: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SYSTEM_OPERATOR_USER_ID:0}

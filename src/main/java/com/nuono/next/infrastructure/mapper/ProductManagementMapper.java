@@ -1,0 +1,2316 @@
+package com.nuono.next.infrastructure.mapper;
+
+import com.nuono.next.product.ProductActionLogRecord;
+import com.nuono.next.product.ProductClassificationOptionRecord;
+import com.nuono.next.product.ProductGroupCandidateContextRecord;
+import com.nuono.next.product.ProductMasterDraftRecord;
+import com.nuono.next.product.ProductKeyContentHistoryRecord;
+import com.nuono.next.product.ProductMasterSnapshotRecord;
+import com.nuono.next.product.ProductListProjectionRecord;
+import com.nuono.next.product.ProductPublishTaskRecord;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectKey;
+import org.apache.ibatis.annotations.Update;
+
+public interface ProductManagementMapper {
+
+    @Insert({
+            "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
+            "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
+            "ON DUPLICATE KEY UPDATE",
+            "  next_id = LAST_INSERT_ID(next_id + 1),",
+            "  gmt_updated = NOW()"
+    })
+    @SelectKey(
+            statement = {
+            "SELECT LAST_INSERT_ID()"
+            },
+            keyProperty = "allocatedId",
+            before = false,
+            resultType = Long.class
+    )
+    int allocateProductManagementId(IdSequenceCommand command);
+
+    default Long nextProductManagementId(String sequenceName, long initialValue) {
+        IdSequenceCommand command = new IdSequenceCommand(sequenceName, initialValue);
+        allocateProductManagementId(command);
+        Long id = command.getAllocatedId();
+        if (id == null || id <= 0) {
+            throw new IllegalStateException("商品管理 ID 序列分配失败：" + sequenceName);
+        }
+        return id;
+    }
+
+    default Long nextLogicalStoreId() {
+        return nextProductManagementId("logical_store", 50000L);
+    }
+
+    @Insert({
+            "INSERT INTO logical_store (",
+            "  id, owner_user_id, manager_user_id, project_code, project_name, status,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{ownerUserId}, NULL, #{projectCode}, #{projectName}, #{status},",
+            "  0, #{ownerUserId}, #{ownerUserId}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  project_name = VALUES(project_name),",
+            "  status = VALUES(status),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertLogicalStore(
+            @Param("id") Long id,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode,
+            @Param("projectName") String projectName,
+            @Param("status") String status
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM logical_store",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND project_code = #{projectCode}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode
+    );
+
+    default Long nextLogicalStoreSiteId() {
+        return nextProductManagementId("logical_store_site", 51000L);
+    }
+
+    @Insert({
+            "INSERT INTO logical_store_site (",
+            "  id, logical_store_id, store_code, site, is_reference_site, is_mounted, site_status,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{logicalStoreId}, #{storeCode}, #{site}, #{referenceSite}, #{mounted}, #{siteStatus},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  store_code = VALUES(store_code),",
+            "  logical_store_id = VALUES(logical_store_id),",
+            "  site = VALUES(site),",
+            "  is_reference_site = VALUES(is_reference_site),",
+            "  is_mounted = VALUES(is_mounted),",
+            "  site_status = VALUES(site_status),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertLogicalStoreSite(
+            @Param("id") Long id,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("storeCode") String storeCode,
+            @Param("site") String site,
+            @Param("referenceSite") boolean referenceSite,
+            @Param("mounted") boolean mounted,
+            @Param("siteStatus") String siteStatus,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM logical_store_site",
+            "WHERE store_code = #{storeCode}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreSiteId(@Param("storeCode") String storeCode);
+
+    @Update({
+            "<script>",
+            "UPDATE logical_store_site",
+            "SET is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND is_deleted = 0",
+            "  AND store_code NOT IN",
+            "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>",
+            "    #{storeCode}",
+            "  </foreach>",
+            "</script>"
+    })
+    int markStaleLogicalStoreSitesDeleted(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("storeCodes") List<String> storeCodes,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    default Long nextProductMasterId() {
+        return nextProductManagementId("product_master", 52000L);
+    }
+
+    default Long nextProductImageAssetId() {
+        return nextProductManagementId("product_image_asset", 62000L);
+    }
+
+    default Long nextProductIssueId() {
+        return nextProductManagementId("product_issue", 63000L);
+    }
+
+    default Long nextProductPublishTaskId() {
+        return nextProductManagementId("product_publish_task", 64000L);
+    }
+
+    default Long nextNoonBrandDictionaryId() {
+        return nextProductManagementId("noon_brand_dictionary", 66000L);
+    }
+
+    default Long nextNoonProductFulltypeDictionaryId() {
+        return nextProductManagementId("noon_product_fulltype_dictionary", 68000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_publish_task (",
+            "  id, owner_user_id, product_master_id, baseline_snapshot_id, draft_snapshot_id,",
+            "  store_code, project_code, sku_parent, partner_sku, psku_code, current_site_code,",
+            "  task_type, status, active_lock_key, idempotency_key, draft_hash, changed_domains_json,",
+            "  baseline_json, draft_json, request_json, result_json, error_code, error_message,",
+            "  retry_count, verify_attempt_count, max_retry_count, version_no, next_run_at,",
+            "  locked_by, locked_at, submitted_at, verify_started_at, verify_finished_at, finished_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{ownerUserId}, #{productMasterId}, #{baselineSnapshotId}, #{draftSnapshotId},",
+            "  #{storeCode}, #{projectCode}, #{skuParent}, #{partnerSku}, #{pskuCode}, #{currentSiteCode},",
+            "  #{taskType}, #{status}, #{activeLockKey}, #{idempotencyKey}, #{draftHash}, #{changedDomainsJson},",
+            "  #{baselineJson}, #{draftJson}, #{requestJson}, #{resultJson}, #{errorCode}, #{errorMessage},",
+            "  COALESCE(#{retryCount}, 0), COALESCE(#{verifyAttemptCount}, 0), COALESCE(#{maxRetryCount}, 3), COALESCE(#{versionNo}, 1), #{nextRunAt},",
+            "  #{lockedBy}, #{lockedAt}, #{submittedAt}, #{verifyStartedAt}, #{verifyFinishedAt}, #{finishedAt},",
+            "  0, #{ownerUserId}, #{ownerUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertProductPublishTask(ProductPublishTaskRecord record);
+
+    @Select({
+            "SELECT *",
+            "FROM product_publish_task",
+            "WHERE id = #{id}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    ProductPublishTaskRecord selectProductPublishTaskById(@Param("id") Long id);
+
+    @Select({
+            "SELECT *",
+            "FROM product_publish_task",
+            "WHERE idempotency_key = #{idempotencyKey}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    ProductPublishTaskRecord selectProductPublishTaskByIdempotency(@Param("idempotencyKey") String idempotencyKey);
+
+    @Select({
+            "SELECT *",
+            "FROM product_publish_task",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0",
+            "  AND status IN (",
+            "    'queued', 'running', 'submitted', 'verifying',",
+            "    'pending_effective', 'write_unknown', 'verify_timeout'",
+            "  )",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    ProductPublishTaskRecord selectActiveProductPublishTask(@Param("productMasterId") Long productMasterId);
+
+    @Select({
+            "SELECT *",
+            "FROM product_publish_task",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0",
+            "ORDER BY COALESCE(finished_at, verify_finished_at, submitted_at, locked_at, gmt_updated, gmt_create) DESC, id DESC",
+            "LIMIT 20"
+    })
+    List<ProductPublishTaskRecord> selectRecentProductPublishTasks(@Param("productMasterId") Long productMasterId);
+
+    @Select({
+            "<script>",
+            "SELECT *",
+            "FROM product_publish_task",
+            "WHERE is_deleted = 0",
+            "  AND status IN ('queued', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout')",
+            "  AND locked_at IS NULL",
+            "  AND (next_run_at IS NULL OR next_run_at &lt;= NOW())",
+            "ORDER BY COALESCE(next_run_at, gmt_create), id",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductPublishTaskRecord> selectRunnableProductPublishTasks(@Param("limit") int limit);
+
+    @Update({
+            "UPDATE product_publish_task",
+            "SET status = 'write_unknown',",
+            "    error_code = 'task_recovered_from_stale_running',",
+            "    error_message = '发布任务执行中断，系统将只回读校验 Noon 当前结果。',",
+            "    next_run_at = NOW(),",
+            "    locked_by = NULL,",
+            "    locked_at = NULL,",
+            "    version_no = version_no + 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE status IN ('running', 'submitted', 'verifying')",
+            "  AND locked_at IS NOT NULL",
+            "  AND locked_at < DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)",
+            "  AND is_deleted = 0"
+    })
+    int recoverStaleRunningProductPublishTasks(
+            @Param("staleMinutes") int staleMinutes,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_publish_task",
+            "SET status = 'running',",
+            "    locked_by = #{lockedBy},",
+            "    locked_at = NOW(),",
+            "    version_no = version_no + 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND status = #{expectedStatus}",
+            "  AND version_no = #{expectedVersionNo}",
+            "  AND locked_at IS NULL",
+            "  AND is_deleted = 0"
+    })
+    int tryStartProductPublishTask(
+            @Param("id") Long id,
+            @Param("expectedStatus") String expectedStatus,
+            @Param("expectedVersionNo") Integer expectedVersionNo,
+            @Param("lockedBy") String lockedBy,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_publish_task",
+            "SET status = #{status},",
+            "    result_json = #{resultJson},",
+            "    error_code = #{errorCode},",
+            "    error_message = #{errorMessage},",
+            "    next_run_at = #{nextRunAt},",
+            "    submitted_at = COALESCE(#{submittedAt}, submitted_at),",
+            "    verify_started_at = COALESCE(#{verifyStartedAt}, verify_started_at),",
+            "    verify_finished_at = COALESCE(#{verifyFinishedAt}, verify_finished_at),",
+            "    finished_at = #{finishedAt},",
+            "    verify_attempt_count = COALESCE(#{verifyAttemptCount}, verify_attempt_count),",
+            "    active_lock_key = CASE",
+            "      WHEN #{status} IN ('synced', 'failed', 'cancelled', 'pending_manual_check') THEN NULL",
+            "      ELSE active_lock_key",
+            "    END,",
+            "    locked_by = CASE WHEN #{releaseLock} THEN NULL ELSE locked_by END,",
+            "    locked_at = CASE WHEN #{releaseLock} THEN NULL ELSE locked_at END,",
+            "    version_no = version_no + 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND status = #{expectedStatus}",
+            "  AND locked_by = #{expectedLockedBy}",
+            "  AND version_no = #{expectedVersionNo}",
+            "  AND is_deleted = 0"
+    })
+    int updateProductPublishTaskStatus(
+            @Param("id") Long id,
+            @Param("expectedStatus") String expectedStatus,
+            @Param("expectedLockedBy") String expectedLockedBy,
+            @Param("expectedVersionNo") Integer expectedVersionNo,
+            @Param("status") String status,
+            @Param("resultJson") String resultJson,
+            @Param("errorCode") String errorCode,
+            @Param("errorMessage") String errorMessage,
+            @Param("nextRunAt") LocalDateTime nextRunAt,
+            @Param("submittedAt") LocalDateTime submittedAt,
+            @Param("verifyStartedAt") LocalDateTime verifyStartedAt,
+            @Param("verifyFinishedAt") LocalDateTime verifyFinishedAt,
+            @Param("finishedAt") LocalDateTime finishedAt,
+            @Param("verifyAttemptCount") Integer verifyAttemptCount,
+            @Param("releaseLock") boolean releaseLock,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_publish_task",
+            "SET status = 'queued',",
+            "    retry_count = retry_count + 1,",
+            "    next_run_at = NOW(),",
+            "    error_code = NULL,",
+            "    error_message = NULL,",
+            "    result_json = NULL,",
+            "    active_lock_key = CONCAT('product:', product_master_id),",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND status IN ('failed', 'pending_manual_check')",
+            "  AND retry_count < max_retry_count",
+            "  AND is_deleted = 0"
+    })
+    int retryProductPublishTask(@Param("id") Long id, @Param("updatedBy") Long updatedBy);
+
+    @Update({
+            "UPDATE product_publish_task",
+            "SET status = 'cancelled',",
+            "    finished_at = NOW(),",
+            "    active_lock_key = NULL,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND status = 'queued'",
+            "  AND is_deleted = 0"
+    })
+    int cancelQueuedProductPublishTask(@Param("id") Long id, @Param("updatedBy") Long updatedBy);
+
+    @Insert({
+            "INSERT INTO product_master (",
+            "  id, logical_store_id, sku_parent, product_source_type, brand_cache, title_cache, product_fulltype_cache, cover_image_url,",
+            "  sku_group, group_name_cache, group_ref, group_member_count, issue_count, issue_summary_json,",
+            "  variant_count_cache, sync_status, last_synced_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{logicalStoreId}, #{skuParent}, #{productSourceType}, #{brandCache}, #{titleCache}, #{productFulltypeCache}, #{coverImageUrl},",
+            "  #{skuGroup}, #{groupNameCache}, #{groupRef}, #{groupMemberCount}, #{issueCount}, #{issueSummaryJson},",
+            "  #{variantCountCache}, #{syncStatus}, #{lastSyncedAt},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  product_source_type = VALUES(product_source_type),",
+            "  brand_cache = VALUES(brand_cache),",
+            "  title_cache = VALUES(title_cache),",
+            "  product_fulltype_cache = VALUES(product_fulltype_cache),",
+            "  cover_image_url = VALUES(cover_image_url),",
+            "  sku_group = VALUES(sku_group),",
+            "  group_name_cache = VALUES(group_name_cache),",
+            "  group_ref = VALUES(group_ref),",
+            "  group_member_count = VALUES(group_member_count),",
+            "  issue_count = VALUES(issue_count),",
+            "  issue_summary_json = VALUES(issue_summary_json),",
+            "  variant_count_cache = VALUES(variant_count_cache),",
+            "  sync_status = VALUES(sync_status),",
+            "  last_synced_at = VALUES(last_synced_at),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductMaster(
+            @Param("id") Long id,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("skuParent") String skuParent,
+            @Param("productSourceType") String productSourceType,
+            @Param("brandCache") String brandCache,
+            @Param("titleCache") String titleCache,
+            @Param("productFulltypeCache") String productFulltypeCache,
+            @Param("coverImageUrl") String coverImageUrl,
+            @Param("skuGroup") String skuGroup,
+            @Param("groupNameCache") String groupNameCache,
+            @Param("groupRef") String groupRef,
+            @Param("groupMemberCount") Integer groupMemberCount,
+            @Param("issueCount") Integer issueCount,
+            @Param("issueSummaryJson") String issueSummaryJson,
+            @Param("variantCountCache") Integer variantCountCache,
+            @Param("syncStatus") String syncStatus,
+            @Param("lastSyncedAt") LocalDateTime lastSyncedAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Insert({
+            "INSERT INTO noon_brand_dictionary (",
+            "  id, owner_user_id, project_code, store_code, brand_key, brand_name, label_en, label_ar,",
+            "  source, status, usage_count, last_seen_at, fetched_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{ownerUserId}, #{projectCode}, #{storeCode}, #{brandKey}, #{brandName}, #{labelEn}, #{labelAr},",
+            "  #{source}, 'active', COALESCE(#{usageCount}, 1), #{lastSeenAt}, NOW(), 0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  brand_name = VALUES(brand_name),",
+            "  label_en = VALUES(label_en),",
+            "  label_ar = COALESCE(VALUES(label_ar), label_ar),",
+            "  source = VALUES(source),",
+            "  status = 'active',",
+            "  usage_count = GREATEST(usage_count, VALUES(usage_count)),",
+            "  last_seen_at = GREATEST(COALESCE(last_seen_at, '1970-01-01'), COALESCE(VALUES(last_seen_at), '1970-01-01')),",
+            "  fetched_at = VALUES(fetched_at),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertNoonBrandDictionary(
+            @Param("id") Long id,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode,
+            @Param("storeCode") String storeCode,
+            @Param("brandKey") String brandKey,
+            @Param("brandName") String brandName,
+            @Param("labelEn") String labelEn,
+            @Param("labelAr") String labelAr,
+            @Param("source") String source,
+            @Param("usageCount") Integer usageCount,
+            @Param("lastSeenAt") LocalDateTime lastSeenAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM noon_brand_dictionary",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND project_code = #{projectCode}",
+            "  AND store_code = #{storeCode}",
+            "  AND brand_key = #{brandKey}",
+            "LIMIT 1"
+    })
+    Long selectNoonBrandDictionaryId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode,
+            @Param("storeCode") String storeCode,
+            @Param("brandKey") String brandKey
+    );
+
+    @Insert({
+            "INSERT INTO noon_product_fulltype_dictionary (",
+            "  id, owner_user_id, project_code, store_code, product_fulltype, family, product_type, product_subtype,",
+            "  label_en, label_ar, source, status, usage_count, last_seen_at, fetched_at, is_deleted,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{ownerUserId}, #{projectCode}, #{storeCode}, #{productFulltype}, #{family}, #{productType}, #{productSubtype},",
+            "  #{labelEn}, #{labelAr}, #{source}, 'active', COALESCE(#{usageCount}, 1), #{lastSeenAt}, NOW(), 0,",
+            "  #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  family = VALUES(family),",
+            "  product_type = VALUES(product_type),",
+            "  product_subtype = VALUES(product_subtype),",
+            "  label_en = VALUES(label_en),",
+            "  label_ar = COALESCE(VALUES(label_ar), label_ar),",
+            "  source = VALUES(source),",
+            "  status = 'active',",
+            "  usage_count = GREATEST(usage_count, VALUES(usage_count)),",
+            "  last_seen_at = GREATEST(COALESCE(last_seen_at, '1970-01-01'), COALESCE(VALUES(last_seen_at), '1970-01-01')),",
+            "  fetched_at = VALUES(fetched_at),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertNoonProductFulltypeDictionary(
+            @Param("id") Long id,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode,
+            @Param("storeCode") String storeCode,
+            @Param("productFulltype") String productFulltype,
+            @Param("family") String family,
+            @Param("productType") String productType,
+            @Param("productSubtype") String productSubtype,
+            @Param("labelEn") String labelEn,
+            @Param("labelAr") String labelAr,
+            @Param("source") String source,
+            @Param("usageCount") Integer usageCount,
+            @Param("lastSeenAt") LocalDateTime lastSeenAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM noon_product_fulltype_dictionary",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND project_code = #{projectCode}",
+            "  AND store_code = #{storeCode}",
+            "  AND product_fulltype = #{productFulltype}",
+            "LIMIT 1"
+    })
+    Long selectNoonProductFulltypeDictionaryId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode,
+            @Param("storeCode") String storeCode,
+            @Param("productFulltype") String productFulltype
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_master",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND sku_parent = #{skuParent}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductMasterId(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "SELECT pm.id",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.sku_parent = #{skuParent}",
+            " AND pm.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByStoreCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "SELECT pm.sku_parent",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 1",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0"
+    })
+    List<String> selectDeletedProductSkuParentsByStoreCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode
+    );
+
+    @Update({
+            "UPDATE product_master",
+            "SET sync_status = #{syncStatus},",
+            "    last_synced_at = #{lastSyncedAt},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND sku_parent = #{skuParent}",
+            "  AND is_deleted = 0"
+    })
+    int updateProductMasterStatus(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("skuParent") String skuParent,
+            @Param("syncStatus") String syncStatus,
+            @Param("lastSyncedAt") LocalDateTime lastSyncedAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_master",
+            "SET sync_status = #{syncStatus},",
+            "    last_synced_at = COALESCE(#{lastSyncedAt}, last_synced_at),",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int updateProductMasterStatusById(
+            @Param("productMasterId") Long productMasterId,
+            @Param("syncStatus") String syncStatus,
+            @Param("lastSyncedAt") LocalDateTime lastSyncedAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_master",
+            "SET issue_count = #{issueCount},",
+            "    issue_summary_json = #{issueSummaryJson},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int updateProductMasterIssueSummary(
+            @Param("productMasterId") Long productMasterId,
+            @Param("issueCount") Integer issueCount,
+            @Param("issueSummaryJson") String issueSummaryJson,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_group_member",
+            "SET member_status = 'deleted',",
+            "    is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int markProductGroupMembersDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_group pg",
+            "SET member_count = (",
+            "      SELECT COUNT(1)",
+            "      FROM product_group_member pgm",
+            "      WHERE pgm.product_group_id = pg.id",
+            "        AND pgm.member_status = 'active'",
+            "        AND pgm.is_deleted = 0",
+            "    ),",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE EXISTS (",
+            "  SELECT 1",
+            "  FROM product_group_member pgm2",
+            "  WHERE pgm2.product_group_id = pg.id",
+            "    AND pgm2.product_master_id = #{productMasterId}",
+            ")"
+    })
+    int refreshProductGroupMemberCountsForProductMaster(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_site_offer pso",
+            "JOIN product_variant pv",
+            "  ON pv.id = pso.variant_id",
+            "SET pso.is_deleted = 1,",
+            "    pso.updated_by = #{updatedBy},",
+            "    pso.gmt_updated = NOW()",
+            "WHERE pv.product_master_id = #{productMasterId}",
+            "  AND pso.is_deleted = 0"
+    })
+    int markProductSiteOffersDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_barcode pb",
+            "JOIN product_variant pv",
+            "  ON pv.id = pb.variant_id",
+            "SET pb.is_deleted = 1,",
+            "    pb.updated_by = #{updatedBy},",
+            "    pb.gmt_updated = NOW()",
+            "WHERE pv.product_master_id = #{productMasterId}",
+            "  AND pb.is_deleted = 0"
+    })
+    int markProductBarcodesDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_variant",
+            "SET is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int markProductVariantsDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_master_snapshot",
+            "SET is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int markProductMasterSnapshotsDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_image_asset",
+            "SET is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int markProductImageAssetsDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_issue",
+            "SET issue_status = 'resolved',",
+            "    resolved_at = COALESCE(resolved_at, NOW()),",
+            "    is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int markProductIssuesDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_master",
+            "SET is_deleted = 1,",
+            "    sync_status = 'deleted',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{productMasterId}",
+            "  AND is_deleted = 0"
+    })
+    int markProductMasterDeletedById(
+            @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT",
+            "  pm.sku_parent AS skuParent,",
+            "  pm.product_source_type AS productSourceType,",
+            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
+            "    MAX(pso.psku_code)",
+            "  ) AS pskuCode,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.offer_code END),",
+            "    MAX(pso.offer_code)",
+            "  ) AS offerCode,",
+            "  pm.title_cache AS title,",
+            "  pm.brand_cache AS brand,",
+            "  pm.cover_image_url AS imageUrl,",
+            "  (",
+            "    SELECT COALESCE(",
+            "      MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END),",
+            "      MAX(pb.barcode)",
+            "    )",
+            "    FROM product_variant bpv",
+            "    JOIN product_barcode pb",
+            "      ON pb.variant_id = bpv.id",
+            "     AND pb.is_deleted = 0",
+            "    WHERE bpv.product_master_id = pm.id",
+            "      AND bpv.is_deleted = 0",
+            "  ) AS barcode,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN COALESCE(pso.final_price, pso.sale_price, pso.price) END),",
+            "    MAX(COALESCE(pso.final_price, pso.sale_price, pso.price))",
+            "  ) AS CHAR) AS referencePrice,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.price END),",
+            "    MAX(pso.price)",
+            "  ) AS CHAR) AS originalPrice,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sale_price END),",
+            "    MAX(pso.sale_price)",
+            "  ) AS CHAR) AS salePrice,",
+            "  pm.product_fulltype_cache AS productFulltype,",
+            "  pm.variant_count_cache AS variantCount,",
+            "  COUNT(DISTINCT lss.id) AS siteOfferCount,",
+            "  GROUP_CONCAT(DISTINCT lss.site ORDER BY lss.site SEPARATOR ',') AS siteLabelsCsv,",
+            "  GROUP_CONCAT(DISTINCT COALESCE(pso.live_status, pso.status_code) ",
+            "    ORDER BY COALESCE(pso.live_status, pso.status_code) SEPARATOR ',') AS liveStatusesCsv,",
+            "  COALESCE(SUM(COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)), 0) AS totalFbnStock,",
+            "  COALESCE(SUM(pso.supermall_stock), 0) AS totalSupermallStock,",
+            "  COALESCE(SUM(pso.fbp_stock), 0) AS totalFbpStock,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.views_count END),",
+            "    MAX(pso.views_count)",
+            "  ) AS viewsCount,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.units_sold END),",
+            "    MAX(pso.units_sold)",
+            "  ) AS unitsSold,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sales_amount END),",
+            "    MAX(pso.sales_amount)",
+            "  ) AS CHAR) AS salesAmount,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sales_currency END),",
+            "    MAX(pso.sales_currency)",
+            "  ) AS salesCurrency,",
+            "  MAX(pg_for_member.sku_group) AS skuGroup,",
+            "  MAX(pg_for_member.group_ref) AS groupRef,",
+            "  MAX(pg_for_member.group_ref_canonical) AS groupRefCanonical,",
+            "  pm.issue_count AS issueCount,",
+            "  (",
+            "    SELECT GROUP_CONCAT(DISTINCT COALESCE(pi.title, pi.message, pi.issue_code) ORDER BY pi.last_seen_at DESC SEPARATOR ',')",
+            "    FROM product_issue pi",
+            "    WHERE pi.product_master_id = pm.id",
+            "      AND pi.issue_status = 'open'",
+            "      AND pi.is_deleted = 0",
+            "  ) AS issueTagsCsv,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END END),",
+            "    MAX(CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END)",
+            "  ) AS SIGNED) AS currentSiteActiveFlag,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.live_status END),",
+            "    MAX(pso.live_status)",
+            "  ) AS currentSiteLiveStatus,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.status_code END),",
+            "    MAX(pso.status_code)",
+            "  ) AS currentSiteStatusCode,",
+            "  CASE WHEN EXISTS (",
+            "    SELECT 1",
+            "    FROM product_master_draft pmd",
+            "    JOIN product_master_snapshot pms",
+            "      ON pms.id = pmd.baseline_snapshot_id",
+            "     AND pms.is_deleted = 0",
+            "    WHERE pmd.product_master_id = pm.id",
+            "      AND pmd.is_deleted = 0",
+            "      AND COALESCE(pmd.draft_json, '') <> COALESCE(pms.snapshot_json, '')",
+            "  ) THEN 'draft' ELSE pm.sync_status END AS syncStatus,",
+            "  DATE_FORMAT(pm.last_synced_at, '%Y-%m-%d %H:%i:%s') AS lastSyncedAt,",
+            "  (",
+            "    SELECT DATE_FORMAT(pmd.saved_at, '%Y-%m-%d %H:%i:%s')",
+            "    FROM product_master_draft pmd",
+            "    JOIN product_master_snapshot pms",
+            "      ON pms.id = pmd.baseline_snapshot_id",
+            "     AND pms.is_deleted = 0",
+            "    WHERE pmd.product_master_id = pm.id",
+            "      AND pmd.is_deleted = 0",
+            "      AND COALESCE(pmd.draft_json, '') <> COALESCE(pms.snapshot_json, '')",
+            "    ORDER BY pmd.saved_at DESC, pmd.id DESC",
+            "    LIMIT 1",
+            "  ) AS lastDraftSavedAt,",
+            "  CASE WHEN EXISTS (",
+            "    SELECT 1",
+            "    FROM product_master_snapshot pms",
+            "    WHERE pms.product_master_id = pm.id",
+            "      AND pms.snapshot_type = 'baseline'",
+            "      AND pms.is_deleted = 0",
+            "  ) THEN 'ready' ELSE 'missing' END AS detailBaselineStatus,",
+            "  (",
+            "    SELECT DATE_FORMAT(MAX(pms.fetched_at), '%Y-%m-%d %H:%i:%s')",
+            "    FROM product_master_snapshot pms",
+            "    WHERE pms.product_master_id = pm.id",
+            "      AND pms.snapshot_type = 'baseline'",
+            "      AND pms.is_deleted = 0",
+            "  ) AS detailBaselineSyncedAt",
+            "FROM logical_store ls",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "LEFT JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = 0",
+            "LEFT JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.is_deleted = 0",
+            "LEFT JOIN logical_store_site lss",
+            "  ON lss.id = pso.site_id",
+            " AND lss.is_deleted = 0",
+            "LEFT JOIN product_group_member pgm_for_member",
+            "  ON pgm_for_member.product_master_id = pm.id",
+            " AND pgm_for_member.member_status = 'active'",
+            " AND pgm_for_member.is_deleted = 0",
+            "LEFT JOIN product_group pg_for_member",
+            "  ON pg_for_member.id = pgm_for_member.product_group_id",
+            " AND pg_for_member.logical_store_id = ls.id",
+            " AND pg_for_member.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "GROUP BY",
+            "  pm.id, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
+            "  pm.sync_status, pm.last_synced_at",
+            "ORDER BY pm.gmt_updated DESC, pm.id DESC"
+    })
+    List<ProductListProjectionRecord> selectProductListProjection(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode
+    );
+
+    @Select({
+            "SELECT",
+            "  pm.sku_parent AS skuParent,",
+            "  pm.product_source_type AS productSourceType,",
+            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
+            "    MAX(pso.psku_code)",
+            "  ) AS pskuCode,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.offer_code END),",
+            "    MAX(pso.offer_code)",
+            "  ) AS offerCode,",
+            "  pm.title_cache AS title,",
+            "  pm.brand_cache AS brand,",
+            "  pm.cover_image_url AS imageUrl,",
+            "  (",
+            "    SELECT COALESCE(",
+            "      MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END),",
+            "      MAX(pb.barcode)",
+            "    )",
+            "    FROM product_variant bpv",
+            "    JOIN product_barcode pb",
+            "      ON pb.variant_id = bpv.id",
+            "     AND pb.is_deleted = 0",
+            "    WHERE bpv.product_master_id = pm.id",
+            "      AND bpv.is_deleted = 0",
+            "  ) AS barcode,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN COALESCE(pso.final_price, pso.sale_price, pso.price) END),",
+            "    MAX(COALESCE(pso.final_price, pso.sale_price, pso.price))",
+            "  ) AS CHAR) AS referencePrice,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.price END),",
+            "    MAX(pso.price)",
+            "  ) AS CHAR) AS originalPrice,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sale_price END),",
+            "    MAX(pso.sale_price)",
+            "  ) AS CHAR) AS salePrice,",
+            "  pm.product_fulltype_cache AS productFulltype,",
+            "  pm.variant_count_cache AS variantCount,",
+            "  COUNT(DISTINCT lss.id) AS siteOfferCount,",
+            "  GROUP_CONCAT(DISTINCT lss.site ORDER BY lss.site SEPARATOR ',') AS siteLabelsCsv,",
+            "  GROUP_CONCAT(DISTINCT COALESCE(pso.live_status, pso.status_code) ",
+            "    ORDER BY COALESCE(pso.live_status, pso.status_code) SEPARATOR ',') AS liveStatusesCsv,",
+            "  COALESCE(SUM(COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)), 0) AS totalFbnStock,",
+            "  COALESCE(SUM(pso.supermall_stock), 0) AS totalSupermallStock,",
+            "  COALESCE(SUM(pso.fbp_stock), 0) AS totalFbpStock,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.views_count END),",
+            "    MAX(pso.views_count)",
+            "  ) AS viewsCount,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.units_sold END),",
+            "    MAX(pso.units_sold)",
+            "  ) AS unitsSold,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sales_amount END),",
+            "    MAX(pso.sales_amount)",
+            "  ) AS CHAR) AS salesAmount,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sales_currency END),",
+            "    MAX(pso.sales_currency)",
+            "  ) AS salesCurrency,",
+            "  MAX(pg_for_member.sku_group) AS skuGroup,",
+            "  MAX(pg_for_member.group_ref) AS groupRef,",
+            "  MAX(pg_for_member.group_ref_canonical) AS groupRefCanonical,",
+            "  pm.issue_count AS issueCount,",
+            "  (",
+            "    SELECT GROUP_CONCAT(DISTINCT COALESCE(pi.title, pi.message, pi.issue_code) ORDER BY pi.last_seen_at DESC SEPARATOR ',')",
+            "    FROM product_issue pi",
+            "    WHERE pi.product_master_id = pm.id",
+            "      AND pi.issue_status = 'open'",
+            "      AND pi.is_deleted = 0",
+            "  ) AS issueTagsCsv,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END END),",
+            "    MAX(CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END)",
+            "  ) AS SIGNED) AS currentSiteActiveFlag,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.live_status END),",
+            "    MAX(pso.live_status)",
+            "  ) AS currentSiteLiveStatus,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.status_code END),",
+            "    MAX(pso.status_code)",
+            "  ) AS currentSiteStatusCode,",
+            "  CASE WHEN EXISTS (",
+            "    SELECT 1",
+            "    FROM product_master_draft pmd",
+            "    JOIN product_master_snapshot pms",
+            "      ON pms.id = pmd.baseline_snapshot_id",
+            "     AND pms.is_deleted = 0",
+            "    WHERE pmd.product_master_id = pm.id",
+            "      AND pmd.is_deleted = 0",
+            "      AND COALESCE(pmd.draft_json, '') <> COALESCE(pms.snapshot_json, '')",
+            "  ) THEN 'draft' ELSE pm.sync_status END AS syncStatus,",
+            "  DATE_FORMAT(pm.last_synced_at, '%Y-%m-%d %H:%i:%s') AS lastSyncedAt,",
+            "  (",
+            "    SELECT DATE_FORMAT(pmd.saved_at, '%Y-%m-%d %H:%i:%s')",
+            "    FROM product_master_draft pmd",
+            "    JOIN product_master_snapshot pms",
+            "      ON pms.id = pmd.baseline_snapshot_id",
+            "     AND pms.is_deleted = 0",
+            "    WHERE pmd.product_master_id = pm.id",
+            "      AND pmd.is_deleted = 0",
+            "      AND COALESCE(pmd.draft_json, '') <> COALESCE(pms.snapshot_json, '')",
+            "    ORDER BY pmd.saved_at DESC, pmd.id DESC",
+            "    LIMIT 1",
+            "  ) AS lastDraftSavedAt,",
+            "  CASE WHEN EXISTS (",
+            "    SELECT 1",
+            "    FROM product_master_snapshot pms",
+            "    WHERE pms.product_master_id = pm.id",
+            "      AND pms.snapshot_type = 'baseline'",
+            "      AND pms.is_deleted = 0",
+            "  ) THEN 'ready' ELSE 'missing' END AS detailBaselineStatus,",
+            "  (",
+            "    SELECT DATE_FORMAT(MAX(pms.fetched_at), '%Y-%m-%d %H:%i:%s')",
+            "    FROM product_master_snapshot pms",
+            "    WHERE pms.product_master_id = pm.id",
+            "      AND pms.snapshot_type = 'baseline'",
+            "      AND pms.is_deleted = 0",
+            "  ) AS detailBaselineSyncedAt",
+            "FROM logical_store ls",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "LEFT JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = 0",
+            "LEFT JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.is_deleted = 0",
+            "LEFT JOIN logical_store_site lss",
+            "  ON lss.id = pso.site_id",
+            " AND lss.is_deleted = 0",
+            "LEFT JOIN product_group_member pgm_for_member",
+            "  ON pgm_for_member.product_master_id = pm.id",
+            " AND pgm_for_member.member_status = 'active'",
+            " AND pgm_for_member.is_deleted = 0",
+            "LEFT JOIN product_group pg_for_member",
+            "  ON pg_for_member.id = pgm_for_member.product_group_id",
+            " AND pg_for_member.logical_store_id = ls.id",
+            " AND pg_for_member.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "  AND pm.sku_parent = #{skuParent}",
+            "GROUP BY",
+            "  pm.id, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
+            "  pm.sync_status, pm.last_synced_at",
+            "LIMIT 1"
+    })
+    ProductListProjectionRecord selectProductListProjectionBySkuParent(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  MIN(brand_name) AS value,",
+            "  COALESCE(MIN(label_en), MIN(brand_name)) AS label,",
+            "  SUM(usage_count) AS usageCount",
+            "FROM noon_brand_dictionary",
+            "WHERE is_deleted = 0",
+            "  AND status = 'active'",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND (brand_name LIKE CONCAT('%', #{query}, '%') OR label_en LIKE CONCAT('%', #{query}, '%'))",
+            "  </if>",
+            "GROUP BY brand_key",
+            "ORDER BY usageCount DESC, value",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectBrandDictionaryOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  product_fulltype AS value,",
+            "  COALESCE(label_en, product_fulltype) AS label,",
+            "  MAX(family) AS family,",
+            "  MAX(product_type) AS productType,",
+            "  MAX(product_subtype) AS productSubtype,",
+            "  SUM(usage_count) AS usageCount",
+            "FROM noon_product_fulltype_dictionary",
+            "WHERE is_deleted = 0",
+            "  AND status = 'active'",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND (product_fulltype LIKE CONCAT('%', #{query}, '%') OR label_en LIKE CONCAT('%', #{query}, '%'))",
+            "  </if>",
+            "GROUP BY product_fulltype, COALESCE(label_en, product_fulltype)",
+            "ORDER BY usageCount DESC, product_fulltype",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectFulltypeDictionaryOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.brand_cache AS value,",
+            "  pm.brand_cache AS label,",
+            "  COUNT(*) AS usageCount",
+            "FROM logical_store ls",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "WHERE ls.is_deleted = 0",
+            "  AND pm.brand_cache IS NOT NULL",
+            "  AND pm.brand_cache != ''",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND pm.brand_cache LIKE CONCAT('%', #{query}, '%')",
+            "  </if>",
+            "GROUP BY pm.brand_cache",
+            "ORDER BY usageCount DESC, pm.brand_cache",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectBrandProjectionClassificationOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.product_fulltype_cache AS value,",
+            "  pm.product_fulltype_cache AS label,",
+            "  SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 1) AS family,",
+            "  CASE",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
+            "      SUBSTRING_INDEX(SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 2), '-', -1)",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%' THEN",
+            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
+            "    ELSE NULL",
+            "  END AS productType,",
+            "  CASE",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
+            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
+            "    ELSE NULL",
+            "  END AS productSubtype,",
+            "  COUNT(*) AS usageCount",
+            "FROM logical_store ls",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "WHERE ls.is_deleted = 0",
+            "  AND pm.product_fulltype_cache IS NOT NULL",
+            "  AND pm.product_fulltype_cache != ''",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND pm.product_fulltype_cache LIKE CONCAT('%', #{query}, '%')",
+            "  </if>",
+            "GROUP BY pm.product_fulltype_cache",
+            "ORDER BY usageCount DESC, pm.product_fulltype_cache",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectFulltypeProjectionClassificationOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT",
+            "  pm.sku_parent AS skuParent,",
+            "  pm.brand_cache AS brand,",
+            "  pm.product_fulltype_cache AS productFulltype,",
+            "  pm.sku_group AS skuGroup",
+            "FROM logical_store ls",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.sku_parent = #{skuParent}",
+            " AND pm.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "LIMIT 1"
+    })
+    ProductGroupCandidateContextRecord selectProductGroupCandidateContext(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.sku_parent AS skuParent,",
+            "  pm.product_source_type AS productSourceType,",
+            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
+            "    MAX(pso.psku_code)",
+            "  ) AS pskuCode,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.offer_code END),",
+            "    MAX(pso.offer_code)",
+            "  ) AS offerCode,",
+            "  pm.title_cache AS title,",
+            "  pm.brand_cache AS brand,",
+            "  pm.cover_image_url AS imageUrl,",
+            "  (",
+            "    SELECT COALESCE(",
+            "      MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END),",
+            "      MAX(pb.barcode)",
+            "    )",
+            "    FROM product_variant bpv",
+            "    JOIN product_barcode pb",
+            "      ON pb.variant_id = bpv.id",
+            "     AND pb.is_deleted = 0",
+            "    WHERE bpv.product_master_id = pm.id",
+            "      AND bpv.is_deleted = 0",
+            "  ) AS barcode,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN COALESCE(pso.final_price, pso.sale_price, pso.price) END),",
+            "    MAX(COALESCE(pso.final_price, pso.sale_price, pso.price))",
+            "  ) AS CHAR) AS referencePrice,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.price END),",
+            "    MAX(pso.price)",
+            "  ) AS CHAR) AS originalPrice,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sale_price END),",
+            "    MAX(pso.sale_price)",
+            "  ) AS CHAR) AS salePrice,",
+            "  pm.product_fulltype_cache AS productFulltype,",
+            "  pm.variant_count_cache AS variantCount,",
+            "  COUNT(DISTINCT lss.id) AS siteOfferCount,",
+            "  GROUP_CONCAT(DISTINCT lss.site ORDER BY lss.site SEPARATOR ',') AS siteLabelsCsv,",
+            "  GROUP_CONCAT(DISTINCT COALESCE(pso.live_status, pso.status_code)",
+            "    ORDER BY COALESCE(pso.live_status, pso.status_code) SEPARATOR ',') AS liveStatusesCsv,",
+            "  COALESCE(SUM(COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)), 0) AS totalFbnStock,",
+            "  COALESCE(SUM(pso.supermall_stock), 0) AS totalSupermallStock,",
+            "  COALESCE(SUM(pso.fbp_stock), 0) AS totalFbpStock,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.views_count END),",
+            "    MAX(pso.views_count)",
+            "  ) AS viewsCount,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.units_sold END),",
+            "    MAX(pso.units_sold)",
+            "  ) AS unitsSold,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sales_amount END),",
+            "    MAX(pso.sales_amount)",
+            "  ) AS CHAR) AS salesAmount,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.sales_currency END),",
+            "    MAX(pso.sales_currency)",
+            "  ) AS salesCurrency,",
+            "  MAX(pg_for_member.sku_group) AS skuGroup,",
+            "  MAX(pg_for_member.group_ref) AS groupRef,",
+            "  MAX(pg_for_member.group_ref_canonical) AS groupRefCanonical,",
+            "  pm.issue_count AS issueCount,",
+            "  (",
+            "    SELECT GROUP_CONCAT(DISTINCT COALESCE(pi.title, pi.message, pi.issue_code) ORDER BY pi.last_seen_at DESC SEPARATOR ',')",
+            "    FROM product_issue pi",
+            "    WHERE pi.product_master_id = pm.id",
+            "      AND pi.issue_status = 'open'",
+            "      AND pi.is_deleted = 0",
+            "  ) AS issueTagsCsv,",
+            "  CAST(COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END END),",
+            "    MAX(CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END)",
+            "  ) AS SIGNED) AS currentSiteActiveFlag,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.live_status END),",
+            "    MAX(pso.live_status)",
+            "  ) AS currentSiteLiveStatus,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.status_code END),",
+            "    MAX(pso.status_code)",
+            "  ) AS currentSiteStatusCode,",
+            "  pm.sync_status AS syncStatus,",
+            "  DATE_FORMAT(pm.last_synced_at, '%Y-%m-%d %H:%i:%s') AS lastSyncedAt",
+            "FROM logical_store ls",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "LEFT JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = 0",
+            "LEFT JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.is_deleted = 0",
+            "LEFT JOIN logical_store_site lss",
+            "  ON lss.id = pso.site_id",
+            " AND lss.is_deleted = 0",
+            "LEFT JOIN product_group_member pgm_for_member",
+            "  ON pgm_for_member.product_master_id = pm.id",
+            " AND pgm_for_member.member_status = 'active'",
+            " AND pgm_for_member.is_deleted = 0",
+            "LEFT JOIN product_group pg_for_member",
+            "  ON pg_for_member.id = pgm_for_member.product_group_id",
+            " AND pg_for_member.logical_store_id = ls.id",
+            " AND pg_for_member.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "  AND pm.sku_parent != #{skuParent}",
+            "  <if test='brand != null and brand != \"\"'>",
+            "    AND LOWER(pm.brand_cache) = LOWER(#{brand})",
+            "  </if>",
+            "  <if test='productFulltype != null and productFulltype != \"\"'>",
+            "    AND (",
+            "      pm.product_fulltype_cache = #{productFulltype}",
+            "      OR SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 1) = SUBSTRING_INDEX(#{productFulltype}, '-', 1)",
+            "    )",
+            "  </if>",
+            "  <if test='keyword != null and keyword != \"\"'>",
+            "    AND (",
+            "      pm.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
+            "      OR pm.title_cache LIKE CONCAT('%', #{keyword}, '%')",
+            "      OR pm.brand_cache LIKE CONCAT('%', #{keyword}, '%')",
+            "      OR pv.partner_sku LIKE CONCAT('%', #{keyword}, '%')",
+            "    )",
+            "  </if>",
+            "  <if test='skuGroup != null and skuGroup != \"\"'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1",
+            "      FROM product_group pg",
+            "      JOIN product_group_member pgm",
+            "        ON pgm.product_group_id = pg.id",
+            "       AND pgm.sku_parent = pm.sku_parent",
+            "       AND pgm.member_status = 'active'",
+            "       AND pgm.is_deleted = 0",
+            "      WHERE pg.logical_store_id = ls.id",
+            "        AND pg.sku_group = #{skuGroup}",
+            "        AND pg.is_deleted = 0",
+            "    )",
+            "  </if>",
+            "GROUP BY",
+            "  pm.id, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
+            "  pm.sync_status, pm.last_synced_at",
+            "ORDER BY",
+            "  CASE",
+            "    WHEN LOWER(pm.brand_cache) = LOWER(#{brand}) AND pm.product_fulltype_cache = #{productFulltype} THEN 0",
+            "    WHEN LOWER(pm.brand_cache) = LOWER(#{brand}) THEN 1",
+            "    ELSE 2",
+            "  END,",
+            "  pm.gmt_updated DESC, pm.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductListProjectionRecord> selectProductGroupCandidates(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent,
+            @Param("brand") String brand,
+            @Param("productFulltype") String productFulltype,
+            @Param("skuGroup") String skuGroup,
+            @Param("keyword") String keyword,
+            @Param("limit") Integer limit
+    );
+
+    default Long nextProductVariantId() {
+        return nextProductManagementId("product_variant", 53000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_variant (",
+            "  id, product_master_id, child_sku, partner_sku, size_en, size_ar, variant_ix,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{productMasterId}, #{childSku}, #{partnerSku}, #{sizeEn}, #{sizeAr}, #{variantIx},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  product_master_id = VALUES(product_master_id),",
+            "  child_sku = VALUES(child_sku),",
+            "  partner_sku = VALUES(partner_sku),",
+            "  size_en = VALUES(size_en),",
+            "  size_ar = VALUES(size_ar),",
+            "  variant_ix = VALUES(variant_ix),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductVariant(
+            @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("childSku") String childSku,
+            @Param("partnerSku") String partnerSku,
+            @Param("sizeEn") String sizeEn,
+            @Param("sizeAr") String sizeAr,
+            @Param("variantIx") Integer variantIx,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_variant",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductVariantIdByPartnerSku(
+            @Param("productMasterId") Long productMasterId,
+            @Param("partnerSku") String partnerSku
+    );
+
+    default Long nextProductBarcodeId() {
+        return nextProductManagementId("product_barcode", 54000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_barcode (",
+            "  id, variant_id, barcode, barcode_type, is_primary,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{variantId}, #{barcode}, #{barcodeType}, #{primary},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  variant_id = VALUES(variant_id),",
+            "  barcode_type = VALUES(barcode_type),",
+            "  is_primary = VALUES(is_primary),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductBarcode(
+            @Param("id") Long id,
+            @Param("variantId") Long variantId,
+            @Param("barcode") String barcode,
+            @Param("barcodeType") String barcodeType,
+            @Param("primary") boolean primary,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_barcode",
+            "WHERE barcode = #{barcode}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductBarcodeIdByBarcode(@Param("barcode") String barcode);
+
+    @Insert({
+            "INSERT INTO product_image_asset (",
+            "  id, product_master_id, source_type, url, storage_key, original_filename, content_type,",
+            "  size_bytes, width_px, height_px, sha256, asset_status,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{productMasterId}, #{sourceType}, #{url}, #{storageKey}, #{originalFilename}, #{contentType},",
+            "  #{sizeBytes}, #{widthPx}, #{heightPx}, #{sha256}, #{assetStatus},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  product_master_id = VALUES(product_master_id),",
+            "  source_type = VALUES(source_type),",
+            "  url = VALUES(url),",
+            "  storage_key = VALUES(storage_key),",
+            "  original_filename = VALUES(original_filename),",
+            "  content_type = VALUES(content_type),",
+            "  size_bytes = VALUES(size_bytes),",
+            "  width_px = VALUES(width_px),",
+            "  height_px = VALUES(height_px),",
+            "  sha256 = VALUES(sha256),",
+            "  asset_status = VALUES(asset_status),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductImageAsset(
+            @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("sourceType") String sourceType,
+            @Param("url") String url,
+            @Param("storageKey") String storageKey,
+            @Param("originalFilename") String originalFilename,
+            @Param("contentType") String contentType,
+            @Param("sizeBytes") Long sizeBytes,
+            @Param("widthPx") Integer widthPx,
+            @Param("heightPx") Integer heightPx,
+            @Param("sha256") String sha256,
+            @Param("assetStatus") String assetStatus,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_image_asset",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND source_type = #{sourceType}",
+            "  AND url = #{url}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductImageAssetId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("sourceType") String sourceType,
+            @Param("url") String url
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE product_image_asset",
+            "SET is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND source_type = #{sourceType}",
+            "  AND is_deleted = 0",
+            "  <if test='urls != null and urls.size() > 0'>",
+            "    AND url NOT IN",
+            "    <foreach collection='urls' item='url' open='(' separator=',' close=')'>",
+            "      #{url}",
+            "    </foreach>",
+            "  </if>",
+            "</script>"
+    })
+    int markStaleProductImageAssetsDeleted(
+            @Param("productMasterId") Long productMasterId,
+            @Param("sourceType") String sourceType,
+            @Param("urls") List<String> urls,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Insert({
+            "INSERT INTO product_issue (",
+            "  id, product_master_id, site_id, variant_id, issue_scope_key, issue_source, issue_code, issue_hash,",
+            "  severity, title, message, raw_json, issue_status, first_seen_at, last_seen_at, resolved_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{productMasterId}, #{siteId}, #{variantId}, #{issueScopeKey}, #{issueSource}, #{issueCode}, #{issueHash},",
+            "  #{severity}, #{title}, #{message}, #{rawJson}, #{issueStatus}, #{seenAt}, #{seenAt}, NULL,",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  site_id = VALUES(site_id),",
+            "  variant_id = VALUES(variant_id),",
+            "  issue_source = VALUES(issue_source),",
+            "  issue_code = VALUES(issue_code),",
+            "  severity = VALUES(severity),",
+            "  title = VALUES(title),",
+            "  message = VALUES(message),",
+            "  raw_json = VALUES(raw_json),",
+            "  issue_status = VALUES(issue_status),",
+            "  last_seen_at = VALUES(last_seen_at),",
+            "  resolved_at = NULL,",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductIssue(
+            @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("siteId") Long siteId,
+            @Param("variantId") Long variantId,
+            @Param("issueScopeKey") String issueScopeKey,
+            @Param("issueSource") String issueSource,
+            @Param("issueCode") String issueCode,
+            @Param("issueHash") String issueHash,
+            @Param("severity") String severity,
+            @Param("title") String title,
+            @Param("message") String message,
+            @Param("rawJson") String rawJson,
+            @Param("issueStatus") String issueStatus,
+            @Param("seenAt") LocalDateTime seenAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE product_issue",
+            "SET issue_status = 'resolved',",
+            "    resolved_at = #{resolvedAt},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND issue_status = 'open'",
+            "  AND is_deleted = 0",
+            "  <if test='issueHashes != null and issueHashes.size() > 0'>",
+            "    AND issue_hash NOT IN",
+            "    <foreach collection='issueHashes' item='issueHash' open='(' separator=',' close=')'>",
+            "      #{issueHash}",
+            "    </foreach>",
+            "  </if>",
+            "</script>"
+    })
+    int markProductIssuesResolvedExcept(
+            @Param("productMasterId") Long productMasterId,
+            @Param("issueHashes") List<String> issueHashes,
+            @Param("resolvedAt") LocalDateTime resolvedAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    default Long nextProductSiteOfferId() {
+        return nextProductManagementId("product_site_offer", 55000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_site_offer (",
+            "  id, variant_id, site_id, psku_code, offer_code, currency, price, sale_price, sale_start, sale_end,",
+            "  price_min, price_max, final_price, final_price_source, active_promotion_code, active_promotion_name,",
+            "  active_promotion_url, promotion_payload_json, price_synced_at,",
+            "  pricing_method, pricing_rule, price_engine_min, price_engine_max,",
+            "  id_warranty, offer_note, delivery_method, is_winning_buybox, is_active, live_status, status_code,",
+            "  fbn_stock, supermall_stock, fbp_stock, views_count, units_sold, sales_amount, sales_currency, last_synced_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{variantId}, #{siteId}, #{pskuCode}, #{offerCode}, #{currency}, #{price}, #{salePrice}, #{saleStart}, #{saleEnd},",
+            "  #{priceMin}, #{priceMax}, #{finalPrice}, #{finalPriceSource}, #{activePromotionCode}, #{activePromotionName},",
+            "  #{activePromotionUrl}, #{promotionPayloadJson}, #{priceSyncedAt},",
+            "  #{pricingMethod}, #{pricingRule}, #{priceEngineMin}, #{priceEngineMax},",
+            "  #{idWarranty}, #{offerNote}, #{deliveryMethod}, #{isWinningBuybox}, #{isActive}, #{liveStatus}, #{statusCode},",
+            "  #{fbnStock}, #{supermallStock}, #{fbpStock}, #{viewsCount}, #{unitsSold}, #{salesAmount}, #{salesCurrency}, #{lastSyncedAt},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  variant_id = VALUES(variant_id),",
+            "  site_id = VALUES(site_id),",
+            "  psku_code = VALUES(psku_code),",
+            "  offer_code = VALUES(offer_code),",
+            "  currency = VALUES(currency),",
+            "  price = VALUES(price),",
+            "  sale_price = VALUES(sale_price),",
+            "  sale_start = VALUES(sale_start),",
+            "  sale_end = VALUES(sale_end),",
+            "  price_min = VALUES(price_min),",
+            "  price_max = VALUES(price_max),",
+            "  final_price = VALUES(final_price),",
+            "  final_price_source = VALUES(final_price_source),",
+            "  active_promotion_code = VALUES(active_promotion_code),",
+            "  active_promotion_name = VALUES(active_promotion_name),",
+            "  active_promotion_url = VALUES(active_promotion_url),",
+            "  promotion_payload_json = VALUES(promotion_payload_json),",
+            "  price_synced_at = VALUES(price_synced_at),",
+            "  pricing_method = VALUES(pricing_method),",
+            "  pricing_rule = VALUES(pricing_rule),",
+            "  price_engine_min = VALUES(price_engine_min),",
+            "  price_engine_max = VALUES(price_engine_max),",
+            "  id_warranty = VALUES(id_warranty),",
+            "  offer_note = VALUES(offer_note),",
+            "  delivery_method = VALUES(delivery_method),",
+            "  is_winning_buybox = VALUES(is_winning_buybox),",
+            "  is_active = VALUES(is_active),",
+            "  live_status = VALUES(live_status),",
+            "  status_code = VALUES(status_code),",
+            "  fbn_stock = VALUES(fbn_stock),",
+            "  supermall_stock = VALUES(supermall_stock),",
+            "  fbp_stock = VALUES(fbp_stock),",
+            "  views_count = VALUES(views_count),",
+            "  units_sold = VALUES(units_sold),",
+            "  sales_amount = VALUES(sales_amount),",
+            "  sales_currency = VALUES(sales_currency),",
+            "  last_synced_at = VALUES(last_synced_at),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductSiteOffer(
+            @Param("id") Long id,
+            @Param("variantId") Long variantId,
+            @Param("siteId") Long siteId,
+            @Param("pskuCode") String pskuCode,
+            @Param("offerCode") String offerCode,
+            @Param("currency") String currency,
+            @Param("price") BigDecimal price,
+            @Param("salePrice") BigDecimal salePrice,
+            @Param("saleStart") LocalDateTime saleStart,
+            @Param("saleEnd") LocalDateTime saleEnd,
+            @Param("priceMin") BigDecimal priceMin,
+            @Param("priceMax") BigDecimal priceMax,
+            @Param("finalPrice") BigDecimal finalPrice,
+            @Param("finalPriceSource") String finalPriceSource,
+            @Param("activePromotionCode") String activePromotionCode,
+            @Param("activePromotionName") String activePromotionName,
+            @Param("activePromotionUrl") String activePromotionUrl,
+            @Param("promotionPayloadJson") String promotionPayloadJson,
+            @Param("priceSyncedAt") LocalDateTime priceSyncedAt,
+            @Param("pricingMethod") String pricingMethod,
+            @Param("pricingRule") String pricingRule,
+            @Param("priceEngineMin") BigDecimal priceEngineMin,
+            @Param("priceEngineMax") BigDecimal priceEngineMax,
+            @Param("idWarranty") Integer idWarranty,
+            @Param("offerNote") String offerNote,
+            @Param("deliveryMethod") String deliveryMethod,
+            @Param("isWinningBuybox") Boolean isWinningBuybox,
+            @Param("isActive") Boolean isActive,
+            @Param("liveStatus") String liveStatus,
+            @Param("statusCode") String statusCode,
+            @Param("fbnStock") Integer fbnStock,
+            @Param("supermallStock") Integer supermallStock,
+            @Param("fbpStock") Integer fbpStock,
+            @Param("viewsCount") Long viewsCount,
+            @Param("unitsSold") Long unitsSold,
+            @Param("salesAmount") BigDecimal salesAmount,
+            @Param("salesCurrency") String salesCurrency,
+            @Param("lastSyncedAt") LocalDateTime lastSyncedAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_site_offer pso",
+            "JOIN product_variant pv",
+            "  ON pv.id = pso.variant_id",
+            " AND pv.is_deleted = 0",
+            "JOIN logical_store_site lss",
+            "  ON lss.id = pso.site_id",
+            " AND lss.is_deleted = 0",
+            "SET pso.price = COALESCE(pso.price, #{price}),",
+            "    pso.sale_price = COALESCE(pso.sale_price, #{salePrice}),",
+            "    pso.sale_start = COALESCE(pso.sale_start, #{saleStart}),",
+            "    pso.sale_end = COALESCE(pso.sale_end, #{saleEnd}),",
+            "    pso.price_min = COALESCE(pso.price_min, #{priceMin}),",
+            "    pso.price_max = COALESCE(pso.price_max, #{priceMax}),",
+            "    pso.id_warranty = COALESCE(pso.id_warranty, #{idWarranty}),",
+            "    pso.updated_by = #{updatedBy},",
+            "    pso.gmt_updated = NOW()",
+            "WHERE pv.product_master_id = #{productMasterId}",
+            "  AND lss.store_code = #{storeCode}",
+            "  AND pso.is_deleted = 0",
+            "  AND (",
+            "    (pso.price IS NULL AND #{price} IS NOT NULL)",
+            "    OR (pso.sale_price IS NULL AND #{salePrice} IS NOT NULL)",
+            "    OR (pso.sale_start IS NULL AND #{saleStart} IS NOT NULL)",
+            "    OR (pso.sale_end IS NULL AND #{saleEnd} IS NOT NULL)",
+            "    OR (pso.price_min IS NULL AND #{priceMin} IS NOT NULL)",
+            "    OR (pso.price_max IS NULL AND #{priceMax} IS NOT NULL)",
+            "    OR (pso.id_warranty IS NULL AND #{idWarranty} IS NOT NULL)",
+            "  )"
+    })
+    int patchMissingProductSiteOfferEditableFields(
+            @Param("productMasterId") Long productMasterId,
+            @Param("storeCode") String storeCode,
+            @Param("price") BigDecimal price,
+            @Param("salePrice") BigDecimal salePrice,
+            @Param("saleStart") LocalDateTime saleStart,
+            @Param("saleEnd") LocalDateTime saleEnd,
+            @Param("priceMin") BigDecimal priceMin,
+            @Param("priceMax") BigDecimal priceMax,
+            @Param("idWarranty") Integer idWarranty,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_site_offer",
+            "WHERE variant_id = #{variantId}",
+            "  AND site_id = #{siteId}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductSiteOfferId(
+            @Param("variantId") Long variantId,
+            @Param("siteId") Long siteId
+    );
+
+    @Select({
+            "SELECT",
+            "  lss.store_code AS storeCode,",
+            "  lss.site AS site,",
+            "  pv.partner_sku AS partnerSku,",
+            "  pso.psku_code AS pskuCode,",
+            "  pso.offer_code AS offerCode,",
+            "  pso.currency AS currency,",
+            "  pso.price AS price,",
+            "  pso.sale_price AS salePrice,",
+            "  DATE_FORMAT(pso.sale_start, '%Y-%m-%d %H:%i:%s') AS saleStart,",
+            "  DATE_FORMAT(pso.sale_end, '%Y-%m-%d %H:%i:%s') AS saleEnd,",
+            "  pso.price_min AS priceMin,",
+            "  pso.price_max AS priceMax,",
+            "  pso.final_price AS finalPrice,",
+            "  pso.final_price_source AS finalPriceSource,",
+            "  pso.active_promotion_code AS activePromotionCode,",
+            "  pso.active_promotion_name AS activePromotionName,",
+            "  pso.active_promotion_url AS activePromotionUrl,",
+            "  pso.pricing_method AS pricingMethod,",
+            "  pso.id_warranty AS idWarranty,",
+            "  pso.offer_note AS offerNote,",
+            "  pso.delivery_method AS deliveryMethod,",
+            "  CASE",
+            "    WHEN pso.is_winning_buybox = b'1' THEN 1",
+            "    WHEN pso.is_winning_buybox = b'0' THEN 0",
+            "    ELSE NULL",
+            "  END AS winningBuyboxFlag,",
+            "  CASE",
+            "    WHEN pso.is_active = b'1' THEN 1",
+            "    WHEN pso.is_active = b'0' THEN 0",
+            "    ELSE NULL",
+            "  END AS activeFlag,",
+            "  pso.live_status AS liveStatus,",
+            "  pso.status_code AS statusCode,",
+            "  pso.fbn_stock AS fbnStock,",
+            "  pso.supermall_stock AS supermallStock,",
+            "  pso.fbp_stock AS fbpStock,",
+            "  pso.views_count AS viewsCount,",
+            "  pso.units_sold AS unitsSold,",
+            "  pso.sales_amount AS salesAmount,",
+            "  pso.sales_currency AS salesCurrency,",
+            "  DATE_FORMAT(pso.last_synced_at, '%Y-%m-%d %H:%i:%s') AS lastSyncedAt,",
+            "  (",
+            "    SELECT COALESCE(",
+            "      MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END),",
+            "      MAX(pb.barcode)",
+            "    )",
+            "    FROM product_barcode pb",
+            "    WHERE pb.variant_id = pv.id",
+            "      AND pb.is_deleted = 0",
+            "  ) AS barcode",
+            "FROM product_variant pv",
+            "JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.is_deleted = 0",
+            "JOIN logical_store_site lss",
+            "  ON lss.id = pso.site_id",
+            " AND lss.is_deleted = 0",
+            "WHERE pv.product_master_id = #{productMasterId}",
+            "  AND pv.is_deleted = 0",
+            "ORDER BY lss.site, lss.store_code"
+    })
+    List<Map<String, Object>> selectProductSiteOfferProjectionRows(@Param("productMasterId") Long productMasterId);
+
+    default Long nextProductMasterSnapshotId() {
+        return nextProductManagementId("product_master_snapshot", 56000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_master_snapshot (",
+            "  id, product_master_id, snapshot_type, snapshot_hash, snapshot_json, fetched_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{productMasterId}, #{snapshotType}, #{snapshotHash}, #{snapshotJson}, #{fetchedAt},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertProductMasterSnapshot(
+            @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("snapshotType") String snapshotType,
+            @Param("snapshotHash") String snapshotHash,
+            @Param("snapshotJson") String snapshotJson,
+            @Param("fetchedAt") LocalDateTime fetchedAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  snapshot_type AS snapshotType,",
+            "  snapshot_hash AS snapshotHash,",
+            "  snapshot_json AS snapshotJson,",
+            "  fetched_at AS fetchedAt",
+            "FROM product_master_snapshot",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND snapshot_type = #{snapshotType}",
+            "  AND is_deleted = 0",
+            "ORDER BY fetched_at DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductMasterSnapshotRecord selectLatestProductMasterSnapshot(
+            @Param("productMasterId") Long productMasterId,
+            @Param("snapshotType") String snapshotType
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  snapshot_type AS snapshotType,",
+            "  snapshot_hash AS snapshotHash,",
+            "  snapshot_json AS snapshotJson,",
+            "  fetched_at AS fetchedAt",
+            "FROM product_master_snapshot",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND snapshot_type = #{snapshotType}",
+            "  AND is_deleted = 0",
+            "ORDER BY fetched_at DESC, id DESC",
+            "LIMIT #{limit}"
+    })
+    List<ProductMasterSnapshotRecord> selectRecentProductMasterSnapshots(
+            @Param("productMasterId") Long productMasterId,
+            @Param("snapshotType") String snapshotType,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  snapshot_type AS snapshotType,",
+            "  snapshot_hash AS snapshotHash,",
+            "  snapshot_json AS snapshotJson,",
+            "  fetched_at AS fetchedAt",
+            "FROM product_master_snapshot",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND snapshot_type = #{snapshotType}",
+            "  AND is_deleted = 0",
+            "  AND fetched_at < #{beforeTime}",
+            "  AND fetched_at >= DATE_SUB(#{beforeTime}, INTERVAL #{windowMinutes} MINUTE)",
+            "  AND (",
+            "    JSON_EXTRACT(snapshot_json, '$.siteOffers[0].price') IS NOT NULL",
+            "    OR JSON_EXTRACT(snapshot_json, '$.siteOffers[0].salePrice') IS NOT NULL",
+            "    OR JSON_EXTRACT(snapshot_json, '$.siteOffers[0].priceMin') IS NOT NULL",
+            "    OR JSON_EXTRACT(snapshot_json, '$.siteOffers[0].priceMax') IS NOT NULL",
+            "  )",
+            "ORDER BY fetched_at DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductMasterSnapshotRecord selectProductMasterSnapshotBeforeTimeWithOfferPrice(
+            @Param("productMasterId") Long productMasterId,
+            @Param("snapshotType") String snapshotType,
+            @Param("beforeTime") LocalDateTime beforeTime,
+            @Param("windowMinutes") int windowMinutes
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  snapshot_type AS snapshotType,",
+            "  snapshot_hash AS snapshotHash,",
+            "  snapshot_json AS snapshotJson,",
+            "  fetched_at AS fetchedAt",
+            "FROM product_master_snapshot",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND snapshot_type = #{snapshotType}",
+            "  AND is_deleted = 0",
+            "  AND fetched_at >= DATE_SUB(#{afterTime}, INTERVAL 5 SECOND)",
+            "  AND fetched_at <= DATE_ADD(#{afterTime}, INTERVAL #{windowMinutes} MINUTE)",
+            "  AND (",
+            "    JSON_EXTRACT(snapshot_json, '$.siteOffers[0].price') IS NOT NULL",
+            "    OR JSON_EXTRACT(snapshot_json, '$.siteOffers[0].salePrice') IS NOT NULL",
+            "    OR JSON_EXTRACT(snapshot_json, '$.siteOffers[0].priceMin') IS NOT NULL",
+            "    OR JSON_EXTRACT(snapshot_json, '$.siteOffers[0].priceMax') IS NOT NULL",
+            "  )",
+            "ORDER BY fetched_at ASC, id ASC",
+            "LIMIT #{limit}"
+    })
+    List<ProductMasterSnapshotRecord> selectProductMasterSnapshotsAfterTimeWithOfferPrice(
+            @Param("productMasterId") Long productMasterId,
+            @Param("snapshotType") String snapshotType,
+            @Param("afterTime") LocalDateTime afterTime,
+            @Param("windowMinutes") int windowMinutes,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  snapshot_type AS snapshotType,",
+            "  snapshot_hash AS snapshotHash,",
+            "  snapshot_json AS snapshotJson,",
+            "  fetched_at AS fetchedAt",
+            "FROM product_master_snapshot",
+            "WHERE id = #{id}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    ProductMasterSnapshotRecord selectProductMasterSnapshotById(@Param("id") Long id);
+
+    default Long nextProductMasterDraftId() {
+        return nextProductManagementId("product_master_draft", 57000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_master_draft (",
+            "  id, product_master_id, baseline_snapshot_id, version_no, dirty_site_codes_json, draft_json, saved_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{productMasterId}, #{baselineSnapshotId}, #{versionNo}, #{dirtySiteCodesJson}, #{draftJson}, #{savedAt},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  baseline_snapshot_id = VALUES(baseline_snapshot_id),",
+            "  version_no = VALUES(version_no),",
+            "  dirty_site_codes_json = VALUES(dirty_site_codes_json),",
+            "  draft_json = VALUES(draft_json),",
+            "  saved_at = VALUES(saved_at),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductMasterDraft(
+            @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("baselineSnapshotId") Long baselineSnapshotId,
+            @Param("versionNo") Integer versionNo,
+            @Param("dirtySiteCodesJson") String dirtySiteCodesJson,
+            @Param("draftJson") String draftJson,
+            @Param("savedAt") LocalDateTime savedAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  baseline_snapshot_id AS baselineSnapshotId,",
+            "  version_no AS versionNo,",
+            "  dirty_site_codes_json AS dirtySiteCodesJson,",
+            "  draft_json AS draftJson,",
+            "  saved_at AS savedAt",
+            "FROM product_master_draft",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    ProductMasterDraftRecord selectProductMasterDraftByProductMasterId(@Param("productMasterId") Long productMasterId);
+
+    @Delete({
+            "DELETE FROM product_master_draft",
+            "WHERE product_master_id = #{productMasterId}"
+    })
+    int deleteProductMasterDraftByProductMasterId(@Param("productMasterId") Long productMasterId);
+
+    @Delete({
+            "DELETE pmd",
+            "FROM product_master_draft pmd",
+            "JOIN product_master pm",
+            "  ON pm.id = pmd.product_master_id",
+            " AND pm.is_deleted = 0",
+            "JOIN logical_store ls",
+            "  ON ls.id = pm.logical_store_id",
+            " AND ls.owner_user_id = #{ownerUserId}",
+            " AND ls.is_deleted = 0",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master_snapshot pms",
+            "  ON pms.id = pmd.baseline_snapshot_id",
+            " AND pms.is_deleted = 0",
+            "WHERE pmd.is_deleted = 0",
+            "  AND COALESCE(pmd.draft_json, '') = COALESCE(pms.snapshot_json, '')"
+    })
+    int deleteNoopProductMasterDraftsByStoreCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode
+    );
+
+    @Update({
+            "UPDATE product_master pm",
+            "JOIN logical_store ls",
+            "  ON ls.id = pm.logical_store_id",
+            " AND ls.owner_user_id = #{ownerUserId}",
+            " AND ls.is_deleted = 0",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master_draft pmd",
+            "  ON pmd.product_master_id = pm.id",
+            " AND pmd.is_deleted = 0",
+            "JOIN product_master_snapshot pms",
+            "  ON pms.id = pmd.baseline_snapshot_id",
+            " AND pms.is_deleted = 0",
+            "SET pm.sync_status = 'draft',",
+            "    pm.updated_by = #{updatedBy},",
+            "    pm.gmt_updated = NOW()",
+            "WHERE pm.is_deleted = 0",
+            "  AND pm.sync_status = 'synced'",
+            "  AND COALESCE(pmd.draft_json, '') <> COALESCE(pms.snapshot_json, '')"
+    })
+    int markProductMastersWithMeaningfulDraftsByStoreCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    default Long nextProductActionLogId() {
+        return nextProductManagementId("product_action_log", 58000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_action_log (",
+            "  id, product_master_id, baseline_snapshot_id, target_site_id, target_variant_id, action_type,",
+            "  overwrite_policy, idempotency_key, stage, result_status, error_code, psku_code, offer_code, retry_count,",
+            "  summary_json, blocked_fields_json, request_json, response_json, started_at, finished_at, occurred_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{productMasterId}, #{baselineSnapshotId}, #{targetSiteId}, #{targetVariantId}, #{actionType},",
+            "  #{overwritePolicy}, #{idempotencyKey}, #{stage}, #{resultStatus}, #{errorCode}, #{pskuCode}, #{offerCode}, #{retryCount},",
+            "  #{summaryJson}, #{blockedFieldsJson}, #{requestJson}, #{responseJson}, #{startedAt}, #{finishedAt}, #{occurredAt},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertProductActionLog(
+            @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("baselineSnapshotId") Long baselineSnapshotId,
+            @Param("targetSiteId") Long targetSiteId,
+            @Param("targetVariantId") Long targetVariantId,
+            @Param("actionType") String actionType,
+            @Param("overwritePolicy") String overwritePolicy,
+            @Param("idempotencyKey") String idempotencyKey,
+            @Param("stage") String stage,
+            @Param("resultStatus") String resultStatus,
+            @Param("errorCode") String errorCode,
+            @Param("pskuCode") String pskuCode,
+            @Param("offerCode") String offerCode,
+            @Param("retryCount") Integer retryCount,
+            @Param("summaryJson") String summaryJson,
+            @Param("blockedFieldsJson") String blockedFieldsJson,
+            @Param("requestJson") String requestJson,
+            @Param("responseJson") String responseJson,
+            @Param("startedAt") LocalDateTime startedAt,
+            @Param("finishedAt") LocalDateTime finishedAt,
+            @Param("occurredAt") LocalDateTime occurredAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  baseline_snapshot_id AS baselineSnapshotId,",
+            "  target_site_id AS targetSiteId,",
+            "  target_variant_id AS targetVariantId,",
+            "  action_type AS actionType,",
+            "  stage,",
+            "  result_status AS resultStatus,",
+            "  error_code AS errorCode,",
+            "  psku_code AS pskuCode,",
+            "  offer_code AS offerCode,",
+            "  retry_count AS retryCount,",
+            "  summary_json AS summaryJson,",
+            "  occurred_at AS occurredAt",
+            "FROM product_action_log",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND is_deleted = 0",
+            "ORDER BY occurred_at DESC, id DESC",
+            "LIMIT 20"
+    })
+    List<ProductActionLogRecord> selectRecentProductActionLogs(@Param("productMasterId") Long productMasterId);
+
+    default Long nextProductKeyContentHistoryId() {
+        return nextProductManagementId("product_key_content_history", 59000L);
+    }
+
+    @Insert({
+            "INSERT INTO product_key_content_history (",
+            "  id, product_master_id, baseline_snapshot_id, target_site_id, source_action_type, visibility_status,",
+            "  change_types_json, summary_json, published_at, visible_after, visible_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{productMasterId}, #{baselineSnapshotId}, #{targetSiteId}, #{sourceActionType}, #{visibilityStatus},",
+            "  #{changeTypesJson}, #{summaryJson}, #{publishedAt}, #{visibleAfter}, #{visibleAt},",
+            "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertProductKeyContentHistory(
+            @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("baselineSnapshotId") Long baselineSnapshotId,
+            @Param("targetSiteId") Long targetSiteId,
+            @Param("sourceActionType") String sourceActionType,
+            @Param("visibilityStatus") String visibilityStatus,
+            @Param("changeTypesJson") String changeTypesJson,
+            @Param("summaryJson") String summaryJson,
+            @Param("publishedAt") LocalDateTime publishedAt,
+            @Param("visibleAfter") LocalDateTime visibleAfter,
+            @Param("visibleAt") LocalDateTime visibleAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_key_content_history",
+            "SET visibility_status = 'visible',",
+            "    visible_at = COALESCE(visible_at, #{visibleAt}),",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND visibility_status = 'pending'",
+            "  AND visible_after <= #{visibleAt}",
+            "  AND is_deleted = 0"
+    })
+    int promoteVisibleProductKeyContentHistory(
+            @Param("productMasterId") Long productMasterId,
+            @Param("visibleAt") LocalDateTime visibleAt,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  baseline_snapshot_id AS baselineSnapshotId,",
+            "  target_site_id AS targetSiteId,",
+            "  source_action_type AS sourceActionType,",
+            "  visibility_status AS visibilityStatus,",
+            "  change_types_json AS changeTypesJson,",
+            "  summary_json AS summaryJson,",
+            "  published_at AS publishedAt,",
+            "  visible_after AS visibleAfter,",
+            "  visible_at AS visibleAt",
+            "FROM product_key_content_history",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND visibility_status = 'visible'",
+            "  AND is_deleted = 0",
+            "ORDER BY COALESCE(visible_at, published_at) DESC, id DESC",
+            "LIMIT 20"
+    })
+    List<ProductKeyContentHistoryRecord> selectVisibleProductKeyContentHistories(@Param("productMasterId") Long productMasterId);
+
+    @Select({
+            "SELECT",
+            "  id,",
+            "  product_master_id AS productMasterId,",
+            "  baseline_snapshot_id AS baselineSnapshotId,",
+            "  target_site_id AS targetSiteId,",
+            "  source_action_type AS sourceActionType,",
+            "  visibility_status AS visibilityStatus,",
+            "  change_types_json AS changeTypesJson,",
+            "  summary_json AS summaryJson,",
+            "  published_at AS publishedAt,",
+            "  visible_after AS visibleAfter,",
+            "  visible_at AS visibleAt",
+            "FROM product_key_content_history",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND visibility_status = 'pending'",
+            "  AND is_deleted = 0",
+            "ORDER BY COALESCE(published_at, visible_after) DESC, id DESC",
+            "LIMIT 20"
+    })
+    List<ProductKeyContentHistoryRecord> selectPendingProductKeyContentHistories(@Param("productMasterId") Long productMasterId);
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM product_key_content_history",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND visibility_status = 'visible'",
+            "  AND is_deleted = 0"
+    })
+    Integer countVisibleProductKeyContentHistories(@Param("productMasterId") Long productMasterId);
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM product_key_content_history",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND visibility_status = 'pending'",
+            "  AND is_deleted = 0"
+    })
+    Integer countPendingProductKeyContentHistories(@Param("productMasterId") Long productMasterId);
+
+    @Select({
+            "SELECT MIN(visible_after)",
+            "FROM product_key_content_history",
+            "WHERE product_master_id = #{productMasterId}",
+            "  AND visibility_status = 'pending'",
+            "  AND is_deleted = 0"
+    })
+    LocalDateTime selectEarliestPendingProductKeyContentVisibleAfter(@Param("productMasterId") Long productMasterId);
+}

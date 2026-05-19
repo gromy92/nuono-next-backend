@@ -6,6 +6,9 @@ import org.springframework.context.annotation.Profile;
 
 @Configuration
 @Profile("local-db")
-@MapperScan(basePackages = "com.nuono.next.infrastructure.mapper")
+@MapperScan(basePackages = {
+        "com.nuono.next.infrastructure.mapper",
+        "com.nuono.next.permission.access"
+})
 public class MyBatisConfig {
 }
