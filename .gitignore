@@ -1,4 +1,8 @@
 target/
+.env.local
+.local-run/
+*.log
+*.pid
 .DS_Store
 .idea/
 .vscode/

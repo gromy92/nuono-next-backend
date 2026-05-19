@@ -3,6 +3,10 @@ spring:
     name: nuono-next-backend
   profiles:
     active: local
+  servlet:
+    multipart:
+      max-file-size: 80MB
+      max-request-size: 82MB
 
 server:
   port: 18080
@@ -15,6 +19,65 @@ management:
 
 nuono:
   stage: local-bootstrap
+  auth:
+    session-secret: ${NUONO_NEXT_AUTH_SESSION_SECRET:}
+    session-ttl-seconds: ${NUONO_NEXT_AUTH_SESSION_TTL_SECONDS:28800}
+    api-protection:
+      enabled: ${NUONO_NEXT_AUTH_API_PROTECTION_ENABLED:true}
+  ai:
+    enabled: ${NUONO_AI_ENABLED:true}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://aicodelink.top/v1}
+      responses-path: ${OPENAI_RESPONSES_PATH:/responses}
+      default-text-model: ${OPENAI_DEFAULT_TEXT_MODEL:gpt-5.5}
+      reasoning-effort: ${OPENAI_REASONING_EFFORT:high}
+      timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:180}
+      store-responses: ${OPENAI_STORE_RESPONSES:false}
+      include-metadata: ${OPENAI_INCLUDE_METADATA:false}
+      max-output-tokens: ${OPENAI_MAX_OUTPUT_TOKENS:1200}
+  file-management:
+    parse:
+      ai:
+        model: ${NUONO_FILE_PARSE_AI_MODEL:gpt-5.4-mini}
+        reasoning-effort: ${NUONO_FILE_PARSE_AI_REASONING_EFFORT:low}
+        max-output-tokens: ${NUONO_FILE_PARSE_AI_MAX_OUTPUT_TOKENS:1000}
+        timeout-seconds: ${NUONO_FILE_PARSE_AI_TIMEOUT_SECONDS:90}
+      retry-scheduler:
+        enabled: ${NUONO_FILE_PARSE_RETRY_SCHEDULER_ENABLED:true}
+        initial-delay-ms: ${NUONO_FILE_PARSE_RETRY_SCHEDULER_INITIAL_DELAY_MS:30000}
+        fixed-delay-ms: ${NUONO_FILE_PARSE_RETRY_SCHEDULER_FIXED_DELAY_MS:60000}
+        stale-timeout-seconds: ${NUONO_FILE_PARSE_RETRY_STALE_TIMEOUT_SECONDS:900}
+        max-attempts: ${NUONO_FILE_PARSE_RETRY_MAX_ATTEMPTS:5}
+        retry-delay-seconds: ${NUONO_FILE_PARSE_RETRY_DELAY_SECONDS:60}
+        max-items-per-tick: ${NUONO_FILE_PARSE_RETRY_MAX_ITEMS_PER_TICK:2}
+        system-operator-user-id: ${NUONO_FILE_PARSE_RETRY_OPERATOR_USER_ID:10003}
+  product-management:
+    publish-task:
+      async-enabled: ${NUONO_PRODUCT_PUBLISH_TASK_ASYNC_ENABLED:false}
+      scheduler:
+        enabled: ${NUONO_PRODUCT_PUBLISH_TASK_SCHEDULER_ENABLED:false}
+    attribute-template:
+      scheduler:
+        enabled: ${NUONO_PRODUCT_ATTRIBUTE_TEMPLATE_SCHEDULER_ENABLED:false}
+  product-selection:
+    source-collection:
+      scheduler:
+        enabled: ${NUONO_PRODUCT_SELECTION_SOURCE_COLLECTION_SCHEDULER_ENABLED:false}
+      amazon-crawler:
+        enabled: ${NUONO_PRODUCT_SELECTION_AMAZON_CRAWLER_ENABLED:true}
+        url: ${NUONO_PRODUCT_SELECTION_AMAZON_CRAWLER_URL:}
+        timeout-seconds: ${NUONO_PRODUCT_SELECTION_AMAZON_CRAWLER_TIMEOUT_SECONDS:90}
+        fallback-to-public-page: ${NUONO_PRODUCT_SELECTION_AMAZON_CRAWLER_FALLBACK_TO_PUBLIC_PAGE:false}
+      shein-public:
+        timeout-seconds: ${NUONO_PRODUCT_SELECTION_SHEIN_PUBLIC_TIMEOUT_SECONDS:20}
+      shein-rapidapi:
+        enabled: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_ENABLED:true}
+        key: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_KEY:}
+        currency: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_CURRENCY:USD}
+        timeout-seconds: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_TIMEOUT_SECONDS:30}
+        description-url: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_DESCRIPTION_URL:}
+        details-url: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_DETAILS_URL:}
   bootstrap:
     db-enabled: false
     schema: nuono_new_dev
@@ -25,3 +88,18 @@ nuono:
       - user
       - user_menu
       - user_store
+
+mobile:
+  auth:
+    access-token-expire: 7200
+    refresh-token-expire: 2592000
+    bind-token-expire: 600
+    sms-code-expire: 300
+    sms-cooldown-seconds: 60
+    fixed-sms-code: ${NUONO_NEXT_MOBILE_FIXED_SMS_CODE:}
+    debug-code-enabled: ${NUONO_NEXT_MOBILE_DEBUG_CODE_ENABLED:false}
+  wechat:
+    app-id: ${NUONO_NEXT_MOBILE_WECHAT_APP_ID:}
+    app-secret: ${NUONO_NEXT_MOBILE_WECHAT_APP_SECRET:}
+    code2session-url: https://api.weixin.qq.com/sns/jscode2session
+    fallback-to-code: ${NUONO_NEXT_MOBILE_WECHAT_FALLBACK_TO_CODE:true}

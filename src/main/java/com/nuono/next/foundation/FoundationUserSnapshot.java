@@ -22,6 +22,12 @@ public class FoundationUserSnapshot {
 
     private Integer authorizedStoreCount;
 
+    private Integer managedStoreCount;
+
+    private Integer managedCompanyCount;
+
+    private Integer descendantUserCount;
+
     private String sites;
 
     private String bindingStatus;
@@ -104,6 +110,30 @@ public class FoundationUserSnapshot {
 
     public void setAuthorizedStoreCount(Integer authorizedStoreCount) {
         this.authorizedStoreCount = authorizedStoreCount;
+    }
+
+    public Integer getManagedStoreCount() {
+        return managedStoreCount;
+    }
+
+    public void setManagedStoreCount(Integer managedStoreCount) {
+        this.managedStoreCount = managedStoreCount;
+    }
+
+    public Integer getManagedCompanyCount() {
+        return managedCompanyCount;
+    }
+
+    public void setManagedCompanyCount(Integer managedCompanyCount) {
+        this.managedCompanyCount = managedCompanyCount;
+    }
+
+    public Integer getDescendantUserCount() {
+        return descendantUserCount;
+    }
+
+    public void setDescendantUserCount(Integer descendantUserCount) {
+        this.descendantUserCount = descendantUserCount;
     }
 
     public String getSites() {

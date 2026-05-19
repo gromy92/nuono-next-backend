@@ -1,6 +1,7 @@
 package com.nuono.next.system;
 
 import com.nuono.next.foundation.FoundationOverview;
+import com.nuono.next.foundation.FoundationUserDetail;
 import com.nuono.next.foundation.LocalDbFoundationOverviewService;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
@@ -10,8 +11,11 @@ import java.util.Map;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/system")
@@ -76,5 +80,20 @@ public class HealthController {
         overview.setReady(false);
         overview.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取本地样本数据。");
         return overview;
+    }
+
+    @GetMapping("/foundation-user-detail")
+    public FoundationUserDetail foundationUserDetail(@RequestParam("userId") Long userId) {
+        LocalDbFoundationOverviewService overviewService = localDbFoundationOverviewServiceProvider.getIfAvailable();
+        if (overviewService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "当前仍在无数据库骨架模式。");
+        }
+        try {
+            return overviewService.buildUserDetail(userId);
+        } catch (IllegalArgumentException error) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error);
+        } catch (IllegalStateException error) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, error.getMessage(), error);
+        }
     }
 }
