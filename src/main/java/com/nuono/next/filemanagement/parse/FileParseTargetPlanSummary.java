@@ -1,5 +1,8 @@
 package com.nuono.next.filemanagement.parse;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class FileParseTargetPlanSummary {
 
     private Long id;
@@ -11,6 +14,7 @@ public class FileParseTargetPlanSummary {
     private String currentVersion;
     private String description;
     private FileParseAvailableActions availableActions;
+    private List<FileParseTargetPlanItemTypeView> itemTypes = new ArrayList<>();
 
     public Long getId() {
         return id;
@@ -82,5 +86,13 @@ public class FileParseTargetPlanSummary {
 
     public void setAvailableActions(FileParseAvailableActions availableActions) {
         this.availableActions = availableActions;
+    }
+
+    public List<FileParseTargetPlanItemTypeView> getItemTypes() {
+        return itemTypes;
+    }
+
+    public void setItemTypes(List<FileParseTargetPlanItemTypeView> itemTypes) {
+        this.itemTypes = itemTypes == null ? new ArrayList<>() : itemTypes;
     }
 }

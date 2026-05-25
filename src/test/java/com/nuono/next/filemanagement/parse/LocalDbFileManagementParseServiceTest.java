@@ -10,9 +10,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -28,11 +30,14 @@ import com.nuono.next.infrastructure.mapper.FileManagementParseMapper;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -77,7 +82,7 @@ class LocalDbFileManagementParseServiceTest {
                         itemViewAssembler
                 ),
                 new FileParseQueryViewService(fileManagementParseMapper, itemViewAssembler),
-                new FileParsePublishService(fileManagementParseMapper, itemViewAssembler),
+                new FileParsePublishService(fileManagementParseMapper, itemViewAssembler, null, null),
                 new FileParseLogisticsChannelActivationService(fileManagementParseMapper, itemViewAssembler)
         );
     }
@@ -99,6 +104,33 @@ class LocalDbFileManagementParseServiceTest {
         assertTrue(actions.isCanManageStandard());
         assertTrue(actions.isCanActivateLogisticsChannels());
         verify(fileManagementParseMapper, never()).countActiveUserMenu(10001L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID);
+    }
+
+    @Test
+    void shouldExposeStructuredLogisticsItemTypesOnTargetPlanSummary() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectVisibleTargetPlans(0, true))
+                .thenReturn(List.of(targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule")));
+        when(fileManagementParseMapper.selectItemStandards(5105L))
+                .thenReturn(logisticsQuotePackageItemStandards());
+
+        FileParseTargetPlanSummary summary = service.listTargetPlans(new AuthenticatedSession(10001L, 1L, 0)).get(0);
+
+        assertEquals(
+                List.of(
+                        "logistics_channel_rule",
+                        "logistics_service_line",
+                        "logistics_cargo_category",
+                        "logistics_base_price",
+                        "logistics_surcharge",
+                        "logistics_billing_rule",
+                        "logistics_warehouse_service_fee",
+                        "logistics_restriction"
+                ),
+                summary.getItemTypes().stream().map(FileParseTargetPlanItemTypeView::getValue).collect(Collectors.toList())
+        );
+        assertEquals("物流服务线路", summary.getItemTypes().get(1).getLabel());
     }
 
     @Test
@@ -528,12 +560,15 @@ class LocalDbFileManagementParseServiceTest {
         Files.createDirectories(tempDir.resolve("20260515"));
         Files.writeString(tempDir.resolve("20260515/ksa.pdf"), "%PDF-1.4\ncommission-content");
 
+        Long historicalResultId = 40016L;
         FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
         FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
         FileParseTaskRow task = task(20031L, 4001L, "reading", 0);
         task.setStandardVersionId(2001L);
         task.setBaseVersionId(70009L);
         task.setDocumentGroupId(20024L);
+        task.setParentTaskId(20024L);
+        task.setIterationNo(2);
         FileParseTaskInputRow fileInput = taskInput(30031L, "pdf", "fulfilled-by-noon-fbn-fees-in-ksa.pdf", "pdf", "20260515/ksa.pdf", null);
         fileInput.setFileAssetId(10018L);
         fileInput.setSha256Hash("same-file-hash");
@@ -595,9 +630,467 @@ class LocalDbFileManagementParseServiceTest {
 
         assertEquals("review_required", run.getStatus());
         assertEquals(40017L, run.getResultId());
+        assertNotEquals(historicalResultId, run.getResultId());
         assertEquals(1, run.getResultItemCount());
         assertTrue(run.getMessage().contains("AI 结构化解析"));
+        assertFalse(run.getMessage().contains("历史"));
+        assertFalse(run.getMessage().contains("复用"));
         verify(aiCapabilityService).createStructuredText(any(AiStructuredTextCommand.class));
+    }
+
+    @Test
+    void shouldClipNearRealisticCommissionSampleBeforeCallingAi() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
+        FileParseTaskRow task = task(20033L, 4001L, "reading", 0);
+        task.setDocumentTitle("Noon KSA Fulfilled by Noon Fees");
+        task.setStandardVersionId(2001L);
+        FileParseTaskInputRow textInput = taskInput(
+                30033L,
+                "manual_text",
+                "fulfilled-by-noon-fbn-fees-in-ksa.txt",
+                null,
+                null,
+                String.join("\n",
+                        "Noon seller fees",
+                        "1. Referral Fees",
+                        "Referral Fees as a % of the sale price",
+                        "Colour Cosmetics All 15% for Generic brand, 10% for all other brands",
+                        "Other Categories",
+                        "Sports & Outdoors All - 20% for item with sales price of 30 SAR or less",
+                        "- 13% for item with a total sales price greater than 30 SAR",
+                        "FAQ",
+                        "Value Added Services 99%"
+                )
+        );
+        textInput.setTaskId(20033L);
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20033L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.markTaskParsing(anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(fileManagementParseMapper.selectTaskInputs(20033L)).thenReturn(List.of(textInput));
+        when(fileManagementParseMapper.selectStandardVersion(2001L)).thenReturn(standardVersion(2001L));
+        when(fileManagementParseMapper.selectItemStandards(2001L)).thenReturn(List.of(commissionItemStandard()));
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class)))
+                .thenReturn(AiStructuredTextResult.failure("AI_DISABLED", "AI_DISABLED", "AI capability is disabled"));
+        when(fileManagementParseMapper.markTaskFailed(anyLong(), anyString(), anyString(), anyString(), anyLong())).thenReturn(1);
+        stubStableProcessStart();
+        when(fileManagementParseMapper.markAiChunkFailed(anyLong(), anyLong(), anyString(), anyString(), anyLong())).thenReturn(1);
+
+        FileParseTaskRunView run = service.startParseTask(new AuthenticatedSession(10001L, 1L, 0), 20033L);
+
+        assertEquals("failed", run.getStatus());
+        ArgumentCaptor<AiStructuredTextCommand> commandCaptor = ArgumentCaptor.forClass(AiStructuredTextCommand.class);
+        verify(aiCapabilityService).createStructuredText(commandCaptor.capture());
+        String prompt = commandCaptor.getValue().getPrompt();
+        assertTrue(prompt.contains("1. Referral Fees"));
+        assertTrue(prompt.contains("Colour Cosmetics"));
+        assertTrue(prompt.contains("Sports & Outdoors"));
+        assertFalse(prompt.contains("FAQ"));
+        assertFalse(prompt.contains("Value Added Services 99%"));
+    }
+
+    @Test
+    void shouldRecordSourceLineageWithAiChunkWhenParserSuppliesSourceRowIds() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseTaskRow task = task(20032L, 4005L, "reading", 0);
+        FileParseTaskInputRow textInput = taskInput(
+                30032L,
+                "manual_text",
+                "物流规则文本",
+                null,
+                null,
+                "义特 + UAE + Dubai + 海运 + 卡牌 / 普货 + 26 CNY/KG，最低 12KG\n"
+                        + "义特 + UAE + Dubai + 空运 + 带电产品 + 40 CNY/KG，最低 20 AED"
+        );
+        FileParseResultItemRow persistedItem = resultItem("pending", "added");
+        persistedItem.setId(50032L);
+        persistedItem.setTaskId(20032L);
+        persistedItem.setResultId(40032L);
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20032L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.markTaskParsing(anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(fileManagementParseMapper.selectTaskInputs(20032L)).thenReturn(List.of(textInput));
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(logisticsItemStandard()));
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class)))
+                .thenReturn(aiSuccessWithLogisticsSourceRowId(35002L));
+        when(fileManagementParseMapper.nextResultId()).thenReturn(40032L);
+        when(fileManagementParseMapper.insertResult(
+                anyLong(),
+                anyString(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.nextResultItemId()).thenReturn(50032L);
+        when(fileManagementParseMapper.insertResultItem(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyInt(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.upsertCurrentResult(20032L, 40032L)).thenReturn(1);
+        when(fileManagementParseMapper.markTaskReviewRequired(anyLong(), anyLong(), anyString(), anyLong())).thenReturn(1);
+        stubStableProcessTables(40032L, List.of(persistedItem));
+        when(fileManagementParseMapper.nextResultItemSourceId()).thenReturn(55032L);
+        when(fileManagementParseMapper.insertResultItemSource(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+
+        FileParseTaskRunView run = service.startParseTask(new AuthenticatedSession(10001L, 1L, 0), 20032L);
+
+        assertEquals("review_required", run.getStatus());
+        verify(fileManagementParseMapper).insertResultItemSource(
+                55032L,
+                20032L,
+                40032L,
+                50032L,
+                35002L,
+                36001L,
+                "primary",
+                "high",
+                persistedItem.getNaturalKey(),
+                10001L
+        );
+    }
+
+    @Test
+    void shouldPersistLogisticsManualSupplementAndMissingSectionCoverageIssues() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4006L, "logistics_et", "物流-易通", "logistics_rule");
+        FileParseTaskRow task = task(20088L, 4006L, "reading", 0);
+        FileParseTaskInputRow textInput = taskInput(
+                30088L,
+                "manual_text",
+                "物流人工补充",
+                null,
+                null,
+                "UAE air FBN delivery 5-7 days\n"
+                        + "人工补充：Saudi sea 基础价格整体上调 10%，需要新版报价确认"
+        );
+        FileParseResultItemRow persistedItem = resultItem("confirmed", "added");
+        persistedItem.setId(50088L);
+        persistedItem.setTaskId(20088L);
+        persistedItem.setResultId(40088L);
+        persistedItem.setItemType(FileParseLogisticsQuoteStandard.SERVICE_LINE);
+        persistedItem.setSortNo(1);
+        persistedItem.setNaturalKey("et|UAE|FBN|air|warehouse_to_fbn|Dubai FBN warehouse");
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20088L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4006L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.markTaskParsing(anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(fileManagementParseMapper.selectTaskInputs(20088L)).thenReturn(List.of(textInput));
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(logisticsQuotePackageItemStandards());
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class)))
+                .thenReturn(aiSuccessWithStructuredServiceLine(35001L));
+        when(fileManagementParseMapper.nextResultId()).thenReturn(40088L);
+        when(fileManagementParseMapper.insertResult(
+                anyLong(),
+                anyString(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.nextResultItemId()).thenReturn(50088L);
+        when(fileManagementParseMapper.insertResultItem(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyInt(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.upsertCurrentResult(20088L, 40088L)).thenReturn(1);
+        when(fileManagementParseMapper.markTaskReviewRequired(anyLong(), anyLong(), anyString(), anyLong())).thenReturn(1);
+        stubStableProcessTables(40088L, List.of(persistedItem));
+        when(fileManagementParseMapper.nextValidationIssueId()).thenReturn(90088L, 90089L);
+        when(fileManagementParseMapper.insertValidationIssue(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                nullable(Long.class),
+                nullable(Long.class),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+
+        FileParseTaskRunView run = service.startParseTask(new AuthenticatedSession(10001L, 1L, 0), 20088L);
+
+        assertEquals("review_required", run.getStatus());
+        verify(fileManagementParseMapper).insertValidationIssue(
+                eq(90088L),
+                eq(20088L),
+                eq(40088L),
+                nullable(Long.class),
+                eq(35002L),
+                eq(36001L),
+                eq("manual_relative_change_unresolved"),
+                eq("hard_error"),
+                nullable(String.class),
+                eq("人工补充文本包含相对变化，但没有链接到可安全计算的物流输出行。"),
+                argThat(details -> details.contains("\"sourceRowId\":35002") && details.contains("\"sourceType\":\"manual_text_block\"")),
+                eq(10001L)
+        );
+        verify(fileManagementParseMapper).insertValidationIssue(
+                eq(90089L),
+                eq(20088L),
+                eq(40088L),
+                nullable(Long.class),
+                eq(35002L),
+                eq(36001L),
+                eq("logistics_section_missing"),
+                eq("hard_error"),
+                nullable(String.class),
+                eq("源内容提到了物流服务段，但解析结果缺少对应服务线路。"),
+                argThat(details -> details.contains("\"sourceRowId\":35002")
+                        && details.contains("\"country\":\"KSA\"")
+                        && details.contains("\"transportMode\":\"sea\"")),
+                eq(10001L)
+        );
+    }
+
+    @Test
+    void shouldRecordAiChunkLineageBySourceRowAfterCommissionStabilization() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
+        FileParseTaskRow task = task(20041L, 4001L, "reading", 0);
+        FileParseTaskInputRow textInput = taskInput(
+                30041L,
+                "manual_text",
+                "佣金规则多分块文本",
+                null,
+                null,
+                commissionRowsWithSecondChunkRateLine()
+        );
+        textInput.setTaskId(20041L);
+        FileParseResultItemRow firstPersistedItem = resultItem("pending", "added");
+        firstPersistedItem.setId(50041L);
+        firstPersistedItem.setTaskId(20041L);
+        firstPersistedItem.setResultId(40041L);
+        firstPersistedItem.setTargetPlanId(4001L);
+        firstPersistedItem.setItemType("commission_rule");
+        firstPersistedItem.setSortNo(1);
+        firstPersistedItem.setNaturalKey("Fashion > Watches");
+        FileParseResultItemRow secondPersistedItem = resultItem("pending", "added");
+        secondPersistedItem.setId(50042L);
+        secondPersistedItem.setTaskId(20041L);
+        secondPersistedItem.setResultId(40041L);
+        secondPersistedItem.setTargetPlanId(4001L);
+        secondPersistedItem.setItemType("commission_rule");
+        secondPersistedItem.setSortNo(2);
+        secondPersistedItem.setNaturalKey("Other Categories > Sports & Outdoors");
+
+        List<Long> persistedSourceRowIds = new ArrayList<>();
+        for (long id = 35001L; id <= 35031L; id++) {
+            persistedSourceRowIds.add(id);
+        }
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20041L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.markTaskParsing(anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(fileManagementParseMapper.selectTaskInputs(20041L)).thenReturn(List.of(textInput));
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(commissionItemStandard()));
+        when(fileManagementParseMapper.nextSourceRowId()).thenReturn(
+                persistedSourceRowIds.get(0),
+                persistedSourceRowIds.subList(1, persistedSourceRowIds.size()).toArray(new Long[0])
+        );
+        when(fileManagementParseMapper.insertSourceRow(
+                anyLong(),
+                anyLong(),
+                any(FileParseSourceRowDraft.class),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.nextAiChunkId()).thenReturn(36001L, 36002L);
+        when(fileManagementParseMapper.insertAiChunk(
+                anyLong(),
+                anyLong(),
+                anyInt(),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class)))
+                .thenReturn(
+                        aiSuccessWithCommissionRule("Fashion", "Watches", "Fashion > Watches", 35003L),
+                        aiSuccessWithNoItems()
+                );
+        when(fileManagementParseMapper.nextResultId()).thenReturn(40041L);
+        when(fileManagementParseMapper.insertResult(
+                anyLong(),
+                anyString(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.nextResultItemId()).thenReturn(50041L, 50042L);
+        when(fileManagementParseMapper.insertResultItem(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyInt(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.upsertCurrentResult(20041L, 40041L)).thenReturn(1);
+        when(fileManagementParseMapper.markTaskReviewRequired(anyLong(), anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(fileManagementParseMapper.markAiChunkSucceeded(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyInt(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.selectResultItems(
+                40041L,
+                null,
+                null,
+                10_000,
+                0
+        )).thenReturn(List.of(firstPersistedItem, secondPersistedItem));
+        when(fileManagementParseMapper.nextResultItemSourceId()).thenReturn(55041L, 55042L);
+        when(fileManagementParseMapper.insertResultItemSource(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+
+        FileParseTaskRunView run = service.startParseTask(new AuthenticatedSession(10001L, 1L, 0), 20041L);
+
+        assertEquals("review_required", run.getStatus());
+        verify(fileManagementParseMapper).insertResultItemSource(
+                55041L,
+                20041L,
+                40041L,
+                50041L,
+                35003L,
+                36001L,
+                "primary",
+                "high",
+                "Fashion > Watches",
+                10001L
+        );
+        verify(fileManagementParseMapper).insertResultItemSource(
+                55042L,
+                20041L,
+                40041L,
+                50042L,
+                35031L,
+                36002L,
+                "primary",
+                "high",
+                "Other Categories > Sports & Outdoors",
+                10001L
+        );
     }
 
     @Test
@@ -1216,6 +1709,169 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
+    void shouldRejectKeepOldForAddedCommissionItemWithoutOldPayload() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
+        FileParseTaskRow task = task(20099L, 4001L, "review_required", 0);
+        task.setStandardVersionId(2001L);
+        task.setCurrentResultId(40092L);
+        FileParseResultItemRow addedRow = resultItem("pending", "added");
+        addedRow.setId(53801L);
+        addedRow.setTaskId(20099L);
+        addedRow.setResultId(40092L);
+        addedRow.setTargetPlanId(4001L);
+        addedRow.setItemType("commission_rule");
+        addedRow.setNaturalKey("KSA + Fashion > Watches + 全部 + 2025-09-01");
+        addedRow.setNaturalKeyHash("issue-13-added-commission");
+        addedRow.setNormalizedPayloadJson(commissionPayload("Fashion > Watches", "15%"));
+        addedRow.setOldPayloadJson(null);
+        addedRow.setChangedFieldKeysJson("[]");
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20099L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.selectStandardVersion(2001L)).thenReturn(standardVersion(2001L));
+        when(fileManagementParseMapper.selectItemStandards(2001L)).thenReturn(List.of(commissionItemStandard()));
+        when(fileManagementParseMapper.selectResultItem(20099L, 53801L)).thenReturn(addedRow);
+
+        FileParseReviewCommand command = new FileParseReviewCommand();
+        command.setExpectedResultId(40092L);
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.reviewResultItem(
+                        new AuthenticatedSession(10001L, 1L, 0),
+                        20099L,
+                        53801L,
+                        "keep_old",
+                        command,
+                        "issue-13-keep-old-added"
+                )
+        );
+
+        assertEquals("新增项没有旧值，不能保留旧值。", error.getMessage());
+        verify(fileManagementParseMapper, never()).clearCurrentReview(anyLong(), anyLong());
+        verify(fileManagementParseMapper, never()).insertItemReview(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                nullable(String.class),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyLong()
+        );
+        verify(fileManagementParseMapper, never()).updateResultItemReviewCache(
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        );
+    }
+
+    @Test
+    void shouldKeepOldForChangedCommissionItemWithOldPayload() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
+        FileParseTaskRow task = task(20099L, 4001L, "review_required", 0);
+        task.setStandardVersionId(2001L);
+        task.setCurrentResultId(40092L);
+        FileParseResultItemRow changedRow = resultItem("pending", "changed");
+        changedRow.setId(53795L);
+        changedRow.setTaskId(20099L);
+        changedRow.setResultId(40092L);
+        changedRow.setTargetPlanId(4001L);
+        changedRow.setItemType("commission_rule");
+        changedRow.setNaturalKey("KSA + Fashion > Watches + 全部 + 2025-09-01");
+        changedRow.setNaturalKeyHash("issue-13-changed-commission");
+        changedRow.setNormalizedPayloadJson(commissionPayload("Fashion > Watches", "15%"));
+        changedRow.setOldPayloadJson(commissionPayload("Fashion > Watches", "10%"));
+        FileParseResultItemRow keepOldRow = resultItem("keep_old", "changed");
+        keepOldRow.setId(53795L);
+        keepOldRow.setTaskId(20099L);
+        keepOldRow.setResultId(40092L);
+        keepOldRow.setTargetPlanId(4001L);
+        keepOldRow.setItemType("commission_rule");
+        keepOldRow.setEffectivePayloadJson(changedRow.getOldPayloadJson());
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20099L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.selectStandardVersion(2001L)).thenReturn(standardVersion(2001L));
+        when(fileManagementParseMapper.selectItemStandards(2001L)).thenReturn(List.of(commissionItemStandard()));
+        when(fileManagementParseMapper.selectResultItem(20099L, 53795L)).thenReturn(changedRow, keepOldRow);
+        when(fileManagementParseMapper.nextReviewId()).thenReturn(60792L);
+        when(fileManagementParseMapper.insertItemReview(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                nullable(String.class),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.updateResultItemReviewCache(
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.updateTaskStatusAfterReviewFromItems(20099L, 10001L)).thenReturn(1);
+
+        FileParseReviewCommand command = new FileParseReviewCommand();
+        command.setExpectedResultId(40092L);
+        FileParseProcessingItemView item = service.reviewResultItem(
+                new AuthenticatedSession(10001L, 1L, 0),
+                20099L,
+                53795L,
+                "keep_old",
+                command,
+                "issue-13-keep-old-changed"
+        );
+
+        assertEquals("keep_old", item.getReviewStatus());
+        ArgumentCaptor<String> effectivePayloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(fileManagementParseMapper).insertItemReview(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                eq("keep_old"),
+                eq("keep_old"),
+                nullable(String.class),
+                effectivePayloadCaptor.capture(),
+                eq("pass"),
+                nullable(String.class),
+                nullable(String.class),
+                eq(40092L),
+                eq("issue-13-keep-old-changed"),
+                anyString(),
+                eq(10001L)
+        );
+        assertTrue(effectivePayloadCaptor.getValue().contains("\"commissionRate\":\"10%\""));
+    }
+
+    @Test
     void shouldApplyChangedDiffAgainstBaseVersionItem() {
         FileParseTaskRow task = task(20001L, 4005L, "parsing", 0);
         task.setBaseVersionId(70005L);
@@ -1728,6 +2384,117 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
+    void shouldRemoveConfirmedDeleteSuspectedAndKeepOldPayloadWhenPublishing() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseTaskRow task = task(20033L, 4005L, "ready_to_publish", 0);
+        task.setBaseVersionId(70005L);
+        task.setCurrentResultId(40033L);
+        FileParseActiveVersionRow activeVersion = activeVersion(4005L, 70005L, "YITE-AE-FBN-2026-04");
+        FileParseVersionItemRow deleteBaseItem = versionItem(80010L, 70005L, "义特-UAE-Dubai-SEA-card");
+        deleteBaseItem.setNaturalKeyHash("hash-delete");
+        FileParseVersionItemRow keepBaseItem = versionItem(80011L, 70005L, "义特-UAE-Dubai-AIR-battery");
+        keepBaseItem.setNaturalKeyHash("hash-keep");
+        keepBaseItem.setVersionPayloadJson("{\"channelKey\":\"义特-UAE-Dubai-AIR-battery\",\"country\":\"UAE\",\"city\":\"Dubai\",\"shippingMethod\":\"空运\",\"feeItem\":\"带电产品\",\"billingRule\":\"40 CNY/KG，最低 20 AED\"}");
+        keepBaseItem.setSortNo(2);
+
+        FileParseResultItemRow deleteItem = resultItem("confirmed", "delete_suspected");
+        deleteItem.setId(50033L);
+        deleteItem.setTaskId(20033L);
+        deleteItem.setResultId(40033L);
+        deleteItem.setNaturalKey("义特-UAE-Dubai-SEA-card");
+        deleteItem.setNaturalKeyHash("hash-delete");
+        deleteItem.setOldPayloadJson(deleteBaseItem.getVersionPayloadJson());
+
+        FileParseResultItemRow keepOldItem = resultItem("keep_old", "changed");
+        keepOldItem.setId(50034L);
+        keepOldItem.setTaskId(20033L);
+        keepOldItem.setResultId(40033L);
+        keepOldItem.setNaturalKey("义特-UAE-Dubai-AIR-battery");
+        keepOldItem.setNaturalKeyHash("hash-keep");
+        keepOldItem.setOldPayloadJson(keepBaseItem.getVersionPayloadJson());
+        keepOldItem.setNormalizedPayloadJson("{\"channelKey\":\"义特-UAE-Dubai-AIR-battery\",\"country\":\"UAE\",\"city\":\"Dubai\",\"shippingMethod\":\"空运\",\"feeItem\":\"带电产品\",\"billingRule\":\"45 CNY/KG，最低 25 AED\"}");
+        keepOldItem.setEffectivePayloadJson(keepBaseItem.getVersionPayloadJson());
+        keepOldItem.setSortNo(2);
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20033L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(logisticsItemStandard()));
+        when(fileManagementParseMapper.selectPublishAuditByIdempotency(20033L, "idem-delete-keep-old")).thenReturn(null);
+        when(fileManagementParseMapper.selectActiveVersionForUpdate(4005L, "global", "global:*")).thenReturn(activeVersion);
+        when(fileManagementParseMapper.countBlockingResultItems(40033L)).thenReturn(0);
+        when(fileManagementParseMapper.selectVersionItems(70005L)).thenReturn(List.of(deleteBaseItem, keepBaseItem));
+        when(fileManagementParseMapper.selectResultItemsForPublish(40033L)).thenReturn(List.of(deleteItem, keepOldItem));
+        when(fileManagementParseMapper.nextVersionId()).thenReturn(70033L);
+        when(fileManagementParseMapper.insertVersion(
+                anyLong(),
+                anyString(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                any(LocalDateTime.class),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.nextVersionItemId()).thenReturn(80033L);
+        when(fileManagementParseMapper.insertVersionItem(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.updateActiveVersion(anyLong(), anyString(), anyString(), anyLong(), anyString(), anyLong()))
+                .thenReturn(1);
+        when(fileManagementParseMapper.markTaskPublished(20033L, 40033L, 10001L)).thenReturn(1);
+        when(fileManagementParseMapper.nextAuditLogId()).thenReturn(90033L);
+
+        FileParsePublishCommand command = new FileParsePublishCommand();
+        command.setExpectedResultId(40033L);
+        command.setConfirmMessage("确认删除和保留旧值");
+
+        service.publishTask(
+                new AuthenticatedSession(10001L, 1L, 0),
+                20033L,
+                command,
+                "idem-delete-keep-old"
+        );
+
+        ArgumentCaptor<String> naturalKeyCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(fileManagementParseMapper, times(1)).insertVersionItem(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                naturalKeyCaptor.capture(),
+                anyString(),
+                payloadCaptor.capture(),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyLong()
+        );
+        assertEquals("义特-UAE-Dubai-AIR-battery", naturalKeyCaptor.getValue());
+        assertTrue(payloadCaptor.getValue().contains("40 CNY/KG"));
+        assertFalse(payloadCaptor.getValue().contains("45 CNY/KG"));
+    }
+
+    @Test
     void shouldPublishSingleCommissionRateWithDefaultRangeAndCurrency() throws Exception {
         FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
         FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
@@ -1832,6 +2599,77 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
+    void shouldRejectPublishWhenCurrentResultHasBlockingRows() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseTaskRow task = task(20034L, 4005L, "ready_to_publish", 0);
+        task.setBaseVersionId(70005L);
+        task.setCurrentResultId(40034L);
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20034L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(logisticsItemStandard()));
+        when(fileManagementParseMapper.selectPublishAuditByIdempotency(20034L, "idem-publish-blocked")).thenReturn(null);
+        when(fileManagementParseMapper.selectActiveVersionForUpdate(4005L, "global", "global:*"))
+                .thenReturn(activeVersion(4005L, 70005L, "YITE-AE-FBN-2026-04"));
+        when(fileManagementParseMapper.countBlockingResultItems(40034L)).thenReturn(1);
+
+        FileParsePublishCommand command = new FileParsePublishCommand();
+        command.setExpectedResultId(40034L);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.publishTask(
+                        new AuthenticatedSession(10001L, 1L, 0),
+                        20034L,
+                        command,
+                        "idem-publish-blocked"
+                )
+        );
+
+        assertTrue(error.getMessage().contains("待处理或硬错误"));
+        verify(fileManagementParseMapper, never()).selectResultItemsForPublish(40034L);
+    }
+
+    @Test
+    void shouldRejectPublishWhenOpenHardValidationIssuesRemain() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseTaskRow task = task(20035L, 4005L, "ready_to_publish", 0);
+        task.setBaseVersionId(70005L);
+        task.setCurrentResultId(40035L);
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20035L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(logisticsItemStandard()));
+        when(fileManagementParseMapper.selectPublishAuditByIdempotency(20035L, "idem-publish-hard-issue")).thenReturn(null);
+        when(fileManagementParseMapper.selectActiveVersionForUpdate(4005L, "global", "global:*"))
+                .thenReturn(activeVersion(4005L, 70005L, "YITE-AE-FBN-2026-04"));
+        when(fileManagementParseMapper.countBlockingResultItems(40035L)).thenReturn(0);
+        when(fileManagementParseMapper.countOpenHardValidationIssues(20035L)).thenReturn(1);
+
+        FileParsePublishCommand command = new FileParsePublishCommand();
+        command.setExpectedResultId(40035L);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.publishTask(
+                        new AuthenticatedSession(10001L, 1L, 0),
+                        20035L,
+                        command,
+                        "idem-publish-hard-issue"
+                )
+        );
+
+        assertTrue(error.getMessage().contains("硬错误级校验问题"));
+        verify(fileManagementParseMapper, never()).selectResultItemsForPublish(40035L);
+    }
+
+    @Test
     void shouldRejectPublishWhenActiveVersionChanged() {
         FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
         FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
@@ -1859,6 +2697,101 @@ class LocalDbFileManagementParseServiceTest {
                         command,
                         "idem-publish-stale"
                 )
+        );
+    }
+
+    @Test
+    void shouldPublishFirstVersionWhenActivePointerIsMissing() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4006L, "logistics_et", "物流-易通", "logistics_rule");
+        FileParseTaskRow task = task(20040L, 4006L, "ready_to_publish", 0);
+        task.setStandardVersionId(5105L);
+        task.setCurrentResultId(40040L);
+
+        FileParseResultItemRow item = new FileParseResultItemRow();
+        item.setId(50140L);
+        item.setResultId(40040L);
+        item.setTaskId(20040L);
+        item.setTargetPlanId(4006L);
+        item.setItemType("logistics_channel_rule");
+        item.setNaturalKey("ET-KSA-air-A");
+        item.setNaturalKeyHash("hash-et-first");
+        item.setChangeType("added");
+        item.setReviewStatus("confirmed");
+        item.setValidationStatus("pass");
+        item.setEffectiveValidationStatus("pass");
+        item.setNormalizedPayloadJson("{\"channelKey\":\"ET-KSA-air\",\"country\":\"KSA\",\"shippingMethod\":\"空运\",\"feeItem\":\"A类\",\"billingRule\":\"44 CNY/KG\"}");
+        item.setEffectivePayloadJson(item.getNormalizedPayloadJson());
+        item.setSortNo(1);
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20040L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4006L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(logisticsItemStandard()));
+        when(fileManagementParseMapper.selectPublishAuditByIdempotency(20040L, "idem-first-et-publish")).thenReturn(null);
+        when(fileManagementParseMapper.selectActiveVersionForUpdate(4006L, "global", "global:*")).thenReturn(null);
+        when(fileManagementParseMapper.countBlockingResultItems(40040L)).thenReturn(0);
+        when(fileManagementParseMapper.selectResultItemsForPublish(40040L)).thenReturn(List.of(item));
+        when(fileManagementParseMapper.nextVersionId()).thenReturn(70040L);
+        when(fileManagementParseMapper.insertVersion(
+                anyLong(),
+                anyString(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                any(LocalDateTime.class),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        when(fileManagementParseMapper.nextVersionItemId()).thenReturn(88040L);
+        when(fileManagementParseMapper.insertVersionItem(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyString(),
+                nullable(Long.class),
+                anyString(),
+                anyString(),
+                anyInt(),
+                anyLong()
+        )).thenReturn(1);
+        String expectedVersionNo = "LOGISTICS-ET-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + "-70040";
+        when(fileManagementParseMapper.updateActiveVersion(4006L, "global", "global:*", 70040L, expectedVersionNo, 10001L))
+                .thenReturn(0);
+        when(fileManagementParseMapper.nextActiveVersionId()).thenReturn(71040L);
+        when(fileManagementParseMapper.upsertActiveVersion(71040L, 4006L, "global", "global:*", 70040L, expectedVersionNo, 10001L))
+                .thenReturn(1);
+        when(fileManagementParseMapper.markTaskPublished(20040L, 40040L, 10001L)).thenReturn(1);
+        when(fileManagementParseMapper.nextAuditLogId()).thenReturn(90040L);
+
+        FileParsePublishCommand command = new FileParsePublishCommand();
+        command.setExpectedResultId(40040L);
+        command.setConfirmMessage("确认首次发布");
+
+        FileParsePublishView view = service.publishTask(
+                new AuthenticatedSession(10001L, 1L, 0),
+                20040L,
+                command,
+                "idem-first-et-publish"
+        );
+
+        assertEquals(70040L, view.getVersionId());
+        verify(fileManagementParseMapper).upsertActiveVersion(
+                71040L,
+                4006L,
+                "global",
+                "global:*",
+                70040L,
+                expectedVersionNo,
+                10001L
         );
     }
 
@@ -2005,6 +2938,64 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
+    void shouldListBossLogisticsChannelActivations() {
+        FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseVersionSummaryRow version = versionSummary(70005L, "YITE-AE-FBN-2026-04", "active");
+        FileParseVersionItemRow sea = logisticsVersionItem(80001L, 70005L, "yite_ae_fbn_sea", "海运");
+        FileParseVersionItemRow air = logisticsVersionItem(80002L, 70005L, "yite_ae_fbn_air", "空运");
+
+        when(fileManagementParseMapper.selectUserContext(10002L)).thenReturn(boss);
+        when(fileManagementParseMapper.countActiveUserMenu(10002L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
+                .thenReturn(1);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 1, false)).thenReturn(plan);
+        when(fileManagementParseMapper.selectVersion(70005L)).thenReturn(version);
+        when(fileManagementParseMapper.selectActiveLogisticsChannelKeys(10002L, 4005L, 70005L))
+                .thenReturn(List.of("yite_ae_fbn_air"));
+        when(fileManagementParseMapper.selectVersionItems(70005L)).thenReturn(List.of(sea, air));
+
+        FileParseLogisticsChannelActivationView view = service.listLogisticsChannelActivations(
+                new AuthenticatedSession(10002L, 2L, 1),
+                4005L,
+                70005L
+        );
+
+        assertEquals(4005L, view.getTargetPlanId());
+        assertEquals(70005L, view.getVersionId());
+        assertEquals(10002L, view.getOwnerUserId());
+        assertEquals(List.of("yite_ae_fbn_air"), view.getSelectedChannelKeys());
+        assertEquals(2, view.getChannels().size());
+        assertFalse(view.getChannels().get(0).isSelected());
+        assertTrue(view.getChannels().get(1).isSelected());
+    }
+
+    @Test
+    void shouldRejectNonLogisticsTargetPlanActivation() {
+        FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
+        FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
+
+        when(fileManagementParseMapper.selectUserContext(10002L)).thenReturn(boss);
+        when(fileManagementParseMapper.countActiveUserMenu(10002L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
+                .thenReturn(1);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 1, false)).thenReturn(plan);
+
+        FileParseLogisticsChannelActivationCommand command = new FileParseLogisticsChannelActivationCommand();
+        command.setTargetPlanId(4001L);
+        command.setVersionId(70001L);
+        command.setSelectedChannelKeys(List.of("commission_key"));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.saveLogisticsChannelActivations(
+                        new AuthenticatedSession(10002L, 2L, 1),
+                        command
+                )
+        );
+        verify(fileManagementParseMapper, never()).selectVersion(anyLong());
+        verify(fileManagementParseMapper, never()).softDeleteLogisticsChannelActivations(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
     void shouldRejectUnknownLogisticsChannelKey() {
         FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
         FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
@@ -2031,6 +3022,59 @@ class LocalDbFileManagementParseServiceTest {
                 )
         );
         verify(fileManagementParseMapper, never()).softDeleteLogisticsChannelActivations(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void shouldRejectRevokedLogisticsVersionActivation() {
+        FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseVersionSummaryRow version = versionSummary(70005L, "YITE-AE-FBN-2026-04", "revoked");
+
+        when(fileManagementParseMapper.selectUserContext(10002L)).thenReturn(boss);
+        when(fileManagementParseMapper.countActiveUserMenu(10002L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
+                .thenReturn(1);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 1, false)).thenReturn(plan);
+        when(fileManagementParseMapper.selectVersion(70005L)).thenReturn(version);
+        lenient().when(fileManagementParseMapper.selectVersionItems(70005L))
+                .thenReturn(List.of(logisticsVersionItem(80001L, 70005L, "yite_ae_fbn_sea", "海运")));
+        lenient().when(fileManagementParseMapper.softDeleteLogisticsChannelActivations(10002L, 4005L, 10002L)).thenReturn(1);
+        lenient().when(fileManagementParseMapper.nextLogisticsChannelActivationId()).thenReturn(95001L);
+        lenient().when(fileManagementParseMapper.insertLogisticsChannelActivation(
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                anyString(),
+                anyLong()
+        )).thenReturn(1);
+        lenient().when(fileManagementParseMapper.nextAuditLogId()).thenReturn(90004L);
+        lenient().when(fileManagementParseMapper.insertAuditLog(
+                anyLong(),
+                nullable(Long.class),
+                anyLong(),
+                anyLong(),
+                anyString(),
+                anyString(),
+                nullable(String.class),
+                nullable(String.class),
+                anyLong()
+        )).thenReturn(1);
+
+        FileParseLogisticsChannelActivationCommand command = new FileParseLogisticsChannelActivationCommand();
+        command.setTargetPlanId(4005L);
+        command.setVersionId(70005L);
+        command.setSelectedChannelKeys(List.of("yite_ae_fbn_sea"));
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.saveLogisticsChannelActivations(
+                        new AuthenticatedSession(10002L, 2L, 1),
+                        command
+                )
+        );
     }
 
     private FileParseUserContext user(Long userId, Integer roleLevel, String roleCode, String roleName) {
@@ -2137,6 +3181,29 @@ class LocalDbFileManagementParseServiceTest {
         row.setDiffRuleJson("{\"compareFields\":[\"billingRule\",\"leadTime\"]}");
         row.setSortNo(30);
         return row;
+    }
+
+    private List<FileParseItemStandardRow> logisticsQuotePackageItemStandards() {
+        List<FileParseItemStandardRow> rows = new ArrayList<>();
+        rows.add(logisticsItemStandard());
+        long id = 3010L;
+        int sortNo = 31;
+        for (FileParseLogisticsQuoteStandard.ItemTypeDefinition definition
+                : FileParseLogisticsQuoteStandard.structuredItemTypes()) {
+            FileParseItemStandardRow row = new FileParseItemStandardRow();
+            row.setId(id++);
+            row.setStandardVersionId(5105L);
+            row.setItemType(definition.getItemType());
+            row.setItemLabel(definition.getLabel());
+            row.setNaturalKeyJson("{\"fields\":[]}");
+            row.setFieldSchemaJson("{}");
+            row.setDisplayConfigJson("{}");
+            row.setValidationRuleJson("{}");
+            row.setDiffRuleJson("{}");
+            row.setSortNo(sortNo++);
+            rows.add(row);
+        }
+        return rows;
     }
 
     private FileParseItemStandardRow commissionItemStandard() {
@@ -2316,6 +3383,113 @@ class LocalDbFileManagementParseServiceTest {
         item.put("confidence", "high");
         result.setParsedJson(Map.of("summary", Map.of("source", "test"), "items", List.of(item)));
         return result;
+    }
+
+    private AiStructuredTextResult aiSuccessWithLogisticsSourceRowId(Long sourceRowId) {
+        AiStructuredTextResult result = AiStructuredTextResult.success();
+        result.setProvider("openai");
+        result.setModel("test-model");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("channelKey", "义特-UAE-Dubai-SEA-card");
+        payload.put("country", "UAE");
+        payload.put("city", "Dubai");
+        payload.put("shippingMethod", "海运");
+        payload.put("feeItem", "卡牌 / 普货");
+        payload.put("billingRule", "26 CNY/KG，最低 12KG");
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("itemType", "logistics_channel_rule");
+        item.put("payload", payload);
+        item.put("confidence", "high");
+        item.put("sourceRowIds", List.of(sourceRowId));
+        result.setParsedJson(Map.of("summary", Map.of("source", "test"), "items", List.of(item)));
+        return result;
+    }
+
+    private AiStructuredTextResult aiSuccessWithStructuredServiceLine(Long sourceRowId) {
+        AiStructuredTextResult result = AiStructuredTextResult.success();
+        result.setProvider("openai");
+        result.setModel("test-model");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("forwarderName", "ET");
+        payload.put("country", "UAE");
+        payload.put("fulfillmentMode", "FBN");
+        payload.put("destinationNode", "Dubai FBN warehouse");
+        payload.put("transportMode", "air");
+        payload.put("serviceScope", "warehouse to FBN");
+        payload.put("leadTimeText", "5-7 days");
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("itemType", FileParseLogisticsQuoteStandard.SERVICE_LINE);
+        item.put("payload", payload);
+        item.put("confidence", "high");
+        item.put("sourceRowIds", List.of(sourceRowId));
+        result.setParsedJson(Map.of("summary", Map.of("source", "test"), "items", List.of(item)));
+        return result;
+    }
+
+    private AiStructuredTextResult aiSuccessWithLogisticsRule(String channelKey, String shippingMethod, Long sourceRowId) {
+        AiStructuredTextResult result = AiStructuredTextResult.success();
+        result.setProvider("openai");
+        result.setModel("test-model");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("channelKey", channelKey);
+        payload.put("country", "UAE");
+        payload.put("city", "Dubai");
+        payload.put("shippingMethod", shippingMethod);
+        payload.put("feeItem", "卡牌 / 普货");
+        payload.put("billingRule", "26 CNY/KG，最低 12KG");
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("itemType", "logistics_channel_rule");
+        item.put("payload", payload);
+        item.put("confidence", "high");
+        item.put("sourceRowIds", List.of(sourceRowId));
+        result.setParsedJson(Map.of("summary", Map.of("source", "test"), "items", List.of(item)));
+        return result;
+    }
+
+    private AiStructuredTextResult aiSuccessWithCommissionRule(
+            String parentCategoryName,
+            String categoryName,
+            String categoryPath,
+            Long sourceRowId
+    ) {
+        AiStructuredTextResult result = AiStructuredTextResult.success();
+        result.setProvider("openai");
+        result.setModel("test-model");
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("country", "KSA");
+        payload.put("platform", "Noon");
+        payload.put("fulfillmentType", "FBN");
+        payload.put("parentCategoryName", parentCategoryName);
+        payload.put("categoryName", categoryName);
+        payload.put("categoryPath", categoryPath);
+        payload.put("brandRestriction", "全部");
+        payload.put("amountRangeLabel", "全部");
+        payload.put("amountMin", null);
+        payload.put("amountMinInclusive", null);
+        payload.put("amountMax", null);
+        payload.put("amountMaxInclusive", null);
+        payload.put("amountCurrency", "SAR");
+        payload.put("commissionRate", "15%");
+        payload.put("effectiveDate", "2025-09-01");
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("itemType", "commission_rule");
+        item.put("payload", payload);
+        item.put("confidence", "high");
+        item.put("sourceRowIds", List.of(sourceRowId));
+        result.setParsedJson(Map.of("summary", Map.of("source", "test"), "items", List.of(item)));
+        return result;
+    }
+
+    private String commissionRowsWithSecondChunkRateLine() {
+        List<String> rows = new ArrayList<>();
+        rows.add("1. Referral Fees");
+        rows.add("Referral Fees as a % of Sale price");
+        for (int index = 3; index <= 29; index++) {
+            rows.add("Referral reference row " + index);
+        }
+        rows.add("Other Categories");
+        rows.add("Sports & Outdoors All 20%");
+        return String.join("\n", rows);
     }
 
     private AiStructuredTextResult aiSuccessWithNoItems() {

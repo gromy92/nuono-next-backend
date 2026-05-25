@@ -83,7 +83,10 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/047_product_management_noop_draft_cleanup.sql",
                 "classpath:db/init/048_product_manual_selection_menu_permission.sql",
                 "classpath:db/init/049_product_selection_source_collection_hardening.sql",
-                "classpath:db/init/051_product_selection_scope_cleanup.sql"
+                "classpath:db/init/051_product_selection_scope_cleanup.sql",
+                "classpath:db/init/055_file_management_logistics_output_structure.sql",
+                "classpath:db/init/065_unified_logistics_quote_facts.sql",
+                "classpath:db/init/067_official_fbn_outbound_fee_facts.sql"
             ));
         return payload;
     }

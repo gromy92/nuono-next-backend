@@ -2,7 +2,9 @@ package com.nuono.next.profit;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ProfitCalculationView {
 
@@ -41,6 +43,8 @@ public class ProfitCalculationView {
     private BigDecimal oceanFirstLegFeeRmb;
 
     private List<String> notes = new ArrayList<>();
+
+    private OfficialOutboundFeeView officialOutboundFee;
 
     private List<ScenarioView> scenarios = new ArrayList<>();
 
@@ -188,12 +192,113 @@ public class ProfitCalculationView {
         this.notes = notes;
     }
 
+    public OfficialOutboundFeeView getOfficialOutboundFee() {
+        return officialOutboundFee;
+    }
+
+    public void setOfficialOutboundFee(OfficialOutboundFeeView officialOutboundFee) {
+        this.officialOutboundFee = officialOutboundFee;
+    }
+
     public List<ScenarioView> getScenarios() {
         return scenarios;
     }
 
     public void setScenarios(List<ScenarioView> scenarios) {
         this.scenarios = scenarios;
+    }
+
+    public static class OfficialOutboundFeeView {
+
+        private String status;
+
+        private String failureCode;
+
+        private String message;
+
+        private BigDecimal feeAmount;
+
+        private String currency;
+
+        private String matchedClassificationName;
+
+        private String matchedSlabNaturalKey;
+
+        private Long sourceVersionId;
+
+        private Map<String, Object> evidence = new LinkedHashMap<>();
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public String getFailureCode() {
+            return failureCode;
+        }
+
+        public void setFailureCode(String failureCode) {
+            this.failureCode = failureCode;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public void setMessage(String message) {
+            this.message = message;
+        }
+
+        public BigDecimal getFeeAmount() {
+            return feeAmount;
+        }
+
+        public void setFeeAmount(BigDecimal feeAmount) {
+            this.feeAmount = feeAmount;
+        }
+
+        public String getCurrency() {
+            return currency;
+        }
+
+        public void setCurrency(String currency) {
+            this.currency = currency;
+        }
+
+        public String getMatchedClassificationName() {
+            return matchedClassificationName;
+        }
+
+        public void setMatchedClassificationName(String matchedClassificationName) {
+            this.matchedClassificationName = matchedClassificationName;
+        }
+
+        public String getMatchedSlabNaturalKey() {
+            return matchedSlabNaturalKey;
+        }
+
+        public void setMatchedSlabNaturalKey(String matchedSlabNaturalKey) {
+            this.matchedSlabNaturalKey = matchedSlabNaturalKey;
+        }
+
+        public Long getSourceVersionId() {
+            return sourceVersionId;
+        }
+
+        public void setSourceVersionId(Long sourceVersionId) {
+            this.sourceVersionId = sourceVersionId;
+        }
+
+        public Map<String, Object> getEvidence() {
+            return evidence;
+        }
+
+        public void setEvidence(Map<String, Object> evidence) {
+            this.evidence = evidence == null ? new LinkedHashMap<>() : new LinkedHashMap<>(evidence);
+        }
     }
 
     public static class ScenarioView {

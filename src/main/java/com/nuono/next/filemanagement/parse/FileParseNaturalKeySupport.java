@@ -16,10 +16,119 @@ final class FileParseNaturalKeySupport {
         if ("logistics_channel_rule".equals(itemType)) {
             return buildLogisticsNaturalKey(payload);
         }
+        if (FileParseLogisticsQuoteStandard.SERVICE_LINE.equals(itemType)) {
+            return buildLogisticsServiceLineNaturalKey(payload);
+        }
+        if (FileParseLogisticsQuoteStandard.CARGO_CATEGORY.equals(itemType)) {
+            return buildLogisticsCargoCategoryNaturalKey(payload);
+        }
+        if (FileParseLogisticsQuoteStandard.BASE_PRICE.equals(itemType)) {
+            return buildLogisticsBasePriceNaturalKey(payload);
+        }
+        if (FileParseLogisticsQuoteStandard.SURCHARGE.equals(itemType)) {
+            return buildLogisticsSurchargeNaturalKey(payload);
+        }
+        if (FileParseLogisticsQuoteStandard.BILLING_RULE.equals(itemType)) {
+            return buildLogisticsBillingRuleNaturalKey(payload);
+        }
+        if (FileParseLogisticsQuoteStandard.WAREHOUSE_SERVICE_FEE.equals(itemType)) {
+            return buildLogisticsWarehouseFeeNaturalKey(payload);
+        }
+        if (FileParseLogisticsQuoteStandard.RESTRICTION.equals(itemType)) {
+            return buildLogisticsRestrictionNaturalKey(payload);
+        }
+        if (FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION.equals(itemType)) {
+            return buildOfficialOutboundSizeClassificationNaturalKey(payload);
+        }
+        if (FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB.equals(itemType)) {
+            return buildOfficialOutboundFeeSlabNaturalKey(payload);
+        }
+        if (FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY.equals(itemType)) {
+            return buildOfficialOutboundPolicyNaturalKey(payload);
+        }
         if ("commission_rule".equals(itemType)) {
             return buildCommissionNaturalKey(payload);
         }
+        if ("outbound_fee_rule".equals(itemType)) {
+            return buildOutboundFeeNaturalKey(payload);
+        }
         return null;
+    }
+
+    private static String buildOutboundFeeNaturalKey(Map<String, Object> payload) {
+        String country = normalizeUpper(text(payload.get("country")));
+        String feeItem = normalizeText(text(payload.get("feeItem")));
+        String sizeTier = normalizeText(text(payload.get("sizeTier")));
+        if (!StringUtils.hasText(country) || !StringUtils.hasText(feeItem)) {
+            return null;
+        }
+        return String.join("|",
+                country,
+                feeItem,
+                StringUtils.hasText(sizeTier) ? sizeTier : "ALL",
+                normalizeUpper(text(payload.get("currency"))),
+                normalizeText(text(payload.get("effectiveDate")))
+        );
+    }
+
+    private static String buildOfficialOutboundSizeClassificationNaturalKey(Map<String, Object> payload) {
+        String country = normalizeUpper(text(payload.get("country")));
+        String platform = normalizeUpper(text(payload.get("platform")));
+        String fulfillmentType = normalizeUpper(text(payload.get("fulfillmentType")));
+        String classificationName = normalizeText(text(payload.get("classificationName")));
+        if (!StringUtils.hasText(country)
+                || !StringUtils.hasText(platform)
+                || !StringUtils.hasText(fulfillmentType)
+                || !StringUtils.hasText(classificationName)) {
+            return null;
+        }
+        return String.join("|",
+                country,
+                platform,
+                fulfillmentType,
+                classificationName,
+                normalizeText(text(payload.get("effectiveDate")))
+        );
+    }
+
+    private static String buildOfficialOutboundFeeSlabNaturalKey(Map<String, Object> payload) {
+        String country = normalizeUpper(text(payload.get("country")));
+        String platform = normalizeUpper(text(payload.get("platform")));
+        String fulfillmentType = normalizeUpper(text(payload.get("fulfillmentType")));
+        String classificationName = normalizeText(text(payload.get("classificationName")));
+        String currency = normalizeUpper(text(payload.get("currency")));
+        if (!StringUtils.hasText(country)
+                || !StringUtils.hasText(platform)
+                || !StringUtils.hasText(fulfillmentType)
+                || !StringUtils.hasText(classificationName)
+                || !StringUtils.hasText(currency)) {
+            return null;
+        }
+        return String.join("|",
+                country,
+                platform,
+                fulfillmentType,
+                classificationName,
+                normalizeWeightRange(payload),
+                normalizeText(text(payload.get("effectiveDate")))
+        );
+    }
+
+    private static String buildOfficialOutboundPolicyNaturalKey(Map<String, Object> payload) {
+        String country = normalizeUpper(text(payload.get("country")));
+        String platform = normalizeUpper(text(payload.get("platform")));
+        String fulfillmentType = normalizeUpper(text(payload.get("fulfillmentType")));
+        if (!StringUtils.hasText(country)
+                || !StringUtils.hasText(platform)
+                || !StringUtils.hasText(fulfillmentType)) {
+            return null;
+        }
+        return String.join("|",
+                country,
+                platform,
+                fulfillmentType,
+                normalizeText(text(payload.get("effectiveDate")))
+        );
     }
 
     private static String buildCommissionNaturalKey(Map<String, Object> payload) {
@@ -54,6 +163,133 @@ final class FileParseNaturalKeySupport {
         );
     }
 
+    private static String buildLogisticsServiceLineNaturalKey(Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                FileParseLogisticsQuoteStandard.SERVICE_LINE,
+                payload
+        );
+        String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
+        String country = normalizeUpper(text(normalized.get("country")));
+        String fulfillmentMode = normalizeUpper(text(normalized.get("fulfillmentMode")));
+        String transportMode = normalizeText(text(normalized.get("transportMode")));
+        String serviceScope = normalizeText(text(normalized.get("serviceScope")));
+        String destinationNode = normalizeText(text(normalized.get("destinationNode")));
+        if (!StringUtils.hasText(forwarderCode)
+                || !StringUtils.hasText(country)
+                || !StringUtils.hasText(fulfillmentMode)
+                || !StringUtils.hasText(transportMode)
+                || !StringUtils.hasText(serviceScope)
+                || !StringUtils.hasText(destinationNode)) {
+            return null;
+        }
+        return String.join("|", forwarderCode, country, fulfillmentMode, transportMode, serviceScope, destinationNode);
+    }
+
+    private static String buildLogisticsCargoCategoryNaturalKey(Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                FileParseLogisticsQuoteStandard.CARGO_CATEGORY,
+                payload
+        );
+        String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
+        String serviceLineKey = normalizeText(text(normalized.get("serviceLineKey")));
+        String categoryCode = normalizeUpper(text(normalized.get("categoryCode")));
+        String categoryName = normalizeText(text(normalized.get("categoryName")));
+        String categoryIdentity = StringUtils.hasText(categoryCode) ? categoryCode : categoryName;
+        if (!StringUtils.hasText(forwarderCode)
+                || !StringUtils.hasText(serviceLineKey)
+                || !StringUtils.hasText(categoryIdentity)) {
+            return null;
+        }
+        return String.join("|", forwarderCode, serviceLineKey, categoryIdentity);
+    }
+
+    private static String buildLogisticsBasePriceNaturalKey(Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                FileParseLogisticsQuoteStandard.BASE_PRICE,
+                payload
+        );
+        String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
+        String serviceLineKey = normalizeText(text(normalized.get("serviceLineKey")));
+        String cargoCategoryKey = normalizeUpper(text(normalized.get("cargoCategoryKey")));
+        String pricingModel = normalizeText(text(normalized.get("pricingModel")));
+        String billingUnit = normalizeText(text(normalized.get("billingUnit")));
+        String currency = normalizeUpper(text(normalized.get("currency")));
+        if (!StringUtils.hasText(forwarderCode)
+                || !StringUtils.hasText(serviceLineKey)
+                || !StringUtils.hasText(pricingModel)
+                || !StringUtils.hasText(billingUnit)
+                || !StringUtils.hasText(currency)) {
+            return null;
+        }
+        return String.join("|",
+                forwarderCode,
+                serviceLineKey,
+                StringUtils.hasText(cargoCategoryKey) ? cargoCategoryKey : "*",
+                pricingModel,
+                billingUnit,
+                currency
+        );
+    }
+
+    private static String buildLogisticsSurchargeNaturalKey(Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.SURCHARGE, payload);
+        String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
+        String serviceLineKey = normalizeText(text(normalized.get("serviceLineKey")));
+        String surchargeName = normalizeText(text(normalized.get("surchargeName")));
+        String triggerCondition = normalizeText(text(normalized.get("triggerCondition")));
+        if (!StringUtils.hasText(forwarderCode)
+                || !StringUtils.hasText(serviceLineKey)
+                || !StringUtils.hasText(surchargeName)) {
+            return null;
+        }
+        return String.join("|", forwarderCode, serviceLineKey, surchargeName, triggerCondition);
+    }
+
+    private static String buildLogisticsBillingRuleNaturalKey(Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.BILLING_RULE, payload);
+        String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
+        String serviceLineKey = normalizeText(text(normalized.get("serviceLineKey")));
+        String ruleName = normalizeText(text(normalized.get("ruleName")));
+        String conditionText = normalizeText(text(normalized.get("conditionText")));
+        String actionText = normalizeText(text(normalized.get("actionText")));
+        if (!StringUtils.hasText(forwarderCode)
+                || !StringUtils.hasText(serviceLineKey)
+                || !StringUtils.hasText(ruleName)) {
+            return null;
+        }
+        return String.join("|", forwarderCode, serviceLineKey, ruleName, conditionText, actionText);
+    }
+
+    private static String buildLogisticsWarehouseFeeNaturalKey(Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.WAREHOUSE_SERVICE_FEE, payload);
+        String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
+        String warehouseNode = normalizeText(text(normalized.get("warehouseNode")));
+        String serviceName = normalizeText(text(normalized.get("serviceName")));
+        String feeType = normalizeText(text(normalized.get("feeType")));
+        if (!StringUtils.hasText(forwarderCode)
+                || !StringUtils.hasText(warehouseNode)
+                || !StringUtils.hasText(serviceName)
+                || !StringUtils.hasText(feeType)) {
+            return null;
+        }
+        return String.join("|", forwarderCode, warehouseNode, serviceName, feeType);
+    }
+
+    private static String buildLogisticsRestrictionNaturalKey(Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.RESTRICTION, payload);
+        String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
+        String serviceLineKey = normalizeText(text(normalized.get("serviceLineKey")));
+        String restrictionType = normalizeText(text(normalized.get("restrictionType")));
+        String itemText = normalizeText(text(normalized.get("itemText")));
+        if (!StringUtils.hasText(forwarderCode)
+                || !StringUtils.hasText(serviceLineKey)
+                || !StringUtils.hasText(restrictionType)
+                || !StringUtils.hasText(itemText)) {
+            return null;
+        }
+        return String.join("|", forwarderCode, serviceLineKey, restrictionType, itemText);
+    }
+
     static String naturalKeyHash(String itemType, String naturalKey) {
         return sha256(itemType + "|" + naturalKey);
     }
@@ -84,6 +320,19 @@ final class FileParseNaturalKeySupport {
             return "ALL";
         }
         return label.toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private static String normalizeWeightRange(Map<String, Object> payload) {
+        String min = normalizeNumber(text(payload.get("weightMinGrams")));
+        String max = normalizeNumber(text(payload.get("weightMaxGrams")));
+        String currency = normalizeUpper(text(payload.get("currency")));
+        String minInclusive = normalizeBoolean(text(payload.get("weightMinInclusive")));
+        String maxInclusive = normalizeBoolean(text(payload.get("weightMaxInclusive")));
+        return "MIN:" + (StringUtils.hasText(min) ? min : "*")
+                + ":" + minInclusive
+                + "|MAX:" + (StringUtils.hasText(max) ? max : "*")
+                + ":" + maxInclusive
+                + "|CUR:" + currency;
     }
 
     private static String normalizeNumber(String value) {

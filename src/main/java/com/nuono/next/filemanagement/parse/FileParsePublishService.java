@@ -1,19 +1,26 @@
 package com.nuono.next.filemanagement.parse;
 
 import com.nuono.next.infrastructure.mapper.FileManagementParseMapper;
+import com.nuono.next.logisticsquote.LogisticsQuoteFactLandingResult;
+import com.nuono.next.logisticsquote.LogisticsQuoteFactPublisher;
+import com.nuono.next.logisticsquote.LogisticsQuoteFactSourceLineage;
+import com.nuono.next.logisticsquote.LogisticsQuotePublishedItem;
+import com.nuono.next.outboundfee.OfficialOutboundFeeFactLandingResult;
+import com.nuono.next.outboundfee.OfficialOutboundFeeFactPublisher;
+import com.nuono.next.outboundfee.OfficialOutboundFeePublishedItem;
+import com.nuono.next.outboundfee.OfficialOutboundFeeSourceLineage;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,13 +36,22 @@ public class FileParsePublishService {
 
     private final FileManagementParseMapper fileManagementParseMapper;
     private final FileParseResultItemViewAssembler viewAssembler;
+    private final FileParsePublishSnapshotBuilder snapshotBuilder;
+    private final LogisticsQuoteFactPublisher logisticsQuoteFactPublisher;
+    private final OfficialOutboundFeeFactPublisher officialOutboundFeeFactPublisher;
 
+    @Autowired
     public FileParsePublishService(
             FileManagementParseMapper fileManagementParseMapper,
-            FileParseResultItemViewAssembler viewAssembler
+            FileParseResultItemViewAssembler viewAssembler,
+            LogisticsQuoteFactPublisher logisticsQuoteFactPublisher,
+            OfficialOutboundFeeFactPublisher officialOutboundFeeFactPublisher
     ) {
         this.fileManagementParseMapper = fileManagementParseMapper;
         this.viewAssembler = viewAssembler;
+        this.snapshotBuilder = new FileParsePublishSnapshotBuilder(viewAssembler);
+        this.logisticsQuoteFactPublisher = logisticsQuoteFactPublisher;
+        this.officialOutboundFeeFactPublisher = officialOutboundFeeFactPublisher;
     }
 
     @Transactional
@@ -66,8 +82,8 @@ public class FileParsePublishService {
         }
 
         requirePublishableTask(task);
-        FileParseActiveVersionRow activeVersion = requireActiveVersion(task);
-        validateBaseVersion(task, activeVersion);
+        FileParseActiveVersionRow activeVersion = resolveActiveVersion(task);
+        snapshotBuilder.validateBaseVersion(task, activeVersion);
         if (fileManagementParseMapper.countBlockingResultItems(task.getCurrentResultId()) > 0) {
             throw new IllegalArgumentException("仍存在待处理或硬错误的解析结果，不能发布。");
         }
@@ -79,8 +95,9 @@ public class FileParsePublishService {
                 ? List.of()
                 : fileManagementParseMapper.selectVersionItems(activeVersion.getVersionId());
         List<FileParseResultItemRow> resultItems = fileManagementParseMapper.selectResultItemsForPublish(task.getCurrentResultId());
-        List<SnapshotItem> snapshotItems = buildSnapshot(baseItems, resultItems, itemStandards);
-        validateSnapshot(snapshotItems, itemStandards);
+        List<FileParsePublishSnapshotItem> snapshotItems = snapshotBuilder.buildSnapshot(baseItems, resultItems, itemStandards);
+        List<LogisticsQuotePublishedItem> logisticsItems = new ArrayList<>();
+        List<OfficialOutboundFeePublishedItem> outboundFeeItems = new ArrayList<>();
 
         Long versionId = fileManagementParseMapper.nextVersionId();
         String versionNo = buildVersionNo(targetPlan, versionId);
@@ -104,26 +121,36 @@ public class FileParsePublishService {
             throw new IllegalStateException("发布版本写入失败。");
         }
 
-        for (SnapshotItem item : snapshotItems) {
+        for (FileParsePublishSnapshotItem item : snapshotItems) {
             Long versionItemId = fileManagementParseMapper.nextVersionItemId();
             int itemInserted = fileManagementParseMapper.insertVersionItem(
                     versionItemId,
                     versionId,
                     targetPlan.getId(),
-                    item.itemType,
-                    item.naturalKey,
-                    item.naturalKeyHash,
-                    item.payloadJson,
-                    item.sourceResultItemId,
+                    item.getItemType(),
+                    item.getNaturalKey(),
+                    item.getNaturalKeyHash(),
+                    item.getPayloadJson(),
+                    item.getSourceResultItemId(),
                     GLOBAL_SCOPE_TYPE,
                     GLOBAL_SCOPE_KEY,
-                    item.sortNo,
+                    item.getSortNo(),
                     operatorUserId
             );
             if (itemInserted != 1) {
                 throw new IllegalStateException("发布版本快照写入失败。");
             }
+            LogisticsQuotePublishedItem logisticsItem = toLogisticsPublishedItem(task, versionId, versionItemId, item);
+            if (logisticsItem != null) {
+                logisticsItems.add(logisticsItem);
+            }
+            OfficialOutboundFeePublishedItem outboundFeeItem = toOfficialOutboundFeePublishedItem(task, versionId, versionItemId, item);
+            if (outboundFeeItem != null) {
+                outboundFeeItems.add(outboundFeeItem);
+            }
         }
+        LogisticsQuoteFactLandingResult logisticsLandingResult = landLogisticsFacts(logisticsItems);
+        OfficialOutboundFeeFactLandingResult outboundFeeLandingResult = landOfficialOutboundFeeFacts(outboundFeeItems);
 
         fileManagementParseMapper.markVersionsHistory(targetPlan.getId(), GLOBAL_SCOPE_TYPE, GLOBAL_SCOPE_KEY, versionId, operatorUserId);
         int activeUpdated = fileManagementParseMapper.updateActiveVersion(
@@ -134,7 +161,18 @@ public class FileParsePublishService {
                 versionNo,
                 operatorUserId
         );
-        if (activeUpdated != 1) {
+        if (activeUpdated == 0) {
+            activeUpdated = fileManagementParseMapper.upsertActiveVersion(
+                    fileManagementParseMapper.nextActiveVersionId(),
+                    targetPlan.getId(),
+                    GLOBAL_SCOPE_TYPE,
+                    GLOBAL_SCOPE_KEY,
+                    versionId,
+                    versionNo,
+                    operatorUserId
+            );
+        }
+        if (activeUpdated < 1) {
             throw new IllegalStateException("当前生效版本更新失败。");
         }
         int taskUpdated = fileManagementParseMapper.markTaskPublished(task.getId(), task.getCurrentResultId(), operatorUserId);
@@ -159,122 +197,106 @@ public class FileParsePublishService {
         view.setVersionNo(versionNo);
         view.setStatus("active");
         view.setPublishedAt(publishedAt);
+        applyLogisticsLandingResult(view, logisticsLandingResult);
+        applyOfficialOutboundFeeLandingResult(view, outboundFeeLandingResult);
         return view;
     }
 
-    private List<SnapshotItem> buildSnapshot(
-            List<FileParseVersionItemRow> baseItems,
-            List<FileParseResultItemRow> resultItems,
-            List<FileParseItemStandardRow> itemStandards
+    private LogisticsQuoteFactLandingResult landLogisticsFacts(List<LogisticsQuotePublishedItem> logisticsItems) {
+        LogisticsQuoteFactLandingResult result = new LogisticsQuoteFactLandingResult();
+        if (logisticsQuoteFactPublisher == null || logisticsItems.isEmpty()) {
+            return result;
+        }
+        return logisticsQuoteFactPublisher.land(logisticsItems);
+    }
+
+    private OfficialOutboundFeeFactLandingResult landOfficialOutboundFeeFacts(List<OfficialOutboundFeePublishedItem> outboundFeeItems) {
+        OfficialOutboundFeeFactLandingResult result = new OfficialOutboundFeeFactLandingResult();
+        if (officialOutboundFeeFactPublisher == null || outboundFeeItems.isEmpty()) {
+            return result;
+        }
+        return officialOutboundFeeFactPublisher.landFullSnapshot(outboundFeeItems);
+    }
+
+    private LogisticsQuotePublishedItem toLogisticsPublishedItem(
+            FileParseTaskRow task,
+            Long versionId,
+            Long versionItemId,
+            FileParsePublishSnapshotItem item
     ) {
-        Map<String, SnapshotItem> snapshotByKey = new LinkedHashMap<>();
-        Map<String, FileParseItemStandardRow> standardsByType = itemStandards.stream()
-                .collect(Collectors.toMap(FileParseItemStandardRow::getItemType, Function.identity(), (left, right) -> left));
-        for (FileParseVersionItemRow baseItem : baseItems) {
-            Map<String, Object> payload = FileParseCommissionPayloadNormalizer.normalize(
-                    baseItem.getItemType(),
-                    viewAssembler.readMap(baseItem.getVersionPayloadJson())
-            );
-            FileParseItemStandardRow standard = standardsByType.get(baseItem.getItemType());
-            validatePayload(standard, payload, baseItem.getNaturalKey());
-            SnapshotItem item = SnapshotItem.fromBase(baseItem, viewAssembler.writeJson(payload));
-            snapshotByKey.put(snapshotKey(baseItem.getItemType(), payload, baseItem.getNaturalKeyHash()), item);
+        if (!FileParseLogisticsQuoteStandard.structuredItemTypeNames().contains(item.getItemType())) {
+            return null;
         }
-
-        int nextSortNo = snapshotByKey.values().stream()
-                .map(item -> item.sortNo)
-                .filter(value -> value != null)
-                .max(Integer::compareTo)
-                .orElse(0);
-        for (FileParseResultItemRow resultItem : resultItems) {
-            String reviewStatus = resultItem.getReviewStatus();
-            if ("rejected".equals(reviewStatus)) {
-                continue;
-            }
-            String key = resultKey(resultItem);
-            if ("keep_old".equals(reviewStatus)) {
-                if (!snapshotByKey.containsKey(key)) {
-                    throw new IllegalArgumentException("保留旧值结果行缺少当前生效版本旧值：" + resultItem.getNaturalKey());
-                }
-                continue;
-            }
-            if (!"confirmed".equals(reviewStatus)) {
-                throw new IllegalArgumentException("存在未确认的解析结果行：" + resultItem.getNaturalKey());
-            }
-            if ("hard_error".equals(currentValidationStatus(resultItem))) {
-                throw new IllegalArgumentException("存在硬错误结果行，不能发布：" + resultItem.getNaturalKey());
-            }
-            if ("delete_suspected".equals(resultItem.getChangeType())) {
-                snapshotByKey.remove(key);
-                continue;
-            }
-
-            Map<String, Object> payload = FileParseCommissionPayloadNormalizer.normalize(
-                    resultItem.getItemType(),
-                    viewAssembler.currentPayload(resultItem)
-            );
-            FileParseItemStandardRow standard = standardsByType.get(resultItem.getItemType());
-            validatePayload(standard, payload, resultItem.getNaturalKey());
-            SnapshotItem snapshotItem = SnapshotItem.fromResult(
-                    resultItem,
-                    viewAssembler.writeJson(payload),
-                    resultItem.getSortNo() == null ? ++nextSortNo : resultItem.getSortNo()
-            );
-            snapshotByKey.put(key, snapshotItem);
-        }
-        return new ArrayList<>(snapshotByKey.values());
+        return new LogisticsQuotePublishedItem(
+                item.getItemType(),
+                item.getNaturalKey(),
+                viewAssembler.readMap(item.getPayloadJson()),
+                new LogisticsQuoteFactSourceLineage(
+                        "file_management",
+                        task.getId(),
+                        task.getCurrentResultId(),
+                        versionId,
+                        versionItemId,
+                        task.getDocumentTitle(),
+                        "version_item:" + versionItemId
+                )
+        );
     }
 
-    private void validateSnapshot(List<SnapshotItem> snapshotItems, List<FileParseItemStandardRow> itemStandards) {
-        Map<String, FileParseItemStandardRow> standardsByType = itemStandards.stream()
-                .collect(Collectors.toMap(FileParseItemStandardRow::getItemType, Function.identity(), (left, right) -> left));
-        for (SnapshotItem item : snapshotItems) {
-            FileParseItemStandardRow standard = standardsByType.get(item.itemType);
-            validatePayload(standard, viewAssembler.readMap(item.payloadJson), item.naturalKey);
+    private OfficialOutboundFeePublishedItem toOfficialOutboundFeePublishedItem(
+            FileParseTaskRow task,
+            Long versionId,
+            Long versionItemId,
+            FileParsePublishSnapshotItem item
+    ) {
+        if (!FileParseOfficialOutboundFeeStandard.structuredItemTypeNames().contains(item.getItemType())) {
+            return null;
         }
+        return new OfficialOutboundFeePublishedItem(
+                item.getItemType(),
+                item.getNaturalKey(),
+                viewAssembler.readMap(item.getPayloadJson()),
+                new OfficialOutboundFeeSourceLineage(
+                        "file_management",
+                        task.getId(),
+                        task.getCurrentResultId(),
+                        versionId,
+                        versionItemId,
+                        task.getDocumentTitle(),
+                        "version_item:" + versionItemId
+                )
+        );
     }
 
-    private void validatePayload(FileParseItemStandardRow standard, Map<String, Object> payload, String naturalKey) {
-        if (standard == null) {
-            throw new IllegalArgumentException("发布快照存在未定义结果类型：" + naturalKey);
-        }
-        Map<String, Object> validationRule = viewAssembler.readMap(standard.getValidationRuleJson());
-        Object requiredValue = validationRule.get("required");
-        if (!(requiredValue instanceof List)) {
-            return;
-        }
-        List<String> missing = new ArrayList<>();
-        for (Object value : (List<?>) requiredValue) {
-            if (value instanceof String && !StringUtils.hasText(text(payload.get(value)))) {
-                missing.add((String) value);
-            }
-        }
-        if (!missing.isEmpty()) {
-            throw new IllegalArgumentException("发布快照字段缺失：" + naturalKey + " 缺少 " + String.join("、", missing));
-        }
+    private void applyLogisticsLandingResult(FileParsePublishView view, LogisticsQuoteFactLandingResult result) {
+        view.setLogisticsFactInsertedCount(result.getInsertedCount());
+        view.setLogisticsFactUnchangedCount(result.getUnchangedCount());
+        view.setLogisticsFactSupersededCount(result.getSupersededCount());
+        view.setLogisticsFactSkippedCount(result.getSkippedCount());
+        view.setLogisticsFactConflictCount(result.getConflictCount());
     }
 
-    private FileParseActiveVersionRow requireActiveVersion(FileParseTaskRow task) {
+    private void applyOfficialOutboundFeeLandingResult(FileParsePublishView view, OfficialOutboundFeeFactLandingResult result) {
+        view.setOutboundFeeFactInsertedCount(result.getInsertedCount());
+        view.setOutboundFeeFactUnchangedCount(result.getUnchangedCount());
+        view.setOutboundFeeFactSupersededCount(result.getSupersededCount());
+        view.setOutboundFeeFactSkippedCount(result.getSkippedCount());
+        view.setOutboundFeeFactConflictCount(result.getConflictCount());
+    }
+
+    private FileParseActiveVersionRow resolveActiveVersion(FileParseTaskRow task) {
         FileParseActiveVersionRow activeVersion = fileManagementParseMapper.selectActiveVersionForUpdate(
                 task.getTargetPlanId(),
                 GLOBAL_SCOPE_TYPE,
                 GLOBAL_SCOPE_KEY
         );
         if (activeVersion == null) {
-            throw new IllegalStateException("当前生效版本指针不存在，不能发布。");
+            activeVersion = new FileParseActiveVersionRow();
+            activeVersion.setTargetPlanId(task.getTargetPlanId());
+            activeVersion.setDataScopeType(GLOBAL_SCOPE_TYPE);
+            activeVersion.setDataScopeKey(GLOBAL_SCOPE_KEY);
         }
         return activeVersion;
-    }
-
-    private void validateBaseVersion(FileParseTaskRow task, FileParseActiveVersionRow activeVersion) {
-        Long baseVersionId = task.getBaseVersionId();
-        Long activeVersionId = activeVersion.getVersionId();
-        if (baseVersionId == null && activeVersionId == null) {
-            return;
-        }
-        if (baseVersionId == null || activeVersionId == null || !baseVersionId.equals(activeVersionId)) {
-            throw new IllegalStateException("当前生效版本已变化，请重新解析或重新对比后再发布。");
-        }
     }
 
     private void requirePublishableTask(FileParseTaskRow task) {
@@ -306,7 +328,7 @@ public class FileParsePublishService {
 
     private Map<String, Object> summary(
             FileParseTaskRow task,
-            List<SnapshotItem> snapshotItems,
+            List<FileParsePublishSnapshotItem> snapshotItems,
             FileParsePublishCommand command
     ) {
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -360,31 +382,6 @@ public class FileParsePublishService {
         return trimmed.length() > maxLength ? trimmed.substring(0, maxLength) : trimmed;
     }
 
-    private String resultKey(FileParseResultItemRow item) {
-        Map<String, Object> payload;
-        if ("delete_suspected".equals(item.getChangeType()) || "keep_old".equals(item.getReviewStatus())) {
-            payload = viewAssembler.readMap(item.getOldPayloadJson());
-        } else {
-            payload = viewAssembler.currentPayload(item);
-        }
-        return snapshotKey(item.getItemType(), payload, item.getNaturalKeyHash());
-    }
-
-    private String snapshotKey(String itemType, Map<String, Object> payload, String fallbackNaturalKeyHash) {
-        return FileParseNaturalKeySupport.matchKey(
-                itemType,
-                FileParseCommissionPayloadNormalizer.normalize(itemType, payload),
-                fallbackNaturalKeyHash
-        );
-    }
-
-    private String currentValidationStatus(FileParseResultItemRow row) {
-        if (StringUtils.hasText(row.getEffectiveValidationStatus())) {
-            return row.getEffectiveValidationStatus();
-        }
-        return row.getValidationStatus();
-    }
-
     private String sha256(String value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -399,55 +396,4 @@ public class FileParsePublishService {
         }
     }
 
-    private String text(Object value) {
-        return value == null ? null : String.valueOf(value).trim();
-    }
-
-    private static final class SnapshotItem {
-        private final String itemType;
-        private final String naturalKey;
-        private final String naturalKeyHash;
-        private final String payloadJson;
-        private final Long sourceResultItemId;
-        private final Integer sortNo;
-
-        private SnapshotItem(
-                String itemType,
-                String naturalKey,
-                String naturalKeyHash,
-                String payloadJson,
-                Long sourceResultItemId,
-                Integer sortNo
-        ) {
-            this.itemType = itemType;
-            this.naturalKey = naturalKey;
-            this.naturalKeyHash = naturalKeyHash;
-            this.payloadJson = payloadJson;
-            this.sourceResultItemId = sourceResultItemId;
-            this.sortNo = sortNo;
-        }
-
-        private static SnapshotItem fromBase(FileParseVersionItemRow row, String payloadJson) {
-            return new SnapshotItem(
-                    row.getItemType(),
-                    row.getNaturalKey(),
-                    row.getNaturalKeyHash(),
-                    payloadJson,
-                    null,
-                    row.getSortNo()
-            );
-        }
-
-        private static SnapshotItem fromResult(FileParseResultItemRow row, String payloadJson, Integer sortNo) {
-            return new SnapshotItem(
-                    row.getItemType(),
-                    row.getNaturalKey(),
-                    row.getNaturalKeyHash(),
-                    payloadJson,
-                    row.getId(),
-                    sortNo
-            );
-        }
-
-    }
 }
