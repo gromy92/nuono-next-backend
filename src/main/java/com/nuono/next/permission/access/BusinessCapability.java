@@ -7,6 +7,7 @@ public enum BusinessCapability {
     PROCUREMENT(List.of("/api/purchase/order", "/purchase/order")),
     STORE_SYNC(List.of("/api/user/role", "/user/store-noon")),
     MASTER_DATA_SYSTEM(List.of("/system/role", "/system/menu")),
+    SYSTEM_REPORTS(List.of("/system-reports", "/api/system-reports", "/noon-call", "/api/noon-call")),
     FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),
     FILE_MANAGEMENT_BUSINESS(List.of("/system/file-management", "/system/ai-file-parse")),
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),

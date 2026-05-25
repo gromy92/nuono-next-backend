@@ -124,6 +124,29 @@ public class ProductProjectionPersistenceService {
             List<ProductMasterSeed> productSeeds,
             List<String> warnings
     ) {
+        persistInitializationProjection(
+                ownerUserId,
+                projectCode,
+                projectName,
+                referenceStoreCode,
+                siteSeeds,
+                productSeeds,
+                warnings,
+                false
+        );
+    }
+
+    @Transactional
+    public void persistInitializationProjection(
+            Long ownerUserId,
+            String projectCode,
+            String projectName,
+            String referenceStoreCode,
+            List<SiteSeed> siteSeeds,
+            List<ProductMasterSeed> productSeeds,
+            List<String> warnings,
+            boolean preserveDrafts
+    ) {
         if (ownerUserId == null || !StringUtils.hasText(projectCode) || productSeeds == null || productSeeds.isEmpty()) {
             return;
         }
@@ -142,7 +165,9 @@ public class ProductProjectionPersistenceService {
             if (classificationDictionaryReady) {
                 upsertClassificationDictionaries(ownerUserId, projectCode, siteIdMap.keySet(), productSeed, ownerUserId);
             }
-            productManagementMapper.deleteProductMasterDraftByProductMasterId(productMasterId);
+            if (!preserveDrafts) {
+                productManagementMapper.deleteProductMasterDraftByProductMasterId(productMasterId);
+            }
             persistIssues(productMasterId, productSeed.getIssueTags(), ownerUserId);
             persistRepresentativeOffer(productMasterId, siteIdMap, productSeed, ownerUserId);
         }

@@ -9,7 +9,23 @@ public class BusinessAccessGuard {
             BusinessAccessContext context,
             BusinessCapability capability
     ) {
+        if (capability == BusinessCapability.SYSTEM_REPORTS) {
+            return requireMenuCapability(context, capability);
+        }
         requireBusinessAccount(context);
+        if (!context.hasCapability(capability)) {
+            throw new BusinessAccessDeniedException("当前账号没有对应业务菜单权限。");
+        }
+        return context;
+    }
+
+    private BusinessAccessContext requireMenuCapability(
+            BusinessAccessContext context,
+            BusinessCapability capability
+    ) {
+        if (context == null) {
+            throw new BusinessAccessDeniedException("缺少业务访问上下文。");
+        }
         if (!context.hasCapability(capability)) {
             throw new BusinessAccessDeniedException("当前账号没有对应业务菜单权限。");
         }

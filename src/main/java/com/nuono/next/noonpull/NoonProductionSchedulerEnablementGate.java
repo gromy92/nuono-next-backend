@@ -1,0 +1,264 @@
+package com.nuono.next.noonpull;
+
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+@Service
+public class NoonProductionSchedulerEnablementGate {
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+    private static final List<NoonPullDataDomain> REQUIRED_SMOKE_DOMAINS = List.of(
+            NoonPullDataDomain.PRODUCT,
+            NoonPullDataDomain.SALES,
+            NoonPullDataDomain.ORDER
+    );
+
+    private final NoonPullFoundationService foundationService;
+    private final NoonPullSmokeRunRepository smokeRunRepository;
+    private final NoonProductionSchedulerEnablementRepository enablementRepository;
+    private final Clock clock;
+
+    @Autowired
+    public NoonProductionSchedulerEnablementGate(
+            NoonPullFoundationService foundationService,
+            ObjectProvider<NoonPullSmokeRunRepository> smokeRunRepository,
+            ObjectProvider<NoonProductionSchedulerEnablementRepository> enablementRepository
+    ) {
+        this(
+                foundationService,
+                smokeRunRepository == null ? null : smokeRunRepository.getIfAvailable(),
+                enablementRepository == null ? null : enablementRepository.getIfAvailable(),
+                Clock.system(SHANGHAI)
+        );
+    }
+
+    NoonProductionSchedulerEnablementGate(
+            NoonPullFoundationService foundationService,
+            NoonPullSmokeRunRepository smokeRunRepository,
+            NoonProductionSchedulerEnablementRepository enablementRepository,
+            Clock clock
+    ) {
+        this.foundationService = foundationService;
+        this.smokeRunRepository = smokeRunRepository;
+        this.enablementRepository = enablementRepository;
+        this.clock = clock == null ? Clock.system(SHANGHAI) : clock.withZone(SHANGHAI);
+    }
+
+    public NoonProductionSchedulerEnablementResult enable(
+            NoonProductionSchedulerEnablementCommand command,
+            Long operatorUserId
+    ) {
+        NoonProductionSchedulerEnablementResult result = new NoonProductionSchedulerEnablementResult();
+        List<String> rejectionReasons = new ArrayList<>();
+        if (command == null) {
+            rejectionReasons.add("COMMAND_REQUIRED");
+            result.setRejectionReasons(rejectionReasons);
+            saveDecision(null, operatorUserId, null, rejectionReasons, List.of(), "REJECTED");
+            return result;
+        }
+
+        List<NoonPullDataDomain> schedulableDomains = schedulableDomains(command);
+        NoonPullSmokeRunRecord smokeRun = latestMatchingSmokeRun(command);
+        if (smokeRun != null) {
+            result.setSmokeRunId(smokeRun.getId());
+        }
+
+        validateCommand(command, rejectionReasons);
+        validateSmokeRun(smokeRun, rejectionReasons);
+
+        if (!rejectionReasons.isEmpty()) {
+            NoonProductionSchedulerEnablementRecord record = saveDecision(
+                    command,
+                    operatorUserId,
+                    smokeRun,
+                    rejectionReasons,
+                    List.of(),
+                    "REJECTED"
+            );
+            result.setEnabled(false);
+            result.setRejectionReasons(rejectionReasons);
+            result.setEnabledDomains(domainNames(schedulableDomains));
+            result.setDecisionRecordId(record == null ? null : String.valueOf(record.getId()));
+            return result;
+        }
+
+        List<Long> planIds = new ArrayList<>();
+        for (NoonPullDataDomain domain : schedulableDomains) {
+            NoonPullPlanRecord plan = findExistingScheduledPlan(command, domain);
+            if (plan == null) {
+                plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                        .ownerUserId(command.getOwnerUserId())
+                        .storeCode(command.getStoreCode())
+                        .siteCode(command.getSiteCode())
+                        .pullType(NoonPullType.REPORT)
+                        .dataDomain(domain)
+                        .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                        .scheduleExpression(command.getScheduleBoundaries())
+                        .build());
+            }
+            planIds.add(plan.getId());
+        }
+
+        NoonProductionSchedulerEnablementRecord record = saveDecision(
+                command,
+                operatorUserId,
+                smokeRun,
+                List.of(),
+                planIds,
+                "ENABLED"
+        );
+        result.setEnabled(true);
+        result.setSmokeRunId(smokeRun.getId());
+        result.setPlanIds(planIds);
+        result.setEnabledDomains(domainNames(schedulableDomains));
+        result.setDecisionRecordId(record == null ? null : String.valueOf(record.getId()));
+        return result;
+    }
+
+    private void validateCommand(NoonProductionSchedulerEnablementCommand command, List<String> reasons) {
+        if (!"test".equalsIgnoreCase(command.getTargetEnvironment())) {
+            reasons.add("ONLY_TEST_ENVIRONMENT_ALLOWED");
+        }
+        if (command.getOwnerUserId() == null || !StringUtils.hasText(command.getStoreCode())
+                || !StringUtils.hasText(command.getSiteCode())) {
+            reasons.add("TARGET_SCOPE_REQUIRED");
+        }
+        if (!command.isHitlApproved()) {
+            reasons.add("HITL_APPROVAL_REQUIRED");
+        }
+        if (!StringUtils.hasText(command.getRollbackOrGlobalPauseStrategy())) {
+            reasons.add("ROLLBACK_OR_GLOBAL_PAUSE_REQUIRED");
+        }
+        if (!StringUtils.hasText(command.getScheduleBoundaries())) {
+            reasons.add("SCHEDULE_BOUNDARIES_REQUIRED");
+        }
+    }
+
+    private void validateSmokeRun(NoonPullSmokeRunRecord smokeRun, List<String> reasons) {
+        if (smokeRun == null) {
+            reasons.add("READY_SMOKE_RUN_REQUIRED");
+            return;
+        }
+        Map<NoonPullDataDomain, NoonPullSmokeEvidenceRecord> evidenceByDomain = new EnumMap<>(NoonPullDataDomain.class);
+        for (NoonPullSmokeEvidenceRecord evidence : smokeRun.getEvidence()) {
+            if (StringUtils.hasText(evidence.getDataDomain())) {
+                evidenceByDomain.put(NoonPullDataDomain.valueOf(evidence.getDataDomain()), evidence);
+            }
+        }
+        for (NoonPullDataDomain domain : REQUIRED_SMOKE_DOMAINS) {
+            NoonPullSmokeEvidenceRecord evidence = evidenceByDomain.get(domain);
+            if (!isReadyEvidence(evidence)) {
+                reasons.add(domain.name() + "_SMOKE_NOT_READY");
+            }
+        }
+        if (!smokeRun.isProductionSchedulingAllowed()) {
+            reasons.add("SMOKE_RUN_GATE_NOT_READY");
+        }
+        if (!StringUtils.hasText(smokeRun.getRollbackOrGlobalPauseStrategy())) {
+            reasons.add("SMOKE_RUN_ROLLBACK_OR_GLOBAL_PAUSE_REQUIRED");
+        }
+    }
+
+    private boolean isReadyEvidence(NoonPullSmokeEvidenceRecord evidence) {
+        return evidence != null
+                && NoonPullTaskStatus.SUCCEEDED.name().equals(evidence.getStatus())
+                && "ready".equals(evidence.getQualityState())
+                && StringUtils.hasText(evidence.getSourceBatchId());
+    }
+
+    private NoonPullSmokeRunRecord latestMatchingSmokeRun(NoonProductionSchedulerEnablementCommand command) {
+        if (command == null || smokeRunRepository == null) {
+            return null;
+        }
+        return smokeRunRepository.listRecent(100).stream()
+                .filter((run) -> safeEquals(command.getTargetEnvironment(), run.getTargetEnvironment()))
+                .filter((run) -> safeEquals(command.getOwnerUserId(), run.getOwnerUserId()))
+                .filter((run) -> safeEquals(command.getStoreCode(), run.getStoreCode()))
+                .filter((run) -> safeEquals(command.getSiteCode(), run.getSiteCode()))
+                .max(Comparator.comparing(NoonPullSmokeRunRecord::getId))
+                .orElse(null);
+    }
+
+    private NoonPullPlanRecord findExistingScheduledPlan(
+            NoonProductionSchedulerEnablementCommand command,
+            NoonPullDataDomain domain
+    ) {
+        return foundationService.listPlans().stream()
+                .filter((plan) -> safeEquals(command.getOwnerUserId(), plan.getOwnerUserId()))
+                .filter((plan) -> safeEquals(command.getStoreCode(), plan.getStoreCode()))
+                .filter((plan) -> safeEquals(command.getSiteCode(), plan.getSiteCode()))
+                .filter((plan) -> plan.getPullType() == NoonPullType.REPORT)
+                .filter((plan) -> plan.getDataDomain() == domain)
+                .filter((plan) -> plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private List<NoonPullDataDomain> schedulableDomains(NoonProductionSchedulerEnablementCommand command) {
+        Set<NoonPullDataDomain> domains = new LinkedHashSet<>();
+        List<NoonPullDataDomain> requested = command.getEnabledDomains().isEmpty()
+                ? List.of(NoonPullDataDomain.SALES, NoonPullDataDomain.ORDER)
+                : command.getEnabledDomains();
+        for (NoonPullDataDomain domain : requested) {
+            if (domain == NoonPullDataDomain.SALES || domain == NoonPullDataDomain.ORDER) {
+                domains.add(domain);
+            }
+        }
+        return new ArrayList<>(domains);
+    }
+
+    private NoonProductionSchedulerEnablementRecord saveDecision(
+            NoonProductionSchedulerEnablementCommand command,
+            Long operatorUserId,
+            NoonPullSmokeRunRecord smokeRun,
+            List<String> rejectionReasons,
+            List<Long> planIds,
+            String decision
+    ) {
+        if (enablementRepository == null) {
+            return null;
+        }
+        NoonProductionSchedulerEnablementRecord record = new NoonProductionSchedulerEnablementRecord();
+        if (command != null) {
+            record.setTargetEnvironment(command.getTargetEnvironment());
+            record.setOwnerUserId(command.getOwnerUserId());
+            record.setProjectCode(command.getProjectCode());
+            record.setProjectName(command.getProjectName());
+            record.setStoreCode(command.getStoreCode());
+            record.setSiteCode(command.getSiteCode());
+            record.setEnabledDomains(domainNames(schedulableDomains(command)));
+            record.setScheduleBoundaries(command.getScheduleBoundaries());
+            record.setRollbackOrGlobalPauseStrategy(NoonPullSafeText.redact(command.getRollbackOrGlobalPauseStrategy()));
+            record.setHitlApproved(command.isHitlApproved());
+        }
+        record.setOperatorUserId(operatorUserId);
+        record.setSmokeRunId(smokeRun == null ? null : smokeRun.getId());
+        record.setDecision(decision);
+        record.setRejectionReasons(rejectionReasons);
+        record.setPlanIds(planIds);
+        LocalDateTime now = LocalDateTime.now(clock);
+        record.setCreatedAt(now);
+        record.setUpdatedAt(now);
+        return enablementRepository.save(record);
+    }
+
+    private List<String> domainNames(List<NoonPullDataDomain> domains) {
+        return domains.stream().map(Enum::name).collect(Collectors.toList());
+    }
+
+    private boolean safeEquals(Object expected, Object actual) {
+        return expected == null ? actual == null : expected.equals(actual);
+    }
+}

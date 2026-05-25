@@ -78,6 +78,12 @@ nuono:
         timeout-seconds: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_TIMEOUT_SECONDS:30}
         description-url: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_DESCRIPTION_URL:}
         details-url: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_DETAILS_URL:}
+  noon:
+    pull:
+      scheduler:
+        enabled: ${NUONO_NOON_PULL_SCHEDULER_ENABLED:false}
+        initial-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_INITIAL_DELAY_MS:60000}
+        fixed-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_FIXED_DELAY_MS:300000}
   bootstrap:
     db-enabled: false
     schema: nuono_new_dev
