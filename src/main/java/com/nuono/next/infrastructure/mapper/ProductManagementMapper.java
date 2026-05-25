@@ -1,5 +1,6 @@
 package com.nuono.next.infrastructure.mapper;
 
+import com.nuono.next.nooncompleteness.NoonProductCompletenessAudit;
 import com.nuono.next.product.ProductActionLogRecord;
 import com.nuono.next.product.ProductClassificationOptionRecord;
 import com.nuono.next.product.ProductGroupCandidateContextRecord;
@@ -37,6 +38,40 @@ public interface ProductManagementMapper {
             resultType = Long.class
     )
     int allocateProductManagementId(IdSequenceCommand command);
+
+    @Select({
+            "SELECT",
+            "  COUNT(DISTINCT pm.id) AS productMasterCount,",
+            "  COUNT(DISTINCT pso.id) AS siteOfferCount,",
+            "  COUNT(DISTINCT CASE WHEN pms.id IS NOT NULL THEN pm.id END) AS detailBaselineCount",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.site = #{siteCode}",
+            " AND lss.is_deleted = 0",
+            "LEFT JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "LEFT JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = 0",
+            "LEFT JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.site_id = lss.id",
+            " AND pso.is_deleted = 0",
+            "LEFT JOIN product_master_snapshot pms",
+            "  ON pms.product_master_id = pm.id",
+            " AND pms.snapshot_type = 'baseline'",
+            " AND pms.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0"
+    })
+    NoonProductCompletenessAudit auditNoonProductCompleteness(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode
+    );
 
     default Long nextProductManagementId(String sequenceName, long initialValue) {
         IdSequenceCommand command = new IdSequenceCommand(sequenceName, initialValue);

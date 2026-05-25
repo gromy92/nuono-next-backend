@@ -87,10 +87,14 @@ class BusinessAccessResolverTest {
         BusinessAccessContext siblingPrefix = BusinessAccessContext.builder()
                 .menuPaths(Set.of("/api/sku/manage-archive"))
                 .build();
+        BusinessAccessContext noonCall = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/noon-call/store-data"))
+                .build();
 
         assertThat(exact.hasCapability(BusinessCapability.PRODUCT_MASTER)).isTrue();
         assertThat(subPath.hasCapability(BusinessCapability.PRODUCT_MASTER)).isTrue();
         assertThat(siblingPrefix.hasCapability(BusinessCapability.PRODUCT_MASTER)).isFalse();
+        assertThat(noonCall.hasCapability(BusinessCapability.SYSTEM_REPORTS)).isTrue();
     }
 
     @Test
@@ -141,6 +145,23 @@ class BusinessAccessResolverTest {
         assertThatThrownBy(() -> guard.requireBusinessCapability(context, BusinessCapability.PRODUCT_MASTER))
                 .isInstanceOf(BusinessAccessDeniedException.class)
                 .hasMessageContaining("系统管理员不能操作店铺业务");
+    }
+
+    @Test
+    void guardAllowsSystemAdminForSystemReportsCapability() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(346L)
+                .accountType(BusinessAccountType.SYSTEM_ADMIN)
+                .roleLevel(0)
+                .roleName("系统管理员")
+                .menuPaths(Set.of("/api/noon-call/store-data"))
+                .storeCodes(Set.of())
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThat(guard.requireBusinessCapability(context, BusinessCapability.SYSTEM_REPORTS))
+                .isSameAs(context);
     }
 
     @Test
