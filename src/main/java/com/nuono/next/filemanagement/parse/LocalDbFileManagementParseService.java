@@ -47,9 +47,6 @@ public class LocalDbFileManagementParseService {
     private static final Set<String> FILE_INPUT_TYPES = Set.of("file", "excel", "pdf", "image");
     private static final Set<String> TEXT_INPUT_TYPES = Set.of("manual_text", "ocr_text");
     private static final Set<String> INPUT_ROLES = Set.of("primary_source", "parsed_file", "supplement", "reference");
-    private static final String STALE_RETRY_FAILURE_CODE = "PARSE_STALE_RETRYING";
-    private static final String STALE_TIMEOUT_FAILURE_CODE = "PARSE_STALE_TIMEOUT";
-
     private final FileManagementParseMapper fileManagementParseMapper;
     private final FileParseStorageProperties storageProperties;
     private final FileParseInputExtractionService inputExtractionService;
@@ -60,6 +57,11 @@ public class LocalDbFileManagementParseService {
     private final FileParseQueryViewService queryViewService;
     private final FileParsePublishService publishService;
     private final FileParseLogisticsChannelActivationService logisticsChannelActivationService;
+    private final FileParseSourceLineagePolicy sourceLineagePolicy = new FileParseSourceLineagePolicy();
+    private final FileParseWorkflowStatePolicy workflowStatePolicy = new FileParseWorkflowStatePolicy();
+    private final FileParseCommissionSourceScopePolicy commissionSourceScopePolicy = new FileParseCommissionSourceScopePolicy();
+    private final FileParseOutboundFeeSourceScopePolicy outboundFeeSourceScopePolicy = new FileParseOutboundFeeSourceScopePolicy();
+    private final FileParseLogisticsCoverageValidator logisticsCoverageValidator = new FileParseLogisticsCoverageValidator();
 
     @Value("${nuono.file-management.parse.retry-scheduler.enabled:true}")
     private boolean retrySchedulerEnabled;
@@ -385,7 +387,7 @@ public class LocalDbFileManagementParseService {
                         user.getUserId()
                 );
                 touchTaskParsingLock(task.getId(), lockOwner, user.getUserId());
-                attachFallbackSourceRows(chunkResult, chunkDraft);
+                sourceLineagePolicy.attachFallbackSourceRows(chunkResult, chunkDraft.getSourceRowIds());
                 chunkRuns.add(new FileParseAiChunkRun(currentAiChunkId, chunkDraft, chunkResult));
             }
             FileParseStructuredAiResult structuredResult = structuredAiService.combineChunkResults(
@@ -556,17 +558,18 @@ public class LocalDbFileManagementParseService {
         if (staleTask == null || staleTask.getId() == null) {
             return false;
         }
-        int attemptCount = staleTask.getParseAttemptCount() == null ? 0 : staleTask.getParseAttemptCount();
-        String timeoutMessage = "解析任务超过 "
-                + staleTimeoutSeconds
-                + " 秒没有完成，系统已判定为超时。";
+        FileParseWorkflowStatePolicy.StaleRecoveryDecision decision = workflowStatePolicy.staleRecoveryDecision(
+                staleTask.getParseAttemptCount(),
+                maxAttempts,
+                staleTimeoutSeconds
+        );
         fileManagementParseMapper.markOpenAiChunksFailedByTask(staleTask.getId(), operatorUserId);
-        if (attemptCount >= maxAttempts) {
+        if (decision.isFinalFailure()) {
             return fileManagementParseMapper.markStaleParsingTaskFinalFailed(
                     staleTask.getId(),
                     staleTimeoutSeconds,
-                    STALE_TIMEOUT_FAILURE_CODE,
-                    timeoutMessage + "已达到最大自动重试次数 " + maxAttempts + " 次，请人工检查文件或 AI 服务。",
+                    decision.getFailureCode(),
+                    decision.getFailureMessage(),
                     operatorUserId
             ) == 1;
         }
@@ -574,8 +577,8 @@ public class LocalDbFileManagementParseService {
         int reset = fileManagementParseMapper.resetStaleParsingTaskForRetry(
                 staleTask.getId(),
                 staleTimeoutSeconds,
-                STALE_RETRY_FAILURE_CODE,
-                timeoutMessage + "系统正在自动重试第 " + (attemptCount + 1) + " 次。",
+                decision.getFailureCode(),
+                decision.getFailureMessage(),
                 operatorUserId
         );
         if (reset != 1) {
@@ -604,15 +607,16 @@ public class LocalDbFileManagementParseService {
         if (retryableTask == null || retryableTask.getId() == null) {
             return false;
         }
-        int attemptCount = retryableTask.getParseAttemptCount() == null ? 0 : retryableTask.getParseAttemptCount();
-        if (attemptCount >= maxAttempts) {
+        FileParseWorkflowStatePolicy.RetryableFailureRecoveryDecision decision = workflowStatePolicy.retryableFailureDecision(
+                retryableTask.getParseAttemptCount(),
+                maxAttempts,
+                retryableTask.getFailureMessage()
+        );
+        if (decision.isFinalFailure()) {
             return fileManagementParseMapper.markRetryableParseTaskFinalFailed(
                     retryableTask.getId(),
-                    "PARSE_AUTO_RETRY_EXHAUSTED",
-                    "解析任务自动重试已达到最大次数 "
-                            + maxAttempts
-                            + " 次。最后一次失败原因："
-                            + trimFailureMessage(retryableTask.getFailureMessage()),
+                    decision.getFailureCode(),
+                    decision.getFailureMessage(),
                     operatorUserId
             ) == 1;
         }
@@ -632,34 +636,17 @@ public class LocalDbFileManagementParseService {
     }
 
     private boolean shouldScheduleRetry(FileParseTaskRow task, String failureCode, String failureMessage) {
-        if (!isRetryableAiFailure(failureCode, failureMessage)) {
-            return false;
-        }
-        int previousAttempts = task == null || task.getParseAttemptCount() == null ? 0 : task.getParseAttemptCount();
-        int currentAttempt = previousAttempts + 1;
-        return currentAttempt < Math.max(1, retrySchedulerMaxAttempts);
-    }
-
-    private boolean isRetryableAiFailure(String failureCode, String failureMessage) {
-        if (!StringUtils.hasText(failureCode)) {
-            return false;
-        }
-        String normalizedMessage = nullToEmpty(failureMessage).toLowerCase(Locale.ROOT);
-        if ("OPENAI_HTTP_429".equals(failureCode)
-                && (normalizedMessage.contains("usage_limit_reached")
-                || normalizedMessage.contains("usage limit has been reached"))) {
-            return false;
-        }
-        return "OPENAI_REQUEST_TIMEOUT".equals(failureCode)
-                || "OPENAI_HTTP_429".equals(failureCode)
-                || "OPENAI_HTTP_500".equals(failureCode)
-                || "OPENAI_HTTP_502".equals(failureCode)
-                || "OPENAI_HTTP_503".equals(failureCode)
-                || "OPENAI_HTTP_504".equals(failureCode);
+        Integer previousAttempts = task == null ? null : task.getParseAttemptCount();
+        return workflowStatePolicy.shouldScheduleRetry(
+                previousAttempts,
+                failureCode,
+                failureMessage,
+                retrySchedulerMaxAttempts
+        );
     }
 
     private int retryDelaySeconds() {
-        return Math.max(10, Math.min(retrySchedulerRetryDelaySeconds, 600));
+        return workflowStatePolicy.retryDelaySeconds(retrySchedulerRetryDelaySeconds);
     }
 
     private List<FileParsePersistedSourceRow> persistSourceRows(
@@ -764,50 +751,26 @@ public class LocalDbFileManagementParseService {
             FileParseTargetPlanRow targetPlan,
             List<FileParsePersistedSourceRow> sourceRows
     ) {
-        if (sourceRows == null || sourceRows.isEmpty() || !isCommissionPlan(targetPlan)) {
+        if (sourceRows == null || sourceRows.isEmpty()) {
             return sourceRows;
         }
-        List<FileParsePersistedSourceRow> referralFeeRows = referralFeeSectionRows(sourceRows);
-        return referralFeeRows.isEmpty() ? sourceRows : referralFeeRows;
-    }
-
-    private List<FileParsePersistedSourceRow> referralFeeSectionRows(List<FileParsePersistedSourceRow> sourceRows) {
-        List<FileParsePersistedSourceRow> rows = new ArrayList<>();
-        boolean inReferralFees = false;
-        for (FileParsePersistedSourceRow sourceRow : sourceRows) {
-            String text = sourceRow == null || sourceRow.getRow() == null ? "" : nullToEmpty(sourceRow.getRow().getRawText());
-            if (!inReferralFees && isReferralFeesSectionStart(text)) {
-                inReferralFees = true;
-            } else if (inReferralFees && isReferralFeesSectionEnd(text)) {
-                break;
-            }
-            if (inReferralFees) {
-                rows.add(sourceRow);
-            }
+        if (isOutboundFeePlan(targetPlan)) {
+            return outboundFeeSourceScopePolicy.outboundFeeRows(
+                    targetPlan,
+                    sourceRows,
+                    sourceRow -> sourceRow == null || sourceRow.getRow() == null ? "" : nullToEmpty(sourceRow.getRow().getRawText()),
+                    sourceRow -> sourceRow == null || sourceRow.getRow() == null ? "" : nullToEmpty(sourceRow.getRow().getSourceType()),
+                    sourceRow -> sourceRow == null || sourceRow.getRow() == null ? "" : nullToEmpty(sourceRow.getRow().getSheetName())
+            );
         }
-        return rows;
-    }
-
-    private boolean isReferralFeesSectionStart(String value) {
-        String text = normalizeSectionText(value);
-        return text.matches("^1\\.\\s*referral fees\\b.*")
-                || text.matches("^referral fees\\s+as\\s+a\\s+%\\s+of\\s+the\\b.*");
-    }
-
-    private boolean isReferralFeesSectionEnd(String value) {
-        String text = normalizeSectionText(value);
-        return text.matches("^2\\.\\s*fbn outbound fees\\b.*")
-                || text.matches("^3\\.\\s*monthly storage fees\\b.*")
-                || text.matches("^ii\\.\\s*circumstantial fees\\b.*")
-                || text.matches("^iii\\.\\s*inventory removal fee\\b.*")
-                || text.matches("^iv\\.\\s*value added services\\b.*");
-    }
-
-    private String normalizeSectionText(String value) {
-        return nullToEmpty(value)
-                .trim()
-                .replaceAll("\\s+", " ")
-                .toLowerCase(Locale.ROOT);
+        if (!isCommissionPlan(targetPlan)) {
+            return sourceRows;
+        }
+        List<FileParsePersistedSourceRow> referralFeeRows = commissionSourceScopePolicy.referralFeeSectionRows(
+                sourceRows,
+                sourceRow -> sourceRow == null || sourceRow.getRow() == null ? "" : nullToEmpty(sourceRow.getRow().getRawText())
+        );
+        return referralFeeRows.isEmpty() ? sourceRows : referralFeeRows;
     }
 
     private List<FileParsePersistedSourceRow> sourceRowsForChunkDrafts(
@@ -874,25 +837,6 @@ public class LocalDbFileManagementParseService {
                 + nullToEmpty(row.getRawText());
     }
 
-    private void attachFallbackSourceRows(FileParseStructuredAiResult chunkResult, FileParseAiChunkDraft chunkDraft) {
-        if (chunkResult == null || chunkResult.getItems() == null || chunkResult.getItems().isEmpty()) {
-            return;
-        }
-        List<Long> chunkSourceRowIds = chunkDraft.getSourceRowIds();
-        Set<Long> allowedSourceRowIds = new LinkedHashSet<>(chunkSourceRowIds);
-        for (int index = 0; index < chunkResult.getItems().size(); index++) {
-            FileParseStructuredItem item = chunkResult.getItems().get(index);
-            List<Long> validIds = item.getSourceRowIds().stream()
-                    .filter(allowedSourceRowIds::contains)
-                    .distinct()
-                    .collect(Collectors.toList());
-            if (validIds.isEmpty() && !chunkSourceRowIds.isEmpty()) {
-                validIds = List.of(chunkSourceRowIds.get(Math.min(index, chunkSourceRowIds.size() - 1)));
-            }
-            item.setSourceRowIds(validIds);
-        }
-    }
-
     private void persistLineageAndValidationIssues(
             FileParseTaskRow task,
             FileParseTargetPlanRow targetPlan,
@@ -910,19 +854,21 @@ public class LocalDbFileManagementParseService {
                 0
         );
         Map<Integer, List<Long>> sourceRowIdsBySortNo = new LinkedHashMap<>();
-        Map<Integer, Long> aiChunkIdBySortNo = new LinkedHashMap<>();
         if (structuredResult != null) {
             for (FileParseStructuredItem item : structuredResult.getItems()) {
                 sourceRowIdsBySortNo.put(item.getSortNo(), item.getSourceRowIds());
             }
         }
-        if (chunkRuns != null) {
-            for (FileParseAiChunkRun chunkRun : chunkRuns) {
-                for (FileParseStructuredItem item : chunkRun.getResult().getItems()) {
-                    aiChunkIdBySortNo.put(item.getSortNo(), chunkRun.getAiChunkId());
-                }
-            }
-        }
+        Map<Long, Long> aiChunkIdBySourceRowId = sourceLineagePolicy.aiChunkIdBySourceRowId(
+                chunkRuns == null
+                        ? List.of()
+                        : chunkRuns.stream()
+                        .map(chunkRun -> new FileParseSourceLineagePolicy.AiChunkSourceRows(
+                                chunkRun.getAiChunkId(),
+                                chunkRun.getChunkDraft().getSourceRowIds()
+                        ))
+                        .collect(Collectors.toList())
+        );
         Set<Long> persistedSourceRowIds = sourceRows == null
                 ? Set.of()
                 : sourceRows.stream().map(FileParsePersistedSourceRow::getId).collect(Collectors.toCollection(LinkedHashSet::new));
@@ -945,6 +891,7 @@ public class LocalDbFileManagementParseService {
                             resultId,
                             item.getId(),
                             sourceRowId,
+                            aiChunkIdBySourceRowId.get(sourceRowId),
                             "primary",
                             item.getConfidence(),
                             evidence,
@@ -959,6 +906,16 @@ public class LocalDbFileManagementParseService {
                 : chunkRuns.stream().mapToInt(chunk -> chunk.getResult().getItems().size()).sum();
         Long firstAiChunkId = chunkRuns == null || chunkRuns.isEmpty() ? null : chunkRuns.get(0).getAiChunkId();
         persistCoverageIssueIfNeeded(task, targetPlan, resultId, firstAiChunkId, sourceRowCount, aiOutputItemCount, operatorUserId);
+        persistLogisticsCoverageIssues(
+                task,
+                targetPlan,
+                resultId,
+                structuredResult,
+                sourceRows,
+                aiChunkIdBySourceRowId,
+                firstAiChunkId,
+                operatorUserId
+        );
         for (FileParseResultItemRow item : resultItems) {
             if ("hard_error".equals(item.getValidationStatus()) || StringUtils.hasText(item.getValidationErrorJson())) {
                 fileManagementParseMapper.insertValidationIssue(
@@ -967,7 +924,10 @@ public class LocalDbFileManagementParseService {
                         resultId,
                         item.getId(),
                         null,
-                        aiChunkIdBySortNo.get(item.getSortNo()),
+                        sourceLineagePolicy.resolveAiChunkIdForSourceRows(
+                                sourceRowIdsBySortNo.getOrDefault(item.getSortNo(), List.of()),
+                                aiChunkIdBySourceRowId
+                        ),
                         "schema_error",
                         "hard_error".equals(item.getValidationStatus()) ? "hard_error" : "warning",
                         null,
@@ -977,6 +937,61 @@ public class LocalDbFileManagementParseService {
                 );
             }
         }
+    }
+
+    private void persistLogisticsCoverageIssues(
+            FileParseTaskRow task,
+            FileParseTargetPlanRow targetPlan,
+            Long resultId,
+            FileParseStructuredAiResult structuredResult,
+            List<FileParsePersistedSourceRow> sourceRows,
+            Map<Long, Long> aiChunkIdBySourceRowId,
+            Long fallbackAiChunkId,
+            Long operatorUserId
+    ) {
+        List<FileParseLogisticsCoverageValidator.CoverageIssue> issues = logisticsCoverageValidator.validate(
+                targetPlan,
+                structuredResult == null ? List.of() : structuredResult.getItems(),
+                toLogisticsSourceEvidence(sourceRows)
+        );
+        for (FileParseLogisticsCoverageValidator.CoverageIssue issue : issues) {
+            Long sourceRowId = issue.getSourceRowId();
+            Long aiChunkId = sourceRowId == null ? fallbackAiChunkId : aiChunkIdBySourceRowId.getOrDefault(sourceRowId, fallbackAiChunkId);
+            fileManagementParseMapper.insertValidationIssue(
+                    fileManagementParseMapper.nextValidationIssueId(),
+                    task.getId(),
+                    resultId,
+                    null,
+                    sourceRowId,
+                    aiChunkId,
+                    issue.getCode(),
+                    issue.getSeverity(),
+                    null,
+                    issue.getMessage(),
+                    issue.getDetailsJson(),
+                    operatorUserId
+            );
+        }
+    }
+
+    private List<FileParseLogisticsCoverageValidator.SourceRowEvidence> toLogisticsSourceEvidence(
+            List<FileParsePersistedSourceRow> sourceRows
+    ) {
+        if (sourceRows == null || sourceRows.isEmpty()) {
+            return List.of();
+        }
+        List<FileParseLogisticsCoverageValidator.SourceRowEvidence> evidence = new ArrayList<>();
+        for (FileParsePersistedSourceRow sourceRow : sourceRows) {
+            if (sourceRow == null || sourceRow.getRow() == null) {
+                continue;
+            }
+            evidence.add(new FileParseLogisticsCoverageValidator.SourceRowEvidence(
+                    sourceRow.getId(),
+                    sourceRow.getRow().getSourceType(),
+                    sourceRow.getRow().getRawText()
+            ));
+        }
+        return evidence;
     }
 
     private void persistCoverageIssueIfNeeded(
@@ -1552,7 +1567,16 @@ public class LocalDbFileManagementParseService {
         if (!targetPlan.getId().equals(version.getTargetPlanId())) {
             throw new IllegalArgumentException("版本不属于该目标输出方案。");
         }
+        if (!isUsablePublishedVersion(version)) {
+            throw new IllegalArgumentException("物流渠道生效只能选择可用的已发布版本。");
+        }
         return version;
+    }
+
+    private boolean isUsablePublishedVersion(FileParseVersionSummaryRow version) {
+        String status = version == null ? null : version.getVersionStatus();
+        return "active".equalsIgnoreCase(nullToEmpty(status))
+                || "history".equalsIgnoreCase(nullToEmpty(status));
     }
 
     private List<FileParseItemStandardRow> loadItemStandards(FileParseTaskRow task) {
@@ -1665,7 +1689,28 @@ public class LocalDbFileManagementParseService {
         summary.setCurrentVersion(row.getCurrentVersion());
         summary.setDescription(row.getDescription());
         summary.setAvailableActions(resolveActions(row, user));
+        summary.setItemTypes(toTargetPlanItemTypes(row.getStandardVersionId()));
         return summary;
+    }
+
+    private List<FileParseTargetPlanItemTypeView> toTargetPlanItemTypes(Long standardVersionId) {
+        if (standardVersionId == null) {
+            return List.of();
+        }
+        List<FileParseItemStandardRow> itemStandards = fileManagementParseMapper.selectItemStandards(standardVersionId);
+        if (itemStandards == null || itemStandards.isEmpty()) {
+            return List.of();
+        }
+        return itemStandards.stream()
+                .map(this::toTargetPlanItemType)
+                .collect(Collectors.toList());
+    }
+
+    private FileParseTargetPlanItemTypeView toTargetPlanItemType(FileParseItemStandardRow row) {
+        FileParseTargetPlanItemTypeView view = new FileParseTargetPlanItemTypeView();
+        view.setValue(row.getItemType());
+        view.setLabel(StringUtils.hasText(row.getItemLabel()) ? row.getItemLabel() : row.getItemType());
+        return view;
     }
 
     private FileParseTaskDetailView toTaskDetailView(
@@ -1825,16 +1870,7 @@ public class LocalDbFileManagementParseService {
     }
 
     private String stepStatus(FileParseTaskRow task, String activeStatus, boolean completed) {
-        if (completed) {
-            return "succeeded";
-        }
-        if (task == null || task.getStatus() == null) {
-            return "pending";
-        }
-        if ("failed".equals(task.getStatus())) {
-            return "failed";
-        }
-        return activeStatus.equals(task.getStatus()) ? "running" : "pending";
+        return workflowStatePolicy.stepStatus(task == null ? null : task.getStatus(), activeStatus, completed);
     }
 
     private void requireSystemAdminForAiChunks(FileParseUserContext user) {
@@ -2033,6 +2069,14 @@ public class LocalDbFileManagementParseService {
                 || "official_commission".equalsIgnoreCase(row.getDocumentType());
     }
 
+    private boolean isOutboundFeePlan(FileParseTargetPlanRow row) {
+        if (row == null) {
+            return false;
+        }
+        return startsWithIgnoreCase(row.getCode(), "outbound_fee")
+                || "official_outbound_fee".equalsIgnoreCase(row.getDocumentType());
+    }
+
     private boolean startsWithIgnoreCase(String value, String prefix) {
         return StringUtils.hasText(value) && value.toLowerCase(Locale.ROOT).startsWith(prefix.toLowerCase(Locale.ROOT));
     }
@@ -2119,7 +2163,6 @@ public class LocalDbFileManagementParseService {
             return aiChunkId;
         }
 
-        @SuppressWarnings("unused")
         private FileParseAiChunkDraft getChunkDraft() {
             return chunkDraft;
         }

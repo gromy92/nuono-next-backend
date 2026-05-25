@@ -103,6 +103,10 @@ public interface FileManagementParseMapper {
         return nextFileParseId("file_mgmt_parse_version_item", 80000L);
     }
 
+    default Long nextActiveVersionId() {
+        return nextFileParseId("file_mgmt_parse_active_version", 72000L);
+    }
+
     default Long nextAuditLogId() {
         return nextFileParseId("file_mgmt_parse_audit_log", 90000L);
     }
@@ -649,6 +653,30 @@ public interface FileManagementParseMapper {
             "  AND is_deleted = b'0'"
     })
     int updateActiveVersion(
+            @Param("targetPlanId") Long targetPlanId,
+            @Param("dataScopeType") String dataScopeType,
+            @Param("dataScopeKey") String dataScopeKey,
+            @Param("versionId") Long versionId,
+            @Param("versionNo") String versionNo,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO file_mgmt_parse_active_version (",
+            "  id, target_plan_id, data_scope_type, data_scope_key, version_id, version_no,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{targetPlanId}, #{dataScopeType}, #{dataScopeKey}, #{versionId}, #{versionNo},",
+            "  b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
+            ") ON DUPLICATE KEY UPDATE",
+            "  version_id = VALUES(version_id),",
+            "  version_no = VALUES(version_no),",
+            "  is_deleted = b'0',",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertActiveVersion(
+            @Param("id") Long id,
             @Param("targetPlanId") Long targetPlanId,
             @Param("dataScopeType") String dataScopeType,
             @Param("dataScopeKey") String dataScopeKey,
@@ -1435,10 +1463,10 @@ public interface FileManagementParseMapper {
 
     @Insert({
             "INSERT INTO file_mgmt_parse_result_item_source (",
-            "  id, task_id, result_id, result_item_id, source_row_id, source_role, confidence, evidence_text,",
+            "  id, task_id, result_id, result_item_id, source_row_id, ai_chunk_id, source_role, confidence, evidence_text,",
             "  created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{taskId}, #{resultId}, #{resultItemId}, #{sourceRowId}, #{sourceRole}, #{confidence}, #{evidenceText},",
+            "  #{id}, #{taskId}, #{resultId}, #{resultItemId}, #{sourceRowId}, #{aiChunkId}, #{sourceRole}, #{confidence}, #{evidenceText},",
             "  #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
             ")"
     })
@@ -1448,6 +1476,7 @@ public interface FileManagementParseMapper {
             @Param("resultId") Long resultId,
             @Param("resultItemId") Long resultItemId,
             @Param("sourceRowId") Long sourceRowId,
+            @Param("aiChunkId") Long aiChunkId,
             @Param("sourceRole") String sourceRole,
             @Param("confidence") String confidence,
             @Param("evidenceText") String evidenceText,

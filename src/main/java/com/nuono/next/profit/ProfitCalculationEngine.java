@@ -165,34 +165,36 @@ public class ProfitCalculationEngine {
         result.setWarehouseDeliveryFeeRmb(warehouseDeliveryFeeRmb);
         result.setAirFirstLegFeeRmb(airFirstLegFeeRmb);
         result.setOceanFirstLegFeeRmb(oceanFirstLegFeeRmb);
-        result.getScenarios().add(buildScenario(
-                "FBN_AIR",
-                "FBN 空运利润",
-                prepared.getSalePrice(),
-                prepared.getPurchasePrice(),
-                prepared.getExchangeRate(),
-                prepared.getVatRate(),
-                prepared.getFbnCommissionRate(),
-                prepared.getFbnOutboundFee(),
-                warehouseDeliveryFeeRmb,
-                airFirstLegFeeRmb,
-                prepared.getDomesticShippingFee(),
-                ZERO
-        ));
-        result.getScenarios().add(buildScenario(
-                "FBN_OCEAN",
-                "FBN 海运利润",
-                prepared.getSalePrice(),
-                prepared.getPurchasePrice(),
-                prepared.getExchangeRate(),
-                prepared.getVatRate(),
-                prepared.getFbnCommissionRate(),
-                prepared.getFbnOutboundFee(),
-                warehouseDeliveryFeeRmb,
-                oceanFirstLegFeeRmb,
-                prepared.getDomesticShippingFee(),
-                ZERO
-        ));
+        if (prepared.getFbnOutboundFee() != null) {
+            result.getScenarios().add(buildScenario(
+                    "FBN_AIR",
+                    "FBN 空运利润",
+                    prepared.getSalePrice(),
+                    prepared.getPurchasePrice(),
+                    prepared.getExchangeRate(),
+                    prepared.getVatRate(),
+                    prepared.getFbnCommissionRate(),
+                    prepared.getFbnOutboundFee(),
+                    warehouseDeliveryFeeRmb,
+                    airFirstLegFeeRmb,
+                    prepared.getDomesticShippingFee(),
+                    ZERO
+            ));
+            result.getScenarios().add(buildScenario(
+                    "FBN_OCEAN",
+                    "FBN 海运利润",
+                    prepared.getSalePrice(),
+                    prepared.getPurchasePrice(),
+                    prepared.getExchangeRate(),
+                    prepared.getVatRate(),
+                    prepared.getFbnCommissionRate(),
+                    prepared.getFbnOutboundFee(),
+                    warehouseDeliveryFeeRmb,
+                    oceanFirstLegFeeRmb,
+                    prepared.getDomesticShippingFee(),
+                    ZERO
+            ));
+        }
         result.getScenarios().add(buildScenario(
                 "FBP_AIR",
                 "FBP 空运利润",

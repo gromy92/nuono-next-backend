@@ -42,7 +42,7 @@ nuono:
         model: ${NUONO_FILE_PARSE_AI_MODEL:gpt-5.4-mini}
         reasoning-effort: ${NUONO_FILE_PARSE_AI_REASONING_EFFORT:low}
         max-output-tokens: ${NUONO_FILE_PARSE_AI_MAX_OUTPUT_TOKENS:1000}
-        timeout-seconds: ${NUONO_FILE_PARSE_AI_TIMEOUT_SECONDS:90}
+        timeout-seconds: ${NUONO_FILE_PARSE_AI_TIMEOUT_SECONDS:180}
       retry-scheduler:
         enabled: ${NUONO_FILE_PARSE_RETRY_SCHEDULER_ENABLED:true}
         initial-delay-ms: ${NUONO_FILE_PARSE_RETRY_SCHEDULER_INITIAL_DELAY_MS:30000}

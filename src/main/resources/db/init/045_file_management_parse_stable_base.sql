@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS `file_mgmt_parse_result_item_source` (
     `result_id` BIGINT NOT NULL,
     `result_item_id` BIGINT NOT NULL,
     `source_row_id` BIGINT NOT NULL,
+    `ai_chunk_id` BIGINT DEFAULT NULL,
     `source_role` VARCHAR(40) NOT NULL DEFAULT 'primary',
     `confidence` VARCHAR(20) DEFAULT NULL,
     `evidence_text` VARCHAR(1000) DEFAULT NULL,
@@ -105,8 +106,41 @@ CREATE TABLE IF NOT EXISTS `file_mgmt_parse_result_item_source` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_file_mgmt_parse_result_item_source` (`result_item_id`, `source_row_id`, `source_role`),
     KEY `idx_file_mgmt_parse_result_item_source_item` (`result_item_id`),
-    KEY `idx_file_mgmt_parse_result_item_source_row` (`source_row_id`)
+    KEY `idx_file_mgmt_parse_result_item_source_row` (`source_row_id`),
+    KEY `idx_file_mgmt_parse_result_item_source_chunk` (`ai_chunk_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+SET @add_file_parse_result_item_source_ai_chunk := (
+    SELECT IF(
+        EXISTS(
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'file_mgmt_parse_result_item_source'
+              AND COLUMN_NAME = 'ai_chunk_id'
+        ),
+        'SELECT 1',
+        'ALTER TABLE `file_mgmt_parse_result_item_source` ADD COLUMN `ai_chunk_id` BIGINT DEFAULT NULL AFTER `source_row_id`'
+    )
+);
+PREPARE stmt FROM @add_file_parse_result_item_source_ai_chunk;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @add_file_parse_result_item_source_chunk_index := (
+    SELECT IF(
+        EXISTS(
+            SELECT 1 FROM information_schema.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'file_mgmt_parse_result_item_source'
+              AND INDEX_NAME = 'idx_file_mgmt_parse_result_item_source_chunk'
+        ),
+        'SELECT 1',
+        'ALTER TABLE `file_mgmt_parse_result_item_source` ADD KEY `idx_file_mgmt_parse_result_item_source_chunk` (`ai_chunk_id`)'
+    )
+);
+PREPARE stmt FROM @add_file_parse_result_item_source_chunk_index;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 INSERT INTO `file_mgmt_parse_id_sequence` (`sequence_name`, `next_id`, `gmt_create`, `gmt_updated`)
 VALUES

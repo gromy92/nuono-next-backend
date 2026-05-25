@@ -13,6 +13,102 @@ import org.junit.jupiter.api.Test;
 class FileParseNaturalKeySupportTest {
 
     @Test
+    void shouldBuildStableOfficialOutboundSizeClassificationKeyWithoutDimensionValues() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("country", "ksa");
+        payload.put("platform", "Noon");
+        payload.put("fulfillmentType", "FBN");
+        payload.put("classificationName", "Small Envelope");
+        payload.put("longestSideMaxCm", "20");
+        payload.put("medianSideMaxCm", "15");
+        payload.put("shortestSideMaxCm", "2");
+        payload.put("maxShippingWeightGrams", "250");
+        payload.put("packagingWeightGrams", "20");
+        payload.put("effectiveDate", "2026-05-24");
+
+        Map<String, Object> changedDimensions = new LinkedHashMap<>(payload);
+        changedDimensions.put("longestSideMaxCm", "22");
+
+        String baseKey = FileParseNaturalKeySupport.buildNaturalKey(
+                FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION,
+                payload
+        );
+
+        assertEquals("KSA|NOON|FBN|Small Envelope|2026-05-24", baseKey);
+        assertEquals(
+                baseKey,
+                FileParseNaturalKeySupport.buildNaturalKey(
+                        FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION,
+                        changedDimensions
+                )
+        );
+    }
+
+    @Test
+    void shouldBuildStableOfficialOutboundFeeSlabKeyFromClassificationAndWeightRange() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("country", "UAE");
+        payload.put("platform", "Noon");
+        payload.put("fulfillmentType", "FBN");
+        payload.put("classificationName", "Standard Parcel");
+        payload.put("weightMinGrams", "500");
+        payload.put("weightMinInclusive", false);
+        payload.put("weightMaxGrams", "1000");
+        payload.put("weightMaxInclusive", true);
+        payload.put("currency", "AED");
+        payload.put("standardFeeAmount", "7.50");
+        payload.put("highAspFeeAmount", "9.00");
+        payload.put("effectiveDate", "2026-05-24");
+
+        Map<String, Object> changedFee = new LinkedHashMap<>(payload);
+        changedFee.put("standardFeeAmount", "8.25");
+
+        Map<String, Object> changedWeightRange = new LinkedHashMap<>(payload);
+        changedWeightRange.put("weightMaxGrams", "1500");
+
+        String baseKey = FileParseNaturalKeySupport.buildNaturalKey(
+                FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB,
+                payload
+        );
+
+        assertEquals("UAE|NOON|FBN|Standard Parcel|MIN:500:0|MAX:1000:1|CUR:AED|2026-05-24", baseKey);
+        assertEquals(
+                baseKey,
+                FileParseNaturalKeySupport.buildNaturalKey(FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB, changedFee)
+        );
+        assertNotEquals(
+                baseKey,
+                FileParseNaturalKeySupport.buildNaturalKey(FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB, changedWeightRange)
+        );
+    }
+
+    @Test
+    void shouldBuildStableOfficialOutboundPolicyKeyByCountryAndFulfillment() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("country", "KSA");
+        payload.put("platform", "Noon");
+        payload.put("fulfillmentType", "FBN");
+        payload.put("shippingWeightFormula", "physical_weight_plus_packaging_weight");
+        payload.put("salesPriceThresholdAmount", "25");
+        payload.put("thresholdCurrency", "SAR");
+        payload.put("effectiveDate", "2026-05-24");
+
+        Map<String, Object> changedThreshold = new LinkedHashMap<>(payload);
+        changedThreshold.put("salesPriceThresholdAmount", "30");
+
+        String baseKey = FileParseNaturalKeySupport.buildNaturalKey(
+                FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY,
+                payload
+        );
+
+        assertEquals("KSA|NOON|FBN|2026-05-24", baseKey);
+        assertEquals(
+                baseKey,
+                FileParseNaturalKeySupport.buildNaturalKey(FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY, changedThreshold)
+        );
+    }
+
+    @Test
     void shouldBuildStableCommissionKeyFromNormalizedPayloadWhenAiNaturalKeyVaries() {
         Map<String, Object> firstPayload = commissionPayload();
         firstPayload.put("platform", "Noon");

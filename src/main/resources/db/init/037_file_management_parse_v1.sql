@@ -619,6 +619,7 @@ VALUES
     ('file_mgmt_parse_result_item', 50000, NOW(), NOW()),
     ('file_mgmt_parse_item_review', 60000, NOW(), NOW()),
     ('file_mgmt_parse_version', 70005, NOW(), NOW()),
+    ('file_mgmt_parse_active_version', 72000, NOW(), NOW()),
     ('file_mgmt_parse_version_item', 88020, NOW(), NOW()),
     ('file_mgmt_parse_audit_log', 90000, NOW(), NOW()),
     ('file_mgmt_parse_logistics_channel_activation', 95000, NOW(), NOW())

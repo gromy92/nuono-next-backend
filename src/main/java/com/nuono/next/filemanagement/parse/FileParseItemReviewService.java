@@ -250,9 +250,13 @@ public class FileParseItemReviewService {
             );
         }
         if ("keep_old".equals(action)) {
+            Map<String, Object> rawOldPayload = viewAssembler.readMap(row.getOldPayloadJson());
+            if ("added".equals(row.getChangeType()) || rawOldPayload.isEmpty()) {
+                throw new IllegalArgumentException("新增项没有旧值，不能保留旧值。");
+            }
             Map<String, Object> oldPayload = FileParseCommissionPayloadNormalizer.normalize(
                     row.getItemType(),
-                    viewAssembler.readMap(row.getOldPayloadJson())
+                    rawOldPayload
             );
             if (oldPayload.isEmpty()) {
                 throw new IllegalArgumentException("新增项没有旧值，不能保留旧值。");

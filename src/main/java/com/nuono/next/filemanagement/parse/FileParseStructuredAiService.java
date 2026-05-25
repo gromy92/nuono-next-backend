@@ -7,6 +7,7 @@ import com.nuono.next.ai.AiCapabilityService;
 import com.nuono.next.ai.AiInputAttachment;
 import com.nuono.next.ai.AiStructuredTextCommand;
 import com.nuono.next.ai.AiStructuredTextResult;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -49,7 +50,7 @@ public class FileParseStructuredAiService {
             @Value("${nuono.file-management.parse.ai.model:gpt-5.4-mini}") String aiModel,
             @Value("${nuono.file-management.parse.ai.reasoning-effort:low}") String aiReasoningEffort,
             @Value("${nuono.file-management.parse.ai.max-output-tokens:1000}") Integer aiMaxOutputTokens,
-            @Value("${nuono.file-management.parse.ai.timeout-seconds:90}") Integer aiTimeoutSeconds
+            @Value("${nuono.file-management.parse.ai.timeout-seconds:180}") Integer aiTimeoutSeconds
     ) {
         this.aiCapabilityService = aiCapabilityService;
         this.objectMapper = objectMapper;
@@ -127,14 +128,26 @@ public class FileParseStructuredAiService {
             throw new FileParseAiParseException("AI_OUTPUT_NOT_JSON", "AI 输出不是可落库的 JSON。");
         }
 
-        List<FileParseStructuredItem> parsedItems = parseItems(parsedJson, itemStandards, extractedText);
+        List<FileParseStructuredItem> parsedItems = parseItems(parsedJson, targetPlan, itemStandards, extractedText);
         List<FileParseStructuredItem> supplementedItems = supplementCommissionTierItemsFromSource(
                 parsedItems,
                 targetPlan,
                 itemStandards,
                 extractedText
         );
-        List<FileParseStructuredItem> items = deduplicateItems(supplementedItems);
+        List<FileParseStructuredItem> logisticsStabilizedItems = stabilizeLogisticsItems(
+                supplementedItems,
+                targetPlan,
+                itemStandards,
+                extractedText
+        );
+        List<FileParseStructuredItem> outboundFeeStabilizedItems = stabilizeOfficialOutboundFeeItems(
+                logisticsStabilizedItems,
+                targetPlan,
+                itemStandards,
+                extractedText
+        );
+        List<FileParseStructuredItem> items = deduplicateItems(outboundFeeStabilizedItems);
         FileParseStructuredAiResult result = new FileParseStructuredAiResult();
         result.setParserModel(aiResult.getModel());
         result.setRawResultJson(writeJson(parsedJson));
@@ -273,6 +286,64 @@ public class FileParseStructuredAiService {
         String documentType = text(targetPlan.getDocumentType());
         return (StringUtils.hasText(code) && code.toLowerCase(Locale.ROOT).startsWith("commission"))
                 || "official_commission".equalsIgnoreCase(documentType);
+    }
+
+    private boolean isOutboundFeePlan(FileParseTargetPlanRow targetPlan) {
+        if (targetPlan == null) {
+            return false;
+        }
+        String code = text(targetPlan.getCode());
+        String documentType = text(targetPlan.getDocumentType());
+        return (StringUtils.hasText(code) && code.toLowerCase(Locale.ROOT).startsWith("outbound_fee"))
+                || "official_outbound_fee".equalsIgnoreCase(documentType);
+    }
+
+    private boolean isStructuredOutboundFeePlan(
+            FileParseTargetPlanRow targetPlan,
+            List<FileParseItemStandardRow> itemStandards
+    ) {
+        return isOutboundFeePlan(targetPlan)
+                && itemStandards != null
+                && itemStandards.stream()
+                .filter(item -> item != null)
+                .anyMatch(item -> FileParseOfficialOutboundFeeStandard.structuredItemTypeNames().contains(item.getItemType()));
+    }
+
+    private String expectedOutboundCountry(FileParseTargetPlanRow targetPlan) {
+        String scope = outboundScopeText(targetPlan);
+        if (scope.contains("KSA") || scope.contains("SAUDI")) {
+            return "KSA";
+        }
+        if (scope.contains("UAE") || scope.contains("UNITED ARAB")) {
+            return "UAE";
+        }
+        if (scope.contains("EGY") || scope.contains("EGYPT")) {
+            return "EGY";
+        }
+        return "";
+    }
+
+    private String expectedOutboundCurrency(FileParseTargetPlanRow targetPlan) {
+        String scope = outboundScopeText(targetPlan);
+        if (scope.contains("KSA") || scope.contains("SAUDI")) {
+            return "SAR";
+        }
+        if (scope.contains("UAE") || scope.contains("UNITED ARAB")) {
+            return "AED";
+        }
+        if (scope.contains("EGY") || scope.contains("EGYPT")) {
+            return "EGP";
+        }
+        return "";
+    }
+
+    private String outboundScopeText(FileParseTargetPlanRow targetPlan) {
+        if (targetPlan == null) {
+            return "";
+        }
+        return (text(targetPlan.getCode()) + " " + text(targetPlan.getLabel()))
+                .trim()
+                .toUpperCase(Locale.ROOT);
     }
 
     private List<SourceLine> parseSourceLines(String sourceText) {
@@ -488,7 +559,19 @@ public class FileParseStructuredAiService {
             List<FileParseItemStandardRow> itemStandards,
             String sourceText
     ) {
-        if (result == null || result.getItems() == null || result.getItems().isEmpty() || !isCommissionPlan(targetPlan)) {
+        if (result == null) {
+            return result;
+        }
+        if (isStructuredOutboundFeePlan(targetPlan, itemStandards)) {
+            return stabilizeOfficialOutboundFeeResult(result, targetPlan, itemStandards, sourceText);
+        }
+        if (result.getItems() == null || result.getItems().isEmpty()) {
+            return result;
+        }
+        if (isLogisticsPlan(targetPlan, itemStandards)) {
+            return stabilizeLogisticsResult(result, targetPlan, itemStandards, sourceText);
+        }
+        if (!isCommissionPlan(targetPlan)) {
             return result;
         }
         FileParseItemStandardRow commissionStandard = itemStandards == null ? null : itemStandards.stream()
@@ -635,6 +718,1136 @@ public class FileParseStructuredAiService {
             item.setValidationErrorJson(null);
             applyValidation(item, standard, readMap(item.getNormalizedPayloadJson()));
         }
+    }
+
+    private FileParseStructuredAiResult stabilizeLogisticsResult(
+            FileParseStructuredAiResult result,
+            FileParseTargetPlanRow targetPlan,
+            List<FileParseItemStandardRow> itemStandards,
+            String sourceText
+    ) {
+        List<FileParseStructuredItem> stabilizedItems = stabilizeLogisticsItems(
+                result.getItems(),
+                targetPlan,
+                itemStandards,
+                sourceText
+        );
+        List<FileParseStructuredItem> deduplicatedItems = deduplicateItems(stabilizedItems);
+        int sortNo = 1;
+        for (FileParseStructuredItem item : deduplicatedItems) {
+            item.setSortNo(sortNo++);
+        }
+        result.setSummaryJson(writeJson(Map.of(
+                "itemCount", deduplicatedItems.size(),
+                "hardErrorCount", deduplicatedItems.stream().filter(item -> "hard_error".equals(item.getValidationStatus())).count(),
+                "source", "logistics_context_stabilized"
+        )));
+        result.setValidationSummaryJson(writeJson(validationSummary(deduplicatedItems)));
+        result.setItems(deduplicatedItems);
+        return result;
+    }
+
+    private FileParseStructuredAiResult stabilizeOfficialOutboundFeeResult(
+            FileParseStructuredAiResult result,
+            FileParseTargetPlanRow targetPlan,
+            List<FileParseItemStandardRow> itemStandards,
+            String sourceText
+    ) {
+        List<FileParseStructuredItem> stabilizedItems = stabilizeOfficialOutboundFeeItems(
+                result.getItems(),
+                targetPlan,
+                itemStandards,
+                sourceText
+        );
+        List<FileParseStructuredItem> deduplicatedItems = deduplicateItems(stabilizedItems);
+        int sortNo = 1;
+        for (FileParseStructuredItem item : deduplicatedItems) {
+            item.setSortNo(sortNo++);
+        }
+        result.setSummaryJson(writeJson(Map.of(
+                "itemCount", deduplicatedItems.size(),
+                "hardErrorCount", deduplicatedItems.stream().filter(item -> "hard_error".equals(item.getValidationStatus())).count(),
+                "source", "official_outbound_fee_context_stabilized"
+        )));
+        result.setValidationSummaryJson(writeJson(validationSummary(deduplicatedItems)));
+        result.setItems(deduplicatedItems);
+        return result;
+    }
+
+    private List<FileParseStructuredItem> stabilizeOfficialOutboundFeeItems(
+            List<FileParseStructuredItem> items,
+            FileParseTargetPlanRow targetPlan,
+            List<FileParseItemStandardRow> itemStandards,
+            String sourceText
+    ) {
+        List<FileParseStructuredItem> safeItems = items == null ? List.of() : items;
+        if (!isStructuredOutboundFeePlan(targetPlan, itemStandards)) {
+            return safeItems;
+        }
+        Map<String, FileParseItemStandardRow> standardsByType = itemStandards.stream()
+                .filter(item -> item != null)
+                .collect(Collectors.toMap(FileParseItemStandardRow::getItemType, item -> item, (left, right) -> left));
+        List<SourceLine> sourceLines = parseSourceLines(sourceText);
+        OfficialOutboundContext context = officialOutboundContext(targetPlan, sourceText, sourceLines);
+        boolean hasOfficialOutboundSection = sourceContainsOfficialOutboundFee(sourceText, sourceLines);
+
+        List<FileParseStructuredItem> stabilized = new ArrayList<>();
+        for (FileParseStructuredItem item : safeItems) {
+            if (item == null) {
+                continue;
+            }
+            if (FileParseOfficialOutboundFeeStandard.LEGACY_OUTBOUND_FEE_RULE.equals(item.getItemType())) {
+                continue;
+            }
+            if (!FileParseOfficialOutboundFeeStandard.structuredItemTypeNames().contains(item.getItemType())) {
+                stabilized.add(item);
+                continue;
+            }
+            Map<String, Object> payload = readMap(item.getNormalizedPayloadJson());
+            backfillOfficialOutboundPayload(payload, item.getItemType(), context, hasOfficialOutboundSection);
+            OfficialOutboundClassification classification = officialOutboundClassification(text(payload.get("classificationName")));
+            if (hasOfficialOutboundSection
+                    && FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION.equals(item.getItemType())
+                    && classification != null) {
+                applyOfficialOutboundClassificationDefaults(payload, classification);
+            }
+            applyOfficialOutboundPayload(
+                    item,
+                    standardsByType.get(item.getItemType()),
+                    targetPlan,
+                    payload,
+                    item.getSourceRowIds(),
+                    "ai_structured_text_stabilized"
+            );
+            stabilized.add(item);
+        }
+
+        if (!hasOfficialOutboundSection) {
+            return stabilized;
+        }
+        List<FileParseStructuredItem> sourceDerivedItems = deriveOfficialOutboundItemsFromSource(
+                standardsByType,
+                targetPlan,
+                context,
+                sourceLines
+        );
+        return mergeOfficialOutboundSourceDerivedItems(stabilized, sourceDerivedItems);
+    }
+
+    private void backfillOfficialOutboundPayload(
+            Map<String, Object> payload,
+            String itemType,
+            OfficialOutboundContext context,
+            boolean authoritativeSource
+    ) {
+        if (payload == null || context == null) {
+            return;
+        }
+        if (!authoritativeSource) {
+            return;
+        }
+        if (StringUtils.hasText(context.country)) {
+            payload.put("country", context.country);
+        }
+        if (authoritativeSource) {
+            payload.put("platform", "NOON");
+            payload.put("fulfillmentType", "FBN");
+        }
+        if (StringUtils.hasText(context.effectiveDate)) {
+            putIfMissing(payload, "effectiveDate", context.effectiveDate);
+        }
+        if (StringUtils.hasText(context.sourceVersion)) {
+            putIfMissing(payload, "sourceVersion", context.sourceVersion);
+        }
+        if (FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION.equals(itemType)) {
+            putIfMissing(payload, "dimensionUnit", "cm");
+            putIfMissing(payload, "weightUnit", "grams");
+        } else if (FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB.equals(itemType)) {
+            if (StringUtils.hasText(context.currency)) {
+                payload.put("currency", context.currency);
+                putIfMissing(payload, "thresholdCurrency", context.currency);
+            }
+            putIfMissing(payload, "salesPriceThresholdAmount", "25");
+            putIfMissing(payload, "weightMinInclusive", "true");
+            putIfMissing(payload, "weightMaxInclusive", "true");
+        } else if (FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY.equals(itemType)) {
+            putIfMissing(payload, "policyName", "Noon FBN official outbound policy");
+            putIfMissing(payload, "shippingWeightFormula", "physical_weight_plus_packaging_weight");
+            putIfMissing(payload, "dimensionSortRule", "sort_desc_longest_median_shortest");
+            putIfMissing(payload, "weightBoundaryRule", "min_exclusive_max_inclusive");
+            putIfMissing(payload, "roundingRule", "calculator_50g_ceiling");
+            putIfMissing(payload, "salesPriceThresholdAmount", "25");
+            if (StringUtils.hasText(context.currency)) {
+                payload.put("thresholdCurrency", context.currency);
+            }
+            putIfMissing(payload, "dimensionUnit", "cm");
+            putIfMissing(payload, "weightUnit", "grams");
+        }
+    }
+
+    private List<FileParseStructuredItem> deriveOfficialOutboundItemsFromSource(
+            Map<String, FileParseItemStandardRow> standardsByType,
+            FileParseTargetPlanRow targetPlan,
+            OfficialOutboundContext context,
+            List<SourceLine> sourceLines
+    ) {
+        List<FileParseStructuredItem> items = new ArrayList<>();
+        List<Long> sectionSourceRowIds = outboundSectionRowIds(sourceLines);
+        FileParseItemStandardRow classificationStandard = standardsByType.get(FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION);
+        if (classificationStandard != null) {
+            for (OfficialOutboundClassification classification : officialOutboundClassifications()) {
+                Map<String, Object> payload = baseOfficialOutboundPayload(context);
+                payload.put("classificationName", classification.name);
+                applyOfficialOutboundClassificationDefaults(payload, classification);
+                items.add(newOfficialOutboundItem(
+                        FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION,
+                        classificationStandard,
+                        targetPlan,
+                        payload,
+                        sectionSourceRowIds,
+                        "official_fbn_calculator_size_defaults"
+                ));
+            }
+        }
+
+        FileParseItemStandardRow slabStandard = standardsByType.get(FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB);
+        if (slabStandard != null) {
+            for (OfficialOutboundSourceSlab sourceSlab : parseOfficialOutboundFeeSlabs(sourceLines, context)) {
+                Map<String, Object> payload = baseOfficialOutboundPayload(context);
+                payload.put("classificationName", sourceSlab.classificationName);
+                payload.put("weightMinGrams", sourceSlab.weightMinGrams);
+                payload.put("weightMinInclusive", sourceSlab.weightMinInclusive);
+                payload.put("weightMaxGrams", sourceSlab.weightMaxGrams);
+                payload.put("weightMaxInclusive", sourceSlab.weightMaxInclusive);
+                payload.put("standardFeeAmount", sourceSlab.standardFeeAmount);
+                payload.put("highAspFeeAmount", sourceSlab.highAspFeeAmount);
+                payload.put("salesPriceThresholdAmount", "25");
+                payload.put("thresholdCurrency", context.currency);
+                payload.put("currency", context.currency);
+                if (sourceSlab.extraWeightStepGrams != null) {
+                    payload.put("extraWeightStepGrams", sourceSlab.extraWeightStepGrams);
+                }
+                if (sourceSlab.extraFeeAmount != null) {
+                    payload.put("extraFeeAmount", sourceSlab.extraFeeAmount);
+                }
+                items.add(newOfficialOutboundItem(
+                        FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB,
+                        slabStandard,
+                        targetPlan,
+                        payload,
+                        sourceSlab.sourceRowIds,
+                        "official_fbn_outbound_fee_source_row"
+                ));
+            }
+        }
+
+        FileParseItemStandardRow policyStandard = standardsByType.get(FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY);
+        if (policyStandard != null) {
+            Map<String, Object> payload = baseOfficialOutboundPayload(context);
+            backfillOfficialOutboundPayload(payload, FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY, context, true);
+            items.add(newOfficialOutboundItem(
+                    FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY,
+                    policyStandard,
+                    targetPlan,
+                    payload,
+                    sectionSourceRowIds,
+                    "official_fbn_outbound_fee_policy_defaults"
+            ));
+        }
+        return items;
+    }
+
+    private Map<String, Object> baseOfficialOutboundPayload(OfficialOutboundContext context) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("country", context.country);
+        payload.put("platform", "NOON");
+        payload.put("fulfillmentType", "FBN");
+        if (StringUtils.hasText(context.effectiveDate)) {
+            payload.put("effectiveDate", context.effectiveDate);
+        }
+        payload.put("sourceVersion", context.sourceVersion);
+        return payload;
+    }
+
+    private FileParseStructuredItem newOfficialOutboundItem(
+            String itemType,
+            FileParseItemStandardRow standard,
+            FileParseTargetPlanRow targetPlan,
+            Map<String, Object> payload,
+            List<Long> sourceRowIds,
+            String evidenceSource
+    ) {
+        FileParseStructuredItem item = new FileParseStructuredItem();
+        item.setItemType(itemType);
+        item.setConfidence("source_context");
+        applyOfficialOutboundPayload(item, standard, targetPlan, payload, sourceRowIds, evidenceSource);
+        return item;
+    }
+
+    private void applyOfficialOutboundPayload(
+            FileParseStructuredItem item,
+            FileParseItemStandardRow standard,
+            FileParseTargetPlanRow targetPlan,
+            Map<String, Object> payload,
+            List<Long> sourceRowIds,
+            String evidenceSource
+    ) {
+        Map<String, Object> normalized = FileParseOutboundFeePayloadNormalizer.normalize(item.getItemType(), payload);
+        item.setSourceRowIds(sourceRowIds == null ? List.of() : sourceRowIds.stream().distinct().collect(Collectors.toList()));
+        item.setEvidenceJson(writeJson(Map.of(
+                "source", evidenceSource,
+                "sourceRowIds", item.getSourceRowIds()
+        )));
+        String naturalKey = FileParseNaturalKeySupport.buildNaturalKey(item.getItemType(), normalized);
+        if (StringUtils.hasText(naturalKey)) {
+            item.setNaturalKey(naturalKey);
+            item.setNaturalKeyHash(FileParseNaturalKeySupport.naturalKeyHash(item.getItemType(), naturalKey));
+        }
+        item.setNormalizedPayloadJson(writeJson(normalized));
+        item.setValidationStatus("pass");
+        item.setReviewStatus("pending");
+        item.setValidationErrorJson(null);
+        if (standard != null) {
+            applyValidation(item, targetPlan, standard, normalized);
+        }
+    }
+
+    private List<FileParseStructuredItem> mergeOfficialOutboundSourceDerivedItems(
+            List<FileParseStructuredItem> aiItems,
+            List<FileParseStructuredItem> sourceDerivedItems
+    ) {
+        List<FileParseStructuredItem> merged = new ArrayList<>();
+        Set<String> sourceKeys = new LinkedHashSet<>();
+        Set<String> authoritativeSourceTypes = new LinkedHashSet<>();
+        if (sourceDerivedItems != null) {
+            for (FileParseStructuredItem item : sourceDerivedItems) {
+                if (item == null) {
+                    continue;
+                }
+                merged.add(item);
+                sourceKeys.add(item.getItemType() + "|" + item.getNaturalKeyHash());
+                if (FileParseOfficialOutboundFeeStandard.structuredItemTypeNames().contains(item.getItemType())) {
+                    authoritativeSourceTypes.add(item.getItemType());
+                }
+            }
+        }
+        if (aiItems != null) {
+            for (FileParseStructuredItem item : aiItems) {
+                if (item == null) {
+                    continue;
+                }
+                if (authoritativeSourceTypes.contains(item.getItemType())) {
+                    continue;
+                }
+                String key = item.getItemType() + "|" + item.getNaturalKeyHash();
+                if (!sourceKeys.contains(key)) {
+                    merged.add(item);
+                }
+            }
+        }
+        return merged;
+    }
+
+    private OfficialOutboundContext officialOutboundContext(
+            FileParseTargetPlanRow targetPlan,
+            String sourceText,
+            List<SourceLine> sourceLines
+    ) {
+        String country = expectedOutboundCountry(targetPlan);
+        if (!StringUtils.hasText(country)) {
+            country = inferCountry(sourceText);
+        }
+        String currency = expectedOutboundCurrency(targetPlan);
+        if (!StringUtils.hasText(currency)) {
+            currency = inferCurrency(sourceText, "");
+        }
+        String effectiveDate = inferOfficialOutboundEffectiveDate(sourceText, sourceLines);
+        if (!StringUtils.hasText(effectiveDate) && sourceContainsOfficialOutboundFee(sourceText, sourceLines)) {
+            effectiveDate = defaultOfficialOutboundEffectiveDate(country, currency);
+        }
+        String sourceVersion = StringUtils.hasText(effectiveDate)
+                ? "official_fbn_outbound_fee_" + effectiveDate
+                : "official_fbn_outbound_fee";
+        return new OfficialOutboundContext(country, currency, effectiveDate, sourceVersion);
+    }
+
+    private String defaultOfficialOutboundEffectiveDate(String country, String currency) {
+        if ("KSA".equalsIgnoreCase(text(country)) || "SAR".equalsIgnoreCase(text(currency))) {
+            return "2025-09-01";
+        }
+        return "";
+    }
+
+    private boolean sourceContainsOfficialOutboundFee(String sourceText, List<SourceLine> sourceLines) {
+        StringBuilder builder = new StringBuilder();
+        if (StringUtils.hasText(sourceText)) {
+            builder.append(sourceText).append(' ');
+        }
+        if (sourceLines != null) {
+            for (SourceLine sourceLine : sourceLines) {
+                builder.append(sourceLine.text).append(' ');
+            }
+        }
+        String lower = normalizeSpaces(builder.toString()).toLowerCase(Locale.ROOT);
+        return (lower.contains("fbn outbound fee") || lower.contains("fbn outbound fees"))
+                && (lower.contains("fulfilled by noon") || lower.contains("one rate") || lower.contains("size tier"));
+    }
+
+    private String inferOfficialOutboundEffectiveDate(String sourceText, List<SourceLine> sourceLines) {
+        StringBuilder builder = new StringBuilder();
+        if (StringUtils.hasText(sourceText)) {
+            builder.append(sourceText).append(' ');
+        }
+        if (sourceLines != null) {
+            for (SourceLine sourceLine : sourceLines) {
+                builder.append(sourceLine.text).append(' ');
+            }
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?i)(\\d{1,2})(?:st|nd|rd|th)?\\s+(january|february|march|april|may|june|july|august|september|october|november|december)\\s+(\\d{4})")
+                .matcher(builder.toString());
+        if (!matcher.find()) {
+            return "";
+        }
+        int month = monthNumber(matcher.group(2));
+        if (month <= 0) {
+            return "";
+        }
+        try {
+            int day = Integer.parseInt(matcher.group(1));
+            int year = Integer.parseInt(matcher.group(3));
+            return String.format(Locale.ROOT, "%04d-%02d-%02d", year, month, day);
+        } catch (NumberFormatException ignored) {
+            return "";
+        }
+    }
+
+    private int monthNumber(String monthName) {
+        if (!StringUtils.hasText(monthName)) {
+            return 0;
+        }
+        switch (monthName.toLowerCase(Locale.ROOT)) {
+            case "january":
+                return 1;
+            case "february":
+                return 2;
+            case "march":
+                return 3;
+            case "april":
+                return 4;
+            case "may":
+                return 5;
+            case "june":
+                return 6;
+            case "july":
+                return 7;
+            case "august":
+                return 8;
+            case "september":
+                return 9;
+            case "october":
+                return 10;
+            case "november":
+                return 11;
+            case "december":
+                return 12;
+            default:
+                return 0;
+        }
+    }
+
+    private List<Long> outboundSectionRowIds(List<SourceLine> sourceLines) {
+        if (sourceLines == null || sourceLines.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = new ArrayList<>();
+        boolean inSection = false;
+        for (SourceLine sourceLine : sourceLines) {
+            String lower = normalizeSpaces(sourceLine.text).toLowerCase(Locale.ROOT);
+            if (lower.contains("fbn outbound fee")) {
+                inSection = true;
+            }
+            if (inSection && sourceLine.sourceRowId != null) {
+                ids.add(sourceLine.sourceRowId);
+            }
+            if (inSection && lower.contains("monthly storage fee")) {
+                break;
+            }
+        }
+        return ids.stream().distinct().collect(Collectors.toList());
+    }
+
+    private List<OfficialOutboundSourceSlab> parseOfficialOutboundFeeSlabs(
+            List<SourceLine> sourceLines,
+            OfficialOutboundContext context
+    ) {
+        if (sourceLines == null || sourceLines.isEmpty()) {
+            return List.of();
+        }
+        List<OfficialOutboundSourceSlab> slabs = new ArrayList<>();
+        Map<String, BigDecimal> lastMaxByClassification = new LinkedHashMap<>();
+        String currentClassification = "";
+        String pendingClassificationPrefix = "";
+        OfficialOutboundSourceSlab lastSlab = null;
+        boolean inSection = false;
+        for (SourceLine sourceLine : sourceLines) {
+            String line = normalizeSpaces(sourceLine.text);
+            String lower = line.toLowerCase(Locale.ROOT);
+            if (lower.contains("fbn outbound fee")) {
+                inSection = true;
+                continue;
+            }
+            if (!inSection) {
+                continue;
+            }
+            if (lower.contains("monthly storage fee")) {
+                break;
+            }
+            if (!StringUtils.hasText(line) || lower.contains("size tier") || lower.contains("weight slab")) {
+                continue;
+            }
+            if ("standard".equalsIgnoreCase(line)) {
+                pendingClassificationPrefix = "Standard";
+                continue;
+            }
+            if (StringUtils.hasText(pendingClassificationPrefix)
+                    && ("envelope".equalsIgnoreCase(line) || "parcel".equalsIgnoreCase(line))) {
+                currentClassification = pendingClassificationPrefix + " " + line.toLowerCase(Locale.ROOT);
+                pendingClassificationPrefix = "";
+                continue;
+            }
+
+            ClassificationPrefix prefix = classificationPrefix(line);
+            String rateText = line;
+            if (prefix != null) {
+                currentClassification = prefix.classificationName;
+                rateText = prefix.remainder;
+                if (!StringUtils.hasText(rateText)) {
+                    continue;
+                }
+            }
+            if (!StringUtils.hasText(currentClassification)) {
+                continue;
+            }
+            if (lower.contains("additional")) {
+                applyAdditionalFee(lastSlab, line, sourceLine.sourceRowId);
+                continue;
+            }
+            OfficialOutboundSourceSlab slab = parseOfficialOutboundFeeSlabLine(
+                    currentClassification,
+                    rateText,
+                    sourceLine.sourceRowId,
+                    lastMaxByClassification
+            );
+            if (slab == null) {
+                continue;
+            }
+            slab.currency = context.currency;
+            slabs.add(slab);
+            lastSlab = slab;
+            if (slab.weightMaxGrams != null) {
+                lastMaxByClassification.put(currentClassification, slab.weightMaxGrams);
+            }
+        }
+        return slabs;
+    }
+
+    private OfficialOutboundSourceSlab parseOfficialOutboundFeeSlabLine(
+            String classificationName,
+            String line,
+            Long sourceRowId,
+            Map<String, BigDecimal> lastMaxByClassification
+    ) {
+        String normalized = normalizeSpaces(line);
+        List<BigDecimal> numbers = decimalNumbers(normalized);
+        if (numbers.size() < 2) {
+            return null;
+        }
+        BigDecimal standardFee = numbers.get(numbers.size() - 2);
+        BigDecimal highAspFee = numbers.get(numbers.size() - 1);
+        OfficialOutboundSourceSlab slab = new OfficialOutboundSourceSlab();
+        slab.classificationName = classificationName;
+        slab.standardFeeAmount = standardFee;
+        slab.highAspFeeAmount = highAspFee;
+        slab.weightMaxInclusive = true;
+        slab.sourceRowIds = sourceRowId == null ? List.of() : List.of(sourceRowId);
+
+        java.util.regex.Matcher rangeMatcher = java.util.regex.Pattern
+                .compile("(?i)>\\s*([0-9]+(?:\\.[0-9]+)?)\\s*kg\\s*&\\s*<=\\s*([0-9]+(?:\\.[0-9]+)?)\\s*kg")
+                .matcher(normalized);
+        if (rangeMatcher.find()) {
+            slab.weightMinGrams = kgToGrams(rangeMatcher.group(1));
+            slab.weightMinInclusive = false;
+            slab.weightMaxGrams = kgToGrams(rangeMatcher.group(2));
+            return slab;
+        }
+        java.util.regex.Matcher maxMatcher = java.util.regex.Pattern
+                .compile("(?i)<=\\s*([0-9]+(?:\\.[0-9]+)?)\\s*kg")
+                .matcher(normalized);
+        if (maxMatcher.find()) {
+            BigDecimal previousMax = lastMaxByClassification.get(classificationName);
+            slab.weightMinGrams = previousMax == null ? BigDecimal.ZERO : previousMax;
+            slab.weightMinInclusive = previousMax == null;
+            slab.weightMaxGrams = kgToGrams(maxMatcher.group(1));
+            return slab;
+        }
+        if (normalized.toLowerCase(Locale.ROOT).contains("one rate")) {
+            OfficialOutboundClassification classification = officialOutboundClassification(classificationName);
+            slab.weightMinGrams = BigDecimal.ZERO;
+            slab.weightMinInclusive = true;
+            slab.weightMaxGrams = classification == null ? null : classification.maxShippingWeightGrams;
+            return slab;
+        }
+        return null;
+    }
+
+    private void applyAdditionalFee(OfficialOutboundSourceSlab slab, String line, Long sourceRowId) {
+        if (slab == null || !StringUtils.hasText(line)) {
+            return;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?i)additional\\s+([0-9]+(?:\\.[0-9]+)?)\\s*(?:sar|aed|egp)?\\s+per\\s+([0-9]+(?:\\.[0-9]+)?)?\\s*kg")
+                .matcher(line);
+        if (!matcher.find()) {
+            return;
+        }
+        slab.extraFeeAmount = decimal(matcher.group(1));
+        String stepKg = StringUtils.hasText(matcher.group(2)) ? matcher.group(2) : "1";
+        slab.extraWeightStepGrams = kgToGrams(stepKg);
+        slab.sourceRowIds = mergeSourceRowIds(
+                slab.sourceRowIds,
+                sourceRowId == null ? List.of() : List.of(sourceRowId)
+        );
+    }
+
+    private List<BigDecimal> decimalNumbers(String value) {
+        List<BigDecimal> values = new ArrayList<>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("[0-9]+(?:\\.[0-9]+)?")
+                .matcher(value == null ? "" : value);
+        while (matcher.find()) {
+            values.add(decimal(matcher.group()));
+        }
+        return values;
+    }
+
+    private BigDecimal kgToGrams(String value) {
+        return decimal(value).multiply(BigDecimal.valueOf(1000));
+    }
+
+    private BigDecimal decimal(String value) {
+        return new BigDecimal(value);
+    }
+
+    private ClassificationPrefix classificationPrefix(String line) {
+        String normalized = normalizeSpaces(line);
+        for (OfficialOutboundClassification classification : officialOutboundClassifications()) {
+            if (startsWithClassification(normalized, classification.name)) {
+                return new ClassificationPrefix(
+                        classification.name,
+                        normalizeSpaces(normalized.substring(classification.name.length()))
+                );
+            }
+        }
+        return null;
+    }
+
+    private boolean startsWithClassification(String line, String classificationName) {
+        String lowerLine = normalizeSpaces(line).toLowerCase(Locale.ROOT);
+        String lowerClassification = normalizeSpaces(classificationName).toLowerCase(Locale.ROOT);
+        return lowerLine.equals(lowerClassification) || lowerLine.startsWith(lowerClassification + " ");
+    }
+
+    private void applyOfficialOutboundClassificationDefaults(
+            Map<String, Object> payload,
+            OfficialOutboundClassification classification
+    ) {
+        payload.put("classificationName", classification.name);
+        payload.put("longestSideMaxCm", classification.longestSideMaxCm);
+        payload.put("medianSideMaxCm", classification.medianSideMaxCm);
+        payload.put("shortestSideMaxCm", classification.shortestSideMaxCm);
+        payload.put("maxShippingWeightGrams", classification.maxShippingWeightGrams);
+        payload.put("packagingWeightGrams", classification.packagingWeightGrams);
+        payload.put("priority", classification.priority);
+        payload.put("dimensionUnit", "cm");
+        payload.put("weightUnit", "grams");
+    }
+
+    private OfficialOutboundClassification officialOutboundClassification(String classificationName) {
+        String normalized = normalizeSpaces(classificationName).toLowerCase(Locale.ROOT);
+        for (OfficialOutboundClassification classification : officialOutboundClassifications()) {
+            if (classification.name.toLowerCase(Locale.ROOT).equals(normalized)) {
+                return classification;
+            }
+        }
+        if ("oversize".equals(normalized)) {
+            return officialOutboundClassification("Oversize parcel");
+        }
+        return null;
+    }
+
+    private List<OfficialOutboundClassification> officialOutboundClassifications() {
+        List<OfficialOutboundClassification> classifications = new ArrayList<>();
+        classifications.add(new OfficialOutboundClassification("Small envelope", "20", "15", "1", "100", "20", 1));
+        classifications.add(new OfficialOutboundClassification("Standard envelope", "33", "23", "2.5", "500", "40", 2));
+        classifications.add(new OfficialOutboundClassification("Large envelope", "33", "23", "5", "1000", "40", 3));
+        classifications.add(new OfficialOutboundClassification("Standard parcel", "45", "34", "26", "12000", "100", 4));
+        classifications.add(new OfficialOutboundClassification("Oversize parcel", "130", "34", "26", "30000", "240", 5));
+        classifications.add(new OfficialOutboundClassification("Extra oversize", "130", "130", "130", "30000", "240", 6));
+        classifications.add(new OfficialOutboundClassification("Bulky", null, null, null, null, "400", 7));
+        return classifications;
+    }
+
+    private List<FileParseStructuredItem> stabilizeLogisticsItems(
+            List<FileParseStructuredItem> items,
+            FileParseTargetPlanRow targetPlan,
+            List<FileParseItemStandardRow> itemStandards,
+            String sourceText
+    ) {
+        if (items == null || items.isEmpty() || !isLogisticsPlan(targetPlan, itemStandards)) {
+            return items == null ? List.of() : items;
+        }
+        Map<String, FileParseItemStandardRow> standardsByType = itemStandards == null
+                ? Map.of()
+                : itemStandards.stream()
+                .collect(Collectors.toMap(FileParseItemStandardRow::getItemType, item -> item, (left, right) -> left));
+        List<SourceLine> sourceLines = parseSourceLines(sourceText);
+        String defaultForwarderCode = inferDefaultForwarderCode(targetPlan, sourceText);
+        List<LogisticsServiceProfile> serviceProfiles = new ArrayList<>();
+        List<FileParseStructuredItem> stabilized = new ArrayList<>(items);
+
+        for (FileParseStructuredItem item : stabilized) {
+            if (item == null || !FileParseLogisticsQuoteStandard.SERVICE_LINE.equals(item.getItemType())) {
+                continue;
+            }
+            Map<String, Object> payload = readMap(item.getNormalizedPayloadJson());
+            String context = logisticsItemContext(item, payload, sourceLines);
+            backfillServiceLinePayload(payload, defaultForwarderCode, context);
+            applyLogisticsPayload(item, standardsByType.get(item.getItemType()), payload);
+            serviceProfiles.add(LogisticsServiceProfile.from(readMap(item.getNormalizedPayloadJson()), item.getSourceRowIds()));
+        }
+
+        if (serviceProfiles.isEmpty()) {
+            LogisticsServiceProfile fallbackProfile = fallbackServiceProfile(defaultForwarderCode, sourceText);
+            if (fallbackProfile != null) {
+                serviceProfiles.add(fallbackProfile);
+            }
+        }
+
+        for (FileParseStructuredItem item : stabilized) {
+            if (item == null || FileParseLogisticsQuoteStandard.SERVICE_LINE.equals(item.getItemType())) {
+                continue;
+            }
+            if (!isLogisticsItemType(item.getItemType())) {
+                continue;
+            }
+            Map<String, Object> payload = readMap(item.getNormalizedPayloadJson());
+            String context = logisticsItemContext(item, payload, sourceLines);
+            LogisticsServiceProfile serviceProfile = bestServiceProfile(item, payload, serviceProfiles, context);
+            backfillLogisticsDependentPayload(payload, item.getItemType(), serviceProfile, defaultForwarderCode, context);
+            applyLogisticsPayload(item, standardsByType.get(item.getItemType()), payload);
+        }
+        return stabilized;
+    }
+
+    private boolean isLogisticsPlan(FileParseTargetPlanRow targetPlan, List<FileParseItemStandardRow> itemStandards) {
+        boolean hasLogisticsStandard = itemStandards != null && itemStandards.stream()
+                .anyMatch(item -> item != null && isLogisticsItemType(item.getItemType()));
+        if (hasLogisticsStandard) {
+            return true;
+        }
+        if (targetPlan == null) {
+            return false;
+        }
+        String code = text(targetPlan.getCode());
+        String documentType = text(targetPlan.getDocumentType());
+        return startsWithIgnoreCase(code, "logistics") || startsWithIgnoreCase(documentType, "logistics");
+    }
+
+    private boolean isLogisticsItemType(String itemType) {
+        return itemType != null && FileParseLogisticsQuoteStandard.supportedItemTypeNames().contains(itemType);
+    }
+
+    private boolean startsWithIgnoreCase(String value, String prefix) {
+        return StringUtils.hasText(value) && value.toLowerCase(Locale.ROOT).startsWith(prefix.toLowerCase(Locale.ROOT));
+    }
+
+    private void backfillServiceLinePayload(Map<String, Object> payload, String defaultForwarderCode, String context) {
+        putIfMissing(payload, "forwarderCode", defaultForwarderCode);
+        putIfMissing(payload, "country", inferCountry(context));
+        putIfMissing(payload, "fulfillmentMode", inferFulfillmentMode(context));
+        putIfMissing(payload, "transportMode", inferTransportMode(context));
+        putIfMissing(payload, "serviceScope", inferServiceScope(context));
+        payload.putAll(FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.SERVICE_LINE, payload));
+        putIfMissing(payload, "destinationNode", defaultDestinationNode(text(payload.get("country")), context));
+        payload.putAll(FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.SERVICE_LINE, payload));
+        putIfMissing(payload, "serviceLineKey", serviceLineKey(payload));
+    }
+
+    private void backfillLogisticsDependentPayload(
+            Map<String, Object> payload,
+            String itemType,
+            LogisticsServiceProfile serviceProfile,
+            String defaultForwarderCode,
+            String context
+    ) {
+        String forwarderCode = serviceProfile == null ? defaultForwarderCode : serviceProfile.forwarderCode;
+        putIfMissing(payload, "forwarderCode", forwarderCode);
+        if (requiresServiceLineKey(itemType) && serviceProfile != null) {
+            putIfMissing(payload, "serviceLineKey", serviceProfile.serviceLineKey);
+        }
+        if (FileParseLogisticsQuoteStandard.CARGO_CATEGORY.equals(itemType)) {
+            putIfMissing(payload, "categoryCode", inferCategoryCode(context));
+            putIfMissing(payload, "categoryName", defaultCategoryName(text(payload.get("categoryCode")), context));
+        } else if (FileParseLogisticsQuoteStandard.BASE_PRICE.equals(itemType)) {
+            putIfMissing(payload, "cargoCategoryKey", inferCategoryCode(context));
+            putIfMissing(payload, "currency", inferCurrency(context, forwarderCode));
+            putIfMissing(payload, "billingUnit", inferBillingUnit(context, serviceProfile));
+            putIfMissing(payload, "pricingModel", inferPricingModel(text(payload.get("billingUnit")), context));
+            putIfMissing(payload, "priceStatus", inferPriceStatus(context, payload));
+        } else if (FileParseLogisticsQuoteStandard.WAREHOUSE_SERVICE_FEE.equals(itemType) && serviceProfile != null) {
+            putIfMissing(payload, "country", serviceProfile.country);
+            putIfMissing(payload, "warehouseNode", firstText(
+                    text(payload.get("originWarehouse")),
+                    text(payload.get("destinationWarehouse")),
+                    defaultDestinationNode(serviceProfile.country, context)
+            ));
+        }
+    }
+
+    private boolean requiresServiceLineKey(String itemType) {
+        return FileParseLogisticsQuoteStandard.CARGO_CATEGORY.equals(itemType)
+                || FileParseLogisticsQuoteStandard.BASE_PRICE.equals(itemType)
+                || FileParseLogisticsQuoteStandard.SURCHARGE.equals(itemType)
+                || FileParseLogisticsQuoteStandard.BILLING_RULE.equals(itemType)
+                || FileParseLogisticsQuoteStandard.RESTRICTION.equals(itemType);
+    }
+
+    private void applyLogisticsPayload(
+            FileParseStructuredItem item,
+            FileParseItemStandardRow standard,
+            Map<String, Object> payload
+    ) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(item.getItemType(), payload);
+        item.setNormalizedPayloadJson(writeJson(normalized));
+        String naturalKey = FileParseNaturalKeySupport.buildNaturalKey(item.getItemType(), normalized);
+        if (StringUtils.hasText(naturalKey)) {
+            item.setNaturalKey(naturalKey);
+            item.setNaturalKeyHash(FileParseNaturalKeySupport.naturalKeyHash(item.getItemType(), naturalKey));
+        }
+        item.setValidationStatus("pass");
+        item.setReviewStatus("pending");
+        item.setValidationErrorJson(null);
+        if (standard != null) {
+            applyValidation(item, standard, normalized);
+        }
+    }
+
+    private LogisticsServiceProfile bestServiceProfile(
+            FileParseStructuredItem item,
+            Map<String, Object> payload,
+            List<LogisticsServiceProfile> serviceProfiles,
+            String context
+    ) {
+        if (serviceProfiles == null || serviceProfiles.isEmpty()) {
+            return null;
+        }
+        if (serviceProfiles.size() == 1) {
+            return serviceProfiles.get(0);
+        }
+        String explicitServiceLineKey = normalizeSpaces(text(payload.get("serviceLineKey")));
+        String inferredCountry = inferCountry(context);
+        String inferredTransportMode = inferTransportMode(context);
+        LogisticsServiceProfile best = serviceProfiles.get(0);
+        int bestScore = Integer.MIN_VALUE;
+        for (LogisticsServiceProfile profile : serviceProfiles) {
+            int score = 0;
+            if (StringUtils.hasText(explicitServiceLineKey)
+                    && (profile.serviceLineKey.equalsIgnoreCase(explicitServiceLineKey)
+                    || profile.naturalKey.equalsIgnoreCase(explicitServiceLineKey))) {
+                score += 100;
+            }
+            if (StringUtils.hasText(inferredCountry) && inferredCountry.equals(profile.country)) {
+                score += 20;
+            }
+            if (StringUtils.hasText(inferredTransportMode) && inferredTransportMode.equals(profile.transportMode)) {
+                score += 20;
+            }
+            long distance = minSourceRowDistance(item.getSourceRowIds(), profile.sourceRowIds);
+            if (distance != Long.MAX_VALUE) {
+                score += Math.max(0, 20 - (int) Math.min(20, distance));
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                best = profile;
+            }
+        }
+        return best;
+    }
+
+    private long minSourceRowDistance(List<Long> itemRows, List<Long> serviceRows) {
+        if (itemRows == null || itemRows.isEmpty() || serviceRows == null || serviceRows.isEmpty()) {
+            return Long.MAX_VALUE;
+        }
+        long min = Long.MAX_VALUE;
+        for (Long itemRow : itemRows) {
+            if (itemRow == null) {
+                continue;
+            }
+            for (Long serviceRow : serviceRows) {
+                if (serviceRow != null) {
+                    min = Math.min(min, Math.abs(itemRow - serviceRow));
+                }
+            }
+        }
+        return min;
+    }
+
+    private LogisticsServiceProfile fallbackServiceProfile(String defaultForwarderCode, String sourceText) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        putIfMissing(payload, "forwarderCode", defaultForwarderCode);
+        putIfMissing(payload, "country", inferCountry(sourceText));
+        putIfMissing(payload, "fulfillmentMode", inferFulfillmentMode(sourceText));
+        putIfMissing(payload, "transportMode", inferTransportMode(sourceText));
+        putIfMissing(payload, "serviceScope", inferServiceScope(sourceText));
+        payload.putAll(FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.SERVICE_LINE, payload));
+        putIfMissing(payload, "destinationNode", defaultDestinationNode(text(payload.get("country")), sourceText));
+        payload.putAll(FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.SERVICE_LINE, payload));
+        if (!StringUtils.hasText(text(payload.get("forwarderCode")))
+                || !StringUtils.hasText(text(payload.get("country")))
+                || !StringUtils.hasText(text(payload.get("transportMode")))) {
+            return null;
+        }
+        payload.put("serviceLineKey", serviceLineKey(payload));
+        return LogisticsServiceProfile.from(payload, List.of());
+    }
+
+    private String logisticsItemContext(
+            FileParseStructuredItem item,
+            Map<String, Object> payload,
+            List<SourceLine> sourceLines
+    ) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(text(item.getNaturalKey())).append(' ');
+        if (payload != null) {
+            for (Object value : payload.values()) {
+                builder.append(text(value)).append(' ');
+            }
+        }
+        if (item.getSourceRowIds() != null && sourceLines != null) {
+            Set<Long> rowIds = new LinkedHashSet<>(item.getSourceRowIds());
+            for (int index = 0; index < sourceLines.size(); index++) {
+                SourceLine sourceLine = sourceLines.get(index);
+                if (sourceLine.sourceRowId != null && rowIds.contains(sourceLine.sourceRowId)) {
+                    int from = Math.max(0, index - 80);
+                    for (int contextIndex = from; contextIndex <= index; contextIndex++) {
+                        builder.append(sourceLines.get(contextIndex).text).append(' ');
+                    }
+                    builder.append(sourceLine.text).append(' ');
+                }
+            }
+        }
+        return builder.toString();
+    }
+
+    private String inferDefaultForwarderCode(FileParseTargetPlanRow targetPlan, String sourceText) {
+        String context = lowerText((targetPlan == null ? "" : targetPlan.getCode())
+                + " " + (targetPlan == null ? "" : targetPlan.getLabel())
+                + " " + sourceText);
+        if (context.contains("logistics_et") || context.contains("易通") || context.contains(" et")) {
+            return "et";
+        }
+        if (context.contains("logistics_yite") || context.contains("义特") || context.contains("yite")) {
+            return "yite";
+        }
+        return "";
+    }
+
+    private String inferCountry(String context) {
+        String lower = lowerText(context);
+        if (lower.contains("ksa") || lower.contains("saudi") || lower.contains("沙特") || lower.contains("riyadh")) {
+            return "KSA";
+        }
+        if (lower.contains("uae") || lower.contains("emirates") || lower.contains("阿联酋") || lower.contains("dubai")) {
+            return "UAE";
+        }
+        return "";
+    }
+
+    private String inferFulfillmentMode(String context) {
+        String lower = lowerText(context);
+        if (lower.contains("fbn") || lower.contains("仓到仓") || lower.contains("送仓")) {
+            return "FBN";
+        }
+        return "";
+    }
+
+    private String inferTransportMode(String context) {
+        String lower = lowerText(context);
+        if (lower.contains("空运大货") || lower.contains("cargo air") || lower.contains("air cargo")) {
+            return "cargo_air";
+        }
+        if (lower.contains("快递") || lower.contains("express")) {
+            return "express";
+        }
+        if (lower.contains("海运") || lower.contains("sea")) {
+            return "sea";
+        }
+        if (lower.contains("空运") || lower.equals("air")) {
+            return "air";
+        }
+        if (lower.contains("仓") || lower.contains("warehouse")) {
+            return "warehouse";
+        }
+        return "";
+    }
+
+    private String inferServiceScope(String context) {
+        String lower = lowerText(context);
+        if (lower.contains("仓到仓") || lower.contains("warehouse to fbn") || lower.contains("warehouse-to-fbn")) {
+            return "warehouse_to_fbn";
+        }
+        if (lower.contains("fbn") || lower.contains("送仓")) {
+            return "fbn_delivery";
+        }
+        if (lower.contains("海外仓") || lower.contains("warehouse")) {
+            return "overseas_warehouse";
+        }
+        return "";
+    }
+
+    private String defaultDestinationNode(String country, String context) {
+        String normalizedCountry = StringUtils.hasText(country) ? country : inferCountry(context);
+        if ("KSA".equals(normalizedCountry)) {
+            return "KSA FBN warehouse";
+        }
+        if ("UAE".equals(normalizedCountry)) {
+            return "UAE FBN warehouse";
+        }
+        return "";
+    }
+
+    private String serviceLineKey(Map<String, Object> payload) {
+        List<String> parts = new ArrayList<>();
+        String forwarderCode = text(payload.get("forwarderCode"));
+        if (StringUtils.hasText(forwarderCode)) {
+            parts.add(forwarderCode.toUpperCase(Locale.ROOT));
+        }
+        addIfText(parts, text(payload.get("country")));
+        addIfText(parts, text(payload.get("transportMode")));
+        addIfText(parts, text(payload.get("serviceScope")));
+        return String.join(" ", parts);
+    }
+
+    private String inferCategoryCode(String context) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\\b([A-G])\\s*(?:类|CLASS)?\\b", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(normalizeSpaces(context).toUpperCase(Locale.ROOT));
+        return matcher.find() ? matcher.group(1).toUpperCase(Locale.ROOT) : "";
+    }
+
+    private String defaultCategoryName(String categoryCode, String context) {
+        String normalizedCode = inferCategoryCode(categoryCode);
+        if (StringUtils.hasText(normalizedCode)) {
+            return normalizedCode + "类";
+        }
+        String inferredCode = inferCategoryCode(context);
+        return StringUtils.hasText(inferredCode) ? inferredCode + "类" : "";
+    }
+
+    private String inferCurrency(String context, String forwarderCode) {
+        String upper = normalizeSpaces(context).toUpperCase(Locale.ROOT);
+        if (upper.contains("RMB") || upper.contains("CNY") || upper.contains("人民币") || upper.contains("¥")) {
+            return "CNY";
+        }
+        if (upper.contains("AED")) {
+            return "AED";
+        }
+        if (upper.contains("SAR")) {
+            return "SAR";
+        }
+        if (StringUtils.hasText(forwarderCode) && (upper.matches(".*\\d+.*") || upper.contains("KG"))) {
+            return "CNY";
+        }
+        return "";
+    }
+
+    private String inferBillingUnit(String context, LogisticsServiceProfile serviceProfile) {
+        String lower = lowerText(context);
+        if (lower.contains("cbm") || lower.contains("m3") || lower.contains("m³") || lower.contains("立方")) {
+            return "cbm";
+        }
+        if (lower.contains("kg") || lower.contains("公斤") || lower.contains("千克")) {
+            return "kg";
+        }
+        if (lower.contains("pcs") || lower.contains("piece") || lower.contains("件")) {
+            return "piece";
+        }
+        if (serviceProfile != null && ("express".equals(serviceProfile.transportMode)
+                || "air".equals(serviceProfile.transportMode)
+                || "cargo_air".equals(serviceProfile.transportMode))) {
+            return "kg";
+        }
+        return "";
+    }
+
+    private String inferPricingModel(String billingUnit, String context) {
+        String lower = lowerText(context);
+        if ("cbm".equals(billingUnit) || lower.contains("体积") || lower.contains("立方")) {
+            return "per_volume";
+        }
+        if ("kg".equals(billingUnit) || lower.contains("重量") || lower.contains("kg") || lower.contains("公斤")) {
+            return "per_weight";
+        }
+        if ("piece".equals(billingUnit)) {
+            return "per_piece";
+        }
+        return "";
+    }
+
+    private String inferPriceStatus(String context, Map<String, Object> payload) {
+        String lower = lowerText(context);
+        if (lower.contains("另询") || lower.contains("询价") || lower.contains("inquire")) {
+            return "inquiry_required";
+        }
+        if (lower.contains("逐个确认") || lower.contains("人工确认") || lower.contains("manual")) {
+            return "manual_confirm";
+        }
+        if (StringUtils.hasText(text(payload.get("unitPrice")))) {
+            return "active";
+        }
+        return "";
+    }
+
+    private void putIfMissing(Map<String, Object> payload, String key, String value) {
+        if (payload == null || !StringUtils.hasText(value)) {
+            return;
+        }
+        if (!StringUtils.hasText(text(payload.get(key)))) {
+            payload.put(key, value);
+        }
+    }
+
+    private String firstText(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private void addIfText(List<String> values, String value) {
+        if (StringUtils.hasText(value)) {
+            values.add(value);
+        }
+    }
+
+    private String lowerText(String value) {
+        return normalizeSpaces(value).toLowerCase(Locale.ROOT);
     }
 
     private boolean useSourceDerivedCommissionItems(
@@ -929,7 +2142,9 @@ public class FileParseStructuredAiService {
                 + "\n每条 items 需要包含 itemType、payload，可包含 naturalKey、confidence。"
                 + "\n输入文本会带 SOURCE_ROW_ID 标记；请在 sourceRowIds 中返回该结果实际依据的源内容行 ID。"
                 + "\npayload 必须尽量使用字段标准中的英文字段名。无法确定的字段填 null，不要编造。"
-                + buildCommissionTierGuidance(itemStandards);
+                + buildCommissionTierGuidance(itemStandards)
+                + buildOutboundFeeGuidance(targetPlan, itemStandards)
+                + buildLogisticsGuidance(targetPlan, itemStandards);
     }
 
     private String buildCommissionTierGuidance(List<FileParseItemStandardRow> itemStandards) {
@@ -955,6 +2170,39 @@ public class FileParseStructuredAiService {
                 + "\n- 示例：15% up to 5000 SAR, then 5% above 5000 SAR 应输出两条："
                 + " 第一条 amountRangeLabel=<= 5000 SAR, amountMin=null, amountMinInclusive=null, amountMax=5000, amountMaxInclusive=true, amountCurrency=SAR, commissionRate=15%；"
                 + " 第二条 amountRangeLabel=> 5000 SAR, amountMin=5000, amountMinInclusive=false, amountMax=null, amountMaxInclusive=null, amountCurrency=SAR, commissionRate=5%。";
+    }
+
+    private String buildOutboundFeeGuidance(FileParseTargetPlanRow targetPlan, List<FileParseItemStandardRow> itemStandards) {
+        boolean hasOutboundRule = itemStandards.stream()
+                .anyMatch(item -> FileParseOfficialOutboundFeeStandard.supportedItemTypeNames().contains(item.getItemType()));
+        if (!hasOutboundRule || !isOutboundFeePlan(targetPlan)) {
+            return "";
+        }
+        String expectedCountry = expectedOutboundCountry(targetPlan);
+        String expectedCurrency = expectedOutboundCurrency(targetPlan);
+        return "\n出仓费规则特殊要求："
+                + "\n- 出仓费目标只解析 FBN Outbound fees / FBN Outbound Fee 这一节；不要解析 Referral Fees、commission、Monthly Storage Fees、Inventory Removal Fee、Value Added Services、FAQ 等其他菜单或费用表。"
+                + "\n- 如果同一文件同时出现佣金和出仓费，只输出出仓费规则；Referral Fees 的类目百分比不能映射为 outbound_fee_rule。"
+                + "\n- 新标准必须输出三类事实：outbound_size_classification_rule 表示规格分级，outbound_fee_weight_slab_rule 表示重量段费用，outbound_fee_calculation_policy 表示计算策略。"
+                + "\n- 规格分级要填写 classificationName、三边尺寸边界、maxShippingWeightGrams、packagingWeightGrams；重量段费用要填写 classificationName、weightMin/MaxGrams、standardFeeAmount、currency。"
+                + "\n- 计算策略要填写 shippingWeightFormula、dimensionSortRule、weightBoundaryRule、roundingRule、salesPriceThresholdAmount 和 thresholdCurrency；不要把策略写成费用行。"
+                + "\n- feeAmount 必须是可比较的金额数字，不能填写百分比、公式、IF/INDEX/SWITCH 表达式或整段说明。"
+                + "\n- Calculator 工作表里的 expected fees / formula 汇总行不是可发布规则；应优先使用明细费率表。"
+                + (StringUtils.hasText(expectedCountry) ? "\n- 当前目标国家必须是 " + expectedCountry + "。" : "")
+                + (StringUtils.hasText(expectedCurrency) ? "\n- 当前目标币种必须是 " + expectedCurrency + "。" : "");
+    }
+
+    private String buildLogisticsGuidance(FileParseTargetPlanRow targetPlan, List<FileParseItemStandardRow> itemStandards) {
+        if (!isLogisticsPlan(targetPlan, itemStandards)) {
+            return "";
+        }
+        return "\n物流报价特殊要求："
+                + "\n- 每条 logistics_* 的 payload 都必须尽量补齐 forwarderCode；易通写 et，义特写 yite。"
+                + "\n- 先抽取 logistics_service_line，再让分类、价格、附加费、计费规则、限制项复制同一条服务线的 serviceLineKey。"
+                + "\n- ET PDF 的中国到沙特/阿联酋仓到仓、FBN 送仓线路，serviceScope 使用 warehouse_to_fbn，fulfillmentMode 使用 FBN。"
+                + "\n- ET 货物分类覆盖 A-G；A-G 类都要输出 categoryCode，不要只覆盖 A/B/C。"
+                + "\n- 价格行必须把 44 RMB/KG、92 RMB/KG 等拆成 unitPrice、currency=CNY、billingUnit=kg、pricingModel=per_weight。"
+                + "\n- 计费规则和限制项也必须带 forwarderCode 与 serviceLineKey，避免成为无法发布的孤立规则。";
     }
 
     private String buildPrompt(
@@ -994,6 +2242,7 @@ public class FileParseStructuredAiService {
     @SuppressWarnings("unchecked")
     private List<FileParseStructuredItem> parseItems(
             Map<String, Object> parsedJson,
+            FileParseTargetPlanRow targetPlan,
             List<FileParseItemStandardRow> itemStandards,
             String sourceText
     ) {
@@ -1025,6 +2274,8 @@ public class FileParseStructuredAiService {
                     sourceText,
                     sourceRowIds
             );
+            payload = FileParseLogisticsPayloadNormalizer.normalize(itemType, payload);
+            payload = FileParseOutboundFeePayloadNormalizer.normalize(itemType, payload);
             String naturalKey = FileParseNaturalKeySupport.buildNaturalKey(itemType, payload);
             if (!StringUtils.hasText(naturalKey)) {
                 naturalKey = text(itemMap.get("naturalKey"));
@@ -1043,7 +2294,7 @@ public class FileParseStructuredAiService {
                     "source", "ai_structured_text",
                     "sourceRowIds", structuredItem.getSourceRowIds()
             )));
-            applyValidation(structuredItem, standard, payload);
+            applyValidation(structuredItem, targetPlan, standard, payload);
             structuredItem.setSortNo(index);
             items.add(structuredItem);
             index++;
@@ -1116,6 +2367,9 @@ public class FileParseStructuredAiService {
             left.remove("platform");
             right.remove("platform");
         }
+        if (FileParseLogisticsQuoteStandard.SERVICE_LINE.equals(itemType)) {
+            return true;
+        }
         return left.equals(right);
     }
 
@@ -1167,13 +2421,25 @@ public class FileParseStructuredAiService {
             FileParseItemStandardRow standard,
             Map<String, Object> payload
     ) {
+        applyValidation(structuredItem, null, standard, payload);
+    }
+
+    private void applyValidation(
+            FileParseStructuredItem structuredItem,
+            FileParseTargetPlanRow targetPlan,
+            FileParseItemStandardRow standard,
+            Map<String, Object> payload
+    ) {
         Map<String, Object> validationRule = readMap(standard.getValidationRuleJson());
         Object requiredValue = validationRule.get("required");
         List<String> missing = new ArrayList<>();
         Map<String, Object> errors = new LinkedHashMap<>();
+        Map<String, Object> warnings = new LinkedHashMap<>();
         if (requiredValue instanceof List) {
             for (Object field : (List<?>) requiredValue) {
-                if (field instanceof String && !StringUtils.hasText(text(payload.get(field)))) {
+                if (field instanceof String
+                        && !StringUtils.hasText(text(payload.get(field)))
+                        && !isOptionalUnboundedOfficialOutboundSizeField(standard.getItemType(), payload, (String) field)) {
                     missing.add((String) field);
                 }
             }
@@ -1182,10 +2448,16 @@ public class FileParseStructuredAiService {
             errors.put("missingRequiredFields", missing);
         }
         applyCommissionValidation(standard, payload, errors);
+        applyOutboundFeeValidation(targetPlan, standard, payload, errors);
+        applyLogisticsValidation(standard, payload, errors, warnings);
         if (!errors.isEmpty()) {
             structuredItem.setValidationStatus("hard_error");
             structuredItem.setReviewStatus("needs_fix");
             structuredItem.setValidationErrorJson(writeJson(errors));
+        } else if (!warnings.isEmpty()) {
+            structuredItem.setValidationStatus("warning");
+            structuredItem.setReviewStatus("pending");
+            structuredItem.setValidationErrorJson(writeJson(warnings));
         }
     }
 
@@ -1217,6 +2489,183 @@ public class FileParseStructuredAiService {
                 || StringUtils.hasText(text(payload.get("amountMax")));
         if (hasRange && !StringUtils.hasText(text(payload.get("amountCurrency")))) {
             errors.put("amountCurrency", "金额区间存在时必须填写币种。");
+        }
+    }
+
+    private void applyOutboundFeeValidation(
+            FileParseTargetPlanRow targetPlan,
+            FileParseItemStandardRow standard,
+            Map<String, Object> payload,
+            Map<String, Object> errors
+    ) {
+        String itemType = standard.getItemType();
+        if (!FileParseOfficialOutboundFeeStandard.supportedItemTypeNames().contains(itemType)) {
+            return;
+        }
+        String country = text(payload.get("country"));
+        String currency = FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY.equals(itemType)
+                ? text(payload.get("thresholdCurrency"))
+                : text(payload.get("currency"));
+        if (containsNonOutboundFeeText(text(payload.get("feeItem")))
+                || containsNonOutboundFeeText(text(payload.get("classificationName")))
+                || containsNonOutboundFeeText(text(payload.get("policyName")))) {
+            errors.put("outboundFeeSection", "出仓费规则不能来自 Referral Fees / commission 佣金章节。");
+        }
+        validateNoFormulaAmount(payload, errors, "feeAmount");
+        validateNoFormulaAmount(payload, errors, "standardFeeAmount");
+        validateNoFormulaAmount(payload, errors, "highAspFeeAmount");
+        if (FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION.equals(itemType)) {
+            boolean unboundedBulky = isUnboundedBulkyClassification(payload);
+            if (!unboundedBulky
+                    && (!StringUtils.hasText(text(payload.get("longestSideMaxCm")))
+                    || !StringUtils.hasText(text(payload.get("medianSideMaxCm")))
+                    || !StringUtils.hasText(text(payload.get("shortestSideMaxCm"))))) {
+                errors.put("classificationBoundary", "规格分级必须包含 longest/median/shortest 三边尺寸边界。");
+            }
+            if (!unboundedBulky && !StringUtils.hasText(text(payload.get("maxShippingWeightGrams")))) {
+                errors.put("maxShippingWeightGrams", "规格分级必须包含最大 shipping weight。");
+            }
+        } else if (FileParseOfficialOutboundFeeStandard.FEE_WEIGHT_SLAB.equals(itemType)) {
+            if (!StringUtils.hasText(text(payload.get("weightMaxGrams")))) {
+                errors.put("weightRange", "重量费用规则必须包含明确的重量上限。");
+            }
+            if (!StringUtils.hasText(text(payload.get("standardFeeAmount")))) {
+                errors.put("standardFeeAmount", "重量费用规则必须包含标准出仓费金额。");
+            }
+            if (!StringUtils.hasText(text(payload.get("currency")))) {
+                errors.put("currency", "重量费用规则必须包含币种。");
+            }
+        } else if (FileParseOfficialOutboundFeeStandard.CALCULATION_POLICY.equals(itemType)) {
+            if (!StringUtils.hasText(text(payload.get("shippingWeightFormula")))) {
+                errors.put("shippingWeightFormula", "计算策略必须包含发货重量公式。");
+            }
+        }
+        String expectedCountry = expectedOutboundCountry(targetPlan);
+        if (StringUtils.hasText(expectedCountry)
+                && StringUtils.hasText(country)
+                && !expectedCountry.equalsIgnoreCase(country)) {
+            errors.put("country", "出仓费目标方案只允许国家 " + expectedCountry + "。");
+        }
+        String expectedCurrency = expectedOutboundCurrency(targetPlan);
+        if (StringUtils.hasText(expectedCurrency)
+                && StringUtils.hasText(currency)
+                && !expectedCurrency.equalsIgnoreCase(currency)) {
+            errors.put("currency", "出仓费目标方案只允许币种 " + expectedCurrency + "。");
+        }
+    }
+
+    private boolean isOptionalUnboundedOfficialOutboundSizeField(
+            String itemType,
+            Map<String, Object> payload,
+            String field
+    ) {
+        return FileParseOfficialOutboundFeeStandard.SIZE_CLASSIFICATION.equals(itemType)
+                && isUnboundedBulkyClassification(payload)
+                && Set.of(
+                "longestSideMaxCm",
+                "medianSideMaxCm",
+                "shortestSideMaxCm",
+                "maxShippingWeightGrams"
+        ).contains(field);
+    }
+
+    private boolean isUnboundedBulkyClassification(Map<String, Object> payload) {
+        return payload != null
+                && "bulky".equalsIgnoreCase(normalizeSpaces(text(payload.get("classificationName"))));
+    }
+
+    private boolean containsNonOutboundFeeText(String value) {
+        String text = value == null ? "" : value.toLowerCase(Locale.ROOT);
+        return text.contains("referral")
+                || text.contains("commission")
+                || text.contains("sale price")
+                || text.contains("sales price");
+    }
+
+    private void validateNoFormulaAmount(Map<String, Object> payload, Map<String, Object> errors, String field) {
+        String value = text(payload.get(field));
+        if (!StringUtils.hasText(value)) {
+            return;
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (value.contains("%")
+                || lower.contains("if(")
+                || lower.contains("index(")
+                || lower.contains("switch(")
+                || lower.contains("_xlfn.switch")) {
+            errors.put(field, "出仓费金额必须是可比较的金额数字，不能是百分比或 Excel 公式。");
+        }
+    }
+
+    private void applyLogisticsValidation(
+            FileParseItemStandardRow standard,
+            Map<String, Object> payload,
+            Map<String, Object> errors,
+            Map<String, Object> warnings
+    ) {
+        if (!FileParseLogisticsQuoteStandard.CARGO_CATEGORY.equals(standard.getItemType())) {
+            if (FileParseLogisticsQuoteStandard.BASE_PRICE.equals(standard.getItemType())) {
+                applyBasePriceValidation(payload, errors);
+            } else if (FileParseLogisticsQuoteStandard.WAREHOUSE_SERVICE_FEE.equals(standard.getItemType())) {
+                applyWarehouseFeeValidation(payload, errors, warnings);
+            } else if (FileParseLogisticsQuoteStandard.RESTRICTION.equals(standard.getItemType())) {
+                applyRestrictionValidation(payload, errors, warnings);
+            }
+            return;
+        }
+        if (Boolean.TRUE.equals(payload.get("manualConfirmRequired"))) {
+            warnings.put("manualConfirmRequired", "货物分类需要人工确认。确认后可发布。");
+        }
+    }
+
+    private void applyBasePriceValidation(Map<String, Object> payload, Map<String, Object> errors) {
+        String priceStatus = text(payload.get("priceStatus"));
+        boolean concretePrice = !("manual_confirm".equals(priceStatus) || "inquiry_required".equals(priceStatus));
+        if (concretePrice && !StringUtils.hasText(text(payload.get("unitPrice")))) {
+            errors.put("unitPrice", "基础价格必须填写可比较的单价。");
+        }
+
+        String pricingModel = text(payload.get("pricingModel"));
+        String billingUnit = text(payload.get("billingUnit"));
+        if ("per_volume".equals(pricingModel) && "kg".equals(billingUnit)) {
+            errors.put("incompatibleUnit", "按体积计费不能使用 kg 作为计费单位。");
+        }
+        if ("per_weight".equals(pricingModel) && "cbm".equals(billingUnit)) {
+            errors.put("incompatibleUnit", "按重量计费不能使用 cbm 作为计费单位。");
+        }
+    }
+
+    private void applyWarehouseFeeValidation(
+            Map<String, Object> payload,
+            Map<String, Object> errors,
+            Map<String, Object> warnings
+    ) {
+        boolean hasAmountOrRate = StringUtils.hasText(text(payload.get("amount")))
+                || StringUtils.hasText(text(payload.get("rate")));
+        if (!hasAmountOrRate) {
+            warnings.put("amount", "海外仓服务费缺少金额或费率；确认后可发布。");
+        }
+        if (StringUtils.hasText(text(payload.get("amount")))
+                && !StringUtils.hasText(text(payload.get("currency")))) {
+            errors.put("currency", "海外仓服务费金额存在时必须填写币种。");
+        }
+        String freeCondition = text(payload.get("freeCondition"));
+        if (StringUtils.hasText(freeCondition)
+                && (freeCondition.contains("待确认") || freeCondition.toLowerCase().contains("ambiguous"))) {
+            errors.put("freeCondition", "免收费条件不明确，需要人工确认。");
+        }
+    }
+
+    private void applyRestrictionValidation(
+            Map<String, Object> payload,
+            Map<String, Object> errors,
+            Map<String, Object> warnings
+    ) {
+        if ("blocking".equals(text(payload.get("severity")))) {
+            errors.put("blockingRestriction", "阻断级禁限运或合规条款需要人工确认后才能发布。");
+        }
+        if (Boolean.TRUE.equals(payload.get("manualConfirmRequired"))) {
+            warnings.put("manualConfirmRequired", "禁限运或合规条款需要人工确认。确认后可发布。");
         }
     }
 
@@ -1286,6 +2735,76 @@ public class FileParseStructuredAiService {
         return value == null ? null : String.valueOf(value).trim();
     }
 
+    private static final class OfficialOutboundContext {
+        private final String country;
+        private final String currency;
+        private final String effectiveDate;
+        private final String sourceVersion;
+
+        private OfficialOutboundContext(String country, String currency, String effectiveDate, String sourceVersion) {
+            this.country = country;
+            this.currency = currency;
+            this.effectiveDate = effectiveDate;
+            this.sourceVersion = sourceVersion;
+        }
+    }
+
+    private static final class OfficialOutboundClassification {
+        private final String name;
+        private final BigDecimal longestSideMaxCm;
+        private final BigDecimal medianSideMaxCm;
+        private final BigDecimal shortestSideMaxCm;
+        private final BigDecimal maxShippingWeightGrams;
+        private final BigDecimal packagingWeightGrams;
+        private final Integer priority;
+
+        private OfficialOutboundClassification(
+                String name,
+                String longestSideMaxCm,
+                String medianSideMaxCm,
+                String shortestSideMaxCm,
+                String maxShippingWeightGrams,
+                String packagingWeightGrams,
+                Integer priority
+        ) {
+            this.name = name;
+            this.longestSideMaxCm = decimalOrNull(longestSideMaxCm);
+            this.medianSideMaxCm = decimalOrNull(medianSideMaxCm);
+            this.shortestSideMaxCm = decimalOrNull(shortestSideMaxCm);
+            this.maxShippingWeightGrams = decimalOrNull(maxShippingWeightGrams);
+            this.packagingWeightGrams = decimalOrNull(packagingWeightGrams);
+            this.priority = priority;
+        }
+
+        private static BigDecimal decimalOrNull(String value) {
+            return StringUtils.hasText(value) ? new BigDecimal(value) : null;
+        }
+    }
+
+    private static final class OfficialOutboundSourceSlab {
+        private String classificationName;
+        private BigDecimal weightMinGrams;
+        private Boolean weightMinInclusive;
+        private BigDecimal weightMaxGrams;
+        private Boolean weightMaxInclusive;
+        private BigDecimal standardFeeAmount;
+        private BigDecimal highAspFeeAmount;
+        private BigDecimal extraWeightStepGrams;
+        private BigDecimal extraFeeAmount;
+        private String currency;
+        private List<Long> sourceRowIds = List.of();
+    }
+
+    private static final class ClassificationPrefix {
+        private final String classificationName;
+        private final String remainder;
+
+        private ClassificationPrefix(String classificationName, String remainder) {
+            this.classificationName = classificationName;
+            this.remainder = remainder;
+        }
+    }
+
     private static final class SourceLine {
         private final Long sourceRowId;
         private final String text;
@@ -1293,6 +2812,73 @@ public class FileParseStructuredAiService {
         private SourceLine(Long sourceRowId, String text) {
             this.sourceRowId = sourceRowId;
             this.text = text;
+        }
+    }
+
+    private static final class LogisticsServiceProfile {
+        private final String forwarderCode;
+        private final String country;
+        private final String transportMode;
+        private final String serviceLineKey;
+        private final String naturalKey;
+        private final List<Long> sourceRowIds;
+
+        private LogisticsServiceProfile(
+                String forwarderCode,
+                String country,
+                String transportMode,
+                String serviceLineKey,
+                String naturalKey,
+                List<Long> sourceRowIds
+        ) {
+            this.forwarderCode = forwarderCode;
+            this.country = country;
+            this.transportMode = transportMode;
+            this.serviceLineKey = serviceLineKey;
+            this.naturalKey = naturalKey;
+            this.sourceRowIds = sourceRowIds == null ? List.of() : List.copyOf(sourceRowIds);
+        }
+
+        private static LogisticsServiceProfile from(Map<String, Object> payload, List<Long> sourceRowIds) {
+            Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                    FileParseLogisticsQuoteStandard.SERVICE_LINE,
+                    payload
+            );
+            String naturalKey = FileParseNaturalKeySupport.buildNaturalKey(FileParseLogisticsQuoteStandard.SERVICE_LINE, normalized);
+            String serviceLineKey = text(normalized.get("serviceLineKey"));
+            if (!StringUtils.hasText(serviceLineKey)) {
+                serviceLineKey = String.join(" ", serviceLineKeyParts(normalized));
+            }
+            return new LogisticsServiceProfile(
+                    text(normalized.get("forwarderCode")),
+                    text(normalized.get("country")),
+                    text(normalized.get("transportMode")),
+                    serviceLineKey,
+                    StringUtils.hasText(naturalKey) ? naturalKey : serviceLineKey,
+                    sourceRowIds
+            );
+        }
+
+        private static List<String> serviceLineKeyParts(Map<String, Object> payload) {
+            List<String> parts = new ArrayList<>();
+            String forwarderCode = text(payload.get("forwarderCode"));
+            if (StringUtils.hasText(forwarderCode)) {
+                parts.add(forwarderCode.toUpperCase(Locale.ROOT));
+            }
+            addIfText(parts, text(payload.get("country")));
+            addIfText(parts, text(payload.get("transportMode")));
+            addIfText(parts, text(payload.get("serviceScope")));
+            return parts;
+        }
+
+        private static void addIfText(List<String> values, String value) {
+            if (StringUtils.hasText(value)) {
+                values.add(value);
+            }
+        }
+
+        private static String text(Object value) {
+            return value == null ? null : String.valueOf(value).trim();
         }
     }
 

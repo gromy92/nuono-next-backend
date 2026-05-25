@@ -40,6 +40,8 @@ public class ProfitCalculationCommand {
 
     private BigDecimal fbnOutboundFee;
 
+    private Boolean manualFbnOutboundFeeOverride;
+
     private BigDecimal fbpDirectShipFee;
 
     private BigDecimal fulfillmentFee;
@@ -186,6 +188,14 @@ public class ProfitCalculationCommand {
 
     public void setFbnOutboundFee(BigDecimal fbnOutboundFee) {
         this.fbnOutboundFee = fbnOutboundFee;
+    }
+
+    public Boolean getManualFbnOutboundFeeOverride() {
+        return manualFbnOutboundFeeOverride;
+    }
+
+    public void setManualFbnOutboundFeeOverride(Boolean manualFbnOutboundFeeOverride) {
+        this.manualFbnOutboundFeeOverride = manualFbnOutboundFeeOverride;
     }
 
     public BigDecimal getFbpDirectShipFee() {

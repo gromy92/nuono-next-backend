@@ -97,10 +97,7 @@ public class FileParseResultDiffService {
             FileParseItemStandardRow standard,
             FileParseVersionItemRow baseItem
     ) {
-        Map<String, Object> currentPayload = FileParseCommissionPayloadNormalizer.normalize(
-                item.getItemType(),
-                readMap(item.getNormalizedPayloadJson())
-        );
+        Map<String, Object> currentPayload = normalizePayload(item.getItemType(), readMap(item.getNormalizedPayloadJson()));
         item.setEffectivePayloadJson(writeJson(currentPayload));
         item.setEffectiveValidationStatus(item.getValidationStatus());
         item.setEffectivePayloadHash(sha256(writeJson(currentPayload)));
@@ -110,10 +107,7 @@ public class FileParseResultDiffService {
             return;
         }
 
-        Map<String, Object> oldPayload = FileParseCommissionPayloadNormalizer.normalize(
-                baseItem.getItemType(),
-                readMap(baseItem.getVersionPayloadJson())
-        );
+        Map<String, Object> oldPayload = normalizePayload(baseItem.getItemType(), readMap(baseItem.getVersionPayloadJson()));
         List<String> changedFieldKeys = changedFieldKeys(standard, oldPayload, currentPayload);
         item.setOldPayloadJson(writeJson(oldPayload));
         item.setChangedFieldKeysJson(writeJson(changedFieldKeys));
@@ -201,7 +195,7 @@ public class FileParseResultDiffService {
     private String resultKey(FileParseStructuredItem item) {
         return FileParseNaturalKeySupport.matchKey(
                 item.getItemType(),
-                FileParseCommissionPayloadNormalizer.normalize(item.getItemType(), readMap(item.getNormalizedPayloadJson())),
+                normalizePayload(item.getItemType(), readMap(item.getNormalizedPayloadJson())),
                 item.getNaturalKeyHash()
         );
     }
@@ -209,9 +203,17 @@ public class FileParseResultDiffService {
     private String resultKey(FileParseVersionItemRow item) {
         return FileParseNaturalKeySupport.matchKey(
                 item.getItemType(),
-                FileParseCommissionPayloadNormalizer.normalize(item.getItemType(), readMap(item.getVersionPayloadJson())),
+                normalizePayload(item.getItemType(), readMap(item.getVersionPayloadJson())),
                 item.getNaturalKeyHash()
         );
+    }
+
+    private Map<String, Object> normalizePayload(String itemType, Map<String, Object> payload) {
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                itemType,
+                FileParseCommissionPayloadNormalizer.normalize(itemType, payload)
+        );
+        return FileParseOutboundFeePayloadNormalizer.normalize(itemType, normalized);
     }
 
     private boolean shouldSuppressDeleteSuspected(int baseItemCount, int matchedBaseItemCount) {
