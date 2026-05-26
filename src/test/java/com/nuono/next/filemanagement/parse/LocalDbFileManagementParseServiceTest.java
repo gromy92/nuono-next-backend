@@ -187,6 +187,21 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
+    void shouldSoftDeletePublishedParseTaskFromTaskList() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTaskRow publishedTask = task(20077L, 4001L, "published", 1);
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20077L)).thenReturn(publishedTask);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true))
+                .thenReturn(targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_fee"));
+        when(fileManagementParseMapper.softDeleteTask(20077L, 10001L)).thenReturn(1);
+
+        service.deleteTask(new AuthenticatedSession(10001L, 1L, 0), 20077L);
+
+        verify(fileManagementParseMapper).softDeleteTask(20077L, 10001L);
+    }
+
+    @Test
     void shouldResetStaleParsingTaskAndRetryAutomatically() {
         LocalDbFileManagementParseService spyService = spy(service);
         FileParseTaskRow staleTask = task(20001L, 4005L, "parsing", 1);
