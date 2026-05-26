@@ -1,12 +1,12 @@
 -- Add the Noon call store-data entry to the real permission menu.
--- The API still uses the system reports capability boundary, but the user-facing
--- navigation lives under Noon调用 > 店铺数据.
+-- The API still uses the system reports capability boundary, and the URL path
+-- follows the system-reports first-level link.
 
 SET NAMES utf8mb4;
 
 INSERT INTO `menu` (`id`, `name`, `parent_id`, `url_path`, `is_deleted`, `gmt_create`, `gmt_updated`)
 VALUES
-  (9700, 'Noon调用', 0, '/noon-call', b'0', NOW(), NOW())
+  (9700, 'Noon调用', 0, '/system-reports', b'0', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),
   `parent_id` = VALUES(`parent_id`),
@@ -16,7 +16,7 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `menu` (`id`, `name`, `parent_id`, `url_path`, `is_deleted`, `gmt_create`, `gmt_updated`)
 VALUES
-  (9701, '店铺数据', 9700, '/noon-call/store-data', b'0', NOW(), NOW())
+  (9701, '店铺数据', 9700, '/system-reports/store-data', b'0', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),
   `parent_id` = VALUES(`parent_id`),
