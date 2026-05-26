@@ -7,7 +7,6 @@ import com.nuono.next.nooncompleteness.NoonDataCompletenessRecord;
 import com.nuono.next.nooncompleteness.NoonDataCategory;
 import com.nuono.next.nooncompleteness.NoonDataGapQuery;
 import com.nuono.next.nooncompleteness.NoonDataGapWindowRecord;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
@@ -127,6 +126,7 @@ public interface NoonDataCompletenessMapper extends NoonDataCompletenessAuditSco
             "  requires_manual_action = VALUES(requires_manual_action),",
             "  diagnostic_summary = VALUES(diagnostic_summary),",
             "  completed_empty_evidence_summary = VALUES(completed_empty_evidence_summary),",
+            "  is_deleted = b'0',",
             "  gmt_updated = VALUES(gmt_updated)"
     })
     void insertGapWindow(NoonDataGapWindowRecord record);
@@ -160,14 +160,11 @@ public interface NoonDataCompletenessMapper extends NoonDataCompletenessAuditSco
             "WHERE is_deleted = b'0'",
             "  AND completeness_id = #{completenessId}",
             "  AND data_category = #{category}",
-            "  AND window_type = 'HISTORY_BACKFILL'",
-            "  AND (date_from < #{dateFrom} OR date_to > #{dateTo})"
+            "  AND window_type = 'HISTORY_BACKFILL'"
     })
-    void deleteHistoryBackfillGapsOutsideRange(
+    void deleteHistoryBackfillGaps(
             @Param("completenessId") Long completenessId,
             @Param("category") NoonDataCategory category,
-            @Param("dateFrom") LocalDate dateFrom,
-            @Param("dateTo") LocalDate dateTo,
             @Param("updatedAt") LocalDateTime updatedAt
     );
 }

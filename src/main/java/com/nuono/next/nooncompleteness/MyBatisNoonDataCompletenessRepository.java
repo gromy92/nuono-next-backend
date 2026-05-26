@@ -2,7 +2,6 @@ package com.nuono.next.nooncompleteness;
 
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.NoonDataCompletenessMapper;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.context.annotation.Profile;
@@ -45,13 +44,11 @@ public class MyBatisNoonDataCompletenessRepository implements NoonDataCompletene
     }
 
     @Override
-    public void deleteHistoryBackfillGapsOutsideRange(
+    public void deleteHistoryBackfillGaps(
             Long completenessId,
             NoonDataCategory category,
-            LocalDate dateFrom,
-            LocalDate dateTo,
             LocalDateTime updatedAt
     ) {
-        mapper.deleteHistoryBackfillGapsOutsideRange(completenessId, category, dateFrom, dateTo, updatedAt);
+        mapper.deleteHistoryBackfillGaps(completenessId, category, updatedAt);
     }
 }

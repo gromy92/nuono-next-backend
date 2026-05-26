@@ -172,6 +172,17 @@ class NoonDataAuditServiceTest {
                 LocalDate.parse("2026-02-23"),
                 NoonDataGapStatus.PROVIDER_RETENTION_LIMIT
         ));
+        NoonDataGapWindowRecord overlappingLegacyGap = gap(
+                10001L,
+                NoonDataCategory.SALES_PRODUCT_VIEWS,
+                NoonDataGapWindowType.HISTORY_BACKFILL,
+                LocalDate.parse("2026-04-27"),
+                LocalDate.parse("2026-05-24"),
+                NoonDataGapStatus.PENDING
+        );
+        overlappingLegacyGap.setId(20002L);
+        overlappingLegacyGap.setDiagnosticSummary("history target 2025-11-25..2026-05-24");
+        repository.insertGapWindow(overlappingLegacyGap);
         NoonDataAuditService service = new NoonDataAuditService(
                 repository,
                 (command) -> new NoonProductCompletenessAudit(12, 10, 9),
@@ -185,6 +196,8 @@ class NoonDataAuditServiceTest {
         List<NoonDataGapWindowRecord> gaps = gaps(repository, NoonDataCategory.SALES_PRODUCT_VIEWS);
         assertEquals(2, gaps.size());
         assertTrue(gaps.stream().noneMatch((gap) -> gap.getDateTo().isBefore(LocalDate.parse("2026-04-25"))));
+        assertTrue(gaps.stream().noneMatch((gap) -> LocalDate.parse("2026-04-27").equals(gap.getDateFrom())));
+        assertTrue(gaps.stream().noneMatch((gap) -> gap.getDiagnosticSummary().contains("2025-11-25")));
         assertTrue(gaps.stream().anyMatch((gap) ->
                 gap.getWindowType() == NoonDataGapWindowType.HISTORY_BACKFILL
                         && LocalDate.parse("2026-04-25").equals(gap.getDateFrom())
@@ -460,18 +473,15 @@ class NoonDataAuditServiceTest {
         }
 
         @Override
-        public void deleteHistoryBackfillGapsOutsideRange(
+        public void deleteHistoryBackfillGaps(
                 Long completenessId,
                 NoonDataCategory category,
-                LocalDate dateFrom,
-                LocalDate dateTo,
                 LocalDateTime updatedAt
         ) {
             gaps.removeIf((gap) ->
                     Objects.equals(completenessId, gap.getCompletenessId())
                             && gap.getCategory() == category
-                            && gap.getWindowType() == NoonDataGapWindowType.HISTORY_BACKFILL
-                            && (gap.getDateFrom().isBefore(dateFrom) || gap.getDateTo().isAfter(dateTo)));
+                            && gap.getWindowType() == NoonDataGapWindowType.HISTORY_BACKFILL);
         }
 
         private boolean sameCompletenessScope(NoonDataCompletenessRecord left, NoonDataCompletenessRecord right) {
