@@ -187,17 +187,42 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
-    void shouldSoftDeletePublishedParseTaskFromTaskList() {
+    void shouldDeletePublishedParseTaskArtifactsAndActiveBusinessResults() {
         FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
         FileParseTaskRow publishedTask = task(20077L, 4001L, "published", 1);
         when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
         when(fileManagementParseMapper.selectTask(20077L)).thenReturn(publishedTask);
         when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true))
                 .thenReturn(targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_fee"));
+        when(fileManagementParseMapper.selectVersionIdsBySourceTask(20077L)).thenReturn(List.of(70077L));
         when(fileManagementParseMapper.softDeleteTask(20077L, 10001L)).thenReturn(1);
 
         service.deleteTask(new AuthenticatedSession(10001L, 1L, 0), 20077L);
 
+        verify(fileManagementParseMapper).softDeleteActiveVersionsByVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsServiceLinesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsCargoCategoriesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsPriceRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsSurchargeRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsBillingRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsWarehouseFeeRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsRestrictionRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markOfficialOutboundSizeClassificationRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markOfficialOutboundFeeWeightSlabRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markOfficialOutboundFeeCalculationPoliciesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).softDeleteLogisticsChannelActivationsByVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).softDeleteVersionItemsByVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).softDeleteVersionsByIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).deleteCurrentResultByTask(20077L);
+        verify(fileManagementParseMapper).softDeleteTaskInputsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteFileAssetsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteSourceRowsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).deleteResultItemSourcesByTask(20077L);
+        verify(fileManagementParseMapper).softDeleteValidationIssuesByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteItemReviewsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteResultItemsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).markResultsDeletedByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).deleteAiChunksByTask(20077L);
         verify(fileManagementParseMapper).softDeleteTask(20077L, 10001L);
     }
 

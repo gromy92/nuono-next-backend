@@ -171,10 +171,42 @@ public class LocalDbFileManagementParseService {
         FileParseTaskRow task = requireTask(taskId);
         FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, task.getTargetPlanId());
         requireCanCreateTask(targetPlan, user);
+        List<Long> versionIds = fileManagementParseMapper.selectVersionIdsBySourceTask(task.getId());
+        deletePublishedBusinessResults(versionIds, user.getUserId());
+        fileManagementParseMapper.deleteCurrentResultByTask(task.getId());
+        fileManagementParseMapper.deleteResultItemSourcesByTask(task.getId());
+        fileManagementParseMapper.deleteAiChunksByTask(task.getId());
+        fileManagementParseMapper.softDeleteValidationIssuesByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteSourceRowsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteItemReviewsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteResultItemsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.markResultsDeletedByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteTaskInputsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteFileAssetsByTask(task.getId(), user.getUserId());
         int affectedRows = fileManagementParseMapper.softDeleteTask(task.getId(), user.getUserId());
         if (affectedRows <= 0) {
             throw new IllegalArgumentException("解析文档不存在或已删除。");
         }
+    }
+
+    private void deletePublishedBusinessResults(List<Long> versionIds, Long operatorUserId) {
+        if (versionIds == null || versionIds.isEmpty()) {
+            return;
+        }
+        fileManagementParseMapper.softDeleteActiveVersionsByVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsServiceLinesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsCargoCategoriesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsPriceRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsSurchargeRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsBillingRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsWarehouseFeeRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsRestrictionRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markOfficialOutboundSizeClassificationRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markOfficialOutboundFeeWeightSlabRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markOfficialOutboundFeeCalculationPoliciesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.softDeleteLogisticsChannelActivationsByVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.softDeleteVersionItemsByVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.softDeleteVersionsByIds(versionIds, operatorUserId);
     }
 
     @Transactional
