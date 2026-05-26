@@ -49,6 +49,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class LocalDbFileManagementParseServiceTest {
@@ -1547,6 +1548,44 @@ class LocalDbFileManagementParseServiceTest {
         assertEquals("failed", run.getStatus());
         assertEquals("AI capability is disabled", run.getMessage());
         verify(fileManagementParseMapper).markTaskFailed(anyLong(), anyString(), anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void shouldQueueRetryWhenAiProviderReturnsHttp550() {
+        ReflectionTestUtils.setField(service, "retrySchedulerEnabled", true);
+        ReflectionTestUtils.setField(service, "retrySchedulerMaxAttempts", 5);
+        ReflectionTestUtils.setField(service, "retrySchedulerRetryDelaySeconds", 60);
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseTaskRow task = task(20001L, 4005L, "reading", 0);
+        FileParseTaskInputRow textInput = taskInput(30001L, "manual_text", "人工方案", null, null, "义特报价");
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20001L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.markTaskParsing(anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(fileManagementParseMapper.selectTaskInputs(20001L)).thenReturn(List.of(textInput));
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(logisticsItemStandard()));
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class)))
+                .thenReturn(AiStructuredTextResult.failure("AI_PROVIDER_ERROR", "OPENAI_HTTP_550", "provider temporary failure"));
+        when(fileManagementParseMapper.markTaskFailedRetryable(anyLong(), anyString(), anyString(), anyString(), anyInt(), anyLong())).thenReturn(1);
+        stubStableProcessStart();
+        when(fileManagementParseMapper.markAiChunkFailed(anyLong(), anyLong(), anyString(), anyString(), anyLong())).thenReturn(1);
+
+        FileParseTaskRunView run = service.startParseTask(new AuthenticatedSession(10001L, 1L, 0), 20001L);
+
+        assertEquals("retry_waiting", run.getStatus());
+        assertTrue(run.getMessage().contains("系统会自动重试"));
+        verify(fileManagementParseMapper).markTaskFailedRetryable(
+                eq(20001L),
+                eq("OPENAI_HTTP_550"),
+                eq("provider temporary failure"),
+                anyString(),
+                anyInt(),
+                eq(10001L)
+        );
+        verify(fileManagementParseMapper, never()).markTaskFailed(eq(20001L), eq("OPENAI_HTTP_550"), anyString(), anyString(), eq(10001L));
     }
 
     @Test

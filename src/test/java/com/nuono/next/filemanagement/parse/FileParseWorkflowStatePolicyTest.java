@@ -38,6 +38,7 @@ class FileParseWorkflowStatePolicyTest {
     void shouldScheduleRetryOnlyForTransientAiFailuresWithRemainingAttempts() {
         assertTrue(policy.shouldScheduleRetry(1, "OPENAI_REQUEST_TIMEOUT", "socket timeout", 3));
         assertTrue(policy.shouldScheduleRetry(0, "OPENAI_HTTP_503", "service unavailable", 3));
+        assertTrue(policy.shouldScheduleRetry(0, "OPENAI_HTTP_550", "provider temporary failure", 3));
 
         assertFalse(policy.shouldScheduleRetry(2, "OPENAI_REQUEST_TIMEOUT", "socket timeout", 3));
         assertFalse(policy.shouldScheduleRetry(0, "OPENAI_HTTP_400", "bad request", 3));
