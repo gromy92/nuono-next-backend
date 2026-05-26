@@ -1310,6 +1310,24 @@ public interface FileManagementParseMapper {
     })
     List<FileParseTaskInputRow> selectTaskInputs(@Param("taskId") Long taskId);
 
+    @Select({
+            "<script>",
+            "SELECT",
+            "  ti.id, ti.task_id, ti.input_type, ti.input_role, ti.file_asset_id,",
+            "  ti.text_content, ti.display_name, ti.sort_no,",
+            "  fa.original_file_name, fa.content_type, fa.file_extension, fa.storage_key, fa.sha256_hash",
+            "FROM file_mgmt_parse_task_input ti",
+            "LEFT JOIN file_mgmt_parse_file_asset fa",
+            "  ON fa.id = ti.file_asset_id",
+            " AND fa.is_deleted = b'0'",
+            "WHERE ti.is_deleted = b'0'",
+            "  AND ti.task_id IN",
+            "  <foreach collection='taskIds' item='taskId' open='(' separator=',' close=')'>#{taskId}</foreach>",
+            "ORDER BY ti.task_id ASC, ti.sort_no ASC, ti.id ASC",
+            "</script>"
+    })
+    List<FileParseTaskInputRow> selectTaskInputsByTaskIds(@Param("taskIds") List<Long> taskIds);
+
     @Update({
             "DELETE FROM file_mgmt_parse_source_row",
             "WHERE task_id = #{taskId}"

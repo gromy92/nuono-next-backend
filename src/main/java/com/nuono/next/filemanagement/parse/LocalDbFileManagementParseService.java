@@ -149,6 +149,7 @@ public class LocalDbFileManagementParseService {
                 .stream()
                 .peek(item -> item.setAvailableActions(resolveActions(toTargetPlanRow(item), user)))
                 .collect(Collectors.toList());
+        enrichTaskListInputs(items);
 
         FileParseTaskListView view = new FileParseTaskListView();
         view.setTotal(total);
@@ -156,6 +157,31 @@ public class LocalDbFileManagementParseService {
         view.setPageSize(pageSize);
         view.setItems(items);
         return view;
+    }
+
+    private void enrichTaskListInputs(List<FileParseTaskListItemView> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        List<Long> taskIds = items.stream()
+                .map(FileParseTaskListItemView::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (taskIds.isEmpty()) {
+            return;
+        }
+        Map<Long, List<FileParseTaskInputView>> inputItemsByTaskId = fileManagementParseMapper
+                .selectTaskInputsByTaskIds(taskIds)
+                .stream()
+                .filter(row -> row.getTaskId() != null)
+                .collect(Collectors.groupingBy(
+                        FileParseTaskInputRow::getTaskId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(this::toTaskInputView, Collectors.toList())
+                ));
+        for (FileParseTaskListItemView item : items) {
+            item.setInputItems(inputItemsByTaskId.getOrDefault(item.getId(), List.of()));
+        }
     }
 
     public FileParseTaskDetailView getTask(AuthenticatedSession session, Long taskId) {

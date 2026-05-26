@@ -135,6 +135,33 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
+    void shouldIncludeInputDisplayNamesAndDownloadLinksOnTaskList() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTaskListItemView task = taskListItem(20001L, 4005L);
+        FileParseTaskInputRow input = taskInput(
+                30001L,
+                "excel",
+                "Noon佣金表.xlsx",
+                "xlsx",
+                "2026/30001-Noon佣金表.xlsx",
+                null
+        );
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.countTasks(null, null, null, 0, true)).thenReturn(1);
+        when(fileManagementParseMapper.selectTasks(null, null, null, 0, true, 20, 0)).thenReturn(List.of(task));
+        when(fileManagementParseMapper.selectTaskInputsByTaskIds(List.of(20001L))).thenReturn(List.of(input));
+
+        FileParseTaskListView view = service.listTasks(new AuthenticatedSession(10001L, 1L, 0), null, null, null, 1, 20);
+
+        assertEquals(1, view.getItems().size());
+        assertEquals(1, view.getItems().get(0).getInputItems().size());
+        FileParseTaskInputView listInput = view.getItems().get(0).getInputItems().get(0);
+        assertEquals("Noon佣金表.xlsx", listInput.getDisplayName());
+        assertEquals("/api/file-management/parse/files/10001/download", listInput.getDownloadUrl());
+    }
+
+    @Test
     void shouldAllowBossToProcessAndActivateLogisticsButNotPublish() {
         FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
         when(fileManagementParseMapper.selectUserContext(10002L)).thenReturn(boss);
@@ -3214,6 +3241,28 @@ class LocalDbFileManagementParseServiceTest {
         row.setParseAttemptCount(parseAttemptCount);
         row.setCreatedBy(10001L);
         return row;
+    }
+
+    private FileParseTaskListItemView taskListItem(Long id, Long targetPlanId) {
+        FileParseTaskListItemView view = new FileParseTaskListItemView();
+        view.setId(id);
+        view.setTaskNo("TASK-20260513-" + id);
+        view.setDocumentTitle("Noon 佣金 2026-05");
+        view.setTargetPlanId(targetPlanId);
+        view.setTargetPlanCode("commission_ksa");
+        view.setTargetPlanLabel("佣金-KSA");
+        view.setDocumentType("official_fee");
+        view.setDocumentName("佣金规则");
+        view.setStandardVersion("STD-COMMISSION-2026-05");
+        view.setCurrentVersion("V2026.05");
+        view.setStatus("review_required");
+        view.setDataScopeType("global");
+        view.setDataScopeKey("global:*");
+        view.setDocumentGroupId(id);
+        view.setIterationNo(1);
+        view.setTotalCount(1);
+        view.setPendingCount(1);
+        return view;
     }
 
     private FileParseTaskInputRow taskInput(
