@@ -5,11 +5,11 @@
 SET NAMES utf8mb4;
 
 UPDATE `menu`
-SET `url_path` = '/system-reports',
+SET `name` = '系统报表',
+    `url_path` = '/system-reports',
     `is_deleted` = b'0',
     `gmt_updated` = NOW()
-WHERE `id` = 9700
-  AND `name` = 'Noon调用';
+WHERE `id` = 9700;
 
 UPDATE `menu`
 SET `url_path` = '/system-reports/store-data',

@@ -6,7 +6,7 @@ SET NAMES utf8mb4;
 
 INSERT INTO `menu` (`id`, `name`, `parent_id`, `url_path`, `is_deleted`, `gmt_create`, `gmt_updated`)
 VALUES
-  (9700, 'Noon调用', 0, '/system-reports', b'0', NOW(), NOW())
+  (9700, '系统报表', 0, '/system-reports', b'0', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),
   `parent_id` = VALUES(`parent_id`),
