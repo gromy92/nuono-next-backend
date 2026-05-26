@@ -1,6 +1,8 @@
 package com.nuono.next.filemanagement.parse;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FileParseTaskListItemView {
 
@@ -36,6 +38,7 @@ public class FileParseTaskListItemView {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private FileParseAvailableActions availableActions;
+    private List<FileParseTaskInputView> inputItems = new ArrayList<>();
 
     public Long getId() {
         return id;
@@ -291,5 +294,13 @@ public class FileParseTaskListItemView {
 
     public void setAvailableActions(FileParseAvailableActions availableActions) {
         this.availableActions = availableActions;
+    }
+
+    public List<FileParseTaskInputView> getInputItems() {
+        return inputItems;
+    }
+
+    public void setInputItems(List<FileParseTaskInputView> inputItems) {
+        this.inputItems = inputItems == null ? new ArrayList<>() : inputItems;
     }
 }
