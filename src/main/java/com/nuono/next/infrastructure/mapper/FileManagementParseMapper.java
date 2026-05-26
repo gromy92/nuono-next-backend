@@ -902,6 +902,19 @@ public interface FileManagementParseMapper {
     })
     FileParseTaskRow selectTask(@Param("taskId") Long taskId);
 
+    @Update({
+            "UPDATE file_mgmt_parse_task",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteTask(
+            @Param("taskId") Long taskId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
     @Select({
             "SELECT",
             "  id, task_no, document_title, target_plan_id, standard_version_id,",

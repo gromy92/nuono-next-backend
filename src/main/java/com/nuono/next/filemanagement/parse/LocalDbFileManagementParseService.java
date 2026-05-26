@@ -166,6 +166,18 @@ public class LocalDbFileManagementParseService {
     }
 
     @Transactional
+    public void deleteTask(AuthenticatedSession session, Long taskId) {
+        FileParseUserContext user = requireFileManagementUser(session);
+        FileParseTaskRow task = requireTask(taskId);
+        FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, task.getTargetPlanId());
+        requireCanCreateTask(targetPlan, user);
+        int affectedRows = fileManagementParseMapper.softDeleteTask(task.getId(), user.getUserId());
+        if (affectedRows <= 0) {
+            throw new IllegalArgumentException("解析文档不存在或已删除。");
+        }
+    }
+
+    @Transactional
     public FileParseUploadView uploadFile(AuthenticatedSession session, Long targetPlanId, MultipartFile file) {
         FileParseUserContext user = requireFileManagementUser(session);
         FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, targetPlanId);
