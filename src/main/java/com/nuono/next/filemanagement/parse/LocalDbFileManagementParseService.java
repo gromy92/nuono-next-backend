@@ -498,6 +498,9 @@ public class LocalDbFileManagementParseService {
                         retryDelaySeconds(),
                         user.getUserId()
                 );
+                FileParseTaskRunView view = toRunView(task, "retry_waiting", List.of());
+                view.setMessage("AI 服务临时异常，系统会自动重试。");
+                return view;
             } else {
                 fileManagementParseMapper.markTaskFailed(task.getId(), error.getCode(), message, lockOwner, user.getUserId());
             }

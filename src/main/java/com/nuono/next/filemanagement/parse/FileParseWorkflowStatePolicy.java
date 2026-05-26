@@ -88,7 +88,8 @@ class FileParseWorkflowStatePolicy {
                 || "OPENAI_HTTP_500".equals(failureCode)
                 || "OPENAI_HTTP_502".equals(failureCode)
                 || "OPENAI_HTTP_503".equals(failureCode)
-                || "OPENAI_HTTP_504".equals(failureCode);
+                || "OPENAI_HTTP_504".equals(failureCode)
+                || "OPENAI_HTTP_550".equals(failureCode);
     }
 
     private String trimFailureMessage(String message) {
