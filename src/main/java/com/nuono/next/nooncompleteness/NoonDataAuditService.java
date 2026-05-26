@@ -319,7 +319,7 @@ public class NoonDataAuditService {
         if (row == null || row.getId() == null || row.getCategory() == null || dateFrom == null || dateTo == null) {
             return;
         }
-        repository.deleteHistoryBackfillGapsOutsideRange(row.getId(), row.getCategory(), dateFrom, dateTo, now());
+        repository.deleteHistoryBackfillGaps(row.getId(), row.getCategory(), now());
     }
 
     private NoonHistoricalBackfillPolicy.SkuBaselineEvidence skuBaselineEvidence(

@@ -1,6 +1,5 @@
 package com.nuono.next.nooncompleteness;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -15,11 +14,9 @@ public interface NoonDataCompletenessRepository {
 
     List<NoonDataGapWindowRecord> listGapWindows(NoonDataGapQuery query);
 
-    default void deleteHistoryBackfillGapsOutsideRange(
+    default void deleteHistoryBackfillGaps(
             Long completenessId,
             NoonDataCategory category,
-            LocalDate dateFrom,
-            LocalDate dateTo,
             LocalDateTime updatedAt
     ) {
     }
