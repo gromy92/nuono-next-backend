@@ -535,7 +535,7 @@ class FileParseStructuredAiServiceLogisticsTest {
         row.setNaturalKeyJson("{\"fields\":[\"forwarderCode\",\"country\",\"fulfillmentMode\",\"transportMode\",\"serviceScope\",\"destinationNode\"]}");
         row.setFieldSchemaJson("{\"forwarderCode\":\"string\",\"country\":\"string\",\"fulfillmentMode\":\"string\",\"transportMode\":\"string\",\"serviceScope\":\"string\",\"destinationNode\":\"string\"}");
         row.setDisplayConfigJson("{\"columns\":[\"forwarderName\",\"country\",\"transportMode\",\"serviceScope\",\"destinationNode\",\"leadTimeText\"]}");
-        row.setValidationRuleJson("{\"required\":[\"forwarderCode\",\"country\",\"fulfillmentMode\",\"transportMode\",\"serviceScope\",\"destinationNode\"]}");
+        row.setValidationRuleJson("{\"required\":[\"forwarderCode\",\"country\",\"transportMode\",\"serviceScope\",\"destinationNode\"]}");
         row.setDiffRuleJson("{\"compareFields\":[\"leadTimeText\",\"leadTimeMinDays\",\"leadTimeMaxDays\",\"effectiveDate\"]}");
         row.setSortNo(31);
         return row;

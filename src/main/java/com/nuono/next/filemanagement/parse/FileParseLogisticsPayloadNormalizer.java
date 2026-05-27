@@ -63,8 +63,15 @@ final class FileParseLogisticsPayloadNormalizer {
         }
         putIfText(payload, "country", normalizeCountry(text(payload.get("country"))));
         putIfText(payload, "fulfillmentMode", normalizeFulfillmentMode(text(payload.get("fulfillmentMode"))));
+        if (!StringUtils.hasText(text(payload.get("fulfillmentMode")))) {
+            payload.put("fulfillmentMode", "FBN");
+        }
         putIfText(payload, "transportMode", normalizeTransportMode(text(payload.get("transportMode"))));
         putIfText(payload, "serviceScope", normalizeServiceScope(text(payload.get("serviceScope"))));
+        if ("FBN".equals(text(payload.get("fulfillmentMode")))
+                && !StringUtils.hasText(text(payload.get("serviceScope")))) {
+            payload.put("serviceScope", "fbn_delivery");
+        }
         putIfText(payload, "effectiveDate", normalizeDate(text(payload.get("effectiveDate"))));
         normalizeLeadTime(payload);
     }

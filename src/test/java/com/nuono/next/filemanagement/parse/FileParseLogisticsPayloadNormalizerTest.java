@@ -70,6 +70,42 @@ class FileParseLogisticsPayloadNormalizerTest {
     }
 
     @Test
+    void shouldDefaultServiceLineFulfillmentModeToFbnForCurrentLogisticsScope() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("forwarderName", "义特物流");
+        payload.put("country", "KSA");
+        payload.put("destinationNode", "Riyadh");
+        payload.put("transportMode", "海运双清包税");
+        payload.put("serviceScope", "FBN送仓");
+
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                "logistics_service_line",
+                payload
+        );
+
+        assertEquals("FBN", normalized.get("fulfillmentMode"));
+        assertEquals("sea", normalized.get("transportMode"));
+        assertEquals("fbn_delivery", normalized.get("serviceScope"));
+    }
+
+    @Test
+    void shouldDefaultMissingServiceScopeToFbnDeliveryForCurrentFbnOnlyLogisticsScope() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("forwarderName", "义特物流");
+        payload.put("country", "KSA");
+        payload.put("destinationNode", "Riyadh");
+        payload.put("transportMode", "海运双清包税");
+
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                "logistics_service_line",
+                payload
+        );
+
+        assertEquals("FBN", normalized.get("fulfillmentMode"));
+        assertEquals("fbn_delivery", normalized.get("serviceScope"));
+    }
+
+    @Test
     void shouldNormalizeCargoCategoryMetadata() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("forwarderName", "广州易通天下物流");

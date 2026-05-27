@@ -82,13 +82,13 @@ public final class FileParseLogisticsQuoteStandard {
                         "sourceVersion", "string"
                 ),
                 list(
-                        "forwarderName", "country", "fulfillmentMode", "destinationNode", "transportMode",
+                        "forwarderName", "country", "destinationNode", "transportMode",
                         "serviceScope", "originWarehouse", "destinationWarehouse", "departureFrequency",
                         "leadTimeText", "effectiveDate"
                 ),
-                list("forwarderCode", "country", "fulfillmentMode", "transportMode", "serviceScope", "destinationNode"),
+                list("forwarderCode", "country", "transportMode", "serviceScope", "destinationNode"),
                 list(
-                        "forwarderName", "country", "fulfillmentMode", "destinationNode", "transportMode",
+                        "forwarderName", "country", "destinationNode", "transportMode",
                         "serviceScope", "originWarehouse", "destinationWarehouse", "departureFrequency",
                         "leadTimeText", "leadTimeMinDays", "leadTimeMaxDays", "effectiveDate", "sourceVersion"
                 )
