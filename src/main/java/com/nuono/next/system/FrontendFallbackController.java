@@ -23,6 +23,8 @@ public class FrontendFallbackController {
             "/system-reports",
             "/system-reports/**",
             "/noon-call/store-data",
+            "/data",
+            "/data/**",
             "/product-manage",
             "/product/manual-selection",
             "/product/manual-selection/**",

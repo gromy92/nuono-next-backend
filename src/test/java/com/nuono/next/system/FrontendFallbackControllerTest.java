@@ -26,4 +26,14 @@ class FrontendFallbackControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(forwardedUrl("/index.html"));
     }
+
+    @Test
+    void shouldForwardDataWorkspaceFrontendRoutesToIndex() throws Exception {
+        mockMvc.perform(get("/data/sales-analysis"))
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("/index.html"));
+        mockMvc.perform(get("/data/sales-forecast"))
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("/index.html"));
+    }
 }
