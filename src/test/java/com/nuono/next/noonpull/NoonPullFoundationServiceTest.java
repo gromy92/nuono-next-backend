@@ -92,6 +92,18 @@ class NoonPullFoundationServiceTest {
     }
 
     @Test
+    void shouldNotCreateGapBackfillTaskAfterSuccessForSameWindow() {
+        NoonPullPlanRecord plan = service.createPlan(orderBackfillPlan());
+        NoonPullTaskRecord succeededTask = service.createTaskForPlan(plan.getId(), orderBackfillTask()).orElseThrow();
+        service.markSucceeded(succeededTask.getId(), "batch-order-001", "imported=271");
+
+        Optional<NoonPullTaskRecord> duplicate = service.createTaskForPlan(plan.getId(), orderBackfillTask());
+
+        assertFalse(duplicate.isPresent());
+        assertEquals(1, repository.tasks.size());
+    }
+
+    @Test
     void shouldCreateGapBackfillTaskAfterRetryableFailureForSameWindow() {
         NoonPullPlanRecord plan = service.createPlan(orderBackfillPlan());
         NoonPullTaskRecord failedTask = service.createTaskForPlan(plan.getId(), orderBackfillTask()).orElseThrow();
