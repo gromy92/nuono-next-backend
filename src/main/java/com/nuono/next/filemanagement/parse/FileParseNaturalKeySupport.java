@@ -170,19 +170,17 @@ final class FileParseNaturalKeySupport {
         );
         String forwarderCode = normalizeText(text(normalized.get("forwarderCode")));
         String country = normalizeUpper(text(normalized.get("country")));
-        String fulfillmentMode = normalizeUpper(text(normalized.get("fulfillmentMode")));
         String transportMode = normalizeText(text(normalized.get("transportMode")));
         String serviceScope = normalizeText(text(normalized.get("serviceScope")));
         String destinationNode = normalizeText(text(normalized.get("destinationNode")));
         if (!StringUtils.hasText(forwarderCode)
                 || !StringUtils.hasText(country)
-                || !StringUtils.hasText(fulfillmentMode)
                 || !StringUtils.hasText(transportMode)
                 || !StringUtils.hasText(serviceScope)
                 || !StringUtils.hasText(destinationNode)) {
             return null;
         }
-        return String.join("|", forwarderCode, country, fulfillmentMode, transportMode, serviceScope, destinationNode);
+        return String.join("|", forwarderCode, country, transportMode, serviceScope, destinationNode);
     }
 
     private static String buildLogisticsCargoCategoryNaturalKey(Map<String, Object> payload) {

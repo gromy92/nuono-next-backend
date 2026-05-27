@@ -390,7 +390,7 @@ public class LogisticsQuoteFactPublisher {
                 text(payload.get("forwarderCode")),
                 text(payload.get("forwarderName")),
                 text(payload.get("country")),
-                text(payload.get("fulfillmentMode")),
+                null,
                 text(payload.get("destinationNode")),
                 text(payload.get("transportMode")),
                 text(payload.get("serviceScope")),
@@ -412,7 +412,7 @@ public class LogisticsQuoteFactPublisher {
         return new LogisticsCargoCategoryFact(
                 naturalKey,
                 text(payload.get("forwarderCode")),
-                text(payload.get("serviceLineKey")),
+                keyText(payload.get("serviceLineKey")),
                 text(payload.get("categoryCode")),
                 text(payload.get("categoryName")),
                 text(payload.get("sourceCategoryName")),
@@ -436,8 +436,8 @@ public class LogisticsQuoteFactPublisher {
         return new LogisticsPriceRuleFact(
                 naturalKey,
                 text(payload.get("forwarderCode")),
-                text(payload.get("serviceLineKey")),
-                text(payload.get("cargoCategoryKey")),
+                keyText(payload.get("serviceLineKey")),
+                keyText(payload.get("cargoCategoryKey")),
                 decimal(payload.get("unitPrice")),
                 text(payload.get("currency")),
                 text(payload.get("billingUnit")),
@@ -460,7 +460,7 @@ public class LogisticsQuoteFactPublisher {
         return new LogisticsSurchargeRuleFact(
                 naturalKey,
                 text(payload.get("forwarderCode")),
-                text(payload.get("serviceLineKey")),
+                keyText(payload.get("serviceLineKey")),
                 text(payload.get("surchargeName")),
                 text(payload.get("surchargeType")),
                 text(payload.get("triggerCondition")),
@@ -481,8 +481,8 @@ public class LogisticsQuoteFactPublisher {
         return new LogisticsBillingRuleFact(
                 naturalKey,
                 text(payload.get("forwarderCode")),
-                text(payload.get("serviceLineKey")),
-                text(payload.get("cargoCategoryKey")),
+                keyText(payload.get("serviceLineKey")),
+                keyText(payload.get("cargoCategoryKey")),
                 text(payload.get("ruleName")),
                 text(payload.get("ruleType")),
                 text(payload.get("conditionText")),
@@ -502,7 +502,7 @@ public class LogisticsQuoteFactPublisher {
         return new LogisticsRestrictionRuleFact(
                 naturalKey,
                 text(payload.get("forwarderCode")),
-                text(payload.get("serviceLineKey")),
+                keyText(payload.get("serviceLineKey")),
                 text(payload.get("restrictionType")),
                 text(payload.get("itemText")),
                 text(payload.get("requirementText")),
@@ -539,6 +539,14 @@ public class LogisticsQuoteFactPublisher {
 
     private String text(Object value) {
         return value == null ? null : String.valueOf(value).trim();
+    }
+
+    private String keyText(Object value) {
+        String text = text(value);
+        if (text == null) {
+            return null;
+        }
+        return text.replace("|FBN|", "|").replace("|FBP|", "|");
     }
 
     private Integer integer(Object value) {

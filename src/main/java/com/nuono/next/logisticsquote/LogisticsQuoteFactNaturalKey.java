@@ -9,17 +9,16 @@ public class LogisticsQuoteFactNaturalKey {
         if (item == null) {
             return null;
         }
-        String provided = text(item.getNaturalKey());
+        LogisticsQuoteFactType factType = LogisticsQuoteFactType.fromItemType(item.getItemType());
+        Map<String, Object> payload = item.getPayload();
+        String provided = stripFulfillmentSegment(text(item.getNaturalKey()));
         if (!isBlank(provided)) {
             return provided;
         }
-        LogisticsQuoteFactType factType = LogisticsQuoteFactType.fromItemType(item.getItemType());
-        Map<String, Object> payload = item.getPayload();
         if (LogisticsQuoteFactType.SERVICE_LINE == factType) {
             return join(
                     payload.get("forwarderCode"),
                     payload.get("country"),
-                    payload.get("fulfillmentMode"),
                     payload.get("transportMode"),
                     payload.get("serviceScope"),
                     payload.get("destinationNode")
@@ -83,7 +82,7 @@ public class LogisticsQuoteFactNaturalKey {
     private String join(Object... values) {
         StringJoiner joiner = new StringJoiner("|");
         for (Object value : values) {
-            joiner.add(text(value));
+            joiner.add(stripFulfillmentSegment(text(value)));
         }
         return joiner.toString();
     }
@@ -94,5 +93,12 @@ public class LogisticsQuoteFactNaturalKey {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private String stripFulfillmentSegment(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("|FBN|", "|").replace("|FBP|", "|").trim();
     }
 }

@@ -17,7 +17,7 @@ class LogisticsQuoteSurchargeFactLandingTest {
     void shouldLandSurchargeFactAndKeepBasePriceUnchanged() {
         InMemoryFactRepository repository = new InMemoryFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String serviceLineKey = "et|SA|FBN|air|headhaul|RUH";
+        String serviceLineKey = "et|SA|air|headhaul|RUH";
         publisher.land(List.of(priceItem(88101L, "64", serviceLineKey)));
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(surchargeItem(
@@ -46,7 +46,7 @@ class LogisticsQuoteSurchargeFactLandingTest {
         List<LogisticsSurchargeRuleFact> surcharges = repository.findSurchargeRulesByServiceLineKey(serviceLineKey);
         assertEquals(1, surcharges.size());
         LogisticsSurchargeRuleFact fact = surcharges.get(0);
-        assertEquals("et|et|SA|FBN|air|headhaul|RUH|fuel surcharge", fact.getNaturalKey());
+        assertEquals("et|et|SA|air|headhaul|RUH|fuel surcharge", fact.getNaturalKey());
         assertEquals("et", fact.getForwarderCode());
         assertEquals(serviceLineKey, fact.getServiceLineKey());
         assertEquals("fuel surcharge", fact.getSurchargeName());
@@ -67,7 +67,7 @@ class LogisticsQuoteSurchargeFactLandingTest {
     void shouldSkipSurchargeWhenFeeIdentityOrTriggerConditionIsMissing() {
         InMemoryFactRepository repository = new InMemoryFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String serviceLineKey = "et|SA|FBN|air|headhaul|RUH";
+        String serviceLineKey = "et|SA|air|headhaul|RUH";
         publisher.land(List.of(surchargeItem(
                 "et|SA|fuel",
                 88111L,

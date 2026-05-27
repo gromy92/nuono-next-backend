@@ -126,7 +126,7 @@ class FileParseStructuredAiServiceLogisticsTest {
         Map<String, Object> servicePayload = payloadOf(serviceLine);
         assertEquals("et", servicePayload.get("forwarderCode"));
         assertEquals("KSA", servicePayload.get("country"));
-        assertEquals("FBN", servicePayload.get("fulfillmentMode"));
+        assertFalse(servicePayload.containsKey("fulfillmentMode"));
         assertEquals("express", servicePayload.get("transportMode"));
         assertEquals("warehouse_to_fbn", servicePayload.get("serviceScope"));
         assertEquals("KSA FBN warehouse", servicePayload.get("destinationNode"));
@@ -210,7 +210,7 @@ class FileParseStructuredAiServiceLogisticsTest {
         assertEquals("warehouse_to_fbn", payload.get("serviceScope"));
         assertEquals(5, payload.get("leadTimeMinDays"));
         assertEquals(7, payload.get("leadTimeMaxDays"));
-        assertEquals("et|KSA|FBN|cargo_air|warehouse_to_fbn|Riyadh FBN warehouse", item.getNaturalKey());
+        assertEquals("et|KSA|cargo_air|warehouse_to_fbn|Riyadh FBN warehouse", item.getNaturalKey());
         assertEquals("pass", item.getValidationStatus());
     }
 
@@ -532,8 +532,8 @@ class FileParseStructuredAiServiceLogisticsTest {
         row.setStandardVersionId(2003L);
         row.setItemType(FileParseLogisticsQuoteStandard.SERVICE_LINE);
         row.setItemLabel("物流服务线路");
-        row.setNaturalKeyJson("{\"fields\":[\"forwarderCode\",\"country\",\"fulfillmentMode\",\"transportMode\",\"serviceScope\",\"destinationNode\"]}");
-        row.setFieldSchemaJson("{\"forwarderCode\":\"string\",\"country\":\"string\",\"fulfillmentMode\":\"string\",\"transportMode\":\"string\",\"serviceScope\":\"string\",\"destinationNode\":\"string\"}");
+        row.setNaturalKeyJson("{\"fields\":[\"forwarderCode\",\"country\",\"transportMode\",\"serviceScope\",\"destinationNode\"]}");
+        row.setFieldSchemaJson("{\"forwarderCode\":\"string\",\"country\":\"string\",\"transportMode\":\"string\",\"serviceScope\":\"string\",\"destinationNode\":\"string\"}");
         row.setDisplayConfigJson("{\"columns\":[\"forwarderName\",\"country\",\"transportMode\",\"serviceScope\",\"destinationNode\",\"leadTimeText\"]}");
         row.setValidationRuleJson("{\"required\":[\"forwarderCode\",\"country\",\"transportMode\",\"serviceScope\",\"destinationNode\"]}");
         row.setDiffRuleJson("{\"compareFields\":[\"leadTimeText\",\"leadTimeMinDays\",\"leadTimeMaxDays\",\"effectiveDate\"]}");

@@ -31,6 +31,26 @@ class LogisticsQuoteFactStatusPolicyTest {
     }
 
     @Test
+    void serviceLineNaturalKeyShouldIgnoreFulfillmentModeAndLegacyProvidedKey() {
+        LogisticsQuoteFactNaturalKey naturalKey = new LogisticsQuoteFactNaturalKey();
+
+        String resolved = naturalKey.resolve(item(
+                "logistics_service_line",
+                "qike|SA|FBN|air|headhaul|RUH",
+                mapOf(
+                        "forwarderCode", "qike",
+                        "country", "SA",
+                        "fulfillmentMode", "FBN",
+                        "transportMode", "air",
+                        "serviceScope", "headhaul",
+                        "destinationNode", "RUH"
+                )
+        ));
+
+        assertEquals("qike|SA|air|headhaul|RUH", resolved);
+    }
+
+    @Test
     void shouldKeepManualConfirmCargoCategoryPending() {
         LogisticsQuoteFactStatusPolicy policy = new LogisticsQuoteFactStatusPolicy();
 

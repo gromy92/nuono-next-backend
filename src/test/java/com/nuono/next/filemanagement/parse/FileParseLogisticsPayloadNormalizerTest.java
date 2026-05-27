@@ -1,6 +1,7 @@
 package com.nuono.next.filemanagement.parse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -32,7 +33,7 @@ class FileParseLogisticsPayloadNormalizerTest {
         assertEquals("et", normalized.get("forwarderCode"));
         assertEquals("ET/易通", normalized.get("forwarderName"));
         assertEquals("KSA", normalized.get("country"));
-        assertEquals("FBN", normalized.get("fulfillmentMode"));
+        assertFalse(normalized.containsKey("fulfillmentMode"));
         assertEquals("Riyadh FBN warehouse", normalized.get("destinationNode"));
         assertEquals("cargo_air", normalized.get("transportMode"));
         assertEquals("warehouse_to_fbn", normalized.get("serviceScope"));
@@ -70,7 +71,7 @@ class FileParseLogisticsPayloadNormalizerTest {
     }
 
     @Test
-    void shouldDefaultServiceLineFulfillmentModeToFbnForCurrentLogisticsScope() {
+    void shouldNotExposeFulfillmentModeForCurrentFbnOnlyLogisticsScope() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("forwarderName", "义特物流");
         payload.put("country", "KSA");
@@ -83,7 +84,7 @@ class FileParseLogisticsPayloadNormalizerTest {
                 payload
         );
 
-        assertEquals("FBN", normalized.get("fulfillmentMode"));
+        assertFalse(normalized.containsKey("fulfillmentMode"));
         assertEquals("sea", normalized.get("transportMode"));
         assertEquals("fbn_delivery", normalized.get("serviceScope"));
     }
@@ -101,7 +102,7 @@ class FileParseLogisticsPayloadNormalizerTest {
                 payload
         );
 
-        assertEquals("FBN", normalized.get("fulfillmentMode"));
+        assertFalse(normalized.containsKey("fulfillmentMode"));
         assertEquals("fbn_delivery", normalized.get("serviceScope"));
     }
 
