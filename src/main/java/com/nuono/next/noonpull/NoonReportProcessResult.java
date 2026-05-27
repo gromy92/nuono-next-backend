@@ -14,11 +14,17 @@ public class NoonReportProcessResult {
     private final Code code;
     private final int importedCount;
     private final int exceptionCount;
+    private final String diagnosticMessage;
 
     private NoonReportProcessResult(Code code, int importedCount, int exceptionCount) {
+        this(code, importedCount, exceptionCount, null);
+    }
+
+    private NoonReportProcessResult(Code code, int importedCount, int exceptionCount, String diagnosticMessage) {
         this.code = code;
         this.importedCount = importedCount;
         this.exceptionCount = exceptionCount;
+        this.diagnosticMessage = diagnosticMessage;
     }
 
     public static NoonReportProcessResult succeeded(int importedCount, int exceptionCount) {
@@ -41,6 +47,10 @@ public class NoonReportProcessResult {
         return new NoonReportProcessResult(Code.MISSING_COLUMNS, 0, 0);
     }
 
+    public static NoonReportProcessResult missingColumns(String diagnosticMessage) {
+        return new NoonReportProcessResult(Code.MISSING_COLUMNS, 0, 0, diagnosticMessage);
+    }
+
     public static NoonReportProcessResult mappingFailed(int exceptionCount) {
         return new NoonReportProcessResult(Code.MAPPING_FAILED, 0, exceptionCount);
     }
@@ -59,5 +69,9 @@ public class NoonReportProcessResult {
 
     public int getExceptionCount() {
         return exceptionCount;
+    }
+
+    public String getDiagnosticMessage() {
+        return diagnosticMessage;
     }
 }

@@ -1,6 +1,7 @@
 package com.nuono.next.noonpull;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -14,6 +15,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -21,6 +23,7 @@ import org.springframework.util.StringUtils;
 public class NoonPullScheduler {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private static final LocalTime SALES_READY_AFTER = LocalTime.of(8, 0);
+    private static final Duration STALE_RUNNING_TASK_MAX_AGE = Duration.ofHours(2);
 
     private final NoonPullFoundationService foundationService;
     private final Clock clock;
@@ -28,16 +31,22 @@ public class NoonPullScheduler {
     private final NoonOrderBackfillPlanner orderBackfillPlanner;
     private final NoonSalesRetentionPolicy salesRetentionPolicy;
     private final NoonProviderAvailability providerAvailability;
+    private final Duration staleRunningTaskMaxAge;
 
     @Autowired
-    public NoonPullScheduler(NoonPullFoundationService foundationService) {
+    public NoonPullScheduler(
+            NoonPullFoundationService foundationService,
+            @Value("${nuono.noon.pull.scheduler.stale-running-task-max-age-minutes:120}")
+            long staleRunningTaskMaxAgeMinutes
+    ) {
         this(
                 foundationService,
                 Clock.system(SHANGHAI),
                 new NoonOrderReportSchedulePolicy(),
                 new NoonOrderBackfillPlanner(),
                 new NoonSalesRetentionPolicy(Clock.system(SHANGHAI)),
-                (plan) -> true
+                (plan) -> true,
+                Duration.ofMinutes(staleRunningTaskMaxAgeMinutes)
         );
     }
 
@@ -49,16 +58,38 @@ public class NoonPullScheduler {
             NoonSalesRetentionPolicy salesRetentionPolicy,
             NoonProviderAvailability providerAvailability
     ) {
+        this(
+                foundationService,
+                clock,
+                orderSchedulePolicy,
+                orderBackfillPlanner,
+                salesRetentionPolicy,
+                providerAvailability,
+                STALE_RUNNING_TASK_MAX_AGE
+        );
+    }
+
+    public NoonPullScheduler(
+            NoonPullFoundationService foundationService,
+            Clock clock,
+            NoonOrderReportSchedulePolicy orderSchedulePolicy,
+            NoonOrderBackfillPlanner orderBackfillPlanner,
+            NoonSalesRetentionPolicy salesRetentionPolicy,
+            NoonProviderAvailability providerAvailability,
+            Duration staleRunningTaskMaxAge
+    ) {
         this.foundationService = foundationService;
         this.clock = clock == null ? Clock.system(SHANGHAI) : clock.withZone(SHANGHAI);
         this.orderSchedulePolicy = orderSchedulePolicy;
         this.orderBackfillPlanner = orderBackfillPlanner;
         this.salesRetentionPolicy = salesRetentionPolicy;
         this.providerAvailability = providerAvailability == null ? (plan) -> true : providerAvailability;
+        this.staleRunningTaskMaxAge = safeStaleRunningTaskMaxAge(staleRunningTaskMaxAge);
     }
 
     public NoonPullSchedulerResult runDuePlans() {
         NoonPullSchedulerResult result = new NoonPullSchedulerResult();
+        foundationService.recoverStaleRunningTasks(staleRunningTaskMaxAge);
         for (NoonPullPlanRecord plan : foundationService.listPlans()) {
             result.scanned();
             if (!isRunnable(plan)) {
@@ -191,6 +222,12 @@ public class NoonPullScheduler {
 
     private boolean isSalesReportReadyWindow() {
         return !LocalTime.now(clock).isBefore(SALES_READY_AFTER);
+    }
+
+    private Duration safeStaleRunningTaskMaxAge(Duration maxAge) {
+        return maxAge == null || maxAge.isNegative() || maxAge.isZero()
+                ? STALE_RUNNING_TASK_MAX_AGE
+                : maxAge;
     }
 
     private static final class BackfillSchedule {

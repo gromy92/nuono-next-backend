@@ -104,7 +104,9 @@ public class NoonReportPuller {
             case REPORT_NOT_READY:
                 return "report not ready";
             case MISSING_COLUMNS:
-                return "missing columns";
+                return StringUtils.hasText(result.getDiagnosticMessage())
+                        ? "missing columns: " + result.getDiagnosticMessage()
+                        : "missing columns";
             case PARTIAL_SUCCESS:
                 return "partial success";
             case MAPPING_FAILED:

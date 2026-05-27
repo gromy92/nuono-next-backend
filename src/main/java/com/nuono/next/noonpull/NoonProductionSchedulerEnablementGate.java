@@ -95,15 +95,15 @@ public class NoonProductionSchedulerEnablementGate {
         }
 
         List<Long> planIds = new ArrayList<>();
-        for (NoonPullDataDomain domain : schedulableDomains) {
-            NoonPullPlanRecord plan = findExistingScheduledPlan(command, domain);
+        for (ScheduledPlanSpec spec : scheduledPlanSpecs(schedulableDomains)) {
+            NoonPullPlanRecord plan = findExistingScheduledPlan(command, spec.getPullType(), spec.getDataDomain());
             if (plan == null) {
                 plan = foundationService.createPlan(NoonPullPlanDraft.builder()
                         .ownerUserId(command.getOwnerUserId())
                         .storeCode(command.getStoreCode())
                         .siteCode(command.getSiteCode())
-                        .pullType(NoonPullType.REPORT)
-                        .dataDomain(domain)
+                        .pullType(spec.getPullType())
+                        .dataDomain(spec.getDataDomain())
                         .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
                         .scheduleExpression(command.getScheduleBoundaries())
                         .build());
@@ -193,17 +193,31 @@ public class NoonProductionSchedulerEnablementGate {
 
     private NoonPullPlanRecord findExistingScheduledPlan(
             NoonProductionSchedulerEnablementCommand command,
+            NoonPullType pullType,
             NoonPullDataDomain domain
     ) {
         return foundationService.listPlans().stream()
                 .filter((plan) -> safeEquals(command.getOwnerUserId(), plan.getOwnerUserId()))
                 .filter((plan) -> safeEquals(command.getStoreCode(), plan.getStoreCode()))
                 .filter((plan) -> safeEquals(command.getSiteCode(), plan.getSiteCode()))
-                .filter((plan) -> plan.getPullType() == NoonPullType.REPORT)
+                .filter((plan) -> plan.getPullType() == pullType)
                 .filter((plan) -> plan.getDataDomain() == domain)
                 .filter((plan) -> plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY)
                 .findFirst()
                 .orElse(null);
+    }
+
+    private List<ScheduledPlanSpec> scheduledPlanSpecs(List<NoonPullDataDomain> schedulableDomains) {
+        List<ScheduledPlanSpec> specs = new ArrayList<>();
+        for (NoonPullDataDomain domain : schedulableDomains) {
+            if (domain == NoonPullDataDomain.SALES) {
+                specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.SALES));
+                specs.add(new ScheduledPlanSpec(NoonPullType.PAGE_QUERY, NoonPullDataDomain.SALES));
+            } else if (domain == NoonPullDataDomain.ORDER) {
+                specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.ORDER));
+            }
+        }
+        return specs;
     }
 
     private List<NoonPullDataDomain> schedulableDomains(NoonProductionSchedulerEnablementCommand command) {
@@ -260,5 +274,23 @@ public class NoonProductionSchedulerEnablementGate {
 
     private boolean safeEquals(Object expected, Object actual) {
         return expected == null ? actual == null : expected.equals(actual);
+    }
+
+    private static final class ScheduledPlanSpec {
+        private final NoonPullType pullType;
+        private final NoonPullDataDomain dataDomain;
+
+        private ScheduledPlanSpec(NoonPullType pullType, NoonPullDataDomain dataDomain) {
+            this.pullType = pullType;
+            this.dataDomain = dataDomain;
+        }
+
+        private NoonPullType getPullType() {
+            return pullType;
+        }
+
+        private NoonPullDataDomain getDataDomain() {
+            return dataDomain;
+        }
     }
 }

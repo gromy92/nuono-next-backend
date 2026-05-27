@@ -2,6 +2,7 @@ package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -83,6 +84,65 @@ class NoonOrderReportAdapterTest {
         );
     }
 
+    @Test
+    void shouldPersistMissingColumnDiagnosticsWithActualHeaderSummary() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonPullRepository repository = new InMemoryNoonPullRepository();
+        NoonPullFoundationService foundationService = new NoonPullFoundationService(
+                repository,
+                clock,
+                new NoonPullFailurePolicy(clock)
+        );
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.ORDER)
+                .triggerMode(NoonPullTriggerMode.MANUAL_BACKFILL)
+                .scheduleExpression("manual")
+                .build());
+        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.ORDER)
+                .triggerMode(NoonPullTriggerMode.MANUAL_BACKFILL)
+                .targetIdentity("orders:2026-05-19..2026-05-19")
+                .targetDateFrom(LocalDate.of(2026, 5, 19))
+                .targetDateTo(LocalDate.of(2026, 5, 19))
+                .build()).orElseThrow();
+        NoonReportPuller puller = new NoonReportPuller(foundationService);
+        NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
+                new InMemoryOrderFactWriter(),
+                clock
+        );
+
+        puller.execute(
+                task.getId(),
+                NoonReportPullRequest.builder()
+                        .ownerUserId(10002L)
+                        .storeCode("STR245027-NAE")
+                        .siteCode("AE")
+                        .dataDomain(NoonPullDataDomain.ORDER)
+                        .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
+                        .dateFrom(LocalDate.of(2026, 5, 19))
+                        .dateTo(LocalDate.of(2026, 5, 19))
+                        .maxPollAttempts(1)
+                        .build(),
+                StaticOrderReportProvider.ready("id_partner,status,partner_sku\n108065,Delivered,PAPERSAYSB359\n"),
+                adapter::process
+        );
+
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+        assertEquals("missing_columns", persisted.getFailureType());
+        assertTrue(persisted.getDiagnosticSummary().contains("missing columns"));
+        assertTrue(persisted.getDiagnosticSummary().contains("missing="));
+        assertTrue(persisted.getDiagnosticSummary().contains("item_nr"));
+        assertTrue(persisted.getDiagnosticSummary().contains("actual_headers=id_partner,status,partner_sku"));
+    }
+
     private NoonReportDownloadedFile file(String content) {
         return new NoonReportDownloadedFile(
                 NoonReportPullRequest.builder()
@@ -90,7 +150,7 @@ class NoonOrderReportAdapterTest {
                         .storeCode("STR245027-NAE")
                         .siteCode("AE")
                         .dataDomain(NoonPullDataDomain.ORDER)
-                        .reportType(NoonOrderReportDescriptor.EXPORT_CATEGORY_CODE)
+                        .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
                         .dateFrom(LocalDate.of(2026, 5, 19))
                         .dateTo(LocalDate.of(2026, 5, 19))
                         .build(),
@@ -107,6 +167,33 @@ class NoonOrderReportAdapterTest {
         @Override
         public void upsertLine(NoonOrderLineFact fact) {
             facts.put(fact.naturalKey(), fact);
+        }
+    }
+
+    private static final class StaticOrderReportProvider implements NoonReportProvider {
+        private final String content;
+
+        private StaticOrderReportProvider(String content) {
+            this.content = content;
+        }
+
+        private static StaticOrderReportProvider ready(String content) {
+            return new StaticOrderReportProvider(content);
+        }
+
+        @Override
+        public String createExport(NoonReportPullRequest request) {
+            return "EXP-ORDER-1";
+        }
+
+        @Override
+        public NoonReportExportStatus pollExport(NoonReportPullRequest request, String exportId) {
+            return NoonReportExportStatus.ready("https://download.test/orders.csv");
+        }
+
+        @Override
+        public byte[] download(NoonReportPullRequest request, String downloadUrl) {
+            return content.getBytes(StandardCharsets.UTF_8);
         }
     }
 }
