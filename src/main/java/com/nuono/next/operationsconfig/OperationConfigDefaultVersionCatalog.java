@@ -38,6 +38,7 @@ public class OperationConfigDefaultVersionCatalog {
     }
 
     private OperationConfigVersionRowView calendarRow(boolean editableBySystemAdmin) {
+        int itemCount = calendarItems().size();
         return new OperationConfigVersionRowView(
                 DEFAULT_CALENDAR_VERSION_NO,
                 "默认日历配置",
@@ -46,8 +47,8 @@ public class OperationConfigDefaultVersionCatalog {
                 "SYSTEM_DEFAULT",
                 "系统默认",
                 "系统默认",
-                "13 条默认配置",
-                13,
+                itemCount + " 条日历配置",
+                itemCount,
                 "全局默认",
                 null,
                 DEFAULT_UPDATED_AT,
@@ -97,19 +98,78 @@ public class OperationConfigDefaultVersionCatalog {
 
     private List<OperationConfigDefaultVersionItemView> calendarItems() {
         return List.of(
-                defaultItem("业务日历", "斋月 (Ramadan)", "提前一年", "日期范围", null, null, null),
-                defaultItem("业务日历", "开斋节 (Eid al-Fitr)", "提前一年", "日期范围", null, null, null),
-                defaultItem("业务日历", "古尔邦节 (Eid al-Adha)", "提前一年", "日期范围", null, null, null),
-                defaultItem("业务日历", "白色星期五", "提前一年", "日期范围", null, null, null),
-                defaultItem("业务日历", "黄色星期五", "提前一年", "日期范围", null, null, null),
-                defaultItem("业务日历", "双十一 (11.11)", "提前一年", "日期范围", null, null, null),
-                defaultItem("业务日历", "开学季模式", "提前一年", "日期范围", null, null, null),
-                defaultItem("业务日历", "夏季模式", "提前一年", "日期范围", null, null, null),
-                defaultItem("历史数据推算", "节日爆发系数", "每周1", null, null, "类目/系数", null),
-                defaultItem("历史数据推算", "月度薪酬爆发系数", "每月5日", null, null, "类目/系数/日期", null),
-                defaultItem("历史数据推算", "流行产品衰退系数", "每3天", null, null, "关键词/系数", null),
-                defaultItem("上架选择", "流行产品关键词", "上架选择", "字符串或选择", null, null, null),
-                defaultItem("上架选择", "季节产品", "上架选择", "选择 夏季/雨季", null, null, null)
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "0.85", "all_products", "全品兜底：Ramadan 销量抑制"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.10", "all_products", "全品兜底：开斋节保守提升"),
+                calendarRule("古尔邦节 (Eid al-Adha)", "2026-05-25 ~ 2026-05-31", "1.08", "all_products", "近一年销量暂未覆盖可比窗口，先用保守值"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "1.10", "all_products", "Noon 口径促销兜底，白色星期五不重复发布"),
+                calendarRule("双十一 (11.11)", "2026-11-10 ~ 2026-11-12", "1.15", "all_products", "双十一全品兜底"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "1.03", "all_products", "开学季全品兜底"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "0.90", "all_products", "夏季全品淡季兜底"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "1.20", "category:stationery-envelopes_mailers_shipping_supplies", "Ramadan 高置信类目：信封邮寄用品提升"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "1.15", "category:kitchen_dining-dinnerware_serveware", "Ramadan 高置信类目：餐厨服务用品提升"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "1.15", "category:toys-pretend_play", "Ramadan 高置信类目：角色扮演玩具提升"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "1.10", "category:colour_cosmetics-make_up_tools_accessories", "Ramadan 高置信类目：美妆工具不套用全品压低"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "1.05", "category:home_decor-lighting", "Ramadan 高置信类目：家居照明稳中上行"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "0.70", "category:electronic_accessories-headphones", "Ramadan 高置信类目：耳机明显弱化"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "0.75", "category:stationery-writing_correction_supplies", "Ramadan 高置信类目：书写纠正文具下降"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "0.75", "category:sports_outdoor-sports_protective_gear", "Ramadan 高置信类目：运动护具下降"),
+                calendarRule("斋月 (Ramadan)", "2026-02-18 ~ 2026-03-18", "0.75", "category:stationery-stationery", "Ramadan 高置信类目：普通文具下降"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.35", "category:hair_personal_care-hair_care", "开斋节高置信类目：头发护理强提升"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.35", "category:colour_cosmetics-nails", "开斋节高置信类目：美甲强提升"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.35", "category:colour_cosmetics-make_up_tools_accessories", "开斋节高置信类目：美妆工具强提升"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.35", "category:baby_product-feeding_training_accessories", "开斋节高置信类目：婴儿喂养训练提升"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.35", "category:stationery-gift_wrapping_supplies", "开斋节高置信类目：礼品包装提升"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.30", "category:toys-arts_crafts", "开斋节高置信类目：手工玩具提升"),
+                calendarRule("开斋节 (Eid al-Fitr)", "2026-03-19 ~ 2026-03-22", "1.25", "category:electronic_accessories-phone_accessories", "开斋节高置信类目：手机配件提升"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "1.25", "category:automotive-interior_accessories", "黄色星期五高置信类目：汽车内饰促销敏感"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "1.20", "category:baby_product-hygiene_product", "黄色星期五高置信类目：婴儿卫生用品提升"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "0.90", "category:stationery-gift_wrapping_supplies", "黄色星期五高置信类目：礼品包装不跟随提升"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "0.95", "category:health_nutrition-medical_supplies_equipment", "黄色星期五高置信类目：医疗用品偏弱"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "0.95", "category:home_improvement-electrical_solar", "黄色星期五高置信类目：电气太阳能偏弱"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "1.00", "category:electronic_accessories-phone_accessories", "黄色星期五高置信类目：手机配件基本不提升"),
+                calendarRule("黄色星期五", "2026-11-20 ~ 2026-11-30", "1.00", "category:colour_cosmetics-make_up_tools_accessories", "黄色星期五高置信类目：美妆工具基本不提升"),
+                calendarRule("双十一 (11.11)", "2026-11-10 ~ 2026-11-12", "1.00", "category:baby_product-feeding_training_accessories", "双十一高置信类目：婴儿喂养训练不明显提升"),
+                calendarRule("双十一 (11.11)", "2026-11-10 ~ 2026-11-12", "1.05", "category:colour_cosmetics-make_up_tools_accessories", "双十一高置信类目：美妆工具低于全品默认"),
+                calendarRule("双十一 (11.11)", "2026-11-10 ~ 2026-11-12", "1.05", "category:colour_cosmetics-nails", "双十一高置信类目：美甲低于全品默认"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "1.35", "category:stationery-stationery", "开学季高置信类目：普通文具核心提升"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "1.30", "category:bags_luggage-other_bags", "开学季高置信类目：包袋提升"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "1.25", "category:stationery-desk_accessories_workspace_organizers", "开学季高置信类目：桌面收纳提升"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "1.20", "category:electronic_accessories-accessories", "开学季高置信类目：电子配件提升"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "1.20", "category:stationery-office_electronics", "开学季高置信类目：办公电子提升"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "1.15", "category:stationery-writing_correction_supplies", "开学季高置信类目：书写纠正文具提升"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "0.85", "category:colour_cosmetics-nails", "开学季高置信类目：美甲不套用开学季提升"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "0.90", "category:baby_product-feeding_training_accessories", "开学季高置信类目：婴儿喂养下降"),
+                calendarRule("开学季模式", "2026-08-17 ~ 2026-09-07", "0.90", "category:electronic_accessories-phone_accessories", "开学季高置信类目：手机配件下降"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "1.25", "category:electronic_accessories-accessories", "夏季高置信类目：电子配件上行"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "1.25", "category:video_games-accessories", "夏季高置信类目：游戏配件上行"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "1.15", "category:home_appliances-small_appliances", "夏季高置信类目：小家电上行"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "1.10", "category:toys-arts_crafts", "夏季高置信类目：手工玩具上行"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "1.10", "category:sports_outdoor-accessories", "夏季高置信类目：户外运动配件上行"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "1.10", "category:baby_product-baby_safety_equipment", "夏季高置信类目：婴儿安全设备上行"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "1.10", "category:baby_product-baby_transport", "夏季高置信类目：婴儿出行上行"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "0.75", "category:stationery-office_electronics", "夏季高置信类目：办公电子弱化"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "0.75", "category:toys-learning_education", "夏季高置信类目：教育玩具弱化"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "0.75", "category:home_improvement-laundry_care", "夏季高置信类目：洗护家清弱化"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "0.80", "category:toys-novelty_toys", "夏季高置信类目：新奇玩具弱化"),
+                calendarRule("夏季模式", "2026-06-01 ~ 2026-08-31", "0.80", "category:stationery-desk_accessories_workspace_organizers", "夏季高置信类目：桌面收纳弱化")
+        );
+    }
+
+    private OperationConfigDefaultVersionItemView calendarRule(
+            String itemName,
+            String dateRange,
+            String factor,
+            String targetScope,
+            String note
+    ) {
+        return defaultItem(
+                "业务日历",
+                itemName,
+                null,
+                "日期范围/系数",
+                dateRange + " / " + factor,
+                targetScope,
+                note
         );
     }
 

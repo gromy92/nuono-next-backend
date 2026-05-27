@@ -36,8 +36,11 @@ class OperationConfigVersionLibraryServiceTest {
         assertEquals(3, service.listVersions(adminContext()).size());
 
         OperationConfigVersionDetailView copiedDetail = service.getDetail(adminContext(), draft.getVersionNo());
-        assertEquals(13, copiedDetail.getItems().size());
+        assertEquals(54, copiedDetail.getItems().size());
         assertTrue(copiedDetail.getItems().stream().anyMatch(item -> "斋月 (Ramadan)".equals(item.getItemName())));
+        assertTrue(copiedDetail.getItems().stream().anyMatch(item ->
+                "category:stationery-stationery".equals(item.getResultShape())
+        ));
         assertTrue(copiedDetail.getActions().stream().anyMatch(action ->
                 "EDIT".equals(action.getAction()) && action.isEnabled()
         ));

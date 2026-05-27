@@ -2,6 +2,9 @@ package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit;
 import com.nuono.next.noonpull.NoonOrderLineFact;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -159,5 +162,70 @@ public interface NoonOrderFactMapper {
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode
+    );
+
+    @Select({
+            "SELECT",
+            "  DATE(order_timestamp) AS bucket_start,",
+            "  AVG(offer_price) AS avg_offer_price,",
+            "  MIN(offer_price) AS min_offer_price,",
+            "  MAX(offer_price) AS max_offer_price,",
+            "  COUNT(*) AS order_line_count,",
+            "  currency_code",
+            "FROM noon_order_line_fact",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND sku = #{sku}",
+            "  AND order_timestamp >= #{dateFromStart}",
+            "  AND order_timestamp < #{dateToExclusive}",
+            "  AND offer_price IS NOT NULL",
+            "  AND order_timestamp IS NOT NULL",
+            "  AND NULLIF(TRIM(currency_code), '') IS NOT NULL",
+            "  AND LOWER(TRIM(COALESCE(status, ''))) NOT LIKE '%cancel%'",
+            "  AND LOWER(TRIM(COALESCE(status, ''))) NOT LIKE '%failed%'",
+            "  AND LOWER(TRIM(COALESCE(status, ''))) NOT LIKE '%could_not_be_delivered%'",
+            "  AND LOWER(TRIM(COALESCE(status, ''))) NOT LIKE '%rejected%'",
+            "GROUP BY DATE(order_timestamp), currency_code",
+            "ORDER BY DATE(order_timestamp)"
+    })
+    List<NoonOrderPriceTrendBucketRow> selectPriceTrendBuckets(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("sku") String sku,
+            @Param("dateFromStart") LocalDateTime dateFromStart,
+            @Param("dateToExclusive") LocalDateTime dateToExclusive
+    );
+
+    @Select({
+            "SELECT COUNT(*)",
+            "FROM noon_order_line_fact",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND sku = #{sku}",
+            "  AND (",
+            "    (order_timestamp >= #{dateFromStart} AND order_timestamp < #{dateToExclusive})",
+            "    OR (",
+            "      order_timestamp IS NULL",
+            "      AND report_date_from <= #{reportDateTo}",
+            "      AND report_date_to >= #{reportDateFrom}",
+            "    )",
+            "  )"
+    })
+    int countPriceTrendCandidateRows(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("sku") String sku,
+            @Param("dateFromStart") LocalDateTime dateFromStart,
+            @Param("dateToExclusive") LocalDateTime dateToExclusive,
+            @Param("reportDateFrom") LocalDate reportDateFrom,
+            @Param("reportDateTo") LocalDate reportDateTo
     );
 }
