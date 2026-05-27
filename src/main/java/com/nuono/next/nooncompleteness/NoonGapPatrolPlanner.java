@@ -69,28 +69,42 @@ public class NoonGapPatrolPlanner {
                 .collect(Collectors.toList());
 
         for (NoonDataGapWindowRecord gap : candidates) {
-            WorkSpec spec = WorkSpec.from(gap);
-            if (spec == null) {
-                result.skipped();
-                continue;
-            }
-            NoonPullPlanRecord plan = findOrCreatePlan(gap, spec);
-            if (!isRunnable(plan)) {
-                result.skipped();
-                continue;
-            }
-            Set<Long> beforeTaskIds = foundationService.listTasks().stream()
-                    .map(NoonPullTaskRecord::getId)
-                    .collect(Collectors.toCollection(HashSet::new));
-            Optional<NoonPullTaskRecord> task = foundationService.createTaskForPlan(plan.getId(), spec.taskDraft(gap));
-            if (task.isPresent() && !beforeTaskIds.contains(task.get().getId())) {
-                linkGapToTask(gap, plan, task.get());
-                result.planned(task.get());
-            } else {
-                result.skipped();
-            }
+            planEligibleGap(gap, result);
         }
         return result;
+    }
+
+    public Result planGap(NoonDataGapWindowRecord gap) {
+        Result result = new Result();
+        if (!isEligible(gap)) {
+            result.skipped();
+            return result;
+        }
+        planEligibleGap(gap, result);
+        return result;
+    }
+
+    private void planEligibleGap(NoonDataGapWindowRecord gap, Result result) {
+        WorkSpec spec = WorkSpec.from(gap);
+        if (spec == null) {
+            result.skipped();
+            return;
+        }
+        NoonPullPlanRecord plan = findOrCreatePlan(gap, spec);
+        if (!isRunnable(plan)) {
+            result.skipped();
+            return;
+        }
+        Set<Long> beforeTaskIds = foundationService.listTasks().stream()
+                .map(NoonPullTaskRecord::getId)
+                .collect(Collectors.toCollection(HashSet::new));
+        Optional<NoonPullTaskRecord> task = foundationService.createTaskForPlan(plan.getId(), spec.taskDraft(gap));
+        if (task.isPresent() && !beforeTaskIds.contains(task.get().getId())) {
+            linkGapToTask(gap, plan, task.get());
+            result.planned(task.get());
+        } else {
+            result.skipped();
+        }
     }
 
     private boolean isEligible(NoonDataGapWindowRecord gap) {

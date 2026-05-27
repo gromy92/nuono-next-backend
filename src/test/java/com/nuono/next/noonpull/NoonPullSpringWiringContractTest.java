@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.NoonOrderFactMapper;
+import com.nuono.next.infrastructure.mapper.NoonOrderPriceTrendBucketRow;
 import com.nuono.next.infrastructure.mapper.NoonSalesFactMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
@@ -93,7 +96,7 @@ class NoonPullSpringWiringContractTest {
                                     .storeCode("STR245027-NAE")
                                     .siteCode("AE")
                                     .dataDomain(NoonPullDataDomain.ORDER)
-                                    .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
+                                    .reportType(NoonOrderReportDescriptor.EXPORT_CATEGORY_CODE)
                                     .dateFrom(LocalDate.of(2026, 5, 21))
                                     .dateTo(LocalDate.of(2026, 5, 21))
                                     .build(),
@@ -237,6 +240,34 @@ class NoonPullSpringWiringContractTest {
                 String siteCode
         ) {
             return com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit.notIntegrated("not_integrated");
+        }
+
+        @Override
+        public List<NoonOrderPriceTrendBucketRow> selectPriceTrendBuckets(
+                Long ownerUserId,
+                String storeCode,
+                String siteCode,
+                String partnerSku,
+                String sku,
+                LocalDateTime dateFromStart,
+                LocalDateTime dateToExclusive
+        ) {
+            return List.of();
+        }
+
+        @Override
+        public int countPriceTrendCandidateRows(
+                Long ownerUserId,
+                String storeCode,
+                String siteCode,
+                String partnerSku,
+                String sku,
+                LocalDateTime dateFromStart,
+                LocalDateTime dateToExclusive,
+                LocalDate reportDateFrom,
+                LocalDate reportDateTo
+        ) {
+            return 0;
         }
     }
 }

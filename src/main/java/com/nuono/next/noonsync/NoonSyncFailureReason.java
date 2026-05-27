@@ -1,0 +1,14 @@
+package com.nuono.next.noonsync;
+
+public enum NoonSyncFailureReason {
+    PROVIDER_UNAVAILABLE,
+    AUTHORIZATION_FAILED,
+    EMPTY_REPORT,
+    MISSING_COLUMNS,
+    MAPPING_FAILED,
+    TIMEOUT,
+    STALE_DATA,
+    PARTIAL_SUCCESS,
+    SYNC_NOT_CONFIGURED,
+    UNKNOWN_FAILURE
+}

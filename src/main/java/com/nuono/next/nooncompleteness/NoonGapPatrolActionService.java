@@ -149,6 +149,42 @@ public class NoonGapPatrolActionService {
         return result;
     }
 
+    public NoonGapPatrolActionResult syncHistoryRange(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            NoonDataCategory category,
+            LocalDate dateFrom,
+            LocalDate dateTo
+    ) {
+        if (category != NoonDataCategory.SALES_PRODUCT_VIEWS && category != NoonDataCategory.SALES_ORDER) {
+            throw new IllegalArgumentException("只有销量与订单数据支持指定历史范围补全。");
+        }
+        if (dateFrom == null || dateTo == null || dateFrom.isAfter(dateTo)) {
+            throw new IllegalArgumentException("历史补全日期范围无效。");
+        }
+        NoonDataCompletenessRecord row = requireCompleteness(ownerUserId, storeCode, siteCode, category);
+        NoonDataGapWindowRecord gap = historyBackfillGap(row, dateFrom, dateTo);
+        repository.insertGapWindow(gap);
+        NoonDataGapWindowRecord storedGap = repository.listGapWindows(scopedQuery(row)).stream()
+                .filter((candidate) -> sameGap(candidate, gap))
+                .findFirst()
+                .orElse(gap);
+        updateCompletenessPatrol(storedGap);
+
+        NoonGapPatrolPlanner.Result plannerResult = planner.planGap(storedGap);
+        NoonDataGapWindowRecord linked = repository.listGapWindows(scopedQuery(row)).stream()
+                .filter((candidate) -> sameGap(candidate, storedGap))
+                .findFirst()
+                .orElse(storedGap);
+        NoonGapPatrolActionResult result = result(linked, "已提交历史补全任务。");
+        result.setPlannedTaskCount(plannerResult.getPlannedTasks().size());
+        result.setPlannedTaskIds(plannerResult.getPlannedTasks().stream()
+                .map((task) -> task.getId())
+                .collect(Collectors.toList()));
+        return result;
+    }
+
     private NoonDataGapWindowRecord requireGap(Long gapId) {
         return repository.listGapWindows(new NoonDataGapQuery()).stream()
                 .filter((gap) -> Objects.equals(gap.getId(), gapId))
@@ -261,6 +297,34 @@ public class NoonGapPatrolActionService {
         gap.setRetryable(Boolean.TRUE);
         gap.setRequiresManualAction(Boolean.FALSE);
         gap.setNextRetryAt(now());
+        gap.setCreatedAt(now());
+        gap.setUpdatedAt(now());
+        return gap;
+    }
+
+    private NoonDataGapWindowRecord historyBackfillGap(
+            NoonDataCompletenessRecord row,
+            LocalDate dateFrom,
+            LocalDate dateTo
+    ) {
+        NoonDataGapWindowRecord gap = new NoonDataGapWindowRecord();
+        gap.setId(repository.nextId("noon_data_gap_window", GAP_ID_INITIAL_VALUE));
+        gap.setCompletenessId(row.getId());
+        gap.setOwnerUserId(row.getOwnerUserId());
+        gap.setStoreCode(row.getStoreCode());
+        gap.setSiteCode(row.getSiteCode());
+        gap.setCategory(row.getCategory());
+        gap.setWindowType(NoonDataGapWindowType.HISTORY_BACKFILL);
+        gap.setDateFrom(dateFrom);
+        gap.setDateTo(dateTo);
+        gap.setStatus(NoonDataGapStatus.PENDING);
+        gap.setAttempts(0);
+        gap.setRetryable(Boolean.TRUE);
+        gap.setRequiresManualAction(Boolean.FALSE);
+        gap.setNextRetryAt(now());
+        gap.setDiagnosticSummary(NoonDataCompletenessSafeText.redact(
+                "sales analytics detail requested " + dateFrom + ".." + dateTo
+        ));
         gap.setCreatedAt(now());
         gap.setUpdatedAt(now());
         return gap;
