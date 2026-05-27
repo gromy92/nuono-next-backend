@@ -1,8 +1,11 @@
 package com.nuono.next.logisticsquote;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
@@ -24,7 +27,7 @@ public class LogisticsQuoteFactPublisher {
     public LogisticsQuoteFactLandingResult land(List<LogisticsQuotePublishedItem> items) {
         LogisticsQuoteFactLandingResult result = new LogisticsQuoteFactLandingResult();
         Map<String, String> operationSignatures = new HashMap<>();
-        for (LogisticsQuotePublishedItem item : items) {
+        for (LogisticsQuotePublishedItem item : normalizeRelationshipAliases(items)) {
             if (item == null) {
                 result.skipped();
                 continue;
@@ -54,6 +57,229 @@ public class LogisticsQuoteFactPublisher {
             }
         }
         return result;
+    }
+
+    private List<LogisticsQuotePublishedItem> normalizeRelationshipAliases(List<LogisticsQuotePublishedItem> items) {
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+        Map<String, String> serviceLineAliases = serviceLineAliases(items);
+        Map<String, String> cargoCategoryAliases = cargoCategoryAliases(items, serviceLineAliases);
+        List<LogisticsQuotePublishedItem> normalized = new ArrayList<>();
+        for (LogisticsQuotePublishedItem item : items) {
+            normalized.add(normalizeRelationshipAliases(item, serviceLineAliases, cargoCategoryAliases));
+        }
+        return normalized;
+    }
+
+    private Map<String, String> serviceLineAliases(List<LogisticsQuotePublishedItem> items) {
+        Map<String, String> aliases = new HashMap<>();
+        for (LogisticsQuotePublishedItem item : items) {
+            if (item == null || LogisticsQuoteFactType.SERVICE_LINE != LogisticsQuoteFactType.fromItemType(item.getItemType())) {
+                continue;
+            }
+            Map<String, Object> payload = item.getPayload();
+            String forwarderCode = text(payload.get("forwarderCode"));
+            String canonicalKey = serviceLineBusinessKey(item);
+            putAlias(aliases, forwarderCode, canonicalKey, canonicalKey);
+            putAlias(aliases, forwarderCode, item.getNaturalKey(), canonicalKey);
+            putAlias(aliases, forwarderCode, payload.get("serviceLineKey"), canonicalKey);
+            putAlias(aliases, forwarderCode, payload.get("channelName"), canonicalKey);
+        }
+        return aliases;
+    }
+
+    private Map<String, String> cargoCategoryAliases(
+            List<LogisticsQuotePublishedItem> items,
+            Map<String, String> serviceLineAliases
+    ) {
+        Map<String, String> aliases = new HashMap<>();
+        for (LogisticsQuotePublishedItem item : items) {
+            if (item == null || LogisticsQuoteFactType.CARGO_CATEGORY != LogisticsQuoteFactType.fromItemType(item.getItemType())) {
+                continue;
+            }
+            Map<String, Object> payload = new LinkedHashMap<>(item.getPayload());
+            boolean serviceLineChanged = normalizeServiceLineReference(payload, serviceLineAliases);
+            String forwarderCode = text(payload.get("forwarderCode"));
+            String serviceLineKey = keyText(payload.get("serviceLineKey"));
+            String canonicalKey = serviceLineChanged
+                    ? resolveFromPayload(item.getItemType(), payload, item.getNaturalKey())
+                    : naturalKeys.resolve(item);
+            if (isBlank(canonicalKey)) {
+                canonicalKey = resolveFromPayload(item.getItemType(), payload, item.getNaturalKey());
+            }
+            putCategoryAlias(aliases, forwarderCode, serviceLineKey, canonicalKey, canonicalKey);
+            putCategoryAlias(aliases, forwarderCode, serviceLineKey, item.getNaturalKey(), canonicalKey);
+            putCategoryAlias(aliases, forwarderCode, serviceLineKey, payload.get("categoryCode"), canonicalKey);
+            putCategoryAlias(aliases, forwarderCode, serviceLineKey, payload.get("categoryName"), canonicalKey);
+            putCategoryAlias(aliases, forwarderCode, serviceLineKey, payload.get("sourceCategoryName"), canonicalKey);
+        }
+        return aliases;
+    }
+
+    private LogisticsQuotePublishedItem normalizeRelationshipAliases(
+            LogisticsQuotePublishedItem item,
+            Map<String, String> serviceLineAliases,
+            Map<String, String> cargoCategoryAliases
+    ) {
+        if (item == null) {
+            return null;
+        }
+        LogisticsQuoteFactType factType = LogisticsQuoteFactType.fromItemType(item.getItemType());
+        Map<String, Object> payload = new LinkedHashMap<>(item.getPayload());
+        String naturalKey = item.getNaturalKey();
+        boolean changed = false;
+
+        if (LogisticsQuoteFactType.SERVICE_LINE == factType) {
+            String canonicalServiceLineKey = serviceLineBusinessKey(item);
+            if (!isBlank(canonicalServiceLineKey) && !canonicalServiceLineKey.equals(naturalKey)) {
+                naturalKey = canonicalServiceLineKey;
+                changed = true;
+            }
+        } else if (referencesServiceLine(factType)) {
+            String forwarderCode = text(payload.get("forwarderCode"));
+            String originalServiceLineKey = keyText(payload.get("serviceLineKey"));
+            changed = normalizeServiceLineReference(payload, serviceLineAliases);
+            if (!changed
+                    && hasServiceLineAliasForForwarder(serviceLineAliases, forwarderCode)
+                    && !serviceLineAliases.containsKey(aliasKey(forwarderCode, originalServiceLineKey))) {
+                payload.put("serviceLineKey", "");
+                changed = true;
+            }
+            if (referencesCargoCategory(factType)) {
+                changed = normalizeCargoCategoryReference(payload, cargoCategoryAliases) || changed;
+            }
+            if (changed) {
+                naturalKey = resolveFromPayload(item.getItemType(), payload, item.getNaturalKey());
+            }
+        }
+
+        if (!changed) {
+            return item;
+        }
+        return new LogisticsQuotePublishedItem(item.getItemType(), naturalKey, payload, item.getSourceLineage());
+    }
+
+    private boolean normalizeServiceLineReference(
+            Map<String, Object> payload,
+            Map<String, String> serviceLineAliases
+    ) {
+        String forwarderCode = text(payload.get("forwarderCode"));
+        String original = keyText(payload.get("serviceLineKey"));
+        String canonical = serviceLineAliases.get(aliasKey(forwarderCode, original));
+        if (isBlank(canonical) || canonical.equals(original)) {
+            return false;
+        }
+        payload.put("serviceLineKey", canonical);
+        return true;
+    }
+
+    private boolean normalizeCargoCategoryReference(
+            Map<String, Object> payload,
+            Map<String, String> cargoCategoryAliases
+    ) {
+        String forwarderCode = text(payload.get("forwarderCode"));
+        String serviceLineKey = keyText(payload.get("serviceLineKey"));
+        String original = keyText(payload.get("cargoCategoryKey"));
+        String canonical = cargoCategoryAliases.get(categoryAliasKey(forwarderCode, serviceLineKey, original));
+        if (isBlank(canonical) || canonical.equals(original)) {
+            return false;
+        }
+        payload.put("cargoCategoryKey", canonical);
+        return true;
+    }
+
+    private String serviceLineBusinessKey(LogisticsQuotePublishedItem item) {
+        String resolved = naturalKeys.resolve(item);
+        if (!isBlank(resolved)) {
+            return resolved;
+        }
+        Map<String, Object> payload = item.getPayload();
+        String forwarderCode = keyText(payload.get("forwarderCode"));
+        String country = keyText(payload.get("country"));
+        String transportMode = keyText(payload.get("transportMode"));
+        String serviceScope = keyText(payload.get("serviceScope"));
+        String destinationNode = keyText(payload.get("destinationNode"));
+        if (!isBlank(forwarderCode)
+                && !isBlank(country)
+                && !isBlank(transportMode)
+                && !isBlank(serviceScope)
+                && !isBlank(destinationNode)) {
+            return String.join("|", forwarderCode, country, transportMode, serviceScope, destinationNode);
+        }
+        return null;
+    }
+
+    private String resolveFromPayload(String itemType, Map<String, Object> payload, String fallbackNaturalKey) {
+        String resolved = naturalKeys.resolve(new LogisticsQuotePublishedItem(itemType, null, payload, null));
+        return isBlank(resolved) ? fallbackNaturalKey : resolved;
+    }
+
+    private boolean referencesServiceLine(LogisticsQuoteFactType factType) {
+        return LogisticsQuoteFactType.CARGO_CATEGORY == factType
+                || LogisticsQuoteFactType.PRICE_RULE == factType
+                || LogisticsQuoteFactType.SURCHARGE_RULE == factType
+                || LogisticsQuoteFactType.BILLING_RULE == factType
+                || LogisticsQuoteFactType.RESTRICTION_RULE == factType;
+    }
+
+    private boolean referencesCargoCategory(LogisticsQuoteFactType factType) {
+        return LogisticsQuoteFactType.PRICE_RULE == factType
+                || LogisticsQuoteFactType.BILLING_RULE == factType;
+    }
+
+    private boolean hasServiceLineAliasForForwarder(Map<String, String> serviceLineAliases, String forwarderCode) {
+        if (serviceLineAliases.isEmpty() || isBlank(forwarderCode)) {
+            return false;
+        }
+        String prefix = forwarderCode.trim().toLowerCase(Locale.ROOT) + "|";
+        return serviceLineAliases.keySet().stream().anyMatch(key -> key.startsWith(prefix));
+    }
+
+    private void putAlias(Map<String, String> aliases, Object forwarderCode, Object alias, String canonicalKey) {
+        if (isBlank(canonicalKey)) {
+            return;
+        }
+        String key = aliasKey(text(forwarderCode), keyText(alias));
+        if (!isBlank(key)) {
+            aliases.putIfAbsent(key, canonicalKey);
+        }
+    }
+
+    private void putCategoryAlias(
+            Map<String, String> aliases,
+            Object forwarderCode,
+            Object serviceLineKey,
+            Object alias,
+            String canonicalKey
+    ) {
+        if (isBlank(canonicalKey)) {
+            return;
+        }
+        String key = categoryAliasKey(text(forwarderCode), keyText(serviceLineKey), keyText(alias));
+        if (!isBlank(key)) {
+            aliases.putIfAbsent(key, canonicalKey);
+        }
+    }
+
+    private String aliasKey(String forwarderCode, String alias) {
+        if (isBlank(forwarderCode) || isBlank(alias)) {
+            return "";
+        }
+        return forwarderCode.trim().toLowerCase(Locale.ROOT) + "|" + normalizeAlias(alias);
+    }
+
+    private String categoryAliasKey(String forwarderCode, String serviceLineKey, String alias) {
+        if (isBlank(forwarderCode) || isBlank(serviceLineKey) || isBlank(alias)) {
+            return "";
+        }
+        return forwarderCode.trim().toLowerCase(Locale.ROOT)
+                + "|" + normalizeAlias(serviceLineKey)
+                + "|" + normalizeAlias(alias);
+    }
+
+    private String normalizeAlias(String value) {
+        return keyText(value).replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     private void landServiceLine(

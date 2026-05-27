@@ -21,6 +21,10 @@ public class ProcurementController {
     private final ObjectProvider<LocalDbAliAiBulkInquiryCreatePageProbeService>
             localDbAliAiBulkInquiryCreatePageProbeServiceProvider;
     private final ObjectProvider<LocalDbAliUnpaidOrderCreateService> localDbAliUnpaidOrderCreateServiceProvider;
+    private final ObjectProvider<LocalDbProcurementLogisticsRequirementService>
+            localDbProcurementLogisticsRequirementServiceProvider;
+    private final ObjectProvider<LocalDbProcurementLogisticsRecommendationService>
+            localDbProcurementLogisticsRecommendationServiceProvider;
 
     public ProcurementController(
             ObjectProvider<LocalDbProcurementService> localDbProcurementServiceProvider,
@@ -29,7 +33,11 @@ public class ProcurementController {
             ObjectProvider<LocalDbAliAiBulkInquiryCreateService> localDbAliAiBulkInquiryCreateServiceProvider,
             ObjectProvider<LocalDbAliAiBulkInquiryCreatePageProbeService>
                     localDbAliAiBulkInquiryCreatePageProbeServiceProvider,
-            ObjectProvider<LocalDbAliUnpaidOrderCreateService> localDbAliUnpaidOrderCreateServiceProvider
+            ObjectProvider<LocalDbAliUnpaidOrderCreateService> localDbAliUnpaidOrderCreateServiceProvider,
+            ObjectProvider<LocalDbProcurementLogisticsRequirementService>
+                    localDbProcurementLogisticsRequirementServiceProvider,
+            ObjectProvider<LocalDbProcurementLogisticsRecommendationService>
+                    localDbProcurementLogisticsRecommendationServiceProvider
     ) {
         this.localDbProcurementServiceProvider = localDbProcurementServiceProvider;
         this.localDbProcurementAutoInquiryServiceProvider = localDbProcurementAutoInquiryServiceProvider;
@@ -38,6 +46,10 @@ public class ProcurementController {
         this.localDbAliAiBulkInquiryCreatePageProbeServiceProvider =
                 localDbAliAiBulkInquiryCreatePageProbeServiceProvider;
         this.localDbAliUnpaidOrderCreateServiceProvider = localDbAliUnpaidOrderCreateServiceProvider;
+        this.localDbProcurementLogisticsRequirementServiceProvider =
+                localDbProcurementLogisticsRequirementServiceProvider;
+        this.localDbProcurementLogisticsRecommendationServiceProvider =
+                localDbProcurementLogisticsRecommendationServiceProvider;
     }
 
     @GetMapping("/candidate-pool")
@@ -192,6 +204,73 @@ public class ProcurementController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+        }
+    }
+
+    @GetMapping("/logistics-requirement")
+    public ProcurementLogisticsRequirementView logisticsRequirement(
+            @RequestParam Long ownerUserId,
+            @RequestParam Long demandItemId
+    ) {
+        LocalDbProcurementLogisticsRequirementService service =
+                localDbProcurementLogisticsRequirementServiceProvider.getIfAvailable();
+        if (service == null) {
+            ProcurementLogisticsRequirementView view = new ProcurementLogisticsRequirementView();
+            view.setMode("bootstrap-only");
+            view.setReady(false);
+            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取采购物流需求。");
+            return view;
+        }
+        try {
+            return service.getRequirement(ownerUserId, demandItemId);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/logistics-requirement")
+    public ProcurementLogisticsRequirementView saveLogisticsRequirement(
+            @RequestBody ProcurementLogisticsRequirementCommand command
+    ) {
+        LocalDbProcurementLogisticsRequirementService service =
+                localDbProcurementLogisticsRequirementServiceProvider.getIfAvailable();
+        if (service == null) {
+            ProcurementLogisticsRequirementView view = new ProcurementLogisticsRequirementView();
+            view.setMode("bootstrap-only");
+            view.setReady(false);
+            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可保存采购物流需求。");
+            return view;
+        }
+        try {
+            return service.saveRequirement(command);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
+    }
+
+    @GetMapping("/logistics-recommendation")
+    public ProcurementLogisticsRecommendationView logisticsRecommendation(
+            @RequestParam Long ownerUserId,
+            @RequestParam Long demandItemId
+    ) {
+        LocalDbProcurementLogisticsRecommendationService service =
+                localDbProcurementLogisticsRecommendationServiceProvider.getIfAvailable();
+        if (service == null) {
+            ProcurementLogisticsRecommendationView view = new ProcurementLogisticsRecommendationView();
+            view.setMode("bootstrap-only");
+            view.setReady(false);
+            view.setStatus("unavailable");
+            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可计算采购物流推荐。");
+            return view;
+        }
+        try {
+            return service.recommend(ownerUserId, demandItemId);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
         }
     }
 

@@ -61,6 +61,114 @@ class LogisticsQuoteComparisonServiceTest {
         assertEquals("page 1", result.getCheapest().getSourceLineage().getSourceLocator());
     }
 
+    @Test
+    void shouldComparePricesWhenSourceRowsReferenceYiteServiceLineAlias() {
+        InMemoryFactRepository repository = new InMemoryFactRepository();
+        LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
+        LogisticsQuoteComparisonService comparisonService = new LogisticsQuoteComparisonService(repository);
+        String canonicalServiceLineKey = "yite|KSA|sea|warehouse_to_fbn|KSA/Riyadh";
+        String sourceAlias = "yite-YT-SAU-UNDATED-001-KSA-Riyadh-sea-ddp-fbn";
+
+        publisher.land(List.of(
+                new LogisticsQuotePublishedItem(
+                        "logistics_service_line",
+                        canonicalServiceLineKey,
+                        mapOf(
+                                "forwarderCode", "yite",
+                                "forwarderName", "义特物流",
+                                "country", "KSA",
+                                "transportMode", "sea",
+                                "serviceScope", "warehouse_to_fbn",
+                                "destinationNode", "KSA/Riyadh",
+                                "serviceLineKey", sourceAlias
+                        ),
+                        lineage(91001)
+                ),
+                new LogisticsQuotePublishedItem(
+                        "logistics_cargo_category",
+                        "yite|" + sourceAlias + "|A",
+                        mapOf(
+                                "forwarderCode", "yite",
+                                "serviceLineKey", sourceAlias,
+                                "categoryCode", "A",
+                                "categoryName", "普货"
+                        ),
+                        lineage(91002)
+                ),
+                new LogisticsQuotePublishedItem(
+                        "logistics_base_price",
+                        "yite|" + sourceAlias + "|A|cbm|unit_price",
+                        mapOf(
+                                "forwarderCode", "yite",
+                                "serviceLineKey", sourceAlias,
+                                "cargoCategoryKey", "A",
+                                "unitPrice", "120",
+                                "currency", "SAR",
+                                "billingUnit", "cbm",
+                                "pricingModel", "unit_price",
+                                "priceStatus", "NORMAL"
+                        ),
+                        lineage(91003)
+                )
+        ));
+
+        LogisticsQuoteComparisonResult result = comparisonService.compareBasePrices(new LogisticsQuoteComparisonQuery(
+                "KSA",
+                "sea",
+                "warehouse_to_fbn",
+                "普货",
+                "cbm"
+        ));
+
+        assertEquals(1, result.getRows().size());
+        LogisticsPriceRuleFact price = result.getRows().get(0);
+        assertEquals("yite", price.getForwarderCode());
+        assertEquals(canonicalServiceLineKey, price.getServiceLineKey());
+        assertEquals("yite|" + canonicalServiceLineKey + "|A", price.getCargoCategoryKey());
+        assertEquals(new BigDecimal("120"), price.getUnitPrice());
+    }
+
+    @Test
+    void shouldSkipSourceAliasPriceRowsThatCannotAttachToPublishedServiceLine() {
+        InMemoryFactRepository repository = new InMemoryFactRepository();
+        LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
+
+        LogisticsQuoteFactLandingResult landingResult = publisher.land(List.of(
+                new LogisticsQuotePublishedItem(
+                        "logistics_service_line",
+                        "yite|KSA|sea|warehouse_to_fbn|KSA/Riyadh",
+                        mapOf(
+                                "forwarderCode", "yite",
+                                "country", "KSA",
+                                "transportMode", "sea",
+                                "serviceScope", "warehouse_to_fbn",
+                                "destinationNode", "KSA/Riyadh",
+                                "serviceLineKey", "known-yite-source-line"
+                        ),
+                        lineage(92001)
+                ),
+                new LogisticsQuotePublishedItem(
+                        "logistics_base_price",
+                        "yite|unknown-yite-source-line|A|cbm|unit_price",
+                        mapOf(
+                                "forwarderCode", "yite",
+                                "serviceLineKey", "unknown-yite-source-line",
+                                "cargoCategoryKey", "A",
+                                "unitPrice", "99",
+                                "currency", "SAR",
+                                "billingUnit", "cbm",
+                                "pricingModel", "unit_price",
+                                "priceStatus", "NORMAL"
+                        ),
+                        lineage(92002)
+                )
+        ));
+
+        assertEquals(1, landingResult.getInsertedCount());
+        assertEquals(1, landingResult.getSkippedCount());
+        assertEquals(0, repository.findPriceRulesByServiceLineKey("unknown-yite-source-line").size());
+    }
+
     private static LogisticsQuotePublishedItem serviceLine(String naturalKey, String forwarderCode) {
         return new LogisticsQuotePublishedItem(
                 "logistics_service_line",

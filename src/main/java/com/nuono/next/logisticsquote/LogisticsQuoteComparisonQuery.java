@@ -26,6 +26,22 @@ public class LogisticsQuoteComparisonQuery {
         return billingUnit;
     }
 
+    public String getCountry() {
+        return country;
+    }
+
+    public String getTransportMode() {
+        return transportMode;
+    }
+
+    public String getServiceScope() {
+        return serviceScope;
+    }
+
+    public String getCargoCategoryName() {
+        return cargoCategoryName;
+    }
+
     public boolean matches(LogisticsServiceLineFact serviceLine, LogisticsCargoCategoryFact category) {
         return equals(country, serviceLine.getCountry())
                 && equals(transportMode, serviceLine.getTransportMode())

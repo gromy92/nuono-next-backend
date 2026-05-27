@@ -1,9 +1,12 @@
 package com.nuono.next.logisticsquote;
 
 import com.nuono.next.infrastructure.mapper.LogisticsQuoteFactMapper;
+import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -31,7 +34,19 @@ public class MyBatisLogisticsQuoteFactRepository implements LogisticsQuoteFactRe
 
     @Override
     public List<LogisticsServiceLineFact> findActiveServiceLines(LogisticsServiceLineQuery query) {
-        return Collections.emptyList();
+        if (query == null) {
+            return Collections.emptyList();
+        }
+        return mapper.selectActiveServiceLineRows(
+                        query.getForwarderCode(),
+                        query.getCountry(),
+                        query.getTransportMode(),
+                        query.getServiceScope(),
+                        query.getDestinationNode()
+                )
+                .stream()
+                .map(this::toServiceLine)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -47,6 +62,14 @@ public class MyBatisLogisticsQuoteFactRepository implements LogisticsQuoteFactRe
     }
 
     @Override
+    public List<LogisticsCargoCategoryFact> findActiveCargoCategories(String forwarderCode, String serviceLineKey) {
+        return mapper.selectActiveCargoCategoryRows(forwarderCode, serviceLineKey)
+                .stream()
+                .map(this::toCargoCategory)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public Optional<LogisticsPriceRuleFact> findPriceRuleBySourceVersionItemId(Long sourceVersionItemId) {
         return existsBySource(LogisticsQuoteFactType.PRICE_RULE, sourceVersionItemId)
                 ? Optional.of(dummyPriceRule(sourceVersionItemId))
@@ -56,6 +79,31 @@ public class MyBatisLogisticsQuoteFactRepository implements LogisticsQuoteFactRe
     @Override
     public void insertPriceRule(LogisticsPriceRuleFact fact) {
         mapper.insertPriceRule(nextId(LogisticsQuoteFactType.PRICE_RULE), fact, SYSTEM_OPERATOR_USER_ID);
+    }
+
+    @Override
+    public List<LogisticsPriceRuleFact> findPriceRulesByServiceLineKey(String serviceLineKey) {
+        return mapper.selectActivePriceRuleRowsByServiceLineKey(serviceLineKey)
+                .stream()
+                .map(this::toPriceRule)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<LogisticsPriceRuleFact> findComparablePriceRules(LogisticsQuoteComparisonQuery query) {
+        if (query == null) {
+            return Collections.emptyList();
+        }
+        return mapper.selectComparablePriceRuleRows(
+                        query.getCountry(),
+                        query.getTransportMode(),
+                        query.getServiceScope(),
+                        query.getCargoCategoryName(),
+                        query.getBillingUnit()
+                )
+                .stream()
+                .map(this::toPriceRule)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -92,6 +140,14 @@ public class MyBatisLogisticsQuoteFactRepository implements LogisticsQuoteFactRe
     @Override
     public void insertRestrictionRule(LogisticsRestrictionRuleFact fact) {
         mapper.insertRestrictionRule(nextId(LogisticsQuoteFactType.RESTRICTION_RULE), fact, SYSTEM_OPERATOR_USER_ID);
+    }
+
+    @Override
+    public List<LogisticsRestrictionRuleFact> findRestrictionRulesByServiceLineKey(String serviceLineKey) {
+        return mapper.selectActiveRestrictionRuleRowsByServiceLineKey(serviceLineKey)
+                .stream()
+                .map(this::toRestrictionRule)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -167,5 +223,166 @@ public class MyBatisLogisticsQuoteFactRepository implements LogisticsQuoteFactRe
 
     private LogisticsWarehouseFeeRuleFact dummyWarehouseFee(Long sourceVersionItemId) {
         return new LogisticsWarehouseFeeRuleFact(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, LogisticsQuoteFactStatus.ACTIVE.value(), dummyLineage(sourceVersionItemId));
+    }
+
+    private LogisticsServiceLineFact toServiceLine(Map<String, Object> row) {
+        return new LogisticsServiceLineFact(
+                text(row, "naturalKey"),
+                text(row, "forwarderCode"),
+                text(row, "forwarderName"),
+                text(row, "country"),
+                text(row, "fulfillmentMode"),
+                text(row, "destinationNode"),
+                text(row, "transportMode"),
+                text(row, "serviceScope"),
+                text(row, "channelName"),
+                text(row, "originWarehouse"),
+                text(row, "destinationWarehouse"),
+                text(row, "departureFrequency"),
+                integer(row, "estimatedDaysMin"),
+                integer(row, "estimatedDaysMax"),
+                text(row, "effectiveFrom"),
+                text(row, "status"),
+                lineage(row)
+        );
+    }
+
+    private LogisticsPriceRuleFact toPriceRule(Map<String, Object> row) {
+        return new LogisticsPriceRuleFact(
+                text(row, "naturalKey"),
+                text(row, "forwarderCode"),
+                text(row, "serviceLineKey"),
+                text(row, "cargoCategoryKey"),
+                decimal(row, "unitPrice"),
+                text(row, "currency"),
+                text(row, "billingUnit"),
+                text(row, "pricingModel"),
+                decimal(row, "minimumBillableUnit"),
+                text(row, "minimumBillableUnitType"),
+                decimal(row, "minimumCharge"),
+                decimal(row, "volumeDivisor"),
+                text(row, "seaWeightRatio"),
+                text(row, "roundingRule"),
+                text(row, "priceStatus"),
+                text(row, "effectiveFrom"),
+                text(row, "status"),
+                lineage(row)
+        );
+    }
+
+    private LogisticsCargoCategoryFact toCargoCategory(Map<String, Object> row) {
+        return new LogisticsCargoCategoryFact(
+                text(row, "naturalKey"),
+                text(row, "forwarderCode"),
+                text(row, "serviceLineKey"),
+                text(row, "categoryCode"),
+                text(row, "categoryName"),
+                text(row, "sourceCategoryName"),
+                text(row, "productExamples"),
+                text(row, "keywords"),
+                text(row, "electricType"),
+                text(row, "sensitiveTags"),
+                text(row, "packingPolicy"),
+                booleanValue(row, "manualConfirmRequired"),
+                text(row, "status"),
+                lineage(row)
+        );
+    }
+
+    private LogisticsRestrictionRuleFact toRestrictionRule(Map<String, Object> row) {
+        return new LogisticsRestrictionRuleFact(
+                text(row, "naturalKey"),
+                text(row, "forwarderCode"),
+                text(row, "serviceLineKey"),
+                text(row, "restrictionType"),
+                text(row, "itemText"),
+                text(row, "requirementText"),
+                text(row, "applicabilityScope"),
+                text(row, "severity"),
+                booleanValue(row, "manualConfirmRequired"),
+                text(row, "status"),
+                lineage(row)
+        );
+    }
+
+    private LogisticsQuoteFactSourceLineage lineage(Map<String, Object> row) {
+        return new LogisticsQuoteFactSourceLineage(
+                text(row, "sourceType"),
+                longValue(row, "sourceTaskId"),
+                longValue(row, "sourceResultId"),
+                longValue(row, "sourceVersionId"),
+                longValue(row, "sourceVersionItemId"),
+                text(row, "sourceFileName"),
+                text(row, "sourceLocator")
+        );
+    }
+
+    private String text(Map<String, Object> row, String key) {
+        Object value = value(row, key);
+        return value == null ? null : value.toString();
+    }
+
+    private Integer integer(Map<String, Object> row, String key) {
+        Object value = value(row, key);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        return Integer.valueOf(value.toString());
+    }
+
+    private Long longValue(Map<String, Object> row, String key) {
+        Object value = value(row, key);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        return Long.valueOf(value.toString());
+    }
+
+    private BigDecimal decimal(Map<String, Object> row, String key) {
+        Object value = value(row, key);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        return new BigDecimal(value.toString());
+    }
+
+    private boolean booleanValue(Map<String, Object> row, String key) {
+        Object value = value(row, key);
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue() != 0;
+        }
+        byte[] bytes = value instanceof byte[] ? (byte[]) value : null;
+        if (bytes != null && bytes.length > 0) {
+            return bytes[0] != 0;
+        }
+        return Boolean.parseBoolean(value.toString());
+    }
+
+    private Object value(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+        if (value != null || row.containsKey(key)) {
+            return value;
+        }
+        String underscoreKey = key.replaceAll("([A-Z])", "_$1").toLowerCase();
+        value = row.get(underscoreKey);
+        if (value != null || row.containsKey(underscoreKey)) {
+            return value;
+        }
+        return row.get(key.toUpperCase());
     }
 }
