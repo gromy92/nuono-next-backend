@@ -17,7 +17,7 @@ class LogisticsQuoteBillingAndRestrictionFactLandingTest {
     void shouldLandBillingRuleWithStructuredConditionAndSource() {
         InMemoryFactRepository repository = new InMemoryFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String serviceLineKey = "et|SA|FBN|air|headhaul|RUH";
+        String serviceLineKey = "et|SA|air|headhaul|RUH";
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(billingRuleItem(
                 null,
@@ -42,7 +42,7 @@ class LogisticsQuoteBillingAndRestrictionFactLandingTest {
         List<LogisticsBillingRuleFact> rules = repository.findBillingRulesByServiceLineKey(serviceLineKey);
         assertEquals(1, rules.size());
         LogisticsBillingRuleFact fact = rules.get(0);
-        assertEquals("et|et|SA|FBN|air|headhaul|RUH|et|SA|FBN|air|headhaul|RUH|general|volume weight divisor", fact.getNaturalKey());
+        assertEquals("et|et|SA|air|headhaul|RUH|et|SA|air|headhaul|RUH|general|volume weight divisor", fact.getNaturalKey());
         assertEquals("et", fact.getForwarderCode());
         assertEquals(serviceLineKey, fact.getServiceLineKey());
         assertEquals(serviceLineKey + "|general", fact.getCargoCategoryKey());
@@ -63,7 +63,7 @@ class LogisticsQuoteBillingAndRestrictionFactLandingTest {
     void shouldLandRestrictionsAndDistinguishHardWarningAndInfoSeverity() {
         InMemoryFactRepository repository = new InMemoryFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String serviceLineKey = "et|SA|FBN|air|headhaul|RUH";
+        String serviceLineKey = "et|SA|air|headhaul|RUH";
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(
                 restrictionItem(null, 88211L, mapOf(
@@ -119,7 +119,7 @@ class LogisticsQuoteBillingAndRestrictionFactLandingTest {
     void shouldSkipInvalidBillingAndRestrictionRows() {
         InMemoryFactRepository repository = new InMemoryFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String serviceLineKey = "et|SA|FBN|air|headhaul|RUH";
+        String serviceLineKey = "et|SA|air|headhaul|RUH";
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(
                 billingRuleItem("invalid-billing", 88221L, mapOf(

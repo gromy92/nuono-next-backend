@@ -19,7 +19,7 @@ class LogisticsQuoteCargoCategoryFactLandingTest {
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
         LogisticsQuotePublishedItem serviceLine = publishedItem(
                 "logistics_service_line",
-                "et|SA|FBN|air|headhaul|RUH",
+                "et|SA|air|headhaul|RUH",
                 88001L,
                 mapOf(
                         "forwarderCode", "et",
@@ -33,11 +33,11 @@ class LogisticsQuoteCargoCategoryFactLandingTest {
         );
         LogisticsQuotePublishedItem category = publishedItem(
                 "logistics_cargo_category",
-                "et|et|SA|FBN|air|headhaul|RUH|A",
+                "et|et|SA|air|headhaul|RUH|A",
                 88002L,
                 mapOf(
                         "forwarderCode", "et",
-                        "serviceLineKey", "et|SA|FBN|air|headhaul|RUH",
+                        "serviceLineKey", "et|SA|air|headhaul|RUH",
                         "categoryCode", "A",
                         "categoryName", "普货",
                         "productExamples", "家居用品、服饰",
@@ -52,11 +52,11 @@ class LogisticsQuoteCargoCategoryFactLandingTest {
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(serviceLine, category));
 
         assertEquals(2, result.getInsertedCount());
-        List<LogisticsCargoCategoryFact> categories = repository.findActiveCargoCategories("et", "et|SA|FBN|air|headhaul|RUH");
+        List<LogisticsCargoCategoryFact> categories = repository.findActiveCargoCategories("et", "et|SA|air|headhaul|RUH");
         assertEquals(1, categories.size());
         LogisticsCargoCategoryFact fact = categories.get(0);
         assertEquals("et", fact.getForwarderCode());
-        assertEquals("et|SA|FBN|air|headhaul|RUH", fact.getServiceLineKey());
+        assertEquals("et|SA|air|headhaul|RUH", fact.getServiceLineKey());
         assertEquals("A", fact.getCategoryCode());
         assertEquals("普货", fact.getCategoryName());
         assertEquals("家居用品、服饰", fact.getProductExamples());
@@ -74,11 +74,11 @@ class LogisticsQuoteCargoCategoryFactLandingTest {
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(publishedItem(
                 "logistics_cargo_category",
-                "et|et|SA|FBN|air|headhaul|RUH|battery",
+                "et|et|SA|air|headhaul|RUH|battery",
                 88003L,
                 mapOf(
                         "forwarderCode", "et",
-                        "serviceLineKey", "et|SA|FBN|air|headhaul|RUH",
+                        "serviceLineKey", "et|SA|air|headhaul|RUH",
                         "categoryCode", "B",
                         "categoryName", "带电货",
                         "manualConfirmRequired", true
@@ -86,7 +86,7 @@ class LogisticsQuoteCargoCategoryFactLandingTest {
         )));
 
         assertEquals(1, result.getInsertedCount());
-        LogisticsCargoCategoryFact fact = repository.findActiveCargoCategories("et", "et|SA|FBN|air|headhaul|RUH").get(0);
+        LogisticsCargoCategoryFact fact = repository.findActiveCargoCategories("et", "et|SA|air|headhaul|RUH").get(0);
         assertTrue(fact.isManualConfirmRequired());
         assertFalse(fact.isComparable());
         assertEquals("PENDING_MANUAL_CONFIRM", fact.getStatus());
@@ -103,13 +103,13 @@ class LogisticsQuoteCargoCategoryFactLandingTest {
                 88004L,
                 mapOf(
                         "forwarderCode", "et",
-                        "serviceLineKey", "et|SA|FBN|air|headhaul|RUH"
+                        "serviceLineKey", "et|SA|air|headhaul|RUH"
                 )
         )));
 
         assertEquals(0, result.getInsertedCount());
         assertEquals(1, result.getSkippedCount());
-        assertTrue(repository.findActiveCargoCategories("et", "et|SA|FBN|air|headhaul|RUH").isEmpty());
+        assertTrue(repository.findActiveCargoCategories("et", "et|SA|air|headhaul|RUH").isEmpty());
     }
 
     private static LogisticsQuotePublishedItem publishedItem(

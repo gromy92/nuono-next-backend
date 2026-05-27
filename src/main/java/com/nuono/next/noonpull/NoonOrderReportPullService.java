@@ -51,7 +51,7 @@ public class NoonOrderReportPullService {
                         .storeCode(command.getStoreCode())
                         .siteCode(command.getSiteCode())
                         .dataDomain(NoonPullDataDomain.ORDER)
-                        .reportType(NoonOrderReportDescriptor.EXPORT_CATEGORY_CODE)
+                        .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
                         .dateFrom(command.getDateFrom())
                         .dateTo(command.getDateTo())
                         .maxPollAttempts(ORDER_REPORT_MAX_POLL_ATTEMPTS)

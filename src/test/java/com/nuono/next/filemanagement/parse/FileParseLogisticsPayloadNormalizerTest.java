@@ -1,6 +1,7 @@
 package com.nuono.next.filemanagement.parse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.math.BigDecimal;
 import java.util.LinkedHashMap;
@@ -32,7 +33,7 @@ class FileParseLogisticsPayloadNormalizerTest {
         assertEquals("et", normalized.get("forwarderCode"));
         assertEquals("ET/易通", normalized.get("forwarderName"));
         assertEquals("KSA", normalized.get("country"));
-        assertEquals("FBN", normalized.get("fulfillmentMode"));
+        assertFalse(normalized.containsKey("fulfillmentMode"));
         assertEquals("Riyadh FBN warehouse", normalized.get("destinationNode"));
         assertEquals("cargo_air", normalized.get("transportMode"));
         assertEquals("warehouse_to_fbn", normalized.get("serviceScope"));
@@ -67,6 +68,42 @@ class FileParseLogisticsPayloadNormalizerTest {
         assertEquals("fbn_delivery", normalized.get("serviceScope"));
         assertEquals(18, normalized.get("leadTimeMinDays"));
         assertEquals(25, normalized.get("leadTimeMaxDays"));
+    }
+
+    @Test
+    void shouldNotExposeFulfillmentModeForCurrentFbnOnlyLogisticsScope() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("forwarderName", "义特物流");
+        payload.put("country", "KSA");
+        payload.put("destinationNode", "Riyadh");
+        payload.put("transportMode", "海运双清包税");
+        payload.put("serviceScope", "FBN送仓");
+
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                "logistics_service_line",
+                payload
+        );
+
+        assertFalse(normalized.containsKey("fulfillmentMode"));
+        assertEquals("sea", normalized.get("transportMode"));
+        assertEquals("fbn_delivery", normalized.get("serviceScope"));
+    }
+
+    @Test
+    void shouldDefaultMissingServiceScopeToFbnDeliveryForCurrentFbnOnlyLogisticsScope() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("forwarderName", "义特物流");
+        payload.put("country", "KSA");
+        payload.put("destinationNode", "Riyadh");
+        payload.put("transportMode", "海运双清包税");
+
+        Map<String, Object> normalized = FileParseLogisticsPayloadNormalizer.normalize(
+                "logistics_service_line",
+                payload
+        );
+
+        assertFalse(normalized.containsKey("fulfillmentMode"));
+        assertEquals("fbn_delivery", normalized.get("serviceScope"));
     }
 
     @Test

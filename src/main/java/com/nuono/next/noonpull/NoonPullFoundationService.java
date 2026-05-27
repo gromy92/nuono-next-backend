@@ -1,6 +1,7 @@
 package com.nuono.next.noonpull;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
@@ -103,7 +104,7 @@ public class NoonPullFoundationService {
     }
 
     private boolean isTerminalDuplicate(NoonPullTaskRecord task, NoonPullTriggerMode triggerMode) {
-        if (task == null || task.getStatus() == null || triggerMode != NoonPullTriggerMode.SCHEDULED_DAILY) {
+        if (task == null || task.getStatus() == null || !suppressesTerminalDuplicates(triggerMode)) {
             return false;
         }
         if (task.getStatus() == NoonPullTaskStatus.SUCCEEDED || task.getStatus() == NoonPullTaskStatus.PARTIAL) {
@@ -113,6 +114,12 @@ public class NoonPullFoundationService {
             return !Boolean.TRUE.equals(task.getRetryable());
         }
         return false;
+    }
+
+    private boolean suppressesTerminalDuplicates(NoonPullTriggerMode triggerMode) {
+        return triggerMode == NoonPullTriggerMode.SCHEDULED_DAILY
+                || triggerMode == NoonPullTriggerMode.GAP_BACKFILL
+                || triggerMode == NoonPullTriggerMode.LOW_FREQUENCY_CORRECTION;
     }
 
     public NoonPullTaskRecord markRunning(Long taskId, String workerId) {
@@ -276,6 +283,29 @@ public class NoonPullFoundationService {
                 .targetDateFrom(task.getTargetDateFrom())
                 .targetDateTo(task.getTargetDateTo())
                 .build()).orElseThrow();
+    }
+
+    public int recoverStaleRunningTasks(Duration maxRunningAge) {
+        Duration safeMaxAge = maxRunningAge == null || maxRunningAge.isNegative() || maxRunningAge.isZero()
+                ? Duration.ofHours(2)
+                : maxRunningAge;
+        LocalDateTime threshold = now().minus(safeMaxAge);
+        int recovered = 0;
+        for (NoonPullTaskRecord task : repository.listTasks()) {
+            if (task.getStatus() != NoonPullTaskStatus.RUNNING || task.getStartedAt() == null) {
+                continue;
+            }
+            if (task.getStartedAt().isAfter(threshold)) {
+                continue;
+            }
+            markFailedWithPolicy(
+                    task.getId(),
+                    "timeout: stale running task exceeded " + safeMaxAge.toMinutes() + " minutes",
+                    1
+            );
+            recovered++;
+        }
+        return recovered;
     }
 
     public List<NoonPullPlanRecord> listPlans() {

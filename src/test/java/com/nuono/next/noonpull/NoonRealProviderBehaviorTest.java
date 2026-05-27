@@ -31,6 +31,10 @@ class NoonRealProviderBehaviorTest {
     private static final String EXPORT_STATUS_URL = "https://noon.test/export/status";
     private static final String SALES_PAGE_LIST_URL =
             "https://reports.noon.test/_vs/mp/mp-inventory-health-api-sales-dashboard/sales-dashboard/list";
+    private static final String SALES_DASHBOARD_EXPORT_GENERATE_URL =
+            "https://reports.noon.test/_vs/mp/mp-inventory-health-api-sales-dashboard/export/generate";
+    private static final String SALES_DASHBOARD_EXPORT_LATEST_URL =
+            "https://reports.noon.test/_vs/mp/mp-inventory-health-api-sales-dashboard/export/latest";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
@@ -233,7 +237,54 @@ class NoonRealProviderBehaviorTest {
     }
 
     @Test
-    void orderReportProviderShouldIncludeCategoryAndScopeWhenExportIsNotConfigured() {
+    void orderReportProviderShouldGenerateLatestAndDownloadSalesDashboardExport() {
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(boundStore());
+        RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
+        session.enqueuePostResponse(objectMapper.getNodeFactory().textNode("ok"));
+        session.enqueuePostResponse(objectMapper.createObjectNode()
+                .put("id_exports", 572271)
+                .put("status", "Success")
+                .set("export_attachment", objectMapper.createObjectNode()
+                        .put("file_type", "csv")
+                        .put("file_name", "sales_export_05-26-2026_03:08:15_245027_AE_572271.csv")
+                        .put("url", "https://download.test/order-sales.csv")));
+        session.downloadBytes = "id_partner,offer_price,currency_code\n245027,49.5,AED\n"
+                .getBytes(StandardCharsets.UTF_8);
+        RealNoonOrderReportSmokeProvider provider = new RealNoonOrderReportSmokeProvider(
+                objectMapper,
+                new NoonPullStoreBindingResolver(storeSyncMapper),
+                new RecordingGatewaySessionFactory(session),
+                SALES_DASHBOARD_EXPORT_GENERATE_URL,
+                SALES_DASHBOARD_EXPORT_LATEST_URL,
+                ""
+        );
+
+        String exportId = provider.createExport(orderRequest());
+        NoonReportExportStatus status = provider.pollExport(orderRequest(), exportId);
+        byte[] downloaded = provider.download(orderRequest(), status.getDownloadUrl());
+
+        assertEquals("sales-dashboard-export:2026-05-21..2026-05-21", exportId);
+        assertTrue(status.isReady());
+        assertEquals("https://download.test/order-sales.csv", status.getDownloadUrl());
+        assertSame(session.downloadBytes, downloaded);
+        assertEquals(SALES_DASHBOARD_EXPORT_GENERATE_URL, session.posts.get(0).url);
+        assertFalse(session.posts.get(0).withProject);
+        assertEquals("PRJ245027", session.posts.get(0).extraHeaders.get("X-Project"));
+        assertEquals("en-ae", session.posts.get(0).extraHeaders.get("X-Locale"));
+        assertEquals("en", session.posts.get(0).extraHeaders.get("X-Lang"));
+        assertEquals("AE", session.posts.get(0).body.get("country_code").asText());
+        assertTrue(session.posts.get(0).body.get("filters").isObject());
+        assertEquals("", session.posts.get(0).body.get("search").asText());
+        assertEquals("2026-05-21", session.posts.get(0).body.get("from_date").asText());
+        assertEquals("2026-05-21", session.posts.get(0).body.get("to_date").asText());
+        assertEquals(SALES_DASHBOARD_EXPORT_LATEST_URL, session.posts.get(1).url);
+        assertFalse(session.posts.get(1).withProject);
+        assertEquals("https://download.test/order-sales.csv", session.downloadUrl);
+        assertFalse(session.downloadWithProject);
+    }
+
+    @Test
+    void orderReportProviderShouldIncludeScopeWhenSalesDashboardExportFails() {
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(boundStore());
         RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
         session.enqueuePostResponse(objectMapper.createObjectNode().put("error", "Export is not configured"));
@@ -241,8 +292,8 @@ class NoonRealProviderBehaviorTest {
                 objectMapper,
                 new NoonPullStoreBindingResolver(storeSyncMapper),
                 new RecordingGatewaySessionFactory(session),
-                EXPORT_CREATE_URL,
-                EXPORT_STATUS_URL,
+                SALES_DASHBOARD_EXPORT_GENERATE_URL,
+                SALES_DASHBOARD_EXPORT_LATEST_URL,
                 ""
         );
 
@@ -252,33 +303,6 @@ class NoonRealProviderBehaviorTest {
         );
 
         assertTrue(exception.getMessage().contains("provider not configured"));
-        assertTrue(exception.getMessage().contains("noon_noonoms_ordersexport"));
-        assertTrue(exception.getMessage().contains("ownerUserId=10002"));
-        assertTrue(exception.getMessage().contains("storeCode=STR245027-NAE"));
-        assertTrue(exception.getMessage().contains("siteCode=AE"));
-    }
-
-    @Test
-    void orderReportProviderShouldIncludeCategoryAndScopeWhenGatewayThrowsExportNotConfigured() {
-        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(boundStore());
-        RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
-        session.postFailure = new IllegalStateException("HTTP 400 {\"error\":\"Export is not configured\"}");
-        RealNoonOrderReportSmokeProvider provider = new RealNoonOrderReportSmokeProvider(
-                objectMapper,
-                new NoonPullStoreBindingResolver(storeSyncMapper),
-                new RecordingGatewaySessionFactory(session),
-                EXPORT_CREATE_URL,
-                EXPORT_STATUS_URL,
-                ""
-        );
-
-        NoonInterfacePullException exception = assertThrows(
-                NoonInterfacePullException.class,
-                () -> provider.createExport(orderRequest())
-        );
-
-        assertTrue(exception.getMessage().contains("provider not configured"));
-        assertTrue(exception.getMessage().contains("noon_noonoms_ordersexport"));
         assertTrue(exception.getMessage().contains("ownerUserId=10002"));
         assertTrue(exception.getMessage().contains("storeCode=STR245027-NAE"));
         assertTrue(exception.getMessage().contains("siteCode=AE"));
@@ -325,7 +349,7 @@ class NoonRealProviderBehaviorTest {
                 .storeCode("STR245027-NAE")
                 .siteCode("AE")
                 .dataDomain(NoonPullDataDomain.ORDER)
-                .reportType(NoonOrderReportDescriptor.EXPORT_CATEGORY_CODE)
+                .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
                 .dateFrom(LocalDate.of(2026, 5, 21))
                 .dateTo(LocalDate.of(2026, 5, 21))
                 .build();

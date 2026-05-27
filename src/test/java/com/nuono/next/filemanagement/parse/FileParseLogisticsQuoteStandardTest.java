@@ -49,9 +49,16 @@ class FileParseLogisticsQuoteStandardTest {
         FileParseLogisticsQuoteStandard.ItemTypeDefinition serviceLine =
                 FileParseLogisticsQuoteStandard.definition("logistics_service_line");
         assertEquals(
-                List.of("forwarderCode", "country", "fulfillmentMode", "transportMode", "serviceScope", "destinationNode"),
+                List.of("forwarderCode", "country", "transportMode", "serviceScope", "destinationNode"),
+                serviceLine.getNaturalKeyFields()
+        );
+        assertEquals(
+                List.of("forwarderCode", "country", "transportMode", "serviceScope", "destinationNode"),
                 serviceLine.getRequiredFields()
         );
+        assertFalse(serviceLine.getFieldTypes().containsKey("fulfillmentMode"));
+        assertFalse(serviceLine.getDisplayColumns().contains("fulfillmentMode"));
+        assertFalse(serviceLine.getCompareFields().contains("fulfillmentMode"));
         assertTrue(serviceLine.getDisplayColumns().contains("leadTimeText"));
 
         FileParseLogisticsQuoteStandard.ItemTypeDefinition basePrice =
@@ -81,6 +88,18 @@ class FileParseLogisticsQuoteStandardTest {
         assertTrue(sql.contains("'logistics_et'"), "seed must add ET target plan");
         assertTrue(sql.contains("\"yite\""), "seed must preserve Yite forwarder identity");
         assertTrue(sql.contains("\"et\""), "seed must preserve ET forwarder identity");
+        assertTrue(
+                sql.contains("\"required\":[\"forwarderCode\",\"country\",\"transportMode\",\"serviceScope\",\"destinationNode\"]"),
+                "FBN-only logistics service line must not require fulfillmentMode"
+        );
+        assertTrue(
+                sql.contains("\"fields\":[\"forwarderCode\",\"country\",\"transportMode\",\"serviceScope\",\"destinationNode\"]"),
+                "FBN-only logistics service line natural key must not include fulfillmentMode"
+        );
+        assertFalse(
+                sql.contains("\"fulfillmentMode\":\"string\""),
+                "FBN-only logistics service line field schema must not expose fulfillmentMode"
+        );
     }
 
     @Test

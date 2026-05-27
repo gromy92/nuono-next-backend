@@ -20,8 +20,20 @@ class FileParseLogisticsNaturalKeySupportTest {
         String firstKey = FileParseNaturalKeySupport.buildNaturalKey("logistics_service_line", first);
         String changedLeadTimeKey = FileParseNaturalKeySupport.buildNaturalKey("logistics_service_line", changedLeadTime);
 
-        assertEquals("et|KSA|FBN|cargo_air|warehouse_to_fbn|Riyadh FBN warehouse", firstKey);
+        assertEquals("et|KSA|cargo_air|warehouse_to_fbn|Riyadh FBN warehouse", firstKey);
         assertEquals(firstKey, changedLeadTimeKey);
+    }
+
+    @Test
+    void serviceLineNaturalKeyShouldIgnoreFulfillmentModeForCurrentFbnOnlyScope() {
+        Map<String, Object> first = serviceLine();
+        Map<String, Object> changedFulfillmentMode = new LinkedHashMap<>(first);
+        changedFulfillmentMode.put("fulfillmentMode", "FBP");
+
+        assertEquals(
+                FileParseNaturalKeySupport.buildNaturalKey("logistics_service_line", first),
+                FileParseNaturalKeySupport.buildNaturalKey("logistics_service_line", changedFulfillmentMode)
+        );
     }
 
     @Test

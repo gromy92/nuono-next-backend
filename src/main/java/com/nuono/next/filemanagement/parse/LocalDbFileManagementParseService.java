@@ -149,6 +149,7 @@ public class LocalDbFileManagementParseService {
                 .stream()
                 .peek(item -> item.setAvailableActions(resolveActions(toTargetPlanRow(item), user)))
                 .collect(Collectors.toList());
+        enrichTaskListInputs(items);
 
         FileParseTaskListView view = new FileParseTaskListView();
         view.setTotal(total);
@@ -158,11 +159,80 @@ public class LocalDbFileManagementParseService {
         return view;
     }
 
+    private void enrichTaskListInputs(List<FileParseTaskListItemView> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        List<Long> taskIds = items.stream()
+                .map(FileParseTaskListItemView::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (taskIds.isEmpty()) {
+            return;
+        }
+        Map<Long, List<FileParseTaskInputView>> inputItemsByTaskId = fileManagementParseMapper
+                .selectTaskInputsByTaskIds(taskIds)
+                .stream()
+                .filter(row -> row.getTaskId() != null)
+                .collect(Collectors.groupingBy(
+                        FileParseTaskInputRow::getTaskId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(this::toTaskInputView, Collectors.toList())
+                ));
+        for (FileParseTaskListItemView item : items) {
+            item.setInputItems(inputItemsByTaskId.getOrDefault(item.getId(), List.of()));
+        }
+    }
+
     public FileParseTaskDetailView getTask(AuthenticatedSession session, Long taskId) {
         FileParseUserContext user = requireFileManagementUser(session);
         FileParseTaskRow task = requireTask(taskId);
         FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, task.getTargetPlanId());
         return toTaskDetailView(task, targetPlan, fileManagementParseMapper.selectTaskInputs(task.getId()));
+    }
+
+    @Transactional
+    public void deleteTask(AuthenticatedSession session, Long taskId) {
+        FileParseUserContext user = requireFileManagementUser(session);
+        FileParseTaskRow task = requireTask(taskId);
+        FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, task.getTargetPlanId());
+        requireCanCreateTask(targetPlan, user);
+        List<Long> versionIds = fileManagementParseMapper.selectVersionIdsBySourceTask(task.getId());
+        deletePublishedBusinessResults(versionIds, user.getUserId());
+        fileManagementParseMapper.deleteCurrentResultByTask(task.getId());
+        fileManagementParseMapper.deleteResultItemSourcesByTask(task.getId());
+        fileManagementParseMapper.deleteAiChunksByTask(task.getId());
+        fileManagementParseMapper.softDeleteValidationIssuesByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteSourceRowsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteItemReviewsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteResultItemsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.markResultsDeletedByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteTaskInputsByTask(task.getId(), user.getUserId());
+        fileManagementParseMapper.softDeleteFileAssetsByTask(task.getId(), user.getUserId());
+        int affectedRows = fileManagementParseMapper.softDeleteTask(task.getId(), user.getUserId());
+        if (affectedRows <= 0) {
+            throw new IllegalArgumentException("解析文档不存在或已删除。");
+        }
+    }
+
+    private void deletePublishedBusinessResults(List<Long> versionIds, Long operatorUserId) {
+        if (versionIds == null || versionIds.isEmpty()) {
+            return;
+        }
+        fileManagementParseMapper.softDeleteActiveVersionsByVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsServiceLinesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsCargoCategoriesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsPriceRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsSurchargeRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsBillingRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsWarehouseFeeRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markLogisticsRestrictionRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markOfficialOutboundSizeClassificationRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markOfficialOutboundFeeWeightSlabRulesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.markOfficialOutboundFeeCalculationPoliciesDeletedBySourceVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.softDeleteLogisticsChannelActivationsByVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.softDeleteVersionItemsByVersionIds(versionIds, operatorUserId);
+        fileManagementParseMapper.softDeleteVersionsByIds(versionIds, operatorUserId);
     }
 
     @Transactional
@@ -454,6 +524,9 @@ public class LocalDbFileManagementParseService {
                         retryDelaySeconds(),
                         user.getUserId()
                 );
+                FileParseTaskRunView view = toRunView(task, "retry_waiting", List.of());
+                view.setMessage("AI 服务临时异常，系统会自动重试。");
+                return view;
             } else {
                 fileManagementParseMapper.markTaskFailed(task.getId(), error.getCode(), message, lockOwner, user.getUserId());
             }

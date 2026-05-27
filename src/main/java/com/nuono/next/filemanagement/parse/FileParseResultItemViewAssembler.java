@@ -290,8 +290,6 @@ public class FileParseResultItemViewAssembler {
                 return "货代编码";
             case "forwarderName":
                 return "货代";
-            case "fulfillmentMode":
-                return "履约模式";
             case "destinationNode":
                 return "目的节点";
             case "transportMode":

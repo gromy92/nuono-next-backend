@@ -1,0 +1,45 @@
+package com.nuono.next.salesforecast;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+
+class SalesForecastRunSchemaContractTest {
+
+    @Test
+    void salesDataFoundationMigrationDefinesForecastRunAndResultTables() throws IOException {
+        String sql = Files.readString(Path.of("src", "main", "resources", "db", "init", "053_sales_data_analysis_foundation.sql"));
+
+        assertTrue(sql.contains("'sales_forecast_run'"), "sales data sequence must include forecast run ids");
+        assertTrue(sql.contains("'sales_forecast_result'"), "sales data sequence must include forecast result ids");
+        assertTrue(sql.contains("'sales_forecast_follow_up'"), "sales data sequence must include forecast follow-up ids");
+        assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `sales_forecast_run`"));
+        assertTrue(sql.contains("`source_data_date` DATE NOT NULL"));
+        assertTrue(sql.contains("`calculation_version` VARCHAR(80) NOT NULL"));
+        assertTrue(sql.contains("`config_version` VARCHAR(80) NOT NULL"));
+        assertTrue(sql.contains("`calendar_version_no` VARCHAR(120) DEFAULT NULL"));
+        assertTrue(sql.contains("`calendar_version_name` VARCHAR(160) DEFAULT NULL"));
+        assertTrue(sql.contains("`calendar_version_source_label` VARCHAR(120) DEFAULT NULL"));
+        assertTrue(sql.contains("`lifecycle_version_no` VARCHAR(120) DEFAULT NULL"));
+        assertTrue(sql.contains("`lifecycle_version_name` VARCHAR(160) DEFAULT NULL"));
+        assertTrue(sql.contains("`lifecycle_version_source_label` VARCHAR(120) DEFAULT NULL"));
+        assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `sales_forecast_result`"));
+        assertTrue(sql.contains("`forecast_units_30` INT NOT NULL"));
+        assertTrue(sql.contains("`forecast_units_60` INT NOT NULL"));
+        assertTrue(sql.contains("`forecast_units_90` INT NOT NULL"));
+        assertTrue(sql.contains("`base_daily_sales` DECIMAL(18,6) DEFAULT NULL"));
+        assertTrue(sql.contains("`lifecycle_explanation` VARCHAR(1000) DEFAULT NULL"));
+        assertTrue(sql.contains("`confidence_level` VARCHAR(40) DEFAULT NULL"));
+        assertTrue(sql.contains("`risk_codes` VARCHAR(1000) DEFAULT NULL"));
+        assertTrue(sql.contains("`activity_window_summary` VARCHAR(1000) DEFAULT NULL"));
+        assertTrue(sql.contains("`feature_snapshot_json` LONGTEXT DEFAULT NULL"));
+        assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `sales_forecast_follow_up`"));
+        assertTrue(sql.contains("UNIQUE KEY `uk_sales_forecast_follow_up_product`"));
+        assertTrue(sql.contains("KEY `idx_sales_forecast_follow_up_scope`"));
+        assertTrue(sql.contains("KEY `idx_sales_forecast_run_scope`"));
+        assertTrue(sql.contains("KEY `idx_sales_forecast_result_run`"));
+    }
+}

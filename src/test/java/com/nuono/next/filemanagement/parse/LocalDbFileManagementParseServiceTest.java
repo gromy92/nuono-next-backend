@@ -49,6 +49,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class LocalDbFileManagementParseServiceTest {
@@ -134,6 +135,33 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
+    void shouldIncludeInputDisplayNamesAndDownloadLinksOnTaskList() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTaskListItemView task = taskListItem(20001L, 4005L);
+        FileParseTaskInputRow input = taskInput(
+                30001L,
+                "excel",
+                "Noon佣金表.xlsx",
+                "xlsx",
+                "2026/30001-Noon佣金表.xlsx",
+                null
+        );
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.countTasks(null, null, null, 0, true)).thenReturn(1);
+        when(fileManagementParseMapper.selectTasks(null, null, null, 0, true, 20, 0)).thenReturn(List.of(task));
+        when(fileManagementParseMapper.selectTaskInputsByTaskIds(List.of(20001L))).thenReturn(List.of(input));
+
+        FileParseTaskListView view = service.listTasks(new AuthenticatedSession(10001L, 1L, 0), null, null, null, 1, 20);
+
+        assertEquals(1, view.getItems().size());
+        assertEquals(1, view.getItems().get(0).getInputItems().size());
+        FileParseTaskInputView listInput = view.getItems().get(0).getInputItems().get(0);
+        assertEquals("Noon佣金表.xlsx", listInput.getDisplayName());
+        assertEquals("/api/file-management/parse/files/10001/download", listInput.getDownloadUrl());
+    }
+
+    @Test
     void shouldAllowBossToProcessAndActivateLogisticsButNotPublish() {
         FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
         when(fileManagementParseMapper.selectUserContext(10002L)).thenReturn(boss);
@@ -184,6 +212,46 @@ class LocalDbFileManagementParseServiceTest {
                 FileParseAccessDeniedException.class,
                 () -> service.listTargetPlans(new AuthenticatedSession(10002L, 2L, 1))
         );
+    }
+
+    @Test
+    void shouldDeletePublishedParseTaskArtifactsAndActiveBusinessResults() {
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTaskRow publishedTask = task(20077L, 4001L, "published", 1);
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20077L)).thenReturn(publishedTask);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true))
+                .thenReturn(targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_fee"));
+        when(fileManagementParseMapper.selectVersionIdsBySourceTask(20077L)).thenReturn(List.of(70077L));
+        when(fileManagementParseMapper.softDeleteTask(20077L, 10001L)).thenReturn(1);
+
+        service.deleteTask(new AuthenticatedSession(10001L, 1L, 0), 20077L);
+
+        verify(fileManagementParseMapper).softDeleteActiveVersionsByVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsServiceLinesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsCargoCategoriesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsPriceRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsSurchargeRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsBillingRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsWarehouseFeeRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markLogisticsRestrictionRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markOfficialOutboundSizeClassificationRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markOfficialOutboundFeeWeightSlabRulesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).markOfficialOutboundFeeCalculationPoliciesDeletedBySourceVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).softDeleteLogisticsChannelActivationsByVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).softDeleteVersionItemsByVersionIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).softDeleteVersionsByIds(List.of(70077L), 10001L);
+        verify(fileManagementParseMapper).deleteCurrentResultByTask(20077L);
+        verify(fileManagementParseMapper).softDeleteTaskInputsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteFileAssetsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteSourceRowsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).deleteResultItemSourcesByTask(20077L);
+        verify(fileManagementParseMapper).softDeleteValidationIssuesByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteItemReviewsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).softDeleteResultItemsByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).markResultsDeletedByTask(20077L, 10001L);
+        verify(fileManagementParseMapper).deleteAiChunksByTask(20077L);
+        verify(fileManagementParseMapper).softDeleteTask(20077L, 10001L);
     }
 
     @Test
@@ -1507,6 +1575,44 @@ class LocalDbFileManagementParseServiceTest {
         assertEquals("failed", run.getStatus());
         assertEquals("AI capability is disabled", run.getMessage());
         verify(fileManagementParseMapper).markTaskFailed(anyLong(), anyString(), anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void shouldQueueRetryWhenAiProviderReturnsHttp550() {
+        ReflectionTestUtils.setField(service, "retrySchedulerEnabled", true);
+        ReflectionTestUtils.setField(service, "retrySchedulerMaxAttempts", 5);
+        ReflectionTestUtils.setField(service, "retrySchedulerRetryDelaySeconds", 60);
+        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
+        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
+        FileParseTaskRow task = task(20001L, 4005L, "reading", 0);
+        FileParseTaskInputRow textInput = taskInput(30001L, "manual_text", "人工方案", null, null, "义特报价");
+
+        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
+        when(fileManagementParseMapper.selectTask(20001L)).thenReturn(task);
+        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
+        when(fileManagementParseMapper.markTaskParsing(anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(fileManagementParseMapper.selectTaskInputs(20001L)).thenReturn(List.of(textInput));
+        when(fileManagementParseMapper.selectStandardVersion(5105L)).thenReturn(standardVersion(5105L));
+        when(fileManagementParseMapper.selectItemStandards(5105L)).thenReturn(List.of(logisticsItemStandard()));
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class)))
+                .thenReturn(AiStructuredTextResult.failure("AI_PROVIDER_ERROR", "OPENAI_HTTP_550", "provider temporary failure"));
+        when(fileManagementParseMapper.markTaskFailedRetryable(anyLong(), anyString(), anyString(), anyString(), anyInt(), anyLong())).thenReturn(1);
+        stubStableProcessStart();
+        when(fileManagementParseMapper.markAiChunkFailed(anyLong(), anyLong(), anyString(), anyString(), anyLong())).thenReturn(1);
+
+        FileParseTaskRunView run = service.startParseTask(new AuthenticatedSession(10001L, 1L, 0), 20001L);
+
+        assertEquals("retry_waiting", run.getStatus());
+        assertTrue(run.getMessage().contains("系统会自动重试"));
+        verify(fileManagementParseMapper).markTaskFailedRetryable(
+                eq(20001L),
+                eq("OPENAI_HTTP_550"),
+                eq("provider temporary failure"),
+                anyString(),
+                anyInt(),
+                eq(10001L)
+        );
+        verify(fileManagementParseMapper, never()).markTaskFailed(eq(20001L), eq("OPENAI_HTTP_550"), anyString(), anyString(), eq(10001L));
     }
 
     @Test
@@ -3135,6 +3241,28 @@ class LocalDbFileManagementParseServiceTest {
         row.setParseAttemptCount(parseAttemptCount);
         row.setCreatedBy(10001L);
         return row;
+    }
+
+    private FileParseTaskListItemView taskListItem(Long id, Long targetPlanId) {
+        FileParseTaskListItemView view = new FileParseTaskListItemView();
+        view.setId(id);
+        view.setTaskNo("TASK-20260513-" + id);
+        view.setDocumentTitle("Noon 佣金 2026-05");
+        view.setTargetPlanId(targetPlanId);
+        view.setTargetPlanCode("commission_ksa");
+        view.setTargetPlanLabel("佣金-KSA");
+        view.setDocumentType("official_fee");
+        view.setDocumentName("佣金规则");
+        view.setStandardVersion("STD-COMMISSION-2026-05");
+        view.setCurrentVersion("V2026.05");
+        view.setStatus("review_required");
+        view.setDataScopeType("global");
+        view.setDataScopeKey("global:*");
+        view.setDocumentGroupId(id);
+        view.setIterationNo(1);
+        view.setTotalCount(1);
+        view.setPendingCount(1);
+        return view;
     }
 
     private FileParseTaskInputRow taskInput(

@@ -63,12 +63,11 @@ public final class FileParseLogisticsQuoteStandard {
         definitions.add(new ItemTypeDefinition(
                 SERVICE_LINE,
                 "物流服务线路",
-                list("forwarderCode", "country", "fulfillmentMode", "transportMode", "serviceScope", "destinationNode"),
+                list("forwarderCode", "country", "transportMode", "serviceScope", "destinationNode"),
                 fieldTypes(
                         "forwarderCode", "string",
                         "forwarderName", "string",
                         "country", "string",
-                        "fulfillmentMode", "string",
                         "destinationNode", "string",
                         "transportMode", "string",
                         "serviceScope", "string",
@@ -82,13 +81,13 @@ public final class FileParseLogisticsQuoteStandard {
                         "sourceVersion", "string"
                 ),
                 list(
-                        "forwarderName", "country", "fulfillmentMode", "destinationNode", "transportMode",
+                        "forwarderName", "country", "destinationNode", "transportMode",
                         "serviceScope", "originWarehouse", "destinationWarehouse", "departureFrequency",
                         "leadTimeText", "effectiveDate"
                 ),
-                list("forwarderCode", "country", "fulfillmentMode", "transportMode", "serviceScope", "destinationNode"),
+                list("forwarderCode", "country", "transportMode", "serviceScope", "destinationNode"),
                 list(
-                        "forwarderName", "country", "fulfillmentMode", "destinationNode", "transportMode",
+                        "forwarderName", "country", "destinationNode", "transportMode",
                         "serviceScope", "originWarehouse", "destinationWarehouse", "departureFrequency",
                         "leadTimeText", "leadTimeMinDays", "leadTimeMaxDays", "effectiveDate", "sourceVersion"
                 )

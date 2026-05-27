@@ -221,7 +221,7 @@ public class NoonPullScheduledExecutionService {
 
     private String reportType(NoonPullTaskRecord task) {
         if (task.getDataDomain() == NoonPullDataDomain.ORDER) {
-            return NoonOrderReportDescriptor.EXPORT_CATEGORY_CODE;
+            return NoonOrderReportDescriptor.REPORT_TYPE;
         }
         return "productviewsandsalesdata";
     }

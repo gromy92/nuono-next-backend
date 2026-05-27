@@ -59,7 +59,7 @@ class NoonOrderReportPullServiceTest {
         );
 
         assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
-        assertEquals(List.of("create:noon_noonoms_ordersexport", "poll", "download"), provider.calls);
+        assertEquals(List.of("create:sales_dashboard_sales_export", "poll", "download"), provider.calls);
         assertEquals(1, writer.facts.size());
         NoonPullTaskRecord task = repository.listTasks().get(0);
         assertEquals(NoonPullDataDomain.ORDER, task.getDataDomain());

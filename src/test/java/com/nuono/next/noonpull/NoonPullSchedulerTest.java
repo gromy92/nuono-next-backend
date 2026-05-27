@@ -2,9 +2,11 @@ package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -207,6 +209,122 @@ class NoonPullSchedulerTest {
                 "orders:2026-05-01..2026-05-05".equals(task.getTargetIdentity())));
         assertTrue(repository.listTasks().stream().anyMatch((task) ->
                 "orders:2026-05-06..2026-05-10".equals(task.getTargetIdentity())));
+    }
+
+    @Test
+    void shouldRecoverStaleRunningTaskBeforeScanningDuePlans() {
+        NoonPullPlanRecord plan = createPlan(NoonPullType.REPORT, NoonPullDataDomain.ORDER, NoonPullTriggerMode.GAP_BACKFILL,
+                "backfill:2026-05-01..2026-05-05;maxDays=5;maxWindows=1");
+        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("orders:2026-05-01..2026-05-05")
+                .targetDateFrom(LocalDate.of(2026, 5, 1))
+                .targetDateTo(LocalDate.of(2026, 5, 5))
+                .build()).orElseThrow();
+        NoonPullTaskRecord running = foundationService.markRunning(task.getId(), "noon-report-puller");
+        running.setStartedAt(LocalDateTime.of(2026, 5, 21, 20, 0));
+        repository.updateTask(running);
+
+        scheduler().runDuePlans();
+
+        NoonPullTaskRecord recovered = repository.selectTask(task.getId());
+        assertEquals(NoonPullTaskStatus.FAILED, recovered.getStatus());
+        assertEquals("timeout", recovered.getFailureType());
+        assertEquals("RETRY", recovered.getRetryAction());
+        assertEquals(Boolean.TRUE, recovered.getRetryable());
+        assertEquals(Boolean.FALSE, recovered.getRequiresManualAction());
+        assertNotNull(recovered.getFinishedAt());
+        assertTrue(recovered.getDiagnosticSummary().contains("stale running task"));
+        NoonPullTaskRecord reopened = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("orders:2026-05-01..2026-05-05")
+                .targetDateFrom(LocalDate.of(2026, 5, 1))
+                .targetDateTo(LocalDate.of(2026, 5, 5))
+                .build()).orElseThrow();
+        assertEquals(2, repository.listTasks().size());
+        assertEquals(NoonPullTaskStatus.QUEUED, reopened.getStatus());
+        assertEquals("orders:2026-05-01..2026-05-05", reopened.getTargetIdentity());
+    }
+
+    @Test
+    void shouldLeaveFreshRunningAndTerminalTasksUntouchedDuringStaleRecovery() {
+        NoonPullPlanRecord plan = createPlan(NoonPullType.REPORT, NoonPullDataDomain.ORDER, NoonPullTriggerMode.GAP_BACKFILL,
+                "backfill:2026-05-01..2026-05-10;maxDays=5;maxWindows=2");
+        NoonPullTaskRecord fresh = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("orders:2026-05-01..2026-05-05")
+                .targetDateFrom(LocalDate.of(2026, 5, 1))
+                .targetDateTo(LocalDate.of(2026, 5, 5))
+                .build()).orElseThrow();
+        fresh = foundationService.markRunning(fresh.getId(), "noon-report-puller");
+        fresh.setStartedAt(LocalDateTime.of(2026, 5, 22, 8, 30));
+        repository.updateTask(fresh);
+        NoonPullTaskRecord succeeded = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("orders:2026-05-06..2026-05-10")
+                .targetDateFrom(LocalDate.of(2026, 5, 6))
+                .targetDateTo(LocalDate.of(2026, 5, 10))
+                .build()).orElseThrow();
+        foundationService.markSucceeded(succeeded.getId(), "batch-order-1", "done");
+
+        int recovered = foundationService.recoverStaleRunningTasks(Duration.ofHours(2));
+
+        assertEquals(0, recovered);
+        assertEquals(NoonPullTaskStatus.RUNNING, repository.selectTask(fresh.getId()).getStatus());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, repository.selectTask(succeeded.getId()).getStatus());
+    }
+
+    @Test
+    void shouldUseConfiguredStaleRunningThreshold() {
+        NoonPullPlanRecord plan = createPlan(NoonPullType.REPORT, NoonPullDataDomain.ORDER, NoonPullTriggerMode.GAP_BACKFILL,
+                "backfill:2026-05-01..2026-05-05;maxDays=5;maxWindows=1");
+        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("orders:2026-05-01..2026-05-05")
+                .targetDateFrom(LocalDate.of(2026, 5, 1))
+                .targetDateTo(LocalDate.of(2026, 5, 5))
+                .build()).orElseThrow();
+        NoonPullTaskRecord running = foundationService.markRunning(task.getId(), "noon-report-puller");
+        running.setStartedAt(LocalDateTime.of(2026, 5, 22, 7, 30));
+        repository.updateTask(running);
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                clock,
+                new NoonOrderReportSchedulePolicy(clock),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(clock),
+                (candidate) -> true,
+                Duration.ofMinutes(60)
+        );
+
+        scheduler.runDuePlans();
+
+        assertEquals(NoonPullTaskStatus.FAILED, repository.selectTask(task.getId()).getStatus());
     }
 
     private NoonPullScheduler scheduler() {

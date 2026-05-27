@@ -17,7 +17,7 @@ class LogisticsQuoteWarehouseFeeFactLandingTest {
     void shouldLandWarehouseFeeExamplesWithoutCreatingTransportPrices() {
         InMemoryFactRepository repository = new InMemoryFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        publisher.land(List.of(priceItem(88301L, "64", "et|SA|FBN|air|headhaul|RUH")));
+        publisher.land(List.of(priceItem(88301L, "64", "et|SA|air|headhaul|RUH")));
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(
                 warehouseFeeItem(null, 88302L, mapOf(
@@ -80,7 +80,7 @@ class LogisticsQuoteWarehouseFeeFactLandingTest {
         ));
 
         assertEquals(4, result.getInsertedCount());
-        assertEquals(1, repository.findPriceRulesByServiceLineKey("et|SA|FBN|air|headhaul|RUH").size());
+        assertEquals(1, repository.findPriceRulesByServiceLineKey("et|SA|air|headhaul|RUH").size());
         List<LogisticsWarehouseFeeRuleFact> fees = repository.findWarehouseFeeRulesByWarehouseNode("AE", "DXB-FBN");
         assertEquals(4, fees.size());
 

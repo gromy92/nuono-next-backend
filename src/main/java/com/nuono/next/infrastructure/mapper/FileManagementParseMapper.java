@@ -902,6 +902,336 @@ public interface FileManagementParseMapper {
     })
     FileParseTaskRow selectTask(@Param("taskId") Long taskId);
 
+    @Update({
+            "UPDATE file_mgmt_parse_task",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteTask(
+            @Param("taskId") Long taskId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM file_mgmt_parse_version",
+            "WHERE source_task_id = #{taskId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC"
+    })
+    List<Long> selectVersionIdsBySourceTask(@Param("taskId") Long taskId);
+
+    @Update({
+            "<script>",
+            "UPDATE file_mgmt_parse_active_version",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE is_deleted = b'0'",
+            "  AND version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int softDeleteActiveVersionsByVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE logistics_service_line",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markLogisticsServiceLinesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE logistics_cargo_category",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markLogisticsCargoCategoriesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE logistics_price_rule",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markLogisticsPriceRulesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE logistics_surcharge_rule",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markLogisticsSurchargeRulesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE logistics_billing_rule",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markLogisticsBillingRulesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE logistics_warehouse_fee_rule",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markLogisticsWarehouseFeeRulesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE logistics_restriction_rule",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markLogisticsRestrictionRulesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE official_outbound_size_classification_rule",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markOfficialOutboundSizeClassificationRulesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE official_outbound_fee_weight_slab_rule",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markOfficialOutboundFeeWeightSlabRulesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE official_outbound_fee_calculation_policy",
+            "SET status = 'DELETED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE status != 'DELETED'",
+            "  AND source_version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int markOfficialOutboundFeeCalculationPoliciesDeletedBySourceVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE file_mgmt_parse_logistics_channel_activation",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE is_deleted = b'0'",
+            "  AND version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int softDeleteLogisticsChannelActivationsByVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE file_mgmt_parse_version_item",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE is_deleted = b'0'",
+            "  AND version_id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int softDeleteVersionItemsByVersionIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE file_mgmt_parse_version",
+            "SET version_status = 'deleted',",
+            "    is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE is_deleted = b'0'",
+            "  AND id IN",
+            "  <foreach collection='versionIds' item='versionId' open='(' separator=',' close=')'>#{versionId}</foreach>",
+            "</script>"
+    })
+    int softDeleteVersionsByIds(
+            @Param("versionIds") List<Long> versionIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "DELETE FROM file_mgmt_parse_current_result",
+            "WHERE task_id = #{taskId}"
+    })
+    int deleteCurrentResultByTask(@Param("taskId") Long taskId);
+
+    @Update({
+            "UPDATE file_mgmt_parse_task_input",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE task_id = #{taskId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteTaskInputsByTask(
+            @Param("taskId") Long taskId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE file_mgmt_parse_file_asset",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE is_deleted = b'0'",
+            "  AND (bound_task_id = #{taskId}",
+            "       OR id IN (",
+            "           SELECT file_asset_id",
+            "           FROM file_mgmt_parse_task_input",
+            "           WHERE task_id = #{taskId}",
+            "             AND file_asset_id IS NOT NULL",
+            "       ))"
+    })
+    int softDeleteFileAssetsByTask(
+            @Param("taskId") Long taskId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "DELETE FROM file_mgmt_parse_result_item_source",
+            "WHERE task_id = #{taskId}"
+    })
+    int deleteResultItemSourcesByTask(@Param("taskId") Long taskId);
+
+    @Update({
+            "UPDATE file_mgmt_parse_item_review",
+            "SET is_deleted = b'1',",
+            "    is_current = b'0',",
+            "    current_marker = NULL,",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE task_id = #{taskId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteItemReviewsByTask(
+            @Param("taskId") Long taskId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE file_mgmt_parse_result_item",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE task_id = #{taskId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteResultItemsByTask(
+            @Param("taskId") Long taskId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE file_mgmt_parse_result",
+            "SET status = 'deleted'",
+            "WHERE task_id = #{taskId}",
+            "  AND status != 'deleted'"
+    })
+    int markResultsDeletedByTask(
+            @Param("taskId") Long taskId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
     @Select({
             "SELECT",
             "  id, task_no, document_title, target_plan_id, standard_version_id,",
@@ -979,6 +1309,24 @@ public interface FileManagementParseMapper {
             "ORDER BY ti.sort_no ASC, ti.id ASC"
     })
     List<FileParseTaskInputRow> selectTaskInputs(@Param("taskId") Long taskId);
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  ti.id, ti.task_id, ti.input_type, ti.input_role, ti.file_asset_id,",
+            "  ti.text_content, ti.display_name, ti.sort_no,",
+            "  fa.original_file_name, fa.content_type, fa.file_extension, fa.storage_key, fa.sha256_hash",
+            "FROM file_mgmt_parse_task_input ti",
+            "LEFT JOIN file_mgmt_parse_file_asset fa",
+            "  ON fa.id = ti.file_asset_id",
+            " AND fa.is_deleted = b'0'",
+            "WHERE ti.is_deleted = b'0'",
+            "  AND ti.task_id IN",
+            "  <foreach collection='taskIds' item='taskId' open='(' separator=',' close=')'>#{taskId}</foreach>",
+            "ORDER BY ti.task_id ASC, ti.sort_no ASC, ti.id ASC",
+            "</script>"
+    })
+    List<FileParseTaskInputRow> selectTaskInputsByTaskIds(@Param("taskIds") List<Long> taskIds);
 
     @Update({
             "DELETE FROM file_mgmt_parse_source_row",
