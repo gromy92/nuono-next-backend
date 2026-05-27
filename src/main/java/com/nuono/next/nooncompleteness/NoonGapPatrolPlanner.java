@@ -53,6 +53,14 @@ public class NoonGapPatrolPlanner {
     }
 
     public Result planDueGaps(NoonDataGapQuery query, int limit) {
+        return planGaps(query, limit, false);
+    }
+
+    public Result planManualSyncGaps(NoonDataGapQuery query, int limit) {
+        return planGaps(query, limit, true);
+    }
+
+    private Result planGaps(NoonDataGapQuery query, int limit, boolean manualSync) {
         int maxCount = limit <= 0 ? 50 : limit;
         NoonDataGapQuery safeQuery = query == null ? new NoonDataGapQuery() : query;
         Result result = new Result();
@@ -69,7 +77,7 @@ public class NoonGapPatrolPlanner {
                 .collect(Collectors.toList());
 
         for (NoonDataGapWindowRecord gap : candidates) {
-            WorkSpec spec = WorkSpec.from(gap);
+            WorkSpec spec = WorkSpec.from(gap, manualSync);
             if (spec == null) {
                 result.skipped();
                 continue;
@@ -84,6 +92,9 @@ public class NoonGapPatrolPlanner {
                     .collect(Collectors.toCollection(HashSet::new));
             Optional<NoonPullTaskRecord> task = foundationService.createTaskForPlan(plan.getId(), spec.taskDraft(gap));
             if (task.isPresent() && !beforeTaskIds.contains(task.get().getId())) {
+                linkGapToTask(gap, plan, task.get());
+                result.planned(task.get());
+            } else if (manualSync && task.isPresent()) {
                 linkGapToTask(gap, plan, task.get());
                 result.planned(task.get());
             } else {
@@ -233,12 +244,12 @@ public class NoonGapPatrolPlanner {
             this.targetPrefix = targetPrefix;
         }
 
-        private static WorkSpec from(NoonDataGapWindowRecord gap) {
+        private static WorkSpec from(NoonDataGapWindowRecord gap, boolean manualSync) {
             if (gap.getCategory() == NoonDataCategory.PRODUCT_LIST) {
                 return new WorkSpec(
                         NoonPullType.INTERFACE,
                         NoonPullDataDomain.PRODUCT,
-                        NoonPullTriggerMode.ONBOARDING,
+                        productTrigger(manualSync),
                         "product-list"
                 );
             }
@@ -246,7 +257,7 @@ public class NoonGapPatrolPlanner {
                 return new WorkSpec(
                         NoonPullType.INTERFACE,
                         NoonPullDataDomain.PRODUCT,
-                        NoonPullTriggerMode.ONBOARDING,
+                        productTrigger(manualSync),
                         "product-detail"
                 );
             }
@@ -254,7 +265,7 @@ public class NoonGapPatrolPlanner {
                 return new WorkSpec(
                         NoonPullType.REPORT,
                         NoonPullDataDomain.SALES,
-                        historyOrLatestTrigger(gap),
+                        reportTrigger(gap, manualSync),
                         "sales-product-views"
                 );
             }
@@ -262,14 +273,25 @@ public class NoonGapPatrolPlanner {
                 return new WorkSpec(
                         NoonPullType.REPORT,
                         NoonPullDataDomain.ORDER,
-                        historyOrLatestTrigger(gap),
+                        reportTrigger(gap, manualSync),
                         "orders"
                 );
             }
             return null;
         }
 
-        private static NoonPullTriggerMode historyOrLatestTrigger(NoonDataGapWindowRecord gap) {
+        private static NoonPullTriggerMode productTrigger(boolean manualSync) {
+            return manualSync ? NoonPullTriggerMode.MANUAL_REFRESH : NoonPullTriggerMode.ONBOARDING;
+        }
+
+        private static NoonPullTriggerMode reportTrigger(NoonDataGapWindowRecord gap, boolean manualSync) {
+            if (manualSync) {
+                return manualReportTrigger(gap);
+            }
+            return scheduledReportTrigger(gap);
+        }
+
+        private static NoonPullTriggerMode scheduledReportTrigger(NoonDataGapWindowRecord gap) {
             if (gap.getWindowType() == NoonDataGapWindowType.HISTORY_BACKFILL) {
                 return NoonPullTriggerMode.GAP_BACKFILL;
             }
@@ -277,6 +299,16 @@ public class NoonGapPatrolPlanner {
                 return NoonPullTriggerMode.READBACK_CHECK;
             }
             return NoonPullTriggerMode.SCHEDULED_DAILY;
+        }
+
+        private static NoonPullTriggerMode manualReportTrigger(NoonDataGapWindowRecord gap) {
+            if (gap.getWindowType() == NoonDataGapWindowType.HISTORY_BACKFILL) {
+                return NoonPullTriggerMode.MANUAL_BACKFILL;
+            }
+            if (gap.getStatus() == NoonDataGapStatus.PENDING_CONFIRMATION) {
+                return NoonPullTriggerMode.READBACK_CHECK;
+            }
+            return NoonPullTriggerMode.MANUAL_REFRESH;
         }
 
         private NoonPullPlanDraft planDraft(NoonDataGapWindowRecord gap) {
@@ -311,6 +343,15 @@ public class NoonGapPatrolPlanner {
         private String scheduleExpression(NoonDataGapWindowRecord gap) {
             if (triggerMode == NoonPullTriggerMode.GAP_BACKFILL) {
                 return "backfill:" + gap.getDateFrom() + ".." + gap.getDateTo() + ";maxDays=31;maxWindows=1";
+            }
+            if (triggerMode == NoonPullTriggerMode.MANUAL_BACKFILL) {
+                return "manual-backfill:" + targetIdentity(gap);
+            }
+            if (triggerMode == NoonPullTriggerMode.MANUAL_REFRESH) {
+                return "manual-refresh:" + targetIdentity(gap);
+            }
+            if (triggerMode == NoonPullTriggerMode.READBACK_CHECK) {
+                return "readback:" + targetIdentity(gap);
             }
             return "gap-patrol:" + targetIdentity(gap);
         }

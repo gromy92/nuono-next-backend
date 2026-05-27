@@ -58,6 +58,7 @@ class NoonCallStoreDataServiceTest {
 
         assertEquals(1, view.getRows().size());
         NoonCallStoreDataView.Row store = view.getRows().get(0);
+        assertEquals("canman", store.getStoreName());
         assertEquals("STR108065-NAE", store.getStoreCode());
         assertEquals("AE", store.getSiteCode());
         assertEquals("SYNCING", store.getOverallMarker());
@@ -88,6 +89,7 @@ class NoonCallStoreDataServiceTest {
         NoonDataCompletenessRecord row = new NoonDataCompletenessRecord();
         row.setId(id);
         row.setOwnerUserId(307L);
+        row.setStoreName("canman");
         row.setStoreCode("STR108065-NAE");
         row.setSiteCode("AE");
         row.setCategory(category);

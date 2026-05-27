@@ -22,6 +22,7 @@ public class NoonCallStoreDataView {
 
     public static class Row {
         private Long ownerUserId;
+        private String storeName;
         private String storeCode;
         private String siteCode;
         private String overallMarker;
@@ -30,6 +31,8 @@ public class NoonCallStoreDataView {
 
         public Long getOwnerUserId() { return ownerUserId; }
         public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
+        public String getStoreName() { return storeName; }
+        public void setStoreName(String storeName) { this.storeName = storeName; }
         public String getStoreCode() { return storeCode; }
         public void setStoreCode(String storeCode) { this.storeCode = storeCode; }
         public String getSiteCode() { return siteCode; }

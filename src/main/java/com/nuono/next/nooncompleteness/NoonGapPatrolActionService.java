@@ -134,12 +134,12 @@ public class NoonGapPatrolActionService {
                 pending.setStatus(NoonDataGapStatus.PENDING);
                 pending.setRetryable(Boolean.TRUE);
                 pending.setRequiresManualAction(Boolean.FALSE);
-                pending.setNextRetryAt(now());
+                pending.setNextRetryAt(null);
                 pending.setUpdatedAt(now());
                 repository.insertGapWindow(pending);
             }
         }
-        NoonGapPatrolPlanner.Result plannerResult = planner.planDueGaps(query, 10);
+        NoonGapPatrolPlanner.Result plannerResult = planner.planManualSyncGaps(query, 10);
         NoonGapPatrolActionResult result = new NoonGapPatrolActionResult();
         result.setPlannedTaskCount(plannerResult.getPlannedTasks().size());
         result.setPlannedTaskIds(plannerResult.getPlannedTasks().stream()
@@ -260,7 +260,7 @@ public class NoonGapPatrolActionService {
         gap.setAttempts(0);
         gap.setRetryable(Boolean.TRUE);
         gap.setRequiresManualAction(Boolean.FALSE);
-        gap.setNextRetryAt(now());
+        gap.setNextRetryAt(null);
         gap.setCreatedAt(now());
         gap.setUpdatedAt(now());
         return gap;
