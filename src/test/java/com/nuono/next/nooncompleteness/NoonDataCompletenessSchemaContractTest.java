@@ -76,10 +76,9 @@ class NoonDataCompletenessSchemaContractTest {
         assertTrue(insertCompletenessSql.contains("noon_data_completeness"));
         assertTrue(insertCompletenessSql.contains("owner_user_id"));
         assertTrue(insertCompletenessSql.contains("data_category"));
-        assertTrue(listCompletenessSql.contains("ORDER BY owner_user_id ASC"));
+        assertTrue(listCompletenessSql.contains("ORDER BY ndc.owner_user_id ASC"));
         assertTrue(insertGapSql.contains("noon_data_gap_window"));
         assertTrue(insertGapSql.contains("linked_pull_task_id"));
         assertTrue(insertGapSql.contains("linked_source_batch_id"));
     }
 }
-
