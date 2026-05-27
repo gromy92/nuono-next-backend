@@ -7,9 +7,10 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -50,7 +51,7 @@ public class NoonOrderReportAdapter {
 
         Map<String, Integer> headerIndex = headerIndex(split(lines[0]));
         if (!hasRequiredColumns(headerIndex)) {
-            return NoonReportProcessResult.missingColumns();
+            return NoonReportProcessResult.missingColumns(missingColumnsDiagnostic(headerIndex));
         }
 
         int imported = 0;
@@ -134,7 +135,7 @@ public class NoonOrderReportAdapter {
     }
 
     private Map<String, Integer> headerIndex(String[] headers) {
-        Map<String, Integer> result = new HashMap<>();
+        Map<String, Integer> result = new LinkedHashMap<>();
         for (int i = 0; i < headers.length; i++) {
             result.put(headers[i].trim().toLowerCase(Locale.ROOT), i);
         }
@@ -143,6 +144,16 @@ public class NoonOrderReportAdapter {
 
     private boolean hasRequiredColumns(Map<String, Integer> headerIndex) {
         return headerIndex.keySet().containsAll(NoonOrderReportDescriptor.requiredColumns());
+    }
+
+    private String missingColumnsDiagnostic(Map<String, Integer> headerIndex) {
+        String missing = NoonOrderReportDescriptor.requiredColumns().stream()
+                .filter((column) -> !headerIndex.containsKey(column))
+                .collect(Collectors.joining(","));
+        String actualHeaders = headerIndex.keySet().stream()
+                .limit(40)
+                .collect(Collectors.joining(","));
+        return "missing=" + missing + "; actual_headers=" + actualHeaders;
     }
 
     private String requiredValue(String[] columns, Map<String, Integer> headerIndex, String key) {

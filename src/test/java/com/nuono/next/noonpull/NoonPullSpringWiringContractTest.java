@@ -93,7 +93,7 @@ class NoonPullSpringWiringContractTest {
                                     .storeCode("STR245027-NAE")
                                     .siteCode("AE")
                                     .dataDomain(NoonPullDataDomain.ORDER)
-                                    .reportType(NoonOrderReportDescriptor.EXPORT_CATEGORY_CODE)
+                                    .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
                                     .dateFrom(LocalDate.of(2026, 5, 21))
                                     .dateTo(LocalDate.of(2026, 5, 21))
                                     .build(),

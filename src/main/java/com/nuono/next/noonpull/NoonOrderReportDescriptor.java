@@ -4,7 +4,9 @@ import java.util.Arrays;
 import java.util.List;
 
 public final class NoonOrderReportDescriptor {
-    public static final String EXPORT_CATEGORY_CODE = "noon_noonoms_ordersexport";
+    public static final String REPORT_TYPE = "sales_dashboard_sales_export";
+    @Deprecated
+    public static final String EXPORT_CATEGORY_CODE = REPORT_TYPE;
     public static final String SOURCE_SYSTEM = "noon_order_report";
 
     private NoonOrderReportDescriptor() {

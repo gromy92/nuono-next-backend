@@ -80,6 +80,31 @@ class NoonPullFoundationServiceTest {
     }
 
     @Test
+    void shouldNotCreateGapBackfillTaskAfterNonRetryableFailureForSameWindow() {
+        NoonPullPlanRecord plan = service.createPlan(orderBackfillPlan());
+        NoonPullTaskRecord failedTask = service.createTaskForPlan(plan.getId(), orderBackfillTask()).orElseThrow();
+        service.markFailedWithPolicy(failedTask.getId(), "missing columns", 1);
+
+        Optional<NoonPullTaskRecord> duplicate = service.createTaskForPlan(plan.getId(), orderBackfillTask());
+
+        assertFalse(duplicate.isPresent());
+        assertEquals(1, repository.tasks.size());
+    }
+
+    @Test
+    void shouldCreateGapBackfillTaskAfterRetryableFailureForSameWindow() {
+        NoonPullPlanRecord plan = service.createPlan(orderBackfillPlan());
+        NoonPullTaskRecord failedTask = service.createTaskForPlan(plan.getId(), orderBackfillTask()).orElseThrow();
+        service.markFailedWithPolicy(failedTask.getId(), "timeout", 1);
+
+        Optional<NoonPullTaskRecord> retry = service.createTaskForPlan(plan.getId(), orderBackfillTask());
+
+        assertTrue(retry.isPresent());
+        assertNotEquals(failedTask.getId(), retry.orElseThrow().getId());
+        assertEquals(2, repository.tasks.size());
+    }
+
+    @Test
     void shouldNotCreateScheduledTaskWhenPlanIsPaused() {
         NoonPullPlanRecord plan = service.createPlan(productPlan());
 
@@ -140,6 +165,32 @@ class NoonPullFoundationServiceTest {
                 .targetIdentity("catalog:list")
                 .targetDateFrom(LocalDate.of(2026, 5, 1))
                 .targetDateTo(LocalDate.of(2026, 5, 1))
+                .build();
+    }
+
+    private NoonPullPlanDraft orderBackfillPlan() {
+        return NoonPullPlanDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR108065-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.ORDER)
+                .triggerMode(NoonPullTriggerMode.GAP_BACKFILL)
+                .scheduleExpression("backfill:2025-11-25..2025-12-25;maxDays=31;maxWindows=1")
+                .build();
+    }
+
+    private NoonPullTaskDraft orderBackfillTask() {
+        return NoonPullTaskDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR108065-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.ORDER)
+                .triggerMode(NoonPullTriggerMode.GAP_BACKFILL)
+                .targetIdentity("orders:2025-11-25..2025-12-25")
+                .targetDateFrom(LocalDate.of(2025, 11, 25))
+                .targetDateTo(LocalDate.of(2025, 12, 25))
                 .build();
     }
 
