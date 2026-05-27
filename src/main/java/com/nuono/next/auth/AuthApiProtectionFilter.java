@@ -55,6 +55,9 @@ public class AuthApiProtectionFilter extends OncePerRequestFilter {
         if (!path.startsWith("/api/")) {
             return false;
         }
+        if (isMandatoryPublicPath(path)) {
+            return false;
+        }
         if (properties.getPublicPaths().contains(path)) {
             return false;
         }
@@ -64,6 +67,10 @@ public class AuthApiProtectionFilter extends OncePerRequestFilter {
             }
         }
         return true;
+    }
+
+    private boolean isMandatoryPublicPath(String path) {
+        return "/api/plugin/auth/login".equals(path);
     }
 
     private String applicationPath(HttpServletRequest request) {

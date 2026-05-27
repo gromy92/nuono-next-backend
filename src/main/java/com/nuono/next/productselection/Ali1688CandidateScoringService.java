@@ -119,6 +119,8 @@ public class Ali1688CandidateScoringService {
         detail.put("version", SCORE_VERSION);
         detail.put("ruleScoreMax", 45);
         detail.put("priceScore", candidate.priceScore);
+        detail.put("priceBasis", "list_price_hint");
+        detail.put("confirmedRealPrice", false);
         detail.put("moqScore", candidate.moqScore);
         detail.put("supplierScore", candidate.supplierScore);
         detail.put("deliveryScore", candidate.deliveryScore);

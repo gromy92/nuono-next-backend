@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -102,6 +103,77 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void shouldExposeLifecycleStateInProductListSummaryWhenCalculated() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setPartnerSku("PARTNER-001");
+        record.setPskuCode("PSKU-001");
+        record.setTitle("Amber Burner");
+        record.setSyncStatus("synced");
+
+        when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZTEST001"))
+                .thenReturn(record);
+        when(productManagementMapper.selectProductLifecycleSummary(10002L, "STR245027-NAE", "PARTNER-001", "PSKU-001"))
+                .thenReturn(new LinkedHashMap<>(Map.of(
+                        "code", "stable",
+                        "label", "稳定",
+                        "ruleVersion", "DEFAULT_V1",
+                        "analysisDate", "2026-05-19",
+                        "listingDate", "2026-04-20",
+                        "listingDateSource", "sales",
+                        "qualityState", "ready",
+                        "explanation", "销量/PV 窗口充足，订正后趋势未达到增长、衰退或长尾阈值。",
+                        "evidenceJson", "{\"reason\":\"stable_default_v1\"}"
+                )));
+
+        ProductListSummaryView summary = service.loadProductListSummary(
+                10002L,
+                "STR245027-NAE",
+                "ZTEST001",
+                new ArrayList<>()
+        );
+
+        assertEquals("stable", summary.getLifecycleState().get("code"));
+        assertEquals("稳定", summary.getLifecycleState().get("label"));
+        assertEquals("2026-05-19", summary.getLifecycleState().get("analysisDate"));
+        assertEquals("sales", summary.getLifecycleState().get("listingDateSource"));
+        assertTrue(String.valueOf(summary.getLifecycleState().get("evidenceJson")).contains("stable_default_v1"));
+    }
+
+    @Test
+    void shouldFallbackLifecycleLookupBySkuWhenProjectionPartnerSkuComesFromAnotherVariant() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setPartnerSku("PARTNER-ALT");
+        record.setPskuCode("PSKU-ALT");
+        record.setOfferCode("OFFER-001");
+        record.setTitle("Amber Burner");
+        record.setSyncStatus("synced");
+
+        when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZTEST001"))
+                .thenReturn(record);
+        when(productManagementMapper.selectProductLifecycleSummary(10002L, "STR245027-NAE", "PARTNER-ALT", "OFFER-001"))
+                .thenReturn(null);
+        when(productManagementMapper.selectProductLifecycleSummaryBySku(10002L, "STR245027-NAE", "OFFER-001"))
+                .thenReturn(new LinkedHashMap<>(Map.of(
+                        "code", "stable",
+                        "label", "稳定",
+                        "ruleVersion", "DEFAULT_V1",
+                        "qualityState", "ready",
+                        "evidenceJson", "{\"reason\":\"stable_default_v1\"}"
+                )));
+
+        ProductListSummaryView summary = service.loadProductListSummary(
+                10002L,
+                "STR245027-NAE",
+                "ZTEST001",
+                new ArrayList<>()
+        );
+
+        assertEquals("stable", summary.getLifecycleState().get("code"));
+    }
+
+    @Test
     void shouldReturnMissingSummaryWhenProjectionRowAbsent() {
         when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZMISS001"))
                 .thenReturn(null);
@@ -116,6 +188,29 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertFalse(summary.isReady());
         assertEquals("missing", summary.getSource());
         assertEquals("ZMISS001", summary.getSkuParent());
+    }
+
+    @Test
+    void shouldKeepListReadableWhenNoopDraftCleanupDeadlocks() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setTitle("Projection title");
+        record.setSyncStatus("synced");
+
+        doThrow(new RuntimeException("Deadlock found when trying to get lock; try restarting transaction"))
+                .when(productManagementMapper)
+                .deleteNoopProductMasterDraftsByStoreCode(10002L, "STR245027-NAE");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        assertEquals("ZTEST001", summaries.get(0).getSkuParent());
     }
 
     @Test
@@ -233,6 +328,46 @@ class ProductProjectionPersistenceServiceListSummaryTest {
                 LocalDateTime.of(2036, 5, 19, 23, 59, 59),
                 invokeParseDateTime("2036-05-19T23:59:59+00:00")
         );
+    }
+
+    @Test
+    void shouldExposeCancelledPublishTaskInListStatusSummary() throws Exception {
+        assertEquals("已取消", invokePublishTaskListStatusLabel("cancelled"));
+    }
+
+    @Test
+    void shouldExplainPendingManualCheckWithActualChangedDomain() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        ProductMasterSnapshotView baseline = historySnapshot("Same title", "عنوان", "Same note");
+        baseline.setVariants(new ArrayList<>(List.of(variant("CHILD-SKU-001", "M"))));
+        ProductMasterSnapshotView draft = historySnapshot("Same title", "عنوان", "Same note");
+        draft.setVariants(new ArrayList<>(List.of(variant("CHILD-SKU-001", "L"))));
+
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setStatus("pending_manual_check");
+        task.setChangedDomainsJson(mapper.writeValueAsString(List.of("unknown")));
+        task.setBaselineJson(mapper.writeValueAsString(baseline));
+        task.setDraftJson(mapper.writeValueAsString(draft));
+        task.setCurrentSiteCode("STR245027-NAE");
+
+        String message = invokePublishTaskHistoryMessage(task);
+
+        assertTrue(message.contains("【尺码】"));
+        assertFalse(message.equals("发布结果需要人工核对。"));
+    }
+
+    @Test
+    void shouldNotShowSuccessfulPublishActionWithoutFieldChangesAsModificationHistory() throws Exception {
+        ProductActionLogRecord record = new ProductActionLogRecord();
+        record.setActionType("publish-current");
+        record.setResultStatus("synced");
+        record.setOccurredAt(LocalDateTime.of(2026, 5, 14, 14, 36, 23));
+        record.setSummaryJson("{\"message\":\"发布已完成。\"}");
+        when(productManagementMapper.selectRecentProductActionLogs(52016L)).thenReturn(List.of(record));
+
+        List<Map<String, Object>> history = invokeLoadActionHistoryItems(52016L, new ArrayList<>());
+
+        assertEquals(List.of(), history);
     }
 
     @Test
@@ -358,6 +493,42 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         Method method = ProductProjectionPersistenceService.class.getDeclaredMethod("parseDateTime", String.class);
         method.setAccessible(true);
         return (LocalDateTime) method.invoke(service, value);
+    }
+
+    private String invokePublishTaskListStatusLabel(String value) throws Exception {
+        Method method = ProductProjectionPersistenceService.class.getDeclaredMethod(
+                "publishTaskListStatusLabel",
+                String.class
+        );
+        method.setAccessible(true);
+        return (String) method.invoke(service, value);
+    }
+
+    private String invokePublishTaskHistoryMessage(ProductPublishTaskRecord task) throws Exception {
+        Method method = ProductProjectionPersistenceService.class.getDeclaredMethod(
+                "publishTaskHistoryMessage",
+                ProductPublishTaskRecord.class
+        );
+        method.setAccessible(true);
+        return (String) method.invoke(service, task);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> invokeLoadActionHistoryItems(Long productMasterId, List<String> warnings) throws Exception {
+        Method method = ProductProjectionPersistenceService.class.getDeclaredMethod(
+                "loadActionHistoryItems",
+                Long.class,
+                List.class
+        );
+        method.setAccessible(true);
+        return (List<Map<String, Object>>) method.invoke(service, productMasterId, warnings);
+    }
+
+    private Map<String, Object> variant(String childSku, String sizeEn) {
+        Map<String, Object> variant = new LinkedHashMap<>();
+        variant.put("childSku", childSku);
+        variant.put("sizeEn", sizeEn);
+        return variant;
     }
 
     private ProductMasterSnapshotView historySnapshot(String titleEn, String titleAr, String offerNote) {

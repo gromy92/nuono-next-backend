@@ -36,6 +36,7 @@ public class AmazonExternalCrawlerSourceCollector implements ProductSelectionMar
     private static final Pattern ASIN_PATH_PATTERN = Pattern.compile("/(?:dp|gp/aw/d|gp/product)/([A-Z0-9]{10})(?:[/?#]|$)", Pattern.CASE_INSENSITIVE);
     private static final Pattern REVIEW_COUNT_PATTERN = Pattern.compile("([0-9][0-9,]*)\\s*(?:ratings?|reviews?)", Pattern.CASE_INSENSITIVE);
     private static final int MAX_STRUCTURED_SPECS = 40;
+    private static final int CRAWLER_MAX_ATTEMPTS = 3;
 
     private final ProductSelectionSourceCollectionHtmlParser htmlParser;
     private final ObjectMapper objectMapper;
@@ -111,6 +112,21 @@ public class AmazonExternalCrawlerSourceCollector implements ProductSelectionMar
     }
 
     private JsonNode collectCrawlerData(String crawlTargetUrl) throws Exception {
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= CRAWLER_MAX_ATTEMPTS; attempt++) {
+            try {
+                return collectCrawlerDataOnce(crawlTargetUrl);
+            } catch (Exception exception) {
+                lastException = exception;
+                if (attempt >= CRAWLER_MAX_ATTEMPTS || !isRetryableCrawlerFailure(exception)) {
+                    throw exception;
+                }
+            }
+        }
+        throw lastException;
+    }
+
+    private JsonNode collectCrawlerDataOnce(String crawlTargetUrl) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(buildCrawlerUrl(crawlTargetUrl)))
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .header("Accept", "application/json")
@@ -121,6 +137,20 @@ public class AmazonExternalCrawlerSourceCollector implements ProductSelectionMar
             throw new IllegalStateException("外部爬虫 HTTP " + response.statusCode());
         }
         return resolveCrawlerData(response.body());
+    }
+
+    private boolean isRetryableCrawlerFailure(Exception exception) {
+        String message = exception.getMessage();
+        if (!StringUtils.hasText(message)) {
+            return false;
+        }
+        return message.contains("返回空数据")
+                || message.contains("返回空数组")
+                || message.contains("HTTP 429")
+                || message.contains("HTTP 500")
+                || message.contains("HTTP 502")
+                || message.contains("HTTP 503")
+                || message.contains("HTTP 504");
     }
 
     private ProductSelectionSourceCollectionResult mapCrawlerData(String pageUrl, JsonNode data) {

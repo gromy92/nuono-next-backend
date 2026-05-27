@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import com.nuono.next.noonsync.NoonProductSyncReadModel;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +28,7 @@ public class ProductListDatasetView {
     private Integer groupedCount;
     private Integer pendingPriceCount;
     private Integer historyReadyCount;
+    private NoonProductSyncReadModel productSync;
     private List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items = new ArrayList<>();
 
     public boolean isReady() {
@@ -195,6 +197,14 @@ public class ProductListDatasetView {
 
     public void setHistoryReadyCount(Integer historyReadyCount) {
         this.historyReadyCount = historyReadyCount;
+    }
+
+    public NoonProductSyncReadModel getProductSync() {
+        return productSync;
+    }
+
+    public void setProductSync(NoonProductSyncReadModel productSync) {
+        this.productSync = productSync;
     }
 
     public List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> getItems() {

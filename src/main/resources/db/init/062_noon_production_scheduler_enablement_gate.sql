@@ -1,0 +1,26 @@
+-- Noon production-style scheduler enablement gate audit.
+CREATE TABLE IF NOT EXISTS `noon_production_scheduler_enablement` (
+    `id` BIGINT NOT NULL,
+    `target_environment` VARCHAR(64) NOT NULL,
+    `owner_user_id` BIGINT DEFAULT NULL,
+    `project_code` VARCHAR(100) DEFAULT NULL,
+    `project_name` VARCHAR(255) DEFAULT NULL,
+    `store_code` VARCHAR(100) DEFAULT NULL,
+    `site_code` VARCHAR(32) DEFAULT NULL,
+    `enabled_domains` VARCHAR(255) DEFAULT NULL,
+    `schedule_boundaries` VARCHAR(1000) DEFAULT NULL,
+    `rollback_global_pause_strategy` VARCHAR(1000) DEFAULT NULL,
+    `operator_user_id` BIGINT DEFAULT NULL,
+    `smoke_run_id` BIGINT DEFAULT NULL,
+    `decision` VARCHAR(32) NOT NULL,
+    `rejection_reasons` VARCHAR(1000) DEFAULT NULL,
+    `plan_ids` VARCHAR(500) DEFAULT NULL,
+    `hitl_approved` BIT(1) NOT NULL DEFAULT b'0',
+    `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+    `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_noon_scheduler_enablement_scope` (`target_environment`, `owner_user_id`, `store_code`, `site_code`),
+    KEY `idx_noon_scheduler_enablement_smoke` (`smoke_run_id`),
+    KEY `idx_noon_scheduler_enablement_decision` (`decision`, `gmt_create`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

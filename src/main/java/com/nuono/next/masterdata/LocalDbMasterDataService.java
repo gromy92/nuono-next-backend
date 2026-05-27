@@ -40,7 +40,9 @@ public class LocalDbMasterDataService {
             27L,
             28L,
             9202L,
-            9301L
+            9301L,
+            9400L,
+            9401L
     );
     private static final Set<Long> SYSTEM_PERMISSION_MENU_IDS = Set.of(
             6L,
@@ -52,7 +54,8 @@ public class LocalDbMasterDataService {
             27L,
             28L,
             9202L,
-            9301L
+            9301L,
+            9401L
     );
 
     private final MasterDataMapper masterDataMapper;

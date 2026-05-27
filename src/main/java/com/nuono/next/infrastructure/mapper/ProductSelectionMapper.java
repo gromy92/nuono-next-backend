@@ -12,6 +12,16 @@ import org.apache.ibatis.annotations.Update;
 
 public interface ProductSelectionMapper {
 
+    String SOURCE_COLLECTION_STARTED_AT_SELECT =
+            "  DATE_FORMAT(COALESCE(source.collection_started_at, source.gmt_create, source.collected_at), '%Y-%m-%d %H:%i:%s') AS collection_started_at,";
+    String SOURCE_COLLECTION_FINISHED_AT_EXPR =
+            "COALESCE(source.collection_finished_at, CASE WHEN source.status IN ('success', 'failed') THEN source.collected_at ELSE NULL END)";
+    String SOURCE_COLLECTION_FINISHED_AT_SELECT =
+            "  DATE_FORMAT(" + SOURCE_COLLECTION_FINISHED_AT_EXPR + ", '%Y-%m-%d %H:%i:%s') AS collection_finished_at,";
+    String SOURCE_COLLECTION_DURATION_SECONDS_SELECT =
+            "  TIMESTAMPDIFF(SECOND, COALESCE(source.collection_started_at, source.gmt_create, source.collected_at), "
+                    + SOURCE_COLLECTION_FINISHED_AT_EXPR + ") AS collection_duration_seconds,";
+
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -408,14 +418,16 @@ public interface ProductSelectionMapper {
             "  source_title, source_title_cn, source_title_ar, source_image_url, image_urls_json, price_summary, moq_hint, shipping_from,",
             "  brand_name, unit_count, color_name, spec_hints_json, spec_attribute_count, source_description_en, source_description_ar,",
             "  source_selling_points_en_json, source_selling_points_ar_json,",
-            "  selected_text, selected_text_ar, notes, status, failure_code, failure_message, collected_at, is_deleted, created_by, updated_by,",
+            "  selected_text, selected_text_ar, notes, status, failure_code, failure_message, collected_at,",
+            "  collection_started_at, collection_finished_at, is_deleted, created_by, updated_by,",
             "  gmt_create, gmt_updated",
             ") VALUES (",
             "  #{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.collectionNo}, #{row.sourceType}, #{row.sourcePlatform}, #{row.sourceUrl}, #{row.pageUrl},",
             "  #{row.sourceTitle}, #{row.sourceTitleCn}, #{row.sourceTitleAr}, #{row.sourceImageUrl}, #{row.imageUrlsJson}, #{row.priceSummary}, #{row.moqHint}, #{row.shippingFrom},",
             "  #{row.brandName}, #{row.unitCount}, #{row.colorName}, #{row.specHintsJson}, #{row.specAttributeCount}, #{row.sourceDescriptionEn}, #{row.sourceDescriptionAr},",
             "  #{row.sourceSellingPointsEnJson}, #{row.sourceSellingPointsArJson},",
-            "  #{row.selectedText}, #{row.selectedTextAr}, #{row.notes}, #{row.status}, #{row.failureCode}, #{row.failureMessage}, NOW(), b'0', #{row.createdBy}, #{row.updatedBy},",
+            "  #{row.selectedText}, #{row.selectedTextAr}, #{row.notes}, #{row.status}, #{row.failureCode}, #{row.failureMessage}, NOW(),",
+            "  NOW(), CASE WHEN #{row.status} = 'running' THEN NULL ELSE NOW() END, b'0', #{row.createdBy}, #{row.updatedBy},",
             "  NOW(), NOW()",
             ")"
     })
@@ -454,7 +466,10 @@ public interface ProductSelectionMapper {
             "  source.status,",
             "  source.failure_code,",
             "  source.failure_message,",
-            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i:%s') AS collected_at,",
+            SOURCE_COLLECTION_STARTED_AT_SELECT,
+            SOURCE_COLLECTION_FINISHED_AT_SELECT,
+            SOURCE_COLLECTION_DURATION_SECONDS_SELECT,
             "  source.created_by,",
             "  source.updated_by",
             "FROM product_selection_source_collection source",
@@ -517,7 +532,10 @@ public interface ProductSelectionMapper {
             "  source.status,",
             "  source.failure_code,",
             "  source.failure_message,",
-            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i:%s') AS collected_at,",
+            SOURCE_COLLECTION_STARTED_AT_SELECT,
+            SOURCE_COLLECTION_FINISHED_AT_SELECT,
+            SOURCE_COLLECTION_DURATION_SECONDS_SELECT,
             "  source.created_by,",
             "  source.updated_by,",
             "  COALESCE(NULLIF(TRIM(operator.real_name), ''), operator.account_no, '') AS created_by_name,",
@@ -568,6 +586,7 @@ public interface ProductSelectionMapper {
             "    locked_at = NULL,",
             "    locked_by = NULL,",
             "    collected_at = NOW(),",
+            "    collection_finished_at = NOW(),",
             "    updated_by = #{row.updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE id = #{row.id}",
@@ -587,6 +606,7 @@ public interface ProductSelectionMapper {
             "    failure_message = #{failureMessage},",
             "    locked_at = NULL,",
             "    locked_by = NULL,",
+            "    collection_finished_at = NOW(),",
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE id = #{id}",
@@ -611,12 +631,129 @@ public interface ProductSelectionMapper {
             "    locked_by = NULL,",
             "    attempt_count = 0,",
             "    collected_at = NOW(),",
+            "    collection_started_at = NOW(),",
+            "    collection_finished_at = NULL,",
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE id = #{id}",
             "  AND is_deleted = b'0'"
     })
     int markSourceCollectionRunning(@Param("id") Long id, @Param("updatedBy") Long updatedBy);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM product_selection_source_collection source",
+            "WHERE source.logical_store_id = #{logicalStoreId}",
+            "  AND source.is_deleted = b'0'",
+            "  <if test='sourcePlatform != null'>",
+            "    AND source.source_platform = #{sourcePlatform}",
+            "  </if>",
+            "  <if test='sourceTitle != null'>",
+            "    AND source.source_title LIKE CONCAT('%', #{sourceTitle}, '%')",
+            "  </if>",
+            "  <if test='sourceTitleCn != null'>",
+            "    AND (",
+            "      source.source_title_cn LIKE CONCAT('%', #{sourceTitleCn}, '%')",
+            "      OR source.selected_text LIKE CONCAT('%', #{sourceTitleCn}, '%')",
+            "    )",
+            "  </if>",
+            "  <if test='status != null'>",
+            "    AND source.status = #{status}",
+            "  </if>",
+            "</script>"
+    })
+    int countSourceCollections(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("sourcePlatform") String sourcePlatform,
+            @Param("sourceTitle") String sourceTitle,
+            @Param("sourceTitleCn") String sourceTitleCn,
+            @Param("status") String status
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  source.id,",
+            "  source.owner_user_id,",
+            "  source.logical_store_id,",
+            "  source.collection_no,",
+            "  source.source_type,",
+            "  source.source_platform,",
+            "  source.source_url,",
+            "  source.page_url,",
+            "  source.source_title,",
+            "  source.source_title_cn,",
+            "  source.source_title_ar,",
+            "  source.source_image_url,",
+            "  source.image_urls_json,",
+            "  source.price_summary,",
+            "  source.moq_hint,",
+            "  source.shipping_from,",
+            "  source.brand_name,",
+            "  source.unit_count,",
+            "  source.color_name,",
+            "  source.spec_hints_json,",
+            "  source.spec_attribute_count,",
+            "  source.source_description_en,",
+            "  source.source_description_ar,",
+            "  source.source_selling_points_en_json,",
+            "  source.source_selling_points_ar_json,",
+            "  source.selected_text,",
+            "  source.selected_text_ar,",
+            "  source.notes,",
+            "  source.status,",
+            "  source.failure_code,",
+            "  source.failure_message,",
+            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i:%s') AS collected_at,",
+            SOURCE_COLLECTION_STARTED_AT_SELECT,
+            SOURCE_COLLECTION_FINISHED_AT_SELECT,
+            SOURCE_COLLECTION_DURATION_SECONDS_SELECT,
+            "  source.created_by,",
+            "  source.updated_by,",
+            "  COALESCE(NULLIF(TRIM(operator.real_name), ''), operator.account_no, '') AS created_by_name,",
+            "  COALESCE(store.project_name, '') AS store_name,",
+            "  (",
+            "    SELECT site.store_code",
+            "    FROM logical_store_site site",
+            "    WHERE site.logical_store_id = source.logical_store_id",
+            "      AND site.is_deleted = b'0'",
+            "    ORDER BY site.is_reference_site DESC, site.id ASC",
+            "    LIMIT 1",
+            "  ) AS store_code",
+            "FROM product_selection_source_collection source",
+            "LEFT JOIN logical_store store ON store.id = source.logical_store_id AND store.is_deleted = b'0'",
+            "LEFT JOIN `user` operator ON operator.id = source.created_by AND operator.is_deleted = 0",
+            "WHERE source.logical_store_id = #{logicalStoreId}",
+            "  AND source.is_deleted = b'0'",
+            "  <if test='sourcePlatform != null'>",
+            "    AND source.source_platform = #{sourcePlatform}",
+            "  </if>",
+            "  <if test='sourceTitle != null'>",
+            "    AND source.source_title LIKE CONCAT('%', #{sourceTitle}, '%')",
+            "  </if>",
+            "  <if test='sourceTitleCn != null'>",
+            "    AND (",
+            "      source.source_title_cn LIKE CONCAT('%', #{sourceTitleCn}, '%')",
+            "      OR source.selected_text LIKE CONCAT('%', #{sourceTitleCn}, '%')",
+            "    )",
+            "  </if>",
+            "  <if test='status != null'>",
+            "    AND source.status = #{status}",
+            "  </if>",
+            "ORDER BY source.collected_at DESC, source.id DESC",
+            "LIMIT #{limit} OFFSET #{offset}",
+            "</script>"
+    })
+    List<ProductSelectionSourceCollectionRow> listSourceCollectionsPage(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("sourcePlatform") String sourcePlatform,
+            @Param("sourceTitle") String sourceTitle,
+            @Param("sourceTitleCn") String sourceTitleCn,
+            @Param("status") String status,
+            @Param("limit") Integer limit,
+            @Param("offset") Integer offset
+    );
 
     @Select({
             "SELECT",
@@ -651,7 +788,10 @@ public interface ProductSelectionMapper {
             "  source.status,",
             "  source.failure_code,",
             "  source.failure_message,",
-            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i:%s') AS collected_at,",
+            SOURCE_COLLECTION_STARTED_AT_SELECT,
+            SOURCE_COLLECTION_FINISHED_AT_SELECT,
+            SOURCE_COLLECTION_DURATION_SECONDS_SELECT,
             "  source.created_by,",
             "  source.updated_by,",
             "  COALESCE(NULLIF(TRIM(operator.real_name), ''), operator.account_no, '') AS created_by_name,",

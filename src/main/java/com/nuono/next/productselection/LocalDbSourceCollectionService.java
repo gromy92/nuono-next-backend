@@ -13,9 +13,12 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -24,6 +27,11 @@ public class LocalDbSourceCollectionService {
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final String SOURCE_COLLECTION_WORKER = "source-collection-scheduler";
+    private static final Set<String> ACTIVE_MARKETPLACE_URL_PLATFORMS = Set.of("Noon", "Amazon");
+    private static final String SHEIN_COLLECTION_PAUSED_MESSAGE = "SHEIN 完整采集暂缓，当前仅验收 Amazon / Noon。";
+    private static final String BATCH_RUNNER_SAMPLE_NOTE_PREFIX = "batch-runner sample:";
+    private static final int DEFAULT_LIST_PAGE_SIZE = 50;
+    private static final int MAX_LIST_PAGE_SIZE = 100;
 
     private final ProductSelectionMapper productSelectionMapper;
     private final ProductSelectionPermissionGuard permissionGuard;
@@ -72,6 +80,49 @@ public class LocalDbSourceCollectionService {
                 .collect(Collectors.toList());
     }
 
+    public ProductSelectionSourceCollectionPageView listSourceCollectionsPage(
+            String storeName,
+            String storeCode,
+            Long operatorUserId,
+            ProductSelectionSourceCollectionListQuery query
+    ) {
+        ProductSelectionStoreScope scope = permissionGuard.requireReadableStore(operatorUserId, storeCode);
+        ProductSelectionSourceCollectionListQuery source = query == null
+                ? new ProductSelectionSourceCollectionListQuery()
+                : query;
+        int page = normalizedPage(source.getPage());
+        int pageSize = normalizedPageSize(source.getPageSize());
+        int offset = (page - 1) * pageSize;
+        String sourcePlatform = normalizedText(source.getSourcePlatform());
+        String sourceTitle = normalizedText(source.getSourceTitle());
+        String sourceTitleCn = normalizedText(source.getSourceTitleCn());
+        String status = normalizedText(source.getStatus());
+        int total = productSelectionMapper.countSourceCollections(
+                scope.getLogicalStoreId(),
+                sourcePlatform,
+                sourceTitle,
+                sourceTitleCn,
+                status
+        );
+        List<ProductSelectionSourceCollectionView> items = productSelectionMapper.listSourceCollectionsPage(
+                        scope.getLogicalStoreId(),
+                        sourcePlatform,
+                        sourceTitle,
+                        sourceTitleCn,
+                        status,
+                        pageSize,
+                        offset
+                ).stream()
+                .map(this::toSourceCollectionView)
+                .collect(Collectors.toList());
+        ProductSelectionSourceCollectionPageView pageView = new ProductSelectionSourceCollectionPageView();
+        pageView.setItems(items);
+        pageView.setTotal(total);
+        pageView.setPage(page);
+        pageView.setPageSize(pageSize);
+        return pageView;
+    }
+
     @Transactional
     public ProductSelectionSourceCollectionView createSourceCollection(ProductSelectionSourceCollectionCommand command) {
         ProductSelectionSourceCollectionCommand source = command == null
@@ -100,8 +151,11 @@ public class LocalDbSourceCollectionService {
                 source.getSourcePlatform(),
                 inferSourcePlatform(defaultText(pageUrl, sourceUrl))
         );
-        if (marketplaceUrlCollection && !Set.of("Noon", "Amazon", "SHEIN").contains(sourcePlatform)) {
-            throw new IllegalArgumentException("链接自动采集当前只支持 Noon、Amazon 和 SHEIN。");
+        if (marketplaceUrlCollection && isShein(sourcePlatform)) {
+            throw new IllegalArgumentException(SHEIN_COLLECTION_PAUSED_MESSAGE);
+        }
+        if (marketplaceUrlCollection && !isActiveMarketplaceUrlPlatform(sourcePlatform)) {
+            throw new IllegalArgumentException("链接自动采集当前只支持 Noon 和 Amazon；SHEIN 完整采集暂缓。");
         }
 
         Long id = productSelectionMapper.nextSourceCollectionId();
@@ -134,14 +188,14 @@ public class LocalDbSourceCollectionService {
         row.setSourceSellingPointsArJson(writeStringListJson(normalizeList(source.getSourceSellingPointsAr(), 12)));
         row.setSelectedText(defaultText(source.getSelectedText(), ""));
         row.setSelectedTextAr(defaultText(source.getSelectedTextAr(), ""));
-        row.setNotes(defaultText(source.getNotes(), ""));
+        row.setNotes(sanitizeSourceCollectionNotes(source.getNotes()));
         row.setStatus(marketplaceUrlCollection ? "running" : "success");
         row.setCreatedBy(source.getOperatorUserId());
         row.setUpdatedBy(source.getOperatorUserId());
         productSelectionMapper.insertSourceCollection(row);
         ProductSelectionSourceCollectionRow inserted = productSelectionMapper.selectSourceCollectionById(id);
         ProductSelectionSourceCollectionRow effectiveRow = inserted == null ? row : inserted;
-        ali1688CollectionService.ensureTaskForSourceCollection(effectiveRow, source.getOperatorUserId());
+        safeEnsureAli1688Task(effectiveRow, source.getOperatorUserId());
         return toSourceCollectionView(effectiveRow);
     }
 
@@ -166,14 +220,17 @@ public class LocalDbSourceCollectionService {
                 row.getSourcePlatform(),
                 inferSourcePlatform(defaultText(row.getPageUrl(), row.getSourceUrl()))
         );
-        if (!Set.of("Noon", "Amazon", "SHEIN").contains(sourcePlatform)) {
-            throw new IllegalArgumentException("链接自动采集当前只支持 Noon、Amazon 和 SHEIN。");
+        if (isShein(sourcePlatform)) {
+            throw new IllegalArgumentException(SHEIN_COLLECTION_PAUSED_MESSAGE);
+        }
+        if (!isActiveMarketplaceUrlPlatform(sourcePlatform)) {
+            throw new IllegalArgumentException("链接自动采集当前只支持 Noon 和 Amazon；SHEIN 完整采集暂缓。");
         }
 
         productSelectionMapper.markSourceCollectionRunning(id, source.getOperatorUserId());
         ProductSelectionSourceCollectionRow updated = productSelectionMapper.selectSourceCollectionById(id);
         ProductSelectionSourceCollectionRow effectiveRow = updated == null ? row : updated;
-        ali1688CollectionService.resetTaskForSourceRecollect(effectiveRow, source.getOperatorUserId());
+        safeResetAli1688Task(effectiveRow, source.getOperatorUserId());
         return toSourceCollectionView(effectiveRow);
     }
 
@@ -267,12 +324,15 @@ public class LocalDbSourceCollectionService {
         view.setFailureCode(row.getFailureCode());
         view.setFailureMessage(row.getFailureMessage());
         view.setCollectedAt(defaultText(row.getCollectedAt(), nowText()));
+        view.setCollectionStartedAt(defaultText(row.getCollectionStartedAt(), ""));
+        view.setCollectionFinishedAt(defaultText(row.getCollectionFinishedAt(), ""));
+        view.setCollectionDurationSeconds(row.getCollectionDurationSeconds());
         view.setCollectedBy(defaultText(row.getCreatedByName(), "系统"));
         view.setImageCount(imageUrls.size());
         view.setSpecAttributeCount(specAttributeCount);
         view.setCollectedFieldTotal(completenessCalculator.fieldTotal(view));
         view.setCollectedFieldCount(completenessCalculator.countCollectedFields(view));
-        view.setAli1688Collection(ali1688CollectionService.getCurrentView(row.getId()));
+        view.setAli1688Collection(safeCurrentAli1688View(row));
         return view;
     }
 
@@ -326,8 +386,14 @@ public class LocalDbSourceCollectionService {
             updateRow.setSelectedTextAr(shrink(defaultText(result.getSelectedTextAr(), defaultText(result.getSourceDescriptionAr(), row.getSelectedTextAr())), 1900));
             productSelectionMapper.markSourceCollectionSuccess(updateRow, lockOwner);
             ProductSelectionSourceCollectionRow updated = productSelectionMapper.selectSourceCollectionById(row.getId());
-            ali1688CollectionService.markSourceCollectionSucceeded(updated == null ? updateRow : updated);
-        } catch (Exception exception) {
+            safeMarkAli1688Succeeded(updated == null ? updateRow : updated);
+        } catch (Throwable exception) {
+            if (exception instanceof ThreadDeath) {
+                throw (ThreadDeath) exception;
+            }
+            if (exception instanceof VirtualMachineError) {
+                throw (VirtualMachineError) exception;
+            }
             productSelectionMapper.markSourceCollectionFailed(
                     row.getId(),
                     "source_collect_failed",
@@ -335,13 +401,99 @@ public class LocalDbSourceCollectionService {
                     row.getUpdatedBy(),
                     lockOwner
             );
-            ali1688CollectionService.markSourceCollectionFailed(row.getId(), exception.getMessage(), row.getUpdatedBy());
+            safeMarkAli1688Failed(row.getId(), exception.getMessage(), row.getUpdatedBy());
         }
+    }
+
+    private void safeEnsureAli1688Task(ProductSelectionSourceCollectionRow row, Long operatorUserId) {
+        runAli1688SideEffect(() -> ali1688CollectionService.ensureTaskForSourceCollection(row, operatorUserId));
+    }
+
+    private void safeResetAli1688Task(ProductSelectionSourceCollectionRow row, Long operatorUserId) {
+        runAli1688SideEffect(() -> ali1688CollectionService.resetTaskForSourceRecollect(row, operatorUserId));
+    }
+
+    private void safeMarkAli1688Succeeded(ProductSelectionSourceCollectionRow row) {
+        runAli1688SideEffect(() -> ali1688CollectionService.markSourceCollectionSucceeded(row));
+    }
+
+    private void safeMarkAli1688Failed(Long sourceCollectionId, String failureMessage, Long updatedBy) {
+        runAli1688SideEffect(() -> ali1688CollectionService.markSourceCollectionFailed(sourceCollectionId, failureMessage, updatedBy));
+    }
+
+    private void runAli1688SideEffect(Ali1688SideEffect sideEffect) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    runAli1688SideEffectImmediately(sideEffect);
+                }
+            });
+            return;
+        }
+        runAli1688SideEffectImmediately(sideEffect);
+    }
+
+    private void runAli1688SideEffectImmediately(Ali1688SideEffect sideEffect) {
+        try {
+            sideEffect.run();
+        } catch (DataAccessException ignored) {
+        }
+    }
+
+    private Ali1688CollectionView safeCurrentAli1688View(ProductSelectionSourceCollectionRow row) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            return unavailableAli1688View(row);
+        }
+        try {
+            return ali1688CollectionService.getCurrentView(row.getId());
+        } catch (DataAccessException ignored) {
+            return unavailableAli1688View(row);
+        }
+    }
+
+    private Ali1688CollectionView unavailableAli1688View(ProductSelectionSourceCollectionRow row) {
+        Ali1688CollectionView view = new Ali1688CollectionView();
+        view.sourceCollectionId = row.getId() == null ? null : String.valueOf(row.getId());
+        view.sourceCollectionNo = row.getCollectionNo();
+        view.storeId = row.getLogicalStoreId() == null ? null : String.valueOf(row.getLogicalStoreId());
+        view.storeName = row.getStoreName();
+        view.storeCode = row.getStoreCode();
+        view.sourcePlatform = row.getSourcePlatform();
+        view.sourceTitle = row.getSourceTitle();
+        view.sourceTitleCn = row.getSourceTitleCn();
+        view.sourceUrl = row.getSourceUrl();
+        view.pageUrl = row.getPageUrl();
+        view.sourceImageUrl = row.getSourceImageUrl();
+        view.status = "not_started";
+        view.progressPercent = 0;
+        view.searchMode = "主图图搜";
+        view.selectedImageCount = 0;
+        view.scannedCount = 0;
+        view.candidateCount = 0;
+        view.recommendedCount = 0;
+        view.message = "1688采集暂不可用，不影响源头采集记录。";
+        view.canGenerateProcurementOrder = false;
+        return view;
+    }
+
+    @FunctionalInterface
+    private interface Ali1688SideEffect {
+        void run();
     }
 
     private boolean isSuperAdmin(ProductSelectionUserContext user) {
         return user != null
                 && (Integer.valueOf(0).equals(user.getLevel()) || "admin".equalsIgnoreCase(user.getAccountNo()));
+    }
+
+    private boolean isShein(String sourcePlatform) {
+        return "SHEIN".equalsIgnoreCase(defaultText(sourcePlatform, ""));
+    }
+
+    private boolean isActiveMarketplaceUrlPlatform(String sourcePlatform) {
+        return ACTIVE_MARKETPLACE_URL_PLATFORMS.stream()
+                .anyMatch(platform -> platform.equalsIgnoreCase(defaultText(sourcePlatform, "")));
     }
 
     private String sourceCollectionStatusText(String status) {
@@ -464,8 +616,34 @@ public class LocalDbSourceCollectionService {
         }
     }
 
+    private int normalizedPage(Integer page) {
+        if (page == null || page < 1) {
+            return 1;
+        }
+        return page;
+    }
+
+    private int normalizedPageSize(Integer pageSize) {
+        if (pageSize == null || pageSize < 1) {
+            return DEFAULT_LIST_PAGE_SIZE;
+        }
+        return Math.min(pageSize, MAX_LIST_PAGE_SIZE);
+    }
+
+    private String normalizedText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
     private String defaultText(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
+    }
+
+    private String sanitizeSourceCollectionNotes(String value) {
+        String text = defaultText(value, "");
+        if (text.startsWith(BATCH_RUNNER_SAMPLE_NOTE_PREFIX)) {
+            return "";
+        }
+        return text;
     }
 
     private String shrink(String value, int maxLength) {

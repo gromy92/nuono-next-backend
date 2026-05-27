@@ -1,7 +1,6 @@
 package com.nuono.next.productselection;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -20,6 +19,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -59,64 +59,208 @@ public class HttpAli1688ImageSearchGateway implements Ali1688ImageSearchGateway 
     }
 
     @Override
-    public Ali1688ImageSearchResult search(ProductSelectionSourceCollectionRow sourceCollection) {
+    public Ali1688ImageSearchResult search(Ali1688ImageSearchRequest request) {
         if (!StringUtils.hasText(properties.getEndpointUrl())) {
-            throw new IllegalStateException("1688 图搜 HTTP gateway 已启用，但未配置 endpointUrl。");
+            throw new Ali1688GatewayException(
+                    "gateway_disabled",
+                    "1688 图搜 HTTP gateway 已启用，但未配置 endpointUrl。",
+                    false,
+                    null,
+                    null,
+                    null
+            );
         }
-        if (sourceCollection == null || sourceCollection.getId() == null) {
-            throw new IllegalArgumentException("1688 图搜必须提供源头采集记录。");
+        if (request == null || request.sourceCollectionId == null || request.taskId == null) {
+            throw new Ali1688GatewayException(
+                    "unexpected_response",
+                    "1688 图搜必须提供任务和源头采集上下文。",
+                    false,
+                    null,
+                    null,
+                    null
+            );
         }
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        if (StringUtils.hasText(properties.getAuthToken())) {
-            headers.set(defaultText(properties.getAuthHeaderName(), "Authorization"), authHeaderValue());
+        if (!StringUtils.hasText(request.sourceImageUrl)) {
+            throw new Ali1688GatewayException(
+                    "source_image_missing",
+                    "源头商品缺少可用于 1688 图搜的图片。",
+                    false,
+                    null,
+                    null,
+                    null
+            );
         }
 
         try {
             ResponseEntity<Ali1688GatewayResponse> response = restTemplate.exchange(
                     properties.getEndpointUrl(),
                     HttpMethod.POST,
-                    new HttpEntity<>(buildRequest(sourceCollection), headers),
+                    new HttpEntity<>(buildRequest(request), buildJsonHeaders()),
                     Ali1688GatewayResponse.class
             );
             return toResult(response.getBody());
+        } catch (HttpStatusCodeException exception) {
+            Ali1688GatewayResponse errorResponse = readGatewayResponse(exception.getResponseBodyAsString());
+            if (errorResponse != null) {
+                return toResult(errorResponse);
+            }
+            throw httpStatusException(exception);
         } catch (RestClientException exception) {
-            throw new IllegalStateException("1688 图搜 HTTP gateway 调用失败：" + exception.getMessage(), exception);
+            throw new Ali1688GatewayException(
+                    "gateway_timeout",
+                    "1688 图搜 HTTP gateway 调用失败：" + exception.getMessage(),
+                    true,
+                    null,
+                    null,
+                    null
+            );
         }
     }
 
-    private Map<String, Object> buildRequest(ProductSelectionSourceCollectionRow sourceCollection) {
+    @Override
+    public Ali1688GatewayOperationalStatus getOperationalStatus() {
+        if (!StringUtils.hasText(properties.getEndpointUrl())) {
+            return Ali1688GatewayOperationalStatus.unavailable(
+                    "system_browser_gateway",
+                    "gateway_disabled",
+                    false,
+                    false
+            );
+        }
+        try {
+            ResponseEntity<Ali1688GatewayHealthResponse> response = restTemplate.exchange(
+                    healthEndpointUrl(),
+                    HttpMethod.GET,
+                    new HttpEntity<>(buildJsonHeaders()),
+                    Ali1688GatewayHealthResponse.class
+            );
+            Ali1688GatewayHealthResponse body = response.getBody();
+            if (body == null) {
+                return Ali1688GatewayOperationalStatus.unavailable(
+                        "system_browser_gateway",
+                        "unexpected_response",
+                        false,
+                        false
+                );
+            }
+            return Ali1688GatewayOperationalStatus.from(
+                    defaultText(body.gatewayServiceKind, "system_browser_gateway"),
+                    defaultText(body.sessionState, "unexpected_response"),
+                    body.runtimeReady,
+                    body.captchaAutoSolveEnabled
+            );
+        } catch (RestClientException exception) {
+            return Ali1688GatewayOperationalStatus.unavailable(
+                    "system_browser_gateway",
+                    "unexpected_response",
+                    false,
+                    false
+            );
+        }
+    }
+
+    private HttpHeaders buildJsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (StringUtils.hasText(properties.getAuthToken())) {
+            headers.set(defaultText(properties.getAuthHeaderName(), "Authorization"), authHeaderValue());
+        }
+        return headers;
+    }
+
+    private String healthEndpointUrl() {
+        String endpoint = properties.getEndpointUrl().trim();
+        String suffix = "/ali1688/image-search";
+        int suffixIndex = endpoint.indexOf(suffix);
+        if (suffixIndex >= 0) {
+            return endpoint.substring(0, suffixIndex) + "/health";
+        }
+        while (endpoint.endsWith("/")) {
+            endpoint = endpoint.substring(0, endpoint.length() - 1);
+        }
+        return endpoint + "/health";
+    }
+
+    private Ali1688GatewayResponse readGatewayResponse(String responseBody) {
+        if (!StringUtils.hasText(responseBody)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(responseBody, Ali1688GatewayResponse.class);
+        } catch (JsonProcessingException exception) {
+            return null;
+        }
+    }
+
+    private Ali1688GatewayException httpStatusException(HttpStatusCodeException exception) {
+        int status = exception.getRawStatusCode();
+        if (status == 401 || status == 403) {
+            return new Ali1688GatewayException("login_required", null, false, exception.getResponseBodyAsString(), null, null);
+        }
+        if (status == 408 || status == 504) {
+            return new Ali1688GatewayException("gateway_timeout", null, true, exception.getResponseBodyAsString(), null, null);
+        }
+        if (status == 429) {
+            return new Ali1688GatewayException("rate_limited", null, true, exception.getResponseBodyAsString(), null, null);
+        }
+        return new Ali1688GatewayException("unexpected_response", exception.getMessage(), false, exception.getResponseBodyAsString(), null, null);
+    }
+
+    private Map<String, Object> buildRequest(Ali1688ImageSearchRequest sourceRequest) {
         Map<String, Object> request = new LinkedHashMap<>();
-        request.put("sourceCollectionId", sourceCollection.getId());
-        request.put("collectionNo", sourceCollection.getCollectionNo());
-        request.put("ownerUserId", sourceCollection.getOwnerUserId());
-        request.put("logicalStoreId", sourceCollection.getLogicalStoreId());
-        request.put("storeCode", sourceCollection.getStoreCode());
-        request.put("sourceType", sourceCollection.getSourceType());
-        request.put("sourcePlatform", sourceCollection.getSourcePlatform());
-        request.put("sourceUrl", sourceCollection.getSourceUrl());
-        request.put("pageUrl", sourceCollection.getPageUrl());
-        request.put("sourceTitle", sourceCollection.getSourceTitle());
-        request.put("sourceTitleCn", sourceCollection.getSourceTitleCn());
-        request.put("sourceImageUrl", sourceCollection.getSourceImageUrl());
-        request.put("imageUrls", readStringListJson(sourceCollection.getImageUrlsJson()));
-        request.put("priceSummary", sourceCollection.getPriceSummary());
-        request.put("moqHint", sourceCollection.getMoqHint());
-        request.put("shippingFrom", sourceCollection.getShippingFrom());
-        request.put("brandName", sourceCollection.getBrandName());
-        request.put("unitCount", sourceCollection.getUnitCount());
-        request.put("colorName", sourceCollection.getColorName());
-        request.put("specHints", readStringListJson(sourceCollection.getSpecHintsJson()));
-        request.put("sourceDescriptionEn", sourceCollection.getSourceDescriptionEn());
-        request.put("selectedText", sourceCollection.getSelectedText());
-        request.put("maxCandidates", Math.max(1, Math.min(properties.getMaxCandidates(), 10)));
+        request.put("taskId", sourceRequest.taskId);
+        request.put("sourceCollectionId", sourceRequest.sourceCollectionId);
+        request.put("requestId", sourceRequest.requestId);
+        request.put("attemptCount", sourceRequest.attemptCount);
+        request.put("lockToken", sourceRequest.lockToken);
+        request.put("collectionNo", sourceRequest.collectionNo);
+        request.put("ownerUserId", sourceRequest.ownerUserId);
+        request.put("logicalStoreId", sourceRequest.logicalStoreId);
+        request.put("storeCode", sourceRequest.storeCode);
+        request.put("sourceType", sourceRequest.sourceType);
+        request.put("sourcePlatform", sourceRequest.sourcePlatform);
+        request.put("sourceUrl", sourceRequest.sourceUrl);
+        request.put("pageUrl", sourceRequest.pageUrl);
+        request.put("sourceTitle", sourceRequest.sourceTitle);
+        request.put("sourceTitleCn", sourceRequest.sourceTitleCn);
+        request.put("sourceImageUrl", sourceRequest.sourceImageUrl);
+        request.put("imageUrls", sourceRequest.imageUrls == null ? List.of() : sourceRequest.imageUrls);
+        request.put("priceSummary", sourceRequest.priceSummary);
+        request.put("moqHint", sourceRequest.moqHint);
+        request.put("shippingFrom", sourceRequest.shippingFrom);
+        request.put("brandName", sourceRequest.brandName);
+        request.put("unitCount", sourceRequest.unitCount);
+        request.put("colorName", sourceRequest.colorName);
+        request.put("specHints", sourceRequest.specHints == null ? List.of() : sourceRequest.specHints);
+        request.put("sourceDescriptionEn", sourceRequest.sourceDescriptionEn);
+        request.put("selectedText", sourceRequest.selectedText);
+        request.put("maxCandidates", Math.max(1, Math.min(
+                sourceRequest.maxCandidates == null ? properties.getMaxCandidates() : sourceRequest.maxCandidates,
+                10
+        )));
         return request;
     }
 
     private Ali1688ImageSearchResult toResult(Ali1688GatewayResponse response) {
         if (response == null) {
-            throw new IllegalStateException("1688 图搜 HTTP gateway 返回空响应。");
+            throw new Ali1688GatewayException(
+                    "unexpected_response",
+                    "1688 图搜 HTTP gateway 返回空响应。",
+                    false,
+                    null,
+                    null,
+                    null
+            );
+        }
+        if (Boolean.FALSE.equals(response.success) || StringUtils.hasText(response.errorCode)) {
+            throw new Ali1688GatewayException(
+                    response.errorCode,
+                    response.message,
+                    Boolean.TRUE.equals(response.retryable),
+                    response.rawSnapshotJson,
+                    response.officialSearchUrl,
+                    response.providerTraceId
+            );
         }
         Ali1688ImageSearchResult result = new Ali1688ImageSearchResult();
         result.searchMode = defaultText(response.searchMode, "主图图搜");
@@ -153,18 +297,6 @@ public class HttpAli1688ImageSearchGateway implements Ali1688ImageSearchGateway 
         return result;
     }
 
-    private List<String> readStringListJson(String json) {
-        if (!StringUtils.hasText(json)) {
-            return new ArrayList<>();
-        }
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<String>>() {
-            });
-        } catch (JsonProcessingException exception) {
-            return new ArrayList<>();
-        }
-    }
-
     private Map<String, Object> copyMap(Map<String, Object> source) {
         return source == null ? new LinkedHashMap<>() : new LinkedHashMap<>(source);
     }
@@ -194,12 +326,24 @@ public class HttpAli1688ImageSearchGateway implements Ali1688ImageSearchGateway 
     }
 
     static class Ali1688GatewayResponse {
+        public Boolean success;
+        public String errorCode;
+        public String message;
+        public Boolean retryable;
         public String searchMode;
         public String officialSearchUrl;
         public String searchImageId;
         public List<String> searchImageIds = new ArrayList<>();
         public String rawSnapshotJson;
+        public String providerTraceId;
         public List<Ali1688GatewayCandidate> candidates = new ArrayList<>();
+    }
+
+    static class Ali1688GatewayHealthResponse {
+        public String gatewayServiceKind;
+        public String sessionState;
+        public Boolean runtimeReady;
+        public Boolean captchaAutoSolveEnabled;
     }
 
     static class Ali1688GatewayCandidate {

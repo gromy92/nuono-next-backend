@@ -2,12 +2,15 @@ package com.nuono.next.productselection;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.Ali1688CollectionMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -38,6 +41,8 @@ public class LocalDbAli1688CollectionService {
     private final ObjectProvider<Ali1688ImageSearchGateway> imageSearchGatewayProvider;
     private final Ali1688CandidateScoringService scoringService;
     private final Ali1688CandidateAiAssessmentService aiAssessmentService;
+    private final Ali1688CandidateGateService candidateGateService;
+    private final Ali1688AutoInquiryEligibilityService autoInquiryEligibilityService;
     private final ObjectMapper objectMapper;
 
     @Value("${nuono.product-selection.ali1688.scheduler.enabled:false}")
@@ -52,6 +57,13 @@ public class LocalDbAli1688CollectionService {
     @Value("${nuono.product-selection.ali1688.scheduler.max-attempts:3}")
     private int maxAttempts;
 
+    @Value("${nuono.product-selection.ali1688.scheduler.gateway-cooldown-ms:60000}")
+    private long schedulerGatewayCooldownMillis;
+
+    private Clock schedulerClock = Clock.systemUTC();
+
+    private SchedulerGatewayGateState schedulerGatewayGateState = SchedulerGatewayGateState.open();
+
     public LocalDbAli1688CollectionService(
             Ali1688CollectionMapper ali1688CollectionMapper,
             ProductSelectionMapper productSelectionMapper,
@@ -59,6 +71,8 @@ public class LocalDbAli1688CollectionService {
             ObjectProvider<Ali1688ImageSearchGateway> imageSearchGatewayProvider,
             Ali1688CandidateScoringService scoringService,
             Ali1688CandidateAiAssessmentService aiAssessmentService,
+            Ali1688CandidateGateService candidateGateService,
+            Ali1688AutoInquiryEligibilityService autoInquiryEligibilityService,
             ObjectMapper objectMapper
     ) {
         this.ali1688CollectionMapper = ali1688CollectionMapper;
@@ -67,6 +81,8 @@ public class LocalDbAli1688CollectionService {
         this.imageSearchGatewayProvider = imageSearchGatewayProvider;
         this.scoringService = scoringService;
         this.aiAssessmentService = aiAssessmentService;
+        this.candidateGateService = candidateGateService;
+        this.autoInquiryEligibilityService = autoInquiryEligibilityService;
         this.objectMapper = objectMapper;
     }
 
@@ -177,6 +193,9 @@ public class LocalDbAli1688CollectionService {
         for (Long taskId : ali1688CollectionMapper.listExpiredOverRetryTaskIds(maxAttempts, lockTimeoutMinutes, limit)) {
             ali1688CollectionMapper.markTaskFailed(taskId, "max_attempts_exceeded", "1688 候选采集超过最大重试次数。", null);
         }
+        if (!schedulerGatewayGateAllowsClaim()) {
+            return 0;
+        }
         int processed = 0;
         for (Long taskId : ali1688CollectionMapper.listClaimableTaskIds(maxAttempts, lockTimeoutMinutes, limit)) {
             String lockOwner = WORKER_NAME + "-" + UUID.randomUUID();
@@ -196,15 +215,25 @@ public class LocalDbAli1688CollectionService {
         }
         Ali1688ImageSearchGateway gateway = imageSearchGatewayProvider.getIfAvailable();
         if (gateway == null) {
-            ali1688CollectionMapper.markTaskFailed(taskId, "ali1688_gateway_not_configured", "1688 图搜网关未配置，无法执行真实候选采集。", task.updatedBy);
+            ali1688CollectionMapper.markTaskFailedByClaimedTask(
+                    taskId,
+                    "ali1688_gateway_not_configured",
+                    "1688 图搜网关未配置，无法执行真实候选采集。",
+                    task.updatedBy,
+                    lockOwner
+            );
             return;
         }
         ProductSelectionSourceCollectionRow sourceCollection = productSelectionMapper.selectSourceCollectionById(task.sourceCollectionId);
         try {
-            Ali1688ImageSearchResult result = gateway.search(sourceCollection);
-            List<Ali1688CollectionRecords.CandidateRecord> candidates = persistCandidates(task, result);
-            selectTopFive(task.id, candidates, task.updatedBy);
-            aiAssessmentService.createPendingAssessments(task, candidates);
+            Ali1688ImageSearchRequest request = Ali1688ImageSearchRequest.fromTask(lockOwner, task, sourceCollection, MAX_CANDIDATES);
+            Ali1688ImageSearchResult result = gateway.search(request);
+            List<Ali1688CollectionRecords.CandidateRecord> candidates = persistCandidates(task, lockOwner, result);
+            if (candidates == null) {
+                return;
+            }
+            selectTopFive(task.id, candidates, task.updatedBy, lockOwner);
+            createPendingAiAssessmentsWithoutBlockingTask(task, candidates, lockOwner);
             String status = candidates.size() >= MAX_CANDIDATES ? "success" : candidates.isEmpty() ? "failed" : "partial_success";
             String failureCode = candidates.isEmpty() ? "no_valid_candidate" : candidates.size() < MAX_CANDIDATES ? "candidate_count_less_than_10" : null;
             String failureMessage = candidates.isEmpty() ? "1688 图搜未回收有效候选。"
@@ -220,15 +249,139 @@ public class LocalDbAli1688CollectionService {
                     task.updatedBy,
                     lockOwner
             );
+        } catch (Ali1688GatewayException exception) {
+            recordSchedulerGatewayBoundary(exception);
+            updateFailureSnapshot(task, lockOwner, exception);
+            String failureMessage = shrink(defaultText(exception.getGatewayMessage(), "1688 候选采集失败。"), 480);
+            if (exception.isRetryable() && (task.attemptCount == null || task.attemptCount < maxAttempts)) {
+                ali1688CollectionMapper.markTaskRetryableFailure(
+                        task.id,
+                        exception.getErrorCode(),
+                        failureMessage,
+                        task.updatedBy,
+                        lockOwner
+                );
+                return;
+            }
+            ali1688CollectionMapper.markTaskFailedByClaimedTask(task.id, exception.getErrorCode(), failureMessage, task.updatedBy, lockOwner);
         } catch (Exception exception) {
-            ali1688CollectionMapper.markTaskFailed(task.id, "ali1688_collect_failed", shrink(defaultText(exception.getMessage(), "1688 候选采集失败。"), 480), task.updatedBy);
+            ali1688CollectionMapper.markTaskFailedByClaimedTask(
+                    task.id,
+                    "ali1688_collect_failed",
+                    shrink(defaultText(exception.getMessage(), "1688 候选采集失败。"), 480),
+                    task.updatedBy,
+                    lockOwner
+            );
         }
     }
 
-    private List<Ali1688CollectionRecords.CandidateRecord> persistCandidates(Ali1688CollectionRecords.TaskRecord task, Ali1688ImageSearchResult result) {
+    private void createPendingAiAssessmentsWithoutBlockingTask(
+            Ali1688CollectionRecords.TaskRecord task,
+            List<Ali1688CollectionRecords.CandidateRecord> candidates,
+            String lockOwner
+    ) {
+        try {
+            aiAssessmentService.createPendingAssessments(task, candidates, lockOwner);
+        } catch (RuntimeException exception) {
+            markCandidatesAiAssessmentFailed(candidates, task == null ? null : task.updatedBy);
+        }
+    }
+
+    private void markCandidatesAiAssessmentFailed(
+            List<Ali1688CollectionRecords.CandidateRecord> candidates,
+            Long updatedBy
+    ) {
+        for (Ali1688CollectionRecords.CandidateRecord candidate : candidates == null ? List.<Ali1688CollectionRecords.CandidateRecord>of() : candidates) {
+            if (candidate == null || candidate.id == null) {
+                continue;
+            }
+            try {
+                ali1688CollectionMapper.markCandidateAiAssessmentFailed(candidate.id, updatedBy);
+                candidate.aiAssessmentStatus = "failed";
+            } catch (RuntimeException ignored) {
+                // AI 补分是异步增强，失败不能覆盖已经成功的候选采集结果。
+            }
+        }
+    }
+
+    private boolean schedulerGatewayGateAllowsClaim() {
+        Instant now = schedulerClock.instant();
+        SchedulerGatewayGateState currentGate = schedulerGatewayGateSnapshot();
+        if (currentGate.isCooldownActive(now)) {
+            return false;
+        }
+        Ali1688ImageSearchGateway gateway = imageSearchGatewayProvider.getIfAvailable();
+        if (gateway == null) {
+            recordSchedulerGatewayStatus(Ali1688GatewayOperationalStatus.unavailable(
+                    "system_browser_gateway",
+                    "ali1688_gateway_not_configured",
+                    false,
+                    false
+            ));
+            return false;
+        }
+        Ali1688GatewayOperationalStatus status;
+        try {
+            status = gateway.getOperationalStatus();
+        } catch (Exception exception) {
+            status = Ali1688GatewayOperationalStatus.unavailable(
+                    "system_browser_gateway",
+                    "unexpected_response",
+                    false,
+                    false
+            );
+        }
+        if (status == null) {
+            status = Ali1688GatewayOperationalStatus.unavailable(
+                    "system_browser_gateway",
+                    "unexpected_response",
+                    false,
+                    false
+            );
+        }
+        if (status.isReadyForClaim()) {
+            clearSchedulerGatewayGate(status);
+            return true;
+        }
+        recordSchedulerGatewayStatus(status);
+        return false;
+    }
+
+    private void recordSchedulerGatewayBoundary(Ali1688GatewayException exception) {
+        String errorCode = normalizeGatewayBoundaryCode(exception == null ? null : exception.getErrorCode());
+        if (!StringUtils.hasText(errorCode)) {
+            return;
+        }
+        recordSchedulerGatewayStatus(readGatewayStatusFromRaw(
+                exception.getRawSnapshotJson(),
+                errorCode
+        ));
+    }
+
+    private void updateFailureSnapshot(Ali1688CollectionRecords.TaskRecord task, String lockOwner, Ali1688GatewayException exception) {
+        if (!StringUtils.hasText(exception.getRawSnapshotJson()) && !StringUtils.hasText(exception.getOfficialSearchUrl())) {
+            return;
+        }
         ali1688CollectionMapper.updateSearchSnapshot(
                 task.id,
-                task.lockedBy,
+                lockOwner,
+                defaultText(task.searchMode, "主图图搜"),
+                exception.getOfficialSearchUrl(),
+                null,
+                "[]",
+                exception.getRawSnapshotJson(),
+                0
+        );
+    }
+
+    private List<Ali1688CollectionRecords.CandidateRecord> persistCandidates(
+            Ali1688CollectionRecords.TaskRecord task,
+            String lockOwner,
+            Ali1688ImageSearchResult result
+    ) {
+        int snapshotUpdated = ali1688CollectionMapper.updateSearchSnapshot(
+                task.id,
+                lockOwner,
                 defaultText(result == null ? null : result.searchMode, "主图图搜"),
                 result == null ? null : result.officialSearchUrl,
                 result == null ? null : result.searchImageId,
@@ -236,14 +389,20 @@ public class LocalDbAli1688CollectionService {
                 result == null ? null : result.rawSnapshotJson,
                 result == null || result.candidates == null ? 0 : result.candidates.size()
         );
-        ali1688CollectionMapper.softDeleteCandidatesByTask(task.id, task.updatedBy);
+        if (snapshotUpdated <= 0) {
+            return null;
+        }
+        ali1688CollectionMapper.softDeleteCandidatesByClaimedTask(task.id, task.updatedBy, lockOwner);
         List<Ali1688ImageSearchResult.Candidate> rawCandidates = result == null || result.candidates == null ? List.of() : result.candidates;
         Set<String> seen = new LinkedHashSet<>();
         List<Ali1688CollectionRecords.CandidateRecord> persisted = new ArrayList<>();
         int rank = 1;
         for (Ali1688ImageSearchResult.Candidate raw : rawCandidates) {
-            if (raw == null || persisted.size() >= MAX_CANDIDATES) {
+            if (persisted.size() >= MAX_CANDIDATES) {
                 break;
+            }
+            if (raw == null) {
+                continue;
             }
             String urlHash = urlHash(raw.candidateUrl);
             String dedupeKey = StringUtils.hasText(raw.offerId) ? "offer:" + raw.offerId.trim() : "url:" + urlHash;
@@ -283,14 +442,19 @@ public class LocalDbAli1688CollectionService {
             candidate.createdBy = task.updatedBy;
             candidate.updatedBy = task.updatedBy;
             scoringService.score(candidate);
-            ali1688CollectionMapper.insertCandidate(candidate);
+            ali1688CollectionMapper.insertCandidateForClaimedTask(candidate, lockOwner);
             persisted.add(candidate);
         }
         return persisted;
     }
 
-    private void selectTopFive(Long taskId, List<Ali1688CollectionRecords.CandidateRecord> candidates, Long updatedBy) {
-        ali1688CollectionMapper.clearSelectedRanks(taskId, updatedBy);
+    private void selectTopFive(
+            Long taskId,
+            List<Ali1688CollectionRecords.CandidateRecord> candidates,
+            Long updatedBy,
+            String lockOwner
+    ) {
+        ali1688CollectionMapper.clearSelectedRanksForClaimedTask(taskId, updatedBy, lockOwner);
         List<Ali1688CollectionRecords.CandidateRecord> selected = candidates.stream()
                 .sorted(Comparator.comparing((Ali1688CollectionRecords.CandidateRecord item) -> item.ruleScore == null ? 0 : item.ruleScore).reversed()
                         .thenComparing(item -> item.rankNo == null ? Integer.MAX_VALUE : item.rankNo))
@@ -300,7 +464,7 @@ public class LocalDbAli1688CollectionService {
         for (Ali1688CollectionRecords.CandidateRecord candidate : selected) {
             candidate.selectedRankNo = selectedRank;
             candidate.level = "recommended";
-            ali1688CollectionMapper.updateSelectedRank(taskId, candidate.id, selectedRank, updatedBy);
+            ali1688CollectionMapper.updateSelectedRankForClaimedTask(taskId, candidate.id, selectedRank, updatedBy, lockOwner);
             selectedRank++;
         }
     }
@@ -358,9 +522,22 @@ public class LocalDbAli1688CollectionService {
         view.finishedAt = task.finishedAt;
         view.message = resolveMessage(task);
         view.canGenerateProcurementOrder = false;
-        view.candidates = ali1688CollectionMapper.listCandidatesByTask(task.id).stream()
+        DetailCompletionState detailCompletion = readDetailCompletionState(task.rawSearchSnapshotJson);
+        view.detailCompletionStatus = detailCompletion.status;
+        view.detailCompletionMessage = detailCompletion.message;
+        Ali1688GatewayOperationalStatus gatewayStatus = resolveGatewayStatus(task);
+        view.gatewayStatus = toGatewayStatusView(gatewayStatus);
+        view.pluginAssistAvailable = canUsePluginAssist(task, gatewayStatus);
+        view.pluginAssignment = toPluginAssignmentView(ali1688CollectionMapper.selectLatestPluginAssignmentByTask(task.id));
+        List<Ali1688CollectionRecords.CandidateRecord> candidates = ali1688CollectionMapper.listCandidatesByTask(task.id);
+        view.fieldCompleteness = buildFieldCompleteness(candidates);
+        view.candidates = candidates.stream()
                 .map(this::toCandidatePreview)
                 .collect(Collectors.toList());
+        view.inquiryEligibleCount = (int) view.candidates.stream()
+                .filter(candidate -> Boolean.TRUE.equals(candidate.autoInquiryEligible))
+                .count();
+        view.inquiryBlockedCount = Math.max(0, view.candidates.size() - view.inquiryEligibleCount);
         return view;
     }
 
@@ -375,6 +552,12 @@ public class LocalDbAli1688CollectionService {
         preview.supplierName = defaultText(candidate.supplierName, "供应商待解析");
         preview.candidateUrl = candidate.candidateUrl;
         preview.priceText = candidate.priceText;
+        Ali1688RealPriceSnapshot priceSnapshot = ali1688CollectionMapper.selectLatestRealPriceSnapshotByCandidate(candidate.id);
+        Ali1688InquiryEligibilityView inquiryEligibility = autoInquiryEligibilityService.resolve(candidate, priceSnapshot);
+        preview.listPriceHintText = candidate.priceText;
+        preview.realPriceSnapshot = priceSnapshot;
+        preview.priceState = resolvePriceState(priceSnapshot);
+        preview.confirmedPriceText = confirmedPriceText(priceSnapshot);
         preview.moqText = candidate.moqText;
         preview.locationText = candidate.locationText;
         preview.imageUrl = candidate.mainImageUrl;
@@ -389,8 +572,60 @@ public class LocalDbAli1688CollectionService {
         preview.scoreBreakdown.supplierScore = candidate.supplierScore;
         preview.scoreBreakdown.deliveryScore = candidate.deliveryScore;
         preview.aiAssessmentStatus = candidate.aiAssessmentStatus;
-        preview.procurementInquiryStatus = candidate.selectedRankNo == null ? "BACKUP_POOL" : "IN_POOL_WAITING_SEND";
+        preview.inquiryEligibility = inquiryEligibility;
+        preview.gate = candidateGateService.resolve(
+                candidate,
+                preview.priceState,
+                inquiryEligibility.eligible,
+                priceSnapshot == null ? null : priceSnapshot.failureCode
+        );
+        preview.autoInquiryEligible = inquiryEligibility.eligible;
+        preview.procurementInquiryStatus = resolveProcurementInquiryStatus(inquiryEligibility, preview.priceState);
         return preview;
+    }
+
+    private String resolveProcurementInquiryStatus(Ali1688InquiryEligibilityView inquiryEligibility, String priceState) {
+        if ("list_hint_only".equals(priceState) || "price_probe_pending".equals(priceState)) {
+            return "PRICE_CONFIRMATION_REQUIRED";
+        }
+        if ("price_probe_failed".equals(priceState)) {
+            return "PRICE_CONFIRMATION_FAILED";
+        }
+        if (inquiryEligibility == null || !StringUtils.hasText(inquiryEligibility.state)) {
+            return "INQUIRY_NOT_ELIGIBLE";
+        }
+        if (Boolean.TRUE.equals(inquiryEligibility.eligible)) {
+            return "INQUIRY_ELIGIBLE";
+        }
+        if ("rejected_missing_real_price".equals(inquiryEligibility.state)) {
+            return "PRICE_CONFIRMATION_REQUIRED";
+        }
+        if ("rejected_price_failed".equals(inquiryEligibility.state)) {
+            return "PRICE_CONFIRMATION_FAILED";
+        }
+        return "INQUIRY_NOT_ELIGIBLE";
+    }
+
+    private String resolvePriceState(Ali1688RealPriceSnapshot snapshot) {
+        if (snapshot == null) {
+            return "list_hint_only";
+        }
+        if ("confirmed".equals(snapshot.status)) {
+            return "price_confirmed";
+        }
+        if ("failed".equals(snapshot.status)) {
+            return "price_probe_failed";
+        }
+        return "price_probe_pending";
+    }
+
+    private String confirmedPriceText(Ali1688RealPriceSnapshot snapshot) {
+        if (snapshot == null || !"confirmed".equals(snapshot.status) || snapshot.totalPrice == null) {
+            return null;
+        }
+        String currency = StringUtils.hasText(snapshot.currency) ? snapshot.currency : "CNY";
+        String amount = snapshot.totalPrice.stripTrailingZeros().toPlainString();
+        return "CNY".equals(currency) ? "¥" + amount : currency + " " + amount;
     }
 
     private Ali1688CollectionView emptyView(ProductSelectionSourceCollectionRow sourceCollection) {
@@ -401,6 +636,11 @@ public class LocalDbAli1688CollectionService {
         view.candidateCount = 0;
         view.recommendedCount = 0;
         view.message = "暂无真实1688候选采集任务。";
+        view.detailCompletionStatus = "not_attempted";
+        view.detailCompletionMessage = "未执行详情页补全。";
+        view.fieldCompleteness = new Ali1688CollectionView.FieldCompleteness();
+        view.gatewayStatus = toGatewayStatusView(schedulerGatewayGateSnapshot().status);
+        view.pluginAssistAvailable = false;
         view.canGenerateProcurementOrder = false;
         if (sourceCollection != null) {
             view.sourceCollectionId = sourceCollection.getId() == null ? null : String.valueOf(sourceCollection.getId());
@@ -416,6 +656,292 @@ public class LocalDbAli1688CollectionService {
             view.sourceImageUrl = sourceCollection.getSourceImageUrl();
         }
         return view;
+    }
+
+    private boolean canUsePluginAssist(
+            Ali1688CollectionRecords.TaskRecord task,
+            Ali1688GatewayOperationalStatus gatewayStatus
+    ) {
+        if (task == null || task.id == null || !StringUtils.hasText(task.currentTaskKey) || gatewayStatus == null) {
+            return false;
+        }
+        return "blocked_by_captcha".equals(gatewayStatus.userFacingStatus)
+                || "login_required".equals(gatewayStatus.userFacingStatus)
+                || "cooling_down".equals(gatewayStatus.userFacingStatus)
+                || "unavailable".equals(gatewayStatus.userFacingStatus);
+    }
+
+    private Ali1688PluginAssignmentView toPluginAssignmentView(Ali1688CollectionRecords.PluginAssignmentRecord assignment) {
+        if (assignment == null) {
+            return null;
+        }
+        Ali1688PluginAssignmentView view = new Ali1688PluginAssignmentView();
+        view.assignmentId = assignment.id == null ? null : String.valueOf(assignment.id);
+        view.taskId = assignment.taskId == null ? null : String.valueOf(assignment.taskId);
+        view.sourceCollectionId = assignment.sourceCollectionId == null ? null : String.valueOf(assignment.sourceCollectionId);
+        view.taskNo = assignment.taskNo;
+        view.status = defaultText(assignment.status, "created");
+        view.sourceImageUrl = assignment.sourceImageUrl;
+        view.sourceTitle = assignment.sourceTitle;
+        view.sourceTitleCn = assignment.sourceTitleCn;
+        view.sourceUrl = assignment.sourceUrl;
+        view.pageUrl = assignment.pageUrl;
+        view.storeId = assignment.logicalStoreId == null ? null : String.valueOf(assignment.logicalStoreId);
+        view.storeName = assignment.storeName;
+        view.storeCode = assignment.storeCode;
+        view.createdAt = toMinute(assignment.createdAt);
+        view.expiresAt = toMinute(assignment.expiresAt);
+        view.startedAt = toMinute(assignment.startedAt);
+        view.finishedAt = toMinute(assignment.finishedAt);
+        view.failureCode = assignment.failureCode;
+        view.failureMessage = assignment.failureMessage;
+        view.submittedCandidateCount = assignment.submittedCandidateCount;
+        view.acceptedCandidateCount = assignment.acceptedCandidateCount;
+        view.rejectedCandidateCount = assignment.rejectedCandidateCount;
+        view.current = StringUtils.hasText(assignment.activeAssignmentKey)
+                && String.valueOf(assignment.taskId).equals(assignment.activeAssignmentKey)
+                && StringUtils.hasText(assignment.taskCurrentTaskKey);
+        view.message = resolvePluginAssignmentMessage(assignment);
+        return view;
+    }
+
+    private String resolvePluginAssignmentMessage(Ali1688CollectionRecords.PluginAssignmentRecord assignment) {
+        if (assignment == null) {
+            return "";
+        }
+        if (StringUtils.hasText(assignment.failureMessage)) {
+            return assignment.failureMessage;
+        }
+        if ("created".equals(assignment.status)) {
+            return "插件采集任务已创建，等待插件领取。";
+        }
+        if ("running".equals(assignment.status)) {
+            return "插件采集中。";
+        }
+        if ("accepted".equals(assignment.status)) {
+            return "插件候选已接收。";
+        }
+        if ("failed".equals(assignment.status)) {
+            return "插件采集失败。";
+        }
+        if ("expired".equals(assignment.status)) {
+            return "插件采集任务已过期。";
+        }
+        if ("cancelled".equals(assignment.status)) {
+            return "插件采集任务已取消。";
+        }
+        return "";
+    }
+
+    private String toMinute(String value) {
+        String text = trim(value);
+        return text != null && text.length() >= 16 ? text.substring(0, 16) : text;
+    }
+
+    private Ali1688GatewayOperationalStatus resolveGatewayStatus(Ali1688CollectionRecords.TaskRecord task) {
+        Ali1688GatewayOperationalStatus rawStatus = readGatewayStatusFromRaw(
+                task == null ? null : task.rawSearchSnapshotJson,
+                task == null ? null : task.failureCode
+        );
+        SchedulerGatewayGateState gate = schedulerGatewayGateSnapshot();
+        if (gate.isActive()
+                && task != null
+                && ("queued".equals(task.status) || "running".equals(task.status) || "waiting_source".equals(task.status))) {
+            return gate.status;
+        }
+        return rawStatus;
+    }
+
+    private Ali1688GatewayOperationalStatus readGatewayStatusFromRaw(String rawSearchSnapshotJson, String fallbackCode) {
+        String serviceKind = "unknown";
+        String sessionState = normalizeGatewayBoundaryCode(fallbackCode);
+        Boolean runtimeReady = null;
+        Boolean captchaAutoSolveEnabled = null;
+        if (StringUtils.hasText(rawSearchSnapshotJson)) {
+            try {
+                JsonNode root = objectMapper.readTree(rawSearchSnapshotJson);
+                serviceKind = defaultText(trim(root.path("gatewayServiceKind").asText(null)), serviceKind);
+                String rawSessionState = trim(root.path("sessionState").asText(null));
+                if (!StringUtils.hasText(sessionState) && StringUtils.hasText(rawSessionState)) {
+                    sessionState = rawSessionState;
+                }
+                if (root.has("runtimeReady") && !root.path("runtimeReady").isNull()) {
+                    runtimeReady = root.path("runtimeReady").asBoolean();
+                }
+                if (root.has("captchaAutoSolveEnabled") && !root.path("captchaAutoSolveEnabled").isNull()) {
+                    captchaAutoSolveEnabled = root.path("captchaAutoSolveEnabled").asBoolean();
+                }
+            } catch (JsonProcessingException exception) {
+                sessionState = "unexpected_response";
+            }
+        }
+        if (!StringUtils.hasText(sessionState)) {
+            sessionState = "unknown";
+        }
+        return Ali1688GatewayOperationalStatus.from(serviceKind, sessionState, runtimeReady, captchaAutoSolveEnabled);
+    }
+
+    private Ali1688CollectionView.GatewayStatus toGatewayStatusView(Ali1688GatewayOperationalStatus status) {
+        Ali1688GatewayOperationalStatus safeStatus = status == null
+                ? Ali1688GatewayOperationalStatus.unavailable("unknown", "unknown", null, null)
+                : status;
+        Ali1688CollectionView.GatewayStatus viewStatus = new Ali1688CollectionView.GatewayStatus();
+        viewStatus.gatewayServiceKind = safeStatus.gatewayServiceKind;
+        viewStatus.sessionState = safeStatus.sessionState;
+        viewStatus.runtimeReady = safeStatus.runtimeReady;
+        viewStatus.captchaAutoSolveEnabled = safeStatus.captchaAutoSolveEnabled;
+        viewStatus.userFacingStatus = safeStatus.userFacingStatus;
+        viewStatus.userFacingMessage = safeStatus.userFacingMessage;
+        return viewStatus;
+    }
+
+    private String normalizeGatewayBoundaryCode(String value) {
+        String code = trim(value);
+        if ("captcha_required".equals(code) || "login_required".equals(code) || "rate_limited".equals(code)) {
+            return code;
+        }
+        return null;
+    }
+
+    private DetailCompletionState readDetailCompletionState(String rawSearchSnapshotJson) {
+        String status = "not_attempted";
+        String message = "未执行详情页补全。";
+        if (StringUtils.hasText(rawSearchSnapshotJson)) {
+            try {
+                JsonNode root = objectMapper.readTree(rawSearchSnapshotJson);
+                String rawStatus = trim(root.path("detailCompletionOutcome").asText(null));
+                String rawMessage = trim(root.path("detailCompletionMessage").asText(null));
+                if (StringUtils.hasText(rawStatus)) {
+                    status = rawStatus;
+                    message = StringUtils.hasText(rawMessage) ? rawMessage : defaultDetailCompletionMessage(status);
+                }
+            } catch (JsonProcessingException exception) {
+                status = "unknown";
+                message = "详情页补全诊断解析失败。";
+            }
+        }
+        return new DetailCompletionState(status, message);
+    }
+
+    private Ali1688CollectionView.FieldCompleteness buildFieldCompleteness(List<Ali1688CollectionRecords.CandidateRecord> candidates) {
+        Ali1688CollectionView.FieldCompleteness completeness = new Ali1688CollectionView.FieldCompleteness();
+        List<Ali1688CollectionRecords.CandidateRecord> safeCandidates = candidates == null ? List.of() : candidates;
+        completeness.candidateCount = safeCandidates.size();
+        completeness.nonFallbackTitleCount = (int) safeCandidates.stream()
+                .filter(candidate -> isNonFallbackTitle(candidate.title, candidate.supplierName))
+                .count();
+        completeness.supplierNameCount = (int) safeCandidates.stream()
+                .filter(candidate -> StringUtils.hasText(candidate.supplierName))
+                .count();
+        completeness.priceTextCount = (int) safeCandidates.stream()
+                .filter(candidate -> StringUtils.hasText(candidate.priceText))
+                .count();
+        completeness.moqTextCount = (int) safeCandidates.stream()
+                .filter(candidate -> StringUtils.hasText(candidate.moqText))
+                .count();
+        completeness.locationTextCount = (int) safeCandidates.stream()
+                .filter(candidate -> StringUtils.hasText(candidate.locationText))
+                .count();
+        completeness.normalizedDetailUrlCount = (int) safeCandidates.stream()
+                .filter(candidate -> isNormalizedDetailUrl(candidate.candidateUrl))
+                .count();
+        return completeness;
+    }
+
+    private boolean isNonFallbackTitle(String title, String supplierName) {
+        String value = defaultText(title, "");
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        if (value.matches("^1688候选\\s*\\d+$")) {
+            return false;
+        }
+        if ("旺旺在线".equals(value) || value.contains("点此可以直接和卖家交流")) {
+            return false;
+        }
+        return !StringUtils.hasText(supplierName) || !value.equals(supplierName.trim());
+    }
+
+    private boolean isNormalizedDetailUrl(String candidateUrl) {
+        return defaultText(candidateUrl, "").matches("^https://detail\\.1688\\.com/offer/\\d+\\.html$");
+    }
+
+    private String defaultDetailCompletionMessage(String status) {
+        if ("blocked_by_captcha".equals(status)) {
+            return "1688 详情页受限，详情字段待补充。";
+        }
+        if ("completed".equals(status)) {
+            return "详情页补全完成。";
+        }
+        if ("partial_enriched".equals(status)) {
+            return "详情页部分补全，仍有字段待补充。";
+        }
+        if ("failed".equals(status)) {
+            return "详情页补全失败，详情字段待补充。";
+        }
+        return "未执行详情页补全。";
+    }
+
+    private static class DetailCompletionState {
+        private final String status;
+        private final String message;
+
+        private DetailCompletionState(String status, String message) {
+            this.status = status;
+            this.message = message;
+        }
+    }
+
+    private synchronized SchedulerGatewayGateState schedulerGatewayGateSnapshot() {
+        return schedulerGatewayGateState;
+    }
+
+    private synchronized void recordSchedulerGatewayStatus(Ali1688GatewayOperationalStatus status) {
+        Ali1688GatewayOperationalStatus safeStatus = status == null
+                ? Ali1688GatewayOperationalStatus.unavailable("unknown", "unknown", false, false)
+                : status;
+        long cooldownMillis = Math.max(1L, schedulerGatewayCooldownMillis);
+        Instant cooldownUntil = safeStatus.shouldCooldown()
+                ? schedulerClock.instant().plusMillis(cooldownMillis)
+                : schedulerClock.instant();
+        schedulerGatewayGateState = SchedulerGatewayGateState.blocked(safeStatus, cooldownUntil);
+    }
+
+    private synchronized void clearSchedulerGatewayGate(Ali1688GatewayOperationalStatus status) {
+        schedulerGatewayGateState = SchedulerGatewayGateState.ready(status);
+    }
+
+    private static class SchedulerGatewayGateState {
+        private final Ali1688GatewayOperationalStatus status;
+        private final Instant cooldownUntil;
+
+        private SchedulerGatewayGateState(Ali1688GatewayOperationalStatus status, Instant cooldownUntil) {
+            this.status = status;
+            this.cooldownUntil = cooldownUntil;
+        }
+
+        private static SchedulerGatewayGateState open() {
+            return new SchedulerGatewayGateState(
+                    Ali1688GatewayOperationalStatus.unavailable("unknown", "unknown", null, null),
+                    null
+            );
+        }
+
+        private static SchedulerGatewayGateState ready(Ali1688GatewayOperationalStatus status) {
+            return new SchedulerGatewayGateState(status, null);
+        }
+
+        private static SchedulerGatewayGateState blocked(Ali1688GatewayOperationalStatus status, Instant cooldownUntil) {
+            return new SchedulerGatewayGateState(status, cooldownUntil);
+        }
+
+        private boolean isActive() {
+            return status != null && !"available".equals(status.userFacingStatus) && !"unknown".equals(status.sessionState);
+        }
+
+        private boolean isCooldownActive(Instant now) {
+            return isActive() && cooldownUntil != null && now != null && now.isBefore(cooldownUntil);
+        }
     }
 
     private ProductSelectionSourceCollectionRow requireVisibleSourceCollection(String collectionId, Long operatorUserId) {

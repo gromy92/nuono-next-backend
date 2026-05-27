@@ -64,3 +64,8 @@ nuono:
         initial-delay-ms: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SCHEDULER_INITIAL_DELAY_MS:15000}
         max-items-per-tick: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SCHEDULER_MAX_ITEMS:10}
         system-operator-user-id: ${NUONO_PROCUREMENT_AUTO_INQUIRY_SYSTEM_OPERATOR_USER_ID:0}
+
+mobile:
+  auth:
+    fixed-sms-code: ${NUONO_NEXT_MOBILE_FIXED_SMS_CODE:123456}
+    debug-code-enabled: ${NUONO_NEXT_MOBILE_DEBUG_CODE_ENABLED:true}

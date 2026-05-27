@@ -69,6 +69,14 @@ nuono:
         url: ${NUONO_PRODUCT_SELECTION_AMAZON_CRAWLER_URL:}
         timeout-seconds: ${NUONO_PRODUCT_SELECTION_AMAZON_CRAWLER_TIMEOUT_SECONDS:90}
         fallback-to-public-page: ${NUONO_PRODUCT_SELECTION_AMAZON_CRAWLER_FALLBACK_TO_PUBLIC_PAGE:false}
+      ali1688:
+        image-search:
+          enabled: ${NUONO_PRODUCT_SELECTION_ALI1688_IMAGE_SEARCH_ENABLED:false}
+          endpoint-url: ${NUONO_PRODUCT_SELECTION_ALI1688_IMAGE_SEARCH_ENDPOINT_URL:}
+          auth-token: ${NUONO_PRODUCT_SELECTION_ALI1688_IMAGE_SEARCH_AUTH_TOKEN:}
+          auth-header-name: ${NUONO_PRODUCT_SELECTION_ALI1688_IMAGE_SEARCH_AUTH_HEADER_NAME:Authorization}
+          timeout-seconds: ${NUONO_PRODUCT_SELECTION_ALI1688_IMAGE_SEARCH_TIMEOUT_SECONDS:30}
+          max-candidates: ${NUONO_PRODUCT_SELECTION_ALI1688_IMAGE_SEARCH_MAX_CANDIDATES:10}
       shein-public:
         timeout-seconds: ${NUONO_PRODUCT_SELECTION_SHEIN_PUBLIC_TIMEOUT_SECONDS:20}
       shein-rapidapi:
@@ -78,6 +86,12 @@ nuono:
         timeout-seconds: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_TIMEOUT_SECONDS:30}
         description-url: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_DESCRIPTION_URL:}
         details-url: ${NUONO_PRODUCT_SELECTION_SHEIN_RAPIDAPI_DETAILS_URL:}
+  noon:
+    pull:
+      scheduler:
+        enabled: ${NUONO_NOON_PULL_SCHEDULER_ENABLED:false}
+        initial-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_INITIAL_DELAY_MS:60000}
+        fixed-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_FIXED_DELAY_MS:300000}
   bootstrap:
     db-enabled: false
     schema: nuono_new_dev

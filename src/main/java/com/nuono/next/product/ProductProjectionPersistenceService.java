@@ -20,11 +20,14 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +37,7 @@ import org.springframework.util.StringUtils;
 @Profile("local-db")
 public class ProductProjectionPersistenceService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProductProjectionPersistenceService.class);
     private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String BASELINE_SNAPSHOT_TYPE = "baseline";
@@ -60,6 +64,9 @@ public class ProductProjectionPersistenceService {
             "noon_brand_dictionary",
             "noon_product_fulltype_dictionary"
     );
+    private static final List<String> LIFECYCLE_TABLES = List.of(
+            "product_lifecycle_current_state"
+    );
     private static final List<String> EDITABLE_OFFER_FIELDS = List.of(
             "price",
             "salePrice",
@@ -77,6 +84,7 @@ public class ProductProjectionPersistenceService {
     private final ObjectMapper objectMapper;
     private final ProductKeyContentHistoryAssembler productKeyContentHistoryAssembler;
     private final ProductGroupProjectionService productGroupProjectionService;
+    private final ProductPublishHistoryAssembler productPublishHistoryAssembler;
     private final ProductProjectionMergePolicy productProjectionMergePolicy = new ProductProjectionMergePolicy();
 
     public ProductProjectionPersistenceService(
@@ -93,6 +101,7 @@ public class ProductProjectionPersistenceService {
         this.objectMapper = objectMapper;
         this.productKeyContentHistoryAssembler = productKeyContentHistoryAssembler;
         this.productGroupProjectionService = productGroupProjectionService;
+        this.productPublishHistoryAssembler = new ProductPublishHistoryAssembler(objectMapper);
     }
 
     public void hydrateSnapshotGroupFromCurrentProjection(
@@ -124,6 +133,29 @@ public class ProductProjectionPersistenceService {
             List<ProductMasterSeed> productSeeds,
             List<String> warnings
     ) {
+        persistInitializationProjection(
+                ownerUserId,
+                projectCode,
+                projectName,
+                referenceStoreCode,
+                siteSeeds,
+                productSeeds,
+                warnings,
+                false
+        );
+    }
+
+    @Transactional
+    public void persistInitializationProjection(
+            Long ownerUserId,
+            String projectCode,
+            String projectName,
+            String referenceStoreCode,
+            List<SiteSeed> siteSeeds,
+            List<ProductMasterSeed> productSeeds,
+            List<String> warnings,
+            boolean preserveDrafts
+    ) {
         if (ownerUserId == null || !StringUtils.hasText(projectCode) || productSeeds == null || productSeeds.isEmpty()) {
             return;
         }
@@ -142,7 +174,9 @@ public class ProductProjectionPersistenceService {
             if (classificationDictionaryReady) {
                 upsertClassificationDictionaries(ownerUserId, projectCode, siteIdMap.keySet(), productSeed, ownerUserId);
             }
-            productManagementMapper.deleteProductMasterDraftByProductMasterId(productMasterId);
+            if (!preserveDrafts) {
+                productManagementMapper.deleteProductMasterDraftByProductMasterId(productMasterId);
+            }
             persistIssues(productMasterId, productSeed.getIssueTags(), ownerUserId);
             persistRepresentativeOffer(productMasterId, siteIdMap, productSeed, ownerUserId);
         }
@@ -530,7 +564,7 @@ public class ProductProjectionPersistenceService {
     ) {
         List<ProductListSummaryView> summaries = new ArrayList<>();
         for (ProductListProjectionRecord record : loadProductListProjection(ownerUserId, storeCode, warnings)) {
-            ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode));
+            ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode), ownerUserId);
             hydrateHistoryMeta(summary, ownerUserId, normalize(storeCode));
             summaries.add(summary);
         }
@@ -573,7 +607,7 @@ public class ProductProjectionPersistenceService {
             summary.setWarnings(copyWarnings(warnings));
             return summary;
         }
-        ProductListSummaryView readySummary = toListSummaryView(record, normalizedStoreCode);
+        ProductListSummaryView readySummary = toListSummaryView(record, normalizedStoreCode, ownerUserId);
         hydrateHistoryMeta(readySummary, ownerUserId, normalize(storeCode));
         readySummary.setWarnings(copyWarnings(warnings));
         return readySummary;
@@ -583,8 +617,46 @@ public class ProductProjectionPersistenceService {
         if (ownerUserId == null || !StringUtils.hasText(storeCode) || !ensureWorkbenchTablesReady(null)) {
             return;
         }
-        productManagementMapper.deleteNoopProductMasterDraftsByStoreCode(ownerUserId, storeCode);
-        productManagementMapper.markProductMastersWithMeaningfulDraftsByStoreCode(ownerUserId, storeCode, ownerUserId);
+        try {
+            productManagementMapper.deleteNoopProductMasterDraftsByStoreCode(ownerUserId, storeCode);
+            productManagementMapper.markProductMastersWithMeaningfulDraftsByStoreCode(ownerUserId, storeCode, ownerUserId);
+        } catch (RuntimeException exception) {
+            if (isTransientLockFailure(exception)) {
+                LOGGER.warn(
+                        "Skip product list draft reconciliation after transient lock failure, ownerUserId={}, storeCode={}, message={}",
+                        ownerUserId,
+                        storeCode,
+                        firstExceptionMessage(exception)
+                );
+                return;
+            }
+            throw exception;
+        }
+    }
+
+    private String firstExceptionMessage(Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            if (StringUtils.hasText(current.getMessage())) {
+                return current.getMessage();
+            }
+            current = current.getCause();
+        }
+        return exception == null ? "" : exception.getClass().getSimpleName();
+    }
+
+    private boolean isTransientLockFailure(Throwable exception) {
+        Throwable current = exception;
+        while (current != null) {
+            String marker = (current.getClass().getName() + " " + current.getMessage()).toLowerCase(Locale.ROOT);
+            if (marker.contains("deadlock")
+                    || marker.contains("try restarting transaction")
+                    || marker.contains("lock wait timeout")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     public List<ProductListSummaryView> loadProductGroupCandidateSummaries(
@@ -621,7 +693,7 @@ public class ProductProjectionPersistenceService {
                 80
         );
         for (ProductListProjectionRecord record : records) {
-            ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode));
+            ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode), ownerUserId);
             summaries.add(summary);
         }
         return summaries;
@@ -1459,7 +1531,11 @@ public class ProductProjectionPersistenceService {
         );
     }
 
-    private ProductListSummaryView toListSummaryView(ProductListProjectionRecord record, String storeCode) {
+    private ProductListSummaryView toListSummaryView(
+            ProductListProjectionRecord record,
+            String storeCode,
+            Long ownerUserId
+    ) {
         ProductListSummaryView view = new ProductListSummaryView();
         view.setReady(record != null);
         view.setSource(record != null ? "projection" : "missing");
@@ -1513,8 +1589,71 @@ public class ProductProjectionPersistenceService {
         view.setUnitsSold(record.getUnitsSold());
         view.setSalesAmount(record.getSalesAmount());
         view.setSalesCurrency(record.getSalesCurrency());
+        view.setLifecycleState(resolveLifecycleState(ownerUserId, storeCode, record));
         view.setMessage("已从本地商品投影读取权威列表摘要。");
         return view;
+    }
+
+    private Map<String, Object> resolveLifecycleState(
+            Long ownerUserId,
+            String storeCode,
+            ProductListProjectionRecord record
+    ) {
+        if (ownerUserId == null || record == null || !StringUtils.hasText(storeCode)) {
+            return pendingLifecycleState("missing_product_scope");
+        }
+        String partnerSku = normalize(record.getPartnerSku());
+        List<String> lifecycleSkuCandidates = new ArrayList<>();
+        lifecycleSkuCandidates.add(record.getOfferCode());
+        lifecycleSkuCandidates.add(record.getPskuCode());
+        lifecycleSkuCandidates.add(record.getSkuParent());
+        if (!StringUtils.hasText(partnerSku) || lifecycleSkuCandidates.stream().noneMatch(StringUtils::hasText)) {
+            return pendingLifecycleState("missing_partner_sku_or_sku");
+        }
+        if (!ensureTablesReady(LIFECYCLE_TABLES, null, "商品生命周期状态表尚未初始化：")) {
+            return pendingLifecycleState("lifecycle_table_missing");
+        }
+        for (String candidate : lifecycleSkuCandidates) {
+            String sku = normalize(candidate);
+            if (!StringUtils.hasText(sku)) {
+                continue;
+            }
+            Map<String, Object> lifecycle = productManagementMapper.selectProductLifecycleSummary(
+                    ownerUserId,
+                    normalize(storeCode),
+                    partnerSku,
+                    sku
+            );
+            if (lifecycle != null && !lifecycle.isEmpty()) {
+                return new LinkedHashMap<>(lifecycle);
+            }
+        }
+        for (String candidate : lifecycleSkuCandidates) {
+            String sku = normalize(candidate);
+            if (!StringUtils.hasText(sku)) {
+                continue;
+            }
+            Map<String, Object> lifecycle = productManagementMapper.selectProductLifecycleSummaryBySku(
+                    ownerUserId,
+                    normalize(storeCode),
+                    sku
+            );
+            if (lifecycle != null && !lifecycle.isEmpty()) {
+                return new LinkedHashMap<>(lifecycle);
+            }
+        }
+        return pendingLifecycleState("lifecycle_not_calculated");
+    }
+
+    private Map<String, Object> pendingLifecycleState(String reason) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("code", "pending");
+        state.put("label", "待计算");
+        state.put("ruleVersion", "DEFAULT_V1");
+        state.put("qualityState", "pending");
+        state.put("explanation", "商品生命周期状态尚未完成计算。");
+        state.put("evidenceJson", "{\"reason\":\"" + reason + "\"}");
+        return state;
     }
 
     private void hydrateHistoryMeta(ProductListSummaryView view, Long ownerUserId, String storeCode) {
@@ -1559,48 +1698,11 @@ public class ProductProjectionPersistenceService {
         if (tasks == null || tasks.isEmpty()) {
             return null;
         }
-        ProductPublishTaskRecord task = tasks.get(0);
-        String statusLabel = publishTaskListStatusLabel(task.getStatus());
-        if (!StringUtils.hasText(statusLabel)) {
-            return null;
-        }
-        ProductMasterSnapshotView baseline = readHistorySnapshot(task.getBaselineJson(), warnings);
-        ProductMasterSnapshotView draft = readHistorySnapshot(task.getDraftJson(), warnings);
-        Map<String, Object> summary = new LinkedHashMap<>();
-        putIfNotNull(summary, "taskId", task.getId());
-        putIfNotBlank(summary, "status", normalize(task.getStatus()));
-        putIfNotBlank(summary, "statusLabel", statusLabel);
-        putIfNotBlank(summary, "resultText", publishTaskHistoryMessage(task));
-        putIfNotBlank(summary, "submittedAt", formatDateTime(task.getSubmittedAt()));
-        putIfNotBlank(summary, "finishedAt", taskHistoryTime(task));
-        putIfNotBlank(summary, "targetSiteCode", task.getCurrentSiteCode());
-        putIfNotBlank(summary, "pskuCode", task.getPskuCode());
-        putIfNotBlank(summary, "partnerSku", task.getPartnerSku());
-        putIfNotNull(summary, "changes", buildProductModificationChanges(baseline, draft, task.getCurrentSiteCode()));
-        return summary;
+        return productPublishHistoryAssembler.buildLastPublishTaskSummary(tasks.get(0), warnings);
     }
 
     private String publishTaskListStatusLabel(String status) {
-        String normalized = normalize(status);
-        if ("synced".equalsIgnoreCase(normalized)) {
-            return "发布成功";
-        }
-        if ("failed".equalsIgnoreCase(normalized)) {
-            return "发布失败";
-        }
-        if ("pending_manual_check".equalsIgnoreCase(normalized)) {
-            return "待人工核对";
-        }
-        if ("queued".equalsIgnoreCase(normalized)
-                || "running".equalsIgnoreCase(normalized)
-                || "submitted".equalsIgnoreCase(normalized)
-                || "verifying".equalsIgnoreCase(normalized)
-                || "pending_effective".equalsIgnoreCase(normalized)
-                || "write_unknown".equalsIgnoreCase(normalized)
-                || "verify_timeout".equalsIgnoreCase(normalized)) {
-            return "发布中";
-        }
-        return null;
+        return productPublishHistoryAssembler.publishTaskListStatusLabel(status);
     }
 
     private void hydrateSnapshotContentMeta(ProductListSummaryView view, Long productMasterId) {
@@ -2097,39 +2199,13 @@ public class ProductProjectionPersistenceService {
     }
 
     private List<Map<String, Object>> loadPublishTaskHistoryItems(Long productMasterId, List<String> warnings) {
-        List<Map<String, Object>> history = new ArrayList<>();
         if (productMasterId == null) {
-            return history;
+            return new ArrayList<>();
         }
-        for (ProductPublishTaskRecord task : productManagementMapper.selectRecentProductPublishTasks(productMasterId)) {
-            ProductMasterSnapshotView baseline = readHistorySnapshot(task.getBaselineJson(), warnings);
-            ProductMasterSnapshotView draft = readHistorySnapshot(task.getDraftJson(), warnings);
-            List<Map<String, Object>> changes = buildProductModificationChanges(
-                    baseline,
-                    draft,
-                    task.getCurrentSiteCode()
-            );
-            if (changes.isEmpty()) {
-                continue;
-            }
-            Map<String, Object> item = new LinkedHashMap<>();
-            putIfNotBlank(item, "historyKind", "modification");
-            putIfNotBlank(item, "source", "publish_task");
-            putIfNotNull(item, "taskId", task.getId());
-            putIfNotBlank(item, "actionType", "publish-current");
-            putIfNotBlank(item, "resultStatus", normalize(task.getStatus()));
-            putIfNotBlank(item, "statusLabel", publishTaskStatusLabel(task.getStatus()));
-            putIfNotBlank(item, "message", publishTaskHistoryMessage(task));
-            putIfNotBlank(item, "targetSiteCode", task.getCurrentSiteCode());
-            putIfNotBlank(item, "pskuCode", task.getPskuCode());
-            putIfNotBlank(item, "partnerSku", task.getPartnerSku());
-            putIfNotBlank(item, "publishedAt", taskHistoryTime(task));
-            putIfNotBlank(item, "visibilityStatus", "modification");
-            putIfNotNull(item, "changes", changes);
-            putIfNotNull(item, "changeTypes", changeTypes(changes));
-            history.add(item);
-        }
-        return history;
+        return productPublishHistoryAssembler.buildPublishTaskHistoryItems(
+                productManagementMapper.selectRecentProductPublishTasks(productMasterId),
+                warnings
+        );
     }
 
     private List<Map<String, Object>> loadActionHistoryItems(Long productMasterId, List<String> warnings) {
@@ -2144,7 +2220,7 @@ public class ProductProjectionPersistenceService {
             if (changes.isEmpty() && successfulDirectPublish) {
                 changes = inferSuccessfulDirectPublishOfferChanges(productMasterId, action, warnings);
             }
-            if (changes.isEmpty() && !successfulDirectPublish) {
+            if (changes.isEmpty()) {
                 continue;
             }
             if ("publish-current".equalsIgnoreCase(actionType)
@@ -2279,58 +2355,66 @@ public class ProductProjectionPersistenceService {
     }
 
     private String publishTaskHistoryMessage(ProductPublishTaskRecord task) {
-        String status = task == null ? null : normalize(task.getStatus());
-        if ("synced".equalsIgnoreCase(status)) {
-            return "发布已完成。";
+        return productPublishHistoryAssembler.publishTaskHistoryMessage(task);
+    }
+
+    private List<String> resolvePublishTaskChangedDomains(ProductPublishTaskRecord task) {
+        List<String> domains = parseStringList(task == null ? null : task.getChangedDomainsJson());
+        boolean needsRecompute = domains.isEmpty()
+                || domains.stream().anyMatch((domain) -> "unknown".equalsIgnoreCase(normalize(domain)));
+        if (!needsRecompute || task == null) {
+            return domains;
         }
-        if ("failed".equalsIgnoreCase(status)) {
-            return firstNonBlank(task.getErrorMessage(), "发布失败，诺诺草稿已保留。");
+        ProductMasterSnapshotView baseline = readHistorySnapshot(task.getBaselineJson(), null);
+        ProductMasterSnapshotView draft = readHistorySnapshot(task.getDraftJson(), null);
+        List<Map<String, Object>> changes = buildProductModificationChanges(
+                baseline,
+                draft,
+                task.getCurrentSiteCode()
+        );
+        List<String> recomputedDomains = changeTypes(changes);
+        return recomputedDomains.isEmpty() ? domains : recomputedDomains;
+    }
+
+    private String publishTaskChangedDomainText(ProductPublishTaskRecord task) {
+        Set<String> labels = new LinkedHashSet<>();
+        for (String domain : resolvePublishTaskChangedDomains(task)) {
+            String label = publishTaskChangedDomainLabel(domain);
+            if (StringUtils.hasText(label)) {
+                labels.add(label);
+            }
         }
-        if ("pending_manual_check".equalsIgnoreCase(status)) {
-            return "发布结果需要人工核对。";
+        return String.join("、", labels);
+    }
+
+    private String publishTaskChangedDomainLabel(String domain) {
+        String normalized = normalize(domain);
+        if ("main".equalsIgnoreCase(normalized)) {
+            return "商品主档";
         }
-        if ("pending_effective".equalsIgnoreCase(status)) {
-            return "Noon 可能延迟生效，系统仍在回读校验。";
+        if ("content".equalsIgnoreCase(normalized)) {
+            return "图文内容";
         }
-        if ("write_unknown".equalsIgnoreCase(status) || "verify_timeout".equalsIgnoreCase(status)) {
-            return "发布结果暂未确认，系统只回读校验。";
+        if ("attributes".equalsIgnoreCase(normalized)) {
+            return "关键属性";
         }
-        if ("queued".equalsIgnoreCase(status)) {
-            return "发布已排队。";
+        if ("site".equalsIgnoreCase(normalized) || "site_offer".equalsIgnoreCase(normalized)) {
+            return "当前站点经营";
         }
-        if ("running".equalsIgnoreCase(status) || "submitted".equalsIgnoreCase(status) || "verifying".equalsIgnoreCase(status)) {
-            return "发布处理中。";
+        if ("grouping".equalsIgnoreCase(normalized)) {
+            return "Group 与变体";
         }
-        return "发布任务已记录。";
+        if ("sizes".equalsIgnoreCase(normalized)) {
+            return "尺码";
+        }
+        if ("unknown".equalsIgnoreCase(normalized)) {
+            return "未识别字段";
+        }
+        return normalized;
     }
 
     private String publishTaskStatusLabel(String status) {
-        String normalized = normalize(status);
-        if ("synced".equalsIgnoreCase(normalized)) {
-            return "发布成功";
-        }
-        if ("failed".equalsIgnoreCase(normalized)) {
-            return "发布失败";
-        }
-        if ("pending_manual_check".equalsIgnoreCase(normalized)) {
-            return "待人工核对";
-        }
-        if ("pending_effective".equalsIgnoreCase(normalized)) {
-            return "等待生效";
-        }
-        if ("write_unknown".equalsIgnoreCase(normalized) || "verify_timeout".equalsIgnoreCase(normalized)) {
-            return "结果待确认";
-        }
-        if ("queued".equalsIgnoreCase(normalized)) {
-            return "排队中";
-        }
-        if ("running".equalsIgnoreCase(normalized) || "submitted".equalsIgnoreCase(normalized) || "verifying".equalsIgnoreCase(normalized)) {
-            return "发布中";
-        }
-        if ("cancelled".equalsIgnoreCase(normalized)) {
-            return "已取消";
-        }
-        return StringUtils.hasText(normalized) ? normalized : "已记录";
+        return productPublishHistoryAssembler.publishTaskStatusLabel(status);
     }
 
     private String actionResultStatusLabel(String actionType, String resultStatus) {

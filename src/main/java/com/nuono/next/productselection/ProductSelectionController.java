@@ -5,6 +5,7 @@ import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,12 +31,38 @@ public class ProductSelectionController {
     }
 
     @GetMapping("/source-collections")
-    public List<ProductSelectionSourceCollectionView> sourceCollections(
+    public Object sourceCollections(
             @RequestParam(required = false) String storeName,
             @RequestParam(required = false) String storeCode,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) String sourcePlatform,
+            @RequestParam(required = false) String sourceTitle,
+            @RequestParam(required = false) String sourceTitleCn,
+            @RequestParam(required = false) String status,
             HttpServletRequest request
     ) {
         try {
+            if (page != null
+                    || pageSize != null
+                    || StringUtils.hasText(sourcePlatform)
+                    || StringUtils.hasText(sourceTitle)
+                    || StringUtils.hasText(sourceTitleCn)
+                    || StringUtils.hasText(status)) {
+                ProductSelectionSourceCollectionListQuery query = new ProductSelectionSourceCollectionListQuery();
+                query.setPage(page);
+                query.setPageSize(pageSize);
+                query.setSourcePlatform(sourcePlatform);
+                query.setSourceTitle(sourceTitle);
+                query.setSourceTitleCn(sourceTitleCn);
+                query.setStatus(status);
+                return sourceCollectionService().listSourceCollectionsPage(
+                        storeName,
+                        storeCode,
+                        authenticatedOperatorUserId(request),
+                        query
+                );
+            }
             return sourceCollectionService().listSourceCollections(storeName, storeCode, authenticatedOperatorUserId(request));
         } catch (ProductSelectionAccessDeniedException exception) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);

@@ -69,14 +69,23 @@ public class ProductMasterAccessGuard {
         if (taskId == null) {
             throw new IllegalArgumentException("缺少发布任务 ID。");
         }
+        requireBusinessSession(session);
         ProductPublishTaskRecord task = productManagementMapper.selectProductPublishTaskById(taskId);
         if (task == null) {
             throw new IllegalArgumentException("发布任务不存在或已删除。");
         }
+        String storeCode = task.getStoreCode();
+        if (!StringUtils.hasText(storeCode)) {
+            throw new ProductMasterAccessDeniedException("当前发布任务缺少店铺归属，暂时不能操作。");
+        }
+        Long accessibleOwnerUserId = storeSyncMapper.selectAccessibleOwnerUserIdForStore(session.getUserId(), storeCode);
+        if (!Objects.equals(accessibleOwnerUserId, task.getOwnerUserId())) {
+            throw new ProductMasterAccessDeniedException("无权操作请求中的商品发布任务。");
+        }
         if (requestedOwnerUserId != null && !Objects.equals(requestedOwnerUserId, task.getOwnerUserId())) {
             throw new ProductMasterAccessDeniedException("无权操作请求中的商品发布任务。");
         }
-        return resolveOwnerUserId(session, task.getOwnerUserId(), task.getStoreCode());
+        return task.getOwnerUserId();
     }
 
     private void requireBusinessSession(AuthenticatedSession session) {

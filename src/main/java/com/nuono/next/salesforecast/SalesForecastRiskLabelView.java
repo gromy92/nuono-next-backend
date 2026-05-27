@@ -1,0 +1,54 @@
+package com.nuono.next.salesforecast;
+
+public class SalesForecastRiskLabelView {
+
+    private final String code;
+    private final String label;
+    private final String severity;
+    private final String explanation;
+
+    public SalesForecastRiskLabelView(String code, String label, String severity, String explanation) {
+        this.code = code;
+        this.label = label;
+        this.severity = severity;
+        this.explanation = explanation;
+    }
+
+    public static SalesForecastRiskLabelView fromCode(String code) {
+        if ("possible_stockout_distortion".equals(code)) {
+            return new SalesForecastRiskLabelView(code, "断货失真", "warning", "当前库存为 0 且近 30 天仍有销量，近期销量可能被断货压低。");
+        }
+        if ("replenishment_risk".equals(code)) {
+            return new SalesForecastRiskLabelView(code, "补货风险", "danger", "库存覆盖天数偏低，需要优先复核补货。");
+        }
+        if ("overstock_risk".equals(code)) {
+            return new SalesForecastRiskLabelView(code, "积压风险", "warning", "库存覆盖较深且商品处于衰退或长尾期状态。");
+        }
+        if ("stale_sales_data".equals(code)) {
+            return new SalesForecastRiskLabelView(code, "销量数据过期", "warning", "最新销量事实早于预期新鲜度。");
+        }
+        if ("missing_stock_data".equals(code)) {
+            return new SalesForecastRiskLabelView(code, "缺库存", "warning", "当前商品未匹配到库存投影。");
+        }
+        if ("low_confidence".equals(code)) {
+            return new SalesForecastRiskLabelView(code, "低置信度", "warning", "样本不足或存在数据质量问题，预测需人工复核。");
+        }
+        return new SalesForecastRiskLabelView(code, code, "info", code);
+    }
+
+    public String getCode() {
+        return code;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public String getSeverity() {
+        return severity;
+    }
+
+    public String getExplanation() {
+        return explanation;
+    }
+}

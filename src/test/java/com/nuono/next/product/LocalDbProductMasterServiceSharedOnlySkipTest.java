@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 class LocalDbProductMasterServiceSharedOnlySkipTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ProductNoonPublishPayloadBuilder payloadBuilder = new ProductNoonPublishPayloadBuilder(objectMapper);
 
     private final LocalDbProductMasterService service = new LocalDbProductMasterService(
             null,
@@ -160,10 +161,10 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         Map<String, Object> siteOffer = new LinkedHashMap<>();
         siteOffer.put("salePrice", "39.20");
 
-        Map<String, String> saleWindow = invokeSaleWindowForPublish(siteOffer);
+        JsonNode offer = payloadBuilder.buildOfferUpsertBody("PSKU-001", siteOffer).path("pskus").get(0);
 
-        LocalDate saleStart = LocalDate.parse(saleWindow.get("saleStart"));
-        LocalDate saleEnd = LocalDate.parse(saleWindow.get("saleEnd"));
+        LocalDate saleStart = LocalDate.parse(offer.path("saleStart").asText());
+        LocalDate saleEnd = LocalDate.parse(offer.path("saleEnd").asText());
         assertTrue(!saleStart.isBefore(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(1)));
         assertTrue(!saleStart.isAfter(LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(1)));
         assertTrue(saleEnd.equals(saleStart.plusYears(10)));
@@ -176,10 +177,10 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         siteOffer.put("saleStart", "2025-10-20T00:00:00+00:00");
         siteOffer.put("saleEnd", "2025-11-30 23:59:59");
 
-        Map<String, String> saleWindow = invokeSaleWindowForPublish(siteOffer);
+        JsonNode offer = payloadBuilder.buildOfferUpsertBody("PSKU-001", siteOffer).path("pskus").get(0);
 
-        assertTrue("2025-10-20".equals(saleWindow.get("saleStart")));
-        assertTrue("2025-11-30".equals(saleWindow.get("saleEnd")));
+        assertTrue("2025-10-20".equals(offer.path("saleStart").asText()));
+        assertTrue("2025-11-30".equals(offer.path("saleEnd").asText()));
     }
 
     @Test
@@ -263,7 +264,7 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         siteOffer.put("site", "AE");
         siteOffer.put("price", "48.00");
 
-        ObjectNode body = invokeOfferUpsertBodyForPublish("PSKU-001", siteOffer);
+        ObjectNode body = payloadBuilder.buildOfferUpsertBody("PSKU-001", siteOffer);
         JsonNode offer = body.path("pskus").get(0);
 
         assertFalse(offer.has("idWarranty"));
@@ -387,23 +388,6 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         );
         method.setAccessible(true);
         return (List<String>) method.invoke(service, draft, baseline, currentSiteCode);
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, String> invokeSaleWindowForPublish(Map<String, Object> siteOffer) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod("saleWindowForPublish", Map.class);
-        method.setAccessible(true);
-        return (Map<String, String>) method.invoke(service, siteOffer);
-    }
-
-    private ObjectNode invokeOfferUpsertBodyForPublish(String pskuCode, Map<String, Object> siteOffer) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "buildOfferUpsertBodyForPublish",
-                String.class,
-                Map.class
-        );
-        method.setAccessible(true);
-        return (ObjectNode) method.invoke(service, pskuCode, siteOffer);
     }
 
     private ProductMasterSnapshotView copySnapshot(ProductMasterSnapshotView source) {

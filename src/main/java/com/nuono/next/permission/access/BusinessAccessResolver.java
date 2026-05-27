@@ -142,7 +142,7 @@ public class BusinessAccessResolver {
                 || "管理员".equals(roleName)) {
             return BusinessAccountType.SYSTEM_ADMIN;
         }
-        if (isLevel(effectiveLevel, 1) || "老板".equals(roleName)) {
+        if (isLevel(user.getRoleLevel(), 1)) {
             return BusinessAccountType.BOSS;
         }
         return BusinessAccountType.OPERATOR;

@@ -851,6 +851,10 @@ public class NoonSessionGateway {
             return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, extraHeaders));
         }
 
+        public String getText(String url, boolean withProject, Map<String, String> extraHeaders) {
+            return executeTextWithRefresh(() -> state.getText(projectCode, storeCode, url, withProject, extraHeaders));
+        }
+
         public JsonNode postJson(String url, JsonNode body, boolean withProject) {
             return postJson(url, body, withProject, null);
         }
@@ -882,6 +886,21 @@ public class NoonSessionGateway {
         }
 
         private JsonNode executeWithRefresh(SessionCall sessionCall) {
+            boolean refreshed = false;
+            while (true) {
+                try {
+                    return sessionCall.execute();
+                } catch (SessionExpiredException exception) {
+                    if (refreshed) {
+                        throw exception;
+                    }
+                    state = getOrCreateState(null, noonUser, noonPassword, null, projectCode, storeCode, true);
+                    refreshed = true;
+                }
+            }
+        }
+
+        private String executeTextWithRefresh(TextSessionCall sessionCall) {
             boolean refreshed = false;
             while (true) {
                 try {
@@ -954,6 +973,10 @@ public class NoonSessionGateway {
         JsonNode execute();
     }
 
+    private interface TextSessionCall {
+        String execute();
+    }
+
     private static final class AuthSessionState {
         private final ObjectMapper objectMapper;
         private final String noonPassword;
@@ -1024,6 +1047,30 @@ public class NoonSessionGateway {
                 applyDefaultHeaders(builder, uri);
                 applyHeaders(builder, extraHeaders);
                 return send(builder.build(), true);
+            }
+        }
+
+        private String getText(
+                String projectCode,
+                String storeCode,
+                String url,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            synchronized (requestMutex) {
+                applyContextCookies(projectCode, storeCode);
+                throttleIfNeeded();
+                URI uri = buildUri(url, withProject, projectCode);
+                HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                        .GET()
+                        .timeout(REQUEST_TIMEOUT)
+                        .setHeader("Accept", "text/csv,text/plain,*/*");
+                if (withProject && StringUtils.hasText(projectCode)) {
+                    builder.setHeader("X-Project", projectCode);
+                }
+                applyDefaultHeaders(builder, uri);
+                applyHeaders(builder, extraHeaders);
+                return sendText(builder.build(), true);
             }
         }
 
@@ -1151,6 +1198,58 @@ public class NoonSessionGateway {
                         return MissingNode.getInstance();
                     }
                     return objectMapper.readTree(responseBody);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("请求 Noon 失败：" + exception.getMessage(), exception);
+                } catch (IOException exception) {
+                    attempt++;
+                    if (shouldRetryTransientException(retryTransientReadFailures, attempt)) {
+                        try {
+                            sleepForTransientFailure(attempt);
+                            continue;
+                        } catch (InterruptedException interruptedException) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(
+                                    "请求 Noon 失败：" + interruptedException.getMessage(),
+                                    interruptedException
+                            );
+                        }
+                    }
+                    throw new IllegalStateException("请求 Noon 失败：" + exception.getMessage(), exception);
+                }
+            }
+        }
+
+        private String sendText(HttpRequest request, boolean retryTransientReadFailures) {
+            int attempt = 0;
+            while (true) {
+                try {
+                    if (requestRecorder != null) {
+                        requestRecorder.accept(request.uri().toString());
+                    }
+                    HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                    lastRequestAtMillis = System.currentTimeMillis();
+                    String responseBody = decodeResponseBody(response);
+                    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                        attempt++;
+                        if (shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
+                            sleepForRateLimit(attempt);
+                            continue;
+                        }
+                        if (isAuthExpiredResponse(response.statusCode(), responseBody)) {
+                            throw new SessionExpiredException(
+                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
+                            );
+                        }
+                        if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
+                            sleepForTransientFailure(attempt);
+                            continue;
+                        }
+                        throw new IllegalStateException(
+                                "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
+                        );
+                    }
+                    return responseBody;
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
                     throw new IllegalStateException("请求 Noon 失败：" + exception.getMessage(), exception);

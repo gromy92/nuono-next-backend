@@ -20,6 +20,8 @@ public class FrontendFallbackController {
             "/system/file-management/**",
             "/system/ai-file-parse",
             "/system/ai-file-parse/**",
+            "/system-reports/store-data",
+            "/system-reports/store-data/**",
             "/product-manage",
             "/product/manual-selection",
             "/product/manual-selection/**",

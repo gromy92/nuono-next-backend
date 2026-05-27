@@ -72,8 +72,14 @@ class SheinProductSnapshot {
     }
 
     void setDescription(String value) {
-        if (!StringUtils.hasText(description) && StringUtils.hasText(value)) {
-            description = value;
+        if (!StringUtils.hasText(value)) {
+            return;
+        }
+        String text = value.trim();
+        if (!StringUtils.hasText(description)
+                || description.equals(title)
+                || (text.length() > description.length() && !text.equals(title))) {
+            description = text;
         }
     }
 

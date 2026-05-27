@@ -22,10 +22,10 @@ class ProcurementCandidatePoolPermissionGuard {
 
     ProcurementCandidatePoolWriteContext resolveWriteContext(OperatorCommand command, String actionName) {
         if (command == null || command.getOwnerUserId() == null) {
-            throw new IllegalArgumentException("缺少老板上下文，暂时不能" + actionName + "。");
+            throw new IllegalArgumentException("缺少后端确认的老板上下文，暂时不能" + actionName + "。");
         }
         if (command.getOperatorUserId() == null) {
-            throw new IllegalArgumentException("缺少操作人，暂时不能" + actionName + "。");
+            throw new IllegalArgumentException("缺少后端确认的操作人，暂时不能" + actionName + "。");
         }
         OperatorContextRow operator = mapper.selectOperatorContext(command.getOperatorUserId());
         if (operator == null || operator.getStatus() == null || operator.getStatus() != 1) {

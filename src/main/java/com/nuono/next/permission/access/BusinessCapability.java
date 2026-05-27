@@ -9,6 +9,10 @@ public enum BusinessCapability {
     MASTER_DATA_SYSTEM(List.of("/system/role", "/system/menu")),
     FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),
     FILE_MANAGEMENT_BUSINESS(List.of("/system/file-management", "/system/ai-file-parse")),
+    SALES_DATA(List.of("/data/sales-analysis", "/data/sales-forecast", "/data/sales", "/api/sales-forecast")),
+    SYSTEM_REPORTS(List.of("/system-reports", "/api/system-reports", "/noon-call", "/api/noon-call")),
+    ADVANCED_OPERATIONS_CONFIG(List.of("/operations/config", "/api/operations-config")),
+    AI_OPERATIONS_DASHBOARD(List.of("/operations/dashboard", "/api/ai-operations-dashboard")),
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),
     PROFIT(List.of("/api/sku/cost"));
 

@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -83,6 +84,23 @@ public class FileManagementParseController {
         try {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
             return service.getTask(session, taskId);
+        } catch (FileParseAccessDeniedException error) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, error.getMessage(), error);
+        } catch (IllegalArgumentException error) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error);
+        }
+    }
+
+    @DeleteMapping("/tasks/{taskId}")
+    public ResponseEntity<Void> deleteTask(
+            @PathVariable("taskId") Long taskId,
+            HttpServletRequest request
+    ) {
+        LocalDbFileManagementParseService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            service.deleteTask(session, taskId);
+            return ResponseEntity.noContent().build();
         } catch (FileParseAccessDeniedException error) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, error.getMessage(), error);
         } catch (IllegalArgumentException error) {

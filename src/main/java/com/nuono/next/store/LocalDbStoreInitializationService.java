@@ -9,6 +9,7 @@ import com.nuono.next.infrastructure.mapper.StoreInitializationSnapshotMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
+import com.nuono.next.product.ProductProjectionReaderService;
 import com.nuono.next.product.ProductSourceTypeSupport;
 import com.nuono.next.noon.NoonAccountTaskQueue;
 import com.nuono.next.noon.NoonSessionGateway;
@@ -71,6 +72,7 @@ public class LocalDbStoreInitializationService {
     private final NoonAccountTaskQueue noonAccountTaskQueue;
     private final NoonSessionGateway noonSessionGateway;
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
+    private final ProductProjectionReaderService productProjectionReaderService;
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final Map<String, InitializationState> stateMap = new ConcurrentHashMap<>();
 
@@ -91,6 +93,9 @@ public class LocalDbStoreInitializationService {
         this.noonAccountTaskQueue = noonAccountTaskQueue;
         this.noonSessionGateway = noonSessionGateway;
         this.productProjectionPersistenceService = productProjectionPersistenceService;
+        this.productProjectionReaderService = productProjectionPersistenceService == null
+                ? null
+                : new ProductProjectionReaderService(productProjectionPersistenceService);
         this.productNoonCatalogContentService = productNoonCatalogContentService;
     }
 
@@ -899,7 +904,7 @@ public class LocalDbStoreInitializationService {
         if (view.getProductItems() == null) {
             view.setProductItems(new ArrayList<>());
         }
-        List<ProductListSummaryView> summaries = productProjectionPersistenceService.loadProductListSummaries(
+        List<ProductListSummaryView> summaries = productProjectionReaderService.loadProductListSummaries(
                 ownerUserId,
                 storeCode,
                 view.getWarnings()
@@ -977,6 +982,7 @@ public class LocalDbStoreInitializationService {
             item.setUnitsSold(firstNonNull(summary.getUnitsSold(), item.getUnitsSold()));
             item.setSalesAmount(firstNonBlank(summary.getSalesAmount(), item.getSalesAmount()));
             item.setSalesCurrency(firstNonBlank(summary.getSalesCurrency(), item.getSalesCurrency()));
+            item.setLifecycleState(summary.getLifecycleState() != null ? summary.getLifecycleState() : item.getLifecycleState());
         }
         view.setProductItems(new ArrayList<>(bySkuParent.values()));
     }
@@ -2311,6 +2317,7 @@ public class LocalDbStoreInitializationService {
             target.setUnitsSold(source.getUnitsSold());
             target.setSalesAmount(source.getSalesAmount());
             target.setSalesCurrency(source.getSalesCurrency());
+            target.setLifecycleState(source.getLifecycleState());
             return target;
         }
     }
@@ -2999,6 +3006,7 @@ public class LocalDbStoreInitializationService {
         private Long unitsSold;
         private String salesAmount;
         private String salesCurrency;
+        private Map<String, Object> lifecycleState;
         private Map<String, Object> lastPublishTask;
 
         public String getSkuParent() {
@@ -3351,6 +3359,14 @@ public class LocalDbStoreInitializationService {
 
         public void setSalesCurrency(String salesCurrency) {
             this.salesCurrency = salesCurrency;
+        }
+
+        public Map<String, Object> getLifecycleState() {
+            return lifecycleState;
+        }
+
+        public void setLifecycleState(Map<String, Object> lifecycleState) {
+            this.lifecycleState = lifecycleState;
         }
 
         public Map<String, Object> getLastPublishTask() {

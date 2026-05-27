@@ -2,12 +2,9 @@ package com.nuono.next.product;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.ProductGroupMapper;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
-import java.math.BigDecimal;
-import java.net.http.HttpTimeoutException;
 import java.util.List;
 import java.util.Map;
 import org.springframework.context.annotation.Profile;
@@ -27,10 +24,14 @@ public class ProductGroupPublishService {
 
     private final ProductGroupMapper productGroupMapper;
     private final ObjectMapper objectMapper;
+    private final ProductNoonPublishPayloadBuilder productNoonPublishPayloadBuilder;
+    private final ProductNoonWriteAdapter productNoonWriteAdapter;
 
     public ProductGroupPublishService(ProductGroupMapper productGroupMapper, ObjectMapper objectMapper) {
         this.productGroupMapper = productGroupMapper;
         this.objectMapper = objectMapper;
+        this.productNoonPublishPayloadBuilder = new ProductNoonPublishPayloadBuilder(objectMapper);
+        this.productNoonWriteAdapter = new ProductNoonWriteAdapter();
     }
 
     public void publishGroupChanges(
@@ -82,19 +83,13 @@ public class ProductGroupPublishService {
         requireText(partnerRef, "当前 Group 缺少 groupRef，暂时不能新增成员。");
         ensureAddedGroupMembersAreUngrouped(ownerUserId, storeCode, partnerRef, addedSkuParents);
 
-        ObjectNode body = objectMapper.createObjectNode();
-        ObjectNode groupUpdate = body.putObject("groupUpdate");
-        ObjectNode groupNode = groupUpdate.putObject("group");
-        groupNode.put("skuGroup", skuGroup);
-        groupNode.put("partnerRef", partnerRef);
-        ArrayNode parentsCreate = groupUpdate.putArray("parentsCreate");
-        for (String skuParent : addedSkuParents) {
-            parentsCreate.add(skuParent);
-        }
-        groupUpdate.putArray("parentsDelete");
+        ObjectNode body = productNoonPublishPayloadBuilder.buildGroupMemberCreateBody(
+                draftGroup,
+                baselineGroup,
+                addedSkuParents
+        );
 
-        JsonNode response = postWriteJson(session, GROUP_UPSERT_URL, body, "Group 新增成员");
-        throwIfNoonBusinessError(response, "Group 新增成员", false);
+        postWriteJson(session, GROUP_UPSERT_URL, body, "Group 新增成员", false);
         Map<String, Object> draftIdentity = draft.getIdentity() != null ? draft.getIdentity() : Map.of();
         cacheSkuCatplat(session, ProductGroupSnapshotSupport.textValue(draftIdentity.get("skuParent")));
         for (String skuParent : addedSkuParents) {
@@ -157,19 +152,13 @@ public class ProductGroupPublishService {
         requireText(skuGroup, "当前 Group 缺少 skuGroup，暂时不能 Unlink。");
         requireText(partnerRef, "当前 Group 缺少 groupRef，暂时不能 Unlink。");
 
-        ObjectNode body = objectMapper.createObjectNode();
-        ObjectNode groupUpdate = body.putObject("groupUpdate");
-        ObjectNode groupNode = groupUpdate.putObject("group");
-        groupNode.put("skuGroup", skuGroup);
-        groupNode.put("partnerRef", partnerRef);
-        ArrayNode parentsDelete = groupUpdate.putArray("parentsDelete");
-        for (String skuParent : removedSkuParents) {
-            parentsDelete.add(skuParent);
-        }
-        groupUpdate.putArray("parentsCreate");
+        ObjectNode body = productNoonPublishPayloadBuilder.buildGroupMemberDeleteBody(
+                draftGroup,
+                baselineGroup,
+                removedSkuParents
+        );
 
-        JsonNode response = postWriteJson(session, GROUP_UPSERT_URL, body, "Group Unlink");
-        throwIfNoonBusinessError(response, "Group Unlink", false);
+        postWriteJson(session, GROUP_UPSERT_URL, body, "Group Unlink", false);
         cacheSkuCatplat(session, currentSkuParent);
         for (String skuParent : removedSkuParents) {
             cacheSkuCatplat(session, skuParent);
@@ -184,30 +173,11 @@ public class ProductGroupPublishService {
             String lang
     ) {
         boolean writeSubmitted = false;
-        Map<String, Map<String, Object>> changesBySkuParent =
-                ProductGroupSnapshotSupport.groupAxisValueChanges(draftGroup, baselineGroup, lang);
-        for (Map.Entry<String, Map<String, Object>> entry : changesBySkuParent.entrySet()) {
-            ObjectNode body = objectMapper.createObjectNode();
-            body.put("skuParent", entry.getKey());
-            body.put("lang", lang);
-            ObjectNode attributes = body.putObject("attributes");
-            for (Map.Entry<String, Object> attribute : entry.getValue().entrySet()) {
-                Object value = attribute.getValue();
-                if (value == null) {
-                    attributes.put(attribute.getKey(), "#del#");
-                } else {
-                    setObjectNodeValue(attributes, attribute.getKey(), value);
-                }
-            }
-            body.putArray("variants");
-            if (attributes.size() == 0) {
-                continue;
-            }
+        for (ObjectNode body : productNoonPublishPayloadBuilder.buildGroupAxisValueBodies(draftGroup, baselineGroup, lang)) {
             boolean priorSuccessfulWrite = writeSubmitted;
-            JsonNode response = postWriteJson(session, ZSKU_UPSERT_URL, body, "Group 轴属性写回");
-            throwIfNoonBusinessError(response, "Group 轴属性写回", priorSuccessfulWrite);
+            postWriteJson(session, ZSKU_UPSERT_URL, body, "Group 轴属性写回", priorSuccessfulWrite);
             writeSubmitted = true;
-            cacheSkuCatplat(session, entry.getKey());
+            cacheSkuCatplat(session, body.path("skuParent").asText(null));
         }
         return writeSubmitted;
     }
@@ -219,78 +189,36 @@ public class ProductGroupPublishService {
         ObjectNode cacheBody = objectMapper.createObjectNode();
         cacheBody.put("skuParent", skuParent);
         try {
-            session.postWriteJson(CATPLAT_SKU_CACHE_URL, cacheBody, true);
+            productNoonWriteAdapter.postWriteJson(
+                    session,
+                    "Group 缓存刷新",
+                    CATPLAT_SKU_CACHE_URL,
+                    cacheBody,
+                    true
+            );
         } catch (IllegalStateException exception) {
             throw partialPublishException("Group 写回后刷新 Noon 缓存结果未知：" + shrink(exception.getMessage()), exception);
         }
     }
 
-    private JsonNode postWriteJson(NoonSession session, String url, ObjectNode body, String action) {
+    private JsonNode postWriteJson(
+            NoonSession session,
+            String url,
+            ObjectNode body,
+            String action,
+            boolean priorSuccessfulWrite
+    ) {
         try {
-            return session.postWriteJson(url, body, true);
-        } catch (IllegalStateException exception) {
-            if (isNoonWriteResultUnknown(exception)) {
+            return productNoonWriteAdapter.postWriteJson(session, action, url, body, true);
+        } catch (ProductNoonWriteException exception) {
+            if (exception.isReadbackOnly()) {
                 throw partialPublishException(action + " 请求结果未知：" + shrink(exception.getMessage()), exception);
+            }
+            if (priorSuccessfulWrite) {
+                throw partialPublishException(action + " 失败：" + shrink(exception.getMessage()), exception);
             }
             throw exception;
         }
-    }
-
-    private void throwIfNoonBusinessError(JsonNode response, String action, boolean priorSuccessfulWrite) {
-        String message = ProductGroupSnapshotSupport.firstNonBlank(
-                text(response, "error"),
-                text(response, "detail")
-        );
-        String normalizedMessage = StringUtils.hasText(message) ? message.trim() : null;
-        if (StringUtils.hasText(normalizedMessage)
-                && !"false".equalsIgnoreCase(normalizedMessage)
-                && !"0".equals(normalizedMessage)
-                && !"{}".equals(normalizedMessage)
-                && !"[]".equals(normalizedMessage)) {
-            if (priorSuccessfulWrite) {
-                throw partialPublishException(action + " 失败：" + message, null);
-            }
-            throw new IllegalStateException(action + " 失败：" + message);
-        }
-    }
-
-    private void setObjectNodeValue(ObjectNode target, String key, Object value) {
-        if (value == null) {
-            return;
-        }
-        if (value instanceof Boolean) {
-            target.put(key, (Boolean) value);
-            return;
-        }
-        if (value instanceof Integer) {
-            target.put(key, (Integer) value);
-            return;
-        }
-        if (value instanceof Long) {
-            target.put(key, (Long) value);
-            return;
-        }
-        if (value instanceof Float) {
-            target.put(key, (Float) value);
-            return;
-        }
-        if (value instanceof Double) {
-            target.put(key, (Double) value);
-            return;
-        }
-        if (value instanceof BigDecimal) {
-            target.put(key, (BigDecimal) value);
-            return;
-        }
-        target.put(key, String.valueOf(value));
-    }
-
-    private String text(JsonNode node, String field) {
-        if (node == null || !node.has(field) || node.path(field).isNull()) {
-            return null;
-        }
-        String text = node.path(field).asText(null);
-        return StringUtils.hasText(text) ? text.trim() : null;
     }
 
     private ProductGroupPartialPublishException partialPublishException(Throwable cause) {
@@ -299,24 +227,6 @@ public class ProductGroupPublishService {
 
     private ProductGroupPartialPublishException partialPublishException(String message, Throwable cause) {
         return new ProductGroupPartialPublishException(message, cause);
-    }
-
-    private boolean isNoonWriteResultUnknown(Throwable exception) {
-        Throwable current = exception;
-        while (current != null) {
-            if (current instanceof HttpTimeoutException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        String message = shrink(exception != null ? exception.getMessage() : null).toLowerCase();
-        return message.contains("timed out")
-                || message.contains("timeout")
-                || message.contains("connection reset")
-                || message.contains("broken pipe")
-                || message.contains("eof")
-                || message.contains("closed")
-                || message.contains("goaway");
     }
 
     private String shrink(String value) {

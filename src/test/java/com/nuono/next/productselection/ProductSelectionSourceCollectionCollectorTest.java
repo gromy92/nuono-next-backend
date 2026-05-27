@@ -13,8 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 class ProductSelectionSourceCollectionCollectorTest {
 
@@ -200,6 +202,103 @@ class ProductSelectionSourceCollectionCollectorTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void mapsNoonCatalogThroughConfiguredSourceProxyProvider() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        List<String> providerHits = new CopyOnWriteArrayList<>();
+        List<String> proxyUris = new CopyOnWriteArrayList<>();
+        HttpServer proxyServer = HttpServer.create(new InetSocketAddress(0), 0);
+        proxyServer.createContext("/", exchange -> {
+            proxyUris.add(exchange.getRequestURI().toString());
+            boolean arabic = "ar".equals(exchange.getRequestHeaders().getFirst("X-Lang"));
+            Map<String, Object> product = Map.ofEntries(
+                    Map.entry("sku", "N20167036A"),
+                    Map.entry("product_title", arabic
+                            ? "فلتر دش محمول للعناية بالبشرة"
+                            : "Handheld Shower Filter and Shower Head"),
+                    Map.entry("brand", "Blu"),
+                    Map.entry("long_description", arabic
+                            ? "فلتر دش مع خرطوشة قابلة للاستبدال."
+                            : "Shower filter with replaceable cartridge."),
+                    Map.entry("feature_bullets", arabic
+                            ? List.of("يزيل الكلور من الماء")
+                            : List.of("Removes chlorine from water")),
+                    Map.entry("specifications", List.of(Map.of("name", "Colour Name", "value", "Chrome Plated"))),
+                    Map.entry("image_keys", List.of("pnsku/N20167036A/45/_/main")),
+                    Map.entry("variants", List.of(Map.of("offers", List.of(Map.of("sale_price", 447, "currency", "AED")))))
+            );
+            byte[] bytes = objectMapper.writeValueAsBytes(Map.of("product", product));
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        proxyServer.start();
+        HttpServer providerServer = HttpServer.create(new InetSocketAddress(0), 0);
+        providerServer.createContext("/ip", exchange -> {
+            providerHits.add("hit");
+            byte[] bytes = objectMapper.writeValueAsBytes(Map.of(
+                    "code", 200,
+                    "data", List.of(Map.of(
+                            "ip", "127.0.0.1",
+                            "port", String.valueOf(proxyServer.getAddress().getPort())
+                    ))
+            ));
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        providerServer.start();
+        try {
+            SourceCollectionProxyProvider proxyProvider = new SourceCollectionProxyProvider(
+                    objectMapper,
+                    true,
+                    "HTTP",
+                    "",
+                    0,
+                    "http://127.0.0.1:" + providerServer.getAddress().getPort() + "/ip",
+                    10
+            );
+            ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
+            row.setSourcePlatform("Noon");
+            row.setPageUrl("https://www.noon.com/uae-en/handheld-shower-filter/N20167036A/p/");
+            NoonPublicPageSourceCollector noonCollector = new NoonPublicPageSourceCollector(
+                    htmlParser,
+                    new NoonPublicProductPayloadParser(htmlParser, objectMapper),
+                    10,
+                    "http://noon-catalog.noon.partners/_svc/catalog/api/u/",
+                    proxyProvider
+            );
+
+            ProductSelectionSourceCollectionResult result = noonCollector.collect(row);
+
+            assertFalse(providerHits.isEmpty());
+            assertFalse(proxyUris.isEmpty());
+            assertEquals("Handheld Shower Filter and Shower Head", result.getSourceTitle());
+            assertEquals("فلتر دش محمول للعناية بالبشرة", result.getSourceTitleAr());
+            assertEquals("AED 447", result.getPriceSummary());
+            assertTrue(result.getSpecHints().contains("Noon SKU: N20167036A"));
+            assertTrue(result.getSpecHints().contains("Brand: Blu"));
+            assertTrue(proxyUris.stream().anyMatch(uri -> uri.contains("N20167036A")));
+        } finally {
+            providerServer.stop(0);
+            proxyServer.stop(0);
+        }
+    }
+
+    @Test
+    void marksNoonProxyAwareConstructorAsSpringAutowired() {
+        boolean hasAutowiredProductionConstructor = false;
+        for (java.lang.reflect.Constructor<?> constructor : NoonPublicPageSourceCollector.class.getDeclaredConstructors()) {
+            if (constructor.getParameterCount() == 5 && constructor.isAnnotationPresent(Autowired.class)) {
+                hasAutowiredProductionConstructor = true;
+            }
+        }
+
+        assertTrue(hasAutowiredProductionConstructor);
     }
 
     @Test
@@ -419,7 +518,350 @@ class ProductSelectionSourceCollectionCollectorTest {
     }
 
     @Test
-    void fallsBackToSheinUrlWhenPublicPageBlocked() throws Exception {
+    void collectsSheinPublicPageThroughConfiguredSourceProxyProviderWhenRapidApiUnavailable() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        List<String> providerHits = new CopyOnWriteArrayList<>();
+        List<String> proxyUris = new CopyOnWriteArrayList<>();
+        HttpServer proxyServer = HttpServer.create(new InetSocketAddress(0), 0);
+        proxyServer.createContext("/", exchange -> {
+            String requestUri = exchange.getRequestURI().toString();
+            String host = exchange.getRequestHeaders().getFirst("Host");
+            proxyUris.add(requestUri + " host=" + host);
+            if ((requestUri + " " + host).contains("rapidapi")) {
+                byte[] bytes = objectMapper.writeValueAsBytes(Map.of("success", false, "message", "endpoint unavailable"));
+                exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+                exchange.sendResponseHeaders(500, bytes.length);
+                exchange.getResponseBody().write(bytes);
+                exchange.close();
+                return;
+            }
+            String jsonLd = objectMapper.writeValueAsString(Map.of(
+                    "@type", "Product",
+                    "name", "Proxy SHEIN Poppy Flowers",
+                    "sku", "55110364",
+                    "brand", Map.of("name", "SHEIN HOME"),
+                    "image", List.of("//img.ltwebstatic.com/images3_pi/proxy-main.jpg"),
+                    "description", "Artificial poppy flowers for vase arrangement.",
+                    "offers", Map.of("priceCurrency", "USD", "price", "5.40")
+            ));
+            String introData = objectMapper.writeValueAsString(Map.of(
+                    "goods_name", "Proxy SHEIN Poppy Flowers",
+                    "goods_sn", "55110364",
+                    "retailPrice", Map.of("amountWithSymbol", "USD 5.40"),
+                    "goods_img", "//img.ltwebstatic.com/images3_pi/proxy-detail.jpg",
+                    "sellingPoints", List.of("Bendable stems for DIY decor"),
+                    "productDetails", List.of(
+                            Map.of("attr_name", "Color", "attr_value", "Orange Pink"),
+                            Map.of("attr_name", "Material", "attr_value", "Silk")
+                    )
+            ));
+            String body = String.join("\n",
+                    "<html>",
+                    "  <head>",
+                    "    <script type=\"application/ld+json\">" + jsonLd + "</script>",
+                    "    <script>window.productIntroData = " + introData + ";</script>",
+                    "  </head>",
+                    "  <body><h1>Proxy SHEIN Poppy Flowers</h1></body>",
+                    "</html>"
+            );
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        proxyServer.start();
+        HttpServer providerServer = HttpServer.create(new InetSocketAddress(0), 0);
+        providerServer.createContext("/ip", exchange -> {
+            providerHits.add("hit");
+            byte[] bytes = objectMapper.writeValueAsBytes(Map.of(
+                    "code", 200,
+                    "data", List.of(Map.of(
+                            "ip", "127.0.0.1",
+                            "port", String.valueOf(proxyServer.getAddress().getPort())
+                    ))
+            ));
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        providerServer.start();
+        try {
+            SourceCollectionProxyProvider proxyProvider = new SourceCollectionProxyProvider(
+                    objectMapper,
+                    true,
+                    "HTTP",
+                    "",
+                    0,
+                    "http://127.0.0.1:" + providerServer.getAddress().getPort() + "/ip",
+                    10
+            );
+            ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
+            row.setSourcePlatform("SHEIN");
+            row.setPageUrl("http://us.shein.com/1-3-5-6pcs-Artificial-Poppy-Flowers-p-55110364.html?mallCode=1");
+            SheinPublicPageSourceCollector sheinCollector = new SheinPublicPageSourceCollector(
+                    htmlParser,
+                    objectMapper,
+                    10,
+                    true,
+                    "test-rapid-key",
+                    "USD",
+                    10,
+                    "http://shein-data-api.p.rapidapi.com/product/description/v2?goods_sn={goodsId}&country={country}",
+                    "http://shein-scraper-api.p.rapidapi.com/shein/product/details?goods_id={goodsId}&currency={currency}&country={country}&language={language}",
+                    proxyProvider
+            );
+
+            ProductSelectionSourceCollectionResult result = sheinCollector.collect(row);
+
+            assertFalse(providerHits.isEmpty());
+            assertTrue(proxyUris.stream().anyMatch(uri -> uri.contains("rapidapi")));
+            assertTrue(proxyUris.stream().anyMatch(uri -> uri.contains("shein.com")));
+            assertEquals("Proxy SHEIN Poppy Flowers", result.getSourceTitle());
+            assertEquals("USD 5.40", result.getPriceSummary());
+            assertEquals("https://img.ltwebstatic.com/images3_pi/proxy-main.jpg", result.getSourceImageUrl());
+            assertTrue(result.getImageUrls().contains("https://img.ltwebstatic.com/images3_pi/proxy-detail.jpg"));
+            assertTrue(result.getSpecHints().contains("Brand: SHEIN HOME"));
+            assertTrue(result.getSpecHints().contains("Color: Orange Pink"));
+            assertTrue(result.getSpecHints().contains("Material: Silk"));
+            assertEquals("Artificial poppy flowers for vase arrangement.", result.getSourceDescriptionEn());
+            assertTrue(result.getSourceSellingPointsEn().contains("Bendable stems for DIY decor"));
+        } finally {
+            providerServer.stop(0);
+            proxyServer.stop(0);
+        }
+    }
+
+    @Test
+    void collectsSheinPublicPageThroughConfiguredPageFetchGatewayWhenRapidApiUnavailable() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        List<String> pageFetchUrls = new CopyOnWriteArrayList<>();
+        HttpServer rapidApiServer = HttpServer.create(new InetSocketAddress(0), 0);
+        rapidApiServer.createContext("/", exchange -> {
+            byte[] bytes = objectMapper.writeValueAsBytes(Map.of("success", false, "message", "endpoint unavailable"));
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(500, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        rapidApiServer.start();
+        HttpServer pageFetchServer = HttpServer.create(new InetSocketAddress(0), 0);
+        pageFetchServer.createContext("/v1/", exchange -> {
+            String requestUri = exchange.getRequestURI().toString();
+            pageFetchUrls.add(URLDecoder.decode(requestUri, StandardCharsets.UTF_8));
+            String jsonLd = objectMapper.writeValueAsString(Map.of(
+                    "@type", "Product",
+                    "name", "Gateway SHEIN Nail Tips",
+                    "sku", "33710994",
+                    "image", List.of("//img.ltwebstatic.com/images3_pi/gateway-main.jpg"),
+                    "description", "Full cover press-on nail tips for salon practice.",
+                    "offers", Map.of("priceCurrency", "USD", "price", "8.10")
+            ));
+            String introData = objectMapper.writeValueAsString(Map.of(
+                    "goods_name", "Gateway SHEIN Nail Tips",
+                    "goods_sn", "33710994",
+                    "retailPrice", Map.of("amountWithSymbol", "USD 8.10"),
+                    "goods_img", "//img.ltwebstatic.com/images3_pi/gateway-detail.jpg",
+                    "sellingPoints", List.of("600 pieces for daily nail extension practice"),
+                    "productDetails", List.of(
+                            Map.of("attr_name", "Color", "attr_value", "Clear"),
+                            Map.of("attr_name", "Quantity", "attr_value", "600 pcs")
+                    )
+            ));
+            String body = String.join("\n",
+                    "<html>",
+                    "  <head>",
+                    "    <script type=\"application/ld+json\">" + jsonLd + "</script>",
+                    "    <script>window.productIntroData = " + introData + ";</script>",
+                    "  </head>",
+                    "  <body><h1>Gateway SHEIN Nail Tips</h1></body>",
+                    "</html>"
+            );
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        pageFetchServer.start();
+        try {
+            ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
+            row.setSourcePlatform("SHEIN");
+            row.setPageUrl("https://us.shein.com/Gateway-SHEIN-Nail-Tips-p-33710994.html?mallCode=1");
+            SourceCollectionPageFetchClient pageFetchClient = new SourceCollectionPageFetchClient(
+                    true,
+                    "http://127.0.0.1:" + pageFetchServer.getAddress().getPort() + "/v1/",
+                    "test-page-fetch-key",
+                    10
+            );
+            SheinPublicPageSourceCollector sheinCollector = new SheinPublicPageSourceCollector(
+                    htmlParser,
+                    objectMapper,
+                    10,
+                    true,
+                    "test-rapid-key",
+                    "USD",
+                    10,
+                    "http://127.0.0.1:" + rapidApiServer.getAddress().getPort() + "/description?goods_sn={goodsId}&country={country}",
+                    "http://127.0.0.1:" + rapidApiServer.getAddress().getPort() + "/details?goods_id={goodsId}&currency={currency}&country={country}&language={language}",
+                    SourceCollectionProxyProvider.disabled(),
+                    pageFetchClient
+            );
+
+            ProductSelectionSourceCollectionResult result = sheinCollector.collect(row);
+
+            assertFalse(pageFetchUrls.isEmpty());
+            assertTrue(pageFetchUrls.get(0).contains("api_key=test-page-fetch-key"));
+            assertTrue(pageFetchUrls.get(0).contains("Gateway-SHEIN-Nail-Tips-p-33710994.html"));
+            assertEquals("Gateway SHEIN Nail Tips", result.getSourceTitle());
+            assertEquals("USD 8.10", result.getPriceSummary());
+            assertEquals("https://img.ltwebstatic.com/images3_pi/gateway-main.jpg", result.getSourceImageUrl());
+            assertTrue(result.getImageUrls().contains("https://img.ltwebstatic.com/images3_pi/gateway-detail.jpg"));
+            assertTrue(result.getSpecHints().contains("Color: Clear"));
+            assertTrue(result.getSpecHints().contains("Quantity: 600 pcs"));
+            assertEquals("Full cover press-on nail tips for salon practice.", result.getSourceDescriptionEn());
+            assertTrue(result.getSourceSellingPointsEn().contains("600 pieces for daily nail extension practice"));
+        } finally {
+            pageFetchServer.stop(0);
+            rapidApiServer.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsSheinChallengePageFromConfiguredPageFetchGateway() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        HttpServer rapidApiServer = HttpServer.create(new InetSocketAddress(0), 0);
+        rapidApiServer.createContext("/", exchange -> {
+            byte[] bytes = objectMapper.writeValueAsBytes(Map.of("success", false, "message", "endpoint unavailable"));
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(500, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        rapidApiServer.start();
+        HttpServer pageFetchServer = HttpServer.create(new InetSocketAddress(0), 0);
+        pageFetchServer.createContext("/v1/", exchange -> {
+            String body = String.join("\n",
+                    "<html>",
+                    "  <head>",
+                    "    <title>Women's &amp; Men's Clothing, Shop Online Fashion | SHEIN</title>",
+                    "    <meta property=\"og:image\" content=\"//img.ltwebstatic.com/images3_ccc/site-banner.jpg\">",
+                    "    <script>window.gbCommonInfo = { originalUrl: '/risk/challenge?captcha_type=903&redirection=https%3A%2F%2Far.shein.com%2FBlocked-Product-p-33710994.html%3FmallCode%3D1' };</script>",
+                    "  </head>",
+                    "  <body>System Updating</body>",
+                    "</html>"
+            );
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        pageFetchServer.start();
+        try {
+            ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
+            row.setSourcePlatform("SHEIN");
+            row.setPageUrl("https://ar.shein.com/Blocked-Product-p-33710994.html?mallCode=1");
+            SourceCollectionPageFetchClient pageFetchClient = new SourceCollectionPageFetchClient(
+                    true,
+                    "http://127.0.0.1:" + pageFetchServer.getAddress().getPort() + "/v1/",
+                    "test-page-fetch-key",
+                    10
+            );
+            SheinPublicPageSourceCollector sheinCollector = new SheinPublicPageSourceCollector(
+                    htmlParser,
+                    objectMapper,
+                    10,
+                    true,
+                    "test-rapid-key",
+                    "USD",
+                    10,
+                    "http://127.0.0.1:" + rapidApiServer.getAddress().getPort() + "/description?goods_sn={goodsId}&country={country}",
+                    "http://127.0.0.1:" + rapidApiServer.getAddress().getPort() + "/details?goods_id={goodsId}&currency={currency}&country={country}&language={language}",
+                    SourceCollectionProxyProvider.disabled(),
+                    pageFetchClient
+            );
+
+            IllegalStateException exception = assertThrows(IllegalStateException.class, () -> sheinCollector.collect(row));
+
+            assertTrue(exception.getMessage().contains("SHEIN 完整采集失败"));
+        } finally {
+            pageFetchServer.stop(0);
+            rapidApiServer.stop(0);
+        }
+    }
+
+    @Test
+    void reportsSheinRapidApiAndPageGatewayFailureReasons() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        HttpServer rapidApiServer = HttpServer.create(new InetSocketAddress(0), 0);
+        rapidApiServer.createContext("/", exchange -> {
+            byte[] bytes = objectMapper.writeValueAsBytes(Map.of(
+                    "success", false,
+                    "message", "This endpoint is currently unavailable."
+            ));
+            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+            exchange.sendResponseHeaders(503, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        rapidApiServer.start();
+        HttpServer pageFetchServer = HttpServer.create(new InetSocketAddress(0), 0);
+        pageFetchServer.createContext("/v1/", exchange -> {
+            String body = String.join("\n",
+                    "<html>",
+                    "  <head>",
+                    "    <title>Women's &amp; Men's Clothing, Shop Online Fashion | SHEIN</title>",
+                    "    <script>window.gbCommonInfo = { originalUrl: '/risk/challenge?captcha_type=903&redirection=https%3A%2F%2Far.shein.com%2FBlocked-Product-p-33710994.html%3FmallCode%3D1' };</script>",
+                    "  </head>",
+                    "  <body>System Updating</body>",
+                    "</html>"
+            );
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        pageFetchServer.start();
+        try {
+            ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
+            row.setSourcePlatform("SHEIN");
+            row.setPageUrl("https://ar.shein.com/Blocked-Product-p-33710994.html?mallCode=1");
+            SourceCollectionPageFetchClient pageFetchClient = new SourceCollectionPageFetchClient(
+                    true,
+                    "http://127.0.0.1:" + pageFetchServer.getAddress().getPort() + "/v1/",
+                    "test-page-fetch-key",
+                    10
+            );
+            SheinPublicPageSourceCollector sheinCollector = new SheinPublicPageSourceCollector(
+                    htmlParser,
+                    objectMapper,
+                    10,
+                    true,
+                    "test-rapid-key",
+                    "USD",
+                    10,
+                    "http://127.0.0.1:" + rapidApiServer.getAddress().getPort() + "/description?goods_sn={goodsId}&country={country}",
+                    "http://127.0.0.1:" + rapidApiServer.getAddress().getPort() + "/details?goods_id={goodsId}&currency={currency}&country={country}&language={language}",
+                    SourceCollectionProxyProvider.disabled(),
+                    pageFetchClient
+            );
+
+            IllegalStateException exception = assertThrows(IllegalStateException.class, () -> sheinCollector.collect(row));
+
+            assertTrue(exception.getMessage().contains("RapidAPI: HTTP 503"));
+            assertTrue(exception.getMessage().contains("This endpoint is currently unavailable"));
+            assertTrue(exception.getMessage().contains("页面: SHEIN 公网页面仍被风控拦截"));
+        } finally {
+            pageFetchServer.stop(0);
+            rapidApiServer.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsSheinUrlOnlyFallbackWhenPublicPageBlocked() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/", exchange -> {
@@ -443,15 +885,14 @@ class ProductSelectionSourceCollectionCollectorTest {
                     10
             );
 
-            ProductSelectionSourceCollectionResult result = sheinCollector.collect(row);
+            IllegalStateException exception = assertThrows(
+                    IllegalStateException.class,
+                    () -> sheinCollector.collect(row)
+            );
 
-            assertEquals("SHEIN", result.getSourcePlatform());
-            assertTrue(result.getSourceTitle().contains("Artificial Poppy Flowers"));
-            assertTrue(result.getSpecHints().contains("SHEIN Product ID: 55110364"));
-            assertTrue(result.getSpecHints().contains("SHEIN Mall Code: 1"));
-            assertTrue(result.getSpecHints().contains("SHEIN Selected Attribute: 27_447"));
-            assertTrue(result.getSpecHints().contains("Source Access: public page blocked, URL fallback only"));
-            assertTrue(result.getSpecHints().contains("Source Failure: HTTP 403"));
+            assertTrue(exception.getMessage().contains("SHEIN 完整采集失败"));
+            assertTrue(exception.getMessage().contains("URL 兜底"));
+            assertTrue(exception.getMessage().contains("不能作为采集成功"));
         } finally {
             server.stop(0);
         }
@@ -537,6 +978,54 @@ class ProductSelectionSourceCollectionCollectorTest {
             assertTrue(decodedQueries.stream().anyMatch(query -> query.contains("channel=1")));
             assertTrue(decodedQueries.stream().anyMatch(query -> query.contains("language=en_AE")));
             assertTrue(decodedQueries.stream().anyMatch(query -> query.contains("language=ar_AE")));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void retriesAmazonExternalCrawlerWhenItReturnsTransientEmptyData() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/flask/crawl", exchange -> {
+            int attempt = attempts.incrementAndGet();
+            String body;
+            if (attempt == 1) {
+                body = objectMapper.writeValueAsString(Map.of("code", 200, "data", ""));
+            } else {
+                String data = objectMapper.writeValueAsString(List.of(Map.of(
+                        "title", "Recovered Amazon Title",
+                        "price", "$23.99",
+                        "images", List.of("https://m.media-amazon.com/images/I/main.jpg")
+                )));
+                body = objectMapper.writeValueAsString(Map.of("code", 200, "data", data));
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
+            row.setSourcePlatform("Amazon");
+            row.setPageUrl("https://www.amazon.com/dp/B0C7RHFC3F/ref=acceptance?th=1");
+            AmazonExternalCrawlerSourceCollector amazonCollector = new AmazonExternalCrawlerSourceCollector(
+                    htmlParser,
+                    objectMapper,
+                    true,
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/flask/crawl?channel={channel}&url={url}",
+                    10,
+                    false,
+                    false
+            );
+
+            ProductSelectionSourceCollectionResult result = amazonCollector.collect(row);
+
+            assertEquals("Recovered Amazon Title", result.getSourceTitle());
+            assertEquals(2, attempts.get());
         } finally {
             server.stop(0);
         }

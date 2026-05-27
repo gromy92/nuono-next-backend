@@ -2,6 +2,9 @@ package com.nuono.next.product;
 
 import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessCapability;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,17 +44,20 @@ public class ProductMasterController {
     private final ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider;
     private final AuthSessionTokenService sessionTokenService;
     private final ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider;
+    private final BusinessAccessResolver businessAccessResolver;
 
     public ProductMasterController(
             ObjectProvider<LocalDbProductMasterService> localDbProductMasterServiceProvider,
             ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider,
             AuthSessionTokenService sessionTokenService,
-            ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider
+            ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider,
+            BusinessAccessResolver businessAccessResolver
     ) {
         this.localDbProductMasterServiceProvider = localDbProductMasterServiceProvider;
         this.productContentTranslationServiceProvider = productContentTranslationServiceProvider;
         this.sessionTokenService = sessionTokenService;
         this.productMasterAccessGuardProvider = productMasterAccessGuardProvider;
+        this.businessAccessResolver = businessAccessResolver;
     }
 
     @PostMapping("/snapshot")
@@ -59,18 +65,17 @@ public class ProductMasterController {
             @RequestBody ProductMasterFetchCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
-            snapshot.setMode("bootstrap-only");
-            snapshot.setReady(false);
-            snapshot.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品主档快照。");
-            return snapshot;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.fetchSnapshot(command);
+            ProductMasterFetchCommand trustedCommand = trustedFetchCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+                snapshot.setMode("bootstrap-only");
+                snapshot.setReady(false);
+                snapshot.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品主档快照。");
+                return snapshot;
+            }
+            return productMasterService.fetchSnapshot(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -85,20 +90,19 @@ public class ProductMasterController {
             @RequestBody ProductMasterFetchCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductMasterWorkbenchView snapshot = new ProductMasterWorkbenchView();
-            snapshot.setMode("bootstrap-only");
-            snapshot.setReady(false);
-            snapshot.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品主档快照。");
-            snapshot.setSyncStatus("failed");
-            snapshot.setNote("商品详情工作台暂时不可用。");
-            return snapshot;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.openWorkbench(command);
+            ProductMasterFetchCommand trustedCommand = trustedFetchCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductMasterWorkbenchView snapshot = new ProductMasterWorkbenchView();
+                snapshot.setMode("bootstrap-only");
+                snapshot.setReady(false);
+                snapshot.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品主档快照。");
+                snapshot.setSyncStatus("failed");
+                snapshot.setNote("商品详情工作台暂时不可用。");
+                return snapshot;
+            }
+            return productMasterService.openWorkbench(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -113,18 +117,17 @@ public class ProductMasterController {
             @RequestBody ProductMasterFetchCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductListSummaryView summary = new ProductListSummaryView();
-            summary.setReady(false);
-            summary.setSource("bootstrap-only");
-            summary.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品列表摘要。");
-            return summary;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.loadListSummary(command);
+            ProductMasterFetchCommand trustedCommand = trustedFetchCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductListSummaryView summary = new ProductListSummaryView();
+                summary.setReady(false);
+                summary.setSource("bootstrap-only");
+                summary.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品列表摘要。");
+                return summary;
+            }
+            return productMasterService.loadListSummary(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -139,18 +142,17 @@ public class ProductMasterController {
             @RequestBody ProductMasterFetchCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductListDatasetView view = new ProductListDatasetView();
-            view.setReady(false);
-            view.setSource("bootstrap-only");
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品工作台数据面。");
-            return view;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.loadListDataset(command);
+            ProductMasterFetchCommand trustedCommand = trustedFetchCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductListDatasetView view = new ProductListDatasetView();
+                view.setReady(false);
+                view.setSource("bootstrap-only");
+                view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取商品工作台数据面。");
+                return view;
+            }
+            return productMasterService.loadListDataset(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -165,18 +167,17 @@ public class ProductMasterController {
             @RequestBody ProductMasterFetchCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductListDatasetView view = new ProductListDatasetView();
-            view.setReady(false);
-            view.setSource("bootstrap-only");
-            view.setMessage("当前仍在无数据库骨架模式，暂时不能删除商品。");
-            return view;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.deleteLocalProduct(command);
+            ProductMasterFetchCommand trustedCommand = trustedFetchCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductListDatasetView view = new ProductListDatasetView();
+                view.setReady(false);
+                view.setSource("bootstrap-only");
+                view.setMessage("当前仍在无数据库骨架模式，暂时不能删除商品。");
+                return view;
+            }
+            return productMasterService.deleteLocalProduct(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -191,18 +192,17 @@ public class ProductMasterController {
             @RequestBody ProductMasterFetchCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductHistoryView history = new ProductHistoryView();
-            history.setReady(false);
-            history.setSource("bootstrap-only");
-            history.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取关键内容历史。");
-            return history;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.loadHistory(command);
+            ProductMasterFetchCommand trustedCommand = trustedFetchCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductHistoryView history = new ProductHistoryView();
+                history.setReady(false);
+                history.setSource("bootstrap-only");
+                history.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取关键内容历史。");
+                return history;
+            }
+            return productMasterService.loadHistory(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -217,18 +217,17 @@ public class ProductMasterController {
             @RequestBody ProductMasterFetchCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductGroupCandidatesView view = new ProductGroupCandidatesView();
-            view.setReady(false);
-            view.setSource("bootstrap-only");
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取同类目候选商品。");
-            return view;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.loadGroupCandidates(command);
+            ProductMasterFetchCommand trustedCommand = trustedFetchCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductGroupCandidatesView view = new ProductGroupCandidatesView();
+                view.setReady(false);
+                view.setSource("bootstrap-only");
+                view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取同类目候选商品。");
+                return view;
+            }
+            return productMasterService.loadGroupCandidates(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -243,18 +242,17 @@ public class ProductMasterController {
             @RequestBody ProductClassificationOptionsCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductClassificationOptionsView view = new ProductClassificationOptionsView();
-            view.setReady(false);
-            view.setSource("bootstrap-only");
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取品牌和类目候选。");
-            return view;
-        }
-
         try {
-            productAccessGuard().applyScope(requireSession(request), command);
-            return productMasterService.loadClassificationOptions(command);
+            ProductClassificationOptionsCommand trustedCommand = trustedClassificationOptionsCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductClassificationOptionsView view = new ProductClassificationOptionsView();
+                view.setReady(false);
+                view.setSource("bootstrap-only");
+                view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取品牌和类目候选。");
+                return view;
+            }
+            return productMasterService.loadClassificationOptions(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -269,20 +267,19 @@ public class ProductMasterController {
             @RequestBody ProductMasterActionCommand command,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            ProductMasterWorkbenchView snapshot = new ProductMasterWorkbenchView();
-            snapshot.setMode("bootstrap-only");
-            snapshot.setReady(false);
-            snapshot.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可进入商品详情工作台。");
-            snapshot.setSyncStatus("failed");
-            snapshot.setNote("商品详情动作暂时不可用。");
-            return snapshot;
-        }
-
         try {
-            applyProductScope(command, request);
-            return productMasterService.applyAction(command);
+            ProductMasterActionCommand trustedCommand = trustedActionCommand(command, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                ProductMasterWorkbenchView snapshot = new ProductMasterWorkbenchView();
+                snapshot.setMode("bootstrap-only");
+                snapshot.setReady(false);
+                snapshot.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可进入商品详情工作台。");
+                snapshot.setSyncStatus("failed");
+                snapshot.setNote("商品详情动作暂时不可用。");
+                return snapshot;
+            }
+            return productMasterService.applyAction(trustedCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -295,19 +292,15 @@ public class ProductMasterController {
     @GetMapping("/publish-tasks/{taskId}")
     public ProductPublishTaskView publishTask(
             @PathVariable Long taskId,
-            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam(value = "ownerUserId", required = false) Long ignoredOwnerUserId,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品发布任务暂时不可用。");
-        }
         try {
-            Long resolvedOwnerUserId = productAccessGuard().resolvePublishTaskOwnerUserId(
-                    requireSession(request),
-                    taskId,
-                    ownerUserId
-            );
+            Long resolvedOwnerUserId = trustedPublishTaskOwnerUserId(taskId, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品发布任务暂时不可用。");
+            }
             return productMasterService.loadPublishTask(taskId, resolvedOwnerUserId);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -321,19 +314,15 @@ public class ProductMasterController {
     @PostMapping("/publish-tasks/{taskId}/retry")
     public ProductPublishTaskView retryPublishTask(
             @PathVariable Long taskId,
-            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam(value = "ownerUserId", required = false) Long ignoredOwnerUserId,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品发布任务暂时不可用。");
-        }
         try {
-            Long resolvedOwnerUserId = productAccessGuard().resolvePublishTaskOwnerUserId(
-                    requireSession(request),
-                    taskId,
-                    ownerUserId
-            );
+            Long resolvedOwnerUserId = trustedPublishTaskOwnerUserId(taskId, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品发布任务暂时不可用。");
+            }
             return productMasterService.retryPublishTask(taskId, resolvedOwnerUserId);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -347,19 +336,15 @@ public class ProductMasterController {
     @PostMapping("/publish-tasks/{taskId}/cancel")
     public ProductPublishTaskView cancelPublishTask(
             @PathVariable Long taskId,
-            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam(value = "ownerUserId", required = false) Long ignoredOwnerUserId,
             HttpServletRequest request
     ) {
-        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-        if (productMasterService == null) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品发布任务暂时不可用。");
-        }
         try {
-            Long resolvedOwnerUserId = productAccessGuard().resolvePublishTaskOwnerUserId(
-                    requireSession(request),
-                    taskId,
-                    ownerUserId
-            );
+            Long resolvedOwnerUserId = trustedPublishTaskOwnerUserId(taskId, request);
+            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+            if (productMasterService == null) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品发布任务暂时不可用。");
+            }
             return productMasterService.cancelPublishTask(taskId, resolvedOwnerUserId);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -383,17 +368,19 @@ public class ProductMasterController {
             @RequestBody ProductContentTranslateCommand command,
             HttpServletRequest request
     ) {
-        ProductContentTranslationService translationService = productContentTranslationServiceProvider.getIfAvailable();
-        if (translationService == null) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "翻译服务暂时不可用");
-        }
         try {
-            AuthenticatedSession session = requireSession(request);
-            productAccessGuard().resolveOwnerUserId(session, session.getUserId(), null);
+            BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                    request,
+                    BusinessCapability.PRODUCT_MASTER
+            );
+            ProductContentTranslationService translationService = productContentTranslationServiceProvider.getIfAvailable();
+            if (translationService == null) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "翻译服务暂时不可用");
+            }
             if (command == null) {
                 command = new ProductContentTranslateCommand();
             }
-            command.setOperatorUserId(session.getUserId());
+            command.setOperatorUserId(context.getSessionUserId());
             return translationService.translate(command);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -421,15 +408,11 @@ public class ProductMasterController {
         }
 
         try {
+            BusinessAccessContext context = requireProductAccess(request, storeCode);
             LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-            Long resolvedOwnerUserId = null;
-            if (productMasterService != null && ownerUserId != null
-                    && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
-                resolvedOwnerUserId = productAccessGuard().resolveOwnerUserId(
-                        requireSession(request),
-                        ownerUserId,
-                        storeCode
-                );
+            Long trustedOwnerUserId = null;
+            if (productMasterService != null && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
+                trustedOwnerUserId = trustedOwnerUserId(context, storeCode);
             }
             Path uploadDir = ProductImageAssetFileSupport.productImageUploadDir();
             Files.createDirectories(uploadDir);
@@ -443,10 +426,10 @@ public class ProductMasterController {
             response.put("contentType", file.getContentType());
             response.put("size", file.getSize());
             List<String> warnings = new ArrayList<>();
-            if (productMasterService != null && resolvedOwnerUserId != null
+            if (productMasterService != null && trustedOwnerUserId != null
                     && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
                 Long assetId = productMasterService.persistUploadedImageAsset(
-                        resolvedOwnerUserId,
+                        trustedOwnerUserId,
                         storeCode,
                         skuParent,
                         url,
@@ -497,8 +480,138 @@ public class ProductMasterController {
         }
     }
 
-    private void applyProductScope(ProductMasterFetchCommand command, HttpServletRequest request) {
-        productAccessGuard().applyScope(requireSession(request), command);
+    private ProductMasterFetchCommand trustedFetchCommand(
+            ProductMasterFetchCommand command,
+            HttpServletRequest request
+    ) {
+        ProductMasterFetchCommand source = command == null ? new ProductMasterFetchCommand() : command;
+        BusinessAccessContext context = requireProductAccess(request, source.getStoreCode());
+        source.setOwnerUserId(trustedOwnerUserId(context, source.getStoreCode()));
+        return source;
+    }
+
+    private ProductMasterActionCommand trustedActionCommand(
+            ProductMasterActionCommand command,
+            HttpServletRequest request
+    ) {
+        ProductMasterActionCommand source = command == null ? new ProductMasterActionCommand() : command;
+        BusinessAccessContext context = requireProductAccess(request, source.getStoreCode());
+        Long trustedOwnerUserId = trustedOwnerUserId(context, source.getStoreCode());
+        requireCurrentSiteAccess(request, source, trustedOwnerUserId);
+        source.setOwnerUserId(trustedOwnerUserId);
+        trustSnapshotBusinessIdentity(
+                source.getSnapshot(),
+                trustedOwnerUserId,
+                source.getStoreCode(),
+                source.getSkuParent()
+        );
+        return source;
+    }
+
+    private void requireCurrentSiteAccess(
+            HttpServletRequest request,
+            ProductMasterActionCommand command,
+            Long trustedOwnerUserId
+    ) {
+        if (command == null || !StringUtils.hasText(command.getCurrentSiteCode())) {
+            return;
+        }
+        String currentSiteCode = command.getCurrentSiteCode().trim();
+        command.setCurrentSiteCode(currentSiteCode);
+        if (sameStoreCode(currentSiteCode, command.getStoreCode())) {
+            return;
+        }
+        BusinessAccessContext currentSiteContext = businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                currentSiteCode
+        );
+        Long currentSiteOwnerUserId = trustedOwnerUserId(currentSiteContext, currentSiteCode);
+        if (!trustedOwnerUserId.equals(currentSiteOwnerUserId)) {
+            throw new ProductMasterAccessDeniedException("当前站点不属于已授权商品业务归属。");
+        }
+    }
+
+    private ProductClassificationOptionsCommand trustedClassificationOptionsCommand(
+            ProductClassificationOptionsCommand command,
+            HttpServletRequest request
+    ) {
+        ProductClassificationOptionsCommand source = command == null
+                ? new ProductClassificationOptionsCommand()
+                : command;
+        BusinessAccessContext context = requireProductAccess(request, source.getStoreCode());
+        source.setOwnerUserId(trustedOwnerUserId(context, source.getStoreCode()));
+        return source;
+    }
+
+    private Long trustedPublishTaskOwnerUserId(Long taskId, HttpServletRequest request) {
+        businessAccessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.PRODUCT_MASTER
+        );
+        return productAccessGuard().resolvePublishTaskOwnerUserId(
+                requireSession(request),
+                taskId,
+                null
+        );
+    }
+
+    private BusinessAccessContext requireProductAccess(HttpServletRequest request, String storeCode) {
+        if (StringUtils.hasText(storeCode)) {
+            return businessAccessResolver.requireStoreAccess(
+                    request,
+                    BusinessCapability.PRODUCT_MASTER,
+                    storeCode
+            );
+        }
+        return businessAccessResolver.requireBusinessContext(request, BusinessCapability.PRODUCT_MASTER);
+    }
+
+    private Long trustedOwnerUserId(BusinessAccessContext context, String storeCode) {
+        if (StringUtils.hasText(storeCode)) {
+            Long storeOwnerUserId = context.resolveOwnerUserIdForStore(storeCode);
+            if (storeOwnerUserId != null) {
+                return storeOwnerUserId;
+            }
+        }
+        Long businessOwnerUserId = context.getBusinessOwnerUserId();
+        if (businessOwnerUserId == null) {
+            throw new ProductMasterAccessDeniedException("当前账号缺少商品业务归属。");
+        }
+        return businessOwnerUserId;
+    }
+
+    private boolean sameStoreCode(String left, String right) {
+        return StringUtils.hasText(left)
+                && StringUtils.hasText(right)
+                && left.trim().equalsIgnoreCase(right.trim());
+    }
+
+    private void trustSnapshotBusinessIdentity(
+            ProductMasterSnapshotView snapshot,
+            Long trustedOwnerUserId,
+            String trustedStoreCode,
+            String trustedSkuParent
+    ) {
+        if (snapshot == null) {
+            return;
+        }
+        Map<String, Object> storeContext = snapshot.getStoreContext() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(snapshot.getStoreContext());
+        storeContext.put("ownerUserId", trustedOwnerUserId);
+        if (StringUtils.hasText(trustedStoreCode)) {
+            storeContext.put("projectCode", trustedStoreCode);
+            storeContext.put("storeCode", trustedStoreCode);
+        }
+        snapshot.setStoreContext(storeContext);
+        if (StringUtils.hasText(trustedSkuParent)) {
+            Map<String, Object> identity = snapshot.getIdentity() == null
+                    ? new LinkedHashMap<>()
+                    : new LinkedHashMap<>(snapshot.getIdentity());
+            identity.put("skuParent", trustedSkuParent);
+            snapshot.setIdentity(identity);
+        }
     }
 
     private AuthenticatedSession requireSession(HttpServletRequest request) {

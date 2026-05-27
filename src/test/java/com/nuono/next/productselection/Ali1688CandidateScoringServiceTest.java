@@ -52,4 +52,20 @@ class Ali1688CandidateScoringServiceTest {
         assertNull(candidate.totalScore);
         assertEquals("partial", candidate.scoreStatus);
     }
+
+    @Test
+    void scoreMarksListPagePriceAsHintEvenWhenParsedNumbersLookAvailable() {
+        Ali1688CollectionRecords.CandidateRecord candidate = new Ali1688CollectionRecords.CandidateRecord();
+        candidate.priceText = "¥ 6 .93 运费4元起 4400+件 50件起批";
+        candidate.priceMin = new BigDecimal("4");
+        candidate.priceMax = new BigDecimal("4400");
+        candidate.moqValue = 50;
+
+        service.score(candidate);
+
+        assertEquals("partial", candidate.scoreStatus);
+        assertNull(candidate.totalScore);
+        assertTrue(candidate.scoreDetailJson.contains("\"priceBasis\":\"list_price_hint\""));
+        assertTrue(candidate.scoreDetailJson.contains("\"confirmedRealPrice\":false"));
+    }
 }

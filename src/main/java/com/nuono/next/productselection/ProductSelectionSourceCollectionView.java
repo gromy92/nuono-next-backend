@@ -38,6 +38,9 @@ public class ProductSelectionSourceCollectionView {
     private String failureCode;
     private String failureMessage;
     private String collectedAt;
+    private String collectionStartedAt;
+    private String collectionFinishedAt;
+    private Integer collectionDurationSeconds;
     private String collectedBy;
     private Integer collectedFieldCount;
     private Integer collectedFieldTotal;
@@ -307,6 +310,30 @@ public class ProductSelectionSourceCollectionView {
 
     public void setCollectedAt(String collectedAt) {
         this.collectedAt = collectedAt;
+    }
+
+    public String getCollectionStartedAt() {
+        return collectionStartedAt;
+    }
+
+    public void setCollectionStartedAt(String collectionStartedAt) {
+        this.collectionStartedAt = collectionStartedAt;
+    }
+
+    public String getCollectionFinishedAt() {
+        return collectionFinishedAt;
+    }
+
+    public void setCollectionFinishedAt(String collectionFinishedAt) {
+        this.collectionFinishedAt = collectionFinishedAt;
+    }
+
+    public Integer getCollectionDurationSeconds() {
+        return collectionDurationSeconds;
+    }
+
+    public void setCollectionDurationSeconds(Integer collectionDurationSeconds) {
+        this.collectionDurationSeconds = collectionDurationSeconds;
     }
 
     public String getCollectedBy() {

@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;
 
 class SheinRapidApiSourceClient {
@@ -21,13 +23,18 @@ class SheinRapidApiSourceClient {
     private final ProductSelectionSourceCollectionHtmlParser htmlParser;
     private final SheinProductStructuredDataParser structuredDataParser;
     private final SheinProductUrlFallback urlFallback;
-    private final HttpClient client;
+    private final SourceCollectionProxyProvider proxyProvider;
+    private final HttpClient directClient;
     private final boolean enabled;
     private final String rapidApiKey;
     private final String currency;
     private final int timeoutSeconds;
     private final String descriptionUrlTemplate;
     private final String detailsUrlTemplate;
+    private static final Pattern JSON_MESSAGE_PATTERN = Pattern.compile(
+            "\"(?:message|msg|error)\"\\s*:\\s*\"([^\"]+)\"",
+            Pattern.CASE_INSENSITIVE
+    );
 
     SheinRapidApiSourceClient(
             ProductSelectionSourceCollectionHtmlParser htmlParser,
@@ -38,48 +45,63 @@ class SheinRapidApiSourceClient {
             String currency,
             int timeoutSeconds,
             String descriptionUrl,
-            String detailsUrl
+            String detailsUrl,
+            SourceCollectionProxyProvider proxyProvider
     ) {
         this.htmlParser = htmlParser;
         this.structuredDataParser = structuredDataParser;
         this.urlFallback = urlFallback;
+        this.proxyProvider = proxyProvider;
         this.enabled = enabled;
         this.rapidApiKey = htmlParser.compactText(rapidApiKey);
         this.currency = htmlParser.firstText(currency, "USD");
         this.timeoutSeconds = Math.max(8, timeoutSeconds);
         this.descriptionUrlTemplate = htmlParser.compactText(descriptionUrl);
         this.detailsUrlTemplate = htmlParser.compactText(detailsUrl);
-        this.client = HttpClient.newBuilder()
+        this.directClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(this.timeoutSeconds))
                 .build();
     }
 
     ProductSelectionSourceCollectionResult collect(String pageUrl) {
+        return collectWithDiagnostics(pageUrl).result();
+    }
+
+    CollectionAttempt collectWithDiagnostics(String pageUrl) {
         if (!enabled || !StringUtils.hasText(rapidApiKey)) {
-            return null;
+            return CollectionAttempt.failure(!enabled ? "RapidAPI: 未启用" : "RapidAPI: 未配置 key");
         }
         String goodsId = urlFallback.productId(pageUrl);
         if (!StringUtils.hasText(goodsId)) {
-            return null;
+            return CollectionAttempt.failure("RapidAPI: 未识别 SHEIN 商品 ID");
         }
         String country = urlFallback.country(pageUrl);
+        List<String> failures = new ArrayList<>();
         SheinProductSnapshot englishSnapshot = new SheinProductSnapshot();
         SheinProductSnapshot arabicSnapshot = new SheinProductSnapshot();
-        boolean collectedDetails = collectInto(detailsUrlTemplate, goodsId, country, "en", englishSnapshot);
+        EndpointAttempt collectedDetails = collectInto(detailsUrlTemplate, goodsId, country, "en", englishSnapshot);
+        failures.addAll(collectedDetails.failureReasons());
         if (detailsUrlTemplate.contains("{language}")) {
-            collectedDetails = collectInto(detailsUrlTemplate, goodsId, country, "ar", arabicSnapshot) || collectedDetails;
+            EndpointAttempt arabicDetails = collectInto(detailsUrlTemplate, goodsId, country, "ar", arabicSnapshot);
+            failures.addAll(arabicDetails.failureReasons());
+            collectedDetails = EndpointAttempt.merge(collectedDetails, arabicDetails);
         }
-        if (collectedDetails && hasUsefulSnapshot(englishSnapshot, arabicSnapshot)) {
-            return mapSnapshots(pageUrl, goodsId, englishSnapshot, arabicSnapshot);
+        if (collectedDetails.collected() && hasUsefulSnapshot(englishSnapshot, arabicSnapshot)) {
+            return CollectionAttempt.success(mapSnapshots(pageUrl, goodsId, englishSnapshot, arabicSnapshot));
         }
         SheinProductSnapshot fallbackSnapshot = new SheinProductSnapshot();
-        boolean collectedDescription = collectInto(descriptionUrlTemplate, goodsId, country, urlFallback.language(pageUrl), fallbackSnapshot);
-        return collectedDescription && hasUsefulSnapshot(fallbackSnapshot, new SheinProductSnapshot())
-                ? mapSnapshots(pageUrl, goodsId, fallbackSnapshot, new SheinProductSnapshot())
-                : null;
+        EndpointAttempt collectedDescription = collectInto(descriptionUrlTemplate, goodsId, country, urlFallback.language(pageUrl), fallbackSnapshot);
+        failures.addAll(collectedDescription.failureReasons());
+        if (collectedDescription.collected() && hasUsefulSnapshot(fallbackSnapshot, new SheinProductSnapshot())) {
+            return CollectionAttempt.success(mapSnapshots(pageUrl, goodsId, fallbackSnapshot, new SheinProductSnapshot()));
+        }
+        if (failures.isEmpty()) {
+            failures.add("RapidAPI: 未返回可用商品字段");
+        }
+        return CollectionAttempt.failure(failures);
     }
 
-    private boolean collectInto(
+    private EndpointAttempt collectInto(
             String template,
             String goodsId,
             String country,
@@ -87,7 +109,7 @@ class SheinRapidApiSourceClient {
             SheinProductSnapshot snapshot
     ) {
         if (!StringUtils.hasText(template)) {
-            return false;
+            return EndpointAttempt.failure("RapidAPI: 未配置接口模板");
         }
         String url = renderUrl(template, goodsId, country, language);
         URI uri = URI.create(url);
@@ -99,19 +121,56 @@ class SheinRapidApiSourceClient {
                 .header("x-rapidapi-key", rapidApiKey)
                 .build();
         try {
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = httpClient().send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("SHEIN RapidAPI HTTP " + response.statusCode());
+                return EndpointAttempt.failure(
+                        "RapidAPI: HTTP " + response.statusCode() + safeResponseMessage(response.body())
+                );
             }
             structuredDataParser.parseJsonPayload(response.body(), snapshot);
-            return hasUsefulSnapshot(snapshot, new SheinProductSnapshot());
+            return hasUsefulSnapshot(snapshot, new SheinProductSnapshot())
+                    ? EndpointAttempt.success()
+                    : EndpointAttempt.failure("RapidAPI: " + safeEndpointName(uri) + " 未返回可用商品字段");
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("SHEIN RapidAPI interrupted", exception);
         } catch (Exception exception) {
             // Keep the public-page and URL fallback path available when the third-party API is unavailable.
-            return false;
+            return EndpointAttempt.failure("RapidAPI: " + safeEndpointName(uri) + " 请求失败 " + shrink(exception.getMessage(), 100));
         }
+    }
+
+    private String safeResponseMessage(String body) {
+        String message = extractJsonMessage(body);
+        return StringUtils.hasText(message) ? " " + shrink(message, 140) : "";
+    }
+
+    private String extractJsonMessage(String body) {
+        if (!StringUtils.hasText(body)) {
+            return "";
+        }
+        Matcher matcher = JSON_MESSAGE_PATTERN.matcher(body);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
+    private String safeEndpointName(URI uri) {
+        String host = uri.getHost();
+        String path = uri.getPath();
+        return firstText(host, "") + firstText(path, "");
+    }
+
+    private String shrink(String value, int maxLength) {
+        String text = htmlParser.compactText(value);
+        if (!StringUtils.hasText(text) || text.length() <= maxLength) {
+            return text;
+        }
+        return text.substring(0, Math.max(0, maxLength - 1)) + "...";
+    }
+
+    private HttpClient httpClient() {
+        return proxyProvider == null
+                ? directClient
+                : proxyProvider.httpClient(Duration.ofSeconds(timeoutSeconds));
     }
 
     private ProductSelectionSourceCollectionResult mapSnapshots(
@@ -239,5 +298,85 @@ class SheinRapidApiSourceClient {
             }
         }
         return false;
+    }
+
+    static final class CollectionAttempt {
+
+        private final ProductSelectionSourceCollectionResult result;
+        private final List<String> failureReasons;
+
+        private CollectionAttempt(ProductSelectionSourceCollectionResult result, List<String> failureReasons) {
+            this.result = result;
+            this.failureReasons = failureReasons == null ? List.of() : failureReasons;
+        }
+
+        static CollectionAttempt success(ProductSelectionSourceCollectionResult result) {
+            return new CollectionAttempt(result, List.of());
+        }
+
+        static CollectionAttempt failure(String failureReason) {
+            return new CollectionAttempt(null, StringUtils.hasText(failureReason) ? List.of(failureReason) : List.of());
+        }
+
+        static CollectionAttempt failure(List<String> failureReasons) {
+            return new CollectionAttempt(null, deduplicate(failureReasons));
+        }
+
+        ProductSelectionSourceCollectionResult result() {
+            return result;
+        }
+
+        String failureSummary() {
+            return String.join("；", failureReasons);
+        }
+
+        private static List<String> deduplicate(List<String> values) {
+            LinkedHashSet<String> deduped = new LinkedHashSet<>();
+            if (values != null) {
+                values.stream().filter(StringUtils::hasText).forEach(deduped::add);
+            }
+            return new ArrayList<>(deduped);
+        }
+    }
+
+    private static final class EndpointAttempt {
+
+        private final boolean collected;
+        private final List<String> failureReasons;
+
+        private EndpointAttempt(boolean collected, List<String> failureReasons) {
+            this.collected = collected;
+            this.failureReasons = failureReasons == null ? List.of() : failureReasons;
+        }
+
+        static EndpointAttempt success() {
+            return new EndpointAttempt(true, List.of());
+        }
+
+        static EndpointAttempt failure(String failureReason) {
+            return new EndpointAttempt(false, StringUtils.hasText(failureReason) ? List.of(failureReason) : List.of());
+        }
+
+        static EndpointAttempt merge(EndpointAttempt first, EndpointAttempt second) {
+            List<String> failures = new ArrayList<>();
+            if (first != null) {
+                failures.addAll(first.failureReasons);
+            }
+            if (second != null) {
+                failures.addAll(second.failureReasons);
+            }
+            return new EndpointAttempt(
+                    (first != null && first.collected) || (second != null && second.collected),
+                    CollectionAttempt.deduplicate(failures)
+            );
+        }
+
+        boolean collected() {
+            return collected;
+        }
+
+        List<String> failureReasons() {
+            return failureReasons;
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.nuono.next.productselection;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.ai.AiCapabilityService;
 import com.nuono.next.ai.AiStructuredTextCommand;
@@ -14,6 +15,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
@@ -34,6 +36,7 @@ public class Ali1688CandidateAiAssessmentService {
     private static final String SCHEMA_VERSION = "ALI1688_CANDIDATE_SCORE_SCHEMA_V1";
     private static final String SCHEMA_NAME = "nuono_ali1688_candidate_score_v1";
     private static final String WORKER_NAME = "ali1688-candidate-ai-assessment";
+    private static final int MIN_MATCH_SCORE_FOR_RERANK = 18;
 
     private final Ali1688CollectionMapper ali1688CollectionMapper;
     private final ObjectProvider<AiCapabilityService> aiCapabilityServiceProvider;
@@ -64,7 +67,8 @@ public class Ali1688CandidateAiAssessmentService {
     @Transactional
     public void createPendingAssessments(
             Ali1688CollectionRecords.TaskRecord task,
-            List<Ali1688CollectionRecords.CandidateRecord> candidates
+            List<Ali1688CollectionRecords.CandidateRecord> candidates,
+            String taskLockOwner
     ) {
         for (Ali1688CollectionRecords.CandidateRecord candidate : candidates) {
             Ali1688CollectionRecords.AiAssessmentRecord assessment = new Ali1688CollectionRecords.AiAssessmentRecord();
@@ -80,8 +84,39 @@ public class Ali1688CandidateAiAssessmentService {
             assessment.inputHash = sha256(assessment.inputSnapshotJson);
             assessment.createdBy = task.updatedBy;
             assessment.updatedBy = task.updatedBy;
+            ali1688CollectionMapper.insertAiAssessmentForClaimedTask(assessment, taskLockOwner);
+        }
+    }
+
+    @Transactional
+    public void createPendingAssessmentsForCurrentTask(
+            Ali1688CollectionRecords.TaskRecord task,
+            List<Ali1688CollectionRecords.CandidateRecord> candidates
+    ) {
+        for (Ali1688CollectionRecords.CandidateRecord candidate : candidates) {
+            Ali1688CollectionRecords.AiAssessmentRecord assessment = newPendingAssessment(task, candidate);
             ali1688CollectionMapper.insertAiAssessment(assessment);
         }
+    }
+
+    private Ali1688CollectionRecords.AiAssessmentRecord newPendingAssessment(
+            Ali1688CollectionRecords.TaskRecord task,
+            Ali1688CollectionRecords.CandidateRecord candidate
+    ) {
+        Ali1688CollectionRecords.AiAssessmentRecord assessment = new Ali1688CollectionRecords.AiAssessmentRecord();
+        assessment.id = ali1688CollectionMapper.nextAiAssessmentId();
+        assessment.taskId = task.id;
+        assessment.candidateId = candidate.id;
+        assessment.status = "pending";
+        assessment.featureCode = FEATURE_CODE;
+        assessment.operationCode = OPERATION_CODE;
+        assessment.promptVersion = PROMPT_VERSION;
+        assessment.schemaVersion = SCHEMA_VERSION;
+        assessment.inputSnapshotJson = inputSnapshotJson(task, candidate);
+        assessment.inputHash = sha256(assessment.inputSnapshotJson);
+        assessment.createdBy = task.updatedBy;
+        assessment.updatedBy = task.updatedBy;
+        return assessment;
     }
 
     @Scheduled(
@@ -139,12 +174,19 @@ public class Ali1688CandidateAiAssessmentService {
         }
 
         Map<String, Object> parsedJson = result.getParsedJson();
+        String validationError = validateAiOutput(parsedJson);
+        if (StringUtils.hasText(validationError)) {
+            markFailed(assessment, "invalid_ai_output", validationError);
+            ali1688CollectionMapper.markCandidateAiAssessmentFailed(candidate.id, candidate.updatedBy);
+            return;
+        }
         Integer matchScore = clamp(asInteger(parsedJson.get("matchScore")), 0, 35);
         Integer specScore = clamp(asInteger(parsedJson.get("specScore")), 0, 20);
         String riskLevel = shrink(defaultText(asString(parsedJson.get("riskLevel")), "unknown"), 30);
-        Integer totalScore = clamp(defaultInt(candidate.ruleScore) + matchScore + specScore, 0, 100);
+        String finalScoreMode = finalScoreMode(matchScore, riskLevel);
+        Integer totalScore = finalTotalScore(candidate, matchScore, specScore, finalScoreMode);
         String outputJson = writeJson(parsedJson);
-        String scoreDetailJson = finalScoreDetailJson(candidate, parsedJson, matchScore, specScore, riskLevel, result.getModel());
+        String scoreDetailJson = finalScoreDetailJson(candidate, parsedJson, matchScore, specScore, riskLevel, result.getModel(), finalScoreMode);
 
         ali1688CollectionMapper.markAiAssessmentSuccess(
                 assessment.id,
@@ -199,7 +241,7 @@ public class Ali1688CandidateAiAssessmentService {
     private Map<String, Object> outputSchema() {
         Map<String, Object> score = object("type", "integer");
         Map<String, Object> text = object("type", "string");
-        Map<String, Object> textArray = object("type", "array");
+        Map<String, Object> textArray = object("type", "array", "items", text);
         Map<String, Object> properties = object(
                 "matchScore", score,
                 "specScore", score,
@@ -234,8 +276,13 @@ public class Ali1688CandidateAiAssessmentService {
         snapshot.put("mainImageUrl", candidate.mainImageUrl);
         snapshot.put("imageUrlsJson", candidate.imageUrlsJson);
         snapshot.put("priceText", candidate.priceText);
+        snapshot.put("listPriceHintText", candidate.priceText);
+        snapshot.put("priceState", "list_hint_only");
         snapshot.put("moqText", candidate.moqText);
+        snapshot.put("locationText", candidate.locationText);
         snapshot.put("skuSnapshotJson", candidate.skuSnapshotJson);
+        snapshot.put("supplierSnapshotJson", candidate.supplierSnapshotJson);
+        snapshot.put("logisticsSnapshotJson", candidate.logisticsSnapshotJson);
         try {
             return objectMapper.writeValueAsString(snapshot);
         } catch (JsonProcessingException exception) {
@@ -249,11 +296,13 @@ public class Ali1688CandidateAiAssessmentService {
             Integer matchScore,
             Integer specScore,
             String riskLevel,
-            String model
+            String model,
+            String finalScoreMode
     ) {
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("version", Ali1688CandidateScoringService.SCORE_VERSION);
         detail.put("ruleScoreMax", 45);
+        detail.put("finalScoreMode", finalScoreMode);
         detail.put("priceScore", candidate.priceScore);
         detail.put("moqScore", candidate.moqScore);
         detail.put("supplierScore", candidate.supplierScore);
@@ -265,6 +314,62 @@ public class Ali1688CandidateAiAssessmentService {
         detail.put("aiOutput", aiOutput);
         detail.put("aiPending", false);
         return writeJson(detail);
+    }
+
+    private String validateAiOutput(Map<String, Object> parsedJson) {
+        if (parsedJson == null) {
+            return "AI 输出缺少 JSON 对象。";
+        }
+        String matchScoreError = validateScore(parsedJson, "matchScore", 0, 35);
+        if (StringUtils.hasText(matchScoreError)) {
+            return matchScoreError;
+        }
+        String specScoreError = validateScore(parsedJson, "specScore", 0, 20);
+        if (StringUtils.hasText(specScoreError)) {
+            return specScoreError;
+        }
+        String riskLevel = asString(parsedJson.get("riskLevel"));
+        if (!Set.of("low", "medium", "high", "unknown").contains(defaultText(riskLevel, ""))) {
+            return "AI 输出字段 riskLevel 必须是 low、medium、high 或 unknown。";
+        }
+        if (!(parsedJson.get("reasons") instanceof List)) {
+            return "AI 输出字段 reasons 必须是数组。";
+        }
+        if (!(parsedJson.get("warnings") instanceof List)) {
+            return "AI 输出字段 warnings 必须是数组。";
+        }
+        return null;
+    }
+
+    private String finalScoreMode(Integer matchScore, String riskLevel) {
+        if ("high".equals(riskLevel) || defaultInt(matchScore) < MIN_MATCH_SCORE_FOR_RERANK) {
+            return "ai_mismatch_gate";
+        }
+        return "rule_plus_ai";
+    }
+
+    private Integer finalTotalScore(
+            Ali1688CollectionRecords.CandidateRecord candidate,
+            Integer matchScore,
+            Integer specScore,
+            String finalScoreMode
+    ) {
+        if ("ai_mismatch_gate".equals(finalScoreMode)) {
+            return clamp(defaultInt(matchScore) + defaultInt(specScore), 0, 100);
+        }
+        return clamp(defaultInt(candidate.ruleScore) + defaultInt(matchScore) + defaultInt(specScore), 0, 100);
+    }
+
+    private String validateScore(Map<String, Object> parsedJson, String fieldName, int min, int max) {
+        Object rawValue = parsedJson.get(fieldName);
+        if (!(rawValue instanceof Number)) {
+            return "AI 输出字段 " + fieldName + " 必须是数字。";
+        }
+        int value = ((Number) rawValue).intValue();
+        if (value < min || value > max) {
+            return "AI 输出字段 " + fieldName + " 必须在 " + min + "-" + max + " 范围内。";
+        }
+        return null;
     }
 
     private void markFailed(Ali1688CollectionRecords.AiAssessmentRecord assessment, String failureCode, String failureMessage) {
@@ -279,6 +384,9 @@ public class Ali1688CandidateAiAssessmentService {
     private void reselectTopFive(Long taskId, Long updatedBy) {
         List<Ali1688CollectionRecords.CandidateRecord> candidates = ali1688CollectionMapper.listCandidatesByTask(taskId);
         if (candidates == null || candidates.isEmpty()) {
+            return;
+        }
+        if (hasFrozenDownstreamSelection(candidates)) {
             return;
         }
         ali1688CollectionMapper.clearSelectedRanks(taskId, updatedBy);
@@ -302,6 +410,27 @@ public class Ali1688CandidateAiAssessmentService {
             return candidate.totalScore;
         }
         return candidate.ruleScore == null ? 0 : candidate.ruleScore;
+    }
+
+    private boolean hasFrozenDownstreamSelection(List<Ali1688CollectionRecords.CandidateRecord> candidates) {
+        for (Ali1688CollectionRecords.CandidateRecord candidate : candidates) {
+            if (candidate == null || candidate.selectedRankNo == null || !StringUtils.hasText(candidate.scoreDetailJson)) {
+                continue;
+            }
+            try {
+                JsonNode detail = objectMapper.readTree(candidate.scoreDetailJson);
+                if (detail.path("downstreamFrozen").asBoolean(false)) {
+                    return true;
+                }
+                String priceState = detail.path("priceState").asText("");
+                if (Set.of("price_probe_running", "price_probe_failed", "price_confirmed").contains(priceState)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // Invalid score detail must not block AI scoring; it just cannot declare a downstream freeze.
+            }
+        }
+        return false;
     }
 
     private String writeJson(Object value) {

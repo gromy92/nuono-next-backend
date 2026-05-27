@@ -9,6 +9,8 @@ VALUES
   (2, '采购', 0, '/purchase', b'0', NOW(), NOW()),
   (3, '商品', 0, '/product', b'0', NOW(), NOW()),
   (5, '用户', 0, '/user', b'0', NOW(), NOW()),
+  (9400, '数据', 0, '/data', b'0', NOW(), NOW()),
+  (9600, '系统报表', 0, '/system-reports', b'0', NOW(), NOW()),
   (26, '系统管理', 0, '/system', b'0', NOW(), NOW()),
   (9200, '物流', 0, '/logistics', b'0', NOW(), NOW()),
   (6, '利润计算', 2, '/api/sku/cost', b'0', NOW(), NOW()),
@@ -16,6 +18,10 @@ VALUES
   (7, '商品管理', 3, '/api/sku/manage', b'0', NOW(), NOW()),
   (9102, '人工选品', 3, '/product/manual-selection', b'0', NOW(), NOW()),
   (9201, '货代管理', 9200, '/purchase/logistics-quote', b'0', NOW(), NOW()),
+  (9401, '销量分析', 9400, '/data/sales-analysis', b'0', NOW(), NOW()),
+  (9402, '销量预测', 9400, '/data/sales-forecast', b'0', NOW(), NOW()),
+  (9403, 'AI运营看板', 9400, '/operations/dashboard', b'0', NOW(), NOW()),
+  (9601, '店铺数据', 9600, '/system-reports/store-data', b'0', NOW(), NOW()),
   (10, '账号管理', 5, '/api/user/manage', b'0', NOW(), NOW()),
   (25, '角色分配', 5, '/api/user/role', b'0', NOW(), NOW()),
   (27, '角色管理', 26, '/system/role', b'0', NOW(), NOW()),
@@ -43,6 +49,7 @@ FROM (
   UNION ALL SELECT 1, 27
   UNION ALL SELECT 1, 28
   UNION ALL SELECT 1, 9301
+  UNION ALL SELECT 1, 9601
   UNION ALL SELECT 2, 6
   UNION ALL SELECT 2, 24
   UNION ALL SELECT 2, 7
@@ -50,17 +57,29 @@ FROM (
   UNION ALL SELECT 2, 9201
   UNION ALL SELECT 2, 25
   UNION ALL SELECT 2, 9301
+  UNION ALL SELECT 2, 9401
+  UNION ALL SELECT 2, 9402
+  UNION ALL SELECT 2, 9403
+  UNION ALL SELECT 2, 9601
   UNION ALL SELECT 3, 6
   UNION ALL SELECT 3, 24
   UNION ALL SELECT 3, 7
   UNION ALL SELECT 3, 9102
   UNION ALL SELECT 3, 9201
   UNION ALL SELECT 3, 9301
+  UNION ALL SELECT 3, 9401
+  UNION ALL SELECT 3, 9402
+  UNION ALL SELECT 3, 9403
+  UNION ALL SELECT 3, 9601
   UNION ALL SELECT 4, 6
   UNION ALL SELECT 4, 24
   UNION ALL SELECT 4, 7
   UNION ALL SELECT 4, 9102
   UNION ALL SELECT 4, 9201
+  UNION ALL SELECT 4, 9401
+  UNION ALL SELECT 4, 9402
+  UNION ALL SELECT 4, 9403
+  UNION ALL SELECT 4, 9601
 ) grants
 JOIN `role` r ON r.`id` = grants.`role_id` AND r.`is_deleted` = b'0'
 WHERE NOT EXISTS (
@@ -79,6 +98,7 @@ JOIN (
     UNION ALL SELECT 1, 27
     UNION ALL SELECT 1, 28
     UNION ALL SELECT 1, 9301
+    UNION ALL SELECT 1, 9601
     UNION ALL SELECT 2, 6
     UNION ALL SELECT 2, 24
     UNION ALL SELECT 2, 7
@@ -86,17 +106,29 @@ JOIN (
     UNION ALL SELECT 2, 9201
     UNION ALL SELECT 2, 25
     UNION ALL SELECT 2, 9301
+    UNION ALL SELECT 2, 9401
+    UNION ALL SELECT 2, 9402
+    UNION ALL SELECT 2, 9403
+    UNION ALL SELECT 2, 9601
     UNION ALL SELECT 3, 6
     UNION ALL SELECT 3, 24
     UNION ALL SELECT 3, 7
     UNION ALL SELECT 3, 9102
     UNION ALL SELECT 3, 9201
     UNION ALL SELECT 3, 9301
+    UNION ALL SELECT 3, 9401
+    UNION ALL SELECT 3, 9402
+    UNION ALL SELECT 3, 9403
+    UNION ALL SELECT 3, 9601
     UNION ALL SELECT 4, 6
     UNION ALL SELECT 4, 24
     UNION ALL SELECT 4, 7
     UNION ALL SELECT 4, 9102
     UNION ALL SELECT 4, 9201
+    UNION ALL SELECT 4, 9401
+    UNION ALL SELECT 4, 9402
+    UNION ALL SELECT 4, 9403
+    UNION ALL SELECT 4, 9601
   ) grants ON grants.`role_id` = existing.`role_id` AND grants.`menu_id` = existing.`menu_id`
   GROUP BY existing.`role_id`, existing.`menu_id`
 ) keep_row ON keep_row.`id` = rm.`id`
@@ -152,7 +184,7 @@ SELECT
 FROM `user` u
 JOIN `role_menu` rm ON rm.`role_id` = u.`role_id`
   AND rm.`is_deleted` = b'0'
-  AND rm.`menu_id` IN (6, 24, 7, 9102, 9201, 10, 25, 27, 28, 9301)
+  AND rm.`menu_id` IN (6, 24, 7, 9102, 9201, 10, 25, 27, 28, 9301, 9401, 9402, 9403, 9601)
 WHERE u.`is_deleted` = b'0'
   AND u.`status` = 1
   AND NOT EXISTS (
@@ -170,7 +202,7 @@ JOIN (
   JOIN `role_menu` rm ON rm.`role_id` = u.`role_id`
     AND rm.`menu_id` = existing.`menu_id`
     AND rm.`is_deleted` = b'0'
-  WHERE existing.`menu_id` IN (6, 24, 7, 9102, 9201, 10, 25, 27, 28, 9301)
+  WHERE existing.`menu_id` IN (6, 24, 7, 9102, 9201, 10, 25, 27, 28, 9301, 9401, 9402, 9403, 9601)
     AND u.`is_deleted` = b'0'
     AND u.`status` = 1
     AND COALESCE(u.`account_type`, '') = 'internal'
@@ -225,6 +257,7 @@ VALUES
   (1, 27),
   (1, 28),
   (1, 9301),
+  (1, 9601),
   (2, 6),
   (2, 24),
   (2, 7),
@@ -232,17 +265,29 @@ VALUES
   (2, 9201),
   (2, 25),
   (2, 9301),
+  (2, 9401),
+  (2, 9402),
+  (2, 9403),
+  (2, 9601),
   (3, 6),
   (3, 24),
   (3, 7),
   (3, 9102),
   (3, 9201),
   (3, 9301),
+  (3, 9401),
+  (3, 9402),
+  (3, 9403),
+  (3, 9601),
   (4, 6),
   (4, 24),
   (4, 7),
   (4, 9102),
-  (4, 9201);
+  (4, 9201),
+  (4, 9401),
+  (4, 9402),
+  (4, 9403),
+  (4, 9601);
 
 UPDATE `role_menu` rm
 LEFT JOIN tmp_supported_role_menu supported

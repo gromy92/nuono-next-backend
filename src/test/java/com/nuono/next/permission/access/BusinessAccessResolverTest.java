@@ -87,10 +87,14 @@ class BusinessAccessResolverTest {
         BusinessAccessContext siblingPrefix = BusinessAccessContext.builder()
                 .menuPaths(Set.of("/api/sku/manage-archive"))
                 .build();
+        BusinessAccessContext noonCall = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/noon-call/store-data"))
+                .build();
 
         assertThat(exact.hasCapability(BusinessCapability.PRODUCT_MASTER)).isTrue();
         assertThat(subPath.hasCapability(BusinessCapability.PRODUCT_MASTER)).isTrue();
         assertThat(siblingPrefix.hasCapability(BusinessCapability.PRODUCT_MASTER)).isFalse();
+        assertThat(noonCall.hasCapability(BusinessCapability.SYSTEM_REPORTS)).isTrue();
     }
 
     @Test
@@ -141,6 +145,79 @@ class BusinessAccessResolverTest {
         assertThatThrownBy(() -> guard.requireBusinessCapability(context, BusinessCapability.PRODUCT_MASTER))
                 .isInstanceOf(BusinessAccessDeniedException.class)
                 .hasMessageContaining("系统管理员不能操作店铺业务");
+    }
+
+    @Test
+    void guardAllowsSystemReportsForAnyAccountWithMenuCapability() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(346L)
+                .accountType(BusinessAccountType.SYSTEM_ADMIN)
+                .roleLevel(0)
+                .roleName("系统管理员")
+                .menuPaths(Set.of("/system-reports/store-data", "/api/noon-call/store-data"))
+                .storeCodes(Set.of())
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThat(guard.requireBusinessCapability(context, BusinessCapability.SYSTEM_REPORTS)).isSameAs(context);
+    }
+
+    @Test
+    void guardRejectsSystemAdminForSalesDataCapability() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(346L)
+                .accountType(BusinessAccountType.SYSTEM_ADMIN)
+                .roleLevel(0)
+                .roleName("系统管理员")
+                .menuPaths(Set.of("/data/sales-analysis"))
+                .storeCodes(Set.of("STR245027-SAU"))
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThatThrownBy(() -> guard.requireBusinessCapability(context, BusinessCapability.SALES_DATA))
+                .isInstanceOf(BusinessAccessDeniedException.class)
+                .hasMessageContaining("系统管理员不能操作店铺业务");
+    }
+
+    @Test
+    void guardAllowsOperatorSalesDataOnlyWithMenuAndStoreScope() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(357L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .roleLevel(3)
+                .roleName("运营")
+                .menuPaths(Set.of("/data/sales-analysis"))
+                .storeCodes(Set.of("STR245027-SAU"))
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThat(guard.requireBusinessCapability(context, BusinessCapability.SALES_DATA)).isSameAs(context);
+        assertThat(guard.requireStore(context, "STR245027-SAU")).isSameAs(context);
+        assertThatThrownBy(() -> guard.requireStore(context, "STR245027-NAE"))
+                .isInstanceOf(BusinessAccessDeniedException.class)
+                .hasMessageContaining("当前账号不能操作该店铺");
+    }
+
+    @Test
+    void guardAllowsSalesForecastEntryAsSalesDataCapability() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(357L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .roleLevel(3)
+                .roleName("运营")
+                .menuPaths(Set.of("/data/sales-forecast"))
+                .storeCodes(Set.of("STR245027-SAU"))
+                .build();
+
+        BusinessAccessGuard guard = new BusinessAccessGuard();
+
+        assertThat(guard.requireBusinessCapability(context, BusinessCapability.SALES_DATA)).isSameAs(context);
+        assertThat(guard.requireStore(context, "STR245027-SAU")).isSameAs(context);
     }
 
     @Test
@@ -264,6 +341,36 @@ class BusinessAccessResolverTest {
         BusinessAccessContext context = resolver.resolve(request);
 
         assertThat(context.getRoleLevel()).isEqualTo(3);
+        assertThat(context.getAccountType()).isEqualTo(BusinessAccountType.OPERATOR);
+    }
+
+    @Test
+    void resolverDoesNotPromoteLegacyUserLevelOrRoleNameToBossWithoutRoleLevel() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessUserAccessRow user = new BusinessUserAccessRow();
+        user.setUserId(307L);
+        user.setAccountType("internal");
+        user.setCreatedBy(307L);
+        user.setRoleId(2L);
+        user.setRoleName("老板");
+        user.setUserLevel(1);
+        user.setRoleLevel(null);
+        user.setStatus(1);
+
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(307L, 2L, 1));
+        when(accessMapper.selectUserAccess(307L)).thenReturn(user);
+        when(accessMapper.selectGrantedMenuPaths(307L)).thenReturn(List.of("/api/sku/manage"));
+        when(accessMapper.selectStoreScope(307L)).thenReturn(List.of(storeScope(307L, "STR-A")));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                accessMapper,
+                new BusinessAccessGuard()
+        );
+
+        BusinessAccessContext context = resolver.resolve(request);
+
+        assertThat(context.getRoleLevel()).isEqualTo(1);
         assertThat(context.getAccountType()).isEqualTo(BusinessAccountType.OPERATOR);
     }
 

@@ -52,6 +52,7 @@ public class ProductListSummaryView {
     private Long unitsSold;
     private String salesAmount;
     private String salesCurrency;
+    private Map<String, Object> lifecycleState;
     private Integer issueCount;
     private List<String> issueTags = new ArrayList<>();
     private Map<String, Object> lastPublishTask;
@@ -422,6 +423,14 @@ public class ProductListSummaryView {
 
     public void setSalesCurrency(String salesCurrency) {
         this.salesCurrency = salesCurrency;
+    }
+
+    public Map<String, Object> getLifecycleState() {
+        return lifecycleState;
+    }
+
+    public void setLifecycleState(Map<String, Object> lifecycleState) {
+        this.lifecycleState = lifecycleState;
     }
 
     public Integer getIssueCount() {

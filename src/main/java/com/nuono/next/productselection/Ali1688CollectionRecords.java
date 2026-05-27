@@ -115,4 +115,43 @@ public final class Ali1688CollectionRecords {
         public Long createdBy;
         public Long updatedBy;
     }
+
+    public static class PluginAssignmentRecord {
+        public Long id;
+        public Long taskId;
+        public Long sourceCollectionId;
+        public Long ownerUserId;
+        public Long logicalStoreId;
+        public String activeAssignmentKey;
+        public String assignmentCode;
+        public String assignmentCodeHash;
+        public String status;
+        public String expiresAt;
+        public String startedAt;
+        public String finishedAt;
+        public String failureCode;
+        public String failureMessage;
+        public String rawAssignmentSnapshotJson;
+        public String submissionIdempotencyKey;
+        public Integer submittedCandidateCount;
+        public Integer acceptedCandidateCount;
+        public Integer rejectedCandidateCount;
+        public Long createdBy;
+        public Long updatedBy;
+        public String createdAt;
+        public String taskCurrentTaskKey;
+        public String taskNo;
+        public String taskStatus;
+        public Integer taskCandidateCount;
+        public Integer taskRecommendedCount;
+        public String sourceImageUrl;
+        public String sourceCollectionNo;
+        public String sourcePlatform;
+        public String sourceTitle;
+        public String sourceTitleCn;
+        public String sourceUrl;
+        public String pageUrl;
+        public String storeName;
+        public String storeCode;
+    }
 }

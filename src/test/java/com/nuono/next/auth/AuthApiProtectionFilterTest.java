@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
@@ -41,6 +42,36 @@ class AuthApiProtectionFilterTest {
         AtomicBoolean called = new AtomicBoolean(false);
 
         filter.doFilter(request, response, chain(called));
+
+        assertTrue(called.get());
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    void shouldAllowPluginLoginEndpointWithoutSession() throws ServletException, IOException {
+        MockHttpServletRequest request = request("POST", "/api/plugin/auth/login");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean called = new AtomicBoolean(false);
+
+        filter.doFilter(request, response, chain(called));
+
+        assertTrue(called.get());
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    void shouldAlwaysAllowPluginLoginEndpointEvenWhenPublicPathsAreOverridden() throws ServletException, IOException {
+        AuthApiProtectionProperties properties = new AuthApiProtectionProperties();
+        properties.setPublicPaths(List.of("/api/auth/login"));
+        AuthApiProtectionFilter filterWithOverriddenPublicPaths = new AuthApiProtectionFilter(
+                sessionTokenService,
+                properties
+        );
+        MockHttpServletRequest request = request("POST", "/api/plugin/auth/login");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean called = new AtomicBoolean(false);
+
+        filterWithOverriddenPublicPaths.doFilter(request, response, chain(called));
 
         assertTrue(called.get());
         assertEquals(200, response.getStatus());

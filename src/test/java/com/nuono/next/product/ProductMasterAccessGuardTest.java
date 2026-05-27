@@ -85,4 +85,39 @@ class ProductMasterAccessGuardTest {
 
         assertEquals(10002L, ownerUserId);
     }
+
+    @Test
+    void shouldRejectPublishTaskWhenTaskStoreIsMissing() {
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64001L);
+        task.setOwnerUserId(10003L);
+        when(productManagementMapper.selectProductPublishTaskById(64001L)).thenReturn(task);
+
+        assertThrows(
+                ProductMasterAccessDeniedException.class,
+                () -> guard.resolvePublishTaskOwnerUserId(
+                        new AuthenticatedSession(10003L, 3L, 2),
+                        64001L,
+                        null
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectPublishTaskWhenTaskStoreIsNotAuthorizedEvenIfOwnerMatchesSession() {
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64001L);
+        task.setOwnerUserId(10003L);
+        task.setStoreCode("STR-LOCKED");
+        when(productManagementMapper.selectProductPublishTaskById(64001L)).thenReturn(task);
+
+        assertThrows(
+                ProductMasterAccessDeniedException.class,
+                () -> guard.resolvePublishTaskOwnerUserId(
+                        new AuthenticatedSession(10003L, 3L, 2),
+                        64001L,
+                        null
+                )
+        );
+    }
 }
