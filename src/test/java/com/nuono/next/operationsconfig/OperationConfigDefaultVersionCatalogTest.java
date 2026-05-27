@@ -1,6 +1,7 @@
 package com.nuono.next.operationsconfig;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -21,7 +22,8 @@ class OperationConfigDefaultVersionCatalogTest {
         assertEquals(OperationConfigVersionType.BUSINESS_CALENDAR.name(), calendar.getConfigType());
         assertEquals("日历版本", calendar.getConfigTypeLabel());
         assertEquals("SYSTEM_DEFAULT", calendar.getStatus());
-        assertEquals(13, calendar.getItemCount());
+        assertEquals(54, calendar.getItemCount());
+        assertEquals("54 条日历配置", calendar.getSummary());
         assertTrue(calendar.getActions().stream().anyMatch(action ->
                 "DETAIL".equals(action.getAction()) && action.isEnabled()
         ));
@@ -50,9 +52,24 @@ class OperationConfigDefaultVersionCatalogTest {
 
         assertEquals("DEFAULT_CALENDAR_CONFIG", calendar.getVersionNo());
         assertEquals(OperationConfigVersionType.BUSINESS_CALENDAR.name(), calendar.getConfigType());
-        assertEquals(13, calendar.getItems().size());
-        assertTrue(calendar.getItems().stream().anyMatch(item -> "斋月 (Ramadan)".equals(item.getItemName())));
-        assertTrue(calendar.getItems().stream().anyMatch(item -> "月度薪酬爆发系数".equals(item.getItemName())));
+        assertEquals(54, calendar.getItems().size());
+        assertTrue(calendar.getItems().stream().anyMatch(item ->
+                "斋月 (Ramadan)".equals(item.getItemName())
+                        && "2026-02-18 ~ 2026-03-18 / 0.85".equals(item.getDefaultValue())
+                        && "all_products".equals(item.getResultShape())
+        ));
+        assertTrue(calendar.getItems().stream().anyMatch(item ->
+                "开学季模式".equals(item.getItemName())
+                        && "2026-08-17 ~ 2026-09-07 / 1.35".equals(item.getDefaultValue())
+                        && "category:stationery-stationery".equals(item.getResultShape())
+        ));
+        assertTrue(calendar.getItems().stream().anyMatch(item ->
+                "夏季模式".equals(item.getItemName())
+                        && "2026-06-01 ~ 2026-08-31 / 1.25".equals(item.getDefaultValue())
+                        && "category:electronic_accessories-accessories".equals(item.getResultShape())
+        ));
+        assertFalse(calendar.getItems().stream().anyMatch(item -> "白色星期五".equals(item.getItemName())));
+        assertFalse(calendar.getItems().stream().anyMatch(item -> "月度薪酬爆发系数".equals(item.getItemName())));
 
         assertEquals("DEFAULT_LIFECYCLE_CONFIG", lifecycle.getVersionNo());
         assertEquals(OperationConfigVersionType.PRODUCT_LIFECYCLE.name(), lifecycle.getConfigType());
