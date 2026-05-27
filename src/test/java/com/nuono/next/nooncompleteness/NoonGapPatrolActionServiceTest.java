@@ -1,6 +1,7 @@
 package com.nuono.next.nooncompleteness;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -11,6 +12,7 @@ import com.nuono.next.noonpull.NoonPullFoundationService;
 import com.nuono.next.noonpull.NoonPullRepository;
 import com.nuono.next.noonpull.NoonPullTaskRecord;
 import com.nuono.next.noonpull.NoonPullTaskStatus;
+import com.nuono.next.noonpull.NoonPullTriggerMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -137,6 +139,34 @@ class NoonGapPatrolActionServiceTest {
             assertEquals(1, result.getPlannedTaskIds().size());
             assertEquals(result.getPlannedTaskIds().get(0), gap().getLinkedPullTaskId());
             assertEquals(1, pullRepository.tasks.size());
+        }
+    }
+
+    @Test
+    void syncCategoryUsesManualReportTriggersForClickedOrderData() {
+        completenessRepository.insertCompleteness(row(NoonDataCategory.SALES_ORDER));
+        completenessRepository.insertGapWindow(gap(910001L, NoonDataCategory.SALES_ORDER, NoonDataGapStatus.PENDING));
+        NoonDataGapWindowRecord historyGap = gap(910002L, NoonDataCategory.SALES_ORDER, NoonDataGapStatus.PENDING);
+        historyGap.setWindowType(NoonDataGapWindowType.HISTORY_BACKFILL);
+        historyGap.setDateFrom(LocalDate.parse("2026-04-25"));
+        historyGap.setDateTo(LocalDate.parse("2026-05-24"));
+        completenessRepository.insertGapWindow(historyGap);
+
+        NoonGapPatrolActionResult result = service.syncCategory(
+                307L,
+                "STR108065-NAE",
+                "AE",
+                NoonDataCategory.SALES_ORDER
+        );
+
+        assertEquals(2, result.getPlannedTaskCount());
+        List<NoonPullTaskRecord> tasks = pullRepository.listTasks();
+        assertEquals(NoonPullTriggerMode.MANUAL_REFRESH, tasks.get(0).getTriggerMode());
+        assertEquals("orders:2026-05-24..2026-05-24", tasks.get(0).getTargetIdentity());
+        assertEquals(NoonPullTriggerMode.MANUAL_BACKFILL, tasks.get(1).getTriggerMode());
+        assertEquals("orders:2026-04-25..2026-05-24", tasks.get(1).getTargetIdentity());
+        for (NoonDataGapWindowRecord gap : completenessRepository.listGapWindows(new NoonDataGapQuery())) {
+            assertNull(gap.getNextRetryAt());
         }
     }
 

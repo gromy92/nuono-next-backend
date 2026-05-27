@@ -70,6 +70,7 @@ public class NoonCallStoreDataService {
     ) {
         NoonCallStoreDataView.Row row = new NoonCallStoreDataView.Row();
         row.setOwnerUserId(key.ownerUserId);
+        row.setStoreName(storeName(records));
         row.setStoreCode(key.storeCode);
         row.setSiteCode(key.siteCode);
         List<NoonCallStoreDataView.CategoryCell> cells = new ArrayList<>();
@@ -90,6 +91,14 @@ public class NoonCallStoreDataService {
                 .orElse(null));
         row.setOverallMarker(overallMarker(cells));
         return row;
+    }
+
+    private String storeName(List<NoonDataCompletenessRecord> records) {
+        return records.stream()
+                .map(NoonDataCompletenessRecord::getStoreName)
+                .filter((value) -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(null);
     }
 
     private NoonCallStoreDataView.CategoryCell cell(

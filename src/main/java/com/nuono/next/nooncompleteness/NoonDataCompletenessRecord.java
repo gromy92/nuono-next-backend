@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 public class NoonDataCompletenessRecord {
     private Long id;
     private Long ownerUserId;
+    private String storeName;
     private String storeCode;
     private String siteCode;
     private NoonDataCategory category;
@@ -28,6 +29,7 @@ public class NoonDataCompletenessRecord {
         NoonDataCompletenessRecord copy = new NoonDataCompletenessRecord();
         copy.setId(id);
         copy.setOwnerUserId(ownerUserId);
+        copy.setStoreName(storeName);
         copy.setStoreCode(storeCode);
         copy.setSiteCode(siteCode);
         copy.setCategory(category);
@@ -52,6 +54,8 @@ public class NoonDataCompletenessRecord {
     public void setId(Long id) { this.id = id; }
     public Long getOwnerUserId() { return ownerUserId; }
     public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
+    public String getStoreName() { return storeName; }
+    public void setStoreName(String storeName) { this.storeName = storeName; }
     public String getStoreCode() { return storeCode; }
     public void setStoreCode(String storeCode) { this.storeCode = storeCode; }
     public String getSiteCode() { return siteCode; }
@@ -87,4 +91,3 @@ public class NoonDataCompletenessRecord {
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }
-
