@@ -2,6 +2,7 @@ package com.nuono.next.logisticsquote;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -23,7 +24,7 @@ class LogisticsQuoteServiceLineFactLandingTest {
                 40104L,
                 70024L,
                 88001L,
-                "et|SA|FBN|air|headhaul|RUH",
+                "et|SA|air|headhaul|RUH",
                 mapOf(
                         "forwarderCode", "et",
                         "forwarderName", "ET/易通",
@@ -51,9 +52,11 @@ class LogisticsQuoteServiceLineFactLandingTest {
         assertEquals(1, facts.size());
 
         LogisticsServiceLineFact fact = facts.get(0);
+        assertEquals("et|SA|air|headhaul|RUH", fact.getNaturalKey());
         assertEquals("et", fact.getForwarderCode());
         assertEquals("ET/易通", fact.getForwarderName());
         assertEquals("SA", fact.getCountry());
+        assertNull(fact.getFulfillmentMode());
         assertEquals("air", fact.getTransportMode());
         assertEquals("headhaul", fact.getServiceScope());
         assertEquals("沙特空运", fact.getChannelName());
@@ -83,7 +86,7 @@ class LogisticsQuoteServiceLineFactLandingTest {
                 40098L,
                 70023L,
                 88002L,
-                "yite|SA|FBN|air|headhaul|RUH",
+                "yite|SA|air|headhaul|RUH",
                 mapOf(
                         "forwarderCode", "yite",
                         "forwarderName", "义特物流",

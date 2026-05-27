@@ -62,14 +62,10 @@ final class FileParseLogisticsPayloadNormalizer {
             payload.put("forwarderName", normalizeForwarderName(forwarderCode, text(payload.get("forwarderName"))));
         }
         putIfText(payload, "country", normalizeCountry(text(payload.get("country"))));
-        putIfText(payload, "fulfillmentMode", normalizeFulfillmentMode(text(payload.get("fulfillmentMode"))));
-        if (!StringUtils.hasText(text(payload.get("fulfillmentMode")))) {
-            payload.put("fulfillmentMode", "FBN");
-        }
+        payload.remove("fulfillmentMode");
         putIfText(payload, "transportMode", normalizeTransportMode(text(payload.get("transportMode"))));
         putIfText(payload, "serviceScope", normalizeServiceScope(text(payload.get("serviceScope"))));
-        if ("FBN".equals(text(payload.get("fulfillmentMode")))
-                && !StringUtils.hasText(text(payload.get("serviceScope")))) {
+        if (!StringUtils.hasText(text(payload.get("serviceScope")))) {
             payload.put("serviceScope", "fbn_delivery");
         }
         putIfText(payload, "effectiveDate", normalizeDate(text(payload.get("effectiveDate"))));
@@ -274,14 +270,6 @@ final class FileParseLogisticsPayloadNormalizer {
             return "KSA";
         }
         return StringUtils.hasText(value) ? value.trim() : "";
-    }
-
-    private static String normalizeFulfillmentMode(String value) {
-        String upper = normalizeSpaces(value).toUpperCase(Locale.ROOT);
-        if (upper.contains("FBN")) {
-            return "FBN";
-        }
-        return upper;
     }
 
     private static String normalizeTransportMode(String value) {

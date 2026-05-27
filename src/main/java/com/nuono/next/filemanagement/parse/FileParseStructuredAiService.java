@@ -1475,7 +1475,6 @@ public class FileParseStructuredAiService {
     private void backfillServiceLinePayload(Map<String, Object> payload, String defaultForwarderCode, String context) {
         putIfMissing(payload, "forwarderCode", defaultForwarderCode);
         putIfMissing(payload, "country", inferCountry(context));
-        putIfMissing(payload, "fulfillmentMode", inferFulfillmentMode(context));
         putIfMissing(payload, "transportMode", inferTransportMode(context));
         putIfMissing(payload, "serviceScope", inferServiceScope(context));
         payload.putAll(FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.SERVICE_LINE, payload));
@@ -1607,7 +1606,6 @@ public class FileParseStructuredAiService {
         Map<String, Object> payload = new LinkedHashMap<>();
         putIfMissing(payload, "forwarderCode", defaultForwarderCode);
         putIfMissing(payload, "country", inferCountry(sourceText));
-        putIfMissing(payload, "fulfillmentMode", inferFulfillmentMode(sourceText));
         putIfMissing(payload, "transportMode", inferTransportMode(sourceText));
         putIfMissing(payload, "serviceScope", inferServiceScope(sourceText));
         payload.putAll(FileParseLogisticsPayloadNormalizer.normalize(FileParseLogisticsQuoteStandard.SERVICE_LINE, payload));
@@ -1670,14 +1668,6 @@ public class FileParseStructuredAiService {
         }
         if (lower.contains("uae") || lower.contains("emirates") || lower.contains("阿联酋") || lower.contains("dubai")) {
             return "UAE";
-        }
-        return "";
-    }
-
-    private String inferFulfillmentMode(String context) {
-        String lower = lowerText(context);
-        if (lower.contains("fbn") || lower.contains("仓到仓") || lower.contains("送仓")) {
-            return "FBN";
         }
         return "";
     }
@@ -2199,7 +2189,7 @@ public class FileParseStructuredAiService {
         return "\n物流报价特殊要求："
                 + "\n- 每条 logistics_* 的 payload 都必须尽量补齐 forwarderCode；易通写 et，义特写 yite。"
                 + "\n- 先抽取 logistics_service_line，再让分类、价格、附加费、计费规则、限制项复制同一条服务线的 serviceLineKey。"
-                + "\n- ET PDF 的中国到沙特/阿联酋仓到仓、FBN 送仓线路，serviceScope 使用 warehouse_to_fbn，fulfillmentMode 使用 FBN。"
+                + "\n- ET PDF 的中国到沙特/阿联酋仓到仓、FBN 送仓线路，serviceScope 使用 warehouse_to_fbn；当前不解析 FBP，也不要输出 fulfillmentMode。"
                 + "\n- ET 货物分类覆盖 A-G；A-G 类都要输出 categoryCode，不要只覆盖 A/B/C。"
                 + "\n- 价格行必须把 44 RMB/KG、92 RMB/KG 等拆成 unitPrice、currency=CNY、billingUnit=kg、pricingModel=per_weight。"
                 + "\n- 计费规则和限制项也必须带 forwarderCode 与 serviceLineKey，避免成为无法发布的孤立规则。";

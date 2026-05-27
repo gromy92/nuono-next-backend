@@ -45,8 +45,8 @@ INSERT INTO `file_mgmt_parse_item_standard` (
 )
 VALUES
     (3010, 2003, 'logistics_service_line', '物流服务线路',
-     '{"fields":["forwarderCode","country","fulfillmentMode","transportMode","serviceScope","destinationNode"]}',
-     '{"forwarderCode":"string","forwarderName":"string","country":"string","fulfillmentMode":"string","destinationNode":"string","transportMode":"string","serviceScope":"string","originWarehouse":"string","destinationWarehouse":"string","departureFrequency":"string","leadTimeText":"string","leadTimeMinDays":"integer","leadTimeMaxDays":"integer","effectiveDate":"date","sourceVersion":"string"}',
+     '{"fields":["forwarderCode","country","transportMode","serviceScope","destinationNode"]}',
+     '{"forwarderCode":"string","forwarderName":"string","country":"string","destinationNode":"string","transportMode":"string","serviceScope":"string","originWarehouse":"string","destinationWarehouse":"string","departureFrequency":"string","leadTimeText":"string","leadTimeMinDays":"integer","leadTimeMaxDays":"integer","effectiveDate":"date","sourceVersion":"string"}',
      '{"columns":["forwarderName","country","destinationNode","transportMode","serviceScope","originWarehouse","destinationWarehouse","departureFrequency","leadTimeText","effectiveDate"]}',
      '{"required":["forwarderCode","country","transportMode","serviceScope","destinationNode"]}',
      '{"compareFields":["forwarderName","country","destinationNode","transportMode","serviceScope","originWarehouse","destinationWarehouse","departureFrequency","leadTimeText","leadTimeMinDays","leadTimeMaxDays","effectiveDate","sourceVersion"]}',

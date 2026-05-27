@@ -18,9 +18,9 @@ class LogisticsQuoteFactLandingStateTest {
         StateAwareFactRepository repository = new StateAwareFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
         List<LogisticsQuotePublishedItem> batch = List.of(
-                serviceLineItem("yite|SA|FBN|air|headhaul|RUH", 88001L),
-                categoryItem("yite|SA|FBN|air|headhaul|RUH|general", 88002L),
-                priceItem("yite|SA|FBN|air|headhaul|RUH|general|kg|unit_price", 88003L, "64", "yite|SA|FBN|air|headhaul|RUH")
+                serviceLineItem("yite|SA|air|headhaul|RUH", 88001L),
+                categoryItem("yite|SA|air|headhaul|RUH|general", 88002L),
+                priceItem("yite|SA|air|headhaul|RUH|general|kg|unit_price", 88003L, "64", "yite|SA|air|headhaul|RUH")
         );
 
         LogisticsQuoteFactLandingResult first = publisher.land(batch);
@@ -30,27 +30,27 @@ class LogisticsQuoteFactLandingStateTest {
         assertEquals(0, first.getUnchangedCount());
         assertEquals(0, second.getInsertedCount());
         assertEquals(3, second.getUnchangedCount());
-        assertEquals(1, repository.activeServiceLinesByKey("yite|SA|FBN|air|headhaul|RUH").size());
-        assertEquals(1, repository.activeCategoriesByKey("yite|SA|FBN|air|headhaul|RUH|general").size());
-        assertEquals(1, repository.activePricesByKey("yite|SA|FBN|air|headhaul|RUH|general|kg|unit_price").size());
+        assertEquals(1, repository.activeServiceLinesByKey("yite|SA|air|headhaul|RUH").size());
+        assertEquals(1, repository.activeCategoriesByKey("yite|SA|air|headhaul|RUH|general").size());
+        assertEquals(1, repository.activePricesByKey("yite|SA|air|headhaul|RUH|general|kg|unit_price").size());
     }
 
     @Test
     void shouldSupersedeSameNaturalKeyWithoutTouchingOtherForwardersOrServiceLines() {
         StateAwareFactRepository repository = new StateAwareFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String yiteKey = "yite|SA|FBN|air|headhaul|RUH|general|kg|unit_price";
-        String etKey = "et|SA|FBN|air|headhaul|RUH|general|kg|unit_price";
-        String yiteSeaKey = "yite|SA|FBN|sea|headhaul|JED|general|kg|unit_price";
+        String yiteKey = "yite|SA|air|headhaul|RUH|general|kg|unit_price";
+        String etKey = "et|SA|air|headhaul|RUH|general|kg|unit_price";
+        String yiteSeaKey = "yite|SA|sea|headhaul|JED|general|kg|unit_price";
 
         publisher.land(List.of(
-                priceItem(yiteKey, 88010L, "64", "yite|SA|FBN|air|headhaul|RUH"),
-                priceItem(etKey, 88011L, "63", "et|SA|FBN|air|headhaul|RUH"),
-                priceItem(yiteSeaKey, 88012L, "28", "yite|SA|FBN|sea|headhaul|JED")
+                priceItem(yiteKey, 88010L, "64", "yite|SA|air|headhaul|RUH"),
+                priceItem(etKey, 88011L, "63", "et|SA|air|headhaul|RUH"),
+                priceItem(yiteSeaKey, 88012L, "28", "yite|SA|sea|headhaul|JED")
         ));
 
         LogisticsQuoteFactLandingResult update = publisher.land(List.of(
-                priceItem(yiteKey, 88020L, "61", "yite|SA|FBN|air|headhaul|RUH")
+                priceItem(yiteKey, 88020L, "61", "yite|SA|air|headhaul|RUH")
         ));
 
         assertEquals(1, update.getInsertedCount());
@@ -71,11 +71,11 @@ class LogisticsQuoteFactLandingStateTest {
     void shouldRecordConflictForIncompatibleSameNaturalKeyInOneLandingOperation() {
         StateAwareFactRepository repository = new StateAwareFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String naturalKey = "et|SA|FBN|air|headhaul|RUH|general|kg|unit_price";
+        String naturalKey = "et|SA|air|headhaul|RUH|general|kg|unit_price";
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(
-                priceItem(naturalKey, 88031L, "64", "et|SA|FBN|air|headhaul|RUH"),
-                priceItem(naturalKey, 88032L, "62", "et|SA|FBN|air|headhaul|RUH")
+                priceItem(naturalKey, 88031L, "64", "et|SA|air|headhaul|RUH"),
+                priceItem(naturalKey, 88032L, "62", "et|SA|air|headhaul|RUH")
         ));
 
         assertEquals(1, result.getInsertedCount());
@@ -90,15 +90,15 @@ class LogisticsQuoteFactLandingStateTest {
     void shouldSkipInvalidFactsBeforeChangingExistingActiveFacts() {
         StateAwareFactRepository repository = new StateAwareFactRepository();
         LogisticsQuoteFactPublisher publisher = new LogisticsQuoteFactPublisher(repository);
-        String naturalKey = "qike|SA|FBN|air|headhaul|RUH|general|kg|unit_price";
-        publisher.land(List.of(priceItem(naturalKey, 88041L, "63", "qike|SA|FBN|air|headhaul|RUH")));
+        String naturalKey = "qike|SA|air|headhaul|RUH|general|kg|unit_price";
+        publisher.land(List.of(priceItem(naturalKey, 88041L, "63", "qike|SA|air|headhaul|RUH")));
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(new LogisticsQuotePublishedItem(
                 "logistics_base_price",
                 naturalKey,
                 mapOf(
-                        "serviceLineKey", "qike|SA|FBN|air|headhaul|RUH",
-                        "cargoCategoryKey", "qike|SA|FBN|air|headhaul|RUH|general",
+                        "serviceLineKey", "qike|SA|air|headhaul|RUH",
+                        "cargoCategoryKey", "qike|SA|air|headhaul|RUH|general",
                         "unitPrice", "60",
                         "currency", "SAR",
                         "billingUnit", "kg",
@@ -120,7 +120,7 @@ class LogisticsQuoteFactLandingStateTest {
 
         LogisticsQuoteFactLandingResult result = publisher.land(List.of(new LogisticsQuotePublishedItem(
                 "logistics_service_line",
-                "missing-forwarder|SA|FBN|air|headhaul|RUH",
+                "missing-forwarder|SA|air|headhaul|RUH",
                 mapOf(
                         "country", "SA",
                         "fulfillmentMode", "FBN",
@@ -159,7 +159,7 @@ class LogisticsQuoteFactLandingStateTest {
                 naturalKey,
                 mapOf(
                         "forwarderCode", "yite",
-                        "serviceLineKey", "yite|SA|FBN|air|headhaul|RUH",
+                        "serviceLineKey", "yite|SA|air|headhaul|RUH",
                         "categoryCode", "general",
                         "categoryName", "普货"
                 ),

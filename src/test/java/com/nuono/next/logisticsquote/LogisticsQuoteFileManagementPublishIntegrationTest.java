@@ -127,16 +127,16 @@ class LogisticsQuoteFileManagementPublishIntegrationTest {
     }
 
     private static FileParseResultItemRow serviceLineItem() {
-        FileParseResultItemRow row = resultItem("logistics_service_line", "et|SA|FBN|air|headhaul|RUH", 1);
+        FileParseResultItemRow row = resultItem("logistics_service_line", "et|SA|air|headhaul|RUH", 1);
         row.setId(50101L);
         row.setEffectivePayloadJson("{\"forwarderCode\":\"et\",\"forwarderName\":\"ET/易通\",\"country\":\"SA\",\"fulfillmentMode\":\"FBN\",\"transportMode\":\"air\",\"serviceScope\":\"headhaul\",\"destinationNode\":\"RUH\"}");
         return row;
     }
 
     private static FileParseResultItemRow priceItem() {
-        FileParseResultItemRow row = resultItem("logistics_base_price", "et|SA|FBN|air|headhaul|RUH|general|kg|unit_price", 2);
+        FileParseResultItemRow row = resultItem("logistics_base_price", "et|SA|air|headhaul|RUH|general|kg|unit_price", 2);
         row.setId(50102L);
-        row.setEffectivePayloadJson("{\"forwarderCode\":\"et\",\"serviceLineKey\":\"et|SA|FBN|air|headhaul|RUH\",\"cargoCategoryKey\":\"et|SA|FBN|air|headhaul|RUH|general\",\"unitPrice\":\"64\",\"currency\":\"SAR\",\"billingUnit\":\"kg\",\"pricingModel\":\"unit_price\",\"priceStatus\":\"NORMAL\"}");
+        row.setEffectivePayloadJson("{\"forwarderCode\":\"et\",\"serviceLineKey\":\"et|SA|air|headhaul|RUH\",\"cargoCategoryKey\":\"et|SA|air|headhaul|RUH|general\",\"unitPrice\":\"64\",\"currency\":\"SAR\",\"billingUnit\":\"kg\",\"pricingModel\":\"unit_price\",\"priceStatus\":\"NORMAL\"}");
         return row;
     }
 
