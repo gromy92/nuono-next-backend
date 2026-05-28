@@ -6,10 +6,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
+@Profile("local-db")
 public class ProductVariantSpecService {
 
     private final ProductManagementMapper mapper;
