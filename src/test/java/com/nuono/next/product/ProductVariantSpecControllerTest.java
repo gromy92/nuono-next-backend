@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -17,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -38,6 +40,13 @@ class ProductVariantSpecControllerTest {
     @BeforeEach
     void setUp() {
         controller = new ProductVariantSpecController(serviceProvider, sessionTokenService, accessGuardProvider);
+    }
+
+    @Test
+    void shouldExposePlatformSpecRouteOutsideProductMasterDetailApi() {
+        RequestMapping mapping = ProductVariantSpecController.class.getAnnotation(RequestMapping.class);
+
+        assertArrayEquals(new String[]{"/api/product-variant-specs"}, mapping.value());
     }
 
     @Test

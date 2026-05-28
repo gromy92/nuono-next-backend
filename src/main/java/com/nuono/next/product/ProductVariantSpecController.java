@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
-@RequestMapping("/api/product-master/variant-specs")
+@RequestMapping("/api/product-variant-specs")
 public class ProductVariantSpecController {
 
     private final ObjectProvider<ProductVariantSpecService> serviceProvider;
