@@ -9,6 +9,8 @@ import com.nuono.next.product.ProductKeyContentHistoryRecord;
 import com.nuono.next.product.ProductMasterSnapshotRecord;
 import com.nuono.next.product.ProductListProjectionRecord;
 import com.nuono.next.product.ProductPublishTaskRecord;
+import com.nuono.next.product.ProductVariantSpecCommand;
+import com.nuono.next.product.ProductVariantSpecRecord;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -1500,6 +1502,123 @@ public interface ProductManagementMapper {
             @Param("productMasterId") Long productMasterId,
             @Param("partnerSku") String partnerSku
     );
+
+    default Long nextProductVariantSpecId() {
+        return nextProductManagementId("product_variant_spec", 99000L);
+    }
+
+    @Select({
+            "SELECT",
+            "  pvs.id AS spec_id,",
+            "  pv.id AS variant_id,",
+            "  pv.partner_sku,",
+            "  pv.child_sku,",
+            "  pv.size_en,",
+            "  pv.size_ar,",
+            "  pvs.product_length_cm,",
+            "  pvs.product_width_cm,",
+            "  pvs.product_height_cm,",
+            "  pvs.product_weight_g,",
+            "  pvs.carton_length_cm,",
+            "  pvs.carton_width_cm,",
+            "  pvs.carton_height_cm,",
+            "  pvs.carton_weight_kg,",
+            "  pvs.carton_quantity,",
+            "  pvs.battery_magnetic_type,",
+            "  pvs.liquid_powder_type,",
+            "  pvs.source_type,",
+            "  pvs.confirmed_at,",
+            "  pvs.confirmed_by",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.sku_parent = #{skuParent}",
+            " AND pm.is_deleted = 0",
+            "JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = 0",
+            "LEFT JOIN product_variant_spec pvs",
+            "  ON pvs.variant_id = pv.id",
+            " AND pvs.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "ORDER BY COALESCE(pv.variant_ix, 999999), pv.partner_sku"
+    })
+    List<ProductVariantSpecRecord> selectProductVariantSpecs(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "SELECT",
+            "  pv.id AS variant_id,",
+            "  pv.partner_sku,",
+            "  pv.child_sku,",
+            "  pv.size_en,",
+            "  pv.size_ar",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.sku_parent = #{skuParent}",
+            " AND pm.is_deleted = 0",
+            "JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.partner_sku = #{partnerSku}",
+            " AND pv.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "  AND (#{childSku} IS NULL OR #{childSku} = '' OR pv.child_sku = #{childSku})",
+            "LIMIT 1"
+    })
+    ProductVariantSpecRecord selectProductVariantForSpec(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent,
+            @Param("partnerSku") String partnerSku,
+            @Param("childSku") String childSku
+    );
+
+    @Insert({
+            "INSERT INTO product_variant_spec (",
+            "  id, variant_id, product_length_cm, product_width_cm, product_height_cm, product_weight_g,",
+            "  carton_length_cm, carton_width_cm, carton_height_cm, carton_weight_kg, carton_quantity,",
+            "  battery_magnetic_type, liquid_powder_type, source_type, confirmed_at, confirmed_by,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{variantId}, #{productLengthCm}, #{productWidthCm}, #{productHeightCm}, #{productWeightG},",
+            "  #{cartonLengthCm}, #{cartonWidthCm}, #{cartonHeightCm}, #{cartonWeightKg}, #{cartonQuantity},",
+            "  #{batteryMagneticType}, #{liquidPowderType}, 'manual', NOW(), #{operatorUserId},",
+            "  0, #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  product_length_cm = VALUES(product_length_cm),",
+            "  product_width_cm = VALUES(product_width_cm),",
+            "  product_height_cm = VALUES(product_height_cm),",
+            "  product_weight_g = VALUES(product_weight_g),",
+            "  carton_length_cm = VALUES(carton_length_cm),",
+            "  carton_width_cm = VALUES(carton_width_cm),",
+            "  carton_height_cm = VALUES(carton_height_cm),",
+            "  carton_weight_kg = VALUES(carton_weight_kg),",
+            "  carton_quantity = VALUES(carton_quantity),",
+            "  battery_magnetic_type = VALUES(battery_magnetic_type),",
+            "  liquid_powder_type = VALUES(liquid_powder_type),",
+            "  source_type = VALUES(source_type),",
+            "  confirmed_at = VALUES(confirmed_at),",
+            "  confirmed_by = VALUES(confirmed_by),",
+            "  is_deleted = 0,",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductVariantSpec(ProductVariantSpecCommand command);
 
     default Long nextProductBarcodeId() {
         return nextProductManagementId("product_barcode", 54000L);
