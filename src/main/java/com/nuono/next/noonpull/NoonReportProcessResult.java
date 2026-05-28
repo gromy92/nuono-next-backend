@@ -55,6 +55,10 @@ public class NoonReportProcessResult {
         return new NoonReportProcessResult(Code.MAPPING_FAILED, 0, exceptionCount);
     }
 
+    public static NoonReportProcessResult mappingFailed(int exceptionCount, String diagnosticMessage) {
+        return new NoonReportProcessResult(Code.MAPPING_FAILED, 0, exceptionCount, diagnosticMessage);
+    }
+
     public static NoonReportProcessResult partialSuccess(int importedCount, int exceptionCount) {
         return new NoonReportProcessResult(Code.PARTIAL_SUCCESS, importedCount, exceptionCount);
     }

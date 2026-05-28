@@ -85,6 +85,28 @@ class NoonReportPullerTest {
         assertEquals("timeout", repository.selectTask(timeoutTask.getId()).getFailureType());
     }
 
+    @Test
+    void shouldPersistMappingFailedDiagnosticFromReportHandler() {
+        NoonPullTaskRecord task = createSalesTask("sales:reused-latest-export");
+
+        NoonReportPullResult result = puller.execute(
+                task.getId(),
+                salesRequest(),
+                FakeReportProvider.ready("date,sku_parent,units_sold,sales_amount,currency\n2026-05-21,Z1,2,39.90,AED\n"),
+                (file) -> NoonReportProcessResult.mappingFailed(
+                        1,
+                        "provider_reused_latest_export: requested=2025-11-28..2025-12-27; actual=2026-05-19..2026-05-19"
+                )
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
+        assertEquals("mapping_failed", persisted.getFailureType());
+        assertTrue(persisted.getDiagnosticSummary().contains("provider_reused_latest_export"));
+        assertTrue(persisted.getDiagnosticSummary().contains("requested=2025-11-28..2025-12-27"));
+        assertTrue(persisted.getDiagnosticSummary().contains("actual=2026-05-19..2026-05-19"));
+    }
+
     private NoonReportPullRequest salesRequest() {
         return NoonReportPullRequest.builder()
                 .ownerUserId(307L)
