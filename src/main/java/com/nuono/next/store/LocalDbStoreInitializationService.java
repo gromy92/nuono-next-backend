@@ -135,11 +135,11 @@ public class LocalDbStoreInitializationService {
             return existingState.snapshot();
         }
 
-        String noonUser = resolveNoonUser(context.owner);
+        String noonUser = resolveNoonUser(context);
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
         String noonPassword = firstNonBlank(
                 normalize(command.getNoonPassword()),
-                normalize(context.owner.getNoonPartnerPwd())
+                resolveNoonPassword(context)
         );
         requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
 
@@ -166,11 +166,11 @@ public class LocalDbStoreInitializationService {
         }
 
         StoreContext context = resolveContext(command.getOwnerUserId(), storeCode);
-        String noonUser = resolveNoonUser(context.owner);
+        String noonUser = resolveNoonUser(context);
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
         String noonPassword = firstNonBlank(
                 normalize(command.getNoonPassword()),
-                normalize(context.owner.getNoonPartnerPwd())
+                resolveNoonPassword(context)
         );
         requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
 
@@ -184,7 +184,7 @@ public class LocalDbStoreInitializationService {
                     null,
                     noonUser,
                     noonPassword,
-                    context.owner.getNoonPartnerCookie(),
+                    resolveNoonCookie(context),
                     localProjectCode,
                     context.referenceStore.getStoreCode()
             );
@@ -232,7 +232,7 @@ public class LocalDbStoreInitializationService {
                     context.owner.getId(),
                     noonUser,
                     noonPassword,
-                    context.owner.getNoonPartnerCookie(),
+                    resolveNoonCookie(context),
                     localProjectCode,
                     context.referenceStore.getStoreCode()
             );
@@ -1588,11 +1588,33 @@ public class LocalDbStoreInitializationService {
                 || "canman".equalsIgnoreCase(projectName);
     }
 
-    private String resolveNoonUser(StoreSyncOwnerContext owner) {
-        if (StringUtils.hasText(owner.getNoonPartnerProjectUser())) {
-            return owner.getNoonPartnerProjectUser();
-        }
-        return owner.getNoonPartnerUser();
+    private String resolveNoonUser(StoreContext context) {
+        StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
+        StoreSyncOwnerContext owner = context == null ? null : context.owner;
+        return firstNonBlank(
+                referenceStore == null ? null : referenceStore.getNoonPartnerProjectUser(),
+                referenceStore == null ? null : referenceStore.getNoonPartnerUser(),
+                owner == null ? null : owner.getNoonPartnerProjectUser(),
+                owner == null ? null : owner.getNoonPartnerUser()
+        );
+    }
+
+    private String resolveNoonPassword(StoreContext context) {
+        StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
+        StoreSyncOwnerContext owner = context == null ? null : context.owner;
+        return firstNonBlank(
+                referenceStore == null ? null : referenceStore.getNoonPartnerPwd(),
+                owner == null ? null : owner.getNoonPartnerPwd()
+        );
+    }
+
+    private String resolveNoonCookie(StoreContext context) {
+        StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
+        StoreSyncOwnerContext owner = context == null ? null : context.owner;
+        return firstNonBlank(
+                referenceStore == null ? null : referenceStore.getNoonPartnerCookie(),
+                owner == null ? null : owner.getNoonPartnerCookie()
+        );
     }
 
     private String resolveImageUrl(String rawImagePath) {
