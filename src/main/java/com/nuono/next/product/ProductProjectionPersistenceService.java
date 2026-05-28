@@ -1517,6 +1517,8 @@ public class ProductProjectionPersistenceService {
         view.setIsActive(record.getCurrentSiteActiveFlag() == null ? null : record.getCurrentSiteActiveFlag() > 0);
         view.setLiveStatus(firstNonBlank(record.getCurrentSiteLiveStatus(), firstListItem(record.liveStatuses())));
         view.setStatusCode(record.getCurrentSiteStatusCode());
+        view.setListingStartedAt(record.getListingStartedAt());
+        view.setListingStartedSource(record.getListingStartedSource());
         view.setSyncStatus(record.getSyncStatus());
         view.setLastSyncedAt(record.getLastSyncedAt());
         view.setLastDraftSavedAt(record.getLastDraftSavedAt());
@@ -1863,6 +1865,11 @@ public class ProductProjectionPersistenceService {
                 asBigDecimal(siteOffer.get("salesAmount")),
                 normalize(text(siteOffer.get("salesCurrency"))),
                 parseDateTime(lastSyncedAt),
+                updatedBy
+        );
+        productManagementMapper.backfillProductSiteOfferListingStartedAtById(
+                id,
+                LocalDateTime.now(),
                 updatedBy
         );
     }

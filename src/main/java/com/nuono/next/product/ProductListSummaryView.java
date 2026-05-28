@@ -31,6 +31,8 @@ public class ProductListSummaryView {
     private Boolean isActive;
     private String liveStatus;
     private String statusCode;
+    private String listingStartedAt;
+    private String listingStartedSource;
     private String syncStatus;
     private String lastSyncedAt;
     private String lastDraftSavedAt;
@@ -254,6 +256,22 @@ public class ProductListSummaryView {
 
     public void setStatusCode(String statusCode) {
         this.statusCode = statusCode;
+    }
+
+    public String getListingStartedAt() {
+        return listingStartedAt;
+    }
+
+    public void setListingStartedAt(String listingStartedAt) {
+        this.listingStartedAt = listingStartedAt;
+    }
+
+    public String getListingStartedSource() {
+        return listingStartedSource;
+    }
+
+    public void setListingStartedSource(String listingStartedSource) {
+        this.listingStartedSource = listingStartedSource;
     }
 
     public String getSyncStatus() {

@@ -66,6 +66,8 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         record.setCurrentSiteActiveFlag(1);
         record.setCurrentSiteLiveStatus("LIVE");
         record.setCurrentSiteStatusCode("LIVE");
+        record.setListingStartedAt("2026-05-10 00:00:00");
+        record.setListingStartedSource("pv");
         record.setSyncStatus("draft");
         record.setLastSyncedAt("2026-04-27 12:30:00");
         record.setDetailBaselineStatus("ready");
@@ -97,6 +99,8 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("139.00", summary.getReferencePrice());
         assertEquals(Boolean.TRUE, summary.getIsActive());
         assertEquals("LIVE", summary.getLiveStatus());
+        assertEquals("2026-05-10 00:00:00", summary.getListingStartedAt());
+        assertEquals("pv", summary.getListingStartedSource());
         assertEquals(List.of("AE"), summary.getSiteLabels());
         assertEquals(List.of("LIVE"), summary.getLiveStatuses());
     }

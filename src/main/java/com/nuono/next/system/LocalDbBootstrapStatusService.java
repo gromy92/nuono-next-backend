@@ -87,7 +87,8 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/055_file_management_logistics_output_structure.sql",
                 "classpath:db/init/065_unified_logistics_quote_facts.sql",
                 "classpath:db/init/067_official_fbn_outbound_fee_facts.sql",
-                "classpath:db/init/068_noon_call_store_data_system_reports_path.sql"
+                "classpath:db/init/068_noon_call_store_data_system_reports_path.sql",
+                "classpath:db/init/074_product_site_offer_listing_started_at.sql"
             ));
         return payload;
     }

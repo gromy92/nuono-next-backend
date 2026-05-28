@@ -37,6 +37,8 @@ public class ProductListProjectionRecord {
     private Integer currentSiteActiveFlag;
     private String currentSiteLiveStatus;
     private String currentSiteStatusCode;
+    private String listingStartedAt;
+    private String listingStartedSource;
     private String syncStatus;
     private String lastSyncedAt;
     private String lastDraftSavedAt;
@@ -297,6 +299,22 @@ public class ProductListProjectionRecord {
 
     public void setCurrentSiteStatusCode(String currentSiteStatusCode) {
         this.currentSiteStatusCode = currentSiteStatusCode;
+    }
+
+    public String getListingStartedAt() {
+        return listingStartedAt;
+    }
+
+    public void setListingStartedAt(String listingStartedAt) {
+        this.listingStartedAt = listingStartedAt;
+    }
+
+    public String getListingStartedSource() {
+        return listingStartedSource;
+    }
+
+    public void setListingStartedSource(String listingStartedSource) {
+        this.listingStartedSource = listingStartedSource;
     }
 
     public String getSyncStatus() {
