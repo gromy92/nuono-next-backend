@@ -23,4 +23,33 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("locked_by = #{expectedLockedBy}"));
         assertTrue(sql.contains("version_no = #{expectedVersionNo}"));
     }
+
+    @Test
+    void listingStartedInitialBackfillShouldOnlyRunForUncalculatedOffersAndMarkMissingFacts() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "backfillProductSiteOfferListingStartedAtById".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("pso.listing_started_at IS NULL"));
+        assertTrue(sql.contains("pso.listing_started_source IS NULL"));
+        assertTrue(sql.contains("'data_missing'"));
+        assertTrue(sql.contains("COUNT(1)"));
+    }
+
+    @Test
+    void listingStartedSalesFactRefreshShouldOnlyRunForUncalculatedOffers() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "refreshProductSiteOfferListingStartedAtBySalesFact".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("pso.listing_started_at IS NULL"));
+        assertTrue(sql.contains("pso.listing_started_source IS NULL"));
+        assertTrue(sql.contains("'data_missing'"));
+    }
 }

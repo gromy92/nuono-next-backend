@@ -1,5 +1,5 @@
 -- Product information listing-started timestamp stored at site offer grain.
--- Priority: earliest PV, earliest observed inventory, earliest sales, otherwise not listed.
+-- Priority: missing PV/sales facts, earliest PV, earliest observed inventory, earliest sales, otherwise not listed.
 
 SET @product_site_offer_add_listing_started_at := (
     SELECT IF(
@@ -63,6 +63,22 @@ JOIN logical_store ls
   ON ls.id = lss.logical_store_id
  AND ls.is_deleted = 0
 LEFT JOIN (
+    SELECT owner_user_id, store_code, site_code, product_key, COUNT(1) AS fact_row_count
+    FROM (
+        SELECT owner_user_id, store_code, site_code, NULLIF(partner_sku, '') AS product_key
+        FROM daily_sales_fact
+        UNION ALL
+        SELECT owner_user_id, store_code, site_code, NULLIF(sku, '') AS product_key
+        FROM daily_sales_fact
+    ) fact_source
+    WHERE product_key IS NOT NULL
+    GROUP BY owner_user_id, store_code, site_code, product_key
+) factf
+  ON factf.owner_user_id = ls.owner_user_id
+ AND factf.store_code = lss.store_code
+ AND factf.site_code = lss.site
+ AND factf.product_key IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))
+LEFT JOIN (
     SELECT owner_user_id, store_code, site_code, product_key, MIN(fact_date) AS first_pv_date
     FROM (
         SELECT owner_user_id, store_code, site_code, NULLIF(partner_sku, '') AS product_key, fact_date
@@ -99,12 +115,14 @@ LEFT JOIN (
  AND sf.site_code = lss.site
  AND sf.product_key IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))
 SET pso.listing_started_at = CASE
+      WHEN COALESCE(factf.fact_row_count, 0) = 0 THEN NULL
       WHEN pvf.first_pv_date IS NOT NULL THEN CAST(pvf.first_pv_date AS DATETIME)
       WHEN COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0) + COALESCE(pso.fbp_stock, 0) > 0 THEN NOW()
       WHEN sf.first_sales_date IS NOT NULL THEN CAST(sf.first_sales_date AS DATETIME)
       ELSE NULL
     END,
     pso.listing_started_source = CASE
+      WHEN COALESCE(factf.fact_row_count, 0) = 0 THEN 'data_missing'
       WHEN pvf.first_pv_date IS NOT NULL THEN 'pv'
       WHEN COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0) + COALESCE(pso.fbp_stock, 0) > 0 THEN 'inventory'
       WHEN sf.first_sales_date IS NOT NULL THEN 'sales'
@@ -112,4 +130,5 @@ SET pso.listing_started_at = CASE
     END,
     pso.gmt_updated = NOW()
 WHERE pso.is_deleted = 0
-  AND pso.listing_started_at IS NULL;
+  AND pso.listing_started_at IS NULL
+  AND pso.listing_started_source IS NULL;

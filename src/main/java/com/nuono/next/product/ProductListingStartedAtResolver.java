@@ -4,7 +4,10 @@ public class ProductListingStartedAtResolver {
 
     public ProductListingStartedAtResolution resolve(ProductListingStartedAtSignals signals) {
         if (signals == null) {
-            return new ProductListingStartedAtResolution(null, "not_listed");
+            return new ProductListingStartedAtResolution(null, "data_missing");
+        }
+        if (!signals.isSalesFactDataAvailable()) {
+            return new ProductListingStartedAtResolution(null, "data_missing");
         }
         if (signals.getFirstPvDate() != null) {
             return new ProductListingStartedAtResolution(signals.getFirstPvDate().atStartOfDay(), "pv");
