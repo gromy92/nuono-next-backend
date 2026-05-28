@@ -886,34 +886,101 @@ public class NoonSessionGateway {
         }
 
         private JsonNode executeWithRefresh(SessionCall sessionCall) {
-            boolean refreshed = false;
+            boolean authRefreshed = false;
+            boolean transportRefreshed = false;
             while (true) {
                 try {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
-                    if (refreshed) {
+                    if (authRefreshed) {
                         throw exception;
                     }
                     state = getOrCreateState(null, noonUser, noonPassword, null, projectCode, storeCode, true);
-                    refreshed = true;
+                    authRefreshed = true;
+                } catch (IllegalStateException exception) {
+                    if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
+                        state = getOrCreateState(
+                                null,
+                                noonUser,
+                                noonPassword,
+                                state.exportAuthCookieHeader(),
+                                projectCode,
+                                storeCode,
+                                true
+                        );
+                        transportRefreshed = true;
+                        continue;
+                    }
+                    throw exception;
                 }
             }
         }
 
         private String executeTextWithRefresh(TextSessionCall sessionCall) {
-            boolean refreshed = false;
+            boolean authRefreshed = false;
+            boolean transportRefreshed = false;
             while (true) {
                 try {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
-                    if (refreshed) {
+                    if (authRefreshed) {
                         throw exception;
                     }
                     state = getOrCreateState(null, noonUser, noonPassword, null, projectCode, storeCode, true);
-                    refreshed = true;
+                    authRefreshed = true;
+                } catch (IllegalStateException exception) {
+                    if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
+                        state = getOrCreateState(
+                                null,
+                                noonUser,
+                                noonPassword,
+                                state.exportAuthCookieHeader(),
+                                projectCode,
+                                storeCode,
+                                true
+                        );
+                        transportRefreshed = true;
+                        continue;
+                    }
+                    throw exception;
                 }
             }
         }
+    }
+
+    private boolean shouldRefreshAfterTransientTransportFailure(IllegalStateException exception) {
+        if (!proxyEnabled || exception == null) {
+            return false;
+        }
+        String message = throwableMessage(exception).toLowerCase(Locale.ROOT);
+        return message.contains("http/1.1 header parser received no bytes")
+                || message.contains("connection reset")
+                || message.contains("connection refused")
+                || message.contains("connect timed out")
+                || message.contains("request timed out")
+                || message.contains("read timed out")
+                || message.contains("unexpected end")
+                || message.contains("closed")
+                || message.contains("http 407")
+                || message.contains("http 408")
+                || message.contains("http 502")
+                || message.contains("http 503")
+                || message.contains("http 504");
+    }
+
+    private String throwableMessage(Throwable throwable) {
+        StringBuilder builder = new StringBuilder();
+        Throwable current = throwable;
+        while (current != null) {
+            if (StringUtils.hasText(current.getMessage())) {
+                if (builder.length() > 0) {
+                    builder.append(" | ");
+                }
+                builder.append(current.getMessage());
+            }
+            current = current.getCause();
+        }
+        return builder.toString();
     }
 
     public final class RequestCountScope implements AutoCloseable {
