@@ -87,7 +87,14 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/055_file_management_logistics_output_structure.sql",
                 "classpath:db/init/065_unified_logistics_quote_facts.sql",
                 "classpath:db/init/067_official_fbn_outbound_fee_facts.sql",
-                "classpath:db/init/068_noon_call_store_data_system_reports_path.sql"
+                "classpath:db/init/068_noon_call_store_data_system_reports_path.sql",
+                "classpath:db/init/071_procurement_ali1688_historical_order_sync.sql",
+                "classpath:db/init/072_procurement_ali1688_historical_order_excel_import.sql",
+                "classpath:db/init/073_procurement_ali1688_order_assignment.sql",
+                "classpath:db/init/074_procurement_ali1688_order_cleanup_audit.sql",
+                "classpath:db/init/075_procurement_ali1688_order_consumable_assignment.sql",
+                "classpath:db/init/076_procurement_ali1688_order_product_link.sql",
+                "classpath:db/init/077_procurement_ali1688_order_product_link_audit.sql"
             ));
         return payload;
     }
