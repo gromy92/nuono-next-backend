@@ -1,0 +1,503 @@
+package com.nuono.next.intransit;
+
+import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
+import com.nuono.next.intransit.InTransitBatchCommands.DeleteLineCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
+import com.nuono.next.intransit.InTransitBatchRecords.BatchAggregateRow;
+import com.nuono.next.intransit.InTransitBatchRecords.BatchLatestNodeRow;
+import com.nuono.next.intransit.InTransitBatchRecords.BatchListView;
+import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
+import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
+import com.nuono.next.intransit.InTransitBatchRecords.LineListView;
+import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
+import com.nuono.next.intransit.InTransitBatchRecords.LineView;
+import com.nuono.next.intransit.InTransitBatchRecords.NodeListView;
+import com.nuono.next.intransit.InTransitBatchRecords.NodeRow;
+import com.nuono.next.intransit.InTransitBatchRecords.NodeView;
+import com.nuono.next.intransit.InTransitBatchRecords.PackageRow;
+import com.nuono.next.intransit.InTransitForwarderCommands.ResolveForwarderCommand;
+import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderResolveView;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+@Service
+public class InTransitBatchService {
+
+    private final InTransitGoodsMapper mapper;
+    private final InTransitForwarderService forwarderService;
+    private final InTransitOperationAuditService auditService;
+
+    public InTransitBatchService(
+            InTransitGoodsMapper mapper,
+            InTransitForwarderService forwarderService,
+            InTransitOperationAuditService auditService
+    ) {
+        this.mapper = mapper;
+        this.forwarderService = forwarderService;
+        this.auditService = auditService;
+    }
+
+    public BatchListView listBatches(InTransitBatchQuery query) {
+        InTransitBatchQuery resolved = query == null ? new InTransitBatchQuery() : query;
+        requireOwnerUserId(resolved.getOwnerUserId());
+        if (StringUtils.hasText(resolved.getTransportMode())) {
+            resolved.setTransportMode(InTransitTransportMode.require(resolved.getTransportMode()).code());
+        }
+        if (StringUtils.hasText(resolved.getBatchStatus())) {
+            resolved.setBatchStatus(InTransitBatchStatus.require(resolved.getBatchStatus()).code());
+        }
+        if (resolved.getLimit() == null || resolved.getLimit() <= 0 || resolved.getLimit() > 200) {
+            resolved.setLimit(100);
+        }
+        BatchListView view = new BatchListView();
+        view.setItems(mapper.listBatches(resolved).stream()
+                .map(BatchView::from)
+                .collect(Collectors.toList()));
+        return view;
+    }
+
+    public BatchView getBatch(Long ownerUserId, Long batchId) {
+        requireOwnerUserId(ownerUserId);
+        if (batchId == null || batchId <= 0) {
+            throw new IllegalArgumentException("在途批次不存在。");
+        }
+        BatchRow row = mapper.selectBatchById(ownerUserId, batchId);
+        if (row == null) {
+            throw new IllegalArgumentException("在途批次不存在。");
+        }
+        return BatchView.from(row);
+    }
+
+    public BatchView saveBatch(SaveBatchCommand command) {
+        SaveBatchCommand resolved = command == null ? new SaveBatchCommand() : command;
+        Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
+        Long operatorUserId = resolved.getOperatorUserId();
+        String batchStatus = StringUtils.hasText(resolved.getBatchStatus())
+                ? InTransitBatchStatus.require(resolved.getBatchStatus()).code()
+                : InTransitBatchStatus.DRAFT.code();
+        String transportMode = StringUtils.hasText(resolved.getTransportMode())
+                ? InTransitTransportMode.require(resolved.getTransportMode()).code()
+                : null;
+        ForwarderResolveView forwarder = resolveForwarder(ownerUserId, resolved);
+        List<String> missingFields = missingFields(resolved, forwarder, transportMode);
+        if (!InTransitBatchStatus.DRAFT.code().equals(batchStatus) && !missingFields.isEmpty()) {
+            throw new IllegalStateException("在途批次进入跟踪前需补齐：" + String.join(",", missingFields) + "。");
+        }
+
+        BatchRow row = new BatchRow();
+        row.setId(resolved.getBatchId() == null ? mapper.nextBatchId() : resolved.getBatchId());
+        row.setOwnerUserId(ownerUserId);
+        row.setStandardForwarderId(forwarder == null ? resolved.getStandardForwarderId() : forwarder.getStandardForwarderId());
+        row.setStandardForwarderCode(forwarder == null ? null : forwarder.getStandardForwarderCode());
+        row.setStandardForwarderName(forwarder == null ? null : forwarder.getStandardForwarderName());
+        row.setRawForwarderName(StringUtils.hasText(resolved.getRawForwarderName()) ? resolved.getRawForwarderName().trim() : null);
+        row.setNormalizedRawForwarderName(forwarder == null ? null : forwarder.getNormalizedRawForwarderName());
+        row.setForwarderQualityStatus(forwarderQualityStatus(forwarder, resolved));
+        row.setTransportMode(transportMode);
+        row.setBatchStatus(batchStatus);
+        row.setTargetStoreCode(clean(resolved.getTargetStoreCode()));
+        row.setTargetSiteCode(clean(resolved.getTargetSiteCode()));
+        row.setTargetWarehouseName(clean(resolved.getTargetWarehouseName()));
+        row.setDepartureDate(resolved.getDepartureDate());
+        row.setEtaDate(resolved.getEtaDate());
+        row.setTrackingNo(clean(resolved.getTrackingNo()));
+        row.setContainerNo(clean(resolved.getContainerNo()));
+        row.setBatchReferenceNo(clean(resolved.getBatchReferenceNo()));
+        row.setRemark(clean(resolved.getRemark()));
+        row.setMissingFieldsJson(InTransitBatchRecords.toMissingFieldsJson(missingFields));
+        row.setCreatedBy(operatorUserId);
+        row.setUpdatedBy(operatorUserId);
+        boolean created = resolved.getBatchId() == null;
+        if (created) {
+            mapper.insertBatch(row);
+        } else {
+            mapper.updateBatch(row);
+        }
+        audit(
+                ownerUserId,
+                operatorUserId,
+                created ? "batch_created" : "batch_updated",
+                "batch",
+                row.getId(),
+                row.getId(),
+                row.getTargetStoreCode(),
+                row.getTargetSiteCode(),
+                created ? "在途批次已创建。" : "在途批次已更新。",
+                detail("batchStatus", row.getBatchStatus(), "transportMode", row.getTransportMode())
+        );
+        return getBatch(ownerUserId, row.getId());
+    }
+
+    public LineListView listLines(Long ownerUserId, Long batchId) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        requireBatch(resolvedOwnerUserId, batchId);
+        LineListView view = new LineListView();
+        view.setItems(mapper.listLines(resolvedOwnerUserId, batchId).stream()
+                .map(LineView::from)
+                .collect(Collectors.toList()));
+        return view;
+    }
+
+    public LineView saveLine(SaveLineCommand command) {
+        SaveLineCommand resolved = command == null ? new SaveLineCommand() : command;
+        Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
+        Long batchId = requirePositiveId(resolved.getBatchId(), "在途批次不存在。");
+        Long operatorUserId = resolved.getOperatorUserId();
+        BatchRow batch = requireBatch(ownerUserId, batchId);
+        if (resolved.getLineId() != null) {
+            requireLine(ownerUserId, batchId, resolved.getLineId());
+        }
+        if (!StringUtils.hasText(resolved.getSku())) {
+            throw new IllegalArgumentException("SKU不能为空。");
+        }
+
+        Integer shippedQuantity = nonNegativeOrZero(resolved.getShippedQuantity(), "发货数量不能为负数。");
+        Integer receivedQuantity = nonNegativeOrZero(resolved.getReceivedQuantity(), "已入仓数量不能为负数。");
+        if (receivedQuantity > shippedQuantity) {
+            throw new IllegalStateException("已入仓数量不能大于发货数量。");
+        }
+        assertNonNegative(resolved.getCartonCount(), "箱数不能为负数。");
+        assertNonNegative(resolved.getUnitsPerCarton(), "单箱数量不能为负数。");
+        assertNonNegative(resolved.getCartonWeightKg(), "单箱重量不能为负数。");
+        assertNonNegative(resolved.getCartonVolumeCbm(), "单箱体积不能为负数。");
+        PackageRow packageRow = resolvePackage(ownerUserId, batchId, clean(resolved.getBoxNo()), operatorUserId);
+
+        LineRow row = new LineRow();
+        row.setId(resolved.getLineId() == null ? mapper.nextLineId() : resolved.getLineId());
+        row.setOwnerUserId(ownerUserId);
+        row.setBatchId(batchId);
+        row.setPackageId(packageRow == null ? null : packageRow.getId());
+        row.setBoxNo(packageRow == null ? null : packageRow.getBoxNo());
+        row.setSku(clean(resolved.getSku()));
+        row.setMsku(clean(resolved.getMsku()));
+        row.setPsku(clean(resolved.getPsku()));
+        row.setProductName(clean(resolved.getProductName()));
+        row.setStoreCode(clean(resolved.getStoreCode()));
+        row.setSiteCode(clean(resolved.getSiteCode()));
+        row.setShippedQuantity(shippedQuantity);
+        row.setReceivedQuantity(receivedQuantity);
+        row.setRemainingQuantity(shippedQuantity - receivedQuantity);
+        row.setCartonCount(resolved.getCartonCount());
+        row.setUnitsPerCarton(resolved.getUnitsPerCarton());
+        row.setCartonWeightKg(resolved.getCartonWeightKg());
+        row.setCartonVolumeCbm(resolved.getCartonVolumeCbm());
+        row.setRemark(clean(resolved.getRemark()));
+        row.setCreatedBy(operatorUserId);
+        row.setUpdatedBy(operatorUserId);
+
+        boolean created = resolved.getLineId() == null;
+        if (created) {
+            mapper.insertLine(row);
+        } else {
+            mapper.updateLine(row);
+        }
+        refreshBatchAggregate(ownerUserId, batchId);
+        audit(
+                ownerUserId,
+                operatorUserId,
+                created ? "line_created" : "line_updated",
+                "line",
+                row.getId(),
+                batchId,
+                firstText(row.getStoreCode(), batch.getTargetStoreCode()),
+                firstText(row.getSiteCode(), batch.getTargetSiteCode()),
+                created ? "在途商品明细已创建。" : "在途商品明细已更新。",
+                detail("sku", row.getSku(), "boxNo", row.getBoxNo(), "shippedQuantity", row.getShippedQuantity(), "receivedQuantity", row.getReceivedQuantity())
+        );
+        return LineView.from(requireLine(ownerUserId, batchId, row.getId()));
+    }
+
+    public LineListView deleteLine(DeleteLineCommand command) {
+        DeleteLineCommand resolved = command == null ? new DeleteLineCommand() : command;
+        Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
+        Long batchId = requirePositiveId(resolved.getBatchId(), "在途批次不存在。");
+        Long lineId = requirePositiveId(resolved.getLineId(), "在途商品明细不存在。");
+        BatchRow batch = requireBatch(ownerUserId, batchId);
+        LineRow line = requireLine(ownerUserId, batchId, lineId);
+        mapper.deleteLine(ownerUserId, batchId, lineId, resolved.getOperatorUserId());
+        refreshBatchAggregate(ownerUserId, batchId);
+        audit(
+                ownerUserId,
+                resolved.getOperatorUserId(),
+                "line_deleted",
+                "line",
+                lineId,
+                batchId,
+                firstText(line.getStoreCode(), batch.getTargetStoreCode()),
+                firstText(line.getSiteCode(), batch.getTargetSiteCode()),
+                "在途商品明细已删除。",
+                detail("sku", line.getSku())
+        );
+        return listLines(ownerUserId, batchId);
+    }
+
+    public NodeListView listNodes(Long ownerUserId, Long batchId) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        requireBatch(resolvedOwnerUserId, batchId);
+        NodeListView view = new NodeListView();
+        view.setItems(mapper.listNodes(resolvedOwnerUserId, batchId).stream()
+                .map(NodeView::from)
+                .collect(Collectors.toList()));
+        return view;
+    }
+
+    public NodeView saveNode(SaveNodeCommand command) {
+        SaveNodeCommand resolved = command == null ? new SaveNodeCommand() : command;
+        Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
+        Long batchId = requirePositiveId(resolved.getBatchId(), "在途批次不存在。");
+        Long operatorUserId = resolved.getOperatorUserId();
+        BatchRow batch = requireBatch(ownerUserId, batchId);
+        String nodeStatus = InTransitNodeStatus.require(resolved.getNodeStatus()).code();
+        LocalDateTime nodeHappenedAt = resolved.getNodeHappenedAt() == null
+                ? LocalDateTime.now()
+                : resolved.getNodeHappenedAt();
+
+        NodeRow row = new NodeRow();
+        row.setId(mapper.nextNodeId());
+        row.setOwnerUserId(ownerUserId);
+        row.setBatchId(batchId);
+        row.setNodeStatus(nodeStatus);
+        row.setNodeHappenedAt(nodeHappenedAt);
+        row.setDescription(clean(resolved.getDescription()));
+        row.setOperatorName(clean(resolved.getOperatorName()));
+        row.setCreatedBy(operatorUserId);
+        row.setUpdatedBy(operatorUserId);
+
+        mapper.insertNode(row);
+        refreshBatchLatestNode(ownerUserId, batchId);
+        audit(
+                ownerUserId,
+                operatorUserId,
+                "logistics_node_added",
+                "logistics_node",
+                row.getId(),
+                batchId,
+                batch.getTargetStoreCode(),
+                batch.getTargetSiteCode(),
+                "物流节点已追加。",
+                detail("nodeStatus", row.getNodeStatus(), "nodeHappenedAt", row.getNodeHappenedAt())
+        );
+        return NodeView.from(requireNode(ownerUserId, batchId, row.getId()));
+    }
+
+    private ForwarderResolveView resolveForwarder(Long ownerUserId, SaveBatchCommand command) {
+        if (command.getStandardForwarderId() != null && command.getStandardForwarderId() > 0) {
+            ForwarderResolveView view = new ForwarderResolveView();
+            view.setQualityStatus(InTransitQualityStatus.FORWARDER_MATCHED.code());
+            view.setStandardForwarderId(command.getStandardForwarderId());
+            view.setRawForwarderName(clean(command.getRawForwarderName()));
+            view.setNormalizedRawForwarderName(clean(command.getRawForwarderName()));
+            return view;
+        }
+        if (!StringUtils.hasText(command.getRawForwarderName())) {
+            return null;
+        }
+        ResolveForwarderCommand resolveCommand = new ResolveForwarderCommand();
+        resolveCommand.setOwnerUserId(ownerUserId);
+        resolveCommand.setRawForwarderName(command.getRawForwarderName());
+        return forwarderService.resolveForwarder(resolveCommand);
+    }
+
+    private List<String> missingFields(SaveBatchCommand command, ForwarderResolveView forwarder, String transportMode) {
+        List<String> result = new ArrayList<>();
+        if (forwarder == null || (!StringUtils.hasText(command.getRawForwarderName()) && forwarder.getStandardForwarderId() == null)) {
+            result.add("forwarder");
+        }
+        if (!StringUtils.hasText(transportMode)) {
+            result.add("transportMode");
+        }
+        if (!StringUtils.hasText(command.getTargetStoreCode())) {
+            result.add("targetStoreCode");
+        }
+        if (!StringUtils.hasText(command.getTargetWarehouseName())) {
+            result.add("targetWarehouseName");
+        }
+        return result;
+    }
+
+    private String forwarderQualityStatus(ForwarderResolveView forwarder, SaveBatchCommand command) {
+        if (forwarder == null) {
+            return StringUtils.hasText(command.getRawForwarderName())
+                    ? InTransitQualityStatus.FORWARDER_UNMATCHED.code()
+                    : InTransitQualityStatus.FORWARDER_UNMATCHED.code();
+        }
+        return forwarder.getQualityStatus();
+    }
+
+    private static Long requireOwnerUserId(Long ownerUserId) {
+        if (ownerUserId == null || ownerUserId <= 0) {
+            throw new IllegalArgumentException("缺少老板账号范围。");
+        }
+        return ownerUserId;
+    }
+
+    private BatchRow requireBatch(Long ownerUserId, Long batchId) {
+        Long resolvedBatchId = requirePositiveId(batchId, "在途批次不存在。");
+        BatchRow row = mapper.selectBatchById(ownerUserId, resolvedBatchId);
+        if (row == null) {
+            throw new IllegalArgumentException("在途批次不存在。");
+        }
+        return row;
+    }
+
+    private LineRow requireLine(Long ownerUserId, Long batchId, Long lineId) {
+        Long resolvedLineId = requirePositiveId(lineId, "在途商品明细不存在。");
+        LineRow row = mapper.selectLineById(ownerUserId, batchId, resolvedLineId);
+        if (row == null) {
+            throw new IllegalArgumentException("在途商品明细不存在。");
+        }
+        return row;
+    }
+
+    private PackageRow resolvePackage(Long ownerUserId, Long batchId, String boxNo, Long operatorUserId) {
+        if (!StringUtils.hasText(boxNo)) {
+            return null;
+        }
+        PackageRow existing = mapper.selectPackageByBoxNo(ownerUserId, batchId, boxNo);
+        if (existing != null) {
+            return existing;
+        }
+        PackageRow row = new PackageRow();
+        row.setId(mapper.nextPackageId());
+        row.setOwnerUserId(ownerUserId);
+        row.setBatchId(batchId);
+        row.setBoxNo(boxNo);
+        row.setCreatedBy(operatorUserId);
+        row.setUpdatedBy(operatorUserId);
+        mapper.insertPackage(row);
+        return row;
+    }
+
+    private void refreshBatchAggregate(Long ownerUserId, Long batchId) {
+        BatchAggregateRow aggregate = mapper.aggregateLines(ownerUserId, batchId);
+        mapper.refreshBatchAggregate(ownerUserId, batchId, aggregate == null ? new BatchAggregateRow() : aggregate);
+    }
+
+    private NodeRow requireNode(Long ownerUserId, Long batchId, Long nodeId) {
+        Long resolvedNodeId = requirePositiveId(nodeId, "物流节点不存在。");
+        NodeRow row = mapper.selectNodeById(ownerUserId, batchId, resolvedNodeId);
+        if (row == null) {
+            throw new IllegalArgumentException("物流节点不存在。");
+        }
+        return row;
+    }
+
+    private void refreshBatchLatestNode(Long ownerUserId, Long batchId) {
+        BatchLatestNodeRow latestNode = mapper.selectLatestNode(ownerUserId, batchId);
+        if (latestNode == null) {
+            latestNode = new BatchLatestNodeRow();
+            latestNode.setDerivedBatchStatus(InTransitBatchStatus.DRAFT.code());
+        } else {
+            latestNode.setDerivedBatchStatus(deriveBatchStatusFromNode(latestNode.getLatestNodeStatus()));
+        }
+        mapper.refreshBatchLatestNode(ownerUserId, batchId, latestNode);
+    }
+
+    private static String deriveBatchStatusFromNode(String nodeStatus) {
+        InTransitNodeStatus status = InTransitNodeStatus.require(nodeStatus);
+        switch (status) {
+            case EXCEPTION:
+                return InTransitBatchStatus.EXCEPTION.code();
+            case WAREHOUSE_RECEIVED:
+                return InTransitBatchStatus.WAREHOUSE_RECEIVED.code();
+            case CANCELLED:
+                return InTransitBatchStatus.CANCELLED.code();
+            case CUSTOMS_CLEARANCE:
+                return InTransitBatchStatus.CUSTOMS_CLEARANCE.code();
+            case DELIVERING:
+                return InTransitBatchStatus.DELIVERING.code();
+            case HANDED_TO_FORWARDER:
+                return InTransitBatchStatus.PENDING_SHIPMENT.code();
+            case CREATED:
+                return InTransitBatchStatus.DRAFT.code();
+            case DEPARTED_ORIGIN:
+            case IN_TRANSIT:
+            case ARRIVED_PORT:
+            case CUSTOMS_RELEASED:
+            default:
+                return InTransitBatchStatus.IN_TRANSIT.code();
+        }
+    }
+
+    private static Long requirePositiveId(Long value, String message) {
+        if (value == null || value <= 0) {
+            throw new IllegalArgumentException(message);
+        }
+        return value;
+    }
+
+    private static Integer nonNegativeOrZero(Integer value, String message) {
+        if (value == null) {
+            return 0;
+        }
+        assertNonNegative(value, message);
+        return value;
+    }
+
+    private static void assertNonNegative(Integer value, String message) {
+        if (value != null && value < 0) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    private static void assertNonNegative(BigDecimal value, String message) {
+        if (value != null && value.signum() < 0) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    private static String clean(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private void audit(
+            Long ownerUserId,
+            Long operatorUserId,
+            String operationType,
+            String targetType,
+            Long targetId,
+            Long batchId,
+            String storeCode,
+            String siteCode,
+            String summary,
+            Map<String, Object> detail
+    ) {
+        InTransitOperationAuditService.AuditCommand command = new InTransitOperationAuditService.AuditCommand();
+        command.setOwnerUserId(ownerUserId);
+        command.setOperatorUserId(operatorUserId);
+        command.setOperationType(operationType);
+        command.setTargetType(targetType);
+        command.setTargetId(targetId);
+        command.setBatchId(batchId);
+        command.setStoreCode(storeCode);
+        command.setSiteCode(siteCode);
+        command.setSummary(summary);
+        command.setDetail(detail);
+        auditService.record(command);
+    }
+
+    private static Map<String, Object> detail(Object... pairs) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (pairs == null) {
+            return result;
+        }
+        for (int index = 0; index + 1 < pairs.length; index += 2) {
+            result.put(String.valueOf(pairs[index]), pairs[index + 1]);
+        }
+        return result;
+    }
+
+    private static String firstText(String first, String second) {
+        return StringUtils.hasText(first) ? first : second;
+    }
+}

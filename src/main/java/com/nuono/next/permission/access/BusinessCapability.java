@@ -13,6 +13,7 @@ public enum BusinessCapability {
     FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),
     FILE_MANAGEMENT_BUSINESS(List.of("/system/file-management", "/system/ai-file-parse")),
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),
+    IN_TRANSIT_GOODS(List.of("/purchase/in-transit-goods", "/api/in-transit-goods")),
     PROFIT(List.of("/api/sku/cost"));
 
     private final List<String> menuPathPrefixes;
