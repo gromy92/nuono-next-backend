@@ -151,15 +151,11 @@ public class ProductVariantSpecService {
             view.setMissingFields(missing);
             return;
         }
-        if (view.getProductLengthCm() == null || view.getProductWidthCm() == null || view.getProductHeightCm() == null
-                || view.getCartonLengthCm() == null || view.getCartonWidthCm() == null || view.getCartonHeightCm() == null) {
+        if (view.getProductLengthCm() == null || view.getProductWidthCm() == null || view.getProductHeightCm() == null) {
             missing.add("dimensions");
         }
-        if (view.getProductWeightG() == null || view.getCartonWeightKg() == null) {
+        if (view.getProductWeightG() == null) {
             missing.add("weight");
-        }
-        if (view.getCartonQuantity() == null) {
-            missing.add("carton_quantity");
         }
         if (ProductVariantSpecLogisticsType.UNKNOWN.equals(view.getBatteryMagneticType())
                 || ProductVariantSpecLogisticsType.UNKNOWN.equals(view.getLiquidPowderType())) {
@@ -172,8 +168,6 @@ public class ProductVariantSpecService {
             view.setCompletenessStatus("missing_dimensions");
         } else if (missing.contains("weight")) {
             view.setCompletenessStatus("missing_weight");
-        } else if (missing.contains("carton_quantity")) {
-            view.setCompletenessStatus("missing_carton_quantity");
         } else {
             view.setCompletenessStatus("logistics_attribute_unknown");
         }

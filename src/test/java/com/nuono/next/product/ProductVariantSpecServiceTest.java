@@ -79,7 +79,7 @@ class ProductVariantSpecServiceTest {
         ProductVariantSpecView saved = service.save(command);
 
         assertEquals("missing_dimensions", saved.getCompletenessStatus());
-        assertEquals(List.of("dimensions", "carton_quantity"), saved.getMissingFields());
+        assertEquals(List.of("dimensions"), saved.getMissingFields());
     }
 
     @Test
@@ -138,8 +138,12 @@ class ProductVariantSpecServiceTest {
     }
 
     @Test
-    void saveShouldReturnMissingCartonQuantityWhenOnlyCartonQuantityIsMissing() {
+    void saveShouldReturnReadyWhenOnlyCartonSpecsAreMissing() {
         ProductVariantSpecCommand command = validCommand();
+        command.setCartonLengthCm(null);
+        command.setCartonWidthCm(null);
+        command.setCartonHeightCm(null);
+        command.setCartonWeightKg(null);
         command.setCartonQuantity(null);
         when(mapper.selectProductVariantForSpec(10002L, "STR245027-NAE", "MILKYWAYA05P", "MILKYWAYA05", "N701"))
                 .thenReturn(scopeRecord());
@@ -147,8 +151,8 @@ class ProductVariantSpecServiceTest {
 
         ProductVariantSpecView saved = service.save(command);
 
-        assertEquals("missing_carton_quantity", saved.getCompletenessStatus());
-        assertEquals(List.of("carton_quantity"), saved.getMissingFields());
+        assertEquals("ready", saved.getCompletenessStatus());
+        assertEquals(List.of(), saved.getMissingFields());
     }
 
     @Test
