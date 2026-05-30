@@ -43,6 +43,7 @@ public class FileParseLogisticsChannelActivationService {
             FileParseVersionSummaryRow version,
             Long ownerUserId
     ) {
+        requireVersionBelongsToPlan(targetPlan, version);
         Set<String> selectedKeys = new LinkedHashSet<>(
                 fileManagementParseMapper.selectActiveLogisticsChannelKeys(
                         ownerUserId,
@@ -60,6 +61,7 @@ public class FileParseLogisticsChannelActivationService {
             List<String> requestedChannelKeys,
             Long operatorUserId
     ) {
+        requireVersionBelongsToPlan(targetPlan, version);
         List<FileParseLogisticsChannelView> channels = buildChannels(version, Set.of());
         Map<String, FileParseLogisticsChannelView> channelsByKey = new LinkedHashMap<>();
         for (FileParseLogisticsChannelView channel : channels) {
@@ -279,5 +281,22 @@ public class FileParseLogisticsChannelActivationService {
 
     private String text(Object value) {
         return value == null ? null : String.valueOf(value).trim();
+    }
+
+    // 数据一致性深度防御：service 自身保证 version 归属 targetPlan，不依赖编排层
+    // （orchestrator.requireLogisticsVersion 已有的同名校验）。防止未来绕过编排层直接
+    // 调用本 service、或编排重构漏校验时，softDelete/insert 写到错位的 plan/version 组合。
+    private void requireVersionBelongsToPlan(
+            FileParseTargetPlanRow targetPlan,
+            FileParseVersionSummaryRow version
+    ) {
+        if (version == null
+                || version.getTargetPlanId() == null
+                || !version.getTargetPlanId().equals(targetPlan.getId())) {
+            throw new IllegalArgumentException(
+                    "发布版本不属于该目标输出方案，已阻止跨方案写入：version="
+                            + (version == null ? "null" : version.getId())
+                            + " plan=" + targetPlan.getId());
+        }
     }
 }
