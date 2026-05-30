@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
+@Deprecated // 未接入：仅由前端 0 引用的 /api/noon-sync-readiness 驱动。保留待删除（#9）
 public class NoonSyncGapDetectionService {
 
     private final NoonSyncFoundationService foundationService;

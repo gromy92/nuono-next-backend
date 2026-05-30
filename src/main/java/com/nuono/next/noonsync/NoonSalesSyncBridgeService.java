@@ -8,6 +8,7 @@ import java.util.Locale;
 import org.springframework.stereotype.Service;
 
 @Service
+@Deprecated // 未接入：包外 0 引用的死桥。保留待删除（#9）
 public class NoonSalesSyncBridgeService {
 
     private final NoonSyncFoundationService foundationService;

@@ -4,11 +4,9 @@ import com.nuono.next.sales.SalesDataQualityState;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -16,16 +14,13 @@ public class NoonBusinessSyncStatusService {
 
     private static final int STALE_AFTER_DAYS = 2;
 
-    private final NoonSyncFoundationService foundationService;
     private final Clock clock;
 
-    @Autowired
-    public NoonBusinessSyncStatusService(NoonSyncFoundationService foundationService) {
-        this(foundationService, Clock.systemDefaultZone());
+    public NoonBusinessSyncStatusService() {
+        this(Clock.systemDefaultZone());
     }
 
-    public NoonBusinessSyncStatusService(NoonSyncFoundationService foundationService, Clock clock) {
-        this.foundationService = foundationService;
+    public NoonBusinessSyncStatusService(Clock clock) {
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
     }
 
@@ -164,14 +159,10 @@ public class NoonBusinessSyncStatusService {
     }
 
     private List<NoonSyncTask> salesTasksFor(NoonSyncScope scope) {
-        List<NoonSyncTask> tasks = new ArrayList<>();
-        for (NoonSyncTask task : foundationService.listTasks()) {
-            if (task.getDataDomain() == NoonSyncDataDomain.SALES && task.getScope().equals(scope)) {
-                tasks.add(task);
-            }
-        }
-        tasks.sort(Comparator.comparingLong(NoonSyncTask::getId).reversed());
-        return tasks;
+        // NoonSyncFoundation 未接入真实写入链路（前端 0 引用、无生产写入方），原 listTasks() 在生产恒空。
+        // 退耦后销量同步表面状态完全由真实 input（最新销量日期 / 数据质量 / 纠偏是否逾期）派生，
+        // 行为与退耦前一致：task 相关分支（BACKFILL_*、SYNC_IN_PROGRESS、CORRECTION_FAILED）本就永不触发。
+        return List.of();
     }
 
     private NoonSyncTask latestTask(List<NoonSyncTask> tasks, NoonSyncTriggerMode triggerMode) {

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.nuono.next.noonsync.NoonBusinessSyncStatusService;
 import com.nuono.next.noonsync.NoonSalesSyncSurfaceState;
-import com.nuono.next.noonsync.NoonSyncFoundationService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -86,7 +85,7 @@ class SalesAnalyticsServiceTest {
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
                 new ProductLifecycleClassifier(),
-                new NoonBusinessSyncStatusService(new NoonSyncFoundationService())
+                new NoonBusinessSyncStatusService()
         );
 
         SalesAnalyticsSummary summary = service.getSummary(defaultQuery());
@@ -118,7 +117,7 @@ class SalesAnalyticsServiceTest {
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
                 new ProductLifecycleClassifier(),
-                new NoonBusinessSyncStatusService(new NoonSyncFoundationService())
+                new NoonBusinessSyncStatusService()
         );
 
         SalesAnalyticsSummary summary = service.getSummary(new SalesFactQuery(

@@ -6,6 +6,7 @@ import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 @Service
+@Deprecated // 未接入真实链路：前端 0 引用、无生产写入方；生产 Noon 同步走 noonpull。保留待重设计或删除（#9）
 public class NoonSyncFoundationService {
 
     private static final List<NoonSyncPlanDefinition> PLAN_CATALOG = List.of(

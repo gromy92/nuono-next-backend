@@ -6,6 +6,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 @Service
+@Deprecated // 未接入：包外 0 引用的死桥。保留待删除（#9）
 public class NoonProductSyncBridgeService {
 
     private final NoonSyncFoundationService foundationService;

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/noon-sync-readiness")
+@Deprecated // 未接入：前端 0 引用。保留待删除（#9）
 public class NoonSyncGapDetectionController {
 
     private final NoonSyncGapDetectionService gapDetectionService;

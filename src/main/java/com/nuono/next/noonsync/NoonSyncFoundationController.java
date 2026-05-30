@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/noon-sync-foundation")
+@Deprecated // 未接入：前端 0 引用。保留待删除（#9）
 public class NoonSyncFoundationController {
 
     private final NoonSyncFoundationService service;

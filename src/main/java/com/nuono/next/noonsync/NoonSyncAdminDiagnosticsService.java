@@ -7,6 +7,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 @Service
+@Deprecated // 未接入：仅由前端 0 引用的 /api/noon-sync-admin 驱动。保留待删除（#9）
 public class NoonSyncAdminDiagnosticsService {
 
     private final NoonSyncFoundationService foundationService;

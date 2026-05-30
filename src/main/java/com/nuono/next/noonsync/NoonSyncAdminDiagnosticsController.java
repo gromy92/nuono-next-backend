@@ -17,6 +17,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/noon-sync-admin")
+@Deprecated // 未接入：前端 0 引用。保留待删除（#9）
 public class NoonSyncAdminDiagnosticsController {
 
     private final NoonSyncAdminDiagnosticsService service;
