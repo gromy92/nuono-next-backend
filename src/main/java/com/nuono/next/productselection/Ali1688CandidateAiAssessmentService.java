@@ -37,6 +37,7 @@ public class Ali1688CandidateAiAssessmentService {
 
     private final Ali1688CollectionMapper ali1688CollectionMapper;
     private final ObjectProvider<AiCapabilityService> aiCapabilityServiceProvider;
+    private final ObjectProvider<Ali1688PluginExecutionAssignmentService> assignmentServiceProvider;
     private final ObjectMapper objectMapper;
 
     @Value("${nuono.product-selection.ali1688.ai.scheduler.enabled:false}")
@@ -54,10 +55,12 @@ public class Ali1688CandidateAiAssessmentService {
     public Ali1688CandidateAiAssessmentService(
             Ali1688CollectionMapper ali1688CollectionMapper,
             ObjectProvider<AiCapabilityService> aiCapabilityServiceProvider,
+            ObjectProvider<Ali1688PluginExecutionAssignmentService> assignmentServiceProvider,
             ObjectMapper objectMapper
     ) {
         this.ali1688CollectionMapper = ali1688CollectionMapper;
         this.aiCapabilityServiceProvider = aiCapabilityServiceProvider;
+        this.assignmentServiceProvider = assignmentServiceProvider;
         this.objectMapper = objectMapper;
     }
 
@@ -76,12 +79,45 @@ public class Ali1688CandidateAiAssessmentService {
             assessment.operationCode = OPERATION_CODE;
             assessment.promptVersion = PROMPT_VERSION;
             assessment.schemaVersion = SCHEMA_VERSION;
-            assessment.inputSnapshotJson = inputSnapshotJson(task, candidate);
+            assessment.inputSnapshotJson = inputSnapshotJson(
+                    task,
+                    candidate,
+                    ali1688CollectionMapper.selectLatestDetailEnrichmentSnapshotByCandidateId(candidate.id)
+            );
             assessment.inputHash = sha256(assessment.inputSnapshotJson);
             assessment.createdBy = task.updatedBy;
             assessment.updatedBy = task.updatedBy;
             ali1688CollectionMapper.insertAiAssessment(assessment);
         }
+    }
+
+    @Transactional
+    public void refreshAssessmentForCandidate(Long taskId, Long candidateId, Long updatedBy) {
+        Ali1688CollectionRecords.TaskRecord task = taskId == null ? null : ali1688CollectionMapper.selectTaskById(taskId);
+        Ali1688CollectionRecords.CandidateRecord candidate = candidateId == null ? null : ali1688CollectionMapper.selectCandidateById(candidateId);
+
+        if (task == null || candidate == null || !task.id.equals(candidate.taskId)) {
+            return;
+        }
+
+        Ali1688CollectionRecords.AiAssessmentRecord assessment = new Ali1688CollectionRecords.AiAssessmentRecord();
+        assessment.id = ali1688CollectionMapper.nextAiAssessmentId();
+        assessment.taskId = task.id;
+        assessment.candidateId = candidate.id;
+        assessment.status = "pending";
+        assessment.featureCode = FEATURE_CODE;
+        assessment.operationCode = OPERATION_CODE;
+        assessment.promptVersion = PROMPT_VERSION;
+        assessment.schemaVersion = SCHEMA_VERSION;
+        assessment.inputSnapshotJson = inputSnapshotJson(
+                task,
+                candidate,
+                ali1688CollectionMapper.selectLatestDetailEnrichmentSnapshotByCandidateId(candidate.id)
+        );
+        assessment.inputHash = sha256(assessment.inputSnapshotJson);
+        assessment.createdBy = updatedBy;
+        assessment.updatedBy = updatedBy;
+        ali1688CollectionMapper.insertAiAssessment(assessment);
     }
 
     @Scheduled(
@@ -120,6 +156,15 @@ public class Ali1688CandidateAiAssessmentService {
             markFailed(assessment, "candidate_missing", "1688 候选或任务不存在，AI 判断终止。");
             return;
         }
+        Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord latestDetail =
+                ali1688CollectionMapper.selectLatestDetailEnrichmentSnapshotByCandidateId(candidate.id);
+        String currentInputSnapshotJson = inputSnapshotJson(task, candidate, latestDetail);
+        if (latestDetail != null
+                && StringUtils.hasText(assessment.inputSnapshotJson)
+                && !assessment.inputSnapshotJson.equals(currentInputSnapshotJson)) {
+            markFailed(assessment, "stale_ai_input", "详情证据已更新，跳过旧 AI 输入。");
+            return;
+        }
         AiCapabilityService aiCapabilityService = aiCapabilityServiceProvider.getIfAvailable();
         if (aiCapabilityService == null) {
             markFailed(assessment, "ai_service_missing", "AI 基座服务不可用。");
@@ -127,7 +172,7 @@ public class Ali1688CandidateAiAssessmentService {
             return;
         }
 
-        AiStructuredTextResult result = aiCapabilityService.createStructuredText(buildCommand(task, candidate, assessment));
+        AiStructuredTextResult result = aiCapabilityService.createStructuredText(buildCommand(task, candidate, assessment, currentInputSnapshotJson));
         if (result == null || !result.isSuccess() || result.getParsedJson() == null) {
             markFailed(
                     assessment,
@@ -165,12 +210,24 @@ public class Ali1688CandidateAiAssessmentService {
                 candidate.updatedBy
         );
         reselectTopFive(task.id, candidate.updatedBy);
+        issuePricePreviewAssignments(task.id, candidate.updatedBy);
+    }
+
+    private void issuePricePreviewAssignments(Long taskId, Long updatedBy) {
+        Ali1688PluginExecutionAssignmentService assignmentService = assignmentServiceProvider == null
+                ? null
+                : assignmentServiceProvider.getIfAvailable();
+        if (assignmentService == null) {
+            return;
+        }
+        assignmentService.issuePricePreviewAssignmentsForEligibleTask(taskId, updatedBy);
     }
 
     private AiStructuredTextCommand buildCommand(
             Ali1688CollectionRecords.TaskRecord task,
             Ali1688CollectionRecords.CandidateRecord candidate,
-            Ali1688CollectionRecords.AiAssessmentRecord assessment
+            Ali1688CollectionRecords.AiAssessmentRecord assessment,
+            String currentInputSnapshotJson
     ) {
         AiStructuredTextCommand command = new AiStructuredTextCommand();
         command.setFeatureCode(FEATURE_CODE);
@@ -184,9 +241,11 @@ public class Ali1688CandidateAiAssessmentService {
                 "只基于输入的源头商品和 1688 候选信息判断是否同款或近似款。",
                 "matchScore 范围 0-35，specScore 范围 0-20；不确定时降低分数并写入 warnings。",
                 "riskLevel 只能输出 low、medium、high、unknown。",
+                "若输入包含 detailEvidence（1688 详情页 window.context 结构化补全），优先用其 attributes（CPV 属性）、skuOptions/skuCombinations（规格矩阵）、supplierProfile 判断 specScore 与 matchScore。",
+                "detailEvidence 的 listPriceText / pagePriceHint / shippingSnapshot 只是页面线索，不是真实采购价，不得作为价格结论或拉高匹配分的依据。",
                 "只输出符合 JSON schema 的 JSON，不要输出解释性正文。"
         ));
-        command.setPrompt(defaultText(assessment.inputSnapshotJson, inputSnapshotJson(task, candidate)));
+        command.setPrompt(defaultText(assessment.inputSnapshotJson, currentInputSnapshotJson));
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("taskId", task.id);
         metadata.put("candidateId", candidate.id);
@@ -199,7 +258,7 @@ public class Ali1688CandidateAiAssessmentService {
     private Map<String, Object> outputSchema() {
         Map<String, Object> score = object("type", "integer");
         Map<String, Object> text = object("type", "string");
-        Map<String, Object> textArray = object("type", "array");
+        Map<String, Object> textArray = object("type", "array", "items", text);
         Map<String, Object> properties = object(
                 "matchScore", score,
                 "specScore", score,
@@ -219,6 +278,18 @@ public class Ali1688CandidateAiAssessmentService {
             Ali1688CollectionRecords.TaskRecord task,
             Ali1688CollectionRecords.CandidateRecord candidate
     ) {
+        return inputSnapshotJson(
+                task,
+                candidate,
+                ali1688CollectionMapper.selectLatestDetailEnrichmentSnapshotByCandidateId(candidate.id)
+        );
+    }
+
+    private String inputSnapshotJson(
+            Ali1688CollectionRecords.TaskRecord task,
+            Ali1688CollectionRecords.CandidateRecord candidate,
+            Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord detailSnapshot
+    ) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("sourceCollectionId", task.sourceCollectionId);
         snapshot.put("sourceTitle", task.sourceTitle);
@@ -236,11 +307,45 @@ public class Ali1688CandidateAiAssessmentService {
         snapshot.put("priceText", candidate.priceText);
         snapshot.put("moqText", candidate.moqText);
         snapshot.put("skuSnapshotJson", candidate.skuSnapshotJson);
+        if (detailSnapshot != null) {
+            snapshot.put("detailEvidence", detailEvidence(detailSnapshot));
+        }
         try {
             return objectMapper.writeValueAsString(snapshot);
         } catch (JsonProcessingException exception) {
             return "{}";
         }
+    }
+
+    private Map<String, Object> detailEvidence(Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord detailSnapshot) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("snapshotId", detailSnapshot.id);
+        detail.put("assignmentId", detailSnapshot.assignmentId);
+        detail.put("source", defaultText(detailSnapshot.snapshotSource, "DETAIL_ENRICHMENT"));
+        detail.put("collectedAt", detailSnapshot.collectedAt);
+        detail.put("pageUrl", detailSnapshot.pageUrl);
+        detail.put("title", detailSnapshot.detailTitle);
+        detail.put("mainImageUrls", readJsonValue(detailSnapshot.mainImageUrlsJson));
+        detail.put("detailImageUrls", readJsonValue(detailSnapshot.detailImageUrlsJson));
+        detail.put("imageUrls", readJsonValue(detailSnapshot.imageUrlsJson));
+        detail.put("skuOptions", readJsonValue(detailSnapshot.skuOptionsJson));
+        detail.put("moqText", detailSnapshot.moqText);
+        detail.put("supplierName", detailSnapshot.supplierName);
+        detail.put("locationText", detailSnapshot.locationText);
+        detail.put("listPriceText", detailSnapshot.listPriceText);
+        detail.put("serviceLabels", readJsonValue(detailSnapshot.serviceLabelsJson));
+        detail.put("salesLabels", readJsonValue(detailSnapshot.salesLabelsJson));
+        detail.put("rawEvidenceSnippets", readJsonValue(detailSnapshot.rawEvidenceSnippetsJson));
+        // v2：结构化详情证据，供 AI 同款/规格补分使用（价/物流仅线索）。
+        detail.put("unit", detailSnapshot.unit);
+        detail.put("variantImageUrls", readJsonValue(detailSnapshot.variantImageUrlsJson));
+        detail.put("attributes", readJsonValue(detailSnapshot.attributesJson));
+        detail.put("skuCombinations", readJsonValue(detailSnapshot.skuCombinationsJson));
+        detail.put("skuCount", detailSnapshot.skuCount);
+        detail.put("pagePriceHint", readJsonValue(detailSnapshot.pagePriceHintJson));
+        detail.put("supplierProfile", readJsonValue(detailSnapshot.supplierProfileJson));
+        detail.put("shippingSnapshot", readJsonValue(detailSnapshot.shippingSnapshotJson));
+        return detail;
     }
 
     private String finalScoreDetailJson(
@@ -309,6 +414,17 @@ public class Ali1688CandidateAiAssessmentService {
             return objectMapper.writeValueAsString(value == null ? Map.of() : value);
         } catch (JsonProcessingException exception) {
             return "{}";
+        }
+    }
+
+    private Object readJsonValue(String json) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, Object.class);
+        } catch (JsonProcessingException exception) {
+            return List.of();
         }
     }
 

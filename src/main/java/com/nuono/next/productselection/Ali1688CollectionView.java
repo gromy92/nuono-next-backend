@@ -52,6 +52,26 @@ public class Ali1688CollectionView {
         public String scoreStatus;
         public ScoreBreakdown scoreBreakdown = new ScoreBreakdown();
         public String aiAssessmentStatus;
+        public String detailEnrichmentStatus;
+        public String detailTitle;
+        public List<String> detailImageUrls = new ArrayList<>();
+        // v2 详情补全证据（只读展示/调试验收用，紧凑子集；完整 SKU 矩阵不进列表 payload）。
+        public String detailUnit;
+        public Integer detailSkuCount;
+        public List<String> detailServiceLabels = new ArrayList<>();
+        public Object detailAttributes;
+        public Object detailSkuOptions;
+        public Object detailPagePriceHint;
+        public Object detailSupplierProfile;
+        public Object detailShippingSnapshot;
+        public String pricePreviewStatus;
+        public String confirmedRealPriceText;
+        public String pricePreviewFailureCode;
+        public String pricePreviewFailureMessage;
+        public String pricePreviewSafetyMode;
+        public String candidateGateStatus;
+        public Boolean autoInquiryEligible;
+        public List<String> autoInquiryBlockReasons = new ArrayList<>();
         public String procurementInquiryStatus;
         public List<String> reasons = new ArrayList<>();
         public List<String> warnings = new ArrayList<>();

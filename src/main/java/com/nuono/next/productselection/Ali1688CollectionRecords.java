@@ -115,4 +115,108 @@ public final class Ali1688CollectionRecords {
         public Long createdBy;
         public Long updatedBy;
     }
+
+    public static class PluginAssignmentRecord {
+        public Long id;
+        public String assignmentCode;
+        public String assignmentType;
+        public Long taskId;
+        public Long candidateId;
+        public Long sourceCollectionId;
+        public Long ownerUserId;
+        public Long logicalStoreId;
+        public String currentAssignmentKey;
+        public String status;
+        public String idempotencyKey;
+        public String resultStatus;
+        public String resultSnapshotJson;
+        public String failureCode;
+        public String failureMessage;
+        public Integer submittedCandidateCount;
+        public Integer acceptedCandidateCount;
+        public Integer rejectedCandidateCount;
+        public String createdAt;
+        public String expiresAt;
+        public String startedAt;
+        public String finishedAt;
+        public Long createdBy;
+        public Long updatedBy;
+        public String taskNo;
+        public String sourceImageUrl;
+        public String sourceTitle;
+        public String sourceTitleCn;
+        public String sourceUrl;
+        public String pageUrl;
+        public String storeName;
+        public String storeCode;
+        public String candidateTitle;
+        public String candidateUrl;
+        public String offerId;
+    }
+
+    public static class DetailEnrichmentSnapshotRecord {
+        public Long id;
+        public Long assignmentId;
+        public Long taskId;
+        public Long candidateId;
+        public Long sourceCollectionId;
+        public Long ownerUserId;
+        public Long logicalStoreId;
+        public String snapshotSource;
+        public String collectedAt;
+        public String pageUrl;
+        public String detailTitle;
+        public String mainImageUrlsJson;
+        public String detailImageUrlsJson;
+        public String imageUrlsJson;
+        public String skuOptionsJson;
+        public String moqText;
+        public String supplierName;
+        public String locationText;
+        public String listPriceText;
+        public String serviceLabelsJson;
+        public String salesLabelsJson;
+        public String rawEvidenceSnippetsJson;
+        public String rawSnapshotJson;
+        // v2：window.context.result.data 结构化详情。
+        public String unit;
+        public String variantImageUrlsJson;
+        public String attributesJson;
+        public String skuCombinationsJson;
+        public Integer skuCount;
+        public String pagePriceHintJson;
+        public String supplierProfileJson;
+        public String shippingSnapshotJson;
+        public String videoJson;
+        public Long createdBy;
+        public Long updatedBy;
+    }
+
+    public static class PricePreviewSnapshotRecord {
+        public Long id;
+        public Long assignmentId;
+        public Long taskId;
+        public Long candidateId;
+        public Long sourceCollectionId;
+        public Long ownerUserId;
+        public Long logicalStoreId;
+        public String snapshotSource;
+        public String resultStatus;
+        public String failureCode;
+        public String failureMessage;
+        public String collectedAt;
+        public String skuOptionsJson;
+        public Integer quantity;
+        public String unitPriceText;
+        public String shippingText;
+        public String discountText;
+        public String totalPriceText;
+        public String currency;
+        public String regionText;
+        public String safetyMode;
+        public String sideEffectPolicy;
+        public String rawSnapshotJson;
+        public Long createdBy;
+        public Long updatedBy;
+    }
 }
