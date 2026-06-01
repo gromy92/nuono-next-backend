@@ -495,6 +495,14 @@ public class LocalDbAli1688CollectionService {
         if (detailSnapshot != null) {
             preview.detailTitle = detailSnapshot.detailTitle;
             preview.detailImageUrls = readStringListJson(detailSnapshot.detailImageUrlsJson);
+            preview.detailUnit = detailSnapshot.unit;
+            preview.detailSkuCount = detailSnapshot.skuCount;
+            preview.detailServiceLabels = readStringListJson(detailSnapshot.serviceLabelsJson);
+            preview.detailAttributes = readJsonValue(detailSnapshot.attributesJson);
+            preview.detailSkuOptions = readJsonValue(detailSnapshot.skuOptionsJson);
+            preview.detailPagePriceHint = readJsonValue(detailSnapshot.pagePriceHintJson);
+            preview.detailSupplierProfile = readJsonValue(detailSnapshot.supplierProfileJson);
+            preview.detailShippingSnapshot = readJsonValue(detailSnapshot.shippingSnapshotJson);
         }
         Ali1688CollectionRecords.PricePreviewSnapshotRecord priceSnapshot =
                 ali1688CollectionMapper.selectLatestPricePreviewSnapshotByCandidateId(candidate.id);
@@ -777,6 +785,17 @@ public class LocalDbAli1688CollectionService {
                     .collect(Collectors.toCollection(ArrayList::new));
         } catch (JsonProcessingException exception) {
             return new ArrayList<>();
+        }
+    }
+
+    private Object readJsonValue(String json) {
+        if (!StringUtils.hasText(json)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, Object.class);
+        } catch (JsonProcessingException exception) {
+            return null;
         }
     }
 

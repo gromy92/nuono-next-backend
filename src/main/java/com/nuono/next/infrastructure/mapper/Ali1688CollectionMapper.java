@@ -68,6 +68,8 @@ public interface Ali1688CollectionMapper {
             + "snapshot.page_url, snapshot.detail_title, snapshot.main_image_urls_json, snapshot.detail_image_urls_json, snapshot.image_urls_json, "
             + "snapshot.sku_options_json, snapshot.moq_text, snapshot.supplier_name, snapshot.location_text, snapshot.list_price_text, "
             + "snapshot.service_labels_json, snapshot.sales_labels_json, snapshot.raw_evidence_snippets_json, snapshot.raw_snapshot_json, "
+            + "snapshot.unit, snapshot.variant_image_urls_json, snapshot.attributes_json, snapshot.sku_combinations_json, snapshot.sku_count, "
+            + "snapshot.page_price_hint_json, snapshot.supplier_profile_json, snapshot.shipping_snapshot_json, snapshot.video_json, "
             + "snapshot.created_by, snapshot.updated_by "
             + "FROM product_selection_ali1688_detail_enrichment_snapshot snapshot ";
 
@@ -582,12 +584,16 @@ public interface Ali1688CollectionMapper {
             "id, assignment_id, task_id, candidate_id, source_collection_id, owner_user_id, logical_store_id, snapshot_source,",
             "collected_at, collected_at_text, page_url, detail_title, main_image_urls_json, detail_image_urls_json, image_urls_json,",
             "sku_options_json, moq_text, supplier_name, location_text, list_price_text, service_labels_json, sales_labels_json,",
-            "raw_evidence_snippets_json, raw_snapshot_json, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            "raw_evidence_snippets_json, raw_snapshot_json,",
+            "unit, variant_image_urls_json, attributes_json, sku_combinations_json, sku_count, page_price_hint_json, supplier_profile_json, shipping_snapshot_json, video_json,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.assignmentId}, #{row.taskId}, #{row.candidateId}, #{row.sourceCollectionId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.snapshotSource},",
             "NOW(), #{row.collectedAt}, #{row.pageUrl}, #{row.detailTitle}, #{row.mainImageUrlsJson}, #{row.detailImageUrlsJson}, #{row.imageUrlsJson},",
             "#{row.skuOptionsJson}, #{row.moqText}, #{row.supplierName}, #{row.locationText}, #{row.listPriceText}, #{row.serviceLabelsJson}, #{row.salesLabelsJson},",
-            "#{row.rawEvidenceSnippetsJson}, #{row.rawSnapshotJson}, b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
+            "#{row.rawEvidenceSnippetsJson}, #{row.rawSnapshotJson},",
+            "#{row.unit}, #{row.variantImageUrlsJson}, #{row.attributesJson}, #{row.skuCombinationsJson}, #{row.skuCount}, #{row.pagePriceHintJson}, #{row.supplierProfileJson}, #{row.shippingSnapshotJson}, #{row.videoJson},",
+            "b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertDetailEnrichmentSnapshot(@Param("row") Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord row);
 

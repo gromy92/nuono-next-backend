@@ -178,6 +178,16 @@ public final class Ali1688CollectionRecords {
         public String salesLabelsJson;
         public String rawEvidenceSnippetsJson;
         public String rawSnapshotJson;
+        // v2：window.context.result.data 结构化详情。
+        public String unit;
+        public String variantImageUrlsJson;
+        public String attributesJson;
+        public String skuCombinationsJson;
+        public Integer skuCount;
+        public String pagePriceHintJson;
+        public String supplierProfileJson;
+        public String shippingSnapshotJson;
+        public String videoJson;
         public Long createdBy;
         public Long updatedBy;
     }

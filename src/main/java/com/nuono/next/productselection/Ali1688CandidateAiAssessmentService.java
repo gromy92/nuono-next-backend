@@ -241,6 +241,8 @@ public class Ali1688CandidateAiAssessmentService {
                 "只基于输入的源头商品和 1688 候选信息判断是否同款或近似款。",
                 "matchScore 范围 0-35，specScore 范围 0-20；不确定时降低分数并写入 warnings。",
                 "riskLevel 只能输出 low、medium、high、unknown。",
+                "若输入包含 detailEvidence（1688 详情页 window.context 结构化补全），优先用其 attributes（CPV 属性）、skuOptions/skuCombinations（规格矩阵）、supplierProfile 判断 specScore 与 matchScore。",
+                "detailEvidence 的 listPriceText / pagePriceHint / shippingSnapshot 只是页面线索，不是真实采购价，不得作为价格结论或拉高匹配分的依据。",
                 "只输出符合 JSON schema 的 JSON，不要输出解释性正文。"
         ));
         command.setPrompt(defaultText(assessment.inputSnapshotJson, currentInputSnapshotJson));
@@ -334,6 +336,15 @@ public class Ali1688CandidateAiAssessmentService {
         detail.put("serviceLabels", readJsonValue(detailSnapshot.serviceLabelsJson));
         detail.put("salesLabels", readJsonValue(detailSnapshot.salesLabelsJson));
         detail.put("rawEvidenceSnippets", readJsonValue(detailSnapshot.rawEvidenceSnippetsJson));
+        // v2：结构化详情证据，供 AI 同款/规格补分使用（价/物流仅线索）。
+        detail.put("unit", detailSnapshot.unit);
+        detail.put("variantImageUrls", readJsonValue(detailSnapshot.variantImageUrlsJson));
+        detail.put("attributes", readJsonValue(detailSnapshot.attributesJson));
+        detail.put("skuCombinations", readJsonValue(detailSnapshot.skuCombinationsJson));
+        detail.put("skuCount", detailSnapshot.skuCount);
+        detail.put("pagePriceHint", readJsonValue(detailSnapshot.pagePriceHintJson));
+        detail.put("supplierProfile", readJsonValue(detailSnapshot.supplierProfileJson));
+        detail.put("shippingSnapshot", readJsonValue(detailSnapshot.shippingSnapshotJson));
         return detail;
     }
 

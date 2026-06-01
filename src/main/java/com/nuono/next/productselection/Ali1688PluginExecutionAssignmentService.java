@@ -492,6 +492,16 @@ public class Ali1688PluginExecutionAssignmentService {
         row.salesLabelsJson = writeJsonValue(snapshot.get("salesLabels"));
         row.rawEvidenceSnippetsJson = writeJsonValue(snapshot.get("rawEvidenceSnippets"));
         row.rawSnapshotJson = writeJsonValue(snapshot);
+        // v2：window.context.result.data 结构化详情（仅作 AI 线索/读模型展示，不回写列表候选事实）。
+        row.unit = shrink(defaultText(stringValue(snapshot.get("unit")), ""), 60);
+        row.variantImageUrlsJson = writeJsonValue(snapshot.get("variantImageUrls"));
+        row.attributesJson = writeJsonValue(snapshot.get("attributes"));
+        row.skuCombinationsJson = writeJsonValue(snapshot.get("skuCombinations"));
+        row.skuCount = integerValue(snapshot.get("skuCount"));
+        row.pagePriceHintJson = writeJsonValue(snapshot.get("pagePriceHint"));
+        row.supplierProfileJson = writeJsonValue(snapshot.get("supplierProfile"));
+        row.shippingSnapshotJson = writeJsonValue(snapshot.get("shippingSnapshot"));
+        row.videoJson = writeJsonValue(snapshot.get("video"));
         row.createdBy = operatorUserId;
         row.updatedBy = operatorUserId;
         ali1688CollectionMapper.insertDetailEnrichmentSnapshot(row);
