@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,6 +32,7 @@ public class LocalDbSourceCollectionService {
     private final ProductSelectionSourceCollectionLocalizer sourceCollectionLocalizer;
     private final SourceCollectionCompletenessCalculator completenessCalculator;
     private final LocalDbAli1688CollectionService ali1688CollectionService;
+    private final ObjectProvider<Ali1688PluginExecutionAssignmentService> assignmentServiceProvider;
     private final ObjectMapper objectMapper;
 
     @Value("${nuono.product-selection.source-collection.scheduler.enabled:false}")
@@ -46,6 +48,7 @@ public class LocalDbSourceCollectionService {
             ProductSelectionSourceCollectionLocalizer sourceCollectionLocalizer,
             SourceCollectionCompletenessCalculator completenessCalculator,
             LocalDbAli1688CollectionService ali1688CollectionService,
+            ObjectProvider<Ali1688PluginExecutionAssignmentService> assignmentServiceProvider,
             ObjectMapper objectMapper
     ) {
         this.productSelectionMapper = productSelectionMapper;
@@ -54,6 +57,7 @@ public class LocalDbSourceCollectionService {
         this.sourceCollectionLocalizer = sourceCollectionLocalizer;
         this.completenessCalculator = completenessCalculator;
         this.ali1688CollectionService = ali1688CollectionService;
+        this.assignmentServiceProvider = assignmentServiceProvider;
         this.objectMapper = objectMapper;
     }
 
@@ -141,7 +145,10 @@ public class LocalDbSourceCollectionService {
         productSelectionMapper.insertSourceCollection(row);
         ProductSelectionSourceCollectionRow inserted = productSelectionMapper.selectSourceCollectionById(id);
         ProductSelectionSourceCollectionRow effectiveRow = inserted == null ? row : inserted;
-        ali1688CollectionService.ensureTaskForSourceCollection(effectiveRow, source.getOperatorUserId());
+        issueCandidateCollectionAssignment(
+                ali1688CollectionService.ensureTaskForSourceCollection(effectiveRow, source.getOperatorUserId()),
+                source.getOperatorUserId()
+        );
         return toSourceCollectionView(effectiveRow);
     }
 
@@ -173,7 +180,10 @@ public class LocalDbSourceCollectionService {
         productSelectionMapper.markSourceCollectionRunning(id, source.getOperatorUserId());
         ProductSelectionSourceCollectionRow updated = productSelectionMapper.selectSourceCollectionById(id);
         ProductSelectionSourceCollectionRow effectiveRow = updated == null ? row : updated;
-        ali1688CollectionService.resetTaskForSourceRecollect(effectiveRow, source.getOperatorUserId());
+        issueCandidateCollectionAssignment(
+                ali1688CollectionService.resetTaskForSourceRecollect(effectiveRow, source.getOperatorUserId()),
+                source.getOperatorUserId()
+        );
         return toSourceCollectionView(effectiveRow);
     }
 
@@ -182,11 +192,15 @@ public class LocalDbSourceCollectionService {
     }
 
     public Ali1688CollectionView recollectSourceCollectionAli1688(String collectionId, Long operatorUserId) {
-        return ali1688CollectionService.recollectSourceCollectionAli1688(collectionId, operatorUserId);
+        Ali1688CollectionView view = ali1688CollectionService.recollectSourceCollectionAli1688(collectionId, operatorUserId);
+        issueCandidateCollectionAssignment(view, operatorUserId);
+        return view;
     }
 
     public Ali1688CollectionView retryAli1688Collection(String taskId, Long operatorUserId) {
-        return ali1688CollectionService.retryAli1688Collection(taskId, operatorUserId);
+        Ali1688CollectionView view = ali1688CollectionService.retryAli1688Collection(taskId, operatorUserId);
+        issueCandidateCollectionAssignment(view, operatorUserId);
+        return view;
     }
 
     public List<Ali1688CollectionView> listAli1688Collections(
@@ -326,7 +340,9 @@ public class LocalDbSourceCollectionService {
             updateRow.setSelectedTextAr(shrink(defaultText(result.getSelectedTextAr(), defaultText(result.getSourceDescriptionAr(), row.getSelectedTextAr())), 1900));
             productSelectionMapper.markSourceCollectionSuccess(updateRow, lockOwner);
             ProductSelectionSourceCollectionRow updated = productSelectionMapper.selectSourceCollectionById(row.getId());
-            ali1688CollectionService.markSourceCollectionSucceeded(updated == null ? updateRow : updated);
+            ProductSelectionSourceCollectionRow effectiveRow = updated == null ? updateRow : updated;
+            ali1688CollectionService.markSourceCollectionSucceeded(effectiveRow);
+            issueCandidateCollectionAssignment(ali1688CollectionService.getCurrentView(effectiveRow.getId()), effectiveRow.getUpdatedBy());
         } catch (Exception exception) {
             productSelectionMapper.markSourceCollectionFailed(
                     row.getId(),
@@ -337,6 +353,19 @@ public class LocalDbSourceCollectionService {
             );
             ali1688CollectionService.markSourceCollectionFailed(row.getId(), exception.getMessage(), row.getUpdatedBy());
         }
+    }
+
+    private void issueCandidateCollectionAssignment(Ali1688CollectionView view, Long operatorUserId) {
+        Ali1688PluginExecutionAssignmentService assignmentService = assignmentServiceProvider == null
+                ? null
+                : assignmentServiceProvider.getIfAvailable();
+        if (assignmentService == null || view == null || !StringUtils.hasText(view.taskId)) {
+            return;
+        }
+        if (!"queued".equals(view.status)) {
+            return;
+        }
+        assignmentService.issueCandidateCollectionAssignmentForTask(Long.valueOf(view.taskId), operatorUserId);
     }
 
     private boolean isSuperAdmin(ProductSelectionUserContext user) {

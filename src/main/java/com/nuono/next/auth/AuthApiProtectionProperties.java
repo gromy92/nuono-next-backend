@@ -13,6 +13,7 @@ public class AuthApiProtectionProperties {
             "/api/auth/login",
             "/api/auth/logout",
             "/api/auth/sample-accounts",
+            "/api/plugin/auth/login",
             "/api/system/bootstrap"
     ));
 

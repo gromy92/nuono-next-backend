@@ -133,6 +133,169 @@ class LocalDbAli1688CollectionServiceTest {
     }
 
     @Test
+    void acceptPluginCandidateCollectionPersistsPluginCandidatesAndCompletesTask() {
+        Ali1688CollectionRecords.TaskRecord task = task("queued");
+        Ali1688CollectionRecords.PluginAssignmentRecord assignment = new Ali1688CollectionRecords.PluginAssignmentRecord();
+        assignment.id = 90001L;
+        assignment.taskId = task.id;
+        assignment.assignmentType = "CANDIDATE_COLLECTION";
+        Ali1688PluginExecutionAssignmentSubmitCommand command = new Ali1688PluginExecutionAssignmentSubmitCommand();
+        command.setSourcePageUrl("https://s.1688.com/youyuan/index.htm?tab=imageSearch");
+        command.setRawSnapshot(Map.of(
+                "pageUrl", "https://s.1688.com/youyuan/index.htm?tab=imageSearch",
+                "searchImageId", "plugin-img-001",
+                "searchImageIds", List.of("plugin-img-001"),
+                "extractionStatus", "success"
+        ));
+        command.setCandidates(List.of(
+                Map.ofEntries(
+                        Map.entry("offerId", "745612345001"),
+                        Map.entry("candidateUrl", "https://detail.1688.com/offer/745612345001.html"),
+                        Map.entry("title", "透明手机保护壳"),
+                        Map.entry("supplierName", "深圳手机壳工厂"),
+                        Map.entry("priceText", "¥3.20"),
+                        Map.entry("moqText", "2件起批"),
+                        Map.entry("moqValue", 2),
+                        Map.entry("locationText", "广东 深圳"),
+                        Map.entry("mainImageUrl", "https://images.example.com/case-a.jpg"),
+                        Map.entry("imageUrls", List.of("https://images.example.com/case-a.jpg")),
+                        Map.entry("badges", Map.of("ship", "48小时发货")),
+                        Map.entry("skuSnapshot", Map.of("source", "plugin_extractor")),
+                        Map.entry("supplierSnapshot", Map.of("supplierName", "深圳手机壳工厂")),
+                        Map.entry("logisticsSnapshot", Map.of("locationText", "广东 深圳"))
+                ),
+                Map.ofEntries(
+                        Map.entry("offerId", "745612345002"),
+                        Map.entry("candidateUrl", "https://detail.1688.com/offer/745612345002.html"),
+                        Map.entry("title", "磨砂手机保护壳"),
+                        Map.entry("supplierName", "东莞配件工厂"),
+                        Map.entry("priceText", "¥4.80"),
+                        Map.entry("moqText", "5件起批"),
+                        Map.entry("moqValue", 5),
+                        Map.entry("locationText", "广东 东莞"),
+                        Map.entry("mainImageUrl", "https://images.example.com/case-b.jpg"),
+                        Map.entry("imageUrls", List.of("https://images.example.com/case-b.jpg")),
+                        Map.entry("badges", Map.of("ship", "现货")),
+                        Map.entry("skuSnapshot", Map.of("source", "plugin_extractor")),
+                        Map.entry("supplierSnapshot", Map.of("supplierName", "东莞配件工厂")),
+                        Map.entry("logisticsSnapshot", Map.of("locationText", "广东 东莞"))
+                )
+        ));
+
+        when(ali1688CollectionMapper.selectTaskById(task.id)).thenReturn(task);
+        when(ali1688CollectionMapper.nextCandidateId()).thenReturn(88001L, 88002L);
+
+        service.acceptPluginCandidateCollection(assignment, command, 307L);
+
+        verify(ali1688CollectionMapper).updateSearchSnapshotFromPlugin(
+                eq(task.id),
+                eq("插件图搜"),
+                eq("https://s.1688.com/youyuan/index.htm?tab=imageSearch"),
+                eq("plugin-img-001"),
+                anyString(),
+                anyString(),
+                eq(2),
+                eq(task.updatedBy)
+        );
+        verify(ali1688CollectionMapper).softDeleteCandidatesByTask(task.id, task.updatedBy);
+        ArgumentCaptor<Ali1688CollectionRecords.CandidateRecord> candidateCaptor =
+                ArgumentCaptor.forClass(Ali1688CollectionRecords.CandidateRecord.class);
+        verify(ali1688CollectionMapper, times(2)).insertCandidate(candidateCaptor.capture());
+        List<Ali1688CollectionRecords.CandidateRecord> inserted = candidateCaptor.getAllValues();
+        assertEquals("745612345001", inserted.get(0).offerId);
+        assertEquals("透明手机保护壳", inserted.get(0).title);
+        assertEquals("87001:745612345001", inserted.get(0).activeCandidateKey);
+        assertEquals("pending", inserted.get(0).aiAssessmentStatus);
+        assertEquals("745612345002", inserted.get(1).offerId);
+        verify(ali1688CollectionMapper).clearSelectedRanks(task.id, 307L);
+        verify(ali1688CollectionMapper, times(2)).updateSelectedRank(eq(task.id), anyLong(), anyInt(), eq(307L));
+        verify(aiAssessmentService).createPendingAssessments(eq(task), anyList());
+        verify(ali1688CollectionMapper).markTaskCompletedFromPlugin(
+                eq(task.id),
+                eq("partial_success"),
+                eq(2),
+                eq(2),
+                eq(2),
+                eq("candidate_count_less_than_10"),
+                anyString(),
+                eq(307L)
+        );
+    }
+
+    @Test
+    void collectionViewExposesDetailEnrichmentStateFromLatestAssignmentAndSnapshot() {
+        ProductSelectionSourceCollectionRow source = sourceCollection("success");
+        Ali1688CollectionRecords.TaskRecord task = task("success");
+        Ali1688CollectionRecords.CandidateRecord candidate = candidateRecord();
+        Ali1688CollectionRecords.PluginAssignmentRecord assignment = detailAssignment(task, candidate.id, "accepted");
+        Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord snapshot = detailSnapshot(candidate.id);
+
+        when(ali1688CollectionMapper.selectCurrentTaskBySourceId(source.getId())).thenReturn(task);
+        when(ali1688CollectionMapper.listCandidatesByTask(task.id)).thenReturn(List.of(candidate));
+        when(ali1688CollectionMapper.selectLatestPluginAssignmentByCandidateAndType(candidate.id, "DETAIL_ENRICHMENT")).thenReturn(assignment);
+        when(ali1688CollectionMapper.selectLatestDetailEnrichmentSnapshotByCandidateId(candidate.id)).thenReturn(snapshot);
+
+        Ali1688CollectionView view = service.ensureTaskForSourceCollection(source, 307L);
+
+        Ali1688CollectionView.Ali1688CandidatePreview preview = view.candidates.get(0);
+        assertEquals("completed", preview.detailEnrichmentStatus);
+        assertEquals("Razr Fold 手机壳保护套详情", preview.detailTitle);
+        assertEquals(List.of("https://images.example.com/detail-1.jpg"), preview.detailImageUrls);
+    }
+
+    @Test
+    void collectionViewKeepsListPriceHintSeparateFromConfirmedPriceAndInquiryGate() {
+        ProductSelectionSourceCollectionRow source = sourceCollection("success");
+        Ali1688CollectionRecords.TaskRecord task = task("success");
+        Ali1688CollectionRecords.CandidateRecord candidate = candidateRecord();
+        candidate.priceText = "¥6.93 运费4元起 4400+件 50件起批";
+        Ali1688CollectionRecords.PricePreviewSnapshotRecord priceSnapshot = pricePreviewSnapshot(candidate.id, "success");
+        priceSnapshot.totalPriceText = "¥38.40";
+        priceSnapshot.unitPriceText = "¥15.20";
+        priceSnapshot.shippingText = "¥8.00";
+
+        when(ali1688CollectionMapper.selectCurrentTaskBySourceId(source.getId())).thenReturn(task);
+        when(ali1688CollectionMapper.listCandidatesByTask(task.id)).thenReturn(List.of(candidate));
+        when(ali1688CollectionMapper.selectLatestPricePreviewSnapshotByCandidateId(candidate.id)).thenReturn(priceSnapshot);
+
+        Ali1688CollectionView view = service.ensureTaskForSourceCollection(source, 307L);
+
+        Ali1688CollectionView.Ali1688CandidatePreview preview = view.candidates.get(0);
+        assertEquals("¥6.93 运费4元起 4400+件 50件起批", preview.priceText);
+        assertEquals("price_confirmed", preview.pricePreviewStatus);
+        assertEquals("¥38.40", preview.confirmedRealPriceText);
+        assertEquals("preview_only", preview.pricePreviewSafetyMode);
+        assertEquals("inquiry_eligible", preview.candidateGateStatus);
+        assertEquals(Boolean.TRUE, preview.autoInquiryEligible);
+        assertEquals("IN_POOL_WAITING_SEND", preview.procurementInquiryStatus);
+    }
+
+    @Test
+    void collectionViewBlocksInquiryWhenLatestPricePreviewFailed() {
+        ProductSelectionSourceCollectionRow source = sourceCollection("success");
+        Ali1688CollectionRecords.TaskRecord task = task("success");
+        Ali1688CollectionRecords.CandidateRecord candidate = candidateRecord();
+        Ali1688CollectionRecords.PricePreviewSnapshotRecord priceSnapshot = pricePreviewSnapshot(candidate.id, "failed");
+        priceSnapshot.failureCode = "shipping_unavailable";
+        priceSnapshot.failureMessage = "当前地区无法计算运费。";
+
+        when(ali1688CollectionMapper.selectCurrentTaskBySourceId(source.getId())).thenReturn(task);
+        when(ali1688CollectionMapper.listCandidatesByTask(task.id)).thenReturn(List.of(candidate));
+        when(ali1688CollectionMapper.selectLatestPricePreviewSnapshotByCandidateId(candidate.id)).thenReturn(priceSnapshot);
+
+        Ali1688CollectionView view = service.ensureTaskForSourceCollection(source, 307L);
+
+        Ali1688CollectionView.Ali1688CandidatePreview preview = view.candidates.get(0);
+        assertEquals("price_probe_failed", preview.pricePreviewStatus);
+        assertEquals("shipping_unavailable", preview.pricePreviewFailureCode);
+        assertEquals("当前地区无法计算运费。", preview.pricePreviewFailureMessage);
+        assertEquals("price_probe_failed", preview.candidateGateStatus);
+        assertEquals(Boolean.FALSE, preview.autoInquiryEligible);
+        assertTrue(preview.autoInquiryBlockReasons.contains("真实价格预览失败：当前地区无法计算运费。"));
+        assertEquals("BACKUP_POOL", preview.procurementInquiryStatus);
+    }
+
+    @Test
     void retryRejectsSupersededTaskBeforeMutatingIt() {
         Ali1688CollectionRecords.TaskRecord task = task("failed");
         task.currentTaskKey = null;
@@ -210,6 +373,67 @@ class LocalDbAli1688CollectionServiceTest {
         candidate.supplierSnapshot = Map.of("verified", true, "factory", true, "response", "高");
         candidate.logisticsSnapshot = Map.of("shipFrom", "浙江义乌", "stock", "现货");
         return candidate;
+    }
+
+    private Ali1688CollectionRecords.CandidateRecord candidateRecord() {
+        Ali1688CollectionRecords.CandidateRecord candidate = new Ali1688CollectionRecords.CandidateRecord();
+        candidate.id = 88001L;
+        candidate.taskId = 87001L;
+        candidate.rankNo = 1;
+        candidate.selectedRankNo = 1;
+        candidate.level = "recommended";
+        candidate.offerId = "745612345001";
+        candidate.candidateUrl = "https://detail.1688.com/offer/745612345001.html";
+        candidate.title = "Razr Fold 手机保护膜";
+        candidate.supplierName = "深圳屏幕配件工厂";
+        candidate.locationText = "广东 深圳";
+        candidate.mainImageUrl = "https://images.example.com/list-main.jpg";
+        candidate.imageUrlsJson = "[\"https://images.example.com/list-main.jpg\"]";
+        candidate.aiAssessmentStatus = "success";
+        candidate.scoreStatus = "final";
+        candidate.matchScore = 31;
+        candidate.specScore = 17;
+        candidate.scoreDetailJson = "{\"riskLevel\":\"low\"}";
+        return candidate;
+    }
+
+    private Ali1688CollectionRecords.PluginAssignmentRecord detailAssignment(
+            Ali1688CollectionRecords.TaskRecord task,
+            Long candidateId,
+            String status
+    ) {
+        Ali1688CollectionRecords.PluginAssignmentRecord assignment = new Ali1688CollectionRecords.PluginAssignmentRecord();
+        assignment.id = 90001L;
+        assignment.assignmentType = "DETAIL_ENRICHMENT";
+        assignment.taskId = task.id;
+        assignment.candidateId = candidateId;
+        assignment.status = status;
+        return assignment;
+    }
+
+    private Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord detailSnapshot(Long candidateId) {
+        Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord snapshot = new Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord();
+        snapshot.id = 91001L;
+        snapshot.candidateId = candidateId;
+        snapshot.detailTitle = "Razr Fold 手机壳保护套详情";
+        snapshot.detailImageUrlsJson = "[\"https://images.example.com/detail-1.jpg\"]";
+        return snapshot;
+    }
+
+    private Ali1688CollectionRecords.PricePreviewSnapshotRecord pricePreviewSnapshot(Long candidateId, String status) {
+        Ali1688CollectionRecords.PricePreviewSnapshotRecord snapshot = new Ali1688CollectionRecords.PricePreviewSnapshotRecord();
+        snapshot.id = 92001L;
+        snapshot.assignmentId = 90001L;
+        snapshot.taskId = 87001L;
+        snapshot.candidateId = candidateId;
+        snapshot.snapshotSource = "browser-extension";
+        snapshot.resultStatus = status;
+        snapshot.quantity = 2;
+        snapshot.currency = "CNY";
+        snapshot.regionText = "浙江 -> 广东深圳";
+        snapshot.safetyMode = "preview_only";
+        snapshot.sideEffectPolicy = "no_payment_no_order_no_message";
+        return snapshot;
     }
 
     private ProductSelectionUserContext activeUser(Long userId) {

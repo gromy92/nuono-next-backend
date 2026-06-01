@@ -43,6 +43,44 @@ public interface Ali1688CollectionMapper {
             + "DATE_FORMAT(assessment.next_run_at, '%Y-%m-%d %H:%i') AS next_run_at, assessment.created_by, assessment.updated_by "
             + "FROM product_selection_ali1688_candidate_ai_assessment assessment ";
 
+    String PLUGIN_ASSIGNMENT_SELECT = ""
+            + "SELECT assignment.id, assignment.assignment_code, assignment.assignment_type, assignment.task_id, assignment.candidate_id, "
+            + "assignment.source_collection_id, assignment.owner_user_id, assignment.logical_store_id, assignment.current_assignment_key, "
+            + "assignment.status, assignment.idempotency_key, assignment.result_status, assignment.result_snapshot_json, "
+            + "assignment.failure_code, assignment.failure_message, assignment.submitted_candidate_count, assignment.accepted_candidate_count, "
+            + "assignment.rejected_candidate_count, DATE_FORMAT(assignment.created_at, '%Y-%m-%d %H:%i') AS created_at, "
+            + "DATE_FORMAT(assignment.expires_at, '%Y-%m-%d %H:%i') AS expires_at, DATE_FORMAT(assignment.started_at, '%Y-%m-%d %H:%i') AS started_at, "
+            + "DATE_FORMAT(assignment.finished_at, '%Y-%m-%d %H:%i') AS finished_at, assignment.created_by, assignment.updated_by, "
+            + "task.task_no, task.source_image_url, source.source_title, source.source_title_cn, source.source_url, source.page_url, "
+            + "COALESCE(store.project_name, '') AS store_name, "
+            + "(SELECT site.store_code FROM logical_store_site site WHERE site.logical_store_id = assignment.logical_store_id AND site.is_deleted = b'0' ORDER BY site.is_reference_site DESC, site.id ASC LIMIT 1) AS store_code, "
+            + "candidate.title AS candidate_title, candidate.candidate_url, candidate.offer_id "
+            + "FROM product_selection_ali1688_plugin_assignment assignment "
+            + "JOIN product_selection_ali1688_collection_task task ON task.id = assignment.task_id AND task.is_deleted = b'0' "
+            + "JOIN product_selection_source_collection source ON source.id = assignment.source_collection_id AND source.is_deleted = b'0' "
+            + "LEFT JOIN logical_store store ON store.id = assignment.logical_store_id AND store.is_deleted = b'0' "
+            + "LEFT JOIN product_selection_ali1688_candidate candidate ON candidate.id = assignment.candidate_id AND candidate.is_deleted = b'0' ";
+
+    String DETAIL_ENRICHMENT_SNAPSHOT_SELECT = ""
+            + "SELECT snapshot.id, snapshot.assignment_id, snapshot.task_id, snapshot.candidate_id, snapshot.source_collection_id, "
+            + "snapshot.owner_user_id, snapshot.logical_store_id, snapshot.snapshot_source, "
+            + "COALESCE(snapshot.collected_at_text, DATE_FORMAT(snapshot.collected_at, '%Y-%m-%d %H:%i')) AS collected_at, "
+            + "snapshot.page_url, snapshot.detail_title, snapshot.main_image_urls_json, snapshot.detail_image_urls_json, snapshot.image_urls_json, "
+            + "snapshot.sku_options_json, snapshot.moq_text, snapshot.supplier_name, snapshot.location_text, snapshot.list_price_text, "
+            + "snapshot.service_labels_json, snapshot.sales_labels_json, snapshot.raw_evidence_snippets_json, snapshot.raw_snapshot_json, "
+            + "snapshot.created_by, snapshot.updated_by "
+            + "FROM product_selection_ali1688_detail_enrichment_snapshot snapshot ";
+
+    String PRICE_PREVIEW_SNAPSHOT_SELECT = ""
+            + "SELECT snapshot.id, snapshot.assignment_id, snapshot.task_id, snapshot.candidate_id, snapshot.source_collection_id, "
+            + "snapshot.owner_user_id, snapshot.logical_store_id, snapshot.snapshot_source, snapshot.result_status, "
+            + "snapshot.failure_code, snapshot.failure_message, "
+            + "COALESCE(snapshot.collected_at_text, DATE_FORMAT(snapshot.collected_at, '%Y-%m-%d %H:%i')) AS collected_at, "
+            + "snapshot.sku_options_json, snapshot.quantity, snapshot.unit_price_text, snapshot.shipping_text, snapshot.discount_text, "
+            + "snapshot.total_price_text, snapshot.currency, snapshot.region_text, snapshot.safety_mode, snapshot.side_effect_policy, "
+            + "snapshot.raw_snapshot_json, snapshot.created_by, snapshot.updated_by "
+            + "FROM product_selection_ali1688_price_preview_snapshot snapshot ";
+
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -61,6 +99,18 @@ public interface Ali1688CollectionMapper {
 
     default Long nextAiAssessmentId() {
         return nextId("product_selection_ali1688_candidate_ai_assessment", 89000L);
+    }
+
+    default Long nextPluginAssignmentId() {
+        return nextId("product_selection_ali1688_plugin_assignment", 90000L);
+    }
+
+    default Long nextDetailEnrichmentSnapshotId() {
+        return nextId("product_selection_ali1688_detail_enrichment_snapshot", 91000L);
+    }
+
+    default Long nextPricePreviewSnapshotId() {
+        return nextId("product_selection_ali1688_price_preview_snapshot", 92000L);
     }
 
     default Long nextId(String sequenceName, Long initialValue) {
@@ -195,6 +245,24 @@ public interface Ali1688CollectionMapper {
 
     @Update({
             "UPDATE product_selection_ali1688_collection_task",
+            "SET search_mode = #{searchMode}, official_search_url = #{officialSearchUrl}, search_image_id = #{searchImageId},",
+            "search_image_id_list_json = #{searchImageIdListJson}, raw_search_snapshot_json = #{rawSearchSnapshotJson}, scanned_count = #{scannedCount},",
+            "progress_percent = GREATEST(progress_percent, 80), updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE id = #{taskId} AND current_task_key IS NOT NULL AND is_deleted = b'0'"
+    })
+    int updateSearchSnapshotFromPlugin(
+            @Param("taskId") Long taskId,
+            @Param("searchMode") String searchMode,
+            @Param("officialSearchUrl") String officialSearchUrl,
+            @Param("searchImageId") String searchImageId,
+            @Param("searchImageIdListJson") String searchImageIdListJson,
+            @Param("rawSearchSnapshotJson") String rawSearchSnapshotJson,
+            @Param("scannedCount") Integer scannedCount,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_ali1688_collection_task",
             "SET status = #{status}, progress_percent = 100, scanned_count = #{scannedCount}, candidate_count = #{candidateCount},",
             "recommended_count = #{recommendedCount}, failure_code = #{failureCode}, failure_message = #{failureMessage}, finished_at = NOW(),",
             "locked_at = NULL, locked_by = NULL, updated_by = #{updatedBy}, gmt_updated = NOW()",
@@ -210,6 +278,24 @@ public interface Ali1688CollectionMapper {
             @Param("failureMessage") String failureMessage,
             @Param("updatedBy") Long updatedBy,
             @Param("lockedBy") String lockedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_ali1688_collection_task",
+            "SET status = #{status}, progress_percent = 100, scanned_count = #{scannedCount}, candidate_count = #{candidateCount},",
+            "recommended_count = #{recommendedCount}, failure_code = #{failureCode}, failure_message = #{failureMessage}, finished_at = NOW(),",
+            "locked_at = NULL, locked_by = NULL, updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE id = #{taskId} AND current_task_key IS NOT NULL AND is_deleted = b'0'"
+    })
+    int markTaskCompletedFromPlugin(
+            @Param("taskId") Long taskId,
+            @Param("status") String status,
+            @Param("scannedCount") Integer scannedCount,
+            @Param("candidateCount") Integer candidateCount,
+            @Param("recommendedCount") Integer recommendedCount,
+            @Param("failureCode") String failureCode,
+            @Param("failureMessage") String failureMessage,
+            @Param("updatedBy") Long updatedBy
     );
 
     @Update({
@@ -378,5 +464,159 @@ public interface Ali1688CollectionMapper {
             "WHERE id = #{candidateId} AND is_deleted = b'0'"
     })
     int markCandidateAiAssessmentFailed(@Param("candidateId") Long candidateId, @Param("updatedBy") Long updatedBy);
+
+    @Update({
+            "UPDATE product_selection_ali1688_plugin_assignment",
+            "SET current_assignment_key = NULL, status = CASE WHEN status IN ('created', 'running') THEN 'cancelled' ELSE status END,",
+            "updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE current_assignment_key = #{currentAssignmentKey} AND is_deleted = b'0'"
+    })
+    int supersedeCurrentPluginAssignments(
+            @Param("currentAssignmentKey") String currentAssignmentKey,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_ali1688_plugin_assignment",
+            "SET current_assignment_key = NULL, status = 'expired', failure_code = COALESCE(failure_code, 'assignment_expired'),",
+            "failure_message = COALESCE(failure_message, '插件任务已超过有效期。'), finished_at = COALESCE(finished_at, NOW()),",
+            "updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE logical_store_id = #{logicalStoreId} AND current_assignment_key IS NOT NULL AND status IN ('created', 'running')",
+            "AND expires_at IS NOT NULL AND expires_at < NOW() AND is_deleted = b'0'"
+    })
+    int expireCurrentPluginAssignments(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Insert({
+            "INSERT INTO product_selection_ali1688_plugin_assignment (",
+            "id, assignment_code, assignment_type, task_id, candidate_id, source_collection_id, owner_user_id, logical_store_id,",
+            "current_assignment_key, status, submitted_candidate_count, accepted_candidate_count, rejected_candidate_count,",
+            "expires_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.assignmentCode}, #{row.assignmentType}, #{row.taskId}, #{row.candidateId}, #{row.sourceCollectionId}, #{row.ownerUserId}, #{row.logicalStoreId},",
+            "#{row.currentAssignmentKey}, #{row.status}, 0, 0, 0, DATE_ADD(NOW(), INTERVAL 2 HOUR), b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
+    })
+    int insertPluginAssignment(@Param("row") Ali1688CollectionRecords.PluginAssignmentRecord row);
+
+    @Select({PLUGIN_ASSIGNMENT_SELECT, "WHERE assignment.id = #{assignmentId} AND assignment.is_deleted = b'0' LIMIT 1"})
+    Ali1688CollectionRecords.PluginAssignmentRecord selectPluginAssignmentById(@Param("assignmentId") Long assignmentId);
+
+    @Select({PLUGIN_ASSIGNMENT_SELECT, "WHERE (CAST(assignment.id AS CHAR) = #{locator} OR assignment.assignment_code = #{locator}) AND assignment.is_deleted = b'0' LIMIT 1"})
+    Ali1688CollectionRecords.PluginAssignmentRecord selectPluginAssignmentByLocator(@Param("locator") String locator);
+
+    @Select({
+            PLUGIN_ASSIGNMENT_SELECT,
+            "WHERE assignment.candidate_id = #{candidateId} AND assignment.assignment_type = #{assignmentType} AND assignment.is_deleted = b'0'",
+            "ORDER BY assignment.gmt_updated DESC, assignment.id DESC LIMIT 1"
+    })
+    Ali1688CollectionRecords.PluginAssignmentRecord selectLatestPluginAssignmentByCandidateAndType(
+            @Param("candidateId") Long candidateId,
+            @Param("assignmentType") String assignmentType
+    );
+
+    @Select({
+            PLUGIN_ASSIGNMENT_SELECT,
+            "WHERE assignment.task_id = #{taskId} AND assignment.assignment_type = #{assignmentType} AND assignment.is_deleted = b'0'",
+            "ORDER BY assignment.gmt_updated DESC, assignment.id DESC LIMIT 1"
+    })
+    Ali1688CollectionRecords.PluginAssignmentRecord selectLatestPluginAssignmentByTaskAndType(
+            @Param("taskId") Long taskId,
+            @Param("assignmentType") String assignmentType
+    );
+
+    @Select({
+            PLUGIN_ASSIGNMENT_SELECT,
+            "WHERE assignment.logical_store_id = #{logicalStoreId} AND assignment.current_assignment_key IS NOT NULL AND assignment.is_deleted = b'0'",
+            "ORDER BY assignment.gmt_updated DESC, assignment.id DESC LIMIT #{limit}"
+    })
+    List<Ali1688CollectionRecords.PluginAssignmentRecord> listCurrentPluginAssignments(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("limit") Integer limit
+    );
+
+    @Update({
+            "UPDATE product_selection_ali1688_plugin_assignment",
+            "SET status = 'running', started_at = COALESCE(started_at, NOW()), updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE id = #{assignmentId} AND current_assignment_key IS NOT NULL AND status IN ('created', 'running')",
+            "AND (expires_at IS NULL OR expires_at >= NOW()) AND is_deleted = b'0'"
+    })
+    int markPluginAssignmentRunning(@Param("assignmentId") Long assignmentId, @Param("updatedBy") Long updatedBy);
+
+    @Update({
+            "UPDATE product_selection_ali1688_plugin_assignment",
+            "SET status = 'failed', failure_code = #{failureCode}, failure_message = #{failureMessage}, finished_at = NOW(),",
+            "updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE id = #{assignmentId} AND current_assignment_key IS NOT NULL AND status IN ('created', 'running')",
+            "AND (expires_at IS NULL OR expires_at >= NOW()) AND is_deleted = b'0'"
+    })
+    int markPluginAssignmentFailed(
+            @Param("assignmentId") Long assignmentId,
+            @Param("failureCode") String failureCode,
+            @Param("failureMessage") String failureMessage,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_ali1688_plugin_assignment",
+            "SET status = 'accepted', idempotency_key = #{idempotencyKey}, result_status = #{resultStatus}, result_snapshot_json = #{resultSnapshotJson},",
+            "submitted_candidate_count = #{submittedCandidateCount}, accepted_candidate_count = #{acceptedCandidateCount}, rejected_candidate_count = #{rejectedCandidateCount},",
+            "failure_code = NULL, failure_message = NULL, finished_at = NOW(), updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE id = #{assignmentId} AND current_assignment_key IS NOT NULL AND status IN ('created', 'running', 'accepted')",
+            "AND (expires_at IS NULL OR expires_at >= NOW()) AND is_deleted = b'0'"
+    })
+    int markPluginAssignmentAccepted(
+            @Param("assignmentId") Long assignmentId,
+            @Param("idempotencyKey") String idempotencyKey,
+            @Param("resultStatus") String resultStatus,
+            @Param("resultSnapshotJson") String resultSnapshotJson,
+            @Param("submittedCandidateCount") Integer submittedCandidateCount,
+            @Param("acceptedCandidateCount") Integer acceptedCandidateCount,
+            @Param("rejectedCandidateCount") Integer rejectedCandidateCount,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Insert({
+            "INSERT INTO product_selection_ali1688_detail_enrichment_snapshot (",
+            "id, assignment_id, task_id, candidate_id, source_collection_id, owner_user_id, logical_store_id, snapshot_source,",
+            "collected_at, collected_at_text, page_url, detail_title, main_image_urls_json, detail_image_urls_json, image_urls_json,",
+            "sku_options_json, moq_text, supplier_name, location_text, list_price_text, service_labels_json, sales_labels_json,",
+            "raw_evidence_snippets_json, raw_snapshot_json, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.assignmentId}, #{row.taskId}, #{row.candidateId}, #{row.sourceCollectionId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.snapshotSource},",
+            "NOW(), #{row.collectedAt}, #{row.pageUrl}, #{row.detailTitle}, #{row.mainImageUrlsJson}, #{row.detailImageUrlsJson}, #{row.imageUrlsJson},",
+            "#{row.skuOptionsJson}, #{row.moqText}, #{row.supplierName}, #{row.locationText}, #{row.listPriceText}, #{row.serviceLabelsJson}, #{row.salesLabelsJson},",
+            "#{row.rawEvidenceSnippetsJson}, #{row.rawSnapshotJson}, b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
+    })
+    int insertDetailEnrichmentSnapshot(@Param("row") Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord row);
+
+    @Select({
+            DETAIL_ENRICHMENT_SNAPSHOT_SELECT,
+            "WHERE snapshot.candidate_id = #{candidateId} AND snapshot.is_deleted = b'0'",
+            "ORDER BY snapshot.gmt_updated DESC, snapshot.id DESC LIMIT 1"
+    })
+    Ali1688CollectionRecords.DetailEnrichmentSnapshotRecord selectLatestDetailEnrichmentSnapshotByCandidateId(@Param("candidateId") Long candidateId);
+
+    @Select({
+            PRICE_PREVIEW_SNAPSHOT_SELECT,
+            "WHERE snapshot.candidate_id = #{candidateId} AND snapshot.is_deleted = b'0'",
+            "ORDER BY snapshot.gmt_updated DESC, snapshot.id DESC LIMIT 1"
+    })
+    Ali1688CollectionRecords.PricePreviewSnapshotRecord selectLatestPricePreviewSnapshotByCandidateId(@Param("candidateId") Long candidateId);
+
+    @Insert({
+            "INSERT INTO product_selection_ali1688_price_preview_snapshot (",
+            "id, assignment_id, task_id, candidate_id, source_collection_id, owner_user_id, logical_store_id, snapshot_source, result_status,",
+            "failure_code, failure_message, collected_at, collected_at_text, sku_options_json, quantity, unit_price_text, shipping_text,",
+            "discount_text, total_price_text, currency, region_text, safety_mode, side_effect_policy, raw_snapshot_json,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.assignmentId}, #{row.taskId}, #{row.candidateId}, #{row.sourceCollectionId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.snapshotSource}, #{row.resultStatus},",
+            "#{row.failureCode}, #{row.failureMessage}, NOW(), #{row.collectedAt}, #{row.skuOptionsJson}, #{row.quantity}, #{row.unitPriceText}, #{row.shippingText},",
+            "#{row.discountText}, #{row.totalPriceText}, #{row.currency}, #{row.regionText}, #{row.safetyMode}, #{row.sideEffectPolicy}, #{row.rawSnapshotJson},",
+            "b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
+    })
+    int insertPricePreviewSnapshot(@Param("row") Ali1688CollectionRecords.PricePreviewSnapshotRecord row);
 
 }

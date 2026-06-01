@@ -52,6 +52,17 @@ public class Ali1688CollectionView {
         public String scoreStatus;
         public ScoreBreakdown scoreBreakdown = new ScoreBreakdown();
         public String aiAssessmentStatus;
+        public String detailEnrichmentStatus;
+        public String detailTitle;
+        public List<String> detailImageUrls = new ArrayList<>();
+        public String pricePreviewStatus;
+        public String confirmedRealPriceText;
+        public String pricePreviewFailureCode;
+        public String pricePreviewFailureMessage;
+        public String pricePreviewSafetyMode;
+        public String candidateGateStatus;
+        public Boolean autoInquiryEligible;
+        public List<String> autoInquiryBlockReasons = new ArrayList<>();
         public String procurementInquiryStatus;
         public List<String> reasons = new ArrayList<>();
         public List<String> warnings = new ArrayList<>();
