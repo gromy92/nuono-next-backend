@@ -2,9 +2,12 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -319,6 +322,47 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("55", preservedOffer.get("priceMax"));
         assertEquals("89.50", current.getPricing().get("price"));
         assertEquals("39.90", current.getPricing().get("salePrice"));
+    }
+
+    @Test
+    void shouldRejectProjectionSiteSeedWhenStoreCodeBelongsToAnotherLogicalStore() {
+        ProductProjectionPersistenceService.ProductMasterSeed productSeed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        productSeed.setSkuParent("ZCROSS001");
+
+        ProductProjectionPersistenceService.SiteSeed siteSeed =
+                new ProductProjectionPersistenceService.SiteSeed("STR108065-NAE", "AE", "ACTIVE", true);
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ69486"))
+                .thenReturn(50003L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR108065-NAE"))
+                .thenReturn(50005L);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.persistInitializationProjection(
+                        307L,
+                        "PRJ69486",
+                        "songguoguo",
+                        "STR108065-NAE",
+                        List.of(siteSeed),
+                        List.of(productSeed),
+                        new ArrayList<>()
+                )
+        );
+
+        assertTrue(exception.getMessage().contains("STR108065-NAE"));
+        assertTrue(exception.getMessage().contains("其他逻辑店铺"));
+        verify(productManagementMapper, never()).upsertLogicalStoreSite(
+                eq(51004L),
+                eq(50003L),
+                eq("STR108065-NAE"),
+                eq("AE"),
+                eq(true),
+                eq(true),
+                eq("ACTIVE"),
+                eq(307L)
+        );
     }
 
     @SuppressWarnings("unchecked")

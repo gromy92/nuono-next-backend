@@ -170,6 +170,26 @@ public interface ProductManagementMapper {
     })
     Long selectLogicalStoreSiteId(@Param("storeCode") String storeCode);
 
+    @Select({
+            "SELECT id",
+            "FROM logical_store_site",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND BINARY store_code = BINARY #{storeCode}",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreSiteIdInLogicalStore(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("storeCode") String storeCode
+    );
+
+    @Select({
+            "SELECT logical_store_id",
+            "FROM logical_store_site",
+            "WHERE BINARY store_code = BINARY #{storeCode}",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreIdBySiteStoreCode(@Param("storeCode") String storeCode);
+
     @Update({
             "<script>",
             "UPDATE logical_store_site",
