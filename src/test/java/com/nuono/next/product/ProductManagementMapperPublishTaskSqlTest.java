@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,39 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("ls.owner_user_id = #{ownerUserId}"));
         assertTrue(sql.contains("lss.store_code = #{storeCode}"));
         assertTrue(sql.contains("lss.site = #{siteCode}"));
+    }
+
+    @Test
+    void currentSiteProjectionFieldsShouldNotFallbackToOtherStoreOffers() {
+        List<String> projectionMethods = List.of(
+                "selectProductListProjection",
+                "selectProductListProjectionBySkuParent",
+                "selectProductGroupCandidates"
+        );
+
+        for (String methodName : projectionMethods) {
+            Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                    .filter((candidate) -> methodName.equals(candidate.getName()))
+                    .findFirst()
+                    .orElseThrow();
+            Select select = method.getAnnotation(Select.class);
+            String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+            assertTrue(!sql.contains("MAX(pso.psku_code)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.offer_code)"), methodName);
+            assertTrue(!sql.contains("MAX(COALESCE(pso.final_price, pso.sale_price, pso.price))"), methodName);
+            assertTrue(!sql.contains("MAX(pso.price)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.sale_price)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.views_count)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.units_sold)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.sales_amount)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.sales_currency)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.live_status)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.status_code)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.listing_started_at)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.listing_started_source)"), methodName);
+            assertTrue(!sql.contains("MAX(CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END)"), methodName);
+        }
     }
 
     @Test

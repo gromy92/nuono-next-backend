@@ -22,4 +22,23 @@ public interface CoreTableStatusMapper {
             @Param("schema") String schema,
             @Param("tableNames") List<String> tableNames
     );
+
+    @Select({
+            "<script>",
+            "SELECT column_name",
+            "FROM information_schema.columns",
+            "WHERE table_schema = #{schema}",
+            "AND table_name = #{tableName}",
+            "AND column_name IN",
+            "<foreach collection='columnNames' item='columnName' open='(' separator=',' close=')'>",
+            "#{columnName}",
+            "</foreach>",
+            "ORDER BY column_name",
+            "</script>"
+    })
+    List<String> findExistingColumnNames(
+            @Param("schema") String schema,
+            @Param("tableName") String tableName,
+            @Param("columnNames") List<String> columnNames
+    );
 }
