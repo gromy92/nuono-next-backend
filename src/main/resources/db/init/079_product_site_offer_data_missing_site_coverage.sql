@@ -1,6 +1,16 @@
--- Reclassify legacy data_missing offer listing state after site-level sales facts exist.
--- New rule: data_missing means the site itself has no sales/PV fact coverage. When
--- a site is covered, an offer with no PV, inventory, or sales signal is not_listed.
+-- Reclassify legacy data_missing offer listing state only for explicitly confirmed
+-- site coverage scopes. Insert reviewed owner/store/site rows into
+-- product_site_offer_listing_coverage_scope before rerunning this migration.
+
+CREATE TABLE IF NOT EXISTS `product_site_offer_listing_coverage_scope` (
+    `owner_user_id` BIGINT NOT NULL,
+    `store_code` VARCHAR(64) NOT NULL,
+    `site_code` VARCHAR(16) NOT NULL,
+    `coverage_reason` VARCHAR(80) DEFAULT NULL,
+    `created_by` BIGINT DEFAULT NULL,
+    `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`owner_user_id`, `store_code`, `site_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Confirmed site scopes for product listing-started migration';
 
 UPDATE product_site_offer pso
 JOIN product_variant pv
@@ -16,73 +26,159 @@ JOIN logical_store ls
   ON ls.id = lss.logical_store_id
  AND ls.is_deleted = 0
  AND pm.logical_store_id = ls.id
-JOIN (
-    SELECT owner_user_id, store_code, site_code, COUNT(1) AS site_fact_row_count
-    FROM daily_sales_fact
-    GROUP BY owner_user_id, store_code, site_code
-) sitef
-  ON sitef.owner_user_id = ls.owner_user_id
- AND sitef.store_code = lss.store_code
- AND sitef.site_code = lss.site
-LEFT JOIN (
-    SELECT owner_user_id, store_code, site_code, product_key, MIN(fact_date) AS first_pv_date
-    FROM (
-        SELECT owner_user_id, store_code, site_code, NULLIF(partner_sku, '') AS product_key, fact_date
-        FROM daily_sales_fact
-        WHERE COALESCE(your_visitors, 0) > 0 OR COALESCE(total_visitors, 0) > 0
-        UNION ALL
-        SELECT owner_user_id, store_code, site_code, NULLIF(sku, '') AS product_key, fact_date
-        FROM daily_sales_fact
-        WHERE COALESCE(your_visitors, 0) > 0 OR COALESCE(total_visitors, 0) > 0
-    ) pv_source
-    WHERE product_key IS NOT NULL
-    GROUP BY owner_user_id, store_code, site_code, product_key
-) pvf
-  ON pvf.owner_user_id = ls.owner_user_id
- AND pvf.store_code = lss.store_code
- AND pvf.site_code = lss.site
- AND pvf.product_key IN (
-     NULLIF(pv.partner_sku, ''),
-     NULLIF(pso.offer_code, ''),
-     NULLIF(pso.psku_code, ''),
-     NULLIF(pv.child_sku, ''),
-     NULLIF(pm.sku_parent, '')
- )
-LEFT JOIN (
-    SELECT owner_user_id, store_code, site_code, product_key, MIN(fact_date) AS first_sales_date
-    FROM (
-        SELECT owner_user_id, store_code, site_code, NULLIF(partner_sku, '') AS product_key, fact_date
-        FROM daily_sales_fact
-        WHERE COALESCE(net_units, 0) > 0
-        UNION ALL
-        SELECT owner_user_id, store_code, site_code, NULLIF(sku, '') AS product_key, fact_date
-        FROM daily_sales_fact
-        WHERE COALESCE(net_units, 0) > 0
-    ) sales_source
-    WHERE product_key IS NOT NULL
-    GROUP BY owner_user_id, store_code, site_code, product_key
-) sf
-  ON sf.owner_user_id = ls.owner_user_id
- AND sf.store_code = lss.store_code
- AND sf.site_code = lss.site
- AND sf.product_key IN (
-     NULLIF(pv.partner_sku, ''),
-     NULLIF(pso.offer_code, ''),
-     NULLIF(pso.psku_code, ''),
-     NULLIF(pv.child_sku, ''),
-     NULLIF(pm.sku_parent, '')
- )
+JOIN product_site_offer_listing_coverage_scope scope
+  ON scope.owner_user_id = ls.owner_user_id
+ AND scope.store_code = lss.store_code
+ AND scope.site_code = lss.site
 SET pso.listing_started_at = CASE
-        WHEN pvf.first_pv_date IS NOT NULL THEN CAST(pvf.first_pv_date AS DATETIME)
+        WHEN (
+            SELECT MIN(dsf.fact_date)
+            FROM daily_sales_fact dsf
+            WHERE dsf.owner_user_id = ls.owner_user_id
+              AND dsf.store_code = lss.store_code
+              AND dsf.site_code = lss.site
+              AND (
+                  NULLIF(dsf.partner_sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+                  OR NULLIF(dsf.sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+              )
+              AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)
+        ) IS NOT NULL THEN CAST((
+            SELECT MIN(dsf.fact_date)
+            FROM daily_sales_fact dsf
+            WHERE dsf.owner_user_id = ls.owner_user_id
+              AND dsf.store_code = lss.store_code
+              AND dsf.site_code = lss.site
+              AND (
+                  NULLIF(dsf.partner_sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+                  OR NULLIF(dsf.sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+              )
+              AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)
+        ) AS DATETIME)
         WHEN COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0) + COALESCE(pso.fbp_stock, 0) > 0
         THEN COALESCE(pso.last_synced_at, pso.gmt_updated, NOW())
-        WHEN sf.first_sales_date IS NOT NULL THEN CAST(sf.first_sales_date AS DATETIME)
+        WHEN (
+            SELECT MIN(dsf.fact_date)
+            FROM daily_sales_fact dsf
+            WHERE dsf.owner_user_id = ls.owner_user_id
+              AND dsf.store_code = lss.store_code
+              AND dsf.site_code = lss.site
+              AND (
+                  NULLIF(dsf.partner_sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+                  OR NULLIF(dsf.sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+              )
+              AND COALESCE(dsf.net_units, 0) > 0
+        ) IS NOT NULL THEN CAST((
+            SELECT MIN(dsf.fact_date)
+            FROM daily_sales_fact dsf
+            WHERE dsf.owner_user_id = ls.owner_user_id
+              AND dsf.store_code = lss.store_code
+              AND dsf.site_code = lss.site
+              AND (
+                  NULLIF(dsf.partner_sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+                  OR NULLIF(dsf.sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+              )
+              AND COALESCE(dsf.net_units, 0) > 0
+        ) AS DATETIME)
         ELSE NULL
     END,
     pso.listing_started_source = CASE
-        WHEN pvf.first_pv_date IS NOT NULL THEN 'pv'
+        WHEN (
+            SELECT MIN(dsf.fact_date)
+            FROM daily_sales_fact dsf
+            WHERE dsf.owner_user_id = ls.owner_user_id
+              AND dsf.store_code = lss.store_code
+              AND dsf.site_code = lss.site
+              AND (
+                  NULLIF(dsf.partner_sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+                  OR NULLIF(dsf.sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+              )
+              AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)
+        ) IS NOT NULL THEN 'pv'
         WHEN COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0) + COALESCE(pso.fbp_stock, 0) > 0 THEN 'inventory'
-        WHEN sf.first_sales_date IS NOT NULL THEN 'sales'
+        WHEN (
+            SELECT MIN(dsf.fact_date)
+            FROM daily_sales_fact dsf
+            WHERE dsf.owner_user_id = ls.owner_user_id
+              AND dsf.store_code = lss.store_code
+              AND dsf.site_code = lss.site
+              AND (
+                  NULLIF(dsf.partner_sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+                  OR NULLIF(dsf.sku, '') IN (
+                      NULLIF(pv.partner_sku, ''),
+                      NULLIF(pso.offer_code, ''),
+                      NULLIF(pso.psku_code, ''),
+                      NULLIF(pv.child_sku, ''),
+                      NULLIF(pm.sku_parent, '')
+                  )
+              )
+              AND COALESCE(dsf.net_units, 0) > 0
+        ) IS NOT NULL THEN 'sales'
         ELSE 'not_listed'
     END,
     pso.gmt_updated = NOW()

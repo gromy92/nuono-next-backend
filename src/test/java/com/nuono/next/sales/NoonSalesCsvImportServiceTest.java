@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class NoonSalesCsvImportServiceTest {
 
     @Test
-    void emptyReportMarksSiteOffersAsNotListed() {
+    void emptyReportDoesNotMarkSiteOffersAsNotListedByDefault() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         NoonSalesCsvImportService service = new NoonSalesCsvImportService(
                 new NoonProductViewsSalesReportParser(),
@@ -29,11 +29,7 @@ class NoonSalesCsvImportServiceTest {
         assertEquals("empty", result.getStatus());
         assertEquals(0, result.getTotalRows());
         assertEquals(1, repository.savedBatches.size());
-        assertEquals(1, repository.notListedMarks);
-        assertEquals(307L, repository.lastOwnerUserId);
-        assertEquals("STR245027-NSA", repository.lastStoreCode);
-        assertEquals("SA", repository.lastSiteCode);
-        assertEquals(307L, repository.lastUpdatedBy);
+        assertEquals(0, repository.notListedMarks);
     }
 
     private static String headerOnlyCsv() {
