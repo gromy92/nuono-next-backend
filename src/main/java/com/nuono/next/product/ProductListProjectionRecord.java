@@ -44,6 +44,9 @@ public class ProductListProjectionRecord {
     private String lastDraftSavedAt;
     private String detailBaselineStatus;
     private String detailBaselineSyncedAt;
+    private Integer productVariantSpecTotalCount;
+    private Integer productVariantSpecReadyCount;
+    private Integer productVariantSpecMaintainedCount;
 
     public String getSkuParent() {
         return skuParent;
@@ -355,6 +358,30 @@ public class ProductListProjectionRecord {
 
     public void setDetailBaselineSyncedAt(String detailBaselineSyncedAt) {
         this.detailBaselineSyncedAt = detailBaselineSyncedAt;
+    }
+
+    public Integer getProductVariantSpecTotalCount() {
+        return productVariantSpecTotalCount;
+    }
+
+    public void setProductVariantSpecTotalCount(Integer productVariantSpecTotalCount) {
+        this.productVariantSpecTotalCount = productVariantSpecTotalCount;
+    }
+
+    public Integer getProductVariantSpecReadyCount() {
+        return productVariantSpecReadyCount;
+    }
+
+    public void setProductVariantSpecReadyCount(Integer productVariantSpecReadyCount) {
+        this.productVariantSpecReadyCount = productVariantSpecReadyCount;
+    }
+
+    public Integer getProductVariantSpecMaintainedCount() {
+        return productVariantSpecMaintainedCount;
+    }
+
+    public void setProductVariantSpecMaintainedCount(Integer productVariantSpecMaintainedCount) {
+        this.productVariantSpecMaintainedCount = productVariantSpecMaintainedCount;
     }
 
     public List<String> siteLabels() {

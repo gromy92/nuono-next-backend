@@ -3,19 +3,10 @@ package com.nuono.next.product;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-public class ProductVariantSpecRecord {
-    private Long specId;
-    private Long effectiveSourceId;
-    private String effectiveSourceType;
-    private String storeCode;
-    private String skuParent;
-    private String title;
-    private String imageUrl;
+public class ProductVariantSpecSourceView {
+    private Long sourceId;
     private Long variantId;
-    private String partnerSku;
-    private String childSku;
-    private String sizeEn;
-    private String sizeAr;
+    private String sourceType;
     private BigDecimal productLengthCm;
     private BigDecimal productWidthCm;
     private BigDecimal productHeightCm;
@@ -25,67 +16,21 @@ public class ProductVariantSpecRecord {
     private BigDecimal cartonHeightCm;
     private BigDecimal cartonWeightKg;
     private Integer cartonQuantity;
-    private String cartonSourceType;
-    private String batteryMagneticType;
-    private String liquidPowderType;
-    private String sourceType;
+    private String cartonSourceType = ProductVariantSpecCartonSourceType.NONE;
+    private String batteryMagneticType = ProductVariantSpecLogisticsType.UNKNOWN;
+    private String liquidPowderType = ProductVariantSpecLogisticsType.UNKNOWN;
+    private LocalDateTime sourceRecordedAt;
     private LocalDateTime confirmedAt;
     private Long confirmedBy;
+    private Long updatedBy;
+    private LocalDateTime gmtUpdated;
 
-    public Long getSpecId() {
-        return specId;
+    public Long getSourceId() {
+        return sourceId;
     }
 
-    public void setSpecId(Long specId) {
-        this.specId = specId;
-    }
-
-    public Long getEffectiveSourceId() {
-        return effectiveSourceId;
-    }
-
-    public void setEffectiveSourceId(Long effectiveSourceId) {
-        this.effectiveSourceId = effectiveSourceId;
-    }
-
-    public String getEffectiveSourceType() {
-        return effectiveSourceType;
-    }
-
-    public void setEffectiveSourceType(String effectiveSourceType) {
-        this.effectiveSourceType = effectiveSourceType;
-    }
-
-    public String getStoreCode() {
-        return storeCode;
-    }
-
-    public void setStoreCode(String storeCode) {
-        this.storeCode = storeCode;
-    }
-
-    public String getSkuParent() {
-        return skuParent;
-    }
-
-    public void setSkuParent(String skuParent) {
-        this.skuParent = skuParent;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public String getImageUrl() {
-        return imageUrl;
-    }
-
-    public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+    public void setSourceId(Long sourceId) {
+        this.sourceId = sourceId;
     }
 
     public Long getVariantId() {
@@ -96,36 +41,12 @@ public class ProductVariantSpecRecord {
         this.variantId = variantId;
     }
 
-    public String getPartnerSku() {
-        return partnerSku;
+    public String getSourceType() {
+        return sourceType;
     }
 
-    public void setPartnerSku(String partnerSku) {
-        this.partnerSku = partnerSku;
-    }
-
-    public String getChildSku() {
-        return childSku;
-    }
-
-    public void setChildSku(String childSku) {
-        this.childSku = childSku;
-    }
-
-    public String getSizeEn() {
-        return sizeEn;
-    }
-
-    public void setSizeEn(String sizeEn) {
-        this.sizeEn = sizeEn;
-    }
-
-    public String getSizeAr() {
-        return sizeAr;
-    }
-
-    public void setSizeAr(String sizeAr) {
-        this.sizeAr = sizeAr;
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
     }
 
     public BigDecimal getProductLengthCm() {
@@ -224,12 +145,12 @@ public class ProductVariantSpecRecord {
         this.liquidPowderType = liquidPowderType;
     }
 
-    public String getSourceType() {
-        return sourceType;
+    public LocalDateTime getSourceRecordedAt() {
+        return sourceRecordedAt;
     }
 
-    public void setSourceType(String sourceType) {
-        this.sourceType = sourceType;
+    public void setSourceRecordedAt(LocalDateTime sourceRecordedAt) {
+        this.sourceRecordedAt = sourceRecordedAt;
     }
 
     public LocalDateTime getConfirmedAt() {
@@ -246,5 +167,21 @@ public class ProductVariantSpecRecord {
 
     public void setConfirmedBy(Long confirmedBy) {
         this.confirmedBy = confirmedBy;
+    }
+
+    public Long getUpdatedBy() {
+        return updatedBy;
+    }
+
+    public void setUpdatedBy(Long updatedBy) {
+        this.updatedBy = updatedBy;
+    }
+
+    public LocalDateTime getGmtUpdated() {
+        return gmtUpdated;
+    }
+
+    public void setGmtUpdated(LocalDateTime gmtUpdated) {
+        this.gmtUpdated = gmtUpdated;
     }
 }

@@ -3,19 +3,12 @@ package com.nuono.next.product;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-public class ProductVariantSpecRecord {
-    private Long specId;
-    private Long effectiveSourceId;
-    private String effectiveSourceType;
+public class ProductVariantSpecSourceCommand {
+    private Long id;
+    private Long ownerUserId;
     private String storeCode;
-    private String skuParent;
-    private String title;
-    private String imageUrl;
     private Long variantId;
-    private String partnerSku;
-    private String childSku;
-    private String sizeEn;
-    private String sizeAr;
+    private String sourceType;
     private BigDecimal productLengthCm;
     private BigDecimal productWidthCm;
     private BigDecimal productHeightCm;
@@ -28,32 +21,23 @@ public class ProductVariantSpecRecord {
     private String cartonSourceType;
     private String batteryMagneticType;
     private String liquidPowderType;
-    private String sourceType;
-    private LocalDateTime confirmedAt;
-    private Long confirmedBy;
+    private LocalDateTime sourceRecordedAt;
+    private Long operatorUserId;
 
-    public Long getSpecId() {
-        return specId;
+    public Long getId() {
+        return id;
     }
 
-    public void setSpecId(Long specId) {
-        this.specId = specId;
+    public void setId(Long id) {
+        this.id = id;
     }
 
-    public Long getEffectiveSourceId() {
-        return effectiveSourceId;
+    public Long getOwnerUserId() {
+        return ownerUserId;
     }
 
-    public void setEffectiveSourceId(Long effectiveSourceId) {
-        this.effectiveSourceId = effectiveSourceId;
-    }
-
-    public String getEffectiveSourceType() {
-        return effectiveSourceType;
-    }
-
-    public void setEffectiveSourceType(String effectiveSourceType) {
-        this.effectiveSourceType = effectiveSourceType;
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getStoreCode() {
@@ -64,30 +48,6 @@ public class ProductVariantSpecRecord {
         this.storeCode = storeCode;
     }
 
-    public String getSkuParent() {
-        return skuParent;
-    }
-
-    public void setSkuParent(String skuParent) {
-        this.skuParent = skuParent;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public String getImageUrl() {
-        return imageUrl;
-    }
-
-    public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
-    }
-
     public Long getVariantId() {
         return variantId;
     }
@@ -96,36 +56,12 @@ public class ProductVariantSpecRecord {
         this.variantId = variantId;
     }
 
-    public String getPartnerSku() {
-        return partnerSku;
+    public String getSourceType() {
+        return sourceType;
     }
 
-    public void setPartnerSku(String partnerSku) {
-        this.partnerSku = partnerSku;
-    }
-
-    public String getChildSku() {
-        return childSku;
-    }
-
-    public void setChildSku(String childSku) {
-        this.childSku = childSku;
-    }
-
-    public String getSizeEn() {
-        return sizeEn;
-    }
-
-    public void setSizeEn(String sizeEn) {
-        this.sizeEn = sizeEn;
-    }
-
-    public String getSizeAr() {
-        return sizeAr;
-    }
-
-    public void setSizeAr(String sizeAr) {
-        this.sizeAr = sizeAr;
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
     }
 
     public BigDecimal getProductLengthCm() {
@@ -224,27 +160,19 @@ public class ProductVariantSpecRecord {
         this.liquidPowderType = liquidPowderType;
     }
 
-    public String getSourceType() {
-        return sourceType;
+    public LocalDateTime getSourceRecordedAt() {
+        return sourceRecordedAt;
     }
 
-    public void setSourceType(String sourceType) {
-        this.sourceType = sourceType;
+    public void setSourceRecordedAt(LocalDateTime sourceRecordedAt) {
+        this.sourceRecordedAt = sourceRecordedAt;
     }
 
-    public LocalDateTime getConfirmedAt() {
-        return confirmedAt;
+    public Long getOperatorUserId() {
+        return operatorUserId;
     }
 
-    public void setConfirmedAt(LocalDateTime confirmedAt) {
-        this.confirmedAt = confirmedAt;
-    }
-
-    public Long getConfirmedBy() {
-        return confirmedBy;
-    }
-
-    public void setConfirmedBy(Long confirmedBy) {
-        this.confirmedBy = confirmedBy;
+    public void setOperatorUserId(Long operatorUserId) {
+        this.operatorUserId = operatorUserId;
     }
 }

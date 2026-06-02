@@ -73,6 +73,9 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         record.setDetailBaselineStatus("ready");
         record.setDetailBaselineSyncedAt("2026-04-27 12:31:00");
         record.setVariantCount(2);
+        record.setProductVariantSpecTotalCount(2);
+        record.setProductVariantSpecReadyCount(1);
+        record.setProductVariantSpecMaintainedCount(1);
         record.setSiteOfferCount(1);
         record.setSiteLabelsCsv("AE");
         record.setLiveStatusesCsv("LIVE");
@@ -96,6 +99,10 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("ready", summary.getDetailBaselineStatus());
         assertEquals("详情基线已准备。", summary.getDetailBaselineMessage());
         assertEquals("2026-04-27 12:31:00", summary.getDetailBaselineSyncedAt());
+        assertEquals("incomplete", summary.getProductVariantSpecStatus());
+        assertEquals(2, summary.getProductVariantSpecTotalCount());
+        assertEquals(1, summary.getProductVariantSpecReadyCount());
+        assertEquals(1, summary.getProductVariantSpecMaintainedCount());
         assertEquals("139.00", summary.getReferencePrice());
         assertEquals(Boolean.TRUE, summary.getIsActive());
         assertEquals("LIVE", summary.getLiveStatus());

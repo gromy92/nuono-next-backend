@@ -39,6 +39,10 @@ public class ProductListSummaryView {
     private String detailBaselineStatus;
     private String detailBaselineMessage;
     private String detailBaselineSyncedAt;
+    private String productVariantSpecStatus;
+    private Integer productVariantSpecTotalCount;
+    private Integer productVariantSpecReadyCount;
+    private Integer productVariantSpecMaintainedCount;
     private Integer variantCount;
     private Integer siteOfferCount;
     private List<String> siteLabels = new ArrayList<>();
@@ -320,6 +324,38 @@ public class ProductListSummaryView {
 
     public void setDetailBaselineSyncedAt(String detailBaselineSyncedAt) {
         this.detailBaselineSyncedAt = detailBaselineSyncedAt;
+    }
+
+    public String getProductVariantSpecStatus() {
+        return productVariantSpecStatus;
+    }
+
+    public void setProductVariantSpecStatus(String productVariantSpecStatus) {
+        this.productVariantSpecStatus = productVariantSpecStatus;
+    }
+
+    public Integer getProductVariantSpecTotalCount() {
+        return productVariantSpecTotalCount;
+    }
+
+    public void setProductVariantSpecTotalCount(Integer productVariantSpecTotalCount) {
+        this.productVariantSpecTotalCount = productVariantSpecTotalCount;
+    }
+
+    public Integer getProductVariantSpecReadyCount() {
+        return productVariantSpecReadyCount;
+    }
+
+    public void setProductVariantSpecReadyCount(Integer productVariantSpecReadyCount) {
+        this.productVariantSpecReadyCount = productVariantSpecReadyCount;
+    }
+
+    public Integer getProductVariantSpecMaintainedCount() {
+        return productVariantSpecMaintainedCount;
+    }
+
+    public void setProductVariantSpecMaintainedCount(Integer productVariantSpecMaintainedCount) {
+        this.productVariantSpecMaintainedCount = productVariantSpecMaintainedCount;
     }
 
     public Integer getVariantCount() {

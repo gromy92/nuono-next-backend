@@ -3005,6 +3005,10 @@ public class LocalDbStoreInitializationService {
         private String detailBaselineStatus;
         private String detailBaselineMessage;
         private String detailBaselineSyncedAt;
+        private String productVariantSpecStatus;
+        private Integer productVariantSpecTotalCount;
+        private Integer productVariantSpecReadyCount;
+        private Integer productVariantSpecMaintainedCount;
         private Integer variantCount;
         private Integer siteOfferCount;
         private Boolean historyMetaReady;
@@ -3245,6 +3249,38 @@ public class LocalDbStoreInitializationService {
 
         public void setDetailBaselineSyncedAt(String detailBaselineSyncedAt) {
             this.detailBaselineSyncedAt = detailBaselineSyncedAt;
+        }
+
+        public String getProductVariantSpecStatus() {
+            return productVariantSpecStatus;
+        }
+
+        public void setProductVariantSpecStatus(String productVariantSpecStatus) {
+            this.productVariantSpecStatus = productVariantSpecStatus;
+        }
+
+        public Integer getProductVariantSpecTotalCount() {
+            return productVariantSpecTotalCount;
+        }
+
+        public void setProductVariantSpecTotalCount(Integer productVariantSpecTotalCount) {
+            this.productVariantSpecTotalCount = productVariantSpecTotalCount;
+        }
+
+        public Integer getProductVariantSpecReadyCount() {
+            return productVariantSpecReadyCount;
+        }
+
+        public void setProductVariantSpecReadyCount(Integer productVariantSpecReadyCount) {
+            this.productVariantSpecReadyCount = productVariantSpecReadyCount;
+        }
+
+        public Integer getProductVariantSpecMaintainedCount() {
+            return productVariantSpecMaintainedCount;
+        }
+
+        public void setProductVariantSpecMaintainedCount(Integer productVariantSpecMaintainedCount) {
+            this.productVariantSpecMaintainedCount = productVariantSpecMaintainedCount;
         }
 
         public Integer getVariantCount() {
