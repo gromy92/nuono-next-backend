@@ -172,6 +172,56 @@ class NoonGapTaskOutcomeReducerTest {
         assertEquals(NoonDataHistoryStatus.INCOMPLETE, row(NoonDataCategory.SALES_ORDER).getHistoryStatus());
     }
 
+    @Test
+    void productDetailInterfaceTaskReducesToProductDetailGap() {
+        repository.insertCompleteness(completenessRow(NoonDataCategory.PRODUCT_LIST));
+        repository.insertCompleteness(completenessRow(NoonDataCategory.PRODUCT_DETAIL));
+        repository.insertGapWindow(gap(1L, NoonDataCategory.PRODUCT_LIST, NoonDataGapWindowType.PRODUCT_BASELINE, LocalDate.parse("2026-05-25")));
+        repository.insertGapWindow(gap(2L, NoonDataCategory.PRODUCT_DETAIL, NoonDataGapWindowType.PRODUCT_DETAIL_BASELINE, LocalDate.parse("2026-05-25")));
+
+        reducer.reduce(productTask(
+                NoonPullTaskStatus.PARTIAL,
+                130002L,
+                "product-detail:2026-05-25..2026-05-25",
+                6,
+                "product-detail-batch",
+                "product detail baseline sync attempted=374; succeeded=6; failed=368"
+        ));
+
+        NoonDataGapWindowRecord detailGap = gap(NoonDataCategory.PRODUCT_DETAIL);
+        assertEquals(NoonDataGapStatus.WAITING_RETRY, detailGap.getStatus());
+        assertEquals(6, detailGap.getRowOrItemCount());
+        assertEquals(130002L, detailGap.getLinkedPullTaskId());
+        assertEquals(130002L, row(NoonDataCategory.PRODUCT_DETAIL).getLastTaskId());
+
+        NoonDataGapWindowRecord listGap = gap(NoonDataCategory.PRODUCT_LIST);
+        assertEquals(NoonDataGapStatus.PENDING, listGap.getStatus());
+        assertEquals(130001L, listGap.getLinkedPullTaskId());
+    }
+
+    @Test
+    void productListBaselineSuccessMarksLatestReady() {
+        NoonDataCompletenessRecord row = completenessRow(NoonDataCategory.PRODUCT_LIST);
+        row.setHistoryStatus(NoonDataHistoryStatus.NOT_REQUIRED);
+        repository.insertCompleteness(row);
+        repository.insertGapWindow(gap(1L, NoonDataCategory.PRODUCT_LIST, NoonDataGapWindowType.PRODUCT_BASELINE, LocalDate.parse("2026-05-25")));
+
+        reducer.reduce(productTask(
+                NoonPullTaskStatus.SUCCEEDED,
+                130001L,
+                "product-list:2026-05-25..2026-05-25",
+                408,
+                "product-list-batch",
+                "pages=5; requests=5"
+        ));
+
+        NoonDataCompletenessRecord updated = row(NoonDataCategory.PRODUCT_LIST);
+        assertEquals(NoonDataLatestStatus.READY, updated.getLatestStatus());
+        assertEquals(LocalDate.parse("2026-05-25"), updated.getLatestDataDate());
+        assertEquals(0, updated.getActiveGapCount());
+        assertEquals(Boolean.FALSE, updated.isPatrolEnabled());
+    }
+
     private NoonPullTaskRecord failedTask(
             Long taskId,
             NoonDataCategory category,
@@ -217,6 +267,33 @@ class NoonGapTaskOutcomeReducerTest {
         task.setTargetIdentity(category.name() + ":" + dateFrom + ".." + dateTo);
         task.setTargetDateFrom(dateFrom);
         task.setTargetDateTo(dateTo);
+        task.setStatus(status);
+        task.setProcessedItemCount(processedCount);
+        task.setSourceBatchId(sourceBatchId);
+        task.setDiagnosticSummary(diagnosticSummary);
+        return task;
+    }
+
+    private NoonPullTaskRecord productTask(
+            NoonPullTaskStatus status,
+            Long taskId,
+            String targetIdentity,
+            Integer processedCount,
+            String sourceBatchId,
+            String diagnosticSummary
+    ) {
+        NoonPullTaskRecord task = new NoonPullTaskRecord();
+        task.setId(taskId);
+        task.setPlanId(120001L);
+        task.setOwnerUserId(307L);
+        task.setStoreCode("STR108065-NAE");
+        task.setSiteCode("AE");
+        task.setPullType(NoonPullType.INTERFACE);
+        task.setDataDomain(NoonPullDataDomain.PRODUCT);
+        task.setTriggerMode(NoonPullTriggerMode.MANUAL_REFRESH);
+        task.setTargetIdentity(targetIdentity);
+        task.setTargetDateFrom(LocalDate.parse("2026-05-25"));
+        task.setTargetDateTo(LocalDate.parse("2026-05-25"));
         task.setStatus(status);
         task.setProcessedItemCount(processedCount);
         task.setSourceBatchId(sourceBatchId);

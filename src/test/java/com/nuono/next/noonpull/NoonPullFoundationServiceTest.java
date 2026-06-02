@@ -80,6 +80,28 @@ class NoonPullFoundationServiceTest {
     }
 
     @Test
+    void shouldCarryResumePositionFromPreviousPartialTaskForSameTarget() {
+        NoonPullPlanRecord plan = service.createPlan(productPlan());
+        NoonPullTaskRecord first = service.createTaskForPlan(plan.getId(), productListTask()).orElseThrow();
+        service.markPartial(
+                first.getId(),
+                "batch-product-detail-001",
+                "product detail batch completed=10 remaining=398",
+                null,
+                10,
+                10,
+                "SKU-11",
+                "batch stopped at limit",
+                "partial_product_detail_baseline"
+        );
+
+        NoonPullTaskRecord second = service.createTaskForPlan(plan.getId(), productListTask()).orElseThrow();
+
+        assertNotEquals(first.getId(), second.getId());
+        assertEquals("SKU-11", second.getNextResumePosition());
+    }
+
+    @Test
     void shouldNotCreateGapBackfillTaskAfterNonRetryableFailureForSameWindow() {
         NoonPullPlanRecord plan = service.createPlan(orderBackfillPlan());
         NoonPullTaskRecord failedTask = service.createTaskForPlan(plan.getId(), orderBackfillTask()).orElseThrow();

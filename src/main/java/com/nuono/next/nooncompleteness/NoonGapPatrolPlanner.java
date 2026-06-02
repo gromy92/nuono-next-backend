@@ -99,7 +99,7 @@ public class NoonGapPatrolPlanner {
             return;
         }
         NoonPullPlanRecord plan = findOrCreatePlan(gap, spec);
-        if (!isRunnable(plan)) {
+        if (!isRunnable(plan, manualSync)) {
             result.skipped();
             return;
         }
@@ -175,19 +175,19 @@ public class NoonGapPatrolPlanner {
                 && Objects.equals(plan.getScheduleExpression(), spec.scheduleExpression(gap));
     }
 
-    private boolean isRunnable(NoonPullPlanRecord plan) {
+    private boolean isRunnable(NoonPullPlanRecord plan, boolean manualSync) {
         if (plan == null || !plan.isEnabled() || plan.isPaused()) {
             return false;
         }
         LocalDateTime persistedNow = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
-        if (plan.getNextRetryAt() != null && plan.getNextRetryAt().isAfter(persistedNow)) {
+        if (!manualSync && plan.getNextRetryAt() != null && plan.getNextRetryAt().isAfter(persistedNow)) {
             return false;
         }
-        if (plan.getLatestSuccessAt() != null && plan.getCooldownSeconds() != null && plan.getCooldownSeconds() > 0
+        if (!manualSync && plan.getLatestSuccessAt() != null && plan.getCooldownSeconds() != null && plan.getCooldownSeconds() > 0
                 && plan.getLatestSuccessAt().plusSeconds(plan.getCooldownSeconds()).isAfter(persistedNow)) {
             return false;
         }
-        if (isUnsafeFailure(plan.getLatestFailureType())) {
+        if (!manualSync && isUnsafeFailure(plan.getLatestFailureType())) {
             return false;
         }
         return providerAvailability.isAvailable(plan);
@@ -241,6 +241,8 @@ public class NoonGapPatrolPlanner {
     }
 
     private static class WorkSpec {
+        private static final int DEFAULT_PRODUCT_DETAIL_FETCHES_PER_RUN = 10;
+
         private final NoonPullType pullType;
         private final NoonPullDataDomain dataDomain;
         private final NoonPullTriggerMode triggerMode;
@@ -334,10 +336,15 @@ public class NoonGapPatrolPlanner {
                     .dataDomain(dataDomain)
                     .triggerMode(triggerMode)
                     .scheduleExpression(scheduleExpression(gap))
+                    .maxDetailFetchesPerRun(productDetailPlan() ? DEFAULT_PRODUCT_DETAIL_FETCHES_PER_RUN : null)
                     .maxRequestsPerRun(50)
                     .cooldownSeconds(0)
                     .concurrencyLimit(1)
                     .build();
+        }
+
+        private boolean productDetailPlan() {
+            return "product-detail".equals(targetPrefix);
         }
 
         private NoonPullTaskDraft taskDraft(NoonDataGapWindowRecord gap) {

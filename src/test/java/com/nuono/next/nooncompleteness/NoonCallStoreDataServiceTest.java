@@ -1,7 +1,9 @@
 package com.nuono.next.nooncompleteness;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.noonpull.NoonPullDataDomain;
 import com.nuono.next.noonpull.NoonPullFoundationService;
@@ -71,6 +73,40 @@ class NoonCallStoreDataServiceTest {
         assertEquals(salesTask.getId(), salesCell.getLatestTaskId());
         assertEquals(NoonPullTaskStatus.RUNNING.name(), salesCell.getLatestTaskStatus());
         assertNotNull(salesCell.getLastSyncAt());
+    }
+
+    @Test
+    void storeDataTreatsLatestAuthRequiredTaskAsManualActionBeforeGapIsReduced() {
+        InMemoryCompletenessRepository completenessRepository = new InMemoryCompletenessRepository();
+        InMemoryPullRepository pullRepository = new InMemoryPullRepository();
+        NoonPullFoundationService foundationService = new NoonPullFoundationService(pullRepository, FIXED_CLOCK);
+        completenessRepository.insertCompleteness(row(
+                900003L,
+                NoonDataCategory.SALES_ORDER,
+                NoonDataLatestStatus.INCOMPLETE,
+                NoonDataHistoryStatus.INCOMPLETE
+        ));
+        completenessRepository.insertGapWindow(gap(910003L, NoonDataCategory.SALES_ORDER, NoonDataGapStatus.PENDING));
+
+        NoonPullTaskRecord orderTask = createTask(
+                foundationService,
+                NoonPullType.REPORT,
+                NoonPullDataDomain.ORDER,
+                "orders:2026-05-24..2026-05-24"
+        );
+        foundationService.markFailedWithPolicy(orderTask.getId(), "auth required: invalid username or password", 1);
+
+        NoonCallStoreDataView view = new NoonCallStoreDataService(
+                completenessRepository,
+                new NoonPullTaskLookupService(foundationService)
+        ).view(new NoonDataCompletenessQuery());
+
+        NoonCallStoreDataView.CategoryCell orderCell =
+                cell(view.getRows().get(0), NoonDataCategory.SALES_ORDER);
+        assertEquals("MANUAL_ACTION", orderCell.getMarker());
+        assertEquals("auth_required", orderCell.getFailureType());
+        assertTrue(orderCell.getRequiresManualAction());
+        assertFalse(orderCell.getSyncable());
     }
 
     private NoonCallStoreDataView.CategoryCell cell(NoonCallStoreDataView.Row row, NoonDataCategory category) {

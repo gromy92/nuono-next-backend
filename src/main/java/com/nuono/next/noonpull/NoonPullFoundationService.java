@@ -96,11 +96,19 @@ public class NoonPullFoundationService {
         task.setTargetDateTo(draft.getTargetDateTo());
         task.setActiveLockKey(activeLockKey);
         task.setStatus(NoonPullTaskStatus.QUEUED);
+        task.setNextResumePosition(inheritedResumePosition(latestTask));
         task.setQueuedAt(now);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         repository.insertTask(task);
         return Optional.of(task.copy());
+    }
+
+    private String inheritedResumePosition(NoonPullTaskRecord latestTask) {
+        if (latestTask == null || latestTask.getStatus() != NoonPullTaskStatus.PARTIAL) {
+            return null;
+        }
+        return normalize(latestTask.getNextResumePosition());
     }
 
     private boolean isTerminalDuplicate(NoonPullTaskRecord task, NoonPullTriggerMode triggerMode) {

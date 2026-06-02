@@ -1,15 +1,21 @@
 package com.nuono.next.nooncompleteness;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.nuono.next.noonpull.NoonProviderAvailability;
 import com.nuono.next.noonpull.NoonPullFoundationService;
 import com.nuono.next.noonpull.NoonPullRepository;
+import com.nuono.next.noonpull.NoonPullScheduledExecutionResult;
+import com.nuono.next.noonpull.NoonPullScheduledExecutionService;
 import com.nuono.next.noonpull.NoonPullTaskRecord;
 import com.nuono.next.noonpull.NoonPullTaskStatus;
 import com.nuono.next.noonpull.NoonPullTriggerMode;
@@ -192,6 +198,102 @@ class NoonGapPatrolActionServiceTest {
         assertEquals(NoonDataGapStatus.PENDING, refreshGap.getStatus());
         assertEquals(LocalDate.parse("2026-05-24"), refreshGap.getDateFrom());
         assertEquals(result.getPlannedTaskIds().get(0), refreshGap.getLinkedPullTaskId());
+    }
+
+    @Test
+    void syncCategoryExecutesPlannedTasksImmediately() {
+        NoonPullScheduledExecutionService immediateExecutor = mock(NoonPullScheduledExecutionService.class);
+        NoonPullScheduledExecutionResult executionResult = new NoonPullScheduledExecutionResult();
+        executionResult.executed();
+        completenessRepository.insertCompleteness(row(NoonDataCategory.SALES_PRODUCT_VIEWS));
+        completenessRepository.insertGapWindow(gap(910001L, NoonDataCategory.SALES_PRODUCT_VIEWS, NoonDataGapStatus.PENDING));
+        NoonGapPatrolPlanner planner = new NoonGapPatrolPlanner(
+                completenessRepository,
+                new NoonPullFoundationService(pullRepository, FIXED_CLOCK),
+                FIXED_CLOCK,
+                (NoonProviderAvailability) (plan) -> true
+        );
+        NoonGapPatrolActionService immediateService = new NoonGapPatrolActionService(
+                completenessRepository,
+                planner,
+                auditService,
+                immediateExecutor,
+                FIXED_CLOCK
+        );
+
+        when(immediateExecutor.executeTaskIds(any())).thenReturn(executionResult);
+
+        NoonGapPatrolActionResult result = immediateService.syncCategory(
+                307L,
+                "STR108065-NAE",
+                "AE",
+                NoonDataCategory.SALES_PRODUCT_VIEWS
+        );
+
+        assertEquals(1, result.getPlannedTaskCount());
+        assertEquals(1, result.getExecutedTaskCount());
+        assertEquals(0, result.getFailedTaskCount());
+        assertEquals(0, result.getSkippedTaskCount());
+        assertTrue(result.getMessage().contains("立即执行"));
+        verify(immediateExecutor).executeTaskIds(eq(result.getPlannedTaskIds()));
+    }
+
+    @Test
+    void syncCategoryReducesImmediateAuthFailureToManualActionGap() {
+        NoonPullScheduledExecutionService immediateExecutor = mock(NoonPullScheduledExecutionService.class);
+        completenessRepository.insertCompleteness(row(NoonDataCategory.SALES_ORDER));
+        completenessRepository.insertGapWindow(gap(910001L, NoonDataCategory.SALES_ORDER, NoonDataGapStatus.PENDING));
+        NoonGapPatrolPlanner planner = new NoonGapPatrolPlanner(
+                completenessRepository,
+                new NoonPullFoundationService(pullRepository, FIXED_CLOCK),
+                FIXED_CLOCK,
+                (NoonProviderAvailability) (plan) -> true
+        );
+        NoonGapPatrolActionService immediateService = new NoonGapPatrolActionService(
+                completenessRepository,
+                planner,
+                auditService,
+                immediateExecutor,
+                new NoonGapTaskOutcomeReducer(completenessRepository, FIXED_CLOCK),
+                FIXED_CLOCK
+        );
+
+        when(immediateExecutor.executeTaskIds(any())).thenAnswer((invocation) -> {
+            List<Long> taskIds = invocation.getArgument(0);
+            NoonPullTaskRecord failed = pullRepository.selectTask(taskIds.get(0));
+            failed.setStatus(NoonPullTaskStatus.FAILED);
+            failed.setFailureType("auth_required");
+            failed.setRetryable(Boolean.FALSE);
+            failed.setRequiresManualAction(Boolean.TRUE);
+            failed.setDiagnosticSummary("auth required: invalid username or password");
+            pullRepository.updateTask(failed);
+
+            NoonPullScheduledExecutionResult executionResult = new NoonPullScheduledExecutionResult();
+            executionResult.failed();
+            executionResult.addTaskOutcome(pullRepository.selectTask(failed.getId()));
+            return executionResult;
+        });
+
+        NoonGapPatrolActionResult result = immediateService.syncCategory(
+                307L,
+                "STR108065-NAE",
+                "AE",
+                NoonDataCategory.SALES_ORDER
+        );
+
+        assertEquals(1, result.getFailedTaskCount());
+        NoonDataGapWindowRecord updatedGap = gap();
+        assertEquals(NoonDataGapStatus.FAILED, updatedGap.getStatus());
+        assertEquals("auth_required", updatedGap.getFailureType());
+        assertFalse(updatedGap.getRetryable());
+        assertTrue(updatedGap.getRequiresManualAction());
+        assertEquals("auth_required", row().getLastFailureType());
+        assertThrows(IllegalStateException.class, () -> immediateService.syncCategory(
+                307L,
+                "STR108065-NAE",
+                "AE",
+                NoonDataCategory.SALES_ORDER
+        ));
     }
 
     private NoonDataGapWindowRecord gap() {

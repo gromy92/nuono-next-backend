@@ -3,7 +3,10 @@ package com.nuono.next.noon;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,10 +14,12 @@ import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -84,6 +89,55 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldPersistFreshSessionCookieOnlyForRequestedProject() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (PartnerIdentityServer identity = new PartnerIdentityServer("PRJ69486")) {
+            NoonSessionGateway gateway = gateway(mapper, identity);
+
+            gateway.login(
+                    307L,
+                    "songguoguo@example.com",
+                    "password",
+                    null,
+                    "PRJ69486",
+                    "STR69486-NSA"
+            );
+
+            verify(mapper).updateOwnerSessionCookie(
+                    eq(307L),
+                    eq("PRJ69486"),
+                    contains("sid=project-session"),
+                    eq(307L)
+            );
+        }
+    }
+
+    @Test
+    void shouldDiscardPersistedCookieWhenProjectListDoesNotContainRequestedProject() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (PartnerIdentityServer identity = new PartnerIdentityServer("PRJ69486", "PRJ245027")) {
+            NoonSessionGateway gateway = gateway(mapper, identity);
+
+            gateway.login(
+                    307L,
+                    "songguoguo@example.com",
+                    "password",
+                    "sid=stale-cookie",
+                    "PRJ69486",
+                    "STR69486-NSA"
+            );
+
+            assertEquals(1, identity.sessionCreateCount());
+            verify(mapper).updateOwnerSessionCookie(
+                    eq(307L),
+                    eq("PRJ69486"),
+                    contains("sid=project-session"),
+                    eq(307L)
+            );
+        }
+    }
+
+    @Test
     void shouldRefreshProxySessionWhenCachedProxyDropsConnection() throws Exception {
         try (OneGoodThenDropProxy staleProxy = new OneGoodThenDropProxy();
                 StaticHttpProxy refreshedProxy = new StaticHttpProxy();
@@ -94,7 +148,7 @@ class NoonSessionGatewayTest {
                     "merchant@example.com",
                     "password",
                     "sid=existing",
-                    "PRJ1",
+                    null,
                     "STORE1"
             );
 
@@ -104,6 +158,23 @@ class NoonSessionGatewayTest {
             assertTrue(staleProxy.requestCount() >= 2);
             assertTrue(refreshedProxy.awaitRequests(2));
         }
+    }
+
+    @Test
+    void shouldTreatBlankHttpTimeoutMessageAsRefreshableTransportFailure() throws Exception {
+        NoonSessionGateway gateway = gateway("http://127.0.0.1:1/proxy");
+        Method method = NoonSessionGateway.class.getDeclaredMethod(
+                "shouldRefreshAfterTransientTransportFailure",
+                IllegalStateException.class
+        );
+        method.setAccessible(true);
+
+        Boolean refreshable = (Boolean) method.invoke(
+                gateway,
+                new IllegalStateException("请求 Noon 失败：null", new HttpTimeoutException(null))
+        );
+
+        assertTrue(refreshable);
     }
 
     private NoonSessionGateway gateway(String proxyProviderUrl) {
@@ -126,12 +197,99 @@ class NoonSessionGatewayTest {
                 "",
                 "",
                 "",
+                "",
                 true,
                 "HTTP",
                 "",
                 0,
                 proxyProviderUrl
         );
+    }
+
+    private NoonSessionGateway gateway(StoreSyncMapper mapper, PartnerIdentityServer identity) {
+        return new NoonSessionGateway(
+                objectMapper,
+                mapper,
+                false,
+                0L,
+                true,
+                "",
+                "",
+                "",
+                "",
+                true,
+                false,
+                "",
+                identity.url("/whoami"),
+                identity.url("/lookup"),
+                identity.url("/pkce"),
+                identity.url("/validate"),
+                identity.url("/project/list"),
+                identity.url("/session/create"),
+                identity.url("/platform/project/list"),
+                false,
+                "HTTP",
+                "",
+                0,
+                ""
+        );
+    }
+
+    private static final class PartnerIdentityServer implements AutoCloseable {
+        private final HttpServer server;
+        private final String projectCode;
+        private final String cookieProjectCode;
+        private final AtomicInteger sessionCreateCount = new AtomicInteger();
+
+        private PartnerIdentityServer(String projectCode) throws IOException {
+            this(projectCode, projectCode);
+        }
+
+        private PartnerIdentityServer(String projectCode, String cookieProjectCode) throws IOException {
+            this.projectCode = projectCode;
+            this.cookieProjectCode = cookieProjectCode;
+            server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+            server.createContext("/lookup", (exchange) ->
+                    json(exchange, "[{\"user_code\":\"idp-user\",\"channels\":[{\"channel_code\":\"password\"}]}]"));
+            server.createContext("/pkce", (exchange) ->
+                    json(exchange, "{\"success\":true,\"pkce_key\":\"pkce-key\"}"));
+            server.createContext("/validate", (exchange) ->
+                    json(exchange, "{\"success\":true,\"access_token\":\"access-token\"}"));
+            server.createContext("/project/list", (exchange) ->
+                    json(exchange, "{\"projects\":[{\"projectCode\":\"" + projectCode + "\"}]}"));
+            server.createContext("/session/create", (exchange) -> {
+                sessionCreateCount.incrementAndGet();
+                exchange.getResponseHeaders().add("Set-Cookie", "sid=project-session; Path=/; HttpOnly");
+                json(exchange, "{\"success\":true}");
+            });
+            server.createContext("/platform/project/list", (exchange) ->
+                    json(exchange, "{\"projects\":[{\"projectCode\":\"" + cookieProjectCode + "\"}]}"));
+            server.createContext("/whoami", (exchange) ->
+                    json(exchange, "{\"email\":\"songguoguo@example.com\"}"));
+            server.start();
+        }
+
+        private String url(String path) {
+            return "http://127.0.0.1:" + server.getAddress().getPort() + path;
+        }
+
+        private int sessionCreateCount() {
+            return sessionCreateCount.get();
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
+
+        private static void json(com.sun.net.httpserver.HttpExchange exchange, String json) throws IOException {
+            byte[] body = json.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream response = exchange.getResponseBody()) {
+                response.write(body);
+            }
+        }
     }
 
     private static final class ProxyProviderServer implements AutoCloseable {

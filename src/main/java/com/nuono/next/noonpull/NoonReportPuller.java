@@ -8,6 +8,8 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class NoonReportPuller {
+    private static final String REPORT_EXPORT_CHECKPOINT_PREFIX = "report-export:";
+
     private final NoonPullFoundationService foundationService;
 
     public NoonReportPuller(NoonPullFoundationService foundationService) {
@@ -20,11 +22,39 @@ public class NoonReportPuller {
             NoonReportProvider provider,
             NoonReportDownloadedFileHandler handler
     ) {
-        foundationService.markRunning(taskId, "noon-report-puller");
+        NoonPullTaskRecord task = foundationService.markRunning(taskId, "noon-report-puller");
         NoonReportPullResult result = new NoonReportPullResult();
         try {
-            String exportId = provider.createExport(request);
+            String exportId = exportIdFromCheckpoint(task);
+            if (!StringUtils.hasText(exportId)) {
+                exportId = provider.createExport(request);
+                foundationService.recordProgress(
+                        taskId,
+                        exportCheckpoint(exportId),
+                        0,
+                        0,
+                        null,
+                        "report export created exportId=" + exportId,
+                        "export_created"
+                );
+            }
             NoonReportExportStatus status = pollUntilReady(request, provider, exportId);
+            if (status != null && status.isFailed()) {
+                throw new NoonInterfacePullException("provider unavailable: report export failed " + status.getMessage());
+            }
+            if (status == null || !status.isReady()) {
+                NoonPullTaskRecord pending = foundationService.recordProgress(
+                        taskId,
+                        exportCheckpoint(exportId),
+                        0,
+                        request.getMaxPollAttempts(),
+                        null,
+                        "report export pending exportId=" + exportId + "; attempts=" + request.getMaxPollAttempts(),
+                        "export_pending"
+                );
+                result.setStatus(pending.getStatus());
+                return result;
+            }
             if (!StringUtils.hasText(status.getDownloadUrl())) {
                 throw new NoonInterfacePullException("mapping failed: missing download url");
             }
@@ -38,12 +68,21 @@ public class NoonReportPuller {
             result.setImportedCount(processResult.getImportedCount());
             result.setExceptionCount(processResult.getExceptionCount());
             if (processResult.getCode() == NoonReportProcessResult.Code.SUCCEEDED) {
-                NoonPullTaskRecord task = foundationService.markSucceeded(
+                foundationService.recordProgress(
+                        taskId,
+                        null,
+                        processResult.getImportedCount(),
+                        1,
+                        null,
+                        null,
+                        "ready"
+                );
+                NoonPullTaskRecord succeeded = foundationService.markSucceeded(
                         taskId,
                         sourceBatchId,
                         summary(request, digest, processResult)
                 );
-                result.setStatus(task.getStatus());
+                result.setStatus(succeeded.getStatus());
                 return result;
             }
             NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
@@ -69,16 +108,34 @@ public class NoonReportPuller {
             NoonReportProvider provider,
             String exportId
     ) {
+        NoonReportExportStatus latest = NoonReportExportStatus.pending();
         for (int attempt = 1; attempt <= request.getMaxPollAttempts(); attempt++) {
             NoonReportExportStatus status = provider.pollExport(request, exportId);
+            latest = status == null ? NoonReportExportStatus.pending() : status;
             if (status != null && status.isReady()) {
                 return status;
             }
             if (status != null && status.isFailed()) {
-                throw new NoonInterfacePullException("provider unavailable: report export failed " + status.getMessage());
+                return status;
             }
         }
-        throw new NoonInterfacePullException("timeout: export polling deadline exceeded");
+        return latest;
+    }
+
+    private String exportIdFromCheckpoint(NoonPullTaskRecord task) {
+        if (task == null || !StringUtils.hasText(task.getCheckpointCursor())) {
+            return null;
+        }
+        String checkpoint = task.getCheckpointCursor().trim();
+        if (!checkpoint.startsWith(REPORT_EXPORT_CHECKPOINT_PREFIX)) {
+            return null;
+        }
+        String exportId = checkpoint.substring(REPORT_EXPORT_CHECKPOINT_PREFIX.length());
+        return StringUtils.hasText(exportId) ? exportId : null;
+    }
+
+    private String exportCheckpoint(String exportId) {
+        return REPORT_EXPORT_CHECKPOINT_PREFIX + exportId;
     }
 
     private String sourceBatchId(NoonReportPullRequest request, Long taskId, String digest) {
