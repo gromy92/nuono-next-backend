@@ -63,6 +63,14 @@ public class NoonSalesCsvImportService {
         rows.stream()
                 .map(row -> toFact(command, sourceBatchId, row))
                 .forEach(salesFactRepository::upsert);
+        if ("empty".equals(status)) {
+            salesFactRepository.markSiteOffersNotListedForEmptyReport(
+                    command.getOwnerUserId(),
+                    command.getStoreCode(),
+                    command.getSiteCode(),
+                    command.getOwnerUserId()
+            );
+        }
 
         return new NoonSalesCsvImportResult(
                 SOURCE_SYSTEM,
