@@ -220,6 +220,25 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldExposeMatchedProductSummaryWhenListingLines() {
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        LineRow row = line(54001L, 53001L, "SKU-AE-001", 10, 4, 6);
+        row.setMatchedProductId(62001L);
+        row.setProductSkuParent("PARENT-AE-001");
+        row.setProductTitle("Noon 折叠手机壳");
+        row.setProductImageUrl("https://cdn.example.com/noon-phone-case.jpg");
+        when(mapper.listLines(10002L, 53001L)).thenReturn(List.of(row));
+
+        var result = service.listLines(10002L, 53001L);
+
+        LineView view = result.getItems().get(0);
+        assertEquals(62001L, view.getMatchedProductId());
+        assertEquals("PARENT-AE-001", view.getProductSkuParent());
+        assertEquals("Noon 折叠手机壳", view.getProductTitle());
+        assertEquals("https://cdn.example.com/noon-phone-case.jpg", view.getProductImageUrl());
+    }
+
+    @Test
     void shouldCreatePackageAndAttachLineWhenBoxNoIsProvided() {
         SaveLineCommand command = new SaveLineCommand();
         command.setOwnerUserId(10002L);

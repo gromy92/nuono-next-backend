@@ -47,10 +47,37 @@ public interface InTransitGoodsMapper {
             + "AND forwarder.owner_user_id = batch.owner_user_id AND forwarder.is_deleted = b'0' ";
 
     String LINE_SELECT = ""
-            + "SELECT id, owner_user_id, batch_id, package_id, box_no, sku, msku, psku, product_name, store_code, site_code, "
-            + "shipped_quantity, received_quantity, remaining_quantity, carton_count, units_per_carton, "
-            + "carton_weight_kg, carton_volume_cbm, remark, created_by, updated_by "
-            + "FROM in_transit_goods_line ";
+            + "SELECT line.id, line.owner_user_id, line.batch_id, line.package_id, line.box_no, line.sku, line.msku, line.psku, "
+            + "line.product_name, line.store_code, line.site_code, line.shipped_quantity, line.received_quantity, "
+            + "line.remaining_quantity, line.carton_count, line.units_per_carton, line.carton_weight_kg, line.carton_volume_cbm, "
+            + "line.remark, line.created_by, line.updated_by, "
+            + "pm.id AS matched_product_id, pm.sku_parent AS product_sku_parent, "
+            + "pm.title_cache AS product_title, pm.cover_image_url AS product_image_url "
+            + "FROM in_transit_goods_line line "
+            + "LEFT JOIN product_master pm ON pm.id = COALESCE("
+            + "(SELECT exact_pm.id "
+            + "FROM logical_store_site exact_lss "
+            + "JOIN logical_store exact_ls ON exact_ls.id = exact_lss.logical_store_id "
+            + "AND exact_ls.owner_user_id = line.owner_user_id AND exact_ls.is_deleted = b'0' "
+            + "JOIN product_site_offer exact_pso ON exact_pso.site_id = exact_lss.id "
+            + "AND exact_pso.psku_code = line.psku AND exact_pso.is_deleted = b'0' "
+            + "JOIN product_variant exact_pv ON exact_pv.id = exact_pso.variant_id AND exact_pv.is_deleted = b'0' "
+            + "JOIN product_master exact_pm ON exact_pm.id = exact_pv.product_master_id "
+            + "AND exact_pm.logical_store_id = exact_ls.id AND exact_pm.is_deleted = b'0' "
+            + "WHERE exact_lss.store_code = line.store_code "
+            + "AND exact_lss.site = line.site_code AND exact_lss.is_deleted = b'0' "
+            + "ORDER BY exact_pm.cover_image_url IS NULL ASC, exact_pm.gmt_updated DESC, exact_pm.id DESC "
+            + "LIMIT 1), "
+            + "(SELECT fallback_pm.id "
+            + "FROM logical_store fallback_ls "
+            + "JOIN product_master fallback_pm ON fallback_pm.logical_store_id = fallback_ls.id "
+            + "AND fallback_pm.is_deleted = b'0' "
+            + "JOIN product_variant fallback_pv ON fallback_pv.product_master_id = fallback_pm.id "
+            + "AND fallback_pv.partner_sku = line.psku AND fallback_pv.is_deleted = b'0' "
+            + "WHERE fallback_ls.owner_user_id = line.owner_user_id AND fallback_ls.is_deleted = b'0' "
+            + "ORDER BY fallback_pm.cover_image_url IS NULL ASC, fallback_pm.gmt_updated DESC, fallback_pm.id DESC "
+            + "LIMIT 1)) "
+            + "AND pm.is_deleted = b'0' ";
 
     String PACKAGE_SELECT = ""
             + "SELECT id, owner_user_id, batch_id, box_no, tracking_no, remark, created_by, updated_by "
@@ -269,14 +296,14 @@ public interface InTransitGoodsMapper {
 
     @Select({
             LINE_SELECT,
-            "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND is_deleted = b'0'",
-            "ORDER BY box_no IS NULL ASC, box_no ASC, id ASC"
+            "WHERE line.owner_user_id = #{ownerUserId} AND line.batch_id = #{batchId} AND line.is_deleted = b'0'",
+            "ORDER BY line.box_no IS NULL ASC, line.box_no ASC, line.id ASC"
     })
     List<LineRow> listLines(@Param("ownerUserId") Long ownerUserId, @Param("batchId") Long batchId);
 
     @Select({
             LINE_SELECT,
-            "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND id = #{lineId} AND is_deleted = b'0' LIMIT 1"
+            "WHERE line.owner_user_id = #{ownerUserId} AND line.batch_id = #{batchId} AND line.id = #{lineId} AND line.is_deleted = b'0' LIMIT 1"
     })
     LineRow selectLineById(
             @Param("ownerUserId") Long ownerUserId,
@@ -286,12 +313,12 @@ public interface InTransitGoodsMapper {
 
     @Select({
             LINE_SELECT,
-            "WHERE owner_user_id = #{ownerUserId}",
-            "AND batch_id = #{batchId}",
-            "AND box_no = #{boxNo}",
-            "AND sku = #{sku}",
-            "AND is_deleted = b'0'",
-            "ORDER BY gmt_updated DESC, id DESC",
+            "WHERE line.owner_user_id = #{ownerUserId}",
+            "AND line.batch_id = #{batchId}",
+            "AND line.box_no = #{boxNo}",
+            "AND line.sku = #{sku}",
+            "AND line.is_deleted = b'0'",
+            "ORDER BY line.gmt_updated DESC, line.id DESC",
             "LIMIT 1"
     })
     LineRow selectLineByBoxNoAndSku(

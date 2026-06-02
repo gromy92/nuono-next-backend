@@ -3,6 +3,7 @@ package com.nuono.next.intransit;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -114,6 +115,16 @@ class InTransitBatchSchemaContractTest {
         assertFalse(lower.contains("invoice"));
         assertFalse(lower.contains("settlement"));
         assertFalse(lower.contains("inventory"));
+    }
+
+    @Test
+    void lineSelectMatchesProductsBySitePskuThenOwnerPartnerSkuFallback() {
+        String sql = InTransitGoodsMapper.LINE_SELECT;
+
+        assertTrue(sql.contains("exact_pso.psku_code = line.psku"));
+        assertTrue(sql.contains("fallback_ls.owner_user_id = line.owner_user_id"));
+        assertTrue(sql.contains("fallback_pv.partner_sku = line.psku"));
+        assertTrue(sql.contains("pm.cover_image_url AS product_image_url"));
     }
 
     @Test

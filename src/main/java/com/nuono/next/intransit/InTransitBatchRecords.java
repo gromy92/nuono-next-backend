@@ -286,6 +286,10 @@ public final class InTransitBatchRecords {
         private BigDecimal cartonWeightKg;
         private BigDecimal cartonVolumeCbm;
         private String remark;
+        private Long matchedProductId;
+        private String productSkuParent;
+        private String productTitle;
+        private String productImageUrl;
         private Long createdBy;
         private Long updatedBy;
 
@@ -327,6 +331,14 @@ public final class InTransitBatchRecords {
         public void setCartonVolumeCbm(BigDecimal cartonVolumeCbm) { this.cartonVolumeCbm = cartonVolumeCbm; }
         public String getRemark() { return remark; }
         public void setRemark(String remark) { this.remark = remark; }
+        public Long getMatchedProductId() { return matchedProductId; }
+        public void setMatchedProductId(Long matchedProductId) { this.matchedProductId = matchedProductId; }
+        public String getProductSkuParent() { return productSkuParent; }
+        public void setProductSkuParent(String productSkuParent) { this.productSkuParent = productSkuParent; }
+        public String getProductTitle() { return productTitle; }
+        public void setProductTitle(String productTitle) { this.productTitle = productTitle; }
+        public String getProductImageUrl() { return productImageUrl; }
+        public void setProductImageUrl(String productImageUrl) { this.productImageUrl = productImageUrl; }
         public Long getCreatedBy() { return createdBy; }
         public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
         public Long getUpdatedBy() { return updatedBy; }
@@ -352,6 +364,10 @@ public final class InTransitBatchRecords {
         private BigDecimal cartonWeightKg;
         private BigDecimal cartonVolumeCbm;
         private String remark;
+        private Long matchedProductId;
+        private String productSkuParent;
+        private String productTitle;
+        private String productImageUrl;
 
         public static LineView from(LineRow row) {
             LineView view = new LineView();
@@ -373,6 +389,10 @@ public final class InTransitBatchRecords {
             view.setCartonWeightKg(row.getCartonWeightKg());
             view.setCartonVolumeCbm(row.getCartonVolumeCbm());
             view.setRemark(row.getRemark());
+            view.setMatchedProductId(row.getMatchedProductId());
+            view.setProductSkuParent(row.getProductSkuParent());
+            view.setProductTitle(row.getProductTitle());
+            view.setProductImageUrl(row.getProductImageUrl());
             return view;
         }
 
@@ -412,6 +432,14 @@ public final class InTransitBatchRecords {
         public void setCartonVolumeCbm(BigDecimal cartonVolumeCbm) { this.cartonVolumeCbm = cartonVolumeCbm; }
         public String getRemark() { return remark; }
         public void setRemark(String remark) { this.remark = remark; }
+        public Long getMatchedProductId() { return matchedProductId; }
+        public void setMatchedProductId(Long matchedProductId) { this.matchedProductId = matchedProductId; }
+        public String getProductSkuParent() { return productSkuParent; }
+        public void setProductSkuParent(String productSkuParent) { this.productSkuParent = productSkuParent; }
+        public String getProductTitle() { return productTitle; }
+        public void setProductTitle(String productTitle) { this.productTitle = productTitle; }
+        public String getProductImageUrl() { return productImageUrl; }
+        public void setProductImageUrl(String productImageUrl) { this.productImageUrl = productImageUrl; }
     }
 
     public static class LineListView {
