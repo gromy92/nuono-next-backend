@@ -6,11 +6,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ProductVariantSpecView {
+    private String storeCode;
+    private String skuParent;
+    private String title;
+    private String imageUrl;
     private Long variantId;
     private String partnerSku;
     private String childSku;
     private String sizeEn;
     private String sizeAr;
+    private Long effectiveSourceId;
+    private String effectiveSourceType;
     private BigDecimal productLengthCm;
     private BigDecimal productWidthCm;
     private BigDecimal productHeightCm;
@@ -20,12 +26,46 @@ public class ProductVariantSpecView {
     private BigDecimal cartonHeightCm;
     private BigDecimal cartonWeightKg;
     private Integer cartonQuantity;
+    private String cartonSourceType = ProductVariantSpecCartonSourceType.NONE;
     private String batteryMagneticType = ProductVariantSpecLogisticsType.UNKNOWN;
     private String liquidPowderType = ProductVariantSpecLogisticsType.UNKNOWN;
     private String completenessStatus = "not_found";
     private List<String> missingFields = new ArrayList<>();
+    private List<ProductVariantSpecSourceView> sources = new ArrayList<>();
     private LocalDateTime confirmedAt;
     private Long confirmedBy;
+
+    public String getStoreCode() {
+        return storeCode;
+    }
+
+    public void setStoreCode(String storeCode) {
+        this.storeCode = storeCode;
+    }
+
+    public String getSkuParent() {
+        return skuParent;
+    }
+
+    public void setSkuParent(String skuParent) {
+        this.skuParent = skuParent;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
+    }
+
+    public void setImageUrl(String imageUrl) {
+        this.imageUrl = imageUrl;
+    }
 
     public Long getVariantId() {
         return variantId;
@@ -65,6 +105,22 @@ public class ProductVariantSpecView {
 
     public void setSizeAr(String sizeAr) {
         this.sizeAr = sizeAr;
+    }
+
+    public Long getEffectiveSourceId() {
+        return effectiveSourceId;
+    }
+
+    public void setEffectiveSourceId(Long effectiveSourceId) {
+        this.effectiveSourceId = effectiveSourceId;
+    }
+
+    public String getEffectiveSourceType() {
+        return effectiveSourceType;
+    }
+
+    public void setEffectiveSourceType(String effectiveSourceType) {
+        this.effectiveSourceType = effectiveSourceType;
     }
 
     public BigDecimal getProductLengthCm() {
@@ -139,6 +195,14 @@ public class ProductVariantSpecView {
         this.cartonQuantity = cartonQuantity;
     }
 
+    public String getCartonSourceType() {
+        return cartonSourceType;
+    }
+
+    public void setCartonSourceType(String cartonSourceType) {
+        this.cartonSourceType = cartonSourceType;
+    }
+
     public String getBatteryMagneticType() {
         return batteryMagneticType;
     }
@@ -169,6 +233,14 @@ public class ProductVariantSpecView {
 
     public void setMissingFields(List<String> missingFields) {
         this.missingFields = missingFields;
+    }
+
+    public List<ProductVariantSpecSourceView> getSources() {
+        return sources;
+    }
+
+    public void setSources(List<ProductVariantSpecSourceView> sources) {
+        this.sources = sources;
     }
 
     public LocalDateTime getConfirmedAt() {
