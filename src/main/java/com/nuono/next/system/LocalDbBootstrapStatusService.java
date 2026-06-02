@@ -95,7 +95,8 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/068_noon_call_store_data_system_reports_path.sql",
                 "classpath:db/init/074_product_site_offer_listing_started_at.sql",
                 "classpath:db/init/074_product_variant_spec.sql",
-                "classpath:db/init/079_product_site_offer_data_missing_site_coverage.sql"
+                "classpath:db/init/079_product_site_offer_data_missing_site_coverage.sql",
+                "classpath:db/init/080_restore_canman_sa_site_scope.sql"
             ));
         return payload;
     }

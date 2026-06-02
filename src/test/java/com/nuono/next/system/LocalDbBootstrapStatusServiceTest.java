@@ -1,6 +1,7 @@
 package com.nuono.next.system;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.CoreTableStatusMapper;
@@ -33,5 +34,21 @@ class LocalDbBootstrapStatusServiceTest {
                 ),
                 payload.get("missingRequiredColumns")
         );
+    }
+
+    @Test
+    void shouldListCanmanSaSiteScopeRepairScript() {
+        CoreTableStatusMapper mapper = Mockito.mock(CoreTableStatusMapper.class);
+        BootstrapProperties properties = new BootstrapProperties();
+        properties.setSchema("nuono_new_dev");
+        properties.setExpectedCoreTables(List.of());
+
+        LocalDbBootstrapStatusService service = new LocalDbBootstrapStatusService(mapper, properties);
+
+        Map<String, Object> payload = service.describe();
+
+        assertTrue(((List<?>) payload.get("initScripts")).contains(
+                "classpath:db/init/080_restore_canman_sa_site_scope.sql"
+        ));
     }
 }
