@@ -58,6 +58,24 @@ public class MyBatisSalesFactRepository implements SalesFactRepository {
     }
 
     @Override
+    public void markSiteOffersNotListedForEmptyReport(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            Long updatedBy
+    ) {
+        if (productManagementMapper == null || ownerUserId == null || isBlank(storeCode) || isBlank(siteCode)) {
+            return;
+        }
+        productManagementMapper.markSiteProductOffersNotListedForEmptySalesReport(
+                ownerUserId,
+                storeCode,
+                siteCode,
+                updatedBy == null ? ownerUserId : updatedBy
+        );
+    }
+
+    @Override
     public List<DailySalesFact> list(SalesFactQuery query) {
         return mapper.selectDailySalesFacts(query);
     }

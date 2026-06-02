@@ -23,4 +23,32 @@ public class NoonProductViewsSalesReportProvider implements NoonSalesReportProvi
         NoonSalesReportBinding binding = bindingResolver.resolve(request);
         return exporter.export(binding, request.getDateFrom(), request.getDateTo());
     }
+
+    @Override
+    public NoonSalesReportExportStatus createExport(NoonSalesReportRequest request) {
+        NoonSalesReportBinding binding = bindingResolver.resolve(request);
+        return exporter.createExport(binding, request.getDateFrom(), request.getDateTo());
+    }
+
+    @Override
+    public NoonSalesReportExportStatus pollExport(NoonSalesReportRequest request, String exportCode) {
+        NoonSalesReportBinding binding = bindingResolver.resolve(request);
+        return exporter.pollExport(binding, exportCode);
+    }
+
+    @Override
+    public NoonSalesReportPayload download(NoonSalesReportRequest request, NoonSalesReportExportStatus status) {
+        NoonSalesReportBinding binding = bindingResolver.resolve(request);
+        return exporter.download(binding, status);
+    }
+
+    @Override
+    public int maxPollAttempts() {
+        return exporter.maxPollAttempts();
+    }
+
+    @Override
+    public void waitBeforeNextPoll() {
+        exporter.waitBeforeNextPoll();
+    }
 }

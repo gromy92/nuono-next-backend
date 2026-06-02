@@ -51,25 +51,60 @@ public class NoonProductViewsSalesReportExporter {
     }
 
     public NoonSalesReportPayload export(NoonSalesReportBinding binding, LocalDate dateFrom, LocalDate dateTo) {
+        NoonSalesReportExportStatus created = createExport(binding, dateFrom, dateTo);
+        NoonSalesReportExportStatus status = waitUntilComplete(binding, created.getExportCode());
+        return download(binding, status);
+    }
+
+    public NoonSalesReportExportStatus createExport(
+            NoonSalesReportBinding binding,
+            LocalDate dateFrom,
+            LocalDate dateTo
+    ) {
         requireBinding(binding);
         if (dateFrom == null || dateTo == null || dateFrom.isAfter(dateTo)) {
             throw new IllegalArgumentException("Noon 销量报表日期范围无效。");
         }
         NoonSalesReportSession session = sessionFactory.login(binding);
-        String exportCode = createExport(session, binding, dateFrom, dateTo);
-        ExportStatus status = waitUntilComplete(session, binding, exportCode);
-        String filename = EXPORT_CATEGORY_CODE + "-" + exportCode + ".csv";
-        if (status.totalRows <= 0 && !StringUtils.hasText(status.downloadUrl)) {
+        String exportCode = createExportCode(session, binding, dateFrom, dateTo);
+        return NoonSalesReportExportStatus.pending(exportCode, "CREATED");
+    }
+
+    public NoonSalesReportExportStatus pollExport(NoonSalesReportBinding binding, String exportCode) {
+        requireBinding(binding);
+        if (!StringUtils.hasText(exportCode)) {
+            throw new IllegalArgumentException("Noon 销量报表同步缺少 exportCode。");
+        }
+        NoonSalesReportSession session = sessionFactory.login(binding);
+        return pollOnce(session, binding, exportCode);
+    }
+
+    public NoonSalesReportPayload download(NoonSalesReportBinding binding, NoonSalesReportExportStatus status) {
+        requireBinding(binding);
+        if (status == null || !StringUtils.hasText(status.getExportCode())) {
+            throw new IllegalArgumentException("Noon 销量报表下载缺少 exportCode。");
+        }
+        String filename = EXPORT_CATEGORY_CODE + "-" + status.getExportCode() + ".csv";
+        if (status.getTotalRows() <= 0 && !StringUtils.hasText(status.getDownloadUrl())) {
             return new NoonSalesReportPayload(filename, "");
         }
-        if (!StringUtils.hasText(status.downloadUrl)) {
+        if (!StringUtils.hasText(status.getDownloadUrl())) {
             throw new IllegalStateException("Noon 销量报表已完成但缺少下载链接。");
         }
-        String csv = session.getText(status.downloadUrl, false, Map.of("Accept", "text/csv,*/*"));
+        NoonSalesReportSession session = sessionFactory.login(binding);
+        String csv = session.getText(status.getDownloadUrl(), false, Map.of("Accept", "text/csv,*/*"));
         return new NoonSalesReportPayload(filename, csv);
     }
 
-    private String createExport(
+    public int maxPollAttempts() {
+        return maxStatusPolls;
+    }
+
+    public void waitBeforeNextPoll() {
+        sleepBeforeNextPoll();
+    }
+
+    private String createExportCode(
             NoonSalesReportSession session,
             NoonSalesReportBinding binding,
             LocalDate dateFrom,
@@ -99,7 +134,27 @@ public class NoonProductViewsSalesReportExporter {
         return exportCode;
     }
 
-    private ExportStatus waitUntilComplete(
+    private NoonSalesReportExportStatus waitUntilComplete(
+            NoonSalesReportBinding binding,
+            String exportCode
+    ) {
+        NoonSalesReportSession session = sessionFactory.login(binding);
+        for (int attempt = 1; attempt <= maxStatusPolls; attempt++) {
+            NoonSalesReportExportStatus status = pollOnce(session, binding, exportCode);
+            if (status.isComplete()) {
+                return status;
+            }
+            if (status.isFailed()) {
+                throw new IllegalStateException("Noon 销量报表导出失败：" + status.getStatus());
+            }
+            if (attempt < maxStatusPolls) {
+                sleepBeforeNextPoll();
+            }
+        }
+        throw new IllegalStateException("Noon 销量报表导出超时，未在轮询次数内完成。");
+    }
+
+    private NoonSalesReportExportStatus pollOnce(
             NoonSalesReportSession session,
             NoonSalesReportBinding binding,
             String exportCode
@@ -108,21 +163,20 @@ public class NoonProductViewsSalesReportExporter {
         body.put("exportCode", exportCode);
         body.put("log", false);
 
-        for (int attempt = 1; attempt <= maxStatusPolls; attempt++) {
-            JsonNode root = session.postJson(statusUrl, body, true, localeHeaders(binding));
-            JsonNode exportNode = root.path("export");
-            String statusCode = text(exportNode, "status_code");
-            if ("COMPLETE".equalsIgnoreCase(statusCode)) {
-                return new ExportStatus(text(exportNode, "download_url"), totalRows(exportNode.path("result")));
-            }
-            if (FAILED_STATUS_CODES.contains(statusCode == null ? "" : statusCode.toUpperCase(Locale.ROOT))) {
-                throw new IllegalStateException("Noon 销量报表导出失败：" + statusCode);
-            }
-            if (attempt < maxStatusPolls) {
-                sleepBeforeNextPoll();
-            }
+        JsonNode root = session.postJson(statusUrl, body, true, localeHeaders(binding));
+        JsonNode exportNode = root.path("export");
+        String statusCode = text(exportNode, "status_code");
+        if ("COMPLETE".equalsIgnoreCase(statusCode) || "COMPLETED".equalsIgnoreCase(statusCode)) {
+            return NoonSalesReportExportStatus.complete(
+                    exportCode,
+                    text(exportNode, "download_url"),
+                    totalRows(exportNode.path("result"))
+            );
         }
-        throw new IllegalStateException("Noon 销量报表导出超时，未在轮询次数内完成。");
+        if (FAILED_STATUS_CODES.contains(statusCode == null ? "" : statusCode.toUpperCase(Locale.ROOT))) {
+            return NoonSalesReportExportStatus.failed(exportCode, statusCode, "Noon 销量报表导出失败：" + statusCode);
+        }
+        return NoonSalesReportExportStatus.pending(exportCode, statusCode);
     }
 
     private int totalRows(JsonNode resultNode) {
@@ -176,13 +230,4 @@ public class NoonProductViewsSalesReportExporter {
         }
     }
 
-    private static class ExportStatus {
-        private final String downloadUrl;
-        private final int totalRows;
-
-        private ExportStatus(String downloadUrl, int totalRows) {
-            this.downloadUrl = downloadUrl;
-            this.totalRows = totalRows;
-        }
-    }
 }

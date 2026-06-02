@@ -401,6 +401,9 @@ class SalesDataControllerAccessTest {
                 1,
                 0,
                 LocalDate.of(2026, 5, 4),
+                null,
+                null,
+                null,
                 null
         );
     }
