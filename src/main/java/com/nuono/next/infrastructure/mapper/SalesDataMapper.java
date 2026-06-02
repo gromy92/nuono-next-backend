@@ -2,6 +2,7 @@ package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.sales.DailySalesFact;
 import com.nuono.next.sales.NoonSalesCsvImportResult;
+import com.nuono.next.sales.NoonSalesReportExportStatus;
 import com.nuono.next.sales.SalesImportExceptionRecord;
 import com.nuono.next.sales.SalesFactQuery;
 import com.nuono.next.sales.SalesImportBatch;
@@ -671,11 +672,29 @@ public interface SalesDataMapper {
             "UPDATE sales_sync_task",
             "SET status = 'running',",
             "    started_at = COALESCE(started_at, NOW()),",
+            "    finished_at = NULL,",
             "    failure_reason = NULL,",
             "    gmt_updated = NOW()",
             "WHERE id = #{taskId}"
     })
     int updateSalesSyncTaskRunning(@Param("taskId") Long taskId);
+
+    @Update({
+            "UPDATE sales_sync_task",
+            "SET status = 'running',",
+            "    export_code = COALESCE(#{status.exportCode}, export_code),",
+            "    export_status = #{status.status},",
+            "    export_download_url = COALESCE(#{status.downloadUrl}, export_download_url),",
+            "    started_at = COALESCE(started_at, NOW()),",
+            "    finished_at = NULL,",
+            "    failure_reason = NULL,",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}"
+    })
+    int updateSalesSyncTaskExportStatus(
+            @Param("taskId") Long taskId,
+            @Param("status") NoonSalesReportExportStatus status
+    );
 
     @Update({
             "UPDATE sales_sync_task",
@@ -721,6 +740,9 @@ public interface SalesDataMapper {
             @Arg(column = "successRows", javaType = Integer.class),
             @Arg(column = "failureRows", javaType = Integer.class),
             @Arg(column = "latestFactDate", javaType = LocalDate.class),
+            @Arg(column = "exportCode", javaType = String.class),
+            @Arg(column = "exportStatus", javaType = String.class),
+            @Arg(column = "exportDownloadUrl", javaType = String.class),
             @Arg(column = "failureReason", javaType = String.class)
     })
     @Select({
@@ -740,11 +762,70 @@ public interface SalesDataMapper {
             "  success_rows AS successRows,",
             "  failure_rows AS failureRows,",
             "  latest_fact_date AS latestFactDate,",
+            "  export_code AS exportCode,",
+            "  export_status AS exportStatus,",
+            "  export_download_url AS exportDownloadUrl,",
             "  failure_reason AS failureReason",
             "FROM sales_sync_task",
             "WHERE id = #{taskId}"
     })
     SalesSyncTaskRecord selectSalesSyncTaskById(@Param("taskId") Long taskId);
+
+    @ConstructorArgs({
+            @Arg(column = "id", javaType = Long.class),
+            @Arg(column = "ownerUserId", javaType = Long.class),
+            @Arg(column = "logicalStoreId", javaType = Long.class),
+            @Arg(column = "storeCode", javaType = String.class),
+            @Arg(column = "siteCode", javaType = String.class),
+            @Arg(column = "dateFrom", javaType = LocalDate.class),
+            @Arg(column = "dateTo", javaType = LocalDate.class),
+            @Arg(column = "requestedBy", javaType = Long.class),
+            @Arg(column = "triggerType", javaType = String.class),
+            @Arg(column = "status", javaType = String.class),
+            @Arg(column = "sourceBatchId", javaType = Long.class),
+            @Arg(column = "totalRows", javaType = Integer.class),
+            @Arg(column = "successRows", javaType = Integer.class),
+            @Arg(column = "failureRows", javaType = Integer.class),
+            @Arg(column = "latestFactDate", javaType = LocalDate.class),
+            @Arg(column = "exportCode", javaType = String.class),
+            @Arg(column = "exportStatus", javaType = String.class),
+            @Arg(column = "exportDownloadUrl", javaType = String.class),
+            @Arg(column = "failureReason", javaType = String.class)
+    })
+    @Select({
+            "SELECT",
+            "  id,",
+            "  owner_user_id AS ownerUserId,",
+            "  logical_store_id AS logicalStoreId,",
+            "  store_code AS storeCode,",
+            "  site_code AS siteCode,",
+            "  date_from AS dateFrom,",
+            "  date_to AS dateTo,",
+            "  requested_by AS requestedBy,",
+            "  trigger_type AS triggerType,",
+            "  status,",
+            "  source_batch_id AS sourceBatchId,",
+            "  total_rows AS totalRows,",
+            "  success_rows AS successRows,",
+            "  failure_rows AS failureRows,",
+            "  latest_fact_date AS latestFactDate,",
+            "  export_code AS exportCode,",
+            "  export_status AS exportStatus,",
+            "  export_download_url AS exportDownloadUrl,",
+            "  failure_reason AS failureReason",
+            "FROM sales_sync_task",
+            "WHERE owner_user_id = #{command.ownerUserId}",
+            "  AND logical_store_id <=> #{command.logicalStoreId}",
+            "  AND store_code = #{command.storeCode}",
+            "  AND site_code = #{command.siteCode}",
+            "  AND date_from = #{command.dateFrom}",
+            "  AND date_to = #{command.dateTo}",
+            "  AND status = 'running'",
+            "  AND export_code IS NOT NULL",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    SalesSyncTaskRecord selectReusableSalesSyncTask(@Param("command") SalesSyncTaskCommand command);
 
     @Insert({
             "INSERT INTO sales_activity_window (",

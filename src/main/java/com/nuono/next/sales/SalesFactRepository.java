@@ -18,6 +18,14 @@ public interface SalesFactRepository {
     default void saveExceptions(long sourceBatchId, List<SalesImportExceptionRecord> records) {
     }
 
+    default void markSiteOffersNotListedForEmptyReport(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            Long updatedBy
+    ) {
+    }
+
     default List<SalesImportBatchRecord> listImportBatches(SalesImportBatchQuery query) {
         return List.of();
     }

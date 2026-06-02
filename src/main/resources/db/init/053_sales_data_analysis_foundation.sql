@@ -640,6 +640,9 @@ CREATE TABLE IF NOT EXISTS `sales_sync_task` (
     `success_rows` INT DEFAULT NULL,
     `failure_rows` INT DEFAULT NULL,
     `latest_fact_date` DATE DEFAULT NULL,
+    `export_code` VARCHAR(120) DEFAULT NULL,
+    `export_status` VARCHAR(40) DEFAULT NULL,
+    `export_download_url` VARCHAR(1000) DEFAULT NULL,
     `failure_reason` VARCHAR(1000) DEFAULT NULL,
     `queued_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `started_at` DATETIME DEFAULT NULL,
@@ -649,5 +652,6 @@ CREATE TABLE IF NOT EXISTS `sales_sync_task` (
     PRIMARY KEY (`id`),
     KEY `idx_sales_sync_task_scope` (`owner_user_id`, `store_code`, `site_code`, `date_from`, `date_to`),
     KEY `idx_sales_sync_task_status` (`status`, `queued_at`),
+    KEY `idx_sales_sync_task_export` (`export_code`),
     KEY `idx_sales_sync_task_batch` (`source_batch_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -1,6 +1,7 @@
 package com.nuono.next.sales;
 
 import com.nuono.next.infrastructure.mapper.SalesDataMapper;
+import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -20,8 +21,19 @@ public class MyBatisSalesSyncTaskRepository implements SalesSyncTaskRepository {
     }
 
     @Override
+    public Optional<SalesSyncTaskRecord> findReusableExportTask(SalesSyncTaskCommand command) {
+        return Optional.ofNullable(salesDataMapper.selectReusableSalesSyncTask(command));
+    }
+
+    @Override
     public SalesSyncTaskRecord markRunning(Long taskId) {
         salesDataMapper.updateSalesSyncTaskRunning(taskId);
+        return requireTask(taskId);
+    }
+
+    @Override
+    public SalesSyncTaskRecord markExportStatus(Long taskId, NoonSalesReportExportStatus status) {
+        salesDataMapper.updateSalesSyncTaskExportStatus(taskId, status);
         return requireTask(taskId);
     }
 

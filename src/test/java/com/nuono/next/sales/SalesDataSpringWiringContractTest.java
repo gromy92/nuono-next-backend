@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 
 import com.nuono.next.infrastructure.mapper.SalesDataMapper;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -126,7 +127,17 @@ class SalesDataSpringWiringContractTest {
                 }
 
                 @Override
+                public Optional<SalesSyncTaskRecord> findReusableExportTask(SalesSyncTaskCommand command) {
+                    return Optional.empty();
+                }
+
+                @Override
                 public SalesSyncTaskRecord markRunning(Long taskId) {
+                    return null;
+                }
+
+                @Override
+                public SalesSyncTaskRecord markExportStatus(Long taskId, NoonSalesReportExportStatus status) {
                     return null;
                 }
 

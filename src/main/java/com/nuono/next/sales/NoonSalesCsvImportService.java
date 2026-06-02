@@ -54,6 +54,14 @@ public class NoonSalesCsvImportService {
                 failureRows == 0 ? null : failureRows + " row(s) excluded from sales facts"
         );
         long sourceBatchId = salesFactRepository.saveBatch(batch);
+        if ("empty".equals(status)) {
+            salesFactRepository.markSiteOffersNotListedForEmptyReport(
+                    command.getOwnerUserId(),
+                    command.getStoreCode(),
+                    command.getSiteCode(),
+                    command.getOwnerUserId()
+            );
+        }
         List<SalesImportExceptionRecord> exceptions = parseExceptions.stream()
                 .map(exception -> exception.withBatchContext(sourceBatchId, command))
                 .collect(Collectors.toList());
