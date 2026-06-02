@@ -1529,6 +1529,17 @@ public class ProductProjectionPersistenceService {
         } else {
             view.setDetailBaselineMessage("缺少详情基线。");
         }
+        int specTotalCount = positiveOrZero(record.getProductVariantSpecTotalCount());
+        int specReadyCount = positiveOrZero(record.getProductVariantSpecReadyCount());
+        int specMaintainedCount = positiveOrZero(record.getProductVariantSpecMaintainedCount());
+        view.setProductVariantSpecTotalCount(specTotalCount);
+        view.setProductVariantSpecReadyCount(specReadyCount);
+        view.setProductVariantSpecMaintainedCount(specMaintainedCount);
+        view.setProductVariantSpecStatus(resolveProductVariantSpecStatus(
+                specTotalCount,
+                specReadyCount,
+                specMaintainedCount
+        ));
         view.setVariantCount(record.getVariantCount());
         view.setSiteOfferCount(record.getSiteOfferCount());
         view.setSiteLabels(new ArrayList<>(record.siteLabels()));
@@ -1726,6 +1737,23 @@ public class ProductProjectionPersistenceService {
             }
         }
         return null;
+    }
+
+    private int positiveOrZero(Integer value) {
+        return value == null || value < 0 ? 0 : value;
+    }
+
+    private String resolveProductVariantSpecStatus(int totalCount, int readyCount, int maintainedCount) {
+        if (totalCount <= 0) {
+            return "not_found";
+        }
+        if (readyCount >= totalCount) {
+            return "ready";
+        }
+        if (maintainedCount <= 0) {
+            return "not_found";
+        }
+        return "incomplete";
     }
 
     private Long ensureVariant(Long productMasterId, Long updatedBy, VariantSeed seed) {
