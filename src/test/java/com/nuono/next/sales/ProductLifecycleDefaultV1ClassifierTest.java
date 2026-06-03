@@ -32,11 +32,34 @@ class ProductLifecycleDefaultV1ClassifierTest {
     }
 
     @Test
-    void classifiesGrowthFromCorrectedSalesGrowthPath() {
+    void classifiesNewByConfiguredLifecycleWindow() {
+        LocalDate analysisDate = LocalDate.of(2026, 5, 20);
+        ProductLifecycleClassificationInput input = input(
+                analysisDate,
+                listing(analysisDate.minusDays(49), null, null, null, null, 0),
+                facts(analysisDate.minusDays(59), 60, 5, 20),
+                List.of()
+        );
+
+        ProductLifecycleResult defaultResult = classifier.classify(input);
+        ProductLifecycleResult strictResult = classifier.classify(
+                input,
+                ruleSet(OperationLifecycleRuleThresholds.defaultV1().withNewMaxAgeDays(45))
+        );
+
+        assertEquals("new", defaultResult.getCode());
+        assertEquals("stable", strictResult.getCode());
+        assertTrue(defaultResult.getEvidenceJson().contains("\"reason\":\"new_listing_window\""));
+    }
+
+    @Test
+    void classifiesStepGrowthWhenRecentSevenDayAverageJumps() {
         LocalDate analysisDate = LocalDate.of(2026, 5, 20);
         List<DailySalesFact> facts = new ArrayList<>();
         facts.addAll(facts(analysisDate.minusDays(29), 15, 2, 20));
-        facts.addAll(facts(analysisDate.minusDays(14), 15, 4, 20));
+        facts.addAll(facts(analysisDate.minusDays(14), 8, 2, 20));
+        facts.addAll(facts(analysisDate.minusDays(6), 7, 5, 20));
+        facts.addAll(facts(analysisDate.minusDays(59), 30, 2, 20));
 
         ProductLifecycleResult result = classifier.classify(input(
                 analysisDate,
@@ -47,15 +70,16 @@ class ProductLifecycleDefaultV1ClassifierTest {
 
         assertEquals("growth", result.getCode());
         assertEquals("增长", result.getLabel());
-        assertTrue(result.getEvidenceJson().contains("growth_path_corrected_sales"));
+        assertTrue(result.getEvidenceJson().contains("\"reason\":\"growth_shape_step\""));
+        assertTrue(result.getEvidenceJson().contains("\"growthShape\":\"step\""));
     }
 
     @Test
-    void classifiesGrowthFromSalesPlusPvGrowthPath() {
+    void classifiesExplosiveGrowthFromThirtyDayGrowthRate() {
         LocalDate analysisDate = LocalDate.of(2026, 5, 20);
         List<DailySalesFact> facts = new ArrayList<>();
-        facts.addAll(facts(analysisDate.minusDays(29), 15, 5, 10));
-        facts.addAll(facts(analysisDate.minusDays(14), 15, 6, 15));
+        facts.addAll(facts(analysisDate.minusDays(59), 30, 2, 20));
+        facts.addAll(facts(analysisDate.minusDays(29), 30, 4, 20));
 
         ProductLifecycleResult result = classifier.classify(input(
                 analysisDate,
@@ -65,15 +89,87 @@ class ProductLifecycleDefaultV1ClassifierTest {
         ));
 
         assertEquals("growth", result.getCode());
-        assertTrue(result.getEvidenceJson().contains("growth_path_sales_plus_pv"));
+        assertTrue(result.getEvidenceJson().contains("\"reason\":\"growth_shape_explosive\""));
+        assertTrue(result.getEvidenceJson().contains("\"growthShape\":\"explosive\""));
     }
 
     @Test
-    void classifiesStableWhenWindowsAreSufficientAndTrendsAreFlat() {
+    void classifiesVolatileGrowthFromTrimmedMomentum() {
         LocalDate analysisDate = LocalDate.of(2026, 5, 20);
         List<DailySalesFact> facts = new ArrayList<>();
-        facts.addAll(facts(analysisDate.minusDays(29), 15, 5, 20));
-        facts.addAll(facts(analysisDate.minusDays(14), 15, 5, 20));
+        facts.addAll(facts(analysisDate.minusDays(59), 30, 2, 20));
+        facts.addAll(facts(analysisDate.minusDays(29), 15, 2, 20));
+        facts.addAll(facts(analysisDate.minusDays(14), 15, 4, 20));
+
+        ProductLifecycleResult result = classifier.classify(
+                input(
+                        analysisDate,
+                        listing(LocalDate.of(2026, 1, 1), null, null, null, null, 60),
+                        facts,
+                        List.of()
+                ),
+                ruleSet(OperationLifecycleRuleThresholds.defaultV1()
+                        .withGrowthMinSalesGrowthRate(new BigDecimal("2.0000")))
+        );
+
+        assertEquals("growth", result.getCode());
+        assertTrue(result.getEvidenceJson().contains("\"reason\":\"growth_shape_volatile\""));
+        assertTrue(result.getEvidenceJson().contains("\"growthShape\":\"volatile\""));
+    }
+
+    @Test
+    void volatileOutlierTrimRatioFromRuleSetAffectsGrowthShape() {
+        LocalDate analysisDate = LocalDate.of(2026, 5, 20);
+        List<DailySalesFact> facts = new ArrayList<>();
+        facts.addAll(facts(analysisDate.minusDays(59), 30, 10, 20));
+        for (int i = 29; i >= 0; i--) {
+            facts.add(fact(analysisDate.minusDays(i), i == 7 ? 100 : 10, 20));
+        }
+        ProductLifecycleClassificationInput input = input(
+                analysisDate,
+                listing(LocalDate.of(2026, 1, 1), null, null, null, null, 60),
+                facts,
+                List.of()
+        );
+        OperationLifecycleRuleThresholds highGrowthThreshold = OperationLifecycleRuleThresholds.defaultV1()
+                .withGrowthMinSalesGrowthRate(new BigDecimal("2.0000"));
+
+        ProductLifecycleResult defaultTrimResult = classifier.classify(input, ruleSet(highGrowthThreshold));
+        ProductLifecycleResult noTrimResult = classifier.classify(
+                input,
+                ruleSet(highGrowthThreshold.withVolatileOutlierTrimRatio(BigDecimal.ZERO))
+        );
+
+        assertEquals("stable", defaultTrimResult.getCode());
+        assertEquals("growth", noTrimResult.getCode());
+        assertTrue(noTrimResult.getEvidenceJson().contains("\"growthShape\":\"volatile\""));
+    }
+
+    @Test
+    void classifiesSteadyGrowthWhenGrowthIsPositiveAndVolatilityIsLow() {
+        LocalDate analysisDate = LocalDate.of(2026, 5, 20);
+        List<DailySalesFact> facts = new ArrayList<>();
+        facts.addAll(facts(analysisDate.minusDays(59), 30, 10, 20));
+        facts.addAll(facts(analysisDate.minusDays(29), 30, 11, 20));
+
+        ProductLifecycleResult result = classifier.classify(input(
+                analysisDate,
+                listing(LocalDate.of(2026, 1, 1), null, null, null, null, 60),
+                facts,
+                List.of()
+        ));
+
+        assertEquals("growth", result.getCode());
+        assertTrue(result.getEvidenceJson().contains("\"reason\":\"growth_shape_steady\""));
+        assertTrue(result.getEvidenceJson().contains("\"growthShape\":\"steady\""));
+    }
+
+    @Test
+    void stableEvidenceContainsDynamicWeightCombinedDailyForecast() {
+        LocalDate analysisDate = LocalDate.of(2026, 5, 20);
+        List<DailySalesFact> facts = new ArrayList<>();
+        facts.addAll(facts(analysisDate.minusDays(59), 30, 12, 20));
+        facts.addAll(facts(analysisDate.minusDays(29), 30, 12, 20));
 
         ProductLifecycleResult result = classifier.classify(input(
                 analysisDate,
@@ -84,10 +180,13 @@ class ProductLifecycleDefaultV1ClassifierTest {
 
         assertEquals("stable", result.getCode());
         assertEquals("稳定", result.getLabel());
+        assertTrue(result.getEvidenceJson().contains("\"reason\":\"stable_dynamic_weight\""));
+        assertTrue(result.getEvidenceJson().contains("\"stableShortWeight\":\"0.7000\""));
+        assertTrue(result.getEvidenceJson().contains("\"stableCombinedDailyForecast\""));
     }
 
     @Test
-    void classifiesPartialImportWindowByTrendInsteadOfMarkingEveryProductNew() {
+    void partialImportWindowWithoutTrustedListingDateIsDataInsufficient() {
         LocalDate analysisDate = LocalDate.of(2026, 5, 20);
         List<DailySalesFact> facts = new ArrayList<>();
         facts.addAll(facts(analysisDate.minusDays(29), 15, 5, 20));
@@ -113,17 +212,19 @@ class ProductLifecycleDefaultV1ClassifierTest {
                 List.of()
         ));
 
-        assertEquals("stable", result.getCode());
-        assertEquals("稳定", result.getLabel());
+        assertEquals("data_insufficient", result.getCode());
+        assertEquals("数据不足", result.getLabel());
         assertTrue(listing.getEvidenceJson().contains("\"leftTruncatedHistoricalWindow\":true"));
     }
 
     @Test
-    void classifiesDeclineFromCorrectedSalesTrend() {
+    void classifiesDeclineFromSevenDayDecayRatio() {
         LocalDate analysisDate = LocalDate.of(2026, 5, 20);
         List<DailySalesFact> facts = new ArrayList<>();
-        facts.addAll(facts(analysisDate.minusDays(29), 15, 6, 20));
-        facts.addAll(facts(analysisDate.minusDays(14), 15, 2, 20));
+        facts.addAll(facts(analysisDate.minusDays(59), 21, 10, 20));
+        facts.addAll(facts(analysisDate.minusDays(38), 31, 10, 20));
+        facts.addAll(facts(analysisDate.minusDays(7), 1, 10, 20));
+        facts.addAll(facts(analysisDate.minusDays(6), 7, 4, 20));
 
         ProductLifecycleResult result = classifier.classify(input(
                 analysisDate,
@@ -134,6 +235,35 @@ class ProductLifecycleDefaultV1ClassifierTest {
 
         assertEquals("decline", result.getCode());
         assertEquals("衰退", result.getLabel());
+        assertTrue(result.getEvidenceJson().contains("\"reason\":\"decline_decay_ratio\""));
+        assertTrue(result.getEvidenceJson().contains("\"decayRatio\":\"0.4000\""));
+    }
+
+    @Test
+    void correctedSnapshotExposesFormulaWindowsForThirtyDayGrowthAndDecline() {
+        LocalDate analysisDate = LocalDate.of(2026, 5, 20);
+        List<DailySalesFact> facts = new ArrayList<>();
+        facts.addAll(facts(analysisDate.minusDays(59), 30, 2, 20));
+        facts.addAll(facts(analysisDate.minusDays(29), 30, 4, 20));
+
+        ProductLifecycleFeatureSnapshot features = featureBuilder.build(query(), analysisDate, facts);
+        ProductLifecycleCorrectedFeatureSnapshot corrected = correctionService.correct(
+                query(),
+                analysisDate,
+                features,
+                facts,
+                List.of()
+        );
+
+        assertEquals(new BigDecimal("28.0000"), corrected.getCorrectedRecent7Sales());
+        assertEquals(new BigDecimal("120.0000"), corrected.getCorrectedRecent30Sales());
+        assertEquals(new BigDecimal("60.0000"), corrected.getCorrectedPrevious30Sales());
+        assertEquals(new BigDecimal("1.0000"), corrected.getCorrectedSalesGrowth30());
+        assertEquals(new BigDecimal("106.0000"), corrected.getCorrectedHistoricalT38ToT8Sales());
+        assertTrue(corrected.getEvidenceJson().contains("\"correctedRecent7Sales\":28.0000"));
+        assertTrue(corrected.getEvidenceJson().contains("\"correctedPrevious30Sales\":60.0000"));
+        assertTrue(corrected.getEvidenceJson().contains("\"correctedHistoricalT38ToT8Sales\":106.0000"));
+        assertTrue(corrected.getEvidenceJson().contains("\"correctedSalesGrowth30\":1.0000"));
     }
 
     @Test
@@ -154,7 +284,7 @@ class ProductLifecycleDefaultV1ClassifierTest {
 
         assertEquals("longTail", result.getCode());
         assertEquals("长尾期", result.getLabel());
-        assertTrue(result.getEvidenceJson().contains("low_volume_volatility_guard"));
+        assertTrue(result.getEvidenceJson().contains("long_tail_formula"));
     }
 
     @Test
@@ -187,6 +317,7 @@ class ProductLifecycleDefaultV1ClassifierTest {
         assertEquals("longTail", defaultResult.getCode());
         assertEquals("stable", strictResult.getCode());
         assertTrue(strictResult.getEvidenceJson().contains("\"lifecycleVersionNo\":\"LIFECYCLE_CONFIG_STRICT_LONGTAIL\""));
+        assertTrue(strictResult.getEvidenceJson().contains("\"reason\":\"stable_dynamic_weight\""));
     }
 
     @Test
@@ -228,6 +359,17 @@ class ProductLifecycleDefaultV1ClassifierTest {
                 windows
         );
         return new ProductLifecycleClassificationInput(query(), analysisDate, listing, features, corrected);
+    }
+
+    private ProductLifecycleRuleSet ruleSet(OperationLifecycleRuleThresholds thresholds) {
+        return new ProductLifecycleRuleSet(
+                "DEFAULT_V1_TEST",
+                false,
+                "DEFAULT_V1_TEST",
+                "测试生命周期配置",
+                "测试",
+                thresholds
+        );
     }
 
     private ProductLifecycleListingDateResolution listing(

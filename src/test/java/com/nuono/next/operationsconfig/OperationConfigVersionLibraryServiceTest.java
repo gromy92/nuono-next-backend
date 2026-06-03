@@ -63,7 +63,10 @@ class OperationConfigVersionLibraryServiceTest {
         assertEquals("默认生命周期配置 副本", draft.getDisplayName());
 
         OperationConfigVersionDetailView copiedDetail = service.getDetail(adminContext(), draft.getVersionNo());
-        assertEquals(14, copiedDetail.getItems().size());
+        assertEquals(25, copiedDetail.getItems().size());
+        assertTrue(copiedDetail.getItems().stream().anyMatch(item ->
+                "成长期最长周期".equals(item.getItemName()) && "45".equals(item.getDefaultValue())
+        ));
         assertTrue(copiedDetail.getItems().stream().anyMatch(item ->
                 "稳定期波动率范围".equals(item.getItemName()) && "[0.3, 0.5]".equals(item.getDefaultValue())
         ));

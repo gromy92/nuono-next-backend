@@ -16,17 +16,21 @@ public class ProductLifecycleListingDateResolver {
         SelectedListingDate selected = select(signals);
         boolean historicalOldProduct = signals.hasSixtyDayHistoricalSignals();
         boolean leftTruncatedHistoricalWindow = isLeftTruncatedHistoricalWindow(signals, selected);
-        boolean recentEnoughForNew = selected.listingDate != null
+        SelectedListingDate resolved = leftTruncatedHistoricalWindow
+                ? new SelectedListingDate(null, "missing", "none")
+                : selected;
+        boolean recentEnoughForNew = resolved.listingDate != null
                 && analysisDate != null
-                && ChronoUnit.DAYS.between(selected.listingDate, analysisDate) <= NEW_PRODUCT_WINDOW_DAYS;
+                && ChronoUnit.DAYS.between(resolved.listingDate, analysisDate) <= NEW_PRODUCT_WINDOW_DAYS;
         boolean eligibleForNew = recentEnoughForNew && !historicalOldProduct && !leftTruncatedHistoricalWindow;
         return new ProductLifecycleListingDateResolution(
-                selected.listingDate,
-                selected.source,
-                selected.confidence,
+                resolved.listingDate,
+                resolved.source,
+                resolved.confidence,
                 historicalOldProduct,
+                leftTruncatedHistoricalWindow,
                 eligibleForNew,
-                evidenceJson(signals, selected, historicalOldProduct, eligibleForNew, leftTruncatedHistoricalWindow)
+                evidenceJson(signals, resolved, historicalOldProduct, eligibleForNew, leftTruncatedHistoricalWindow)
         );
     }
 
@@ -52,9 +56,6 @@ public class ProductLifecycleListingDateResolver {
         }
         if (signals.getEarliestSalesDate() != null) {
             return new SelectedListingDate(signals.getEarliestSalesDate(), "sales", "medium");
-        }
-        if (signals.getProductPulledDate() != null) {
-            return new SelectedListingDate(signals.getProductPulledDate(), "pulled", "low");
         }
         return new SelectedListingDate(null, "missing", "none");
     }

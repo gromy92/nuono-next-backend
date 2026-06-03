@@ -40,7 +40,7 @@ class OperationConfigDefaultVersionCatalogTest {
         assertEquals(OperationConfigVersionType.PRODUCT_LIFECYCLE.name(), lifecycle.getConfigType());
         assertEquals("生命周期版本", lifecycle.getConfigTypeLabel());
         assertEquals("SYSTEM_DEFAULT", lifecycle.getStatus());
-        assertEquals(14, lifecycle.getItemCount());
+        assertEquals(25, lifecycle.getItemCount());
     }
 
     @Test
@@ -73,7 +73,40 @@ class OperationConfigDefaultVersionCatalogTest {
 
         assertEquals("DEFAULT_LIFECYCLE_CONFIG", lifecycle.getVersionNo());
         assertEquals(OperationConfigVersionType.PRODUCT_LIFECYCLE.name(), lifecycle.getConfigType());
-        assertEquals(14, lifecycle.getItems().size());
+        assertEquals(25, lifecycle.getItems().size());
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "成长期最长周期".equals(item.getItemName()) && "45".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "稳定期最长周期".equals(item.getItemName()) && "180".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "衰退期最长周期".equals(item.getItemName()) && "30".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "爆发惯性系数".equals(item.getItemName()) && "1.5".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "稳健系数".equals(item.getItemName()) && "1.05".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "阶梯增长倍数".equals(item.getItemName()) && "2".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "波动去极值比例".equals(item.getItemName()) && "0.1".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "波动增长动量阈值".equals(item.getItemName()) && "0.1".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "衰退比例阈值".equals(item.getItemName()) && "0.8".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "成熟期上升短期权重".equals(item.getItemName()) && "0.7".equals(item.getDefaultValue())
+        ));
+        assertTrue(lifecycle.getItems().stream().anyMatch(item ->
+                "成熟期下滑短期权重".equals(item.getItemName()) && "0.6".equals(item.getDefaultValue())
+        ));
         assertTrue(lifecycle.getItems().stream().anyMatch(item ->
                 "稳定期波动率范围".equals(item.getItemName()) && "[0.3, 0.5]".equals(item.getDefaultValue())
         ));

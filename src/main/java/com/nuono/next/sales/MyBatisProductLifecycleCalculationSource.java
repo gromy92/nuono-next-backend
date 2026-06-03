@@ -58,14 +58,13 @@ public class MyBatisProductLifecycleCalculationSource implements ProductLifecycl
         if (row == null) {
             return new ProductLifecycleListingSignals(query, null, null, null, null, analysisDate, 0, 0, 0, 0);
         }
-        LocalDate pulledDate = row.getProductPulledDate() == null ? analysisDate : row.getProductPulledDate();
         return new ProductLifecycleListingSignals(
                 query,
                 row.getOfficialListingDate(),
                 row.getEarliestInventoryDate(),
                 row.getEarliestPvDate(),
                 row.getEarliestSalesDate(),
-                pulledDate,
+                row.getProductPulledDate(),
                 row.getHistoricalSignalDays(),
                 row.getSalesSignalDays(),
                 row.getPvSignalDays(),
