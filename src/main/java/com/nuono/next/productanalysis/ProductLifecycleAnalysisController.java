@@ -7,6 +7,7 @@ import javax.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,6 +45,28 @@ public class ProductLifecycleAnalysisController {
             ownerUserId = context.getBusinessOwnerUserId();
         }
         return service.getOverview(new ProductLifecycleAnalysisQuery(ownerUserId, storeCode, siteCode));
+    }
+
+    @PostMapping("/recalculate")
+    public ProductLifecycleAnalysisRecalculationView recalculate(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            HttpServletRequest request
+    ) {
+        validateOverviewRequest(storeCode, siteCode);
+        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.SALES_DATA,
+                storeCode
+        );
+        Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);
+        if (ownerUserId == null) {
+            ownerUserId = context.getBusinessOwnerUserId();
+        }
+        return service.recalculate(
+                new ProductLifecycleAnalysisQuery(ownerUserId, storeCode, siteCode),
+                context.getSessionUserId()
+        );
     }
 
     private void validateOverviewRequest(String storeCode, String siteCode) {

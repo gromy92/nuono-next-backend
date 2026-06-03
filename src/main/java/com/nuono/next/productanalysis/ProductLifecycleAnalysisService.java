@@ -1,10 +1,16 @@
 package com.nuono.next.productanalysis;
 
+import com.nuono.next.sales.ProductLifecycleCalculationJobService;
+import com.nuono.next.sales.ProductLifecycleCalculationScope;
+import com.nuono.next.sales.ProductLifecycleJobRecord;
+import com.nuono.next.sales.ProductLifecycleResult;
+import com.nuono.next.sales.ProductLifecycleSchedulePolicy;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -13,24 +19,55 @@ import org.springframework.stereotype.Service;
 public class ProductLifecycleAnalysisService {
 
     private static final int FORECAST_WINDOW_DAYS = 90;
+    private static final String MANUAL_TRIGGER_SOURCE = "product_analysis_manual";
 
     private final ProductLifecycleAnalysisReadModelRepository repository;
     private final ProductLifecycleStagePeriodProvider stagePeriodProvider;
     private final ProductLifecycleTimelineProjector timelineProjector;
+    private final ProductLifecycleCalculationJobService jobService;
+    private final Supplier<LocalDate> anchorDateSupplier;
 
     public ProductLifecycleAnalysisService(ProductLifecycleAnalysisReadModelRepository repository) {
-        this(repository, query -> new ProductLifecycleStagePeriodConfig(Map.of()), new ProductLifecycleTimelineProjector());
+        this(
+                repository,
+                query -> new ProductLifecycleStagePeriodConfig(Map.of()),
+                new ProductLifecycleTimelineProjector(),
+                null,
+                () -> LocalDate.now().minusDays(1)
+        );
+    }
+
+    public ProductLifecycleAnalysisService(
+            ProductLifecycleAnalysisReadModelRepository repository,
+            ProductLifecycleStagePeriodProvider stagePeriodProvider,
+            ProductLifecycleTimelineProjector timelineProjector
+    ) {
+        this(repository, stagePeriodProvider, timelineProjector, null, () -> LocalDate.now().minusDays(1));
     }
 
     @Autowired
     public ProductLifecycleAnalysisService(
             ProductLifecycleAnalysisReadModelRepository repository,
             ProductLifecycleStagePeriodProvider stagePeriodProvider,
-            ProductLifecycleTimelineProjector timelineProjector
+            ProductLifecycleTimelineProjector timelineProjector,
+            ProductLifecycleCalculationJobService jobService,
+            ProductLifecycleSchedulePolicy schedulePolicy
+    ) {
+        this(repository, stagePeriodProvider, timelineProjector, jobService, schedulePolicy::defaultAnchorDate);
+    }
+
+    ProductLifecycleAnalysisService(
+            ProductLifecycleAnalysisReadModelRepository repository,
+            ProductLifecycleStagePeriodProvider stagePeriodProvider,
+            ProductLifecycleTimelineProjector timelineProjector,
+            ProductLifecycleCalculationJobService jobService,
+            Supplier<LocalDate> anchorDateSupplier
     ) {
         this.repository = repository;
         this.stagePeriodProvider = stagePeriodProvider;
         this.timelineProjector = timelineProjector;
+        this.jobService = jobService;
+        this.anchorDateSupplier = anchorDateSupplier;
     }
 
     public ProductLifecycleAnalysisOverviewView getOverview(ProductLifecycleAnalysisQuery query) {
@@ -41,6 +78,49 @@ public class ProductLifecycleAnalysisService {
                 .map(row -> row.withProjection(project(row, periodConfig)))
                 .collect(Collectors.toList());
         return new ProductLifecycleAnalysisOverviewView(summaryFromRows(query, rows), rows);
+    }
+
+    public ProductLifecycleAnalysisRecalculationView recalculate(
+            ProductLifecycleAnalysisQuery query,
+            Long triggeredByUserId
+    ) {
+        if (jobService == null) {
+            throw new IllegalStateException("商品生命周期计算服务不可用。");
+        }
+        LocalDate anchorDate = anchorDateSupplier == null ? LocalDate.now().minusDays(1) : anchorDateSupplier.get();
+        ProductLifecycleJobRecord job = jobService.run(new ProductLifecycleCalculationScope(
+                query.getOwnerUserId(),
+                query.getStoreCode(),
+                query.getSiteCode(),
+                anchorDate,
+                ProductLifecycleResult.DEFAULT_RULE_VERSION,
+                true,
+                false,
+                triggeredByUserId,
+                MANUAL_TRIGGER_SOURCE
+        ));
+        return new ProductLifecycleAnalysisRecalculationView(
+                job.getId(),
+                job.getStatus(),
+                messageFor(job.getStatus()),
+                job.getStoreCode(),
+                job.getSiteCode(),
+                job.getAnchorDate(),
+                job.getProcessedCount(),
+                job.getChangedCount(),
+                job.getHeldCount(),
+                job.getDataInsufficientCount()
+        );
+    }
+
+    private String messageFor(String status) {
+        if ("succeeded".equals(status)) {
+            return "生命周期计算完成。";
+        }
+        if ("partial_failed".equals(status)) {
+            return "生命周期计算部分失败，请查看任务失败明细。";
+        }
+        return "生命周期计算失败，请检查数据和配置。";
     }
 
     private ProductLifecycleAnalysisRowView normalizeMissingListingDate(ProductLifecycleAnalysisRowView row) {

@@ -2,7 +2,11 @@ package com.nuono.next.productanalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.nuono.next.sales.ProductLifecycleCalculationJobService;
+import com.nuono.next.sales.ProductLifecycleCalculationScope;
+import com.nuono.next.sales.ProductLifecycleJobRecord;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -288,6 +292,56 @@ class ProductLifecycleAnalysisServiceTest {
         assertEquals("missing", row.getListingDateSource());
     }
 
+    @Test
+    void recalculateRunsLifecycleJobWithManualScopeAndReturnsJobSummary() {
+        RecordingJobService jobService = new RecordingJobService(new ProductLifecycleJobRecord(
+                72010L,
+                307L,
+                "STR245027-NAE",
+                "AE",
+                LocalDate.of(2026, 5, 22),
+                "DEFAULT_V1",
+                "succeeded",
+                37,
+                2,
+                1,
+                12,
+                null,
+                LocalDateTime.of(2026, 5, 23, 9, 0),
+                LocalDateTime.of(2026, 5, 23, 9, 1),
+                10002L,
+                "product_analysis_manual"
+        ));
+        ProductLifecycleAnalysisService service = new ProductLifecycleAnalysisService(
+                new EmptyRepository(),
+                query -> new ProductLifecycleStagePeriodConfig(Map.of()),
+                new ProductLifecycleTimelineProjector(),
+                jobService,
+                () -> LocalDate.of(2026, 5, 22)
+        );
+
+        ProductLifecycleAnalysisRecalculationView view = service.recalculate(
+                new ProductLifecycleAnalysisQuery(307L, "STR245027-NAE", "AE"),
+                10002L
+        );
+
+        assertEquals(307L, jobService.capturedScope.getOwnerUserId());
+        assertEquals("STR245027-NAE", jobService.capturedScope.getStoreCode());
+        assertEquals("AE", jobService.capturedScope.getSiteCode());
+        assertEquals(LocalDate.of(2026, 5, 22), jobService.capturedScope.getAnchorDate());
+        assertEquals("DEFAULT_V1", jobService.capturedScope.getRuleVersion());
+        assertEquals(true, jobService.capturedScope.isRerun());
+        assertEquals(10002L, jobService.capturedScope.getTriggeredByUserId());
+        assertEquals("product_analysis_manual", jobService.capturedScope.getTriggerSource());
+        assertEquals(72010L, view.getJobId());
+        assertEquals("succeeded", view.getStatus());
+        assertEquals("生命周期计算完成。", view.getMessage());
+        assertEquals(37, view.getProcessedCount());
+        assertEquals(2, view.getChangedCount());
+        assertEquals(1, view.getHeldCount());
+        assertEquals(12, view.getDataInsufficientCount());
+    }
+
     private static class SingleRowRepository implements ProductLifecycleAnalysisReadModelRepository {
         private final ProductLifecycleAnalysisRowView row;
 
@@ -303,6 +357,34 @@ class ProductLifecycleAnalysisServiceTest {
         @Override
         public List<ProductLifecycleAnalysisRowView> listRows(ProductLifecycleAnalysisQuery query) {
             return List.of(row);
+        }
+    }
+
+    private static class EmptyRepository implements ProductLifecycleAnalysisReadModelRepository {
+        @Override
+        public ProductLifecycleAnalysisSummaryView getSummary(ProductLifecycleAnalysisQuery query) {
+            return ProductLifecycleAnalysisSummaryView.empty(query.getStoreCode(), query.getSiteCode());
+        }
+
+        @Override
+        public List<ProductLifecycleAnalysisRowView> listRows(ProductLifecycleAnalysisQuery query) {
+            return List.of();
+        }
+    }
+
+    private static class RecordingJobService extends ProductLifecycleCalculationJobService {
+        private final ProductLifecycleJobRecord job;
+        private ProductLifecycleCalculationScope capturedScope;
+
+        private RecordingJobService(ProductLifecycleJobRecord job) {
+            super(null, null, null, null, null, null, null);
+            this.job = job;
+        }
+
+        @Override
+        public ProductLifecycleJobRecord run(ProductLifecycleCalculationScope scope) {
+            this.capturedScope = scope;
+            return job;
         }
     }
 }
