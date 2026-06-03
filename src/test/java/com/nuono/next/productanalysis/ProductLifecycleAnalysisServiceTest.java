@@ -9,6 +9,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class ProductLifecycleAnalysisServiceTest {
@@ -290,6 +292,53 @@ class ProductLifecycleAnalysisServiceTest {
         assertEquals("data_insufficient", row.getAnalysisState());
         assertEquals(null, row.getListingDate());
         assertEquals("missing", row.getListingDateSource());
+    }
+
+    @Test
+    void overviewKeepsFullSummaryWhenReadRowsAreDisplayLimited() {
+        ProductLifecycleAnalysisReadModelRepository repository = new ProductLifecycleAnalysisReadModelRepository() {
+            @Override
+            public ProductLifecycleAnalysisSummaryView getSummary(ProductLifecycleAnalysisQuery query) {
+                return new ProductLifecycleAnalysisSummaryView(query.getStoreCode(), query.getSiteCode(), 408, 40, 368);
+            }
+
+            @Override
+            public List<ProductLifecycleAnalysisRowView> listRows(ProductLifecycleAnalysisQuery query) {
+                return IntStream.range(0, 200)
+                        .mapToObj(index -> new ProductLifecycleAnalysisRowView(
+                                "PAPERSAYS" + index,
+                                "z" + index,
+                                "Papersay Product " + index,
+                                null,
+                                "PAPERSAY",
+                                "stationery-labels_indexes_stamps-identification_badges",
+                                "data_insufficient",
+                                "数据不足",
+                                "data_insufficient",
+                                "数据不足",
+                                LocalDate.of(2026, 6, 2),
+                                null,
+                                "missing",
+                                "DEFAULT_V1",
+                                0,
+                                0,
+                                null
+                        ))
+                        .collect(Collectors.toList());
+            }
+        };
+        ProductLifecycleAnalysisService service = new ProductLifecycleAnalysisService(repository);
+
+        ProductLifecycleAnalysisOverviewView overview = service.getOverview(new ProductLifecycleAnalysisQuery(
+                307L,
+                "STR108065-NSA",
+                "SA"
+        ));
+
+        assertEquals(408, overview.getSummary().getTotalProductCount());
+        assertEquals(40, overview.getSummary().getReadyProductCount());
+        assertEquals(368, overview.getSummary().getMissingParameterProductCount());
+        assertEquals(200, overview.getRows().size());
     }
 
     @Test

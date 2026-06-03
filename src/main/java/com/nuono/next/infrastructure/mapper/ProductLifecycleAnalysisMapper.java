@@ -258,8 +258,7 @@ public interface ProductLifecycleAnalysisMapper {
             "  CASE WHEN pls.quality_state = 'ready' THEN 0 ELSE 1 END,",
             "  pls.lifecycle_code ASC,",
             "  pls.partner_sku ASC,",
-            "  pls.sku ASC",
-            "LIMIT 200"
+            "  pls.sku ASC"
     })
     List<ProductLifecycleAnalysisRowView> selectRows(@Param("query") ProductLifecycleAnalysisQuery query);
 }

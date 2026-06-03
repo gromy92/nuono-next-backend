@@ -72,12 +72,17 @@ public class ProductLifecycleAnalysisService {
 
     public ProductLifecycleAnalysisOverviewView getOverview(ProductLifecycleAnalysisQuery query) {
         ProductLifecycleStagePeriodConfig periodConfig = stagePeriodProvider.resolveStagePeriods(query);
-        List<ProductLifecycleAnalysisRowView> rows = repository.listRows(query).stream()
+        ProductLifecycleAnalysisSummaryView persistedSummary = repository.getSummary(query);
+        List<ProductLifecycleAnalysisRowView> rawRows = repository.listRows(query);
+        List<ProductLifecycleAnalysisRowView> rows = rawRows.stream()
                 .filter(row -> !isLocalTestProduct(row))
                 .map(this::normalizeMissingListingDate)
                 .map(row -> row.withProjection(project(row, periodConfig)))
                 .collect(Collectors.toList());
-        return new ProductLifecycleAnalysisOverviewView(summaryFromRows(query, rows), rows);
+        return new ProductLifecycleAnalysisOverviewView(
+                summaryForOverview(query, persistedSummary, rawRows.size(), rows),
+                rows
+        );
     }
 
     public Long resolveDataOwnerUserId(String storeCode, String siteCode, Long fallbackOwnerUserId) {
@@ -198,6 +203,27 @@ public class ProductLifecycleAnalysisService {
                 expectedLifecycleChangeCount,
                 FORECAST_WINDOW_DAYS
         );
+    }
+
+    private ProductLifecycleAnalysisSummaryView summaryForOverview(
+            ProductLifecycleAnalysisQuery query,
+            ProductLifecycleAnalysisSummaryView persistedSummary,
+            int rawRowCount,
+            List<ProductLifecycleAnalysisRowView> rows
+    ) {
+        ProductLifecycleAnalysisSummaryView rowSummary = summaryFromRows(query, rows);
+        if (persistedSummary != null && persistedSummary.getTotalProductCount() > rawRowCount) {
+            return new ProductLifecycleAnalysisSummaryView(
+                    query.getStoreCode(),
+                    query.getSiteCode(),
+                    persistedSummary.getTotalProductCount(),
+                    persistedSummary.getReadyProductCount(),
+                    persistedSummary.getMissingParameterProductCount(),
+                    rowSummary.getExpectedLifecycleChangeProductCount(),
+                    FORECAST_WINDOW_DAYS
+            );
+        }
+        return rowSummary;
     }
 
     private boolean isLocalTestProduct(ProductLifecycleAnalysisRowView row) {
