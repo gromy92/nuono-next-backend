@@ -51,6 +51,27 @@ public class ProductLifecycleTimelineProjector {
                 input.getCurrentStageStartDate(),
                 input.getAnalysisDate()
         ) + 1);
+        if (isTerminal(input.getCurrentLifecycleCode())) {
+            List<ProductLifecycleTimelinePointView> futureTimeline = new ArrayList<>();
+            for (int offset = 1; offset <= input.getForecastDays(); offset++) {
+                futureTimeline.add(new ProductLifecycleTimelinePointView(
+                        input.getAnalysisDate().plusDays(offset),
+                        input.getCurrentLifecycleCode(),
+                        labelFor(input.getCurrentLifecycleCode(), input)
+                ));
+            }
+            return new ProductLifecycleTimelineProjection(
+                    "ready",
+                    "生命周期时间线已生成。",
+                    List.of(),
+                    elapsedDays,
+                    0,
+                    null,
+                    null,
+                    null,
+                    futureTimeline
+            );
+        }
         int currentDurationDays = input.getPeriodConfig().getDurationDays(input.getCurrentLifecycleCode());
         int remainingDays = Math.max(0, currentDurationDays - elapsedDays);
         List<ProductLifecycleTimelinePointView> futureTimeline = new ArrayList<>();

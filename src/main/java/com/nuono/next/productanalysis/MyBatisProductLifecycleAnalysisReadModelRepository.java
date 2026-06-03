@@ -14,6 +14,11 @@ public class MyBatisProductLifecycleAnalysisReadModelRepository implements Produ
     }
 
     @Override
+    public Long findDataOwnerUserId(String storeCode, String siteCode) {
+        return mapper.selectDataOwnerUserId(storeCode, siteCode);
+    }
+
+    @Override
     public ProductLifecycleAnalysisSummaryView getSummary(ProductLifecycleAnalysisQuery query) {
         return mapper.selectSummary(query);
     }

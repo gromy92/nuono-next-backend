@@ -73,6 +73,31 @@ class ProductLifecycleTimelineProjectorTest {
     }
 
     @Test
+    void projectsTerminalLongTailWithoutDurationConfiguration() {
+        ProductLifecycleTimelineProjection projection = projector.project(new ProductLifecycleTimelineProjectionInput(
+                "longTail",
+                "长尾期",
+                LocalDate.of(2025, 11, 3),
+                LocalDate.of(2026, 6, 2),
+                new ProductLifecycleStagePeriodConfig(Map.of(
+                        "new", 30,
+                        "growth", 45,
+                        "stable", 180,
+                        "decline", 30
+                )),
+                90
+        ));
+
+        assertEquals("ready", projection.getQualityState());
+        assertEquals(212, projection.getCurrentStageElapsedDays());
+        assertEquals(0, projection.getCurrentStageRemainingDays());
+        assertEquals(null, projection.getNextTransitionDate());
+        assertEquals(90, projection.getFutureTimeline().size());
+        assertEquals("longTail", projection.getFutureTimeline().get(0).getLifecycleCode());
+        assertEquals("longTail", projection.getFutureTimeline().get(89).getLifecycleCode());
+    }
+
+    @Test
     void returnsDataInsufficientWithoutSyntheticTimeline() {
         ProductLifecycleTimelineProjection projection = projector.project(new ProductLifecycleTimelineProjectionInput(
                 "data_insufficient",

@@ -80,6 +80,11 @@ public class ProductLifecycleAnalysisService {
         return new ProductLifecycleAnalysisOverviewView(summaryFromRows(query, rows), rows);
     }
 
+    public Long resolveDataOwnerUserId(String storeCode, String siteCode, Long fallbackOwnerUserId) {
+        Long dataOwnerUserId = repository.findDataOwnerUserId(storeCode, siteCode);
+        return dataOwnerUserId == null ? fallbackOwnerUserId : dataOwnerUserId;
+    }
+
     public ProductLifecycleAnalysisRecalculationView recalculate(
             ProductLifecycleAnalysisQuery query,
             Long triggeredByUserId

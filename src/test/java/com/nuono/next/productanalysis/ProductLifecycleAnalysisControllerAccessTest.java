@@ -66,6 +66,30 @@ class ProductLifecycleAnalysisControllerAccessTest {
     }
 
     @Test
+    void overviewUsesLifecycleDataOwnerWhenAccessOwnerDoesNotMatchProductMaster() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .businessOwnerUserId(10002L)
+                .storeCodes(Set.of("STR245027-NAE"))
+                .storeOwnerUserIds(Map.of("STR245027-NAE", 10002L))
+                .build();
+        ProductLifecycleAnalysisOverviewView expected =
+                ProductLifecycleAnalysisOverviewView.empty("STR245027-NAE", "AE");
+        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-NAE"))
+                .thenReturn(context);
+        when(service.resolveDataOwnerUserId("STR245027-NAE", "AE", 10002L)).thenReturn(307L);
+        when(service.getOverview(any(ProductLifecycleAnalysisQuery.class))).thenReturn(expected);
+
+        ProductLifecycleAnalysisOverviewView result = controller.getOverview("STR245027-NAE", "AE", request);
+
+        assertSame(expected, result);
+        ArgumentCaptor<ProductLifecycleAnalysisQuery> queryCaptor =
+                ArgumentCaptor.forClass(ProductLifecycleAnalysisQuery.class);
+        verify(service).getOverview(queryCaptor.capture());
+        assertEquals(307L, queryCaptor.getValue().getOwnerUserId());
+    }
+
+    @Test
     void overviewRejectsBlankStoreOrSiteBeforeResolvingAccess() {
         ResponseStatusException error = assertThrows(
                 ResponseStatusException.class,
@@ -113,6 +137,41 @@ class ProductLifecycleAnalysisControllerAccessTest {
         assertEquals("STR245027-NAE", queryCaptor.getValue().getStoreCode());
         assertEquals("AE", queryCaptor.getValue().getSiteCode());
         assertEquals(10002L, operatorCaptor.getValue());
+    }
+
+    @Test
+    void recalculateUsesLifecycleDataOwnerWhenAccessOwnerDoesNotMatchProductMaster() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(10002L)
+                .businessOwnerUserId(10002L)
+                .storeCodes(Set.of("STR245027-NAE"))
+                .storeOwnerUserIds(Map.of("STR245027-NAE", 10002L))
+                .build();
+        ProductLifecycleAnalysisRecalculationView expected = new ProductLifecycleAnalysisRecalculationView(
+                72010L,
+                "succeeded",
+                "生命周期计算完成。",
+                "STR245027-NAE",
+                "AE",
+                java.time.LocalDate.of(2026, 6, 2),
+                37,
+                3,
+                34,
+                11
+        );
+        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-NAE"))
+                .thenReturn(context);
+        when(service.resolveDataOwnerUserId("STR245027-NAE", "AE", 10002L)).thenReturn(307L);
+        when(service.recalculate(any(ProductLifecycleAnalysisQuery.class), any(Long.class))).thenReturn(expected);
+
+        ProductLifecycleAnalysisRecalculationView result = controller.recalculate("STR245027-NAE", "AE", request);
+
+        assertSame(expected, result);
+        ArgumentCaptor<ProductLifecycleAnalysisQuery> queryCaptor =
+                ArgumentCaptor.forClass(ProductLifecycleAnalysisQuery.class);
+        verify(service).recalculate(queryCaptor.capture(), any(Long.class));
+        assertEquals(307L, queryCaptor.getValue().getOwnerUserId());
     }
 
     @Test

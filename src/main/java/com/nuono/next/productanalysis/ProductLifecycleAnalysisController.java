@@ -40,10 +40,7 @@ public class ProductLifecycleAnalysisController {
                 BusinessCapability.SALES_DATA,
                 storeCode
         );
-        Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);
-        if (ownerUserId == null) {
-            ownerUserId = context.getBusinessOwnerUserId();
-        }
+        Long ownerUserId = resolveOwnerUserId(storeCode, siteCode, context);
         return service.getOverview(new ProductLifecycleAnalysisQuery(ownerUserId, storeCode, siteCode));
     }
 
@@ -59,14 +56,20 @@ public class ProductLifecycleAnalysisController {
                 BusinessCapability.SALES_DATA,
                 storeCode
         );
-        Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);
-        if (ownerUserId == null) {
-            ownerUserId = context.getBusinessOwnerUserId();
-        }
+        Long ownerUserId = resolveOwnerUserId(storeCode, siteCode, context);
         return service.recalculate(
                 new ProductLifecycleAnalysisQuery(ownerUserId, storeCode, siteCode),
                 context.getSessionUserId()
         );
+    }
+
+    private Long resolveOwnerUserId(String storeCode, String siteCode, BusinessAccessContext context) {
+        Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);
+        if (ownerUserId == null) {
+            ownerUserId = context.getBusinessOwnerUserId();
+        }
+        Long dataOwnerUserId = service.resolveDataOwnerUserId(storeCode, siteCode, ownerUserId);
+        return dataOwnerUserId == null || dataOwnerUserId <= 0 ? ownerUserId : dataOwnerUserId;
     }
 
     private void validateOverviewRequest(String storeCode, String siteCode) {

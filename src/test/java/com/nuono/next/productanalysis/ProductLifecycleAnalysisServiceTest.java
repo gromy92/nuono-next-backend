@@ -342,6 +342,17 @@ class ProductLifecycleAnalysisServiceTest {
         assertEquals(12, view.getDataInsufficientCount());
     }
 
+    @Test
+    void resolveDataOwnerUsesProductMasterOwnerAndFallsBackToAccessOwner() {
+        OwnerResolvingRepository repository = new OwnerResolvingRepository(307L);
+        ProductLifecycleAnalysisService service = new ProductLifecycleAnalysisService(repository);
+
+        assertEquals(307L, service.resolveDataOwnerUserId("STR245027-NAE", "AE", 10002L));
+
+        repository.ownerUserId = null;
+        assertEquals(10002L, service.resolveDataOwnerUserId("STR245027-NAE", "AE", 10002L));
+    }
+
     private static class SingleRowRepository implements ProductLifecycleAnalysisReadModelRepository {
         private final ProductLifecycleAnalysisRowView row;
 
@@ -369,6 +380,19 @@ class ProductLifecycleAnalysisServiceTest {
         @Override
         public List<ProductLifecycleAnalysisRowView> listRows(ProductLifecycleAnalysisQuery query) {
             return List.of();
+        }
+    }
+
+    private static class OwnerResolvingRepository extends EmptyRepository {
+        private Long ownerUserId;
+
+        private OwnerResolvingRepository(Long ownerUserId) {
+            this.ownerUserId = ownerUserId;
+        }
+
+        @Override
+        public Long findDataOwnerUserId(String storeCode, String siteCode) {
+            return ownerUserId;
         }
     }
 

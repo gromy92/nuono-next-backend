@@ -12,6 +12,22 @@ import org.apache.ibatis.annotations.Select;
 
 public interface ProductLifecycleAnalysisMapper {
 
+    @Select({
+            "SELECT ls.owner_user_id",
+            "FROM logical_store_site lss",
+            "JOIN logical_store ls ON ls.id = lss.logical_store_id AND ls.is_deleted = b'0'",
+            "WHERE lss.store_code = #{storeCode}",
+            "  AND lss.site = #{siteCode}",
+            "  AND lss.is_deleted = b'0'",
+            "  AND ls.owner_user_id IS NOT NULL",
+            "ORDER BY ls.id ASC",
+            "LIMIT 1"
+    })
+    Long selectDataOwnerUserId(
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode
+    );
+
     @ConstructorArgs({
             @Arg(column = "storeCode", javaType = String.class),
             @Arg(column = "siteCode", javaType = String.class),
