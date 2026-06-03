@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
@@ -92,6 +93,39 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
+    void currentSiteProjectionFieldsShouldNotFallbackToOtherStoreOffers() {
+        List<String> projectionMethods = List.of(
+                "selectProductListProjection",
+                "selectProductListProjectionBySkuParent",
+                "selectProductGroupCandidates"
+        );
+
+        for (String methodName : projectionMethods) {
+            Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                    .filter((candidate) -> methodName.equals(candidate.getName()))
+                    .findFirst()
+                    .orElseThrow();
+            Select select = method.getAnnotation(Select.class);
+            String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+            assertTrue(!sql.contains("MAX(pso.psku_code)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.offer_code)"), methodName);
+            assertTrue(!sql.contains("MAX(COALESCE(pso.final_price, pso.sale_price, pso.price))"), methodName);
+            assertTrue(!sql.contains("MAX(pso.price)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.sale_price)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.views_count)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.units_sold)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.sales_amount)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.sales_currency)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.live_status)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.status_code)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.listing_started_at)"), methodName);
+            assertTrue(!sql.contains("MAX(pso.listing_started_source)"), methodName);
+            assertTrue(!sql.contains("MAX(CASE WHEN pso.is_active = b'1' THEN 1 ELSE 0 END)"), methodName);
+        }
+    }
+
+    @Test
     void migration079ShouldRequireExplicitCoverageScopeAndAvoidGlobalSiteFactReclassification() throws Exception {
         String sql = Files.readString(Path.of("src/main/resources/db/init/079_product_site_offer_data_missing_site_coverage.sql"))
                 .replaceAll("\\s+", " ");
@@ -101,5 +135,22 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(!sql.contains("FROM daily_sales_fact GROUP BY owner_user_id, store_code, site_code"));
         assertTrue(!sql.contains("site_fact_row_count"));
         assertTrue(sql.contains("SELECT MIN(dsf.fact_date)"));
+    }
+
+    @Test
+    void migration080ShouldRestoreCanmanSaLogicalStoreSiteFromAuthorizedUserStoreOnly() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/080_restore_canman_sa_site_scope.sql"))
+                .replace("`", "")
+                .replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("STR108065-NSA"));
+        assertTrue(sql.contains("PRJ108065"));
+        assertTrue(sql.contains("us.user_id = 307"));
+        assertTrue(sql.contains("JOIN logical_store ls"));
+        assertTrue(sql.contains("ls.owner_user_id = us.user_id"));
+        assertTrue(sql.contains("BINARY ls.project_code = BINARY us.project_code"));
+        assertTrue(sql.contains("ON DUPLICATE KEY UPDATE"));
+        assertTrue(sql.contains("is_deleted = b'0'"));
+        assertTrue(sql.contains("product_management_id_sequence"));
     }
 }

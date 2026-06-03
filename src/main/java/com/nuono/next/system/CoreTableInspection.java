@@ -8,6 +8,7 @@ public class CoreTableInspection {
     private final List<String> expectedTables;
     private final List<String> existingTables;
     private final List<String> missingTables;
+    private final List<String> missingRequiredColumns;
 
     public CoreTableInspection(
             String schema,
@@ -15,10 +16,21 @@ public class CoreTableInspection {
             List<String> existingTables,
             List<String> missingTables
     ) {
+        this(schema, expectedTables, existingTables, missingTables, List.of());
+    }
+
+    public CoreTableInspection(
+            String schema,
+            List<String> expectedTables,
+            List<String> existingTables,
+            List<String> missingTables,
+            List<String> missingRequiredColumns
+    ) {
         this.schema = schema;
         this.expectedTables = expectedTables;
         this.existingTables = existingTables;
         this.missingTables = missingTables;
+        this.missingRequiredColumns = missingRequiredColumns == null ? List.of() : missingRequiredColumns;
     }
 
     public String getSchema() {
@@ -37,7 +49,11 @@ public class CoreTableInspection {
         return missingTables;
     }
 
+    public List<String> getMissingRequiredColumns() {
+        return missingRequiredColumns;
+    }
+
     public boolean isReady() {
-        return missingTables.isEmpty();
+        return missingTables.isEmpty() && missingRequiredColumns.isEmpty();
     }
 }

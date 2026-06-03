@@ -14,6 +14,10 @@ public class LocalDbBootstrapStatusService {
 
     private final CoreTableStatusMapper coreTableStatusMapper;
     private final BootstrapProperties bootstrapProperties;
+    private static final Map<String, List<String>> REQUIRED_COLUMNS_BY_TABLE = Map.of(
+            "product_site_offer",
+            List.of("listing_started_at", "listing_started_source")
+    );
 
     public LocalDbBootstrapStatusService(
             CoreTableStatusMapper coreTableStatusMapper,
@@ -31,6 +35,7 @@ public class LocalDbBootstrapStatusService {
         payload.put("ready", inspection.isReady());
         payload.put("existingCoreTables", inspection.getExistingTables());
         payload.put("missingCoreTables", inspection.getMissingTables());
+        payload.put("missingRequiredColumns", inspection.getMissingRequiredColumns());
         payload.put("initScripts", List.of(
                 "classpath:db/init/000_local_dev_bootstrap.sql",
                 "classpath:db/init/001_clone_legacy_core_tables.sql",
@@ -90,7 +95,8 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/068_noon_call_store_data_system_reports_path.sql",
                 "classpath:db/init/074_product_site_offer_listing_started_at.sql",
                 "classpath:db/init/074_product_variant_spec.sql",
-                "classpath:db/init/079_product_site_offer_data_missing_site_coverage.sql"
+                "classpath:db/init/079_product_site_offer_data_missing_site_coverage.sql",
+                "classpath:db/init/080_restore_canman_sa_site_scope.sql"
             ));
         return payload;
     }
@@ -105,12 +111,37 @@ public class LocalDbBootstrapStatusService {
         List<String> missingTables = expectedTables.stream()
                 .filter(table -> !existingTables.contains(table))
                 .collect(Collectors.toList());
+        List<String> missingRequiredColumns = findMissingRequiredColumns(existingTables);
 
         return new CoreTableInspection(
                 bootstrapProperties.getSchema(),
                 expectedTables,
                 existingTables,
-                missingTables
+                missingTables,
+                missingRequiredColumns
         );
+    }
+
+    private List<String> findMissingRequiredColumns(List<String> existingTables) {
+        return REQUIRED_COLUMNS_BY_TABLE.entrySet().stream()
+                .filter(entry -> existingTables.contains(entry.getKey()))
+                .flatMap(entry -> findMissingRequiredColumns(entry.getKey(), entry.getValue()).stream())
+                .collect(Collectors.toList());
+    }
+
+    private List<String> findMissingRequiredColumns(String tableName, List<String> requiredColumns) {
+        List<String> existingColumns = coreTableStatusMapper.findExistingColumnNames(
+                bootstrapProperties.getSchema(),
+                tableName,
+                requiredColumns
+        );
+        if (existingColumns == null) {
+            existingColumns = List.of();
+        }
+        List<String> finalExistingColumns = existingColumns;
+        return requiredColumns.stream()
+                .filter(column -> !finalExistingColumns.contains(column))
+                .map(column -> tableName + "." + column)
+                .collect(Collectors.toList());
     }
 }
