@@ -342,7 +342,7 @@ class ProductLifecycleAnalysisServiceTest {
     }
 
     @Test
-    void recalculateRunsLifecycleJobWithManualScopeAndReturnsJobSummary() {
+    void recalculateRunsLifecycleHistoricalBackfillWithManualScopeAndReturnsJobSummary() {
         RecordingJobService jobService = new RecordingJobService(new ProductLifecycleJobRecord(
                 72010L,
                 307L,
@@ -374,14 +374,15 @@ class ProductLifecycleAnalysisServiceTest {
                 10002L
         );
 
-        assertEquals(307L, jobService.capturedScope.getOwnerUserId());
-        assertEquals("STR245027-NAE", jobService.capturedScope.getStoreCode());
-        assertEquals("AE", jobService.capturedScope.getSiteCode());
-        assertEquals(LocalDate.of(2026, 5, 22), jobService.capturedScope.getAnchorDate());
-        assertEquals("DEFAULT_V1", jobService.capturedScope.getRuleVersion());
-        assertEquals(true, jobService.capturedScope.isRerun());
-        assertEquals(10002L, jobService.capturedScope.getTriggeredByUserId());
-        assertEquals("product_analysis_manual", jobService.capturedScope.getTriggerSource());
+        assertEquals(false, jobService.dailyRunCalled);
+        assertEquals(307L, jobService.capturedBackfillScope.getOwnerUserId());
+        assertEquals("STR245027-NAE", jobService.capturedBackfillScope.getStoreCode());
+        assertEquals("AE", jobService.capturedBackfillScope.getSiteCode());
+        assertEquals(LocalDate.of(2026, 5, 22), jobService.capturedBackfillScope.getAnchorDate());
+        assertEquals("DEFAULT_V1", jobService.capturedBackfillScope.getRuleVersion());
+        assertEquals(true, jobService.capturedBackfillScope.isRerun());
+        assertEquals(10002L, jobService.capturedBackfillScope.getTriggeredByUserId());
+        assertEquals("product_analysis_manual", jobService.capturedBackfillScope.getTriggerSource());
         assertEquals(72010L, view.getJobId());
         assertEquals("succeeded", view.getStatus());
         assertEquals("生命周期计算完成。", view.getMessage());
@@ -447,7 +448,8 @@ class ProductLifecycleAnalysisServiceTest {
 
     private static class RecordingJobService extends ProductLifecycleCalculationJobService {
         private final ProductLifecycleJobRecord job;
-        private ProductLifecycleCalculationScope capturedScope;
+        private ProductLifecycleCalculationScope capturedBackfillScope;
+        private boolean dailyRunCalled;
 
         private RecordingJobService(ProductLifecycleJobRecord job) {
             super(null, null, null, null, null, null, null);
@@ -456,7 +458,13 @@ class ProductLifecycleAnalysisServiceTest {
 
         @Override
         public ProductLifecycleJobRecord run(ProductLifecycleCalculationScope scope) {
-            this.capturedScope = scope;
+            dailyRunCalled = true;
+            throw new AssertionError("手动生命周期重算必须执行历史回放，不能只跑当天。");
+        }
+
+        @Override
+        public ProductLifecycleJobRecord runHistoricalBackfill(ProductLifecycleCalculationScope scope) {
+            this.capturedBackfillScope = scope;
             return job;
         }
     }

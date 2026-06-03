@@ -40,6 +40,19 @@ public class MyBatisProductLifecycleCalculationSource implements ProductLifecycl
     }
 
     @Override
+    public List<LocalDate> listHistoricalAnchorDates(ProductLifecycleCalculationScope scope) {
+        return mapper.selectHistoricalAnchorDates(scope);
+    }
+
+    @Override
+    public List<LocalDate> listHistoricalAnchorDates(
+            ProductLifecycleCalculationScope scope,
+            ProductLifecycleStateQuery query
+    ) {
+        return mapper.selectHistoricalAnchorDatesForProduct(scope, query);
+    }
+
+    @Override
     public List<ProductLifecycleStateQuery> listProductScopes(ProductLifecycleCalculationScope scope) {
         return mapper.selectProductScopes(scope).stream()
                 .map(row -> new ProductLifecycleStateQuery(

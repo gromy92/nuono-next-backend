@@ -4,6 +4,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -85,6 +87,18 @@ public class ProductLifecycleCalculationJobService {
     }
 
     public ProductLifecycleJobRecord run(ProductLifecycleCalculationScope scope) {
+        return runForAnchors(scope, List.of(scope.getAnchorDate()), false);
+    }
+
+    public ProductLifecycleJobRecord runHistoricalBackfill(ProductLifecycleCalculationScope scope) {
+        return runForAnchors(scope, null, true);
+    }
+
+    private ProductLifecycleJobRecord runForAnchors(
+            ProductLifecycleCalculationScope scope,
+            List<LocalDate> anchorDates,
+            boolean resetBeforeRun
+    ) {
         Long jobId = repository.nextJobId();
         LocalDateTime startedAt = LocalDateTime.now();
         ProductLifecycleRuleSet ruleSet = ruleProvider.resolve(scope);
@@ -94,25 +108,37 @@ public class ProductLifecycleCalculationJobService {
         int dataInsufficientCount = 0;
         List<String> failures = new ArrayList<>();
         try {
+            if (resetBeforeRun) {
+                repository.resetScope(scope);
+            }
+            List<LocalDate> anchors = anchorDates == null
+                    ? List.of()
+                    : normalizedAnchorDates(anchorDates, scope.getAnchorDate());
             List<ProductLifecycleStateQuery> productScopes = source.listProductScopes(scope);
             for (ProductLifecycleStateQuery query : productScopes) {
-                try {
-                    ProductLifecycleCurrentState before = repository.findCurrentState(query);
-                    ProductLifecycleCurrentState after = calculateOne(scope, query, jobId, ruleSet);
-                    processedCount++;
-                    if (isHeld(after)) {
-                        heldCount++;
+                List<LocalDate> productAnchors = anchorDates == null
+                        ? historicalAnchorDates(scope, query)
+                        : anchors;
+                for (LocalDate anchor : productAnchors) {
+                    ProductLifecycleCalculationScope anchorScope = scopeWithAnchorDate(scope, anchor);
+                    try {
+                        ProductLifecycleCurrentState before = repository.findCurrentState(query);
+                        ProductLifecycleCurrentState after = calculateOne(anchorScope, query, jobId, ruleSet);
+                        processedCount++;
+                        if (isHeld(after)) {
+                            heldCount++;
+                        }
+                        if ("data_insufficient".equals(after.getLifecycleCode())) {
+                            dataInsufficientCount++;
+                        }
+                        if (before != null
+                                && !before.getLifecycleCode().equals(after.getLifecycleCode())
+                                && !isHeld(after)) {
+                            changedCount++;
+                        }
+                    } catch (RuntimeException exception) {
+                        failures.add(failure(query, exception));
                     }
-                    if ("data_insufficient".equals(after.getLifecycleCode())) {
-                        dataInsufficientCount++;
-                    }
-                    if (before != null
-                            && !before.getLifecycleCode().equals(after.getLifecycleCode())
-                            && !isHeld(after)) {
-                        changedCount++;
-                    }
-                } catch (RuntimeException exception) {
-                    failures.add(failure(query, exception));
                 }
             }
         } catch (RuntimeException exception) {
@@ -139,6 +165,49 @@ public class ProductLifecycleCalculationJobService {
         );
         repository.saveJob(job);
         return job;
+    }
+
+    private List<LocalDate> historicalAnchorDates(
+            ProductLifecycleCalculationScope scope,
+            ProductLifecycleStateQuery query
+    ) {
+        return normalizedAnchorDates(source.listHistoricalAnchorDates(scope, query), scope.getAnchorDate());
+    }
+
+    private List<LocalDate> normalizedAnchorDates(List<LocalDate> anchorDates, LocalDate finalAnchorDate) {
+        SortedSet<LocalDate> sorted = new TreeSet<>();
+        if (anchorDates != null) {
+            for (LocalDate anchorDate : anchorDates) {
+                if (anchorDate == null) {
+                    continue;
+                }
+                if (finalAnchorDate != null && anchorDate.isAfter(finalAnchorDate)) {
+                    continue;
+                }
+                sorted.add(anchorDate);
+            }
+        }
+        if (finalAnchorDate != null) {
+            sorted.add(finalAnchorDate);
+        }
+        return new ArrayList<>(sorted);
+    }
+
+    private ProductLifecycleCalculationScope scopeWithAnchorDate(
+            ProductLifecycleCalculationScope scope,
+            LocalDate anchorDate
+    ) {
+        return new ProductLifecycleCalculationScope(
+                scope.getOwnerUserId(),
+                scope.getStoreCode(),
+                scope.getSiteCode(),
+                anchorDate,
+                scope.getRuleVersion(),
+                scope.isRerun(),
+                scope.isExplicitRuleVersion(),
+                scope.getTriggeredByUserId(),
+                scope.getTriggerSource()
+        );
     }
 
     private ProductLifecycleCurrentState calculateOne(

@@ -41,6 +41,35 @@ public interface ProductLifecycleCalculationMapper {
     })
     List<ProductLifecycleScheduledScopeRow> selectScheduledScopes();
 
+    @Select({
+            "SELECT DISTINCT dsf.fact_date",
+            "FROM daily_sales_fact dsf",
+            "WHERE dsf.owner_user_id = #{scope.ownerUserId}",
+            "  AND dsf.store_code = #{scope.storeCode}",
+            "  AND dsf.site_code = #{scope.siteCode}",
+            "  AND dsf.fact_date <= #{scope.anchorDate}",
+            "ORDER BY dsf.fact_date ASC"
+    })
+    List<LocalDate> selectHistoricalAnchorDates(
+            @Param("scope") ProductLifecycleCalculationScope scope
+    );
+
+    @Select({
+            "SELECT DISTINCT dsf.fact_date",
+            "FROM daily_sales_fact dsf",
+            "WHERE dsf.owner_user_id = #{scope.ownerUserId}",
+            "  AND dsf.store_code = #{scope.storeCode}",
+            "  AND dsf.site_code = #{scope.siteCode}",
+            "  AND dsf.partner_sku = #{query.partnerSku}",
+            "  AND dsf.sku = #{query.sku}",
+            "  AND dsf.fact_date <= #{scope.anchorDate}",
+            "ORDER BY dsf.fact_date ASC"
+    })
+    List<LocalDate> selectHistoricalAnchorDatesForProduct(
+            @Param("scope") ProductLifecycleCalculationScope scope,
+            @Param("query") ProductLifecycleStateQuery query
+    );
+
     @ConstructorArgs({
             @Arg(column = "ownerUserId", javaType = Long.class),
             @Arg(column = "storeCode", javaType = String.class),

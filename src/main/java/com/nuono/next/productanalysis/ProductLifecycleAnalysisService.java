@@ -98,7 +98,7 @@ public class ProductLifecycleAnalysisService {
             throw new IllegalStateException("商品生命周期计算服务不可用。");
         }
         LocalDate anchorDate = anchorDateSupplier == null ? LocalDate.now().minusDays(1) : anchorDateSupplier.get();
-        ProductLifecycleJobRecord job = jobService.run(new ProductLifecycleCalculationScope(
+        ProductLifecycleJobRecord job = jobService.runHistoricalBackfill(new ProductLifecycleCalculationScope(
                 query.getOwnerUserId(),
                 query.getStoreCode(),
                 query.getSiteCode(),

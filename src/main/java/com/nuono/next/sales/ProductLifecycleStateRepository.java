@@ -8,6 +8,9 @@ public interface ProductLifecycleStateRepository {
         return null;
     }
 
+    default void resetScope(ProductLifecycleCalculationScope scope) {
+    }
+
     void saveCurrentState(ProductLifecycleCurrentState state);
 
     void saveHistory(ProductLifecycleHistoryRecord historyRecord);
