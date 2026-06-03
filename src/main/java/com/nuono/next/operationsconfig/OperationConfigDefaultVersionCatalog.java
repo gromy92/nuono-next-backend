@@ -57,6 +57,7 @@ public class OperationConfigDefaultVersionCatalog {
     }
 
     private OperationConfigVersionRowView lifecycleRow(boolean editableBySystemAdmin) {
+        int itemCount = lifecycleItems().size();
         return new OperationConfigVersionRowView(
                 DEFAULT_LIFECYCLE_VERSION_NO,
                 "默认生命周期配置",
@@ -65,8 +66,8 @@ public class OperationConfigDefaultVersionCatalog {
                 "SYSTEM_DEFAULT",
                 "系统默认",
                 "系统默认",
-                "14 条 DEFAULT_V1 配置",
-                14,
+                itemCount + " 条 DEFAULT_V1 配置",
+                itemCount,
                 "全局默认",
                 null,
                 DEFAULT_UPDATED_AT,
@@ -179,15 +180,26 @@ public class OperationConfigDefaultVersionCatalog {
                 defaultItem("新品期", "新品期最长周期", "随时", "数值", formatInteger(thresholds.getNewMaxAgeDays()), null, null),
                 defaultItem("新品期", "新品期最小周期", "随时", "数值", formatInteger(thresholds.getNewMinAgeDays()), null, null),
                 defaultItem("新品期", "高客单价阈值", "随时", "数值", formatDecimal(thresholds.getHighPriceThreshold()), null, "高客单价可能生命周期不明显"),
+                defaultItem("成长期", "成长期最长周期", "随时", "数值", "45", null, "用于未来生命周期时间线推演"),
                 defaultItem("成长期", "成长期最小销量环比增长率", "随时", "数值", formatDecimal(thresholds.getGrowthMinSalesGrowthRate()), null, null),
                 defaultItem("成长期", "成长期最小浏览环比增长率", "随时", "数值", formatDecimal(thresholds.getGrowthMinPvGrowthRate()), null, null),
                 defaultItem("成长期", "成长期最小月销量", "随时", "数值", formatDecimal(thresholds.getGrowthMinMonthlySales()), null, null),
                 defaultItem("成长期", "成长期最小月动销天数", "随时", "数值", formatInteger(thresholds.getGrowthMinActiveSalesDays()), null, "这个计算月有销量的天数"),
                 defaultItem("成长期", "成长期最大波动率", "随时", "数值", formatDecimal(thresholds.getGrowthMaxVolatility()), null, null),
+                defaultItem("成长期", "爆发惯性系数", "随时", "数值", formatDecimal(thresholds.getExplosiveInertiaFactor()), null, "用于成长期爆发式形态证据和后续销量预测"),
+                defaultItem("成长期", "稳健系数", "随时", "数值", formatDecimal(thresholds.getSteadyTrendFactor()), null, "用于成长期匀速式形态证据和后续销量预测"),
+                defaultItem("成长期", "阶梯增长倍数", "随时", "数值", formatDecimal(thresholds.getStepGrowthMultiplier()), null, "最近7天日均超过之前30天日均的倍数阈值"),
+                defaultItem("成长期", "波动去极值比例", "随时", "数值", formatDecimal(thresholds.getVolatileOutlierTrimRatio()), null, "波动型增长去除最高和最低销量点比例"),
+                defaultItem("成长期", "波动增长动量阈值", "随时", "数值", formatDecimal(thresholds.getVolatileMomentumThreshold()), null, "波动型增长后半段相对前半段的最小动量"),
+                defaultItem("稳定期", "稳定期最长周期", "随时", "数值", "180", null, "用于未来生命周期时间线推演"),
                 defaultItem("稳定期", "稳定期最小浏览环比增长率", "随时", "数值", formatDecimal(thresholds.getStableMinPvGrowthRate()), null, null),
                 defaultItem("稳定期", "稳定期波动率范围", "随时", "数组", "[" + formatDecimal(thresholds.getStableVolatilityMin()) + ", " + formatDecimal(thresholds.getStableVolatilityMax()) + "]", null, null),
+                defaultItem("稳定期", "成熟期上升短期权重", "随时", "数值", formatDecimal(thresholds.getStableRisingShortWeight()), null, "短期日均高于长期日均时的短期权重"),
+                defaultItem("稳定期", "成熟期下滑短期权重", "随时", "数值", formatDecimal(thresholds.getStableFallingShortWeight()), null, "短期日均低于长期日均时的短期权重"),
+                defaultItem("衰退期", "衰退期最长周期", "随时", "数值", "30", null, "用于未来生命周期时间线推演"),
                 defaultItem("衰退期", "衰退期最大波动率", "随时", "数值", formatDecimal(thresholds.getDeclineMaxVolatility()), null, null),
                 defaultItem("衰退期", "衰退最小销量环比增长率", "随时", "数值", formatDecimal(thresholds.getDeclineMaxSalesGrowthRate()), null, null),
+                defaultItem("衰退期", "衰退比例阈值", "随时", "数值", formatDecimal(thresholds.getDeclineDecayRatioThreshold()), null, "最近7天日均相对T-38至T-8历史日均的最大比例"),
                 defaultItem("长尾期", "长尾期最大波动率", "随时", "数值", formatDecimal(thresholds.getLongTailMaxVolatility()), null, null),
                 defaultItem("长尾期", "长尾期最大月销红量", "随时", "数值", formatDecimal(thresholds.getLongTailMaxMonthlySales()), null, null)
         );

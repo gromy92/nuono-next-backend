@@ -14,6 +14,8 @@ public class ProductLifecycleFeatureSnapshot {
     private final ProductLifecycleFeatureWindow recent30;
     private final ProductLifecycleFeatureWindow previous30;
     private final ProductLifecycleFeatureWindow recent60;
+    private final ProductLifecycleFeatureWindow historicalT38ToT8;
+    private final ProductLifecycleGrowthShapeMetrics growthShapeMetrics;
     private final BigDecimal salesGrowth15;
     private final BigDecimal pvGrowth15;
     private final BigDecimal salesVolatility30;
@@ -37,6 +39,44 @@ public class ProductLifecycleFeatureSnapshot {
             List<String> qualityReasons,
             String evidenceJson
     ) {
+        this(
+                query,
+                analysisDate,
+                recent7,
+                recent15,
+                previous15,
+                recent30,
+                previous30,
+                recent60,
+                new ProductLifecycleFeatureWindow(31, 0, 0, null, 0, 0, false),
+                null,
+                salesGrowth15,
+                pvGrowth15,
+                salesVolatility30,
+                activeSalesDays30,
+                qualityReasons,
+                evidenceJson
+        );
+    }
+
+    public ProductLifecycleFeatureSnapshot(
+            ProductLifecycleStateQuery query,
+            LocalDate analysisDate,
+            ProductLifecycleFeatureWindow recent7,
+            ProductLifecycleFeatureWindow recent15,
+            ProductLifecycleFeatureWindow previous15,
+            ProductLifecycleFeatureWindow recent30,
+            ProductLifecycleFeatureWindow previous30,
+            ProductLifecycleFeatureWindow recent60,
+            ProductLifecycleFeatureWindow historicalT38ToT8,
+            ProductLifecycleGrowthShapeMetrics growthShapeMetrics,
+            BigDecimal salesGrowth15,
+            BigDecimal pvGrowth15,
+            BigDecimal salesVolatility30,
+            int activeSalesDays30,
+            List<String> qualityReasons,
+            String evidenceJson
+    ) {
         this.query = query;
         this.analysisDate = analysisDate;
         this.recent7 = recent7;
@@ -45,6 +85,8 @@ public class ProductLifecycleFeatureSnapshot {
         this.recent30 = recent30;
         this.previous30 = previous30;
         this.recent60 = recent60;
+        this.historicalT38ToT8 = historicalT38ToT8;
+        this.growthShapeMetrics = growthShapeMetrics;
         this.salesGrowth15 = salesGrowth15;
         this.pvGrowth15 = pvGrowth15;
         this.salesVolatility30 = salesVolatility30;
@@ -83,6 +125,14 @@ public class ProductLifecycleFeatureSnapshot {
 
     public ProductLifecycleFeatureWindow getRecent60() {
         return recent60;
+    }
+
+    public ProductLifecycleFeatureWindow getHistoricalT38ToT8() {
+        return historicalT38ToT8;
+    }
+
+    public ProductLifecycleGrowthShapeMetrics getGrowthShapeMetrics() {
+        return growthShapeMetrics;
     }
 
     public BigDecimal getSalesGrowth15() {

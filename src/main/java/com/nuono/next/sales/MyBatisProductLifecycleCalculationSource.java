@@ -40,6 +40,19 @@ public class MyBatisProductLifecycleCalculationSource implements ProductLifecycl
     }
 
     @Override
+    public List<LocalDate> listHistoricalAnchorDates(ProductLifecycleCalculationScope scope) {
+        return mapper.selectHistoricalAnchorDates(scope);
+    }
+
+    @Override
+    public List<LocalDate> listHistoricalAnchorDates(
+            ProductLifecycleCalculationScope scope,
+            ProductLifecycleStateQuery query
+    ) {
+        return mapper.selectHistoricalAnchorDatesForProduct(scope, query);
+    }
+
+    @Override
     public List<ProductLifecycleStateQuery> listProductScopes(ProductLifecycleCalculationScope scope) {
         return mapper.selectProductScopes(scope).stream()
                 .map(row -> new ProductLifecycleStateQuery(
@@ -58,14 +71,13 @@ public class MyBatisProductLifecycleCalculationSource implements ProductLifecycl
         if (row == null) {
             return new ProductLifecycleListingSignals(query, null, null, null, null, analysisDate, 0, 0, 0, 0);
         }
-        LocalDate pulledDate = row.getProductPulledDate() == null ? analysisDate : row.getProductPulledDate();
         return new ProductLifecycleListingSignals(
                 query,
                 row.getOfficialListingDate(),
                 row.getEarliestInventoryDate(),
                 row.getEarliestPvDate(),
                 row.getEarliestSalesDate(),
-                pulledDate,
+                row.getProductPulledDate(),
                 row.getHistoricalSignalDays(),
                 row.getSalesSignalDays(),
                 row.getPvSignalDays(),

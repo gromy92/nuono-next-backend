@@ -124,6 +124,14 @@ final class OperationConfigTypedVersionContentSupport {
         BigDecimal declineMaxSalesGrowthRate = defaults.getDeclineMaxSalesGrowthRate();
         BigDecimal longTailMaxVolatility = defaults.getLongTailMaxVolatility();
         BigDecimal longTailMaxMonthlySales = defaults.getLongTailMaxMonthlySales();
+        BigDecimal explosiveInertiaFactor = defaults.getExplosiveInertiaFactor();
+        BigDecimal steadyTrendFactor = defaults.getSteadyTrendFactor();
+        BigDecimal stepGrowthMultiplier = defaults.getStepGrowthMultiplier();
+        BigDecimal volatileOutlierTrimRatio = defaults.getVolatileOutlierTrimRatio();
+        BigDecimal volatileMomentumThreshold = defaults.getVolatileMomentumThreshold();
+        BigDecimal declineDecayRatioThreshold = defaults.getDeclineDecayRatioThreshold();
+        BigDecimal stableRisingShortWeight = defaults.getStableRisingShortWeight();
+        BigDecimal stableFallingShortWeight = defaults.getStableFallingShortWeight();
 
         for (OperationConfigDefaultVersionItemView item : parseItems(version.getContentJson())) {
             String name = item.getItemName() == null ? "" : item.getItemName();
@@ -165,6 +173,22 @@ final class OperationConfigTypedVersionContentSupport {
                 longTailMaxVolatility = decimal;
             } else if (name.contains("长尾期最大月销")) {
                 longTailMaxMonthlySales = decimal;
+            } else if (name.contains("爆发惯性系数")) {
+                explosiveInertiaFactor = decimal;
+            } else if (name.contains("稳健系数")) {
+                steadyTrendFactor = decimal;
+            } else if (name.contains("阶梯增长倍数")) {
+                stepGrowthMultiplier = decimal;
+            } else if (name.contains("波动去极值比例")) {
+                volatileOutlierTrimRatio = decimal;
+            } else if (name.contains("波动增长动量阈值")) {
+                volatileMomentumThreshold = decimal;
+            } else if (name.contains("衰退比例阈值")) {
+                declineDecayRatioThreshold = decimal;
+            } else if (name.contains("成熟期上升短期权重")) {
+                stableRisingShortWeight = decimal;
+            } else if (name.contains("成熟期下滑短期权重")) {
+                stableFallingShortWeight = decimal;
             }
         }
         return new OperationLifecycleRuleThresholds(
@@ -182,7 +206,15 @@ final class OperationConfigTypedVersionContentSupport {
                 declineMaxVolatility,
                 declineMaxSalesGrowthRate,
                 longTailMaxVolatility,
-                longTailMaxMonthlySales
+                longTailMaxMonthlySales,
+                explosiveInertiaFactor,
+                steadyTrendFactor,
+                stepGrowthMultiplier,
+                volatileOutlierTrimRatio,
+                volatileMomentumThreshold,
+                declineDecayRatioThreshold,
+                stableRisingShortWeight,
+                stableFallingShortWeight
         );
     }
 

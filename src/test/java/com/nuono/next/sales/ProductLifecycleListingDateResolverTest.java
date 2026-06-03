@@ -2,6 +2,7 @@ package com.nuono.next.sales;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
@@ -33,7 +34,7 @@ class ProductLifecycleListingDateResolverTest {
     }
 
     @Test
-    void fallsBackThroughInventoryPvSalesThenPulledDate() {
+    void fallsBackThroughInventoryPvSalesButNeverUsesPulledDateAsListingDate() {
         assertEquals("inventory", resolver.resolve(new ProductLifecycleListingSignals(
                 query(),
                 null,
@@ -85,13 +86,14 @@ class ProductLifecycleListingDateResolverTest {
                 0,
                 0
         ), LocalDate.of(2026, 5, 20));
-        assertEquals("pulled", pulledOnly.getSource());
-        assertEquals("low", pulledOnly.getConfidence());
-        assertTrue(pulledOnly.isEligibleForNewInitialization());
+        assertEquals("missing", pulledOnly.getSource());
+        assertEquals("none", pulledOnly.getConfidence());
+        assertNull(pulledOnly.getListingDate());
+        assertFalse(pulledOnly.isEligibleForNewInitialization());
     }
 
     @Test
-    void sixtyDayHistoricalSignalsPreventNewProductInitializationEvenWhenPulledRecently() {
+    void pulledDateDoesNotInitializeNewProductEvenWhenRecent() {
         ProductLifecycleListingDateResolution resolution = resolver.resolve(new ProductLifecycleListingSignals(
                 query(),
                 null,
@@ -105,15 +107,15 @@ class ProductLifecycleListingDateResolverTest {
                 0
         ), LocalDate.of(2026, 5, 20));
 
-        assertEquals("pulled", resolution.getSource());
-        assertEquals("low", resolution.getConfidence());
+        assertEquals("missing", resolution.getSource());
+        assertEquals("none", resolution.getConfidence());
         assertTrue(resolution.isHistoricalOldProduct());
         assertFalse(resolution.isEligibleForNewInitialization());
         assertTrue(resolution.getEvidenceJson().contains("\"historicalSignalDays\":60"));
     }
 
     @Test
-    void partialSalesOrPvWindowsDoNotInitializeAWholeImportedStoreAsNew() {
+    void partialSalesOrPvWindowsAreNotListingDates() {
         ProductLifecycleListingDateResolution salesOnly = resolver.resolve(new ProductLifecycleListingSignals(
                 query(),
                 null,
@@ -127,7 +129,8 @@ class ProductLifecycleListingDateResolverTest {
                 0
         ), LocalDate.of(2026, 5, 20));
 
-        assertEquals("sales", salesOnly.getSource());
+        assertEquals("missing", salesOnly.getSource());
+        assertNull(salesOnly.getListingDate());
         assertFalse(salesOnly.isEligibleForNewInitialization());
         assertTrue(salesOnly.getEvidenceJson().contains("\"leftTruncatedHistoricalWindow\":true"));
 
@@ -144,7 +147,8 @@ class ProductLifecycleListingDateResolverTest {
                 0
         ), LocalDate.of(2026, 5, 20));
 
-        assertEquals("pv", pvOnly.getSource());
+        assertEquals("missing", pvOnly.getSource());
+        assertNull(pvOnly.getListingDate());
         assertFalse(pvOnly.isEligibleForNewInitialization());
         assertTrue(pvOnly.getEvidenceJson().contains("\"leftTruncatedHistoricalWindow\":true"));
     }

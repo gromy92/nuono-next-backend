@@ -34,6 +34,13 @@ public class ProductLifecycleFeatureBuilder {
                 30
         );
         ProductLifecycleFeatureWindow recent60 = window(aggregates, analysisDate.minusDays(59), analysisDate, 60);
+        ProductLifecycleFeatureWindow historicalT38ToT8 = window(
+                aggregates,
+                analysisDate.minusDays(38),
+                analysisDate.minusDays(8),
+                31
+        );
+        ProductLifecycleGrowthShapeMetrics growthShapeMetrics = growthShapeMetrics30(aggregates, analysisDate);
 
         List<String> qualityReasons = new ArrayList<>();
         recent15 = estimatePvIfMissing(recent15, previous15, qualityReasons);
@@ -60,6 +67,8 @@ public class ProductLifecycleFeatureBuilder {
                 recent30,
                 previous30,
                 recent60,
+                historicalT38ToT8,
+                growthShapeMetrics,
                 salesGrowth15,
                 pvGrowth15,
                 volatility30,
@@ -185,6 +194,60 @@ public class ProductLifecycleFeatureBuilder {
         }
         double standardDeviation = Math.sqrt(squaredDistance / dayCount);
         return BigDecimal.valueOf(standardDeviation / mean).setScale(4, RoundingMode.HALF_UP);
+    }
+
+    private ProductLifecycleGrowthShapeMetrics growthShapeMetrics30(
+            Map<LocalDate, DailyAggregate> aggregates,
+            LocalDate analysisDate
+    ) {
+        List<Integer> dailySales = new ArrayList<>();
+        int observedFactDays = 0;
+        LocalDate start = analysisDate.minusDays(29);
+        LocalDate end = analysisDate;
+        LocalDate cursor = start;
+        while (!cursor.isAfter(end)) {
+            if (aggregates.containsKey(cursor)) {
+                observedFactDays++;
+            }
+            dailySales.add(salesUnits(aggregates, cursor));
+            cursor = cursor.plusDays(1);
+        }
+        if (dailySales.size() != 30) {
+            throw new IllegalStateException("growth shape metrics require exactly 30 daily sales points");
+        }
+        List<Integer> firstHalf = dailySales.subList(0, 15);
+        List<Integer> secondHalf = dailySales.subList(15, 30);
+        BigDecimal firstAvg = trimmedAverage(firstHalf);
+        BigDecimal secondAvg = trimmedAverage(secondHalf);
+        BigDecimal momentumRate = null;
+        if (firstAvg.compareTo(BigDecimal.ZERO) > 0) {
+            momentumRate = secondAvg.subtract(firstAvg)
+                    .divide(firstAvg, 6, RoundingMode.HALF_UP)
+                    .setScale(4, RoundingMode.HALF_UP);
+        }
+        return new ProductLifecycleGrowthShapeMetrics(
+                dailySales,
+                observedFactDays,
+                firstAvg,
+                secondAvg,
+                momentumRate
+        );
+    }
+
+    private BigDecimal trimmedAverage(List<Integer> values) {
+        List<Integer> sorted = new ArrayList<>(values);
+        sorted.sort(Integer::compareTo);
+        int trimCount = (int) Math.floor(sorted.size() * 0.1d);
+        List<Integer> trimmed = sorted;
+        if (trimCount > 0 && sorted.size() - (trimCount * 2) > 0) {
+            trimmed = sorted.subList(trimCount, sorted.size() - trimCount);
+        }
+        long total = 0L;
+        for (Integer value : trimmed) {
+            total += value;
+        }
+        return BigDecimal.valueOf(total)
+                .divide(BigDecimal.valueOf(trimmed.size()), 4, RoundingMode.HALF_UP);
     }
 
     private int salesUnits(Map<LocalDate, DailyAggregate> aggregates, LocalDate date) {

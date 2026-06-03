@@ -22,9 +22,18 @@ public class OperationLifecycleRuleThresholds {
     private final BigDecimal declineMaxSalesGrowthRate;
     private final BigDecimal longTailMaxVolatility;
     private final BigDecimal longTailMaxMonthlySales;
+    private final BigDecimal explosiveInertiaFactor;
+    private final BigDecimal steadyTrendFactor;
+    private final BigDecimal stepGrowthMultiplier;
+    private final BigDecimal volatileOutlierTrimRatio;
+    private final BigDecimal volatileMomentumThreshold;
+    private final BigDecimal declineDecayRatioThreshold;
+    private final BigDecimal stableRisingShortWeight;
+    private final BigDecimal stableFallingShortWeight;
 
     public OperationLifecycleRuleThresholds() {
         this(
+                null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null, null,
                 null, null, null, null, null, null, null
         );
@@ -46,7 +55,15 @@ public class OperationLifecycleRuleThresholds {
             @JsonProperty("declineMaxVolatility") BigDecimal declineMaxVolatility,
             @JsonProperty("declineMaxSalesGrowthRate") BigDecimal declineMaxSalesGrowthRate,
             @JsonProperty("longTailMaxVolatility") BigDecimal longTailMaxVolatility,
-            @JsonProperty("longTailMaxMonthlySales") BigDecimal longTailMaxMonthlySales
+            @JsonProperty("longTailMaxMonthlySales") BigDecimal longTailMaxMonthlySales,
+            @JsonProperty("explosiveInertiaFactor") BigDecimal explosiveInertiaFactor,
+            @JsonProperty("steadyTrendFactor") BigDecimal steadyTrendFactor,
+            @JsonProperty("stepGrowthMultiplier") BigDecimal stepGrowthMultiplier,
+            @JsonProperty("volatileOutlierTrimRatio") BigDecimal volatileOutlierTrimRatio,
+            @JsonProperty("volatileMomentumThreshold") BigDecimal volatileMomentumThreshold,
+            @JsonProperty("declineDecayRatioThreshold") BigDecimal declineDecayRatioThreshold,
+            @JsonProperty("stableRisingShortWeight") BigDecimal stableRisingShortWeight,
+            @JsonProperty("stableFallingShortWeight") BigDecimal stableFallingShortWeight
     ) {
         this.newMaxAgeDays = newMaxAgeDays;
         this.newMinAgeDays = newMinAgeDays;
@@ -63,6 +80,14 @@ public class OperationLifecycleRuleThresholds {
         this.declineMaxSalesGrowthRate = scale(declineMaxSalesGrowthRate);
         this.longTailMaxVolatility = scale(longTailMaxVolatility);
         this.longTailMaxMonthlySales = scale(longTailMaxMonthlySales);
+        this.explosiveInertiaFactor = scale(explosiveInertiaFactor);
+        this.steadyTrendFactor = scale(steadyTrendFactor);
+        this.stepGrowthMultiplier = scale(stepGrowthMultiplier);
+        this.volatileOutlierTrimRatio = scale(volatileOutlierTrimRatio);
+        this.volatileMomentumThreshold = scale(volatileMomentumThreshold);
+        this.declineDecayRatioThreshold = scale(declineDecayRatioThreshold);
+        this.stableRisingShortWeight = scale(stableRisingShortWeight);
+        this.stableFallingShortWeight = scale(stableFallingShortWeight);
     }
 
     public static OperationLifecycleRuleThresholds defaultV1() {
@@ -81,7 +106,15 @@ public class OperationLifecycleRuleThresholds {
                 new BigDecimal("1.0000"),
                 new BigDecimal("-0.1000"),
                 new BigDecimal("0.6000"),
-                new BigDecimal("10.0000")
+                new BigDecimal("10.0000"),
+                new BigDecimal("1.5000"),
+                new BigDecimal("1.0500"),
+                new BigDecimal("2.0000"),
+                new BigDecimal("0.1000"),
+                new BigDecimal("0.1000"),
+                new BigDecimal("0.8000"),
+                new BigDecimal("0.7000"),
+                new BigDecimal("0.6000")
         );
     }
 
@@ -89,28 +122,54 @@ public class OperationLifecycleRuleThresholds {
         return copy(newMaxAgeDays, value, highPriceThreshold, growthMinSalesGrowthRate, growthMinPvGrowthRate,
                 growthMinMonthlySales, growthMinActiveSalesDays, growthMaxVolatility, stableMinPvGrowthRate,
                 stableVolatilityMin, stableVolatilityMax, declineMaxVolatility, declineMaxSalesGrowthRate,
-                longTailMaxVolatility, longTailMaxMonthlySales);
+                longTailMaxVolatility, longTailMaxMonthlySales, explosiveInertiaFactor, steadyTrendFactor,
+                stepGrowthMultiplier, volatileOutlierTrimRatio, volatileMomentumThreshold, declineDecayRatioThreshold,
+                stableRisingShortWeight, stableFallingShortWeight);
+    }
+
+    public OperationLifecycleRuleThresholds withNewMaxAgeDays(Integer value) {
+        return copy(value, newMinAgeDays, highPriceThreshold, growthMinSalesGrowthRate, growthMinPvGrowthRate,
+                growthMinMonthlySales, growthMinActiveSalesDays, growthMaxVolatility, stableMinPvGrowthRate,
+                stableVolatilityMin, stableVolatilityMax, declineMaxVolatility, declineMaxSalesGrowthRate,
+                longTailMaxVolatility, longTailMaxMonthlySales, explosiveInertiaFactor, steadyTrendFactor,
+                stepGrowthMultiplier, volatileOutlierTrimRatio, volatileMomentumThreshold, declineDecayRatioThreshold,
+                stableRisingShortWeight, stableFallingShortWeight);
     }
 
     public OperationLifecycleRuleThresholds withGrowthMinSalesGrowthRate(BigDecimal value) {
         return copy(newMaxAgeDays, newMinAgeDays, highPriceThreshold, value, growthMinPvGrowthRate,
                 growthMinMonthlySales, growthMinActiveSalesDays, growthMaxVolatility, stableMinPvGrowthRate,
                 stableVolatilityMin, stableVolatilityMax, declineMaxVolatility, declineMaxSalesGrowthRate,
-                longTailMaxVolatility, longTailMaxMonthlySales);
+                longTailMaxVolatility, longTailMaxMonthlySales, explosiveInertiaFactor, steadyTrendFactor,
+                stepGrowthMultiplier, volatileOutlierTrimRatio, volatileMomentumThreshold, declineDecayRatioThreshold,
+                stableRisingShortWeight, stableFallingShortWeight);
     }
 
     public OperationLifecycleRuleThresholds withGrowthMinMonthlySales(BigDecimal value) {
         return copy(newMaxAgeDays, newMinAgeDays, highPriceThreshold, growthMinSalesGrowthRate, growthMinPvGrowthRate,
                 value, growthMinActiveSalesDays, growthMaxVolatility, stableMinPvGrowthRate,
                 stableVolatilityMin, stableVolatilityMax, declineMaxVolatility, declineMaxSalesGrowthRate,
-                longTailMaxVolatility, longTailMaxMonthlySales);
+                longTailMaxVolatility, longTailMaxMonthlySales, explosiveInertiaFactor, steadyTrendFactor,
+                stepGrowthMultiplier, volatileOutlierTrimRatio, volatileMomentumThreshold, declineDecayRatioThreshold,
+                stableRisingShortWeight, stableFallingShortWeight);
     }
 
     public OperationLifecycleRuleThresholds withLongTailMaxMonthlySales(BigDecimal value) {
         return copy(newMaxAgeDays, newMinAgeDays, highPriceThreshold, growthMinSalesGrowthRate, growthMinPvGrowthRate,
                 growthMinMonthlySales, growthMinActiveSalesDays, growthMaxVolatility, stableMinPvGrowthRate,
                 stableVolatilityMin, stableVolatilityMax, declineMaxVolatility, declineMaxSalesGrowthRate,
-                longTailMaxVolatility, value);
+                longTailMaxVolatility, value, explosiveInertiaFactor, steadyTrendFactor, stepGrowthMultiplier,
+                volatileOutlierTrimRatio, volatileMomentumThreshold, declineDecayRatioThreshold,
+                stableRisingShortWeight, stableFallingShortWeight);
+    }
+
+    public OperationLifecycleRuleThresholds withVolatileOutlierTrimRatio(BigDecimal value) {
+        return copy(newMaxAgeDays, newMinAgeDays, highPriceThreshold, growthMinSalesGrowthRate, growthMinPvGrowthRate,
+                growthMinMonthlySales, growthMinActiveSalesDays, growthMaxVolatility, stableMinPvGrowthRate,
+                stableVolatilityMin, stableVolatilityMax, declineMaxVolatility, declineMaxSalesGrowthRate,
+                longTailMaxVolatility, longTailMaxMonthlySales, explosiveInertiaFactor, steadyTrendFactor,
+                stepGrowthMultiplier, value, volatileMomentumThreshold, declineDecayRatioThreshold,
+                stableRisingShortWeight, stableFallingShortWeight);
     }
 
     private OperationLifecycleRuleThresholds copy(
@@ -128,7 +187,15 @@ public class OperationLifecycleRuleThresholds {
             BigDecimal nextDeclineMaxVolatility,
             BigDecimal nextDeclineMaxSalesGrowthRate,
             BigDecimal nextLongTailMaxVolatility,
-            BigDecimal nextLongTailMaxMonthlySales
+            BigDecimal nextLongTailMaxMonthlySales,
+            BigDecimal nextExplosiveInertiaFactor,
+            BigDecimal nextSteadyTrendFactor,
+            BigDecimal nextStepGrowthMultiplier,
+            BigDecimal nextVolatileOutlierTrimRatio,
+            BigDecimal nextVolatileMomentumThreshold,
+            BigDecimal nextDeclineDecayRatioThreshold,
+            BigDecimal nextStableRisingShortWeight,
+            BigDecimal nextStableFallingShortWeight
     ) {
         return new OperationLifecycleRuleThresholds(
                 nextNewMaxAgeDays,
@@ -145,7 +212,15 @@ public class OperationLifecycleRuleThresholds {
                 nextDeclineMaxVolatility,
                 nextDeclineMaxSalesGrowthRate,
                 nextLongTailMaxVolatility,
-                nextLongTailMaxMonthlySales
+                nextLongTailMaxMonthlySales,
+                nextExplosiveInertiaFactor,
+                nextSteadyTrendFactor,
+                nextStepGrowthMultiplier,
+                nextVolatileOutlierTrimRatio,
+                nextVolatileMomentumThreshold,
+                nextDeclineDecayRatioThreshold,
+                nextStableRisingShortWeight,
+                nextStableFallingShortWeight
         );
     }
 
@@ -168,4 +243,12 @@ public class OperationLifecycleRuleThresholds {
     public BigDecimal getDeclineMaxSalesGrowthRate() { return declineMaxSalesGrowthRate; }
     public BigDecimal getLongTailMaxVolatility() { return longTailMaxVolatility; }
     public BigDecimal getLongTailMaxMonthlySales() { return longTailMaxMonthlySales; }
+    public BigDecimal getExplosiveInertiaFactor() { return explosiveInertiaFactor; }
+    public BigDecimal getSteadyTrendFactor() { return steadyTrendFactor; }
+    public BigDecimal getStepGrowthMultiplier() { return stepGrowthMultiplier; }
+    public BigDecimal getVolatileOutlierTrimRatio() { return volatileOutlierTrimRatio; }
+    public BigDecimal getVolatileMomentumThreshold() { return volatileMomentumThreshold; }
+    public BigDecimal getDeclineDecayRatioThreshold() { return declineDecayRatioThreshold; }
+    public BigDecimal getStableRisingShortWeight() { return stableRisingShortWeight; }
+    public BigDecimal getStableFallingShortWeight() { return stableFallingShortWeight; }
 }

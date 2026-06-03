@@ -41,6 +41,35 @@ public interface ProductLifecycleCalculationMapper {
     })
     List<ProductLifecycleScheduledScopeRow> selectScheduledScopes();
 
+    @Select({
+            "SELECT DISTINCT dsf.fact_date",
+            "FROM daily_sales_fact dsf",
+            "WHERE dsf.owner_user_id = #{scope.ownerUserId}",
+            "  AND dsf.store_code = #{scope.storeCode}",
+            "  AND dsf.site_code = #{scope.siteCode}",
+            "  AND dsf.fact_date <= #{scope.anchorDate}",
+            "ORDER BY dsf.fact_date ASC"
+    })
+    List<LocalDate> selectHistoricalAnchorDates(
+            @Param("scope") ProductLifecycleCalculationScope scope
+    );
+
+    @Select({
+            "SELECT DISTINCT dsf.fact_date",
+            "FROM daily_sales_fact dsf",
+            "WHERE dsf.owner_user_id = #{scope.ownerUserId}",
+            "  AND dsf.store_code = #{scope.storeCode}",
+            "  AND dsf.site_code = #{scope.siteCode}",
+            "  AND dsf.partner_sku = #{query.partnerSku}",
+            "  AND dsf.sku = #{query.sku}",
+            "  AND dsf.fact_date <= #{scope.anchorDate}",
+            "ORDER BY dsf.fact_date ASC"
+    })
+    List<LocalDate> selectHistoricalAnchorDatesForProduct(
+            @Param("scope") ProductLifecycleCalculationScope scope,
+            @Param("query") ProductLifecycleStateQuery query
+    );
+
     @ConstructorArgs({
             @Arg(column = "ownerUserId", javaType = Long.class),
             @Arg(column = "storeCode", javaType = String.class),
@@ -54,7 +83,26 @@ public interface ProductLifecycleCalculationMapper {
             "  lss.store_code AS storeCode,",
             "  lss.site AS siteCode,",
             "  pv.partner_sku AS partnerSku,",
-            "  COALESCE(NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, '')) AS sku",
+            "  COALESCE(",
+            "    (",
+            "      SELECT dsf_scope.sku",
+            "      FROM daily_sales_fact dsf_scope",
+            "      WHERE dsf_scope.owner_user_id = ls.owner_user_id",
+            "        AND dsf_scope.store_code = lss.store_code",
+            "        AND dsf_scope.site_code = lss.site",
+            "        AND dsf_scope.partner_sku = pv.partner_sku",
+            "        AND dsf_scope.sku IS NOT NULL",
+            "        AND dsf_scope.sku <> ''",
+            "        AND dsf_scope.fact_date <= #{scope.anchorDate}",
+            "      GROUP BY dsf_scope.sku",
+            "      ORDER BY MAX(dsf_scope.fact_date) DESC, COUNT(*) DESC",
+            "      LIMIT 1",
+            "    ),",
+            "    NULLIF(pv.child_sku, ''),",
+            "    NULLIF(pso.offer_code, ''),",
+            "    NULLIF(pso.psku_code, ''),",
+            "    NULLIF(pm.sku_parent, '')",
+            "  ) AS sku",
             "FROM logical_store_site lss",
             "JOIN logical_store ls ON ls.id = lss.logical_store_id AND ls.is_deleted = b'0'",
             "JOIN product_master pm ON pm.logical_store_id = ls.id AND pm.is_deleted = b'0'",
@@ -68,7 +116,7 @@ public interface ProductLifecycleCalculationMapper {
             "  AND lss.is_deleted = b'0'",
             "  AND pv.partner_sku IS NOT NULL",
             "  AND pv.partner_sku <> ''",
-            "  AND COALESCE(NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, '')) IS NOT NULL",
+            "HAVING sku IS NOT NULL",
             "ORDER BY pv.partner_sku ASC, sku ASC"
     })
     List<ProductLifecycleProductScopeRow> selectProductScopes(

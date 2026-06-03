@@ -1,6 +1,7 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.sales.ProductLifecycleCurrentState;
+import com.nuono.next.sales.ProductLifecycleCalculationScope;
 import com.nuono.next.sales.ProductLifecycleHistoryRecord;
 import com.nuono.next.sales.ProductLifecycleJobQuery;
 import com.nuono.next.sales.ProductLifecycleJobRecord;
@@ -10,6 +11,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Arg;
 import org.apache.ibatis.annotations.ConstructorArgs;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -55,6 +57,22 @@ public interface ProductLifecycleStateMapper {
     default Long nextProductLifecycleJobId() {
         return nextLifecycleId("product_lifecycle_job", 72000L);
     }
+
+    @Delete({
+            "DELETE FROM product_lifecycle_history",
+            "WHERE owner_user_id = #{scope.ownerUserId}",
+            "  AND store_code = #{scope.storeCode}",
+            "  AND site_code = #{scope.siteCode}"
+    })
+    int deleteHistoryByScope(@Param("scope") ProductLifecycleCalculationScope scope);
+
+    @Delete({
+            "DELETE FROM product_lifecycle_current_state",
+            "WHERE owner_user_id = #{scope.ownerUserId}",
+            "  AND store_code = #{scope.storeCode}",
+            "  AND site_code = #{scope.siteCode}"
+    })
+    int deleteCurrentStateByScope(@Param("scope") ProductLifecycleCalculationScope scope);
 
     @Insert({
             "INSERT INTO product_lifecycle_current_state (",

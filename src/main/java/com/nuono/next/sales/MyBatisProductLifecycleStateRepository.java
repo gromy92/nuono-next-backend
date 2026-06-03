@@ -19,6 +19,12 @@ public class MyBatisProductLifecycleStateRepository implements ProductLifecycleS
     }
 
     @Override
+    public void resetScope(ProductLifecycleCalculationScope scope) {
+        mapper.deleteHistoryByScope(scope);
+        mapper.deleteCurrentStateByScope(scope);
+    }
+
+    @Override
     public void saveCurrentState(ProductLifecycleCurrentState state) {
         Long id = state.getId();
         if (id == null) {

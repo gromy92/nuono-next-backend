@@ -9,6 +9,17 @@ public interface ProductLifecycleCalculationSource {
         return List.of();
     }
 
+    default List<LocalDate> listHistoricalAnchorDates(ProductLifecycleCalculationScope scope) {
+        return List.of(scope.getAnchorDate());
+    }
+
+    default List<LocalDate> listHistoricalAnchorDates(
+            ProductLifecycleCalculationScope scope,
+            ProductLifecycleStateQuery query
+    ) {
+        return listHistoricalAnchorDates(scope);
+    }
+
     List<ProductLifecycleStateQuery> listProductScopes(ProductLifecycleCalculationScope scope);
 
     ProductLifecycleListingSignals loadListingSignals(ProductLifecycleStateQuery query, LocalDate analysisDate);

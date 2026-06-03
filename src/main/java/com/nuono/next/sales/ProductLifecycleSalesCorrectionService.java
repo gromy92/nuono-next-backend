@@ -21,6 +21,7 @@ public class ProductLifecycleSalesCorrectionService {
             List<SalesActivityWindowRecord> activityWindows
     ) {
         List<SalesActivityWindowRecord> activeFactors = activeFactors(query, analysisDate, activityWindows);
+        BigDecimal correctedRecent7 = correctedSales(facts, analysisDate.minusDays(6), analysisDate, activeFactors);
         BigDecimal correctedRecent15 = correctedSales(facts, analysisDate.minusDays(14), analysisDate, activeFactors);
         BigDecimal correctedPrevious15 = correctedSales(
                 facts,
@@ -29,18 +30,45 @@ public class ProductLifecycleSalesCorrectionService {
                 activeFactors
         );
         BigDecimal correctedRecent30 = correctedSales(facts, analysisDate.minusDays(29), analysisDate, activeFactors);
+        BigDecimal correctedPrevious30 = correctedSales(
+                facts,
+                analysisDate.minusDays(59),
+                analysisDate.minusDays(30),
+                activeFactors
+        );
         BigDecimal correctedRecent60 = correctedSales(facts, analysisDate.minusDays(59), analysisDate, activeFactors);
+        BigDecimal correctedHistoricalT38ToT8 = correctedSales(
+                facts,
+                analysisDate.minusDays(38),
+                analysisDate.minusDays(8),
+                activeFactors
+        );
         BigDecimal correctedGrowth15 = growthRate(correctedRecent15, correctedPrevious15);
+        BigDecimal correctedGrowth30 = growthRate(correctedRecent30, correctedPrevious30);
         List<String> factorNames = factorNames(activeFactors);
         return new ProductLifecycleCorrectedFeatureSnapshot(
                 rawSnapshot,
+                correctedRecent7,
                 correctedRecent15,
                 correctedPrevious15,
                 correctedRecent30,
+                correctedPrevious30,
                 correctedRecent60,
+                correctedHistoricalT38ToT8,
                 correctedGrowth15,
+                correctedGrowth30,
                 factorNames,
-                evidenceJson(correctedRecent15, correctedPrevious15, correctedGrowth15, activeFactors)
+                evidenceJson(
+                        correctedRecent7,
+                        correctedRecent15,
+                        correctedPrevious15,
+                        correctedRecent30,
+                        correctedPrevious30,
+                        correctedHistoricalT38ToT8,
+                        correctedGrowth15,
+                        correctedGrowth30,
+                        activeFactors
+                )
         );
     }
 
@@ -137,23 +165,39 @@ public class ProductLifecycleSalesCorrectionService {
     }
 
     private String evidenceJson(
+            BigDecimal correctedRecent7,
             BigDecimal correctedRecent15,
             BigDecimal correctedPrevious15,
+            BigDecimal correctedRecent30,
+            BigDecimal correctedPrevious30,
+            BigDecimal correctedHistoricalT38ToT8,
             BigDecimal correctedGrowth15,
+            BigDecimal correctedGrowth30,
             List<SalesActivityWindowRecord> activeFactors
     ) {
         if (activeFactors.isEmpty()) {
             return "{"
                     + "\"activityCorrection\":\"no_activity_factor\","
+                    + "\"correctedRecent7Sales\":" + correctedRecent7 + ","
                     + "\"correctedRecent15Sales\":" + correctedRecent15 + ","
-                    + "\"correctedPrevious15Sales\":" + correctedPrevious15
+                    + "\"correctedPrevious15Sales\":" + correctedPrevious15 + ","
+                    + "\"correctedRecent30Sales\":" + correctedRecent30 + ","
+                    + "\"correctedPrevious30Sales\":" + correctedPrevious30 + ","
+                    + "\"correctedHistoricalT38ToT8Sales\":" + correctedHistoricalT38ToT8 + ","
+                    + "\"correctedSalesGrowth15\":" + jsonDecimal(correctedGrowth15) + ","
+                    + "\"correctedSalesGrowth30\":" + jsonDecimal(correctedGrowth30)
                     + "}";
         }
         return "{"
                 + "\"activityCorrection\":\"activity_factor_applied\","
+                + "\"correctedRecent7Sales\":" + correctedRecent7 + ","
                 + "\"correctedRecent15Sales\":" + correctedRecent15 + ","
                 + "\"correctedPrevious15Sales\":" + correctedPrevious15 + ","
+                + "\"correctedRecent30Sales\":" + correctedRecent30 + ","
+                + "\"correctedPrevious30Sales\":" + correctedPrevious30 + ","
+                + "\"correctedHistoricalT38ToT8Sales\":" + correctedHistoricalT38ToT8 + ","
                 + "\"correctedSalesGrowth15\":" + jsonDecimal(correctedGrowth15) + ","
+                + "\"correctedSalesGrowth30\":" + jsonDecimal(correctedGrowth30) + ","
                 + "\"appliedFactors\":" + appliedFactorsJson(activeFactors)
                 + "}";
     }
