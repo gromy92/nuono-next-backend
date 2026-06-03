@@ -148,6 +148,7 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("us.user_id = 307"));
         assertTrue(sql.contains("JOIN logical_store ls"));
         assertTrue(sql.contains("ls.owner_user_id = us.user_id"));
+        assertTrue(sql.contains("BINARY ls.project_code = BINARY us.project_code"));
         assertTrue(sql.contains("ON DUPLICATE KEY UPDATE"));
         assertTrue(sql.contains("is_deleted = b'0'"));
         assertTrue(sql.contains("product_management_id_sequence"));

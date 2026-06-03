@@ -53,12 +53,12 @@ SELECT
 FROM `user_store` us
 JOIN `logical_store` ls
   ON ls.`owner_user_id` = us.`user_id`
- AND ls.`project_code` = us.`project_code`
+ AND BINARY ls.`project_code` = BINARY us.`project_code`
  AND ls.`is_deleted` = b'0'
 WHERE us.`user_id` = 307
-  AND us.`project_code` = 'PRJ108065'
-  AND us.`store_code` = 'STR108065-NSA'
-  AND us.`site` = 'SA'
+  AND BINARY us.`project_code` = BINARY 'PRJ108065'
+  AND BINARY us.`store_code` = BINARY 'STR108065-NSA'
+  AND BINARY us.`site` = BINARY 'SA'
   AND us.`is_authorized` = b'1'
   AND us.`is_deleted` = b'0'
 ON DUPLICATE KEY UPDATE
