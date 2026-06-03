@@ -7,7 +7,7 @@ public enum BusinessCapability {
     PROCUREMENT(List.of("/api/purchase/order", "/purchase/order")),
     STORE_SYNC(List.of("/api/user/role", "/user/store-noon")),
     MASTER_DATA_SYSTEM(List.of("/system/role", "/system/menu")),
-    SALES_DATA(List.of("/data/sales-analysis", "/data/sales-forecast", "/data/sales", "/api/sales-forecast")),
+    SALES_DATA(List.of("/data/sales-analysis", "/data/sales-forecast", "/data/sales", "/data/order-analysis", "/api/sales-forecast", "/api/order-finance")),
     SYSTEM_REPORTS(List.of("/system-reports", "/api/system-reports", "/noon-call", "/api/noon-call")),
     ADVANCED_OPERATIONS_CONFIG(List.of("/operations/config", "/api/operations-config")),
     FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),
