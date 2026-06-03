@@ -67,6 +67,7 @@ public interface ProductLifecycleAnalysisMapper {
             @Arg(column = "ruleVersion", javaType = String.class),
             @Arg(column = "currentStock", javaType = Integer.class),
             @Arg(column = "recent30DaySales", javaType = Integer.class),
+            @Arg(column = "earliestFactDate", javaType = LocalDate.class),
             @Arg(column = "latestFactDate", javaType = LocalDate.class)
     })
     @Select({
@@ -241,6 +242,15 @@ public interface ProductLifecycleAnalysisMapper {
             "      AND dsf.sku = pls.sku",
             "      AND dsf.fact_date BETWEEN DATE_SUB(pls.analysis_date, INTERVAL 29 DAY) AND pls.analysis_date",
             "  ) AS recent30DaySales,",
+            "  (",
+            "    SELECT MIN(dsf.fact_date)",
+            "    FROM daily_sales_fact dsf",
+            "    WHERE dsf.owner_user_id = pls.owner_user_id",
+            "      AND dsf.store_code = pls.store_code",
+            "      AND dsf.site_code = pls.site_code",
+            "      AND dsf.partner_sku = pls.partner_sku",
+            "      AND dsf.sku = pls.sku",
+            "  ) AS earliestFactDate,",
             "  (",
             "    SELECT MAX(dsf.fact_date)",
             "    FROM daily_sales_fact dsf",

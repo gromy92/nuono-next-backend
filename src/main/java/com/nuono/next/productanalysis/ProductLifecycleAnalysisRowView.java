@@ -22,6 +22,7 @@ public class ProductLifecycleAnalysisRowView {
     private final String ruleVersion;
     private final Integer currentStock;
     private final Integer recent30DaySales;
+    private final LocalDate earliestFactDate;
     private final LocalDate latestFactDate;
     private final String projectionState;
     private final String projectionMessage;
@@ -65,11 +66,54 @@ public class ProductLifecycleAnalysisRowView {
                 analysisStateLabel,
                 analysisDate,
                 listingDate,
+                listingDateSource,
+                ruleVersion,
+                currentStock,
+                recent30DaySales,
+                null,
+                latestFactDate
+        );
+    }
+
+    public ProductLifecycleAnalysisRowView(
+            String partnerSku,
+            String sku,
+            String productTitle,
+            String imageUrl,
+            String brand,
+            String productFulltype,
+            String lifecycleCode,
+            String lifecycleLabel,
+            String analysisState,
+            String analysisStateLabel,
+            LocalDate analysisDate,
+            LocalDate listingDate,
+            String listingDateSource,
+            String ruleVersion,
+            Integer currentStock,
+            Integer recent30DaySales,
+            LocalDate earliestFactDate,
+            LocalDate latestFactDate
+    ) {
+        this(
+                partnerSku,
+                sku,
+                productTitle,
+                imageUrl,
+                brand,
+                productFulltype,
+                lifecycleCode,
+                lifecycleLabel,
+                analysisState,
+                analysisStateLabel,
+                analysisDate,
+                listingDate,
                 null,
                 listingDateSource,
                 ruleVersion,
                 currentStock,
                 recent30DaySales,
+                earliestFactDate,
                 latestFactDate
         );
     }
@@ -112,6 +156,51 @@ public class ProductLifecycleAnalysisRowView {
                 ruleVersion,
                 currentStock,
                 recent30DaySales,
+                null,
+                latestFactDate
+        );
+    }
+
+    public ProductLifecycleAnalysisRowView(
+            String partnerSku,
+            String sku,
+            String productTitle,
+            String imageUrl,
+            String brand,
+            String productFulltype,
+            String lifecycleCode,
+            String lifecycleLabel,
+            String analysisState,
+            String analysisStateLabel,
+            LocalDate analysisDate,
+            LocalDate listingDate,
+            LocalDate currentStageStartDate,
+            String listingDateSource,
+            String ruleVersion,
+            Integer currentStock,
+            Integer recent30DaySales,
+            LocalDate earliestFactDate,
+            LocalDate latestFactDate
+    ) {
+        this(
+                partnerSku,
+                sku,
+                productTitle,
+                imageUrl,
+                brand,
+                productFulltype,
+                lifecycleCode,
+                lifecycleLabel,
+                analysisState,
+                analysisStateLabel,
+                analysisDate,
+                listingDate,
+                currentStageStartDate,
+                listingDateSource,
+                ruleVersion,
+                currentStock,
+                recent30DaySales,
+                earliestFactDate,
                 latestFactDate,
                 null,
                 null,
@@ -143,6 +232,7 @@ public class ProductLifecycleAnalysisRowView {
             String ruleVersion,
             Integer currentStock,
             Integer recent30DaySales,
+            LocalDate earliestFactDate,
             LocalDate latestFactDate,
             String projectionState,
             String projectionMessage,
@@ -171,6 +261,7 @@ public class ProductLifecycleAnalysisRowView {
         this.ruleVersion = ruleVersion;
         this.currentStock = currentStock;
         this.recent30DaySales = recent30DaySales;
+        this.earliestFactDate = earliestFactDate;
         this.latestFactDate = latestFactDate;
         this.projectionState = projectionState;
         this.projectionMessage = projectionMessage;
@@ -204,6 +295,7 @@ public class ProductLifecycleAnalysisRowView {
                 ruleVersion,
                 currentStock,
                 recent30DaySales,
+                earliestFactDate,
                 latestFactDate,
                 projection == null ? null : projection.getQualityState(),
                 projection == null ? null : projection.getQualityMessage(),
@@ -236,6 +328,7 @@ public class ProductLifecycleAnalysisRowView {
                 ruleVersion,
                 currentStock,
                 recent30DaySales,
+                earliestFactDate,
                 latestFactDate
         );
     }
@@ -306,6 +399,10 @@ public class ProductLifecycleAnalysisRowView {
 
     public Integer getRecent30DaySales() {
         return recent30DaySales;
+    }
+
+    public LocalDate getEarliestFactDate() {
+        return earliestFactDate;
     }
 
     public LocalDate getLatestFactDate() {

@@ -43,6 +43,7 @@ class ProductLifecycleAnalysisServiceTest {
                                 "DEFAULT_V1",
                                 21,
                                 15,
+                                LocalDate.of(2025, 6, 23),
                                 LocalDate.of(2026, 5, 20)
                         ),
                         new ProductLifecycleAnalysisRowView(
@@ -105,6 +106,8 @@ class ProductLifecycleAnalysisServiceTest {
         assertEquals("可分析", row.getAnalysisStateLabel());
         assertEquals(21, row.getCurrentStock());
         assertEquals(15, row.getRecent30DaySales());
+        assertEquals(LocalDate.of(2025, 6, 23), row.getEarliestFactDate());
+        assertEquals(LocalDate.of(2026, 5, 20), row.getLatestFactDate());
     }
 
     @Test
