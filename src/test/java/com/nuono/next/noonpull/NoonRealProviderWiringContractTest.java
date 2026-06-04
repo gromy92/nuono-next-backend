@@ -85,6 +85,16 @@ class NoonRealProviderWiringContractTest {
                 }
 
                 @Override
+                public com.fasterxml.jackson.databind.JsonNode postWriteJson(
+                        String url,
+                        com.fasterxml.jackson.databind.JsonNode body,
+                        boolean withProject,
+                        Map<String, String> extraHeaders
+                ) {
+                    return postJson(url, body, withProject, extraHeaders);
+                }
+
+                @Override
                 public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
                     return new byte[0];
                 }

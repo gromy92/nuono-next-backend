@@ -13,10 +13,13 @@ public class ProductListingTaskView {
     private String storeCode;
     private String mode;
     private String status;
+    private Long sourceTaskId;
     private List<ProductListingValidationIssue> validationIssues = new ArrayList<>();
+    private String failureCategory;
     private String failureCode;
     private String failureMessage;
     private LocalDateTime submittedAt;
+    private LocalDateTime startedAt;
     private LocalDateTime completedAt;
 
     public Long getTaskId() {
@@ -75,12 +78,28 @@ public class ProductListingTaskView {
         this.status = status;
     }
 
+    public Long getSourceTaskId() {
+        return sourceTaskId;
+    }
+
+    public void setSourceTaskId(Long sourceTaskId) {
+        this.sourceTaskId = sourceTaskId;
+    }
+
     public List<ProductListingValidationIssue> getValidationIssues() {
         return validationIssues;
     }
 
     public void setValidationIssues(List<ProductListingValidationIssue> validationIssues) {
         this.validationIssues = validationIssues == null ? new ArrayList<>() : validationIssues;
+    }
+
+    public String getFailureCategory() {
+        return failureCategory;
+    }
+
+    public void setFailureCategory(String failureCategory) {
+        this.failureCategory = failureCategory;
     }
 
     public String getFailureCode() {
@@ -105,6 +124,14 @@ public class ProductListingTaskView {
 
     public void setSubmittedAt(LocalDateTime submittedAt) {
         this.submittedAt = submittedAt;
+    }
+
+    public LocalDateTime getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(LocalDateTime startedAt) {
+        this.startedAt = startedAt;
     }
 
     public LocalDateTime getCompletedAt() {

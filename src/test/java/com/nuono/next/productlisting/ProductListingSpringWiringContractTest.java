@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -42,8 +43,10 @@ class ProductListingSpringWiringContractTest {
     }
 
     @Configuration
+    @EnableConfigurationProperties(ProductListingRealWriteProperties.class)
     @Import({
             ProductListingValidator.class,
+            UnavailableProductListingNoonWriteAdapter.class,
             ProductListingService.class,
             ProductListingController.class
     })

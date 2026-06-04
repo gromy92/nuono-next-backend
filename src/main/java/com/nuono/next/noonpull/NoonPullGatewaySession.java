@@ -6,5 +6,7 @@ import java.util.Map;
 public interface NoonPullGatewaySession {
     JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders);
 
+    JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders);
+
     byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders);
 }

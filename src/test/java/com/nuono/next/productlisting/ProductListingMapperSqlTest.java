@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class ProductListingMapperSqlTest {
@@ -37,6 +38,24 @@ class ProductListingMapperSqlTest {
     }
 
     @Test
+    void insertTaskShouldPersistRealRunAuditFields() {
+        Method method = mapperMethod("insertTask");
+        Insert insert = method.getAnnotation(Insert.class);
+        String sql = compact(insert.value());
+
+        assertTrue(sql.contains("source_task_id"));
+        assertTrue(sql.contains("confirmation_json"));
+        assertTrue(sql.contains("noon_result_json"));
+        assertTrue(sql.contains("failure_category"));
+        assertTrue(sql.contains("started_at"));
+        assertTrue(sql.contains("#{task.sourceTaskId}"));
+        assertTrue(sql.contains("#{task.confirmationJson}"));
+        assertTrue(sql.contains("#{task.noonResultJson}"));
+        assertTrue(sql.contains("#{task.failureCategory}"));
+        assertTrue(sql.contains("#{task.startedAt}"));
+    }
+
+    @Test
     void taskLookupShouldStayScopedToOwner() {
         Method method = mapperMethod("selectTaskById");
         Select select = method.getAnnotation(Select.class);
@@ -45,6 +64,35 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("FROM product_listing_task"));
         assertTrue(sql.contains("id = #{taskId}"));
         assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
+    }
+
+    @Test
+    void activeRealRunLookupShouldScopeByOwnerAndDryRunSource() {
+        Method method = mapperMethod("selectActiveRealRunTaskBySourceTaskId");
+        Select select = method.getAnnotation(Select.class);
+        String sql = compact(select.value());
+
+        assertTrue(sql.contains("FROM product_listing_task"));
+        assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
+        assertTrue(sql.contains("source_task_id = #{sourceTaskId}"));
+        assertTrue(sql.contains("mode = 'REAL_RUN'"));
+        assertTrue(sql.contains("status IN ('running', 'submitted')"));
+    }
+
+    @Test
+    void updateTaskResultShouldPersistNoonResultAndFailureCategory() {
+        Method method = mapperMethod("updateTaskResult");
+        Update update = method.getAnnotation(Update.class);
+        String sql = compact(update.value());
+
+        assertTrue(sql.contains("status = #{task.status}"));
+        assertTrue(sql.contains("noon_result_json = #{task.noonResultJson}"));
+        assertTrue(sql.contains("failure_category = #{task.failureCategory}"));
+        assertTrue(sql.contains("failure_code = #{task.failureCode}"));
+        assertTrue(sql.contains("failure_message = #{task.failureMessage}"));
+        assertTrue(sql.contains("completed_at = #{task.completedAt}"));
+        assertTrue(sql.contains("WHERE id = #{task.id}"));
+        assertTrue(sql.contains("owner_user_id = #{task.ownerUserId}"));
     }
 
     @Test
