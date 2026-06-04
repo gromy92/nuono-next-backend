@@ -46,6 +46,23 @@ class ProductListingPermissionSeedContractTest {
         );
     }
 
+    @Test
+    void localDbBootstrapStatusListsProductListingScripts() throws IOException {
+        String source = Files.readString(Path.of(
+                "src",
+                "main",
+                "java",
+                "com",
+                "nuono",
+                "next",
+                "system",
+                "LocalDbBootstrapStatusService.java"
+        ));
+
+        assertTrue(source.contains("classpath:db/init/080_product_listing_dry_run.sql"));
+        assertTrue(source.contains("classpath:db/init/081_product_listing_menu_permission.sql"));
+    }
+
     private static Pattern roleGrant(int roleId) {
         return Pattern.compile(
                 "(\\(\\s*" + roleId + "\\s*,\\s*2401\\s*\\))"
