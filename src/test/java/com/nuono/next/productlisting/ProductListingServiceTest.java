@@ -1,12 +1,14 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccountType;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -72,6 +74,77 @@ class ProductListingServiceTest {
                 .anyMatch(issue -> "purchasePrice".equals(issue.getFieldKey())));
     }
 
+    @Test
+    void validateDraftRejectsStoreOutsideSessionScopeBeforeUpdating() {
+        BusinessAccessContext storeAeContext = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(storeAeContext, validCommand());
+        BusinessAccessContext storeSaContext = businessContext(10002L, 90002L, "STR245027-NSA");
+        mapper.resetUpdateCount();
+
+        assertThrows(
+                BusinessAccessDeniedException.class,
+                () -> service.validateDraft(storeSaContext, draft.getDraftId())
+        );
+
+        assertEquals(0, mapper.updateCount());
+    }
+
+    @Test
+    void updateDraftRejectsOriginalStoreOutsideSessionScopeBeforeUpdating() {
+        BusinessAccessContext storeAeContext = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(storeAeContext, validCommand());
+        ProductListingDraftCommand changeStore = validCommand();
+        changeStore.setDraftId(draft.getDraftId());
+        changeStore.setStoreCode("STR245027-NSA");
+        BusinessAccessContext storeSaContext = businessContext(10002L, 90002L, "STR245027-NSA");
+        mapper.resetUpdateCount();
+
+        assertThrows(
+                BusinessAccessDeniedException.class,
+                () -> service.saveDraft(storeSaContext, changeStore)
+        );
+
+        assertEquals(0, mapper.updateCount());
+    }
+
+    @Test
+    void updateDraftRejectsChangingStoreEvenWhenBothStoresAreAccessible() {
+        BusinessAccessContext storeAeContext = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(storeAeContext, validCommand());
+        ProductListingDraftCommand changeStore = validCommand();
+        changeStore.setDraftId(draft.getDraftId());
+        changeStore.setStoreCode("STR245027-NSA");
+        BusinessAccessContext bothStoresContext = businessContext(
+                10002L,
+                90003L,
+                Set.of("STR245027-NAE", "STR245027-NSA")
+        );
+        mapper.resetUpdateCount();
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.saveDraft(bothStoresContext, changeStore)
+        );
+
+        assertEquals(0, mapper.updateCount());
+    }
+
+    @Test
+    void loadTaskRejectsStoreOutsideSessionScope() {
+        BusinessAccessContext storeAeContext = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(storeAeContext, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+        ProductListingTaskView task = service.submitDryRun(storeAeContext, command);
+        BusinessAccessContext storeSaContext = businessContext(10002L, 90002L, "STR245027-NSA");
+
+        assertThrows(
+                BusinessAccessDeniedException.class,
+                () -> service.loadTask(storeSaContext, task.getTaskId())
+        );
+    }
+
     private ProductListingDraftCommand validCommand() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
         command.setStoreCode("STR245027-NAE");
@@ -97,6 +170,14 @@ class ProductListingServiceTest {
     }
 
     private BusinessAccessContext businessContext(Long ownerUserId, Long sessionUserId, String storeCode) {
+        return businessContext(ownerUserId, sessionUserId, Set.of(storeCode));
+    }
+
+    private BusinessAccessContext businessContext(Long ownerUserId, Long sessionUserId, Set<String> storeCodes) {
+        Map<String, Long> storeOwnerUserIds = new LinkedHashMap<>();
+        for (String storeCode : storeCodes) {
+            storeOwnerUserIds.put(storeCode, ownerUserId);
+        }
         return BusinessAccessContext.builder()
                 .sessionUserId(sessionUserId)
                 .businessOwnerUserId(ownerUserId)
@@ -104,8 +185,8 @@ class ProductListingServiceTest {
                 .roleId(3L)
                 .roleLevel(2)
                 .roleName("purchase")
-                .storeCodes(Set.of(storeCode))
-                .storeOwnerUserIds(Map.of(storeCode, ownerUserId))
+                .storeCodes(storeCodes)
+                .storeOwnerUserIds(storeOwnerUserIds)
                 .menuPaths(Set.of("/purchase/listing", "/api/product-listing"))
                 .build();
     }
@@ -118,6 +199,7 @@ class ProductListingServiceTest {
         private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
         private ProductListingDraftRecord insertedDraft;
         private ProductListingTaskRecord insertedTask;
+        private int updateCount;
 
         @Override
         public int allocateProductListingId(IdSequenceCommand command) {
@@ -143,6 +225,7 @@ class ProductListingServiceTest {
 
         @Override
         public int updateDraft(ProductListingDraftRecord draft) {
+            updateCount++;
             drafts.put(draft.getId(), draft);
             return 1;
         }
@@ -194,6 +277,14 @@ class ProductListingServiceTest {
 
         private ProductListingTaskRecord insertedTask() {
             return insertedTask;
+        }
+
+        private void resetUpdateCount() {
+            updateCount = 0;
+        }
+
+        private int updateCount() {
+            return updateCount;
         }
     }
 }

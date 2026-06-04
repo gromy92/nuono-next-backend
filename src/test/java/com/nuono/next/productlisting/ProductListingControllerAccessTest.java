@@ -7,8 +7,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.permission.access.BusinessCapability;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,5 +57,31 @@ class ProductListingControllerAccessTest {
 
         assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
         verify(service, never()).saveDraft(any(), any());
+    }
+
+    @Test
+    void validateDraftMapsServiceStoreScopeRejectionToForbidden() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(90002L)
+                .businessOwnerUserId(10002L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .storeCodes(Set.of("STR245027-NSA"))
+                .storeOwnerUserIds(Map.of("STR245027-NSA", 10002L))
+                .menuPaths(Set.of("/purchase/listing"))
+                .build();
+        when(businessAccessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.PRODUCT_LISTING
+        )).thenReturn(context);
+        when(service.validateDraft(context, 10001L))
+                .thenThrow(new BusinessAccessDeniedException("当前账号不能操作该店铺。"));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.validateDraft(10001L, request)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
     }
 }

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -39,6 +40,7 @@ public class ProductListingService {
         requireContext(context);
         ProductListingDraftCommand safeCommand = requireCommand(command);
         String storeCode = requireStoreCode(safeCommand.getStoreCode());
+        requireStoreAccess(context, storeCode);
         Long ownerUserId = resolveOwnerUserId(context, storeCode);
         Long operatorUserId = requireOperatorUserId(context);
         List<ProductListingValidationIssue> issues = validator.validate(safeCommand);
@@ -53,6 +55,10 @@ public class ProductListingService {
             existing = mapper.selectDraftById(draftId, ownerUserId);
             if (existing == null) {
                 throw new IllegalArgumentException("Product listing draft not found.");
+            }
+            requireStoreAccess(context, existing.getStoreCode());
+            if (!storeCode.equalsIgnoreCase(existing.getStoreCode())) {
+                throw new IllegalArgumentException("Product listing draft store cannot be changed.");
             }
         }
 
@@ -82,6 +88,7 @@ public class ProductListingService {
         requireContext(context);
         Long ownerUserId = requireOwnerUserId(context);
         ProductListingDraftRecord record = requireDraft(draftId, ownerUserId);
+        requireStoreAccess(context, record.getStoreCode());
         ProductListingDraftCommand command = readDraft(record.getDraftJson());
         List<ProductListingValidationIssue> issues = validator.validate(command);
         record.setStatus(hasHardIssues(issues) ? "draft" : "ready_for_dry_run");
@@ -100,6 +107,7 @@ public class ProductListingService {
             throw new IllegalArgumentException("Product listing draft ID is required.");
         }
         String storeCode = requireStoreCode(command.getStoreCode());
+        requireStoreAccess(context, storeCode);
         Long ownerUserId = resolveOwnerUserId(context, storeCode);
         ProductListingDraftRecord draft = requireDraft(command.getDraftId(), ownerUserId);
         if (!storeCode.equalsIgnoreCase(draft.getStoreCode())) {
@@ -134,6 +142,7 @@ public class ProductListingService {
     public ProductListingTaskView loadTask(BusinessAccessContext context, Long taskId) {
         requireContext(context);
         ProductListingTaskRecord task = requireTask(taskId, requireOwnerUserId(context));
+        requireStoreAccess(context, task.getStoreCode());
         return taskView(task, readIssues(task.getValidationJson()));
     }
 
@@ -144,6 +153,7 @@ public class ProductListingService {
     ) {
         requireContext(context);
         String safeStoreCode = requireStoreCode(storeCode);
+        requireStoreAccess(context, safeStoreCode);
         Long ownerUserId = resolveOwnerUserId(context, safeStoreCode);
         int safeLimit = Math.max(1, Math.min(limit, 50));
         return mapper.selectRecentTasks(ownerUserId, safeStoreCode, safeLimit).stream()
@@ -227,6 +237,12 @@ public class ProductListingService {
             throw new IllegalArgumentException("Store code is required.");
         }
         return storeCode.trim();
+    }
+
+    private void requireStoreAccess(BusinessAccessContext context, String storeCode) {
+        if (!context.canAccessStore(storeCode)) {
+            throw new BusinessAccessDeniedException("当前账号不能操作该店铺。");
+        }
     }
 
     private Long resolveOwnerUserId(BusinessAccessContext context, String storeCode) {

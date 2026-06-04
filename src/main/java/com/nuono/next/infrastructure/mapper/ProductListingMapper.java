@@ -98,7 +98,7 @@ public interface ProductListingMapper {
             "  AND store_code = #{storeCode}",
             "  AND source_type = #{sourceType}",
             "  AND source_ref_id = #{sourceRefId}",
-            "  AND status IN ('draft', 'validation_failed', 'ready')",
+            "  AND status IN ('draft', 'validation_failed', 'ready_for_dry_run')",
             "ORDER BY gmt_updated DESC",
             "LIMIT 1"
     })

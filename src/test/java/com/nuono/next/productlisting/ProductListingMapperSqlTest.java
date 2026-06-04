@@ -47,6 +47,15 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
     }
 
+    @Test
+    void activeDraftLookupShouldUseDryRunReadyStatus() {
+        Method method = mapperMethod("findActiveDraftId");
+        Select select = method.getAnnotation(Select.class);
+        String sql = compact(select.value());
+
+        assertTrue(sql.contains("ready_for_dry_run"));
+    }
+
     private Method mapperMethod(String name) {
         return Arrays.stream(ProductListingMapper.class.getDeclaredMethods())
                 .filter((candidate) -> name.equals(candidate.getName()))

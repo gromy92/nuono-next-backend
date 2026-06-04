@@ -1,6 +1,7 @@
 package com.nuono.next.productlisting;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import java.util.List;
@@ -42,6 +43,8 @@ public class ProductListingController {
                     command == null ? null : command.getStoreCode()
             );
             return service.saveDraft(context, command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -57,9 +60,9 @@ public class ProductListingController {
                     request,
                     BusinessCapability.PRODUCT_LISTING
             );
-            ProductListingDraftView view = service.validateDraft(context, draftId);
-            businessAccessResolver.requireStoreAccess(request, BusinessCapability.PRODUCT_LISTING, view.getStoreCode());
-            return view;
+            return service.validateDraft(context, draftId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -77,6 +80,8 @@ public class ProductListingController {
                     command == null ? null : command.getStoreCode()
             );
             return service.submitDryRun(context, command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -92,9 +97,9 @@ public class ProductListingController {
                     request,
                     BusinessCapability.PRODUCT_LISTING
             );
-            ProductListingTaskView view = service.loadTask(context, taskId);
-            businessAccessResolver.requireStoreAccess(request, BusinessCapability.PRODUCT_LISTING, view.getStoreCode());
-            return view;
+            return service.loadTask(context, taskId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -113,9 +118,15 @@ public class ProductListingController {
                     storeCode
             );
             return service.recentTasks(context, storeCode, limit);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
+    }
+
+    private ResponseStatusException forbidden(BusinessAccessDeniedException exception) {
+        return new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
     }
 
     private ResponseStatusException badRequest(IllegalArgumentException exception) {
