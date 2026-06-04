@@ -52,10 +52,19 @@ CREATE TABLE IF NOT EXISTS `product_listing_task` (
     `submitted_at` DATETIME NOT NULL,
     `started_at` DATETIME DEFAULT NULL,
     `completed_at` DATETIME DEFAULT NULL,
+    `real_write_attempt_source_task_id` BIGINT GENERATED ALWAYS AS (
+        CASE
+            WHEN `mode` = 'REAL_RUN'
+                AND `status` IN ('running', 'submitted', 'succeeded', 'failed')
+            THEN `source_task_id`
+            ELSE NULL
+        END
+    ) STORED,
     `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_product_listing_task_no` (`task_no`),
+    UNIQUE KEY `uk_product_listing_real_write_attempt` (`owner_user_id`, `real_write_attempt_source_task_id`),
     KEY `idx_product_listing_task_draft` (`draft_id`),
     KEY `idx_product_listing_task_owner_store` (`owner_user_id`, `store_code`, `submitted_at`),
     KEY `idx_product_listing_task_source` (`owner_user_id`, `source_task_id`, `mode`, `status`)

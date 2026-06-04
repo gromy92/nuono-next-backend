@@ -71,6 +71,37 @@ class ProductListingNoonWriteAdapterContractTest {
         assertTrue(mapper.updatedTask().getNoonResultJson().contains("noon_validation_failed"));
     }
 
+    @Test
+    void confirmedRealRunRejectsSecondWriteAttemptForSameDryRun() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(successResult());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView firstRealRun = service.confirmRealRun(
+                context,
+                dryRun.getTaskId(),
+                ProductListingTestFixtures.confirmedCommand()
+        );
+
+        ProductListingTaskView secondRealRun = service.confirmRealRun(
+                context,
+                dryRun.getTaskId(),
+                ProductListingTestFixtures.confirmedCommand()
+        );
+
+        assertEquals("succeeded", firstRealRun.getStatus());
+        assertEquals("rejected", secondRealRun.getStatus());
+        assertEquals("real_run_already_attempted", secondRealRun.getFailureCode());
+        assertEquals(1, adapter.callCount());
+    }
+
     private ProductListingNoonWriteResult successResult() {
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey("create_product");

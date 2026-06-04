@@ -87,3 +87,33 @@ SET @add_product_listing_task_source_index = IF(
 PREPARE add_product_listing_task_source_index_stmt FROM @add_product_listing_task_source_index;
 EXECUTE add_product_listing_task_source_index_stmt;
 DEALLOCATE PREPARE add_product_listing_task_source_index_stmt;
+
+SET @add_product_listing_real_write_attempt_source_task_id = IF(
+  EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'product_listing_task'
+      AND column_name = 'real_write_attempt_source_task_id'
+  ),
+  'SELECT ''product_listing_real_write_attempt_source_task_id_exists'' AS stage',
+  'ALTER TABLE product_listing_task ADD COLUMN real_write_attempt_source_task_id BIGINT GENERATED ALWAYS AS (CASE WHEN `mode` = ''REAL_RUN'' AND `status` IN (''running'', ''submitted'', ''succeeded'', ''failed'') THEN `source_task_id` ELSE NULL END) STORED AFTER completed_at'
+);
+PREPARE add_product_listing_real_write_attempt_source_task_id_stmt FROM @add_product_listing_real_write_attempt_source_task_id;
+EXECUTE add_product_listing_real_write_attempt_source_task_id_stmt;
+DEALLOCATE PREPARE add_product_listing_real_write_attempt_source_task_id_stmt;
+
+SET @add_product_listing_real_write_attempt_index = IF(
+  EXISTS (
+    SELECT 1
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'product_listing_task'
+      AND index_name = 'uk_product_listing_real_write_attempt'
+  ),
+  'SELECT ''product_listing_real_write_attempt_index_exists'' AS stage',
+  'CREATE UNIQUE INDEX uk_product_listing_real_write_attempt ON product_listing_task (owner_user_id, real_write_attempt_source_task_id)'
+);
+PREPARE add_product_listing_real_write_attempt_index_stmt FROM @add_product_listing_real_write_attempt_index;
+EXECUTE add_product_listing_real_write_attempt_index_stmt;
+DEALLOCATE PREPARE add_product_listing_real_write_attempt_index_stmt;

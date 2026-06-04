@@ -3,6 +3,9 @@ package com.nuono.next.productlisting;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import org.apache.ibatis.annotations.Insert;
@@ -68,7 +71,7 @@ class ProductListingMapperSqlTest {
 
     @Test
     void activeRealRunLookupShouldScopeByOwnerAndDryRunSource() {
-        Method method = mapperMethod("selectActiveRealRunTaskBySourceTaskId");
+        Method method = mapperMethod("selectRealWriteAttemptTaskBySourceTaskId");
         Select select = method.getAnnotation(Select.class);
         String sql = compact(select.value());
 
@@ -76,7 +79,7 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
         assertTrue(sql.contains("source_task_id = #{sourceTaskId}"));
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
-        assertTrue(sql.contains("status IN ('running', 'submitted')"));
+        assertTrue(sql.contains("status IN ('running', 'submitted', 'succeeded', 'failed')"));
     }
 
     @Test
@@ -102,6 +105,16 @@ class ProductListingMapperSqlTest {
         String sql = compact(select.value());
 
         assertTrue(sql.contains("ready_for_dry_run"));
+    }
+
+    @Test
+    void realRunMigrationShouldEnforceOneWriteAttemptPerDryRun() throws IOException {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/082_product_listing_real_run.sql"));
+
+        assertTrue(sql.contains("real_write_attempt_source_task_id"));
+        assertTrue(sql.contains("uk_product_listing_real_write_attempt"));
+        assertTrue(sql.contains("succeeded"));
+        assertTrue(sql.contains("failed"));
     }
 
     private Method mapperMethod(String name) {

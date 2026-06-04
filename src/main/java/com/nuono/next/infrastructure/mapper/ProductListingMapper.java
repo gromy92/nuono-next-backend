@@ -170,11 +170,11 @@ public interface ProductListingMapper {
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND source_task_id = #{sourceTaskId}",
             "  AND mode = 'REAL_RUN'",
-            "  AND status IN ('running', 'submitted')",
+            "  AND status IN ('running', 'submitted', 'succeeded', 'failed')",
             "ORDER BY submitted_at DESC",
             "LIMIT 1"
     })
-    ProductListingTaskRecord selectActiveRealRunTaskBySourceTaskId(
+    ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("sourceTaskId") Long sourceTaskId
     );
