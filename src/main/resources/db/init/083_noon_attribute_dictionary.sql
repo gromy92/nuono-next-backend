@@ -1,3 +1,4 @@
+-- Renamed from 035_noon_attribute_dictionary.sql to keep migration prefixes unique.
 CREATE TABLE IF NOT EXISTS `noon_attribute_field` (
     `id` BIGINT NOT NULL,
     `project_code` VARCHAR(40) NOT NULL,

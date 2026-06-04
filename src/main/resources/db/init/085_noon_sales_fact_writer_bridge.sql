@@ -1,3 +1,4 @@
+-- Renamed from 059_noon_sales_fact_writer_bridge.sql to keep migration prefixes unique.
 CREATE TABLE IF NOT EXISTS `sales_data_id_sequence` (
     `sequence_name` VARCHAR(80) NOT NULL,
     `next_id` BIGINT NOT NULL,

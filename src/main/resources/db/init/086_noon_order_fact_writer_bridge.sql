@@ -1,3 +1,4 @@
+-- Renamed from 060_noon_order_fact_writer_bridge.sql to keep migration prefixes unique.
 CREATE TABLE IF NOT EXISTS `noon_order_id_sequence` (
     `sequence_name` VARCHAR(80) NOT NULL,
     `next_id` BIGINT NOT NULL,

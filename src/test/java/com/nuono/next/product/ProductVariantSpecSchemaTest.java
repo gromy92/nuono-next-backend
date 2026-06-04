@@ -10,7 +10,7 @@ class ProductVariantSpecSchemaTest {
 
     @Test
     void migrationCreatesVariantSpecTableWithRequiredBusinessColumns() throws Exception {
-        String sql = Files.readString(Path.of("src/main/resources/db/init/074_product_variant_spec.sql"));
+        String sql = Files.readString(Path.of("src/main/resources/db/init/089_product_variant_spec.sql"));
 
         assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `product_variant_spec`"));
         assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `product_variant_spec_source`"));

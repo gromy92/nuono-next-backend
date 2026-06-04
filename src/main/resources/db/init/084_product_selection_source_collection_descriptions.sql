@@ -1,3 +1,4 @@
+-- Renamed from 044_product_selection_source_collection_descriptions.sql to keep migration prefixes unique.
 -- Source channel long descriptions for source collection records.
 
 SET @add_product_selection_source_collection_description_en := (

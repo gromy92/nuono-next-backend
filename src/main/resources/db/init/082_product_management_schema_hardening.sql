@@ -1,3 +1,4 @@
+-- Renamed from 022_product_management_schema_hardening.sql to keep migration prefixes unique.
 CREATE TABLE IF NOT EXISTS `product_management_id_sequence` (
     `sequence_name` VARCHAR(80) NOT NULL,
     `next_id` BIGINT NOT NULL,
