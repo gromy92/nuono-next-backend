@@ -3,7 +3,9 @@ package com.nuono.next.productlisting;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.stereotype.Component;
 
+@Component
 public class ProductListingValidator {
 
     public List<ProductListingValidationIssue> validate(ProductListingDraftCommand command) {
