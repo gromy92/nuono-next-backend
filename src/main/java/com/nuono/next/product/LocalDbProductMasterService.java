@@ -9,6 +9,8 @@ import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
+import com.nuono.next.product.noon.NoonProductGateway;
+import com.nuono.next.product.noon.ProductNoonAdapter;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -54,33 +56,33 @@ public class LocalDbProductMasterService {
     private static final Logger log = LoggerFactory.getLogger(LocalDbProductMasterService.class);
 
     private static final String WHOAMI_URL =
-            "https://toolbar.noon.partners/_svc/auth-v1/whoami";
+            NoonProductGateway.WHOAMI_URL;
     private static final String PROJECT_LIST_URL =
-            "https://toolbar.noon.partners/_svc/mp-partner-platform/project/list";
+            NoonProductGateway.PROJECT_LIST_URL;
     private static final String STORE_LIST_URL =
-            "https://noon-store.noon.partners/_svc/mp-noon-store/noon/store/list";
+            NoonProductGateway.STORE_LIST_URL;
     private static final String ZSKU_RETRIEVE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/retrieve";
+            NoonProductGateway.ZSKU_RETRIEVE_URL;
     private static final String ZSKU_UPSERT_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
+            NoonProductGateway.ZSKU_UPSERT_URL;
     private static final String PRODUCT_UPDATE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/update";
+            NoonProductGateway.PRODUCT_UPDATE_URL;
     private static final String CATPLAT_SKU_CACHE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
+            NoonProductGateway.CATPLAT_SKU_CACHE_URL;
     private static final String GROUP_CURRENT_URL_PREFIX =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/v2/group/";
+            NoonProductGateway.GROUP_CURRENT_URL_PREFIX;
     private static final String GROUP_DETAIL_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/group/get";
+            NoonProductGateway.GROUP_DETAIL_URL;
     private static final String GROUP_LIST_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/groups/list";
+            NoonProductGateway.GROUP_LIST_URL;
     private static final String VARIANT_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/variants/information";
+            NoonProductGateway.VARIANT_INFO_URL;
     private static final String PRICING_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
+            NoonProductGateway.PRICING_INFO_URL;
     private static final String STOCK_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/stock/noon";
+            NoonProductGateway.STOCK_INFO_URL;
     private static final String OFFER_UPSERT_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/offer/upsert";
+            NoonProductGateway.OFFER_UPSERT_URL;
     private static final String PRICING_METHOD_MANUAL = "manual";
     private static final Set<String> ACTIVE_PUBLISH_TASK_STATUSES = Set.of(
             "queued",
@@ -115,7 +117,7 @@ public class LocalDbProductMasterService {
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final ObjectMapper objectMapper;
-    private final NoonSessionGateway noonSessionGateway;
+    private final ProductNoonAdapter productNoonAdapter;
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
     private final LocalDbStoreInitializationService localDbStoreInitializationService;
     private final ProductAttributeTemplateService productAttributeTemplateService;
@@ -153,7 +155,7 @@ public class LocalDbProductMasterService {
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
             ObjectMapper objectMapper,
-            NoonSessionGateway noonSessionGateway,
+            ProductNoonAdapter productNoonAdapter,
             ProductProjectionPersistenceService productProjectionPersistenceService,
             LocalDbStoreInitializationService localDbStoreInitializationService,
             ProductAttributeTemplateService productAttributeTemplateService,
@@ -165,7 +167,7 @@ public class LocalDbProductMasterService {
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
-        this.noonSessionGateway = noonSessionGateway;
+        this.productNoonAdapter = productNoonAdapter;
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
         this.productAttributeTemplateService = productAttributeTemplateService;
@@ -260,7 +262,7 @@ public class LocalDbProductMasterService {
         requireText(projectCode, "当前店铺缺少 Noon projectCode，无法读取真实商品主档。");
 
         long stageStartedAt = System.nanoTime();
-        NoonSession session = noonSessionGateway.login(
+        NoonSession session = productNoonAdapter.login(
                 owner.getId(),
                 noonUser,
                 noonPassword,
@@ -290,7 +292,7 @@ public class LocalDbProductMasterService {
         skuParentsNode.add(skuParent);
         retrieveBody.putArray("attributeCodes");
         stageStartedAt = System.nanoTime();
-        JsonNode retrieveRoot = session.postJson(ZSKU_RETRIEVE_URL, retrieveBody, true);
+        JsonNode retrieveRoot = productNoonAdapter.postJson(session, ZSKU_RETRIEVE_URL, retrieveBody, true);
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "zsku.retrieve", stageStartedAt);
         JsonNode productNode = retrieveRoot.path(skuParent);
         if (productNode.isMissingNode() || productNode.isNull()) {
@@ -1624,7 +1626,7 @@ public class LocalDbProductMasterService {
         workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
 
         Map<String, Integer> requestCounts = Map.of();
-        NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
+        NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         boolean writeSubmitted = false;
         try {
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, currentSiteCode);
@@ -1789,7 +1791,7 @@ public class LocalDbProductMasterService {
         ProductMasterSnapshotView baseline = readTaskSnapshot(task.getBaselineJson());
         ProductMasterSnapshotView draft = readTaskSnapshot(task.getDraftJson());
         ProductMasterActionCommand command = buildTaskActionCommand(task, draft);
-        NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
+        NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         int verifyAttempt = task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1;
         try {
             ProductMasterSnapshotView liveAfterPublish = fetchSnapshot(command, "publish-task.verify");
@@ -4198,7 +4200,7 @@ public class LocalDbProductMasterService {
         String projectCode = firstNonBlank(store.getProjectCode(), owner.getNoonPartnerId());
         requireText(projectCode, "当前店铺缺少 Noon projectCode，暂时不能发布。");
 
-        NoonSession session = noonSessionGateway.login(
+        NoonSession session = productNoonAdapter.login(
                 owner.getId(),
                 noonUser,
                 noonPassword,
@@ -4265,12 +4267,12 @@ public class LocalDbProductMasterService {
 
         ObjectNode englishBody = buildZskuUpsertBody(draft, baseline, "en", unsupportedChanges);
         if (hasZskuUpsertPayloadChanges(englishBody)) {
-            session.postWriteJson(ZSKU_UPSERT_URL, englishBody, true);
+            productNoonAdapter.postWriteJson(session, ZSKU_UPSERT_URL, englishBody, true);
         }
 
         ObjectNode arabicBody = buildZskuUpsertBody(draft, baseline, "ar", unsupportedChanges);
         if (hasZskuUpsertPayloadChanges(arabicBody)) {
-            session.postWriteJson(ZSKU_UPSERT_URL, arabicBody, true);
+            productNoonAdapter.postWriteJson(session, ZSKU_UPSERT_URL, arabicBody, true);
         }
     }
 
@@ -4288,11 +4290,11 @@ public class LocalDbProductMasterService {
         if (body.path("productUpdate").size() == 0) {
             return;
         }
-        session.postWriteJson(PRODUCT_UPDATE_URL, body, true);
+        productNoonAdapter.postWriteJson(session, PRODUCT_UPDATE_URL, body, true);
 
         ObjectNode cacheBody = objectMapper.createObjectNode();
         cacheBody.put("skuParent", textValue(draft.getIdentity().get("skuParent")));
-        session.postWriteJson(CATPLAT_SKU_CACHE_URL, cacheBody, true);
+        productNoonAdapter.postWriteJson(session, CATPLAT_SKU_CACHE_URL, cacheBody, true);
     }
 
     private ObjectNode buildProductUpdateVariantSizeBody(
@@ -4561,7 +4563,7 @@ public class LocalDbProductMasterService {
         ObjectNode body = buildOfferUpsertBodyForPublish(pskuCode, siteOffer);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("X-Locale", "en-" + resolvedSite.toUpperCase());
-        session.postWriteJson(OFFER_UPSERT_URL, body, true, headers);
+        productNoonAdapter.postWriteJson(session, OFFER_UPSERT_URL, body, true, headers);
         if (siteOffer.get("fbnStock") != null || siteOffer.get("supermallStock") != null || siteOffer.get("fbpStock") != null) {
             actionWarnings.add("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。");
         }
@@ -6471,9 +6473,9 @@ public class LocalDbProductMasterService {
             String warningPrefix
     ) {
         try {
-            return session.getJson(url, withProject);
+            return productNoonAdapter.getJson(session, url, withProject);
         } catch (IllegalStateException exception) {
-            warnings.add(warningPrefix + "：" + shrink(exception.getMessage()));
+            warnings.add(warningPrefix + "：" + noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
     }
@@ -6487,9 +6489,9 @@ public class LocalDbProductMasterService {
             String warningPrefix
     ) {
         try {
-            return session.postJson(url, body, withProject);
+            return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
-            warnings.add(warningPrefix + "：" + shrink(exception.getMessage()));
+            warnings.add(warningPrefix + "：" + noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
     }
@@ -6502,11 +6504,18 @@ public class LocalDbProductMasterService {
             String warningPrefix
     ) {
         try {
-            return session.postJson(url, body, withProject);
+            return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
-            log.warn("{}：{}", warningPrefix, shrink(exception.getMessage()));
+            log.warn("{}：{}", warningPrefix, noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
+    }
+
+    private String noonFailureMessage(RuntimeException exception) {
+        if (productNoonAdapter == null) {
+            return shrink(exception.getMessage());
+        }
+        return shrink(productNoonAdapter.userMessage(exception));
     }
 
     private JsonNode firstDataItem(JsonNode root) {

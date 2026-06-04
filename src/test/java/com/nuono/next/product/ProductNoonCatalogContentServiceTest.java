@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class ProductNoonCatalogContentServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final ProductNoonCatalogContentService service = new ProductNoonCatalogContentService();
+    private final ProductNoonCatalogContentService service = new ProductNoonCatalogContentService(null);
 
     @Test
     void parseCatalogContentMapsFollowSellTitleAndImages() throws Exception {
