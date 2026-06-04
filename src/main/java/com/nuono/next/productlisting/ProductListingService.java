@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -196,16 +197,12 @@ public class ProductListingService {
                     "Only validated product listing dry-run tasks can be promoted to real Noon listing."
             );
         }
-        ProductListingTaskRecord active = mapper.selectActiveRealRunTaskBySourceTaskId(ownerUserId, dryRunTask.getId());
-        if (active != null) {
-            return insertRejectedRealRunTask(
-                    context,
-                    dryRunTask,
-                    command,
-                    "guard",
-                    "real_run_already_active",
-                    "A real Noon listing task is already active for this dry-run."
-            );
+        ProductListingTaskRecord existingAttempt = mapper.selectRealWriteAttemptTaskBySourceTaskId(
+                ownerUserId,
+                dryRunTask.getId()
+        );
+        if (existingAttempt != null) {
+            return rejectExistingRealWriteAttempt(context, dryRunTask, command, existingAttempt);
         }
         if (command == null || !Boolean.TRUE.equals(command.getConfirmRealNoonWrite())) {
             return insertRejectedRealRunTask(
@@ -238,7 +235,18 @@ public class ProductListingService {
                 null
         );
         task.setStartedAt(LocalDateTime.now());
-        mapper.insertTask(task);
+        try {
+            mapper.insertTask(task);
+        } catch (DuplicateKeyException exception) {
+            ProductListingTaskRecord duplicateAttempt = mapper.selectRealWriteAttemptTaskBySourceTaskId(
+                    ownerUserId,
+                    dryRunTask.getId()
+            );
+            if (duplicateAttempt == null) {
+                throw exception;
+            }
+            return rejectExistingRealWriteAttempt(context, dryRunTask, command, duplicateAttempt);
+        }
         ProductListingNoonWriteResult result = executeNoonWrite(context, dryRunTask, task, command);
         applyNoonWriteResult(task, result);
         mapper.updateTaskResult(task);
@@ -302,6 +310,25 @@ public class ProductListingService {
         task.setCompletedAt(task.getSubmittedAt());
         mapper.insertTask(task);
         return taskView(task, readIssues(task.getValidationJson()));
+    }
+
+    private ProductListingTaskView rejectExistingRealWriteAttempt(
+            BusinessAccessContext context,
+            ProductListingTaskRecord dryRunTask,
+            ProductListingRealRunCommand command,
+            ProductListingTaskRecord existingAttempt
+    ) {
+        boolean active = isActiveRealRunStatus(existingAttempt.getStatus());
+        return insertRejectedRealRunTask(
+                context,
+                dryRunTask,
+                command,
+                "guard",
+                active ? "real_run_already_active" : "real_run_already_attempted",
+                active
+                        ? "A real Noon listing task is already active for this dry-run."
+                        : "A real Noon listing write has already been attempted for this dry-run."
+        );
     }
 
     private ProductListingTaskRecord newRealRunTask(
@@ -509,6 +536,10 @@ public class ProductListingService {
         return issues != null && issues.stream()
                 .filter(Objects::nonNull)
                 .anyMatch(issue -> !"warning".equalsIgnoreCase(issue.getSeverity()));
+    }
+
+    private boolean isActiveRealRunStatus(String status) {
+        return "running".equals(status) || "submitted".equals(status);
     }
 
     private String draftNo(Long draftId) {

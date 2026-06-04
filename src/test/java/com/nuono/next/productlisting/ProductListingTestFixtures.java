@@ -201,12 +201,15 @@ final class ProductListingTestFixtures {
         }
 
         @Override
-        public ProductListingTaskRecord selectActiveRealRunTaskBySourceTaskId(Long ownerUserId, Long sourceTaskId) {
+        public ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(Long ownerUserId, Long sourceTaskId) {
             for (ProductListingTaskRecord task : tasks.values()) {
                 if (ownerUserId.equals(task.getOwnerUserId())
                         && sourceTaskId.equals(task.getSourceTaskId())
                         && "REAL_RUN".equals(task.getMode())
-                        && ("running".equals(task.getStatus()) || "submitted".equals(task.getStatus()))) {
+                        && ("running".equals(task.getStatus())
+                        || "submitted".equals(task.getStatus())
+                        || "succeeded".equals(task.getStatus())
+                        || "failed".equals(task.getStatus()))) {
                     return task;
                 }
             }
