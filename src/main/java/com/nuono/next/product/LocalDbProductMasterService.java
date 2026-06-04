@@ -959,8 +959,6 @@ public class LocalDbProductMasterService {
         storeCode = normalize(store.getStoreCode());
 
         List<String> warnings = new ArrayList<>();
-        LocalDbStoreInitializationService.StoreInitializationStatusView initializationView =
-                localDbStoreInitializationService.getStatus(command.getOwnerUserId(), storeCode);
         List<ProductListSummaryView> summaries = productProjectionPersistenceService.loadProductListSummaries(
                 command.getOwnerUserId(),
                 storeCode,
@@ -974,21 +972,14 @@ public class LocalDbProductMasterService {
 
         LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsBySkuParent =
                 new LinkedHashMap<>();
-        for (LocalDbStoreInitializationService.StoreInitializationProductListItemView item : initializationView.getProductItems()) {
-            if (item == null || !StringUtils.hasText(item.getSkuParent())) {
-                continue;
-            }
-            String skuParent = normalize(item.getSkuParent());
-            if (deletedSkuParents.contains(skuParent)) {
-                continue;
-            }
-            itemsBySkuParent.put(skuParent, copyListItem(item));
-        }
         for (ProductListSummaryView summary : summaries) {
             if (summary == null || !StringUtils.hasText(summary.getSkuParent())) {
                 continue;
             }
             String skuParent = normalize(summary.getSkuParent());
+            if (deletedSkuParents.contains(skuParent)) {
+                continue;
+            }
             LocalDbStoreInitializationService.StoreInitializationProductListItemView current =
                     itemsBySkuParent.getOrDefault(skuParent, createListItemFromSummary(summary));
             itemsBySkuParent.put(skuParent, mergeListItemWithSummary(current, summary));
@@ -998,32 +989,24 @@ public class LocalDbProductMasterService {
                 new ArrayList<>(itemsBySkuParent.values());
 
         ProductListDatasetView view = new ProductListDatasetView();
-        view.setOwnerUserId(initializationView.getOwnerUserId());
-        view.setProjectName(initializationView.getProjectName());
-        view.setProjectCode(initializationView.getProjectCode());
-        view.setStoreCode(initializationView.getStoreCode());
-        view.setInitializationStatus(initializationView.getStatus());
-        view.setInitializationMessage(initializationView.getMessage());
-        view.setLastInitializedAt(initializationView.getLastInitializedAt());
+        view.setOwnerUserId(command.getOwnerUserId());
+        view.setProjectName(store.getProjectName());
+        view.setProjectCode(store.getProjectCode());
+        view.setStoreCode(storeCode);
         view.setItems(items);
         applyDatasetStats(view, items);
-        view.setWarnings(mergeWarnings(initializationView.getWarnings(), warnings));
+        view.setWarnings(new ArrayList<>(warnings));
 
-        if (!summaries.isEmpty()) {
-            view.setReady(true);
+        view.setReady(true);
+        if (!items.isEmpty()) {
             view.setSource("projection-primary");
             view.setMessage("商品摘要已就绪；列表展示本地商品投影，详情工作台按本地基线和草稿打开。");
-        } else if (!items.isEmpty()) {
-            view.setReady(true);
-            view.setSource("init-snapshot-fallback");
-            view.setMessage("本地商品投影仍在补齐，当前先回退到初始化摘要。");
         } else {
-            view.setReady(false);
-            view.setSource("workspace-empty");
-            view.setMessage(initializationView.getMessage());
+            view.setSource("projection-empty");
+            view.setMessage("本地商品投影暂无数据；商品列表读取不依赖店铺初始化状态。");
         }
 
-        view.setLastDatasetSyncedAt(resolveLastDatasetSyncedAt(items, initializationView.getLastInitializedAt()));
+        view.setLastDatasetSyncedAt(resolveLastDatasetSyncedAt(items, null));
         return view;
     }
 

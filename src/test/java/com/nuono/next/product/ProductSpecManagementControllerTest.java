@@ -3,11 +3,18 @@ package com.nuono.next.product;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.permission.access.BusinessCapability;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,11 +31,11 @@ class ProductSpecManagementControllerTest {
     @Mock
     private ObjectProvider<ProductVariantSpecService> serviceProvider;
     @Mock
-    private ObjectProvider<ProductMasterAccessGuard> accessGuardProvider;
+    private ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider;
     @Mock
     private ProductVariantSpecService service;
     @Mock
-    private ProductMasterAccessGuard accessGuard;
+    private BusinessAccessResolver businessAccessResolver;
     @Mock
     private AuthSessionTokenService sessionTokenService;
 
@@ -36,7 +43,11 @@ class ProductSpecManagementControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new ProductSpecManagementController(serviceProvider, sessionTokenService, accessGuardProvider);
+        controller = new ProductSpecManagementController(
+                serviceProvider,
+                sessionTokenService,
+                businessAccessResolverProvider
+        );
     }
 
     @Test
@@ -50,9 +61,12 @@ class ProductSpecManagementControllerTest {
     void overviewShouldResolveOwnerFromSessionAndStoreScope() {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(serviceProvider.getIfAvailable()).thenReturn(service);
-        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
-        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR245027-NAE")))
-                .thenReturn(10002L);
+        when(businessAccessResolverProvider.getIfAvailable()).thenReturn(businessAccessResolver);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                "STR245027-NAE"
+        )).thenReturn(productContext(10003L, 10002L, "STR245027-NAE"));
         when(service.overview(any())).thenReturn(new ProductVariantSpecOverviewView());
 
         controller.overview(99999L, "STR245027-NAE", "MILKYWAYA05", request);
@@ -69,9 +83,12 @@ class ProductSpecManagementControllerTest {
     void saveSourceShouldOverrideOwnerSourceVariantAndOperator() {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(serviceProvider.getIfAvailable()).thenReturn(service);
-        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
-        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR245027-NAE")))
-                .thenReturn(10002L);
+        when(businessAccessResolverProvider.getIfAvailable()).thenReturn(businessAccessResolver);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                "STR245027-NAE"
+        )).thenReturn(productContext(10003L, 10002L, "STR245027-NAE"));
         when(service.saveSource(any())).thenReturn(new ProductVariantSpecSourceView());
 
         ProductVariantSpecSourceCommand command = new ProductVariantSpecSourceCommand();
@@ -93,9 +110,12 @@ class ProductSpecManagementControllerTest {
     void selectEffectiveSourceShouldResolveOwnerAndPassOperator() {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(serviceProvider.getIfAvailable()).thenReturn(service);
-        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
-        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR245027-NAE")))
-                .thenReturn(10002L);
+        when(businessAccessResolverProvider.getIfAvailable()).thenReturn(businessAccessResolver);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                "STR245027-NAE"
+        )).thenReturn(productContext(10003L, 10002L, "STR245027-NAE"));
         when(service.selectEffectiveSource(10002L, "STR245027-NAE", 53001L, 120001L, 10003L))
                 .thenReturn(new ProductVariantSpecDetailView());
 
@@ -111,7 +131,20 @@ class ProductSpecManagementControllerTest {
 
     private MockHttpServletRequest requestFor(AuthenticatedSession session) {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(sessionTokenService.requireSession(request)).thenReturn(session);
+        lenient().when(sessionTokenService.requireSession(request)).thenReturn(session);
         return request;
+    }
+
+    private BusinessAccessContext productContext(Long sessionUserId, Long ownerUserId, String storeCode) {
+        return BusinessAccessContext.builder()
+                .sessionUserId(sessionUserId)
+                .businessOwnerUserId(ownerUserId)
+                .accountType(BusinessAccountType.OPERATOR)
+                .roleLevel(2)
+                .roleName("运营")
+                .storeCodes(Set.of(storeCode))
+                .storeOwnerUserIds(Map.of(storeCode, ownerUserId))
+                .menuPaths(Set.of("/api/sku/manage"))
+                .build();
     }
 }
