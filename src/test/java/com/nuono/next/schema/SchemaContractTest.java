@@ -16,6 +16,7 @@ class SchemaContractTest {
             "listing_started_at",
             "CREATE TABLE IF NOT EXISTS product_variant_spec",
             "CREATE TABLE IF NOT EXISTS noon_finance_transaction_fact",
+            "CREATE TABLE IF NOT EXISTS operational_task",
             "CREATE TABLE IF NOT EXISTS daily_sales_fact"
     );
 

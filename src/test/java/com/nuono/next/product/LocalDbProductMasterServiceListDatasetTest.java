@@ -46,9 +46,9 @@ class LocalDbProductMasterServiceListDatasetTest {
                 null,
                 new ObjectMapper(),
                 null,
-                null,
                 productProjectionPersistenceService,
                 localDbStoreInitializationService,
+                null,
                 null,
                 null,
                 null

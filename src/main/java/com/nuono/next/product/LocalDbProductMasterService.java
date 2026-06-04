@@ -9,7 +9,6 @@ import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
-import com.nuono.next.noon.NoonAccountTaskQueue;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -117,18 +116,16 @@ public class LocalDbProductMasterService {
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final ObjectMapper objectMapper;
     private final NoonSessionGateway noonSessionGateway;
-    private final NoonAccountTaskQueue noonAccountTaskQueue;
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
     private final LocalDbStoreInitializationService localDbStoreInitializationService;
     private final ProductAttributeTemplateService productAttributeTemplateService;
     private final ProductGroupPublishService productGroupPublishService;
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
+    private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
     private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
     private final ConcurrentMap<String, ProductWorkbenchRecord> workbenchRecords = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, String> detailBaselineBackfillStates = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, String> detailBaselineBackfillMessages = new ConcurrentHashMap<>();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -157,24 +154,24 @@ public class LocalDbProductMasterService {
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
             ObjectMapper objectMapper,
             NoonSessionGateway noonSessionGateway,
-            NoonAccountTaskQueue noonAccountTaskQueue,
             ProductProjectionPersistenceService productProjectionPersistenceService,
             LocalDbStoreInitializationService localDbStoreInitializationService,
             ProductAttributeTemplateService productAttributeTemplateService,
             ProductGroupPublishService productGroupPublishService,
-            ProductNoonCatalogContentService productNoonCatalogContentService
+            ProductNoonCatalogContentService productNoonCatalogContentService,
+            ProductDetailBaselineBackfillService productDetailBaselineBackfillService
     ) {
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
         this.noonSessionGateway = noonSessionGateway;
-        this.noonAccountTaskQueue = noonAccountTaskQueue;
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
         this.productAttributeTemplateService = productAttributeTemplateService;
         this.productGroupPublishService = productGroupPublishService;
         this.productNoonCatalogContentService = productNoonCatalogContentService;
+        this.productDetailBaselineBackfillService = productDetailBaselineBackfillService;
     }
 
     public ProductMasterSnapshotView fetchSnapshot(ProductMasterFetchCommand command) {
@@ -543,66 +540,10 @@ public class LocalDbProductMasterService {
     }
 
     private String enqueueDetailBaselineBackfill(ProductMasterFetchCommand command, String reason) {
-        if (!detailBaselineBackfillEnabled || command == null || command.getOwnerUserId() == null) {
+        if (!detailBaselineBackfillEnabled || productDetailBaselineBackfillService == null) {
             return "disabled";
         }
-        String storeCode = normalize(command.getStoreCode());
-        String skuParent = normalize(command.getSkuParent());
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
-            return "skipped";
-        }
-
-        String key = detailBaselineBackfillKey(command.getOwnerUserId(), storeCode, skuParent);
-        String existingState = detailBaselineBackfillStates.putIfAbsent(key, "preparing");
-        if ("preparing".equals(existingState)) {
-            return "preparing";
-        }
-        if ("failed".equals(existingState)) {
-            detailBaselineBackfillStates.put(key, "preparing");
-        } else if (existingState != null) {
-            return existingState;
-        }
-        detailBaselineBackfillMessages.put(key, "正在后台补齐详情基线。");
-
-        ProductMasterFetchCommand backfillCommand = copyFetchCommand(command);
-        Runnable task = () -> runDetailBaselineBackfill(key, backfillCommand, reason);
-        if (noonAccountTaskQueue != null) {
-            noonAccountTaskQueue.submit(detailBaselineBackfillAccountKey(backfillCommand), task);
-        } else {
-            Thread thread = new Thread(task);
-            thread.setName("nuono-product-detail-baseline-" + thread.getId());
-            thread.setDaemon(true);
-            thread.start();
-        }
-        return "preparing";
-    }
-
-    private void runDetailBaselineBackfill(String key, ProductMasterFetchCommand command, String reason) {
-        try {
-            ProductMasterSnapshotView snapshot = fetchSnapshot(command, "detail-baseline-backfill." + normalizeReason(reason));
-            if (snapshot != null && snapshot.isReady()) {
-                detailBaselineBackfillStates.remove(key);
-                detailBaselineBackfillMessages.remove(key);
-                return;
-            }
-            detailBaselineBackfillStates.put(key, "failed");
-            detailBaselineBackfillMessages.put(key, firstNonBlank(
-                    snapshot == null ? null : snapshot.getMessage(),
-                    "详情基线补齐失败，请稍后重试。"
-            ));
-        } catch (RuntimeException exception) {
-            detailBaselineBackfillStates.put(key, "failed");
-            detailBaselineBackfillMessages.put(key, firstNonBlank(exception.getMessage(), "详情基线补齐失败，请稍后重试。"));
-            log.warn(
-                    "product-management detail baseline backfill failed owner={} store={} skuParent={} reason={} error={}",
-                    command == null ? null : command.getOwnerUserId(),
-                    command == null ? null : command.getStoreCode(),
-                    command == null ? null : command.getSkuParent(),
-                    reason,
-                    exception.getMessage(),
-                    exception
-            );
-        }
+        return productDetailBaselineBackfillService.enqueue(command, reason, this::fetchSnapshot);
     }
 
     private void enqueueMissingDetailBaselines(
@@ -654,31 +595,18 @@ public class LocalDbProductMasterService {
             return;
         }
         if ("ready".equalsIgnoreCase(summary.getDetailBaselineStatus())) {
-            detailBaselineBackfillStates.remove(detailBaselineBackfillKey(ownerUserId, storeCode, summary.getSkuParent()));
-            detailBaselineBackfillMessages.remove(detailBaselineBackfillKey(ownerUserId, storeCode, summary.getSkuParent()));
             return;
         }
-        String key = detailBaselineBackfillKey(ownerUserId, storeCode, summary.getSkuParent());
-        String state = detailBaselineBackfillStates.get(key);
-        if (!StringUtils.hasText(state)) {
+        if (productDetailBaselineBackfillService == null) {
             return;
         }
-        summary.setDetailBaselineStatus(state);
-        summary.setDetailBaselineMessage(firstNonBlank(
-                detailBaselineBackfillMessages.get(key),
-                "preparing".equals(state) ? "正在后台补齐详情基线。" : "详情基线补齐失败。"
-        ));
-    }
-
-    private String detailBaselineBackfillKey(Long ownerUserId, String storeCode, String skuParent) {
-        return ownerUserId + "::" + normalize(storeCode) + "::" + normalize(skuParent);
-    }
-
-    private String detailBaselineBackfillAccountKey(ProductMasterFetchCommand command) {
-        if (command == null) {
-            return null;
+        ProductDetailBaselineBackfillService.BackfillState state =
+                productDetailBaselineBackfillService.state(ownerUserId, storeCode, summary.getSkuParent());
+        if (state == null || !StringUtils.hasText(state.getStatus())) {
+            return;
         }
-        return command.getOwnerUserId() + "::" + normalize(command.getStoreCode());
+        summary.setDetailBaselineStatus(state.getStatus());
+        summary.setDetailBaselineMessage(state.getMessage());
     }
 
     private String normalizeReason(String reason) {
@@ -1079,8 +1007,9 @@ public class LocalDbProductMasterService {
                 updatedBy
         );
 
-        detailBaselineBackfillStates.remove(detailBaselineBackfillKey(command.getOwnerUserId(), storeCode, skuParent));
-        detailBaselineBackfillMessages.remove(detailBaselineBackfillKey(command.getOwnerUserId(), storeCode, skuParent));
+        if (productDetailBaselineBackfillService != null) {
+            productDetailBaselineBackfillService.cancel(command, "商品已从本地商品目录删除。");
+        }
 
         ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
         reloadCommand.setOwnerUserId(command.getOwnerUserId());
