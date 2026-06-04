@@ -17,10 +17,12 @@ import java.util.Locale;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
+@Primary
 @ConditionalOnBean(NoonPullGatewaySessionFactory.class)
 @ConditionalOnProperty(prefix = "nuono.product-listing.real-write", name = "enabled", havingValue = "true")
 public class RealProductListingNoonWriteAdapter implements ProductListingNoonWriteAdapter {

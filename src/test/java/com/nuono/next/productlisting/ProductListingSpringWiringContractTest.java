@@ -10,6 +10,7 @@ import com.nuono.next.permission.access.BusinessAccessResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.stereotype.Component;
@@ -42,6 +43,24 @@ class ProductListingSpringWiringContractTest {
                 });
     }
 
+    @Test
+    void productListingComponentScanProvidesDefaultNoonWriteAdapter() {
+        new ApplicationContextRunner()
+                .withBean(ProductListingMapper.class, () -> mock(ProductListingMapper.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(BusinessAccessResolver.class, () -> mock(BusinessAccessResolver.class))
+                .withUserConfiguration(ProductListingComponentScanConfig.class)
+                .run(context -> {
+                    assertTrue(
+                            context.getStartupFailure() == null,
+                            () -> String.valueOf(context.getStartupFailure())
+                    );
+                    assertTrue(context.getBean(ProductListingNoonWriteAdapter.class)
+                            instanceof UnavailableProductListingNoonWriteAdapter);
+                    assertNotNull(context.getBean(ProductListingService.class));
+                });
+    }
+
     @Configuration
     @EnableConfigurationProperties(ProductListingRealWriteProperties.class)
     @Import({
@@ -51,5 +70,11 @@ class ProductListingSpringWiringContractTest {
             ProductListingController.class
     })
     static class ProductListingWiringConfig {
+    }
+
+    @Configuration
+    @EnableConfigurationProperties(ProductListingRealWriteProperties.class)
+    @ComponentScan(basePackageClasses = ProductListingService.class)
+    static class ProductListingComponentScanConfig {
     }
 }

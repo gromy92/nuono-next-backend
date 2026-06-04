@@ -1,11 +1,9 @@
 package com.nuono.next.productlisting;
 
 import java.util.List;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnMissingBean(ProductListingNoonWriteAdapter.class)
 public class UnavailableProductListingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
 
     @Override
