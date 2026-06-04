@@ -44,6 +44,20 @@ class ProductListingValidatorTest {
         assertIssue(issues, "price", "required");
     }
 
+    @Test
+    void blocksZeroOrNegativeNumbers() {
+        ProductListingDraftCommand command = validCommand();
+        command.setPrice(BigDecimal.ZERO);
+        command.setPurchasePrice(new BigDecimal("-1.00"));
+        command.setQuantity(0);
+
+        List<ProductListingValidationIssue> issues = validator.validate(command);
+
+        assertIssue(issues, "price", "invalid_number");
+        assertIssue(issues, "purchasePrice", "invalid_number");
+        assertIssue(issues, "quantity", "invalid_number");
+    }
+
     private ProductListingDraftCommand validCommand() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
         command.setStoreCode("STR240053-NSA");
@@ -55,6 +69,7 @@ class ProductListingValidatorTest {
         command.setPurchasePrice(new BigDecimal("19.90"));
         command.setSupplyEvidenceType("1688_OFFER");
         command.setOptionalPurchaseOrderId(70001L);
+        command.setQuantity(100);
         return command;
     }
 

@@ -18,7 +18,22 @@ public class ProductListingValidator {
         requireAmount(issues, "price", safeCommand.getPrice());
         requireAmount(issues, "purchasePrice", safeCommand.getPurchasePrice());
         requireText(issues, "supplyEvidenceType", safeCommand.getSupplyEvidenceType());
+        requirePositive(issues, "quantity", safeCommand.getQuantity());
 
+        return issues;
+    }
+
+    public List<ProductListingValidationIssue> validateWithWarnings(ProductListingDraftCommand command) {
+        List<ProductListingValidationIssue> issues = validate(command);
+        ProductListingDraftCommand safeCommand = command == null ? new ProductListingDraftCommand() : command;
+        if (safeCommand.getOptionalPurchaseOrderId() == null) {
+            issues.add(new ProductListingValidationIssue(
+                    "optionalPurchaseOrderId",
+                    "warning",
+                    "purchase_order_not_linked",
+                    "Purchase order is not linked."
+            ));
+        }
         return issues;
     }
 
@@ -37,6 +52,14 @@ public class ProductListingValidator {
     private void requireAmount(List<ProductListingValidationIssue> issues, String fieldKey, BigDecimal value) {
         if (value == null) {
             issues.add(required(fieldKey));
+        } else if (value.compareTo(BigDecimal.ZERO) <= 0) {
+            issues.add(invalidNumber(fieldKey));
+        }
+    }
+
+    private void requirePositive(List<ProductListingValidationIssue> issues, String fieldKey, Integer value) {
+        if (value != null && value <= 0) {
+            issues.add(invalidNumber(fieldKey));
         }
     }
 
@@ -52,5 +75,9 @@ public class ProductListingValidator {
 
     private ProductListingValidationIssue required(String fieldKey) {
         return new ProductListingValidationIssue(fieldKey, "error", "required", "Required field is missing.");
+    }
+
+    private ProductListingValidationIssue invalidNumber(String fieldKey) {
+        return new ProductListingValidationIssue(fieldKey, "error", "invalid_number", "Number must be greater than zero.");
     }
 }

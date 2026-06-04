@@ -4,6 +4,7 @@ import java.util.List;
 
 public enum BusinessCapability {
     PRODUCT_MASTER(List.of("/api/sku/manage", "/product/groups", "/product/manage")),
+    PRODUCT_LISTING(List.of("/purchase/listing", "/api/product-listing")),
     PROCUREMENT(List.of("/api/purchase/order", "/purchase/order")),
     STORE_SYNC(List.of("/api/user/role", "/user/store-noon")),
     MASTER_DATA_SYSTEM(List.of("/system/role", "/system/menu")),

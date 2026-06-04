@@ -1,0 +1,199 @@
+package com.nuono.next.productlisting;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
+import com.nuono.next.infrastructure.mapper.ProductListingMapper;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccountType;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+class ProductListingServiceTest {
+
+    private FakeProductListingMapper mapper;
+    private ProductListingService service;
+
+    @BeforeEach
+    void setUp() {
+        mapper = new FakeProductListingMapper();
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator());
+    }
+
+    @Test
+    void saveDraftUsesSessionOwnerAndOperator() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+
+        ProductListingDraftView view = service.saveDraft(context, validCommand());
+
+        assertEquals(10002L, mapper.insertedDraft().getOwnerUserId());
+        assertEquals(90001L, mapper.insertedDraft().getCreatedBy());
+        assertEquals(90001L, mapper.insertedDraft().getUpdatedBy());
+        assertEquals("ready_for_dry_run", view.getStatus());
+    }
+
+    @Test
+    void dryRunTaskSucceedsWhenValidationPassesAndDoesNotWriteNoon() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("DRY_RUN", task.getMode());
+        assertEquals("validated", task.getStatus());
+        assertEquals("DRY_RUN", mapper.insertedTask().getMode());
+    }
+
+    @Test
+    void dryRunTaskFailsWhenHardIssuesExist() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand invalid = validCommand();
+        invalid.setPurchasePrice(null);
+        ProductListingDraftView draft = service.saveDraft(context, invalid);
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validation_failed", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .anyMatch(issue -> "purchasePrice".equals(issue.getFieldKey())));
+    }
+
+    private ProductListingDraftCommand validCommand() {
+        ProductListingDraftCommand command = new ProductListingDraftCommand();
+        command.setStoreCode("STR245027-NAE");
+        command.setPsku("NN-TEST-PSKU");
+        command.setIdProductFullType(3066L);
+        command.setProductFullType("electronic_accessories-headphones-wired_headphones");
+        command.setProductBrand("Generic");
+        command.setProductBrandCode("generic");
+        command.setProductTitleEn("Wired headphones with microphone");
+        command.setProductTitleAr("Arabic wired headphones title");
+        command.setImageUrls(List.of("https://example.test/images/sku-main.jpg"));
+        command.setPrice(new BigDecimal("49.90"));
+        command.setPurchasePrice(new BigDecimal("19.90"));
+        command.setSupplyEvidenceType("1688_OFFER");
+        command.setSupplyEvidenceRefId(43101L);
+        command.setOptionalPurchaseOrderId(70001L);
+        command.setFbp(true);
+        command.setWarehouseId("W00752151SA");
+        command.setQuantity(100);
+        command.setIdWarranty(24);
+        command.setBarcode("6290000000001");
+        return command;
+    }
+
+    private BusinessAccessContext businessContext(Long ownerUserId, Long sessionUserId, String storeCode) {
+        return BusinessAccessContext.builder()
+                .sessionUserId(sessionUserId)
+                .businessOwnerUserId(ownerUserId)
+                .accountType(BusinessAccountType.OPERATOR)
+                .roleId(3L)
+                .roleLevel(2)
+                .roleName("purchase")
+                .storeCodes(Set.of(storeCode))
+                .storeOwnerUserIds(Map.of(storeCode, ownerUserId))
+                .menuPaths(Set.of("/purchase/listing", "/api/product-listing"))
+                .build();
+    }
+
+    private static class FakeProductListingMapper implements ProductListingMapper {
+
+        private long nextDraftId = 10001L;
+        private long nextTaskId = 20001L;
+        private final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
+        private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
+        private ProductListingDraftRecord insertedDraft;
+        private ProductListingTaskRecord insertedTask;
+
+        @Override
+        public int allocateProductListingId(IdSequenceCommand command) {
+            return 1;
+        }
+
+        @Override
+        public Long nextProductListingDraftId() {
+            return nextDraftId++;
+        }
+
+        @Override
+        public Long nextProductListingTaskId() {
+            return nextTaskId++;
+        }
+
+        @Override
+        public int insertDraft(ProductListingDraftRecord draft) {
+            insertedDraft = draft;
+            drafts.put(draft.getId(), draft);
+            return 1;
+        }
+
+        @Override
+        public int updateDraft(ProductListingDraftRecord draft) {
+            drafts.put(draft.getId(), draft);
+            return 1;
+        }
+
+        @Override
+        public ProductListingDraftRecord selectDraftById(Long draftId, Long ownerUserId) {
+            ProductListingDraftRecord draft = drafts.get(draftId);
+            if (draft == null || !ownerUserId.equals(draft.getOwnerUserId())) {
+                return null;
+            }
+            return draft;
+        }
+
+        @Override
+        public Long findActiveDraftId(Long ownerUserId, String storeCode, String sourceType, Long sourceRefId) {
+            return null;
+        }
+
+        @Override
+        public int insertTask(ProductListingTaskRecord task) {
+            insertedTask = task;
+            tasks.put(task.getId(), task);
+            return 1;
+        }
+
+        @Override
+        public ProductListingTaskRecord selectTaskById(Long taskId, Long ownerUserId) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null || !ownerUserId.equals(task.getOwnerUserId())) {
+                return null;
+            }
+            return task;
+        }
+
+        @Override
+        public List<ProductListingTaskRecord> selectRecentTasks(Long ownerUserId, String storeCode, int limit) {
+            List<ProductListingTaskRecord> result = new ArrayList<>();
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (ownerUserId.equals(task.getOwnerUserId()) && storeCode.equals(task.getStoreCode())) {
+                    result.add(task);
+                }
+            }
+            return result;
+        }
+
+        private ProductListingDraftRecord insertedDraft() {
+            return insertedDraft;
+        }
+
+        private ProductListingTaskRecord insertedTask() {
+            return insertedTask;
+        }
+    }
+}
