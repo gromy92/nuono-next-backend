@@ -1,49 +1,51 @@
 package com.nuono.next.productlisting;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Locale;
-import java.util.stream.Collectors;
+import com.nuono.next.permission.access.BusinessAccessContext;
 import org.junit.jupiter.api.Test;
 
 class ProductListingNoRealNoonWriteGuardTest {
 
     @Test
-    void productListingPackageDoesNotReferenceRealNoonWriteCalls() throws IOException {
-        Path sourceDir = Path.of("src/main/java/com/nuono/next/productlisting");
-        String source = Files.walk(sourceDir)
-                .filter(path -> path.toString().endsWith(".java"))
-                .map(this::read)
-                .collect(Collectors.joining("\n"))
-                .toLowerCase(Locale.ROOT);
-
-        for (String forbidden : forbiddenWriteMarkers()) {
-            assertFalse(source.contains(forbidden), "Forbidden Noon write marker found: " + forbidden);
-        }
-    }
-
-    private List<String> forbiddenWriteMarkers() {
-        return List.of(
-                "nooncreateskucall",
-                "noonskucachecall",
-                "noonupsert",
-                "createsku",
-                "create-psku",
-                "zsku/upsert",
-                "upsertsku",
-                "uploadimg"
+    void draftValidateAndDryRunPathsDoNotInvokeNoonWriteAdapter() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(ProductListingNoonWriteResult.succeeded());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
         );
+
+        ProductListingDraftView draft = service.saveDraft(context, ProductListingTestFixtures.validCommand());
+        service.validateDraft(context, draft.getDraftId());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+        service.submitDryRun(context, command);
+
+        assertEquals(0, adapter.callCount());
     }
 
-    private String read(Path path) {
-        try {
-            return Files.readString(path);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to read " + path, exception);
-        }
+    @Test
+    void disabledKillSwitchDoesNotInvokeNoonWriteAdapter() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(ProductListingNoonWriteResult.succeeded());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, false, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+
+        service.confirmRealRun(context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand());
+
+        assertEquals(0, adapter.callCount());
     }
 }

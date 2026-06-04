@@ -84,4 +84,32 @@ class ProductListingControllerAccessTest {
 
         assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
     }
+
+    @Test
+    void confirmRealRunUsesBusinessContextAndMapsStoreScopeRejectionToForbidden() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        ProductListingRealRunCommand command = new ProductListingRealRunCommand();
+        command.setConfirmRealNoonWrite(true);
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(90002L)
+                .businessOwnerUserId(10002L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .storeCodes(Set.of("STR245027-NSA"))
+                .storeOwnerUserIds(Map.of("STR245027-NSA", 10002L))
+                .menuPaths(Set.of("/purchase/listing"))
+                .build();
+        when(businessAccessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.PRODUCT_LISTING
+        )).thenReturn(context);
+        when(service.confirmRealRun(context, 20001L, command))
+                .thenThrow(new BusinessAccessDeniedException("当前账号不能操作该店铺。"));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.confirmRealRun(20001L, command, request)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
+    }
 }

@@ -105,6 +105,25 @@ public class ProductListingController {
         }
     }
 
+    @PostMapping("/tasks/{dryRunTaskId}/confirm-real-run")
+    public ProductListingTaskView confirmRealRun(
+            @PathVariable Long dryRunTaskId,
+            @RequestBody(required = false) ProductListingRealRunCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING
+            );
+            return service.confirmRealRun(context, dryRunTaskId, command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @GetMapping("/tasks/recent")
     public List<ProductListingTaskView> recentTasks(
             @RequestParam String storeCode,
