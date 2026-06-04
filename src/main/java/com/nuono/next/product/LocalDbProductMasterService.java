@@ -11,6 +11,10 @@ import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.NoonProductGateway;
 import com.nuono.next.product.noon.ProductNoonAdapter;
+import com.nuono.next.product.publish.ProductPublishCommandService;
+import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateCommand;
+import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateResult;
+import com.nuono.next.product.publish.ProductPublishTaskFenceLostException;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -36,14 +40,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -84,21 +86,6 @@ public class LocalDbProductMasterService {
     private static final String OFFER_UPSERT_URL =
             NoonProductGateway.OFFER_UPSERT_URL;
     private static final String PRICING_METHOD_MANUAL = "manual";
-    private static final Set<String> ACTIVE_PUBLISH_TASK_STATUSES = Set.of(
-            "queued",
-            "running",
-            "submitted",
-            "verifying",
-            "pending_effective",
-            "write_unknown",
-            "verify_timeout"
-    );
-    private static final Set<String> TERMINAL_PUBLISH_TASK_STATUSES = Set.of(
-            "synced",
-            "failed",
-            "cancelled",
-            "pending_manual_check"
-    );
     private static final Set<String> EXPLICIT_CLEARABLE_OFFER_FIELDS = Set.of(
             "salePrice",
             "saleStart",
@@ -124,6 +111,7 @@ public class LocalDbProductMasterService {
     private final ProductGroupPublishService productGroupPublishService;
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
+    private final ProductPublishCommandService productPublishCommandService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
     private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
     private final ConcurrentMap<String, ProductWorkbenchRecord> workbenchRecords = new ConcurrentHashMap<>();
@@ -137,12 +125,6 @@ public class LocalDbProductMasterService {
 
     @Value("${nuono.product-management.publish-task.scheduler.max-items-per-tick:2}")
     private int publishTaskSchedulerMaxItemsPerTick;
-
-    @Value("${nuono.product-management.publish-task.default-poll-after-millis:2000}")
-    private long publishTaskDefaultPollAfterMillis;
-
-    @Value("${nuono.product-management.publish-task.scheduler.stale-running-minutes:15}")
-    private int publishTaskStaleRunningMinutes;
 
     @Value("${nuono.product-management.detail-baseline-backfill.enabled:true}")
     private boolean detailBaselineBackfillEnabled;
@@ -161,7 +143,8 @@ public class LocalDbProductMasterService {
             ProductAttributeTemplateService productAttributeTemplateService,
             ProductGroupPublishService productGroupPublishService,
             ProductNoonCatalogContentService productNoonCatalogContentService,
-            ProductDetailBaselineBackfillService productDetailBaselineBackfillService
+            ProductDetailBaselineBackfillService productDetailBaselineBackfillService,
+            ProductPublishCommandService productPublishCommandService
     ) {
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
@@ -174,6 +157,14 @@ public class LocalDbProductMasterService {
         this.productGroupPublishService = productGroupPublishService;
         this.productNoonCatalogContentService = productNoonCatalogContentService;
         this.productDetailBaselineBackfillService = productDetailBaselineBackfillService;
+        this.productPublishCommandService = productPublishCommandService;
+    }
+
+    private ProductPublishCommandService requirePublishCommandService() {
+        if (productPublishCommandService == null) {
+            throw new IllegalStateException("商品发布命令服务尚未初始化。");
+        }
+        return productPublishCommandService;
     }
 
     public ProductMasterSnapshotView fetchSnapshot(ProductMasterFetchCommand command) {
@@ -1352,65 +1343,30 @@ public class LocalDbProductMasterService {
     }
 
     public ProductPublishTaskView loadPublishTask(Long taskId, Long ownerUserId) {
-        if (taskId == null) {
-            throw new IllegalArgumentException("缺少发布任务 ID。");
-        }
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord task = productManagementMapper.selectProductPublishTaskById(taskId);
-        if (task == null) {
-            throw new IllegalArgumentException("发布任务不存在或已删除。");
-        }
-        ensurePublishTaskOwner(task, ownerUserId);
-        return buildPublishTaskView(task, true);
+        return requirePublishCommandService().loadTask(
+                taskId,
+                ownerUserId,
+                this::buildTerminalPublishTaskWorkbenchView,
+                this::resolvePublishTaskChangedDomains
+        );
     }
 
     public ProductPublishTaskView retryPublishTask(Long taskId, Long ownerUserId) {
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord task = productManagementMapper.selectProductPublishTaskById(taskId);
-        if (task == null) {
-            throw new IllegalArgumentException("发布任务不存在或已删除。");
-        }
-        ensurePublishTaskOwner(task, ownerUserId);
-        Long activeProductMasterId = task.getProductMasterId();
-        ProductPublishTaskRecord activeTask = activeProductMasterId == null
-                ? null
-                : productManagementMapper.selectActiveProductPublishTask(activeProductMasterId);
-        if (activeTask != null && !Objects.equals(activeTask.getId(), taskId)) {
-            throw new IllegalStateException("当前商品已有发布任务正在执行，请等待完成后再重试。");
-        }
-        int updated;
-        try {
-            updated = productManagementMapper.retryProductPublishTask(taskId, task.getOwnerUserId());
-        } catch (DuplicateKeyException exception) {
-            throw new IllegalStateException("当前商品已有发布任务正在执行，请等待完成后再重试。", exception);
-        }
-        if (updated <= 0) {
-            throw new IllegalStateException("当前发布任务不能重试，可能已超过重试次数或状态已变化。");
-        }
-        return loadPublishTask(taskId, ownerUserId);
+        return requirePublishCommandService().retryTask(
+                taskId,
+                ownerUserId,
+                this::buildTerminalPublishTaskWorkbenchView,
+                this::resolvePublishTaskChangedDomains
+        );
     }
 
     public ProductPublishTaskView cancelPublishTask(Long taskId, Long ownerUserId) {
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord task = productManagementMapper.selectProductPublishTaskById(taskId);
-        if (task == null) {
-            throw new IllegalArgumentException("发布任务不存在或已删除。");
-        }
-        ensurePublishTaskOwner(task, ownerUserId);
-        int updated = productManagementMapper.cancelQueuedProductPublishTask(taskId, task.getOwnerUserId());
-        if (updated <= 0) {
-            throw new IllegalStateException("只有尚未执行的发布任务可以取消。");
-        }
-        return loadPublishTask(taskId, ownerUserId);
-    }
-
-    private void ensurePublishTaskOwner(ProductPublishTaskRecord task, Long ownerUserId) {
-        if (ownerUserId == null) {
-            throw new IllegalArgumentException("缺少老板上下文，暂时不能读取发布任务。");
-        }
-        if (task == null || !Objects.equals(task.getOwnerUserId(), ownerUserId)) {
-            throw new IllegalArgumentException("当前发布任务不属于选中的老板上下文。");
-        }
+        return requirePublishCommandService().cancelTask(
+                taskId,
+                ownerUserId,
+                this::buildTerminalPublishTaskWorkbenchView,
+                this::resolvePublishTaskChangedDomains
+        );
     }
 
     @Scheduled(
@@ -1436,10 +1392,9 @@ public class LocalDbProductMasterService {
         int limit = Math.max(1, publishTaskSchedulerMaxItemsPerTick);
         List<ProductPublishTaskRecord> tasks;
         try {
-            recoverStaleRunningProductPublishTasks();
-            tasks = productManagementMapper.selectRunnableProductPublishTasks(limit);
+            tasks = requirePublishCommandService().selectRunnableTasks(limit);
         } catch (RuntimeException exception) {
-            if (isMissingProductPublishTaskTable(exception)) {
+            if (requirePublishCommandService().isMissingTaskTable(exception)) {
                 log.debug("product-management publish task scheduler skipped: product_publish_task not initialized yet");
                 return;
             }
@@ -1450,25 +1405,17 @@ public class LocalDbProductMasterService {
                 continue;
             }
             String previousStatus = task.getStatus();
-            String lockedBy = buildPublishTaskLockToken(task);
-            int claimed = productManagementMapper.tryStartProductPublishTask(
-                    task.getId(),
-                    previousStatus,
-                    taskVersionNo(task),
-                    lockedBy,
-                    task.getOwnerUserId()
-            );
-            if (claimed <= 0) {
+            String lockedBy = requirePublishCommandService().buildLockToken(task);
+            if (!requirePublishCommandService().claimTask(task, previousStatus, lockedBy)) {
                 continue;
             }
-            markPublishTaskClaimed(task, lockedBy);
             try {
                 if ("queued".equalsIgnoreCase(previousStatus)) {
                     executeQueuedPublishTask(task);
                 } else {
                     executePublishTaskVerificationOnly(task, previousStatus);
                 }
-            } catch (PublishTaskFenceLostException exception) {
+            } catch (ProductPublishTaskFenceLostException exception) {
                 log.info(
                         "product-management publish task skipped after losing claim id={} targetStatus={} error={}",
                         task.getId(),
@@ -1497,31 +1444,6 @@ public class LocalDbProductMasterService {
         }
     }
 
-    private String buildPublishTaskLockToken(ProductPublishTaskRecord task) {
-        return "product-publish-task-scheduler:" + task.getId() + ":" + UUID.randomUUID();
-    }
-
-    private void markPublishTaskClaimed(ProductPublishTaskRecord task, String lockedBy) {
-        task.setStatus("running");
-        task.setLockedBy(lockedBy);
-        task.setLockedAt(LocalDateTime.now());
-        task.setVersionNo(taskVersionNo(task) + 1);
-    }
-
-    private boolean isMissingProductPublishTaskTable(Throwable exception) {
-        Throwable current = exception;
-        while (current != null) {
-            String message = current.getMessage();
-            if (message != null
-                    && message.contains("product_publish_task")
-                    && (message.contains("doesn't exist") || message.contains("does not exist"))) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
     private ProductMasterWorkbenchView queuePublishCurrentTask(
             ProductMasterActionCommand command,
             ProductWorkbenchRecord record,
@@ -1532,7 +1454,7 @@ public class LocalDbProductMasterService {
         Long productMasterId = resolveProductMasterId(command);
         ProductPublishTaskRecord activeTask = productMasterId == null
                 ? null
-                : productManagementMapper.selectActiveProductPublishTask(productMasterId);
+                : requirePublishCommandService().selectActiveTask(productMasterId);
         if (activeTask != null) {
             record.setPublishTask(buildPublishTaskView(activeTask, false));
             record.setNote("当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。");
@@ -1550,46 +1472,32 @@ public class LocalDbProductMasterService {
             throw new IllegalStateException("本地商品主档还没有落库，暂时不能创建发布任务。");
         }
 
-        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
-        task.setId(productManagementMapper.nextProductPublishTaskId());
-        task.setOwnerUserId(command.getOwnerUserId());
-        task.setProductMasterId(productMasterId);
-        task.setStoreCode(normalize(command.getStoreCode()));
-        task.setProjectCode(textValue(requestedSnapshot.getStoreContext().get("projectCode")));
-        task.setSkuParent(textValue(requestedSnapshot.getIdentity().get("skuParent")));
-        task.setPartnerSku(firstNonBlank(normalize(command.getPartnerSku()), textValue(requestedSnapshot.getIdentity().get("partnerSku"))));
-        task.setPskuCode(firstNonBlank(normalize(command.getPskuCode()), textValue(requestedSnapshot.getIdentity().get("pskuCode"))));
-        task.setCurrentSiteCode(normalize(currentSiteCode));
-        task.setTaskType("publish-current");
-        task.setStatus("queued");
-        task.setActiveLockKey(productPublishActiveLockKey(productMasterId));
-        task.setDraftJson(writeJson(requestedSnapshot));
-        task.setBaselineJson(writeJson(record.getBaselineSnapshot()));
-        task.setDraftHash(sha256Hex(task.getDraftJson()));
-        task.setChangedDomainsJson(writeJson(resolvePublishChangedDomains(requestedSnapshot, record.getBaselineSnapshot(), currentSiteCode, unsupportedChanges)));
-        task.setRequestJson(writeJson(buildPublishTaskRequestPayload(command, currentSiteCode)));
-        task.setIdempotencyKey(productMasterId + ":" + task.getDraftHash() + ":" + normalize(currentSiteCode));
-        task.setRetryCount(0);
-        task.setVerifyAttemptCount(0);
-        task.setMaxRetryCount(3);
-        task.setVersionNo(1);
-        try {
-            productManagementMapper.insertProductPublishTask(task);
-        } catch (DuplicateKeyException exception) {
-            ProductPublishTaskRecord duplicateTask =
-                    productManagementMapper.selectProductPublishTaskByIdempotency(task.getIdempotencyKey());
-            if (duplicateTask == null) {
-                duplicateTask = productManagementMapper.selectActiveProductPublishTask(productMasterId);
-            }
-            if (duplicateTask == null) {
-                throw exception;
-            }
+        String draftJson = writeJson(requestedSnapshot);
+        String draftHash = sha256Hex(draftJson);
+        ProductPublishTaskCreateCommand createCommand = new ProductPublishTaskCreateCommand();
+        createCommand.setOwnerUserId(command.getOwnerUserId());
+        createCommand.setProductMasterId(productMasterId);
+        createCommand.setStoreCode(command.getStoreCode());
+        createCommand.setProjectCode(textValue(requestedSnapshot.getStoreContext().get("projectCode")));
+        createCommand.setSkuParent(textValue(requestedSnapshot.getIdentity().get("skuParent")));
+        createCommand.setPartnerSku(firstNonBlank(normalize(command.getPartnerSku()), textValue(requestedSnapshot.getIdentity().get("partnerSku"))));
+        createCommand.setPskuCode(firstNonBlank(normalize(command.getPskuCode()), textValue(requestedSnapshot.getIdentity().get("pskuCode"))));
+        createCommand.setCurrentSiteCode(currentSiteCode);
+        createCommand.setDraftJson(draftJson);
+        createCommand.setBaselineJson(writeJson(record.getBaselineSnapshot()));
+        createCommand.setDraftHash(draftHash);
+        createCommand.setChangedDomainsJson(writeJson(resolvePublishChangedDomains(requestedSnapshot, record.getBaselineSnapshot(), currentSiteCode, unsupportedChanges)));
+        createCommand.setRequestJson(writeJson(buildPublishTaskRequestPayload(command, currentSiteCode)));
+        createCommand.setIdempotencyKey(productMasterId + ":" + draftHash + ":" + normalize(currentSiteCode));
+        ProductPublishTaskCreateResult createResult = requirePublishCommandService().createPublishCurrentTask(createCommand);
+        ProductPublishTaskRecord task = createResult.getTask();
+        if (createResult.isDuplicate()) {
             record.setDraftSnapshot(requestedSnapshot);
             record.setSyncStatus("draft");
-            record.setNote(isActivePublishTaskStatus(duplicateTask.getStatus())
+            record.setNote(isActivePublishTaskStatus(task.getStatus())
                     ? "当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。"
-                    : publishTaskMessage(duplicateTask));
-            record.setPublishTask(buildPublishTaskView(duplicateTask, false));
+                    : publishTaskMessage(task));
+            record.setPublishTask(buildPublishTaskView(task, false));
             workbenchRecords.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
@@ -2108,27 +2016,12 @@ public class LocalDbProductMasterService {
     }
 
     private ProductPublishTaskView buildPublishTaskView(ProductPublishTaskRecord task, boolean includeWorkbench) {
-        ProductPublishTaskView view = new ProductPublishTaskView();
-        if (task == null) {
-            return view;
-        }
-        view.setTaskId(task.getId());
-        view.setStatus(task.getStatus());
-        view.setMessage(publishTaskMessage(task));
-        view.setChangedDomains(resolvePublishTaskChangedDomains(task));
-        view.setRetryCount(task.getRetryCount());
-        view.setVerifyAttemptCount(task.getVerifyAttemptCount());
-        view.setNextRunAt(task.getNextRunAt());
-        view.setFinishedAt(task.getFinishedAt());
-        view.setPollAfterMillis(resolvePublishTaskPollAfterMillis(task));
-        if (includeWorkbench && isTerminalPublishTaskStatus(task.getStatus())) {
-            ProductMasterWorkbenchView workbench = buildTerminalPublishTaskWorkbenchView(task);
-            if (workbench != null) {
-                workbench.setPublishTask(buildPublishTaskView(task, false));
-                view.setWorkbench(workbench);
-            }
-        }
-        return view;
+        return requirePublishCommandService().buildTaskView(
+                task,
+                includeWorkbench,
+                this::buildTerminalPublishTaskWorkbenchView,
+                this::resolvePublishTaskChangedDomains
+        );
     }
 
     private ProductMasterWorkbenchView buildTerminalPublishTaskWorkbenchView(ProductPublishTaskRecord task) {
@@ -2188,64 +2081,15 @@ public class LocalDbProductMasterService {
     }
 
     private String publishTaskMessage(ProductPublishTaskRecord task) {
-        String status = task == null ? null : normalize(task.getStatus());
-        if ("queued".equalsIgnoreCase(status)) {
-            return "发布已排队，等待后台执行。";
-        }
-        if ("running".equalsIgnoreCase(status)) {
-            return "正在提交 Noon。";
-        }
-        if ("submitted".equalsIgnoreCase(status)) {
-            return "发布已提交，等待回读校验。";
-        }
-        if ("verifying".equalsIgnoreCase(status)) {
-            return "正在校验 Noon 结果。";
-        }
-        if ("pending_effective".equalsIgnoreCase(status)) {
-            return "Noon 可能延迟生效，系统将继续回读校验。";
-        }
-        if ("write_unknown".equalsIgnoreCase(status)) {
-            return "Noon 写入请求超时，系统只回读校验，不会自动重复写入。";
-        }
-        if ("verify_timeout".equalsIgnoreCase(status)) {
-            return "Noon 回读校验超时，系统稍后继续核对。";
-        }
-        if ("pending_manual_check".equalsIgnoreCase(status)) {
-            String changedDomainText = publishTaskChangedDomainText(task);
-            String targetText = StringUtils.hasText(changedDomainText)
-                    ? "【" + changedDomainText + "】"
-                    : "本次修改";
-            return "Noon 多轮回读仍未确认" + targetText + "已生效。诺诺草稿已保留，请在官方后台核对后选择重试发布或从 Noon 同步。";
-        }
-        if ("synced".equalsIgnoreCase(status)) {
-            return "发布已完成，本地基线已更新。";
-        }
-        if ("failed".equalsIgnoreCase(status)) {
-            if ("publish_conflict".equalsIgnoreCase(normalize(task.getErrorCode()))) {
-                return "该发布任务按旧冲突规则失败，诺诺草稿已保留。请重新点击发布当前修改，系统会按本地草稿覆盖 Noon 对应字段。";
-            }
-            return firstNonBlank(task.getErrorMessage(), "发布失败，诺诺草稿已保留。");
-        }
-        if ("cancelled".equalsIgnoreCase(status)) {
-            return "发布任务已取消。";
-        }
-        return firstNonBlank(task != null ? task.getErrorMessage() : null, "发布任务状态已更新。");
-    }
-
-    private long resolvePublishTaskPollAfterMillis(ProductPublishTaskRecord task) {
-        if (task == null || task.getNextRunAt() == null) {
-            return publishTaskDefaultPollAfterMillis;
-        }
-        long delay = java.time.Duration.between(LocalDateTime.now(), task.getNextRunAt()).toMillis();
-        return Math.max(publishTaskDefaultPollAfterMillis, Math.min(delay, 15000L));
+        return requirePublishCommandService().message(task, this::resolvePublishTaskChangedDomains);
     }
 
     private boolean isTerminalPublishTaskStatus(String status) {
-        return TERMINAL_PUBLISH_TASK_STATUSES.contains(normalize(status));
+        return requirePublishCommandService().isTerminalStatus(status);
     }
 
     private boolean isActivePublishTaskStatus(String status) {
-        return ACTIVE_PUBLISH_TASK_STATUSES.contains(normalize(status));
+        return requirePublishCommandService().isActiveStatus(status);
     }
 
     private boolean isPublishTaskWorkerMode() {
@@ -2261,10 +2105,7 @@ public class LocalDbProductMasterService {
         if (productMasterId == null) {
             return;
         }
-        ProductPublishTaskRecord activeTask = productManagementMapper.selectActiveProductPublishTask(productMasterId);
-        if (activeTask != null && isActivePublishTaskStatus(activeTask.getStatus())) {
-            throw new IllegalStateException(message);
-        }
+        requirePublishCommandService().ensureNoActiveTask(productMasterId, message);
     }
 
     private Long resolveProductMasterId(ProductMasterFetchCommand command) {
@@ -2277,10 +2118,6 @@ public class LocalDbProductMasterService {
             return null;
         }
         return productManagementMapper.selectProductMasterIdByStoreCode(command.getOwnerUserId(), storeCode, skuParent);
-    }
-
-    private String productPublishActiveLockKey(Long productMasterId) {
-        return productMasterId == null ? null : "product:" + productMasterId;
     }
 
     private ProductMasterFetchCommand buildFetchCommand(ProductPublishTaskRecord task) {
@@ -2454,9 +2291,7 @@ public class LocalDbProductMasterService {
     }
 
     private LocalDateTime nextPublishVerifyRunAt(ProductPublishTaskRecord task) {
-        int attempts = task != null && task.getVerifyAttemptCount() != null ? task.getVerifyAttemptCount() : 0;
-        int seconds = attempts <= 0 ? 10 : attempts == 1 ? 30 : 120;
-        return LocalDateTime.now().plusSeconds(seconds);
+        return requirePublishCommandService().nextVerifyRunAt(task);
     }
 
     private void updatePublishTaskStatus(
@@ -2469,60 +2304,16 @@ public class LocalDbProductMasterService {
             LocalDateTime finishedAt,
             Integer verifyAttemptCount
     ) {
-        LocalDateTime now = LocalDateTime.now();
-        String expectedStatus = task.getStatus();
-        String expectedLockedBy = task.getLockedBy();
-        int expectedVersionNo = taskVersionNo(task);
-        boolean releaseLock = shouldReleasePublishTaskLock(status);
-        LocalDateTime resolvedFinishedAt = finishedAt;
-        if (resolvedFinishedAt == null && isTerminalPublishTaskStatus(status)) {
-            resolvedFinishedAt = now;
-        }
-        int updated = productManagementMapper.updateProductPublishTaskStatus(
-                task.getId(),
-                expectedStatus,
-                expectedLockedBy,
-                expectedVersionNo,
+        requirePublishCommandService().updateStatus(
+                task,
                 status,
-                resultJson,
                 errorCode,
                 errorMessage,
+                resultJson,
                 nextRunAt,
-                "submitted".equalsIgnoreCase(status) ? now : null,
-                "verifying".equalsIgnoreCase(status) ? now : null,
-                isTerminalPublishTaskStatus(status) || "pending_effective".equalsIgnoreCase(status)
-                        || "verify_timeout".equalsIgnoreCase(status)
-                        || "pending_manual_check".equalsIgnoreCase(status) ? now : null,
-                resolvedFinishedAt,
-                verifyAttemptCount,
-                releaseLock,
-                task.getOwnerUserId()
+                finishedAt,
+                verifyAttemptCount
         );
-        if (updated <= 0) {
-            throw new PublishTaskFenceLostException(task, status);
-        }
-        task.setStatus(status);
-        task.setErrorCode(errorCode);
-        task.setErrorMessage(errorMessage);
-        task.setResultJson(resultJson);
-        task.setNextRunAt(nextRunAt);
-        task.setFinishedAt(resolvedFinishedAt);
-        task.setVersionNo(expectedVersionNo + 1);
-        if (releaseLock) {
-            task.setLockedBy(null);
-            task.setLockedAt(null);
-        }
-        if (verifyAttemptCount != null) {
-            task.setVerifyAttemptCount(verifyAttemptCount);
-        }
-    }
-
-    private int taskVersionNo(ProductPublishTaskRecord task) {
-        return task != null && task.getVersionNo() != null ? task.getVersionNo() : 0;
-    }
-
-    private boolean shouldReleasePublishTaskLock(String status) {
-        return !"submitted".equalsIgnoreCase(status) && !"verifying".equalsIgnoreCase(status);
     }
 
     private String buildTaskResultJson(
@@ -3027,21 +2818,7 @@ public class LocalDbProductMasterService {
     }
 
     private int recoverStaleRunningProductPublishTasks() {
-        try {
-            int recovered = productManagementMapper.recoverStaleRunningProductPublishTasks(
-                    Math.max(1, publishTaskStaleRunningMinutes),
-                    0L
-            );
-            if (recovered > 0) {
-                log.warn("product-management recovered stale running publish tasks count={}", recovered);
-            }
-            return recovered;
-        } catch (RuntimeException exception) {
-            if (isMissingProductPublishTaskTable(exception)) {
-                return 0;
-            }
-            throw exception;
-        }
+        return requirePublishCommandService().recoverStaleRunningTasks();
     }
 
     private void hydrateListSummaryState(
@@ -7181,23 +6958,6 @@ public class LocalDbProductMasterService {
                 return;
             }
             unsupportedSiteFields.computeIfAbsent(siteCode, ignored -> new LinkedHashSet<>()).add(field);
-        }
-    }
-
-    private static class PublishTaskFenceLostException extends IllegalStateException {
-
-        private final String targetStatus;
-
-        private PublishTaskFenceLostException(ProductPublishTaskRecord task, String targetStatus) {
-            super("发布任务锁已失效，跳过旧 worker 写回。taskId="
-                    + (task == null ? null : task.getId())
-                    + ", currentStatus=" + (task == null ? null : task.getStatus())
-                    + ", targetStatus=" + targetStatus);
-            this.targetStatus = targetStatus;
-        }
-
-        private String getTargetStatus() {
-            return targetStatus;
         }
     }
 
