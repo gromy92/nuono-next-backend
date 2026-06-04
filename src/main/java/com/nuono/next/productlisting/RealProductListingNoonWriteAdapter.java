@@ -11,9 +11,7 @@ import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
 import com.nuono.next.noonpull.NoonPullStoreBinding;
 import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -31,6 +29,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     private final NoonPullStoreBindingResolver bindingResolver;
     private final NoonPullGatewaySessionFactory sessionFactory;
     private final ProductListingRealWriteProperties properties;
+    private final ProductListingNoonWarehouseClient warehouseClient;
 
     public RealProductListingNoonWriteAdapter(
             ObjectMapper objectMapper,
@@ -42,6 +41,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         this.bindingResolver = bindingResolver;
         this.sessionFactory = sessionFactory;
         this.properties = properties == null ? new ProductListingRealWriteProperties() : properties;
+        this.warehouseClient = new ProductListingNoonWarehouseClient(objectMapper);
     }
 
     @Override
@@ -51,7 +51,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             ProductListingDraftCommand draft = requireDraft(request);
             NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
             NoonPullGatewaySession session = sessionFactory.login(binding);
-            Map<String, String> headers = writeHeaders(binding);
+            Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             ProductListingRealWriteProperties.Endpoints endpoints = properties.getEndpoints();
 
             JsonNode createProduct = postStep(
@@ -65,9 +65,16 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             String skuParent = requiredText(createProduct, "/products/0/parent/skuParent", "skuParent");
             String pskuCode = requiredText(createProduct, "/products/0/children/0/pskuCode", "pskuCode");
 
-            postStep(steps, "upsert_zsku", session, endpoints.getUpsertZskuUrl(), upsertZskuBody(draft, skuParent), headers);
-            postStep(steps, "upsert_offer", session, endpoints.getUpsertOfferUrl(), upsertOfferBody(draft, binding, pskuCode), headers);
+            postStep(steps, "sku_cache", session, endpoints.getSkuCacheUrl(), skuCacheBody(skuParent), headers);
+            postStep(steps, "upsert_zsku_base", session, endpoints.getUpsertZskuUrl(), upsertZskuBaseBody(draft, skuParent), headers);
+            postZskuContentStep(steps, "upsert_zsku_content_en", session, endpoints, draft, skuParent, "en", headers);
+            postZskuContentStep(steps, "upsert_zsku_content_ar", session, endpoints, draft, skuParent, "ar", headers);
             postStep(steps, "upsert_price", session, endpoints.getUpsertPriceUrl(), upsertPriceBody(request, draft, binding, pskuCode), headers);
+            if (properties.isOfferUpsertEnabled()) {
+                ProductListingNoonWarehouseClient.ResolvedWarehouseStock warehouseStock =
+                        warehouseClient.resolveWarehouseStock(session, endpoints, binding, draft, headers);
+                postStep(steps, "upsert_offer", session, endpoints.getUpsertOfferUrl(), upsertOfferBody(draft, binding, pskuCode, warehouseStock), headers);
+            }
             if (draft.getIdWarranty() != null) {
                 postStep(
                         steps,
@@ -116,16 +123,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 .build();
     }
 
-    private Map<String, String> writeHeaders(NoonPullStoreBinding binding) {
-        String siteCode = upper(binding.getSiteCode());
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("x-project", binding.getProjectCode());
-        headers.put("x-locale", "en-" + siteCode);
-        headers.put("Country-Code", siteCode);
-        headers.put("Id-Partner", binding.getPartnerId());
-        return headers;
-    }
-
     private JsonNode postStep(
             List<ProductListingNoonWriteStepResult> steps,
             String stepKey,
@@ -160,29 +157,81 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return root;
     }
 
-    private ObjectNode upsertZskuBody(ProductListingDraftCommand draft, String skuParent) {
+    private ObjectNode skuCacheBody(String skuParent) {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("skuParent", skuParent);
+        return root;
+    }
+
+    private ObjectNode upsertZskuBaseBody(ProductListingDraftCommand draft, String skuParent) {
         ProductFullTypeParts parts = productFullTypeParts(draft);
         ObjectNode root = objectMapper.createObjectNode();
         root.put("skuParent", skuParent);
         root.putArray("variants");
         root.put("lang", "en");
         ObjectNode attributes = root.putObject("attributes");
-        attributes.put("brand", firstNonBlank(draft.getProductBrand(), draft.getProductBrandCode(), "Generic"));
-        attributes.put("family", parts.family);
-        attributes.put("product_type", parts.productType);
-        attributes.put("product_subtype", parts.productSubType);
+        putIfHasText(attributes, "brand", firstNonBlank(draft.getProductBrand(), draft.getProductBrandCode(), "Generic"));
+        putIfHasText(attributes, "family", parts.family);
+        putIfHasText(attributes, "product_type", parts.productType);
+        putIfHasText(attributes, "product_subtype", parts.productSubType);
+        putIfHasText(attributes, "product_fulltype", draft.getProductFullType());
         attributes.put("item_condition", "new");
-        attributes.put("update_fulltype", "True");
-        if (StringUtils.hasText(draft.getProductTitleEn())) {
-            attributes.put("title_en", draft.getProductTitleEn());
+        attributes.put("update_fulltype", true);
+        return root;
+    }
+
+    private void postZskuContentStep(
+            List<ProductListingNoonWriteStepResult> steps,
+            String stepKey,
+            NoonPullGatewaySession session,
+            ProductListingRealWriteProperties.Endpoints endpoints,
+            ProductListingDraftCommand draft,
+            String skuParent,
+            String lang,
+            Map<String, String> headers
+    ) {
+        ObjectNode body = upsertZskuContentBody(draft, skuParent, lang);
+        if (body.path("attributes").size() == 0) {
+            return;
         }
-        if (StringUtils.hasText(draft.getProductTitleAr())) {
-            attributes.put("title_ar", draft.getProductTitleAr());
+        postStep(steps, stepKey, session, endpoints.getUpsertZskuUrl(), body, headers);
+    }
+
+    private ObjectNode upsertZskuContentBody(ProductListingDraftCommand draft, String skuParent, String lang) {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("skuParent", skuParent);
+        root.putArray("variants");
+        root.put("lang", lang);
+        ObjectNode attributes = root.putObject("attributes");
+        if ("ar".equals(lang)) {
+            putIfHasText(attributes, "product_title", draft.getProductTitleAr());
+            return root;
+        }
+
+        attributes.put("grade", "new");
+        putIfHasText(attributes, "product_title", draft.getProductTitleEn());
+        if (draft.getImageUrls() != null) {
+            int index = 1;
+            for (String imageUrl : draft.getImageUrls()) {
+                if (!StringUtils.hasText(imageUrl)) {
+                    continue;
+                }
+                putIfHasText(attributes, "image_url_" + index, imageUrl);
+                index++;
+                if (index > 15) {
+                    break;
+                }
+            }
         }
         return root;
     }
 
-    private ObjectNode upsertOfferBody(ProductListingDraftCommand draft, NoonPullStoreBinding binding, String pskuCode) {
+    private ObjectNode upsertOfferBody(
+            ProductListingDraftCommand draft,
+            NoonPullStoreBinding binding,
+            String pskuCode,
+            ProductListingNoonWarehouseClient.ResolvedWarehouseStock warehouseStock
+    ) {
         ObjectNode root = objectMapper.createObjectNode();
         ObjectNode psku = root.putArray("pskus").addObject();
         psku.put("pskuCode", pskuCode);
@@ -196,12 +245,13 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         if (draft.getPrice() != null) {
             psku.put("price", draft.getPrice());
         }
-        if (Boolean.TRUE.equals(draft.getFbp())
-                && StringUtils.hasText(draft.getWarehouseId())
-                && draft.getQuantity() != null) {
+        if (warehouseStock != null && draft.getQuantity() != null) {
             ObjectNode stock = psku.putArray("stocks").addObject();
-            stock.put("idWarehouse", draft.getWarehouseId());
-            stock.put("whCode", draft.getWarehouseId());
+            stock.put("idWarehouse", warehouseStock.getIdWarehouse());
+            putIfHasText(stock, "whCode", warehouseStock.getWarehouseCode());
+            if (warehouseStock.getIdProcessingTime() != null) {
+                stock.put("idProcessingTime", warehouseStock.getIdProcessingTime());
+            }
             stock.put("quantity", String.valueOf(draft.getQuantity()));
             stock.put("stockUpdated", true);
         }
@@ -280,8 +330,14 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return "";
     }
 
+    private void putIfHasText(ObjectNode target, String field, String value) {
+        if (StringUtils.hasText(value)) {
+            target.put(field, value.trim());
+        }
+    }
+
     private String upper(String value) {
-        return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";
+        return ProductListingNoonHeaders.upper(value);
     }
 
     private static class ProductFullTypeParts {

@@ -21,13 +21,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProductListingController {
 
     private final ProductListingService service;
+    private final ProductListingWarehouseProvider warehouseProvider;
     private final BusinessAccessResolver businessAccessResolver;
 
     public ProductListingController(
             ProductListingService service,
+            ProductListingWarehouseProvider warehouseProvider,
             BusinessAccessResolver businessAccessResolver
     ) {
         this.service = service;
+        this.warehouseProvider = warehouseProvider;
         this.businessAccessResolver = businessAccessResolver;
     }
 
@@ -144,11 +147,38 @@ public class ProductListingController {
         }
     }
 
+    @GetMapping("/warehouses")
+    public List<ProductListingWarehouseView> warehouses(
+            @RequestParam String storeCode,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING,
+                    storeCode
+            );
+            return warehouseProvider.listWarehouses(resolveOwnerUserId(context, storeCode), storeCode);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    private Long resolveOwnerUserId(BusinessAccessContext context, String storeCode) {
+        Long storeOwnerUserId = context == null ? null : context.resolveOwnerUserIdForStore(storeCode);
+        if (storeOwnerUserId != null) {
+            return storeOwnerUserId;
+        }
+        return context == null ? null : context.getBusinessOwnerUserId();
+    }
+
     private ResponseStatusException forbidden(BusinessAccessDeniedException exception) {
         return new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
     }
 
-    private ResponseStatusException badRequest(IllegalArgumentException exception) {
+    private ResponseStatusException badRequest(RuntimeException exception) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
     }
 }

@@ -68,7 +68,8 @@ final class ProductListingTestFixtures {
         command.setSupplyEvidenceRefId(43101L);
         command.setOptionalPurchaseOrderId(70001L);
         command.setFbp(true);
-        command.setWarehouseId("W00752151SA");
+        command.setWarehouseId("73001");
+        command.setWarehouseCode("W00752151SA");
         command.setQuantity(100);
         command.setIdWarranty(24);
         command.setBarcode("6290000000001");

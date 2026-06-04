@@ -25,6 +25,7 @@ public class ProductListingDraftCommand {
     private Long optionalPurchaseOrderId;
     private Boolean fbp;
     private String warehouseId;
+    private String warehouseCode;
     private Integer quantity;
     private Integer idWarranty;
     private String barcode;
@@ -187,6 +188,14 @@ public class ProductListingDraftCommand {
 
     public void setWarehouseId(String warehouseId) {
         this.warehouseId = warehouseId;
+    }
+
+    public String getWarehouseCode() {
+        return warehouseCode;
+    }
+
+    public void setWarehouseCode(String warehouseCode) {
+        this.warehouseCode = warehouseCode;
     }
 
     public Integer getQuantity() {

@@ -14,6 +14,7 @@ import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
 import com.nuono.next.noonpull.NoonPullStoreBinding;
 import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ class RealProductListingNoonWriteAdapterTest {
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
         ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
         properties.setEnabled(true);
+        properties.setOfferUpsertEnabled(true);
         RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
                 objectMapper,
                 bindingResolver,
@@ -36,14 +38,21 @@ class RealProductListingNoonWriteAdapterTest {
                 properties
         );
 
-        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+        ProductListingNoonWriteRequest request = writeRequest();
+        request.getDraft().setWarehouseId("W00752151SA");
+        request.getDraft().setWarehouseCode(null);
+
+        ProductListingNoonWriteResult result = adapter.execute(request);
 
         assertTrue(result.isSuccess());
         assertEquals(List.of(
                 "create_product",
-                "upsert_zsku",
-                "upsert_offer",
+                "sku_cache",
+                "upsert_zsku_base",
+                "upsert_zsku_content_en",
+                "upsert_zsku_content_ar",
                 "upsert_price",
+                "upsert_offer",
                 "upsert_warranty",
                 "upsert_barcode"
         ), result.getSteps().stream()
@@ -52,7 +61,8 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals(10002L, bindingResolver.request.getOwnerUserId());
         assertEquals("STR245027-NAE", bindingResolver.request.getStoreCode());
         assertEquals(NoonPullDataDomain.PRODUCT, bindingResolver.request.getDataDomain());
-        assertEquals(6, sessionFactory.session.calls.size());
+        assertEquals(9, sessionFactory.session.calls.size());
+        assertEquals(1, sessionFactory.session.readCalls.size());
 
         FakeSession.Call createProduct = sessionFactory.session.calls.get(0);
         assertEquals(
@@ -65,36 +75,107 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals("NN-TEST-PSKU", createProduct.body.at("/productCreate/0/variations/0/partnerSku").asText());
         assertEquals(false, createProduct.body.at("/productCreate/0/gated_zsku").asBoolean());
 
-        JsonNode upsertZsku = sessionFactory.session.calls.get(1).body;
-        assertEquals("ZPARENT", upsertZsku.at("/skuParent").asText());
-        assertEquals("Generic", upsertZsku.at("/attributes/brand").asText());
-        assertEquals("electronic_accessories", upsertZsku.at("/attributes/family").asText());
-        assertEquals("headphones", upsertZsku.at("/attributes/product_type").asText());
-        assertEquals("wired_headphones", upsertZsku.at("/attributes/product_subtype").asText());
-        assertEquals("new", upsertZsku.at("/attributes/item_condition").asText());
+        FakeSession.Call skuCache = sessionFactory.session.calls.get(1);
+        assertEquals(ProductListingRealWriteProperties.Endpoints.DEFAULT_SKU_CACHE_URL, skuCache.url);
+        assertEquals("ZPARENT", skuCache.body.at("/skuParent").asText());
 
-        JsonNode offer = sessionFactory.session.calls.get(2).body;
+        JsonNode upsertZskuBase = sessionFactory.session.calls.get(2).body;
+        assertEquals("ZPARENT", upsertZskuBase.at("/skuParent").asText());
+        assertEquals("Generic", upsertZskuBase.at("/attributes/brand").asText());
+        assertEquals("electronic_accessories", upsertZskuBase.at("/attributes/family").asText());
+        assertEquals("headphones", upsertZskuBase.at("/attributes/product_type").asText());
+        assertEquals("wired_headphones", upsertZskuBase.at("/attributes/product_subtype").asText());
+        assertEquals("electronic_accessories-headphones-wired_headphones", upsertZskuBase.at("/attributes/product_fulltype").asText());
+        assertEquals("new", upsertZskuBase.at("/attributes/item_condition").asText());
+        assertTrue(upsertZskuBase.at("/attributes/update_fulltype").asBoolean());
+
+        JsonNode contentEn = sessionFactory.session.calls.get(3).body;
+        assertEquals("en", contentEn.at("/lang").asText());
+        assertEquals("Wired headphones with microphone", contentEn.at("/attributes/product_title").asText());
+        assertEquals("https://example.test/images/sku-main.jpg", contentEn.at("/attributes/image_url_1").asText());
+
+        JsonNode contentAr = sessionFactory.session.calls.get(4).body;
+        assertEquals("ar", contentAr.at("/lang").asText());
+        assertEquals("Arabic wired headphones title", contentAr.at("/attributes/product_title").asText());
+
+        JsonNode price = sessionFactory.session.calls.get(5).body;
+        assertEquals("PSKU_CODE_1", price.at("/pskuCode").asText());
+        assertEquals("NN-TEST-PSKU", price.at("/partnerSku").asText());
+        assertEquals("manual", price.at("/pricingMethod").asText());
+
+        JsonNode offer = sessionFactory.session.calls.get(6).body;
         assertEquals("PSKU_CODE_1", offer.at("/pskus/0/pskuCode").asText());
         assertEquals("AE", offer.at("/pskus/0/country").asText());
         assertEquals(1, offer.at("/pskus/0/isActive").asInt());
         assertEquals("manual", offer.at("/pskus/0/pricingMethod").asText());
         assertEquals(0, offer.at("/pskus/0/price").decimalValue().compareTo(new BigDecimal("49.90")));
-        assertEquals("W00752151SA", offer.at("/pskus/0/stocks/0/idWarehouse").asText());
+        assertEquals("73001", offer.at("/pskus/0/stocks/0/idWarehouse").asText());
+        assertEquals("W00752151SA", offer.at("/pskus/0/stocks/0/whCode").asText());
+        assertEquals(11, offer.at("/pskus/0/stocks/0/idProcessingTime").asInt());
         assertEquals("100", offer.at("/pskus/0/stocks/0/quantity").asText());
 
-        JsonNode price = sessionFactory.session.calls.get(3).body;
-        assertEquals("PSKU_CODE_1", price.at("/pskuCode").asText());
-        assertEquals("NN-TEST-PSKU", price.at("/partnerSku").asText());
-        assertEquals("manual", price.at("/pricingMethod").asText());
-
-        JsonNode warranty = sessionFactory.session.calls.get(4).body;
+        JsonNode warranty = sessionFactory.session.calls.get(7).body;
         assertEquals("PSKU_CODE_1", warranty.at("/pskuCode").asText());
         assertEquals(24, warranty.at("/idWarranty").asInt());
 
-        JsonNode barcode = sessionFactory.session.calls.get(5).body;
+        JsonNode barcode = sessionFactory.session.calls.get(8).body;
         assertEquals("NN-TEST-PSKU", barcode.at("/barcodeReqList/0/partnerSku").asText());
         assertEquals("6290000000001", barcode.at("/barcodeReqList/0/partnerBarcode").asText());
         assertTrue(barcode.at("/forceMapping").asBoolean());
+    }
+
+    @Test
+    void realAdapterUsesNumericWarehouseIdWhenDraftCarriesResolvedWarehouse() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setOfferUpsertEnabled(true);
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                objectMapper,
+                new FakeBindingResolver(),
+                sessionFactory,
+                properties
+        );
+        ProductListingNoonWriteRequest request = writeRequest();
+        request.getDraft().setWarehouseId("73001");
+        request.getDraft().setWarehouseCode("W00752151SA");
+
+        ProductListingNoonWriteResult result = adapter.execute(request);
+
+        assertTrue(result.isSuccess());
+        assertEquals(0, sessionFactory.session.readCalls.size());
+        JsonNode offer = sessionFactory.session.calls.get(6).body;
+        assertEquals("73001", offer.at("/pskus/0/stocks/0/idWarehouse").asText());
+        assertEquals("W00752151SA", offer.at("/pskus/0/stocks/0/whCode").asText());
+        assertTrue(offer.at("/pskus/0/stocks/0/idProcessingTime").isMissingNode());
+    }
+
+    @Test
+    void realAdapterSkipsOfferUpsertByDefault() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                new ProductListingRealWriteProperties()
+        );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(result.isSuccess());
+        assertEquals(0, sessionFactory.session.readCalls.size());
+        assertEquals(List.of(
+                "create_product",
+                "sku_cache",
+                "upsert_zsku_base",
+                "upsert_zsku_content_en",
+                "upsert_zsku_content_ar",
+                "upsert_price",
+                "upsert_warranty",
+                "upsert_barcode"
+        ), result.getSteps().stream()
+                .map(ProductListingNoonWriteStepResult::getStepKey)
+                .collect(Collectors.toList()));
     }
 
     private ProductListingNoonWriteRequest writeRequest() {
@@ -145,10 +226,11 @@ class RealProductListingNoonWriteAdapterTest {
     private static class FakeSession implements NoonPullGatewaySession {
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final List<Call> calls = new ArrayList<>();
+        private final List<Call> readCalls = new ArrayList<>();
 
         @Override
         public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            throw new AssertionError("real listing adapter must use postWriteJson for Noon writes");
+            throw new AssertionError("real listing adapter warehouse lookup must use Noon GET endpoint");
         }
 
         @Override
@@ -167,7 +249,15 @@ class RealProductListingNoonWriteAdapterTest {
 
         @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
-            throw new AssertionError("real listing adapter must not download files in this skeleton");
+            readCalls.add(new Call(url, null, withProject, extraHeaders));
+            if (!ProductListingRealWriteProperties.Endpoints.DEFAULT_WAREHOUSE_LIST_URL.equals(url)) {
+                throw new AssertionError("unexpected read call " + url);
+            }
+            return ("[{\"warehouseCode\":\"W00752151SA\","
+                    + "\"idPartnerWarehouse\":73001,"
+                    + "\"defaultIdProcessingTime\":11,"
+                    + "\"isWarehouseActive\":true,"
+                    + "\"onboardingStatus\":\"active\"}]").getBytes(StandardCharsets.UTF_8);
         }
 
         private static class Call {
