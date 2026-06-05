@@ -83,8 +83,6 @@ public class LocalDbProductMasterService {
             NoonProductGateway.PRICING_INFO_URL;
     private static final String STOCK_INFO_URL =
             NoonProductGateway.STOCK_INFO_URL;
-    private static final String OFFER_UPSERT_URL =
-            NoonProductGateway.OFFER_UPSERT_URL;
     private static final String PRICING_METHOD_MANUAL = "manual";
     private static final Set<String> EXPLICIT_CLEARABLE_OFFER_FIELDS = Set.of(
             "salePrice",
@@ -97,8 +95,6 @@ public class LocalDbProductMasterService {
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter NOON_OFFER_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
-    private static final ZoneId PRODUCT_MANAGEMENT_ZONE = ZoneId.of("Asia/Shanghai");
-    private static final int DEFAULT_SALE_WINDOW_YEARS = 10;
 
     private final ProductManagementMapper productManagementMapper;
     private final StoreSyncMapper storeSyncMapper;
@@ -115,6 +111,7 @@ public class LocalDbProductMasterService {
     private final ProductPublishChangedDomainComparator productPublishChangedDomainComparator;
     private final ProductPublishUnsupportedChangesDetector productPublishUnsupportedChangesDetector;
     private final ProductPublishSupportedSnapshotBuilder productPublishSupportedSnapshotBuilder;
+    private final ProductPublishOfferWriter productPublishOfferWriter;
     private final ProductPublishWriteService productPublishWriteService;
     private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
@@ -191,6 +188,7 @@ public class LocalDbProductMasterService {
                 objectMapper,
                 new ProductPublishPlanner(productDraftMergePolicy)
         );
+        this.productPublishOfferWriter = new ProductPublishOfferWriter(objectMapper, productNoonAdapter);
         this.productPublishWriteService = new ProductPublishWriteService(
                 storeSyncMapper,
                 productNoonAdapter,
@@ -270,7 +268,7 @@ public class LocalDbProductMasterService {
                             Map<String, Object> siteOffer,
                             List<String> actionWarnings
                     ) {
-                        LocalDbProductMasterService.this.publishOffer(session, pskuCode, siteOffer, actionWarnings);
+                        productPublishOfferWriter.publishOffer(session, pskuCode, siteOffer, actionWarnings);
                     }
                 }
         );
@@ -3812,58 +3810,6 @@ public class LocalDbProductMasterService {
         return body;
     }
 
-    private void publishOffer(
-            NoonSession session,
-            String pskuCode,
-            Map<String, Object> siteOffer,
-            List<String> actionWarnings
-    ) {
-        String resolvedSite = resolveOfferPublishSite(siteOffer);
-        ObjectNode body = buildOfferUpsertBodyForPublish(pskuCode, siteOffer);
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("X-Locale", "en-" + resolvedSite.toUpperCase());
-        productNoonAdapter.postWriteJson(session, OFFER_UPSERT_URL, body, true, headers);
-        if (siteOffer.get("fbnStock") != null || siteOffer.get("supermallStock") != null || siteOffer.get("fbpStock") != null) {
-            actionWarnings.add("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。");
-        }
-    }
-
-    private ObjectNode buildOfferUpsertBodyForPublish(String pskuCode, Map<String, Object> siteOffer) {
-        requireText(pskuCode, textValue(siteOffer.get("site")) + " / " + siteOfferCode(siteOffer) + " 缺少 pskuCode，暂时不能发布站点经营字段。");
-        ObjectNode body = objectMapper.createObjectNode();
-        ArrayNode pskus = body.putArray("pskus");
-        ObjectNode offerNode = pskus.addObject();
-        offerNode.put("pskuCode", pskuCode);
-        offerNode.put("country", resolveOfferPublishSite(siteOffer).toLowerCase());
-        if (hasOfferFieldValue(siteOffer, "isActive")) {
-            offerNode.put("isActive", truthy(siteOffer.get("isActive")) ? 1 : 0);
-        }
-        offerNode.put("pricingMethod", PRICING_METHOD_MANUAL);
-        setDecimalNode(offerNode, "price", siteOffer.get("price"));
-        setDecimalNode(offerNode, "salePrice", siteOffer.get("salePrice"));
-        setDecimalNode(offerNode, "priceMin", siteOffer.get("priceMin"));
-        setDecimalNode(offerNode, "priceMax", siteOffer.get("priceMax"));
-        Map<String, String> saleWindow = saleWindowForPublish(siteOffer);
-        putIfHasText(offerNode, "saleStart", saleWindow.get("saleStart"));
-        putIfHasText(offerNode, "saleEnd", saleWindow.get("saleEnd"));
-        if (hasOfferFieldValue(siteOffer, "idWarranty")) {
-            offerNode.put("idWarranty", parseInteger(siteOffer.get("idWarranty"), 0));
-        }
-        putIfHasText(offerNode, "offerNote", siteOffer.get("offerNote"));
-        offerNode.putNull("pricingRule");
-        offerNode.putNull("priceEngineMin");
-        offerNode.putNull("priceEngineMax");
-        return body;
-    }
-
-    private String resolveOfferPublishSite(Map<String, Object> siteOffer) {
-        return firstNonBlank(
-                textValue(siteOffer.get("site")),
-                deriveSiteFromStoreCode(siteOfferCode(siteOffer)),
-                "AE"
-        );
-    }
-
     private Map<String, Map<String, Object>> keyAttributeMap(List<Map<String, Object>> keyAttributes) {
         Map<String, Map<String, Object>> map = new LinkedHashMap<>();
         if (keyAttributes == null) {
@@ -4149,30 +4095,7 @@ public class LocalDbProductMasterService {
     }
 
     private Map<String, String> saleWindowForPublish(Map<String, Object> siteOffer) {
-        Map<String, String> saleWindow = new LinkedHashMap<>();
-        if (siteOffer == null) {
-            return saleWindow;
-        }
-
-        String saleStart = normalizeOfferDateForNoon(siteOffer.get("saleStart"));
-        String saleEnd = normalizeOfferDateForNoon(siteOffer.get("saleEnd"));
-        if (asBigDecimal(siteOffer.get("salePrice")) != null) {
-            LocalDate today = LocalDate.now(PRODUCT_MANAGEMENT_ZONE);
-            if (!StringUtils.hasText(saleStart)) {
-                saleStart = today.format(NOON_OFFER_DATE_FORMATTER);
-            }
-            if (!StringUtils.hasText(saleEnd)) {
-                saleEnd = today.plusYears(DEFAULT_SALE_WINDOW_YEARS).format(NOON_OFFER_DATE_FORMATTER);
-            }
-        }
-
-        if (StringUtils.hasText(saleStart)) {
-            saleWindow.put("saleStart", saleStart);
-        }
-        if (StringUtils.hasText(saleEnd)) {
-            saleWindow.put("saleEnd", saleEnd);
-        }
-        return saleWindow;
+        return productPublishOfferWriter.saleWindowForPublish(siteOffer);
     }
 
     private void setObjectNodeValue(ObjectNode target, String key, Object value) {
@@ -4204,15 +4127,6 @@ public class LocalDbProductMasterService {
             return;
         }
         target.put(key, String.valueOf(value));
-    }
-
-    private void setDecimalNode(ObjectNode target, String key, Object value) {
-        BigDecimal decimal = asBigDecimal(value);
-        if (decimal == null) {
-            target.putNull(key);
-            return;
-        }
-        target.put(key, decimal);
     }
 
     private Map<String, Object> buildStoreContext(
