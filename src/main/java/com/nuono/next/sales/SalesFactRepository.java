@@ -29,4 +29,12 @@ public interface SalesFactRepository {
     default List<SalesImportExceptionRecord> listImportExceptions(Long batchId) {
         return List.of();
     }
+
+    default void markSiteOffersNotListedForEmptyReport(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            Long updatedBy
+    ) {
+    }
 }

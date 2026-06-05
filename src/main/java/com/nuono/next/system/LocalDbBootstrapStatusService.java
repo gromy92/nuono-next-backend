@@ -92,11 +92,16 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/072_procurement_ali1688_historical_order_excel_import.sql",
                 "classpath:db/init/073_procurement_ali1688_order_assignment.sql",
                 "classpath:db/init/074_procurement_ali1688_order_cleanup_audit.sql",
+                "classpath:db/init/074_product_site_offer_listing_started_at.sql",
+                "classpath:db/init/074_product_variant_spec.sql",
                 "classpath:db/init/075_procurement_ali1688_order_consumable_assignment.sql",
                 "classpath:db/init/076_procurement_ali1688_order_product_link.sql",
                 "classpath:db/init/077_procurement_ali1688_order_product_link_audit.sql",
                 "classpath:db/init/078_procurement_ali1688_sku_purchase_batch.sql",
-                "classpath:db/init/079_procurement_ali1688_order_assignment_active_guards.sql"
+                "classpath:db/init/079_product_site_offer_data_missing_site_coverage.sql",
+                "classpath:db/init/079_procurement_ali1688_order_assignment_active_guards.sql",
+                "classpath:db/init/080_product_listing_dry_run.sql",
+                "classpath:db/init/081_product_listing_menu_permission.sql"
             ));
         return payload;
     }

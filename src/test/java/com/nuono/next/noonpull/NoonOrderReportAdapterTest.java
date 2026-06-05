@@ -60,6 +60,62 @@ class NoonOrderReportAdapterTest {
     }
 
     @Test
+    void shouldRejectOrderReportWhenAllRowsAreOutsideRequestedWindow() {
+        InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
+        NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
+                writer,
+                Clock.fixed(Instant.parse("2026-05-22T01:00:00Z"), ZoneOffset.UTC)
+        );
+
+        NoonReportProcessResult result = adapter.process(fileForWindow(
+                LocalDate.of(2025, 11, 28),
+                LocalDate.of(2025, 12, 27),
+                "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
+                        + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
+                        + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
+                        + "108065,SA,SA,SA,,NSAI50094671190-1,PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
+                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                        + "2026-05-19 23:29:16,,\n"
+        ));
+
+        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
+        assertEquals(0, result.getImportedCount());
+        assertTrue(writer.facts.isEmpty());
+        assertTrue(result.getDiagnosticMessage().contains("provider_reused_latest_export"));
+        assertTrue(result.getDiagnosticMessage().contains("requested=2025-11-28..2025-12-27"));
+        assertTrue(result.getDiagnosticMessage().contains("actual=2026-05-19..2026-05-19"));
+    }
+
+    @Test
+    void shouldRejectMixedWindowOrderReportBeforeWritingAnyFacts() {
+        InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
+        NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
+                writer,
+                Clock.fixed(Instant.parse("2026-05-22T01:00:00Z"), ZoneOffset.UTC)
+        );
+
+        NoonReportProcessResult result = adapter.process(fileForWindow(
+                LocalDate.of(2026, 5, 19),
+                LocalDate.of(2026, 5, 19),
+                "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
+                        + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
+                        + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
+                        + "108065,SA,SA,SA,,NSAI50094671190-1,PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
+                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                        + "2026-05-19 23:29:16,,\n"
+                        + "108065,SA,SA,SA,,NSAI50094671191-1,PAPERSAYSB360,Z02AD5F198C0C2E813C31Z-1,"
+                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                        + "2026-05-20 00:01:00,,\n"
+        ));
+
+        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
+        assertTrue(writer.facts.isEmpty());
+        assertTrue(result.getDiagnosticMessage().contains("requested=2026-05-19..2026-05-19"));
+        assertTrue(result.getDiagnosticMessage().contains("actual=2026-05-19..2026-05-20"));
+        assertTrue(result.getDiagnosticMessage().contains("outside_rows=1"));
+    }
+
+    @Test
     void shouldClassifyMissingColumnsAndReadinessAwareEmptyReports() {
         NoonOrderReportAdapter afterReady = new NoonOrderReportAdapter(
                 new InMemoryOrderFactWriter(),
@@ -144,6 +200,10 @@ class NoonOrderReportAdapterTest {
     }
 
     private NoonReportDownloadedFile file(String content) {
+        return fileForWindow(LocalDate.of(2026, 5, 19), LocalDate.of(2026, 5, 19), content);
+    }
+
+    private NoonReportDownloadedFile fileForWindow(LocalDate dateFrom, LocalDate dateTo, String content) {
         return new NoonReportDownloadedFile(
                 NoonReportPullRequest.builder()
                         .ownerUserId(10002L)
@@ -151,8 +211,8 @@ class NoonOrderReportAdapterTest {
                         .siteCode("AE")
                         .dataDomain(NoonPullDataDomain.ORDER)
                         .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
-                        .dateFrom(LocalDate.of(2026, 5, 19))
-                        .dateTo(LocalDate.of(2026, 5, 19))
+                        .dateFrom(dateFrom)
+                        .dateTo(dateTo)
                         .build(),
                 "EXP-ORDER-1",
                 "noon-report-order-1001-abcdef12",

@@ -6865,6 +6865,10 @@ public class LocalDbProductMasterService {
         copy.setDetailBaselineStatus(source.getDetailBaselineStatus());
         copy.setDetailBaselineMessage(source.getDetailBaselineMessage());
         copy.setDetailBaselineSyncedAt(source.getDetailBaselineSyncedAt());
+        copy.setProductVariantSpecStatus(source.getProductVariantSpecStatus());
+        copy.setProductVariantSpecTotalCount(source.getProductVariantSpecTotalCount());
+        copy.setProductVariantSpecReadyCount(source.getProductVariantSpecReadyCount());
+        copy.setProductVariantSpecMaintainedCount(source.getProductVariantSpecMaintainedCount());
         copy.setVariantCount(source.getVariantCount());
         copy.setSiteOfferCount(source.getSiteOfferCount());
         copy.setHistoryMetaReady(source.getHistoryMetaReady());
@@ -6928,6 +6932,16 @@ public class LocalDbProductMasterService {
         item.setDetailBaselineStatus(firstNonBlank(summary.getDetailBaselineStatus(), item.getDetailBaselineStatus()));
         item.setDetailBaselineMessage(firstNonBlank(summary.getDetailBaselineMessage(), item.getDetailBaselineMessage()));
         item.setDetailBaselineSyncedAt(firstNonBlank(summary.getDetailBaselineSyncedAt(), item.getDetailBaselineSyncedAt()));
+        item.setProductVariantSpecStatus(firstNonBlank(summary.getProductVariantSpecStatus(), item.getProductVariantSpecStatus()));
+        item.setProductVariantSpecTotalCount(summary.getProductVariantSpecTotalCount() != null
+                ? summary.getProductVariantSpecTotalCount()
+                : item.getProductVariantSpecTotalCount());
+        item.setProductVariantSpecReadyCount(summary.getProductVariantSpecReadyCount() != null
+                ? summary.getProductVariantSpecReadyCount()
+                : item.getProductVariantSpecReadyCount());
+        item.setProductVariantSpecMaintainedCount(summary.getProductVariantSpecMaintainedCount() != null
+                ? summary.getProductVariantSpecMaintainedCount()
+                : item.getProductVariantSpecMaintainedCount());
         item.setVariantCount(summary.getVariantCount() != null ? summary.getVariantCount() : item.getVariantCount());
         item.setSiteOfferCount(summary.getSiteOfferCount() != null ? summary.getSiteOfferCount() : item.getSiteOfferCount());
         item.setHistoryMetaReady(summary.getHistoryMetaReady() != null ? summary.getHistoryMetaReady() : item.getHistoryMetaReady());

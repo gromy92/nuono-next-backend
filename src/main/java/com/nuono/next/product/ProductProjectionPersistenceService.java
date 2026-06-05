@@ -1254,26 +1254,39 @@ public class ProductProjectionPersistenceService {
         }
         List<String> activeStoreCodes = new ArrayList<>();
         for (SiteSeed siteSeed : siteSeeds) {
-            if (!StringUtils.hasText(siteSeed.getStoreCode())) {
+            String storeCode = normalize(siteSeed.getStoreCode());
+            if (!StringUtils.hasText(storeCode)) {
                 continue;
             }
-            activeStoreCodes.add(normalize(siteSeed.getStoreCode()));
-            Long existingId = productManagementMapper.selectLogicalStoreSiteId(normalize(siteSeed.getStoreCode()));
+            Long ownerLogicalStoreId = productManagementMapper.selectLogicalStoreIdBySiteStoreCode(storeCode);
+            if (ownerLogicalStoreId != null && !Objects.equals(ownerLogicalStoreId, logicalStoreId)) {
+                throw new IllegalStateException(
+                        "站点编码 "
+                                + storeCode
+                                + " 已归属于其他逻辑店铺 "
+                                + ownerLogicalStoreId
+                                + "，不能写入当前逻辑店铺 "
+                                + logicalStoreId
+                                + "。"
+                );
+            }
+            activeStoreCodes.add(storeCode);
+            Long existingId = productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(logicalStoreId, storeCode);
             Long id = existingId != null ? existingId : productManagementMapper.nextLogicalStoreSiteId();
             productManagementMapper.upsertLogicalStoreSite(
                     id,
                     logicalStoreId,
-                    normalize(siteSeed.getStoreCode()),
+                    storeCode,
                     normalize(siteSeed.getSite()),
                     normalize(referenceStoreCode) != null
-                            && normalize(referenceStoreCode).equalsIgnoreCase(normalize(siteSeed.getStoreCode())),
+                            && normalize(referenceStoreCode).equalsIgnoreCase(storeCode),
                     siteSeed.isMounted(),
                     normalize(siteSeed.getSiteStatus()),
                     updatedBy
             );
-            Long siteId = productManagementMapper.selectLogicalStoreSiteId(normalize(siteSeed.getStoreCode()));
+            Long siteId = productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(logicalStoreId, storeCode);
             if (siteId != null) {
-                siteIdMap.put(normalize(siteSeed.getStoreCode()), siteId);
+                siteIdMap.put(storeCode, siteId);
             }
         }
         if (!activeStoreCodes.isEmpty()) {
@@ -1517,6 +1530,8 @@ public class ProductProjectionPersistenceService {
         view.setIsActive(record.getCurrentSiteActiveFlag() == null ? null : record.getCurrentSiteActiveFlag() > 0);
         view.setLiveStatus(firstNonBlank(record.getCurrentSiteLiveStatus(), firstListItem(record.liveStatuses())));
         view.setStatusCode(record.getCurrentSiteStatusCode());
+        view.setListingStartedAt(record.getListingStartedAt());
+        view.setListingStartedSource(record.getListingStartedSource());
         view.setSyncStatus(record.getSyncStatus());
         view.setLastSyncedAt(record.getLastSyncedAt());
         view.setLastDraftSavedAt(record.getLastDraftSavedAt());
@@ -1527,6 +1542,17 @@ public class ProductProjectionPersistenceService {
         } else {
             view.setDetailBaselineMessage("缺少详情基线。");
         }
+        int specTotalCount = positiveOrZero(record.getProductVariantSpecTotalCount());
+        int specReadyCount = positiveOrZero(record.getProductVariantSpecReadyCount());
+        int specMaintainedCount = positiveOrZero(record.getProductVariantSpecMaintainedCount());
+        view.setProductVariantSpecTotalCount(specTotalCount);
+        view.setProductVariantSpecReadyCount(specReadyCount);
+        view.setProductVariantSpecMaintainedCount(specMaintainedCount);
+        view.setProductVariantSpecStatus(resolveProductVariantSpecStatus(
+                specTotalCount,
+                specReadyCount,
+                specMaintainedCount
+        ));
         view.setVariantCount(record.getVariantCount());
         view.setSiteOfferCount(record.getSiteOfferCount());
         view.setSiteLabels(new ArrayList<>(record.siteLabels()));
@@ -1726,6 +1752,23 @@ public class ProductProjectionPersistenceService {
         return null;
     }
 
+    private int positiveOrZero(Integer value) {
+        return value == null || value < 0 ? 0 : value;
+    }
+
+    private String resolveProductVariantSpecStatus(int totalCount, int readyCount, int maintainedCount) {
+        if (totalCount <= 0) {
+            return "not_found";
+        }
+        if (readyCount >= totalCount) {
+            return "ready";
+        }
+        if (maintainedCount <= 0) {
+            return "not_found";
+        }
+        return "incomplete";
+    }
+
     private Long ensureVariant(Long productMasterId, Long updatedBy, VariantSeed seed) {
         if (productMasterId == null || seed == null || !StringUtils.hasText(seed.getPartnerSku())) {
             return null;
@@ -1863,6 +1906,11 @@ public class ProductProjectionPersistenceService {
                 asBigDecimal(siteOffer.get("salesAmount")),
                 normalize(text(siteOffer.get("salesCurrency"))),
                 parseDateTime(lastSyncedAt),
+                updatedBy
+        );
+        productManagementMapper.backfillProductSiteOfferListingStartedAtById(
+                id,
+                LocalDateTime.now(),
                 updatedBy
         );
     }

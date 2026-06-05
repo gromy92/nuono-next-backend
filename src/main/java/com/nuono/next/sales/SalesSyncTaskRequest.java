@@ -7,6 +7,7 @@ public class SalesSyncTaskRequest {
     private String siteCode;
     private String dateFrom;
     private String dateTo;
+    private String listingCoverageMode;
 
     public Long getLogicalStoreId() {
         return logicalStoreId;
@@ -46,5 +47,13 @@ public class SalesSyncTaskRequest {
 
     public void setDateTo(String dateTo) {
         this.dateTo = dateTo;
+    }
+
+    public String getListingCoverageMode() {
+        return listingCoverageMode;
+    }
+
+    public void setListingCoverageMode(String listingCoverageMode) {
+        this.listingCoverageMode = listingCoverageMode;
     }
 }
