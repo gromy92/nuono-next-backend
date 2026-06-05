@@ -1,27 +1,26 @@
 package com.nuono.next.product;
 
 import java.util.List;
-import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-@Service
-@Profile("local-db")
 class ProductWorkbenchViewFinalizer {
 
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
     private final ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver;
     private final ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator;
+    private final ProductWorkbenchPublishTaskAttacher productWorkbenchPublishTaskAttacher;
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
 
     ProductWorkbenchViewFinalizer(
             ProductProjectionPersistenceService productProjectionPersistenceService,
             ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver,
-            ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator
+            ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator,
+            ProductWorkbenchPublishTaskAttacher productWorkbenchPublishTaskAttacher
     ) {
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.productWorkbenchDirtySiteResolver = productWorkbenchDirtySiteResolver;
         this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator;
+        this.productWorkbenchPublishTaskAttacher = productWorkbenchPublishTaskAttacher;
     }
 
     ProductMasterWorkbenchView finalizeView(
@@ -32,10 +31,9 @@ class ProductWorkbenchViewFinalizer {
             String message,
             List<String> warnings,
             ProductMasterSnapshotView actionBaselineSnapshot,
-            ProductMasterSnapshotView actionDraftSnapshot,
-            FinalizeSupport support
+            ProductMasterSnapshotView actionDraftSnapshot
     ) {
-        support.attachActivePublishTask(ownerUserId, record);
+        productWorkbenchPublishTaskAttacher.attachActivePublishTask(ownerUserId, record);
         ProductMasterWorkbenchView view = productWorkbenchViewAssembler.buildWorkbenchView(record, message, warnings);
         productWorkbenchStatusHydrator.syncProductMasterStatus(
                 view,
@@ -60,9 +58,5 @@ class ProductWorkbenchViewFinalizer {
         }
         productWorkbenchStatusHydrator.hydrateListSummaryState(ownerUserId, view, view.getWarnings());
         return view;
-    }
-
-    interface FinalizeSupport {
-        void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record);
     }
 }

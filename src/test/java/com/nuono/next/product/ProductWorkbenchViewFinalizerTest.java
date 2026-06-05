@@ -28,6 +28,9 @@ class ProductWorkbenchViewFinalizerTest {
     @Mock
     private ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator;
 
+    @Mock
+    private ProductWorkbenchPublishTaskAttacher productWorkbenchPublishTaskAttacher;
+
     private ProductWorkbenchViewFinalizer finalizer;
 
     @BeforeEach
@@ -35,15 +38,17 @@ class ProductWorkbenchViewFinalizerTest {
         finalizer = new ProductWorkbenchViewFinalizer(
                 productProjectionPersistenceService,
                 new ProductWorkbenchDirtySiteResolver(new ObjectMapper()),
-                productWorkbenchStatusHydrator
+                productWorkbenchStatusHydrator,
+                productWorkbenchPublishTaskAttacher
         );
     }
 
     @Test
     void finalizesViewWithoutPersistingWhenActionTypeIsBlank() {
         ProductWorkbenchRecord record = record("Baseline title", "Draft title");
-        FakeFinalizeSupport support = new FakeFinalizeSupport();
-        stubStatusHydrator(support);
+        CallTracker callTracker = new CallTracker();
+        stubPublishTaskAttacher(callTracker);
+        stubStatusHydrator(callTracker);
 
         ProductMasterWorkbenchView view = finalizer.finalizeView(
                 10002L,
@@ -53,15 +58,14 @@ class ProductWorkbenchViewFinalizerTest {
                 "本地工作台已就绪。",
                 List.of("用户可见提示"),
                 null,
-                null,
-                support
+                null
         );
 
         assertEquals("draft", view.getSyncStatus());
         assertEquals("Draft title", view.getContent().get("title"));
-        assertSame(view, support.statusSnapshot);
-        assertSame(view, support.summarySnapshot);
-        assertEquals(List.of("attach", "sync", "hydrate"), support.calls);
+        assertSame(view, callTracker.statusSnapshot);
+        assertSame(view, callTracker.summarySnapshot);
+        assertEquals(List.of("attach", "sync", "hydrate"), callTracker.calls);
         assertEquals(List.of("用户可见提示", "status-synced", "summary-hydrated"), view.getWarnings());
         verify(productProjectionPersistenceService, never()).persistWorkbenchState(
                 eq(10002L),
@@ -80,11 +84,12 @@ class ProductWorkbenchViewFinalizerTest {
         ProductWorkbenchRecord record = record("Baseline title", "Edited title");
         ProductMasterSnapshotView actionBaseline = snapshot("Baseline title");
         ProductMasterSnapshotView actionDraft = snapshot("Edited title");
-        FakeFinalizeSupport support = new FakeFinalizeSupport();
-        stubStatusHydrator(support);
+        CallTracker callTracker = new CallTracker();
+        stubPublishTaskAttacher(callTracker);
+        stubStatusHydrator(callTracker);
         List<List<String>> persistedWarnings = new ArrayList<>();
         doAnswer((invocation) -> {
-            support.calls.add("persist");
+            callTracker.calls.add("persist");
             persistedWarnings.add(List.copyOf(invocation.getArgument(5)));
             return null;
         }).when(productProjectionPersistenceService).persistWorkbenchState(
@@ -106,11 +111,10 @@ class ProductWorkbenchViewFinalizerTest {
                 "已保存草稿。",
                 new ArrayList<>(List.of("初始提示")),
                 actionBaseline,
-                actionDraft,
-                support
+                actionDraft
         );
 
-        assertEquals(List.of("attach", "sync", "persist", "hydrate"), support.calls);
+        assertEquals(List.of("attach", "sync", "persist", "hydrate"), callTracker.calls);
         verify(productProjectionPersistenceService).persistWorkbenchState(
                 eq(10002L),
                 eq(view),
@@ -125,10 +129,21 @@ class ProductWorkbenchViewFinalizerTest {
         assertEquals(List.of("初始提示", "status-synced", "summary-hydrated"), view.getWarnings());
     }
 
-    private void stubStatusHydrator(FakeFinalizeSupport support) {
+    private void stubPublishTaskAttacher(CallTracker callTracker) {
         doAnswer((invocation) -> {
-            support.calls.add("sync");
-            support.statusSnapshot = invocation.getArgument(0);
+            callTracker.calls.add("attach");
+            assertEquals(Long.valueOf(10002L), invocation.getArgument(0));
+            return null;
+        }).when(productWorkbenchPublishTaskAttacher).attachActivePublishTask(
+                eq(10002L),
+                any(ProductWorkbenchRecord.class)
+        );
+    }
+
+    private void stubStatusHydrator(CallTracker callTracker) {
+        doAnswer((invocation) -> {
+            callTracker.calls.add("sync");
+            callTracker.statusSnapshot = invocation.getArgument(0);
             assertEquals("draft", invocation.getArgument(1));
             assertEquals("2026-06-04 10:00:00", invocation.getArgument(2));
             List<String> warnings = invocation.getArgument(3);
@@ -141,9 +156,9 @@ class ProductWorkbenchViewFinalizerTest {
                 any()
         );
         doAnswer((invocation) -> {
-            support.calls.add("hydrate");
+            callTracker.calls.add("hydrate");
             assertEquals(Long.valueOf(10002L), invocation.getArgument(0));
-            support.summarySnapshot = invocation.getArgument(1);
+            callTracker.summarySnapshot = invocation.getArgument(1);
             List<String> warnings = invocation.getArgument(2);
             warnings.add("summary-hydrated");
             return null;
@@ -185,15 +200,9 @@ class ProductWorkbenchViewFinalizerTest {
         return offer;
     }
 
-    private static class FakeFinalizeSupport implements ProductWorkbenchViewFinalizer.FinalizeSupport {
+    private static class CallTracker {
         private final List<String> calls = new ArrayList<>();
         private ProductMasterSnapshotView statusSnapshot;
         private ProductMasterSnapshotView summarySnapshot;
-
-        @Override
-        public void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
-            calls.add("attach");
-            assertEquals(10002L, ownerUserId);
-        }
     }
 }

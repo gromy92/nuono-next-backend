@@ -120,6 +120,7 @@ public class LocalDbProductMasterService {
     private final ProductWorkbenchOpenService productWorkbenchOpenService;
     private final ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver;
     private final ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator;
+    private final ProductWorkbenchPublishTaskAttacher productWorkbenchPublishTaskAttacher;
     private final ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer;
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
@@ -152,8 +153,7 @@ public class LocalDbProductMasterService {
             ProductWorkbenchRecordStore productWorkbenchRecordStore,
             ProductWorkbenchOpenService productWorkbenchOpenService,
             ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver,
-            ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator,
-            ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer
+            ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator
     ) {
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
@@ -180,13 +180,17 @@ public class LocalDbProductMasterService {
         this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator == null
                 ? new ProductWorkbenchStatusHydrator(productProjectionPersistenceService)
                 : productWorkbenchStatusHydrator;
-        this.productWorkbenchViewFinalizer = productWorkbenchViewFinalizer == null
-                ? new ProductWorkbenchViewFinalizer(
-                        productProjectionPersistenceService,
-                        this.productWorkbenchDirtySiteResolver,
-                        this.productWorkbenchStatusHydrator
-                )
-                : productWorkbenchViewFinalizer;
+        this.productWorkbenchPublishTaskAttacher = new ProductWorkbenchPublishTaskAttacher(
+                productManagementMapper,
+                productPublishCommandService,
+                this::buildPublishTaskView
+        );
+        this.productWorkbenchViewFinalizer = new ProductWorkbenchViewFinalizer(
+                productProjectionPersistenceService,
+                this.productWorkbenchDirtySiteResolver,
+                this.productWorkbenchStatusHydrator,
+                this.productWorkbenchPublishTaskAttacher
+        );
     }
 
     private ProductPublishCommandService requirePublishCommandService() {
@@ -2556,35 +2560,8 @@ public class LocalDbProductMasterService {
                 message,
                 warnings,
                 actionBaselineSnapshot,
-                actionDraftSnapshot,
-                finalizerSupport()
+                actionDraftSnapshot
         );
-    }
-
-    private ProductWorkbenchViewFinalizer.FinalizeSupport finalizerSupport() {
-        return new ProductWorkbenchViewFinalizer.FinalizeSupport() {
-            @Override
-            public void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
-                LocalDbProductMasterService.this.attachActivePublishTask(ownerUserId, record);
-            }
-        };
-    }
-
-    private void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
-        if (ownerUserId == null || record == null || record.getDraftSnapshot() == null) {
-            return;
-        }
-        String storeCode = textValue(record.getDraftSnapshot().getStoreContext().get("storeCode"));
-        String skuParent = textValue(record.getDraftSnapshot().getIdentity().get("skuParent"));
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
-            return;
-        }
-        Long productMasterId = productManagementMapper.selectProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent);
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord activeTask = productMasterId == null
-                ? null
-                : productManagementMapper.selectActiveProductPublishTask(productMasterId);
-        record.setPublishTask(activeTask == null ? null : buildPublishTaskView(activeTask, false));
     }
 
     private int recoverStaleRunningProductPublishTasks() {
