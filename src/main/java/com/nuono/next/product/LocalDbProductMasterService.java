@@ -112,6 +112,7 @@ public class LocalDbProductMasterService {
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
     private final ProductPublishCommandService productPublishCommandService;
+    private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
     private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
@@ -180,10 +181,15 @@ public class LocalDbProductMasterService {
         this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator == null
                 ? new ProductWorkbenchStatusHydrator(productProjectionPersistenceService)
                 : productWorkbenchStatusHydrator;
+        this.productPublishTaskViewBuilder = new ProductPublishTaskViewBuilder(
+                productPublishCommandService,
+                this::buildTerminalPublishTaskWorkbenchView,
+                this::resolvePublishTaskChangedDomains
+        );
         this.productWorkbenchPublishTaskAttacher = new ProductWorkbenchPublishTaskAttacher(
                 productManagementMapper,
                 productPublishCommandService,
-                this::buildPublishTaskView
+                this.productPublishTaskViewBuilder::build
         );
         this.productWorkbenchViewFinalizer = new ProductWorkbenchViewFinalizer(
                 productProjectionPersistenceService,
@@ -1161,30 +1167,15 @@ public class LocalDbProductMasterService {
     }
 
     public ProductPublishTaskView loadPublishTask(Long taskId, Long ownerUserId) {
-        return requirePublishCommandService().loadTask(
-                taskId,
-                ownerUserId,
-                this::buildTerminalPublishTaskWorkbenchView,
-                this::resolvePublishTaskChangedDomains
-        );
+        return productPublishTaskViewBuilder.load(taskId, ownerUserId);
     }
 
     public ProductPublishTaskView retryPublishTask(Long taskId, Long ownerUserId) {
-        return requirePublishCommandService().retryTask(
-                taskId,
-                ownerUserId,
-                this::buildTerminalPublishTaskWorkbenchView,
-                this::resolvePublishTaskChangedDomains
-        );
+        return productPublishTaskViewBuilder.retry(taskId, ownerUserId);
     }
 
     public ProductPublishTaskView cancelPublishTask(Long taskId, Long ownerUserId) {
-        return requirePublishCommandService().cancelTask(
-                taskId,
-                ownerUserId,
-                this::buildTerminalPublishTaskWorkbenchView,
-                this::resolvePublishTaskChangedDomains
-        );
+        return productPublishTaskViewBuilder.cancel(taskId, ownerUserId);
     }
 
     @Scheduled(
@@ -1274,7 +1265,7 @@ public class LocalDbProductMasterService {
                 ? null
                 : requirePublishCommandService().selectActiveTask(productMasterId);
         if (activeTask != null) {
-            record.setPublishTask(buildPublishTaskView(activeTask, false));
+            record.setPublishTask(productPublishTaskViewBuilder.build(activeTask, false));
             record.setNote("当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。");
             productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
             return finalizeWorkbenchView(
@@ -1315,7 +1306,7 @@ public class LocalDbProductMasterService {
             record.setNote(isActivePublishTaskStatus(task.getStatus())
                     ? "当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。"
                     : publishTaskMessage(task));
-            record.setPublishTask(buildPublishTaskView(task, false));
+            record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
             productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
@@ -1330,7 +1321,7 @@ public class LocalDbProductMasterService {
         record.setDraftSnapshot(requestedSnapshot);
         record.setSyncStatus("draft");
         record.setNote("发布已提交，正在后台校验 Noon 结果。");
-        record.setPublishTask(buildPublishTaskView(task, false));
+        record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
         appendRecentAction(record, "publish-current", "draft", record.getNote(), currentSiteCode, requestedSnapshot);
         productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
         return finalizeWorkbenchView(
@@ -1438,7 +1429,7 @@ public class LocalDbProductMasterService {
                     );
                     record.setSyncStatus("failed");
                     record.setNote(partialMessage);
-                    record.setPublishTask(buildPublishTaskView(task, false));
+                    record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
                     appendRecentAction(record, "publish-current", "pending_manual_check", partialMessage, currentSiteCode, draft);
                     productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
                     return;
@@ -1641,7 +1632,7 @@ public class LocalDbProductMasterService {
                 LocalDateTime.now(),
                 verifyAttempt
         );
-        refreshed.setPublishTask(buildPublishTaskView(task, false));
+        refreshed.setPublishTask(productPublishTaskViewBuilder.build(task, false));
         productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
     }
 
@@ -1665,7 +1656,7 @@ public class LocalDbProductMasterService {
         ProductMasterSnapshotView draft = readTaskSnapshot(task.getDraftJson());
         ProductWorkbenchRecord record = buildTaskWorkbenchRecord(baseline, draft, "failed", errorMessage);
         appendRecentAction(record, "publish-current", "failed", errorMessage, task.getCurrentSiteCode(), draft);
-        record.setPublishTask(buildPublishTaskView(task, false));
+        record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
         productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
         finalizeWorkbenchView(
                 task.getOwnerUserId(),
@@ -1813,15 +1804,6 @@ public class LocalDbProductMasterService {
             List<String> warnings
     ) {
         return productWorkbenchViewAssembler.buildWorkbenchView(record, message, warnings);
-    }
-
-    private ProductPublishTaskView buildPublishTaskView(ProductPublishTaskRecord task, boolean includeWorkbench) {
-        return requirePublishCommandService().buildTaskView(
-                task,
-                includeWorkbench,
-                this::buildTerminalPublishTaskWorkbenchView,
-                this::resolvePublishTaskChangedDomains
-        );
     }
 
     private ProductMasterWorkbenchView buildTerminalPublishTaskWorkbenchView(ProductPublishTaskRecord task) {
