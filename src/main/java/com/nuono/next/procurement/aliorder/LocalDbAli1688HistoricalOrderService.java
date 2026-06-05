@@ -480,7 +480,6 @@ public class LocalDbAli1688HistoricalOrderService {
         row.setSellerMemberName(parsedRow.getSellerMemberName());
         row.setGoodsTotalText(parsedRow.getGoodsTotalText());
         row.setFreightText(parsedRow.getFreightText());
-        row.setAdjustmentText(parsedRow.getAdjustmentText());
         row.setPaidAmountText(parsedRow.getPaidAmountText());
         row.setOrderStatus(parsedRow.getOrderStatus());
         row.setOrderTime(parsedRow.getOrderTime());
@@ -531,7 +530,6 @@ public class LocalDbAli1688HistoricalOrderService {
         order.setSellerMemberName(row.getSellerMemberName());
         order.setGoodsTotalText(row.getGoodsTotalText());
         order.setFreightText(row.getFreightText());
-        order.setAdjustmentText(row.getAdjustmentText());
         order.setPaidAmountText(row.getPaidAmountText());
         order.setAmountText(row.getPaidAmountText());
         order.setAmountValue(parseMoney(row.getPaidAmountText()));
@@ -959,6 +957,7 @@ public class LocalDbAli1688HistoricalOrderService {
             BusinessAccessContext context,
             Ali1688HistoricalOrderAssignmentView.AssignRequest request
     ) {
+        requireAssignmentWriteAccess(context);
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要分配的货品行。");
         }
@@ -1066,6 +1065,28 @@ public class LocalDbAli1688HistoricalOrderService {
         );
     }
 
+    @Transactional
+    public Ali1688HistoricalOrderAssignmentView.AssignResult assignProductLineBatches(
+            BusinessAccessContext context,
+            Ali1688HistoricalOrderAssignmentView.AssignBatchRequest request
+    ) {
+        requireAssignmentWriteAccess(context);
+        List<Ali1688HistoricalOrderAssignmentView.AssignRequest> assignments =
+                request == null ? List.of() : emptyList(request.getAssignments());
+        if (assignments.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要分配的货品行。");
+        }
+        int assignedLineCount = 0;
+        int assignedQuantity = 0;
+        for (Ali1688HistoricalOrderAssignmentView.AssignRequest assignmentRequest : assignments) {
+            Ali1688HistoricalOrderAssignmentView.AssignResult result =
+                    assignProductLines(context, assignmentRequest);
+            assignedLineCount += result.getAssignedLineCount();
+            assignedQuantity += result.getAssignedQuantity();
+        }
+        return Ali1688HistoricalOrderAssignmentView.AssignResult.assigned(assignedLineCount, assignedQuantity);
+    }
+
     public List<Ali1688HistoricalOrderAssignmentView.RecordView> listProductLineAssignments(
             BusinessAccessContext context,
             Long itemId
@@ -1091,6 +1112,7 @@ public class LocalDbAli1688HistoricalOrderService {
             Long assignmentId,
             Ali1688HistoricalOrderAssignmentView.AdjustRequest request
     ) {
+        requireAssignmentWriteAccess(context);
         if (assignmentId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要调整的分配记录。");
         }
@@ -1133,6 +1155,7 @@ public class LocalDbAli1688HistoricalOrderService {
             BusinessAccessContext context,
             Long assignmentId
     ) {
+        requireAssignmentWriteAccess(context);
         if (assignmentId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要撤回的分配记录。");
         }
@@ -1141,6 +1164,7 @@ public class LocalDbAli1688HistoricalOrderService {
                 mapper.selectOrderItemAssignmentById(ownerUserId, assignmentId);
         validateMutableAssignment(context, assignment);
         mapper.revokeOrderItemAssignment(assignmentId, ownerUserId, operatorUserId(context));
+        mapper.deactivateActiveOrderItemProductLinks(ownerUserId, assignmentId, operatorUserId(context));
         return Ali1688HistoricalOrderAssignmentView.AssignResult.assigned(1, 0);
     }
 
@@ -1169,6 +1193,16 @@ public class LocalDbAli1688HistoricalOrderService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先把货品行分配到店铺后再关联商品。");
         }
         validateProductSkuInAssignmentTarget(ownerUserId, assignment, skuParent);
+        Ali1688HistoricalOrderProductLinkCandidateRow productCandidate =
+                mapper.selectOrderItemProductLinkCandidateBySkuParent(
+                        ownerUserId,
+                        assignment.getTargetStoreCode(),
+                        assignment.getTargetSiteCode(),
+                        skuParent
+                );
+        if (productCandidate == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择当前分配店铺下存在的商品 SKU。");
+        }
 
         Ali1688HistoricalOrderProductLinkRow link = new Ali1688HistoricalOrderProductLinkRow();
         link.setId(mapper.nextOrderItemProductLinkId());
@@ -1180,10 +1214,10 @@ public class LocalDbAli1688HistoricalOrderService {
         link.setTargetStoreCode(assignment.getTargetStoreCode());
         link.setTargetSiteCode(assignment.getTargetSiteCode());
         link.setSkuParent(skuParent);
-        link.setPartnerSku(trimToNull(request.getPartnerSku()));
-        link.setPskuCode(trimToNull(request.getPskuCode()));
-        link.setProductTitle(trimToNull(request.getProductTitle()));
-        link.setProductImageUrl(trimToNull(request.getProductImageUrl()));
+        link.setPartnerSku(trimToNull(productCandidate.getPartnerSku()));
+        link.setPskuCode(trimToNull(productCandidate.getPskuCode()));
+        link.setProductTitle(trimToNull(productCandidate.getProductTitle()));
+        link.setProductImageUrl(trimToNull(productCandidate.getProductImageUrl()));
         link.setStatus("active");
         link.setCreatedBy(operatorUserId);
         link.setUpdatedBy(operatorUserId);
@@ -1207,6 +1241,35 @@ public class LocalDbAli1688HistoricalOrderService {
                 operatorUserId
         ));
         return Ali1688HistoricalOrderProductLinkView.LinkResult.linked(link);
+    }
+
+    @Transactional
+    public Ali1688HistoricalOrderProductLinkView.LinkBatchResult linkProductLineBatch(
+            BusinessAccessContext context,
+            Ali1688HistoricalOrderProductLinkView.LinkBatchRequest request
+    ) {
+        requireProductLinkWriteAccess(context);
+        List<Ali1688HistoricalOrderProductLinkView.LinkRequest> links =
+                request == null ? List.of() : emptyList(request.getLinks());
+        if (links.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要关联的商品。");
+        }
+        String batchSkuParent = null;
+        int linkedLineCount = 0;
+        for (Ali1688HistoricalOrderProductLinkView.LinkRequest linkRequest : links) {
+            String skuParent = trimToNull(linkRequest == null ? null : linkRequest.getSkuParent());
+            if (batchSkuParent == null) {
+                batchSkuParent = skuParent;
+            } else if (!normalizedEquals(batchSkuParent, skuParent)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "批量关联只能选择同一个商品 SKU。");
+            }
+            Ali1688HistoricalOrderProductLinkView.LinkResult result =
+                    linkProductLine(context, linkRequest);
+            if ("linked".equals(result.getStatus())) {
+                linkedLineCount++;
+            }
+        }
+        return Ali1688HistoricalOrderProductLinkView.LinkBatchResult.linked(linkedLineCount, batchSkuParent);
     }
 
     @Transactional
@@ -1276,11 +1339,6 @@ public class LocalDbAli1688HistoricalOrderService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先把货品行分配到店铺后再关联商品。");
         }
         String resolvedLinkStatus = normalizeProductLinkCandidateStatus(linkStatus);
-        if (!hasText(resolvedLinkStatus)) {
-            Ali1688HistoricalOrderProductLinkRow activeLink =
-                    mapper.selectActiveOrderItemProductLinkByAssignment(ownerUserId, assignmentId);
-            resolvedLinkStatus = activeLink == null ? "unlinked" : "linked";
-        }
         return emptyList(mapper.listOrderItemProductLinkCandidates(
                         ownerUserId,
                         assignment.getTargetStoreCode(),
@@ -1332,14 +1390,25 @@ public class LocalDbAli1688HistoricalOrderService {
                 resolvedQuery.getSiteCode(),
                 resolvedQuery.getKeyword()
         ));
-        List<Ali1688SkuPurchaseHistoryRow> rows = emptyList(mapper.listSkuPurchaseHistoryRows(
+        List<Ali1688SkuPurchaseHistoryRow> rows = collapseDuplicateSkuPurchaseHistoryRows(emptyList(mapper.listSkuPurchaseHistoryRows(
                 ownerUserId(context),
                 resolvedQuery.getStoreCode(),
                 resolvedQuery.getSiteCode(),
                 resolvedQuery.getKeyword(),
                 resolvedQuery.getPurchaseTimeFrom(),
                 resolvedQuery.getPurchaseTimeTo()
-        ));
+        )));
+        List<Ali1688SkuPurchaseHistoryRow> activeRows = collapseDuplicateSkuPurchaseHistoryAssignments(rows);
+        Map<String, BigDecimal> inferredOrderItemAmountTotals = inferOrderItemAmountTotals(activeRows);
+        Map<String, List<Ali1688SkuPurchaseHistoryView.PurchaseBatchView>> manualBatchesBySku =
+                manualPurchaseBatchesBySku(
+                        ownerUserId(context),
+                        resolvedQuery.getStoreCode(),
+                        resolvedQuery.getSiteCode(),
+                        resolvedQuery.getKeyword(),
+                        resolvedQuery.getPurchaseTimeFrom(),
+                        resolvedQuery.getPurchaseTimeTo()
+                );
         for (Ali1688SkuPurchaseHistoryProductRow productRow : productRows) {
             if (productRow == null || !hasText(productRow.getSkuParent())) {
                 continue;
@@ -1349,18 +1418,19 @@ public class LocalDbAli1688HistoricalOrderService {
                     new SkuPurchaseHistoryAccumulator(productRow)
             );
         }
-        Map<String, Boolean> seenAssignments = new LinkedHashMap<>();
-        for (Ali1688SkuPurchaseHistoryRow row : rows) {
+        for (Ali1688SkuPurchaseHistoryRow row : activeRows) {
             if (row == null || !hasText(row.getSkuParent())) {
-                continue;
-            }
-            String assignmentKey = purchaseHistoryAssignmentKey(row);
-            if (seenAssignments.putIfAbsent(assignmentKey, Boolean.TRUE) != null) {
                 continue;
             }
             String groupKey = purchaseHistoryGroupKey(row);
             bySku.computeIfAbsent(groupKey, key -> new SkuPurchaseHistoryAccumulator(row, "linked"))
-                    .add(row, calculatePurchaseCost(row));
+                    .add(row, calculatePurchaseCost(row, inferredOrderItemAmountTotals.get(purchaseHistoryCostOrderKey(row))));
+        }
+        for (Map.Entry<String, List<Ali1688SkuPurchaseHistoryView.PurchaseBatchView>> entry : manualBatchesBySku.entrySet()) {
+            SkuPurchaseHistoryAccumulator accumulator = bySku.get(entry.getKey());
+            if (accumulator != null) {
+                accumulator.setManualPurchaseBatches(entry.getValue());
+            }
         }
         List<Ali1688SkuPurchaseHistoryView.ItemView> items = bySku.values()
                 .stream()
@@ -1383,6 +1453,104 @@ public class LocalDbAli1688HistoricalOrderService {
         );
         view.setUnlinkedAssignedLineCount(unlinkedAssignedLineCount);
         return view;
+    }
+
+    @Transactional
+    public Ali1688SkuPurchaseBatchView.SaveResult saveSkuPurchaseBatches(
+            BusinessAccessContext context,
+            Ali1688SkuPurchaseBatchView.SaveRequest request
+    ) {
+        requireSkuPurchaseBatchWriteAccess(context);
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请提交要保存的采购批次。");
+        }
+        String storeCode = trimToNull(request.getStoreCode());
+        String siteCode = normalizeSiteCode(request.getSiteCode());
+        String skuParent = trimToNull(request.getSkuParent());
+        if (!hasText(storeCode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择批次所属店铺。");
+        }
+        if (!hasText(skuParent)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择批次所属 SKU。");
+        }
+        validateRequestedStore(context, Ali1688HistoricalOrderQuery.fromRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                storeCode,
+                siteCode,
+                null,
+                null
+        ));
+
+        Long ownerUserId = ownerUserId(context);
+        Long operatorUserId = operatorUserId(context);
+        List<Ali1688SkuPurchaseBatchView.BatchRequest> batchRequests =
+                request.getBatches() == null ? List.of() : request.getBatches();
+        mapper.softDeleteSkuPurchaseBatchesForSku(ownerUserId, storeCode, siteCode, skuParent, operatorUserId);
+        int savedBatchCount = 0;
+        int savedSourceCount = 0;
+        int sequence = 1;
+        for (Ali1688SkuPurchaseBatchView.BatchRequest batchRequest : batchRequests) {
+            if (batchRequest == null) {
+                continue;
+            }
+            if (batchRequest.getCountedQuantity() == null || batchRequest.getCountedQuantity() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "计入 SKU 数量必须大于 0。");
+            }
+            if (batchRequest.getCountedCost() == null || batchRequest.getCountedCost().compareTo(BigDecimal.ZERO) < 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "计入 SKU 成本不能为负。");
+            }
+            List<Ali1688SkuPurchaseBatchView.SourceRequest> sources =
+                    batchRequest.getSources() == null ? List.of() : batchRequest.getSources();
+            if (sources.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次必须至少包含一条来源订单。");
+            }
+            for (Ali1688SkuPurchaseBatchView.SourceRequest source : sources) {
+                validateSkuPurchaseBatchSource(ownerUserId, storeCode, siteCode, skuParent, source);
+            }
+
+            Ali1688SkuPurchaseBatchRow row = new Ali1688SkuPurchaseBatchRow();
+            row.setId(mapper.nextSkuPurchaseBatchId());
+            row.setOwnerUserId(ownerUserId);
+            row.setStoreCode(storeCode);
+            row.setSiteCode(siteCode);
+            row.setSkuParent(skuParent);
+            row.setPartnerSku(trimToNull(request.getPartnerSku()));
+            row.setPskuCode(trimToNull(request.getPskuCode()));
+            row.setBatchLabel(hasText(batchRequest.getLabel()) ? batchRequest.getLabel().trim() : "批次 " + sequence);
+            row.setBatchSequence(sequence);
+            row.setCountedQuantity(batchRequest.getCountedQuantity());
+            row.setCountedCost(batchRequest.getCountedCost().setScale(4, RoundingMode.HALF_UP));
+            row.setNote(trimToNull(batchRequest.getNote()));
+            row.setStatus("active");
+            row.setCreatedBy(operatorUserId);
+            row.setUpdatedBy(operatorUserId);
+            mapper.insertSkuPurchaseBatch(row);
+            savedBatchCount++;
+
+            for (Ali1688SkuPurchaseBatchView.SourceRequest source : sources) {
+                Ali1688SkuPurchaseBatchSourceRow sourceRow = new Ali1688SkuPurchaseBatchSourceRow();
+                sourceRow.setId(mapper.nextSkuPurchaseBatchSourceId());
+                sourceRow.setBatchId(row.getId());
+                sourceRow.setOwnerUserId(ownerUserId);
+                sourceRow.setOrderId(source.getOrderId());
+                sourceRow.setItemId(source.getItemId());
+                sourceRow.setAssignmentId(source.getAssignmentId());
+                sourceRow.setSourceOrderNo(trimToNull(source.getOrderNo()));
+                sourceRow.setSourceOrderTime(trimToNull(source.getOrderTime()));
+                sourceRow.setSupplierName(trimToNull(source.getSupplierName()));
+                sourceRow.setStatus("active");
+                sourceRow.setCreatedBy(operatorUserId);
+                sourceRow.setUpdatedBy(operatorUserId);
+                mapper.insertSkuPurchaseBatchSource(sourceRow);
+                savedSourceCount++;
+            }
+            sequence++;
+        }
+        return Ali1688SkuPurchaseBatchView.SaveResult.saved(savedBatchCount, savedSourceCount);
     }
 
     @Transactional
@@ -1538,6 +1706,14 @@ public class LocalDbAli1688HistoricalOrderService {
             return List.of();
         }
         if (query == null || !hasText(query.getStoreCode())) {
+            List<Long> ownerScopeAuthorizationIds = emptyList(mapper.listVisibleAuthorizationIds(
+                    ownerUserId,
+                    null,
+                    null
+            ));
+            if (!ownerScopeAuthorizationIds.isEmpty()) {
+                return ownerScopeAuthorizationIds;
+            }
             return fallbackAuthorization == null || fallbackAuthorization.getId() == null
                     ? List.of()
                     : List.of(fallbackAuthorization.getId());
@@ -1633,7 +1809,6 @@ public class LocalDbAli1688HistoricalOrderService {
         row.setSellerMemberName(snapshot.getSellerMemberName());
         row.setGoodsTotalText(snapshot.getGoodsTotalText());
         row.setFreightText(snapshot.getFreightText());
-        row.setAdjustmentText(snapshot.getAdjustmentText());
         row.setPaidAmountText(snapshot.getPaidAmountText());
         row.setAmountText(snapshot.getAmountText());
         row.setAmountValue(parseMoney(snapshot.getAmountText()));
@@ -2012,7 +2187,6 @@ public class LocalDbAli1688HistoricalOrderService {
         }
         order.setGoodsTotalText(prorateMoneyText(order.getGoodsTotalText(), displayQuantity, originalQuantity));
         order.setFreightText(prorateMoneyText(order.getFreightText(), displayQuantity, originalQuantity));
-        order.setAdjustmentText(prorateMoneyText(order.getAdjustmentText(), displayQuantity, originalQuantity));
         order.setPaidAmountText(prorateMoneyText(order.getPaidAmountText(), displayQuantity, originalQuantity));
         order.setAmountText(prorateMoneyText(order.getAmountText(), displayQuantity, originalQuantity));
     }
@@ -2053,6 +2227,134 @@ public class LocalDbAli1688HistoricalOrderService {
         private AssignmentDisplaySegment(String displayText, int quantity) {
             this.displayText = displayText;
             this.quantity = quantity;
+        }
+    }
+
+    private Map<String, List<Ali1688SkuPurchaseHistoryView.PurchaseBatchView>> manualPurchaseBatchesBySku(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            String keyword,
+            String purchaseTimeFrom,
+            String purchaseTimeTo
+    ) {
+        List<Ali1688SkuPurchaseBatchRow> batches = emptyList(mapper.listSkuPurchaseBatches(
+                ownerUserId,
+                storeCode,
+                siteCode,
+                keyword,
+                purchaseTimeFrom,
+                purchaseTimeTo
+        ));
+        if (batches.isEmpty()) {
+            return new LinkedHashMap<>();
+        }
+        List<Long> batchIds = batches.stream()
+                .map(Ali1688SkuPurchaseBatchRow::getId)
+                .filter(id -> id != null)
+                .collect(Collectors.toList());
+        Map<Long, List<Ali1688SkuPurchaseBatchSourceRow>> sourcesByBatchId = batchIds.isEmpty()
+                ? new LinkedHashMap<>()
+                : emptyList(mapper.listSkuPurchaseBatchSources(ownerUserId, batchIds))
+                        .stream()
+                        .filter(row -> row.getBatchId() != null)
+                        .collect(Collectors.groupingBy(
+                                Ali1688SkuPurchaseBatchSourceRow::getBatchId,
+                                LinkedHashMap::new,
+                                Collectors.toList()
+                        ));
+        Map<String, List<Ali1688SkuPurchaseHistoryView.PurchaseBatchView>> bySku = new LinkedHashMap<>();
+        for (Ali1688SkuPurchaseBatchRow batch : batches) {
+            if (batch == null || !hasText(batch.getSkuParent())) {
+                continue;
+            }
+            bySku.computeIfAbsent(purchaseHistoryGroupKey(batch), key -> new ArrayList<>())
+                    .add(toPurchaseBatchView(batch, sourcesByBatchId.get(batch.getId())));
+        }
+        return bySku;
+    }
+
+    private Ali1688SkuPurchaseHistoryView.PurchaseBatchView toPurchaseBatchView(
+            Ali1688SkuPurchaseBatchRow batch,
+            List<Ali1688SkuPurchaseBatchSourceRow> sourceRows
+    ) {
+        Ali1688SkuPurchaseHistoryView.PurchaseBatchView view =
+                new Ali1688SkuPurchaseHistoryView.PurchaseBatchView();
+        view.setId(batch.getId());
+        view.setLabel(batch.getBatchLabel());
+        view.setBatchSequence(batch.getBatchSequence());
+        view.setCountedQuantity(batch.getCountedQuantity());
+        view.setCountedCost(money(batch.getCountedCost()));
+        view.setUnitPrice(batchUnitPrice(batch.getCountedCost(), batch.getCountedQuantity()));
+        view.setNote(batch.getNote());
+        view.setSources(emptyList(sourceRows).stream()
+                .map(this::toPurchaseBatchSourceView)
+                .collect(Collectors.toList()));
+        return view;
+    }
+
+    private Ali1688SkuPurchaseHistoryView.PurchaseBatchSourceView toPurchaseBatchSourceView(
+            Ali1688SkuPurchaseBatchSourceRow source
+    ) {
+        Ali1688SkuPurchaseHistoryView.PurchaseBatchSourceView view =
+                new Ali1688SkuPurchaseHistoryView.PurchaseBatchSourceView();
+        view.setOrderId(source.getOrderId());
+        view.setItemId(source.getItemId());
+        view.setAssignmentId(source.getAssignmentId());
+        view.setOrderNo(source.getSourceOrderNo());
+        view.setOrderTime(source.getSourceOrderTime());
+        view.setSupplierName(source.getSupplierName());
+        return view;
+    }
+
+    private BigDecimal batchUnitPrice(BigDecimal countedCost, Integer countedQuantity) {
+        if (countedCost == null || countedQuantity == null || countedQuantity <= 0) {
+            return null;
+        }
+        return money(countedCost.divide(BigDecimal.valueOf(countedQuantity), 8, RoundingMode.HALF_UP));
+    }
+
+    private void validateSkuPurchaseBatchSource(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            String skuParent,
+            Ali1688SkuPurchaseBatchView.SourceRequest source
+    ) {
+        if (source == null || source.getAssignmentId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源必须绑定分配记录。");
+        }
+        Ali1688HistoricalOrderItemAssignmentRow assignment =
+                mapper.selectOrderItemAssignmentById(ownerUserId, source.getAssignmentId());
+        if (assignment == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "采购批次来源分配记录不存在。");
+        }
+        if (!"active".equals(assignment.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源只能使用有效分配记录。");
+        }
+        if (isConsumableAssignment(assignment)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材分配不能计入店铺 SKU 采购批次。");
+        }
+        if (!storeCode.equals(assignment.getTargetStoreCode())
+                || !siteCode.equals(normalizeSiteCode(assignment.getTargetSiteCode()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源必须属于当前店铺。");
+        }
+        Ali1688HistoricalOrderProductLinkRow link =
+                mapper.selectActiveOrderItemProductLinkByAssignment(ownerUserId, source.getAssignmentId());
+        if (link == null || !skuParent.equals(link.getSkuParent())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源必须先关联到当前 SKU。");
+        }
+        if (source.getOrderId() != null && !source.getOrderId().equals(assignment.getOrderId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源订单与分配记录不一致。");
+        }
+        if (source.getItemId() != null && !source.getItemId().equals(assignment.getItemId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源货品行与分配记录不一致。");
+        }
+        if (source.getOrderId() == null) {
+            source.setOrderId(assignment.getOrderId());
+        }
+        if (source.getItemId() == null) {
+            source.setItemId(assignment.getItemId());
         }
     }
 
@@ -2107,7 +2409,7 @@ public class LocalDbAli1688HistoricalOrderService {
         private final String sourceSkuId;
         private final String sourceProductCode;
         private final String sourceSingleProductCode;
-        private final List<Ali1688SkuPurchaseHistoryView.HistoryView> history = new ArrayList<>();
+        private final Map<String, OrderPurchaseHistoryAccumulator> historyByOrder = new LinkedHashMap<>();
         private final Map<String, Boolean> amountBasisSet = new LinkedHashMap<>();
         private final Map<String, Boolean> qualityFlagSet = new LinkedHashMap<>();
         private int purchaseCount;
@@ -2118,6 +2420,7 @@ public class LocalDbAli1688HistoricalOrderService {
         private BigDecimal highestUnitPrice;
         private BigDecimal recentUnitPrice;
         private String recentPurchaseTime;
+        private List<Ali1688SkuPurchaseHistoryView.PurchaseBatchView> manualPurchaseBatches = new ArrayList<>();
 
         private SkuPurchaseHistoryAccumulator(Ali1688SkuPurchaseHistoryRow seed, String linkStatus) {
             this.storeCode = seed.getStoreCode();
@@ -2165,48 +2468,89 @@ public class LocalDbAli1688HistoricalOrderService {
 
         private void add(Ali1688SkuPurchaseHistoryRow row, PurchaseCostCalculation cost) {
             linkStatus = "linked";
-            purchaseCount++;
-            Integer assignedQuantity = row.getAssignedQuantity();
-            if (assignedQuantity != null && assignedQuantity > 0) {
-                totalQuantity += assignedQuantity;
+            String orderKey = purchaseHistoryOrderKey(row);
+            historyByOrder.computeIfAbsent(orderKey, key -> new OrderPurchaseHistoryAccumulator(row))
+                    .add(row, cost);
+        }
+
+        private void setManualPurchaseBatches(List<Ali1688SkuPurchaseHistoryView.PurchaseBatchView> manualPurchaseBatches) {
+            this.manualPurchaseBatches = manualPurchaseBatches == null ? new ArrayList<>() : new ArrayList<>(manualPurchaseBatches);
+            if (!this.manualPurchaseBatches.isEmpty()) {
+                this.linkStatus = "linked";
             }
-            Ali1688SkuPurchaseHistoryView.HistoryView historyView =
-                    new Ali1688SkuPurchaseHistoryView.HistoryView();
-            historyView.setOrderId(row.getOrderId());
-            historyView.setItemId(row.getItemId());
-            historyView.setAssignmentId(row.getAssignmentId());
-            historyView.setOrderNo(row.getOrderNo());
-            historyView.setOrderTime(row.getOrderTime());
-            historyView.setSupplierName(row.getSupplierName());
-            historyView.setAssignedQuantity(row.getAssignedQuantity());
-            historyView.setAmountBasis(cost.amountBasis);
-            historyView.setPriceQuality(cost.priceQuality);
-            if (cost.allocatedCost != null && cost.unitPrice != null && assignedQuantity != null && assignedQuantity > 0) {
-                BigDecimal allocatedCost = money(cost.allocatedCost);
-                BigDecimal unitPrice = money(cost.unitPrice);
-                historyView.setAllocatedCost(allocatedCost);
-                historyView.setUnitPrice(unitPrice);
-                totalCost = totalCost.add(allocatedCost);
-                pricedQuantity += assignedQuantity;
-                if (lowestUnitPrice == null || unitPrice.compareTo(lowestUnitPrice) < 0) {
-                    lowestUnitPrice = unitPrice;
-                }
-                if (highestUnitPrice == null || unitPrice.compareTo(highestUnitPrice) > 0) {
-                    highestUnitPrice = unitPrice;
-                }
-                amountBasisSet.put(cost.amountBasis, Boolean.TRUE);
-                if (recentPurchaseTime == null || nullToEmpty(row.getOrderTime()).compareTo(recentPurchaseTime) > 0) {
-                    recentPurchaseTime = row.getOrderTime();
-                    recentUnitPrice = unitPrice;
-                }
-            } else {
-                qualityFlagSet.put(cost.priceQuality, Boolean.TRUE);
-            }
-            history.add(historyView);
         }
 
         private Ali1688SkuPurchaseHistoryView.ItemView toView() {
-            history.sort((left, right) -> nullToEmpty(right.getOrderTime()).compareTo(nullToEmpty(left.getOrderTime())));
+            List<Ali1688SkuPurchaseHistoryView.HistoryView> history = historyByOrder.values()
+                    .stream()
+                    .map(OrderPurchaseHistoryAccumulator::toHistoryView)
+                    .sorted((left, right) -> nullToEmpty(right.getOrderTime()).compareTo(nullToEmpty(left.getOrderTime())))
+                    .collect(Collectors.toList());
+            boolean hasManualBatches = !manualPurchaseBatches.isEmpty();
+            purchaseCount = history.size();
+            totalQuantity = 0;
+            pricedQuantity = 0;
+            totalCost = BigDecimal.ZERO;
+            lowestUnitPrice = null;
+            highestUnitPrice = null;
+            recentUnitPrice = null;
+            recentPurchaseTime = null;
+            amountBasisSet.clear();
+            qualityFlagSet.clear();
+
+            if (hasManualBatches) {
+                purchaseCount = manualPurchaseBatches.size();
+                for (Ali1688SkuPurchaseHistoryView.PurchaseBatchView batch : manualPurchaseBatches) {
+                    Integer quantity = batch.getCountedQuantity();
+                    BigDecimal allocatedCost = batch.getCountedCost();
+                    BigDecimal unitPrice = batch.getUnitPrice();
+                    if (quantity != null && quantity > 0) {
+                        totalQuantity += quantity;
+                    }
+                    if (allocatedCost != null && unitPrice != null && quantity != null && quantity > 0) {
+                        totalCost = totalCost.add(allocatedCost);
+                        pricedQuantity += quantity;
+                        if (lowestUnitPrice == null || unitPrice.compareTo(lowestUnitPrice) < 0) {
+                            lowestUnitPrice = unitPrice;
+                        }
+                        if (highestUnitPrice == null || unitPrice.compareTo(highestUnitPrice) > 0) {
+                            highestUnitPrice = unitPrice;
+                        }
+                        String latestBatchTime = latestManualBatchOrderTime(batch);
+                        if (recentPurchaseTime == null || nullToEmpty(latestBatchTime).compareTo(recentPurchaseTime) > 0) {
+                            recentPurchaseTime = latestBatchTime;
+                            recentUnitPrice = unitPrice;
+                        }
+                    }
+                }
+                amountBasisSet.put("manual_batch_adjusted", Boolean.TRUE);
+            } else {
+                for (Ali1688SkuPurchaseHistoryView.HistoryView historyView : history) {
+                    Integer quantity = historyView.getAssignedQuantity();
+                    if (quantity != null && quantity > 0) {
+                        totalQuantity += quantity;
+                    }
+                    BigDecimal allocatedCost = historyView.getAllocatedCost();
+                    BigDecimal unitPrice = historyView.getUnitPrice();
+                    if (allocatedCost != null && unitPrice != null && quantity != null && quantity > 0) {
+                        totalCost = totalCost.add(allocatedCost);
+                        pricedQuantity += quantity;
+                        if (lowestUnitPrice == null || unitPrice.compareTo(lowestUnitPrice) < 0) {
+                            lowestUnitPrice = unitPrice;
+                        }
+                        if (highestUnitPrice == null || unitPrice.compareTo(highestUnitPrice) > 0) {
+                            highestUnitPrice = unitPrice;
+                        }
+                        amountBasisSet.put(historyView.getAmountBasis(), Boolean.TRUE);
+                        if (recentPurchaseTime == null || nullToEmpty(historyView.getOrderTime()).compareTo(recentPurchaseTime) > 0) {
+                            recentPurchaseTime = historyView.getOrderTime();
+                            recentUnitPrice = unitPrice;
+                        }
+                    } else {
+                        qualityFlagSet.put(historyView.getPriceQuality(), Boolean.TRUE);
+                    }
+                }
+            }
             Ali1688SkuPurchaseHistoryView.ItemView view = new Ali1688SkuPurchaseHistoryView.ItemView();
             view.setStoreCode(storeCode);
             view.setSiteCode(siteCode);
@@ -2240,7 +2584,21 @@ public class LocalDbAli1688HistoricalOrderService {
             view.setAmountBasis(resolveAmountBasis(amountBasisSet));
             view.setDataQualityFlags(new ArrayList<>(qualityFlagSet.keySet()));
             view.setHistory(history);
+            view.setPurchaseBatches(manualPurchaseBatches);
             return view;
+        }
+
+        private static String latestManualBatchOrderTime(Ali1688SkuPurchaseHistoryView.PurchaseBatchView batch) {
+            if (batch == null || batch.getSources() == null) {
+                return null;
+            }
+            return batch.getSources()
+                    .stream()
+                    .map(Ali1688SkuPurchaseHistoryView.PurchaseBatchSourceView::getOrderTime)
+                    .filter(value -> value != null && !value.isBlank())
+                    .sorted()
+                    .reduce((left, right) -> right)
+                    .orElse(null);
         }
 
         private static BigDecimal money(BigDecimal amount) {
@@ -2249,6 +2607,118 @@ public class LocalDbAli1688HistoricalOrderService {
 
         private static String nullToEmpty(String value) {
             return value == null ? "" : value;
+        }
+
+        private static String resolveAmountBasis(Map<String, Boolean> amountBasisSet) {
+            if (amountBasisSet.isEmpty()) {
+                return "missing";
+            }
+            if (amountBasisSet.size() == 1) {
+                return amountBasisSet.keySet().iterator().next();
+            }
+            return "mixed";
+        }
+
+        private static String purchaseHistoryOrderKey(Ali1688SkuPurchaseHistoryRow row) {
+            if (row == null) {
+                return "missing-order";
+            }
+            if (row.getOrderId() != null) {
+                return "order-id:" + row.getOrderId();
+            }
+            if (row.getOrderNo() != null && !row.getOrderNo().isBlank()) {
+                return "order-no:"
+                        + nullToEmpty(row.getStoreCode())
+                        + "|"
+                        + nullToEmpty(row.getSiteCode())
+                        + "|"
+                        + nullToEmpty(row.getSkuParent())
+                        + "|"
+                        + row.getOrderNo().trim();
+            }
+            if (row.getAssignmentId() != null) {
+                return "assignment-id:" + row.getAssignmentId();
+            }
+            if (row.getItemId() != null) {
+                return "item-id:" + row.getItemId();
+            }
+            if (row.getProductLinkId() != null) {
+                return "product-link-id:" + row.getProductLinkId();
+            }
+            return "row-identity:" + System.identityHashCode(row);
+        }
+    }
+
+    private static class OrderPurchaseHistoryAccumulator {
+        private final Long orderId;
+        private Long itemId;
+        private Long assignmentId;
+        private final String orderNo;
+        private final String orderTime;
+        private String supplierName;
+        private int assignedQuantity;
+        private BigDecimal allocatedCost = BigDecimal.ZERO;
+        private final Map<String, Boolean> amountBasisSet = new LinkedHashMap<>();
+        private final Map<String, Boolean> qualitySet = new LinkedHashMap<>();
+        private boolean hasMissingPrice;
+
+        private OrderPurchaseHistoryAccumulator(Ali1688SkuPurchaseHistoryRow seed) {
+            this.orderId = seed.getOrderId();
+            this.itemId = seed.getItemId();
+            this.assignmentId = seed.getAssignmentId();
+            this.orderNo = seed.getOrderNo();
+            this.orderTime = seed.getOrderTime();
+            this.supplierName = seed.getSupplierName();
+        }
+
+        private void add(Ali1688SkuPurchaseHistoryRow row, PurchaseCostCalculation cost) {
+            if (itemId == null) {
+                itemId = row.getItemId();
+            }
+            if (assignmentId == null) {
+                assignmentId = row.getAssignmentId();
+            }
+            if (supplierName == null || supplierName.isBlank()) {
+                supplierName = row.getSupplierName();
+            }
+            Integer rowQuantity = row.getAssignedQuantity();
+            if (rowQuantity != null && rowQuantity > 0) {
+                assignedQuantity += rowQuantity;
+            }
+            if (cost.allocatedCost != null && cost.unitPrice != null) {
+                allocatedCost = allocatedCost.add(cost.allocatedCost);
+                amountBasisSet.put(cost.amountBasis, Boolean.TRUE);
+                return;
+            }
+            hasMissingPrice = true;
+            qualitySet.put(cost.priceQuality, Boolean.TRUE);
+        }
+
+        private Ali1688SkuPurchaseHistoryView.HistoryView toHistoryView() {
+            Ali1688SkuPurchaseHistoryView.HistoryView view =
+                    new Ali1688SkuPurchaseHistoryView.HistoryView();
+            view.setOrderId(orderId);
+            view.setItemId(itemId);
+            view.setAssignmentId(assignmentId);
+            view.setOrderNo(orderNo);
+            view.setOrderTime(orderTime);
+            view.setSupplierName(supplierName);
+            view.setAssignedQuantity(assignedQuantity);
+            if (hasMissingPrice || assignedQuantity <= 0) {
+                view.setAmountBasis("missing");
+                view.setPriceQuality(qualitySet.isEmpty() ? "missing_price_basis" : qualitySet.keySet().iterator().next());
+                return view;
+            }
+            BigDecimal normalizedCost = money(allocatedCost);
+            view.setAllocatedCost(normalizedCost);
+            view.setUnitPrice(money(normalizedCost.divide(BigDecimal.valueOf(assignedQuantity), 8, RoundingMode.HALF_UP)));
+            view.setAmountBasis(resolveAmountBasis(amountBasisSet));
+            view.setPriceQuality("ready");
+            return view;
+        }
+
+        private static BigDecimal money(BigDecimal amount) {
+            return amount == null ? null : amount.setScale(2, RoundingMode.HALF_UP);
         }
 
         private static String resolveAmountBasis(Map<String, Boolean> amountBasisSet) {
@@ -2273,12 +2743,21 @@ public class LocalDbAli1688HistoricalOrderService {
         return new BigDecimal(normalized);
     }
 
+    private BigDecimal money(BigDecimal amount) {
+        return amount == null ? null : amount.setScale(2, RoundingMode.HALF_UP);
+    }
+
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
     }
 
     private String trimToNull(String value) {
         return hasText(value) ? value.trim() : null;
+    }
+
+    private String normalizeSiteCode(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? "*" : normalized;
     }
 
     private Integer parseInteger(String value) {
@@ -2329,6 +2808,23 @@ public class LocalDbAli1688HistoricalOrderService {
         return assignment != null && ASSIGNMENT_TARGET_CONSUMABLE.equals(assignment.getTargetType());
     }
 
+    private void requireAssignmentWriteAccess(BusinessAccessContext context) {
+        if (context == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看订单分配，不能修改。");
+        }
+        if (context.isBossAccount()) {
+            return;
+        }
+        if (!context.isOperatorAccount()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看订单分配，不能修改。");
+        }
+        String roleName = trimToNull(context.getRoleName());
+        if ("运营".equals(roleName) || "运营主管".equals(roleName) || "运营管理".equals(roleName)) {
+            return;
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看订单分配，不能修改。");
+    }
+
     private void requireProductLinkWriteAccess(BusinessAccessContext context) {
         if (context == null) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看商品关联，不能修改。");
@@ -2344,6 +2840,27 @@ public class LocalDbAli1688HistoricalOrderService {
             return;
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看商品关联，不能修改。");
+    }
+
+    private void requireSkuPurchaseBatchWriteAccess(BusinessAccessContext context) {
+        if (context == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看采购批次，不能修改。");
+        }
+        if (context.isBossAccount()) {
+            return;
+        }
+        if (!context.isOperatorAccount()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看采购批次，不能修改。");
+        }
+        String roleName = trimToNull(context.getRoleName());
+        if ("运营".equals(roleName)
+                || "运营主管".equals(roleName)
+                || "运营管理".equals(roleName)
+                || "采购".equals(roleName)
+                || "采购管理".equals(roleName)) {
+            return;
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前角色只能查看采购批次，不能修改。");
     }
 
     private void validateProductSkuInAssignmentTarget(
@@ -2422,6 +2939,14 @@ public class LocalDbAli1688HistoricalOrderService {
                 + nullToEmpty(row.getSkuParent());
     }
 
+    private String purchaseHistoryGroupKey(Ali1688SkuPurchaseBatchRow row) {
+        return nullToEmpty(row.getStoreCode())
+                + "|"
+                + nullToEmpty(row.getSiteCode())
+                + "|"
+                + nullToEmpty(row.getSkuParent());
+    }
+
     private String purchaseHistoryAssignmentKey(Ali1688SkuPurchaseHistoryRow row) {
         if (row.getAssignmentId() != null) {
             return "assignment:" + row.getAssignmentId();
@@ -2429,7 +2954,128 @@ public class LocalDbAli1688HistoricalOrderService {
         return "link:" + row.getProductLinkId();
     }
 
-    private PurchaseCostCalculation calculatePurchaseCost(Ali1688SkuPurchaseHistoryRow row) {
+    private List<Ali1688SkuPurchaseHistoryRow> collapseDuplicateSkuPurchaseHistoryRows(
+            List<Ali1688SkuPurchaseHistoryRow> rows
+    ) {
+        Map<String, Ali1688SkuPurchaseHistoryRow> bySourceItem = new LinkedHashMap<>();
+        int rowIndex = 0;
+        for (Ali1688SkuPurchaseHistoryRow row : rows) {
+            String duplicateKey = purchaseHistorySourceItemKey(row);
+            String key = duplicateKey == null ? "row:" + rowIndex : duplicateKey;
+            Ali1688SkuPurchaseHistoryRow existing = bySourceItem.get(key);
+            if (existing == null || isPreferredPurchaseHistoryDuplicate(row, existing)) {
+                bySourceItem.put(key, row);
+            }
+            rowIndex++;
+        }
+        return new ArrayList<>(bySourceItem.values());
+    }
+
+    private List<Ali1688SkuPurchaseHistoryRow> collapseDuplicateSkuPurchaseHistoryAssignments(
+            List<Ali1688SkuPurchaseHistoryRow> rows
+    ) {
+        Map<String, Boolean> seenAssignments = new LinkedHashMap<>();
+        List<Ali1688SkuPurchaseHistoryRow> activeRows = new ArrayList<>();
+        for (Ali1688SkuPurchaseHistoryRow row : rows) {
+            if (row == null) {
+                continue;
+            }
+            String assignmentKey = purchaseHistoryAssignmentKey(row);
+            if (seenAssignments.putIfAbsent(assignmentKey, Boolean.TRUE) != null) {
+                continue;
+            }
+            activeRows.add(row);
+        }
+        return activeRows;
+    }
+
+    private String purchaseHistorySourceItemKey(Ali1688SkuPurchaseHistoryRow row) {
+        if (row == null || !hasText(row.getOrderNo()) || !hasText(row.getSkuParent())) {
+            return null;
+        }
+        if (!hasText(row.getSourceSkuId()) && !hasText(row.getSourceSingleProductCode())) {
+            return null;
+        }
+        return nullToEmpty(row.getStoreCode())
+                + "|"
+                + nullToEmpty(row.getSiteCode())
+                + "|"
+                + nullToEmpty(row.getSkuParent())
+                + "|"
+                + nullToEmpty(row.getOrderNo())
+                + "|"
+                + nullToEmpty(row.getSourceOfferId())
+                + "|"
+                + nullToEmpty(row.getSourceSkuId())
+                + "|"
+                + nullToEmpty(row.getSourceProductCode())
+                + "|"
+                + nullToEmpty(row.getSourceSingleProductCode());
+    }
+
+    private boolean isPreferredPurchaseHistoryDuplicate(
+            Ali1688SkuPurchaseHistoryRow candidate,
+            Ali1688SkuPurchaseHistoryRow existing
+    ) {
+        PurchaseCostCalculation candidateCost = calculatePurchaseCost(candidate, null);
+        PurchaseCostCalculation existingCost = calculatePurchaseCost(existing, null);
+        boolean candidateReady = candidateCost.allocatedCost != null && candidateCost.unitPrice != null;
+        boolean existingReady = existingCost.allocatedCost != null && existingCost.unitPrice != null;
+        if (candidateReady != existingReady) {
+            return candidateReady;
+        }
+        return nullToEmpty(candidate.getItemAmountText()).length() > nullToEmpty(existing.getItemAmountText()).length();
+    }
+
+    private Map<String, BigDecimal> inferOrderItemAmountTotals(List<Ali1688SkuPurchaseHistoryRow> rows) {
+        Map<String, BigDecimal> totals = new LinkedHashMap<>();
+        for (Ali1688SkuPurchaseHistoryRow row : rows) {
+            if (row == null) {
+                continue;
+            }
+            BigDecimal itemAmount = parseMoney(row.getItemAmountText());
+            if (itemAmount == null) {
+                continue;
+            }
+            String orderKey = purchaseHistoryCostOrderKey(row);
+            totals.put(orderKey, totals.getOrDefault(orderKey, BigDecimal.ZERO).add(itemAmount));
+        }
+        return totals;
+    }
+
+    private String purchaseHistoryCostOrderKey(Ali1688SkuPurchaseHistoryRow row) {
+        if (row == null) {
+            return "missing-order";
+        }
+        if (row.getOrderId() != null) {
+            return "order-id:" + row.getOrderId();
+        }
+        if (row.getOrderNo() != null && !row.getOrderNo().isBlank()) {
+            return "order-no:"
+                    + nullToEmpty(row.getStoreCode())
+                    + "|"
+                    + nullToEmpty(row.getSiteCode())
+                    + "|"
+                    + nullToEmpty(row.getSkuParent())
+                    + "|"
+                    + row.getOrderNo().trim();
+        }
+        if (row.getAssignmentId() != null) {
+            return "assignment-id:" + row.getAssignmentId();
+        }
+        if (row.getItemId() != null) {
+            return "item-id:" + row.getItemId();
+        }
+        if (row.getProductLinkId() != null) {
+            return "product-link-id:" + row.getProductLinkId();
+        }
+        return "row-identity:" + System.identityHashCode(row);
+    }
+
+    private PurchaseCostCalculation calculatePurchaseCost(
+            Ali1688SkuPurchaseHistoryRow row,
+            BigDecimal inferredOrderItemAmountTotal
+    ) {
         Integer assignedQuantity = row.getAssignedQuantity();
         if (assignedQuantity == null || assignedQuantity <= 0) {
             return PurchaseCostCalculation.missing("missing_quantity");
@@ -2443,12 +3089,14 @@ public class LocalDbAli1688HistoricalOrderService {
                 .divide(BigDecimal.valueOf(itemQuantity), 8, RoundingMode.HALF_UP);
         BigDecimal paidAmount = parseMoney(row.getPaidAmountText());
         BigDecimal goodsTotal = parseMoney(row.getGoodsTotalText());
+        BigDecimal orderItemAmountTotal = parseMoney(row.getOrderItemAmountTotalText());
+        BigDecimal allocationTotal = firstPositive(orderItemAmountTotal, inferredOrderItemAmountTotal, goodsTotal);
         BigDecimal allocatedCost;
         String amountBasis;
-        if (paidAmount != null && goodsTotal != null && goodsTotal.compareTo(BigDecimal.ZERO) > 0) {
+        if (paidAmount != null && allocationTotal != null) {
             allocatedCost = paidAmount
                     .multiply(itemAmount)
-                    .divide(goodsTotal, 8, RoundingMode.HALF_UP)
+                    .divide(allocationTotal, 8, RoundingMode.HALF_UP)
                     .multiply(assignedRatio);
             amountBasis = "paid_amount_allocated";
         } else {
@@ -2458,6 +3106,18 @@ public class LocalDbAli1688HistoricalOrderService {
         BigDecimal unitPrice = allocatedCost
                 .divide(BigDecimal.valueOf(assignedQuantity), 8, RoundingMode.HALF_UP);
         return PurchaseCostCalculation.ready(allocatedCost, unitPrice, amountBasis);
+    }
+
+    private BigDecimal firstPositive(BigDecimal... values) {
+        if (values == null) {
+            return null;
+        }
+        for (BigDecimal value : values) {
+            if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private int defaultInt(Integer value) {

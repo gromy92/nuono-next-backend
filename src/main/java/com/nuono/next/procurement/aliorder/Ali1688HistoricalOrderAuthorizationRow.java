@@ -10,6 +10,8 @@ public class Ali1688HistoricalOrderAuthorizationRow {
     private String accountLabel;
     private String status;
     private String scopeSummary;
+    private String accessTokenCipher;
+    private String refreshTokenCipher;
     private LocalDateTime expiresAt;
     private LocalDateTime revokedAt;
     private Long createdBy;
@@ -69,6 +71,22 @@ public class Ali1688HistoricalOrderAuthorizationRow {
 
     public void setScopeSummary(String scopeSummary) {
         this.scopeSummary = scopeSummary;
+    }
+
+    public String getAccessTokenCipher() {
+        return accessTokenCipher;
+    }
+
+    public void setAccessTokenCipher(String accessTokenCipher) {
+        this.accessTokenCipher = accessTokenCipher;
+    }
+
+    public String getRefreshTokenCipher() {
+        return refreshTokenCipher;
+    }
+
+    public void setRefreshTokenCipher(String refreshTokenCipher) {
+        this.refreshTokenCipher = refreshTokenCipher;
     }
 
     public LocalDateTime getExpiresAt() {

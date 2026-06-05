@@ -13,6 +13,8 @@ import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderProductLinkRow;
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderQuery;
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderRow;
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderSyncTaskRow;
+import com.nuono.next.procurement.aliorder.Ali1688SkuPurchaseBatchRow;
+import com.nuono.next.procurement.aliorder.Ali1688SkuPurchaseBatchSourceRow;
 import com.nuono.next.procurement.aliorder.Ali1688SkuPurchaseHistoryRow;
 import com.nuono.next.procurement.aliorder.Ali1688SkuPurchaseHistoryProductRow;
 import java.util.List;
@@ -84,10 +86,18 @@ public interface Ali1688HistoricalOrderMapper {
         return nextId("procurement_ali1688_order_item_product_link_audit", 101000L);
     }
 
+    default Long nextSkuPurchaseBatchId() {
+        return nextId("procurement_ali1688_sku_purchase_batch", 102000L);
+    }
+
+    default Long nextSkuPurchaseBatchSourceId() {
+        return nextId("procurement_ali1688_sku_purchase_batch_source", 103000L);
+    }
+
     @Select({
             "SELECT",
             "  id, owner_user_id, provider_code, provider_account_id, account_label, status,",
-            "  scope_summary, expires_at, revoked_at, created_by, updated_by",
+            "  scope_summary, access_token_cipher, refresh_token_cipher, expires_at, revoked_at, created_by, updated_by",
             "FROM procurement_ali1688_order_authorization",
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND is_deleted = b'0'",
@@ -100,7 +110,7 @@ public interface Ali1688HistoricalOrderMapper {
     @Select({
             "SELECT",
             "  id, owner_user_id, provider_code, provider_account_id, account_label, status,",
-            "  scope_summary, expires_at, revoked_at, created_by, updated_by",
+            "  scope_summary, access_token_cipher, refresh_token_cipher, expires_at, revoked_at, created_by, updated_by",
             "FROM procurement_ali1688_order_authorization",
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND id = #{authorizationId}",
@@ -116,7 +126,7 @@ public interface Ali1688HistoricalOrderMapper {
     @Select({
             "SELECT",
             "  id, owner_user_id, provider_code, provider_account_id, account_label, status,",
-            "  scope_summary, expires_at, revoked_at, created_by, updated_by",
+            "  scope_summary, access_token_cipher, refresh_token_cipher, expires_at, revoked_at, created_by, updated_by",
             "FROM procurement_ali1688_order_authorization",
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND provider_code = #{providerCode}",
@@ -182,7 +192,8 @@ public interface Ali1688HistoricalOrderMapper {
             "<script>",
             "SELECT",
             "  auth.id, auth.owner_user_id, auth.provider_code, auth.provider_account_id, auth.account_label, auth.status,",
-            "  auth.scope_summary, auth.expires_at, auth.revoked_at, auth.created_by, auth.updated_by",
+            "  auth.scope_summary, auth.access_token_cipher, auth.refresh_token_cipher,",
+            "  auth.expires_at, auth.revoked_at, auth.created_by, auth.updated_by",
             "FROM procurement_ali1688_order_authorization auth",
             "JOIN procurement_ali1688_order_store_binding binding",
             "  ON binding.authorization_id = auth.id",
@@ -211,13 +222,31 @@ public interface Ali1688HistoricalOrderMapper {
     @Insert({
             "INSERT INTO procurement_ali1688_order_authorization (",
             "  id, owner_user_id, provider_code, provider_account_id, account_label, status,",
-            "  scope_summary, expires_at, created_by, updated_by, gmt_create, gmt_updated",
+            "  scope_summary, access_token_cipher, refresh_token_cipher, expires_at, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "  #{id}, #{ownerUserId}, #{providerCode}, #{providerAccountId}, #{accountLabel}, #{status},",
-            "  #{scopeSummary}, #{expiresAt}, #{createdBy}, #{updatedBy}, NOW(), NOW()",
+            "  #{scopeSummary}, #{accessTokenCipher}, #{refreshTokenCipher}, #{expiresAt}, #{createdBy}, #{updatedBy}, NOW(), NOW()",
             ")"
     })
     int insertAuthorization(Ali1688HistoricalOrderAuthorizationRow row);
+
+    @Update({
+            "UPDATE procurement_ali1688_order_authorization",
+            "SET provider_account_id = #{providerAccountId},",
+            "    account_label = #{accountLabel},",
+            "    status = #{status},",
+            "    scope_summary = #{scopeSummary},",
+            "    access_token_cipher = #{accessTokenCipher},",
+            "    refresh_token_cipher = #{refreshTokenCipher},",
+            "    expires_at = #{expiresAt},",
+            "    revoked_at = NULL,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAuthorizationTokens(Ali1688HistoricalOrderAuthorizationRow row);
 
     @Insert({
             "INSERT INTO procurement_ali1688_order_store_binding (",
@@ -799,6 +828,27 @@ public interface Ali1688HistoricalOrderMapper {
             "    #{authorizationId}",
             "  </foreach>",
             "  AND is_deleted = b'0'",
+            "  AND NOT EXISTS (",
+            "    SELECT 1",
+            "    FROM procurement_ali1688_order_authorization duplicate_source",
+            "    JOIN procurement_ali1688_order_header openapi_duplicate_order",
+            "      ON openapi_duplicate_order.owner_user_id = procurement_ali1688_order_header.owner_user_id",
+            "     AND openapi_duplicate_order.provider_order_no = procurement_ali1688_order_header.provider_order_no",
+            "     AND openapi_duplicate_order.is_deleted = b'0'",
+            "    JOIN procurement_ali1688_order_authorization openapi_duplicate",
+            "      ON openapi_duplicate.id = openapi_duplicate_order.authorization_id",
+            "     AND openapi_duplicate.owner_user_id = #{ownerUserId}",
+            "     AND openapi_duplicate.provider_code = 'ALI1688_OPEN_API'",
+            "     AND openapi_duplicate.is_deleted = b'0'",
+            "    WHERE duplicate_source.id = procurement_ali1688_order_header.authorization_id",
+            "      AND duplicate_source.owner_user_id = #{ownerUserId}",
+            "      AND duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')",
+            "      AND duplicate_source.is_deleted = b'0'",
+            "      AND openapi_duplicate_order.authorization_id IN",
+            "      <foreach collection='authorizationIds' item='authorizationId' open='(' separator=',' close=')'>",
+            "        #{authorizationId}",
+            "      </foreach>",
+            "  )",
             "  <if test='query.placedTimeFrom != null and query.placedTimeFrom != \"\"'>",
             "    AND order_time &gt;= #{query.placedTimeFrom}",
             "  </if>",
@@ -850,6 +900,39 @@ public interface Ali1688HistoricalOrderMapper {
             "        </if>",
             "        AND assignment_target_filter.status = 'active'",
             "        AND assignment_target_filter.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test=\"query.productLinkState == 'linked'\">",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_order_item_assignment product_link_filter_assignment",
+            "      JOIN procurement_ali1688_order_item_product_link product_link_filter_link",
+            "        ON product_link_filter_link.assignment_id = product_link_filter_assignment.id",
+            "        AND product_link_filter_link.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_link.status = 'active'",
+            "        AND product_link_filter_link.is_deleted = b'0'",
+            "      WHERE product_link_filter_assignment.order_id = procurement_ali1688_order_header.id",
+            "        AND product_link_filter_assignment.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_assignment.target_type = 'STORE_SITE'",
+            "        AND product_link_filter_assignment.status = 'active'",
+            "        AND product_link_filter_assignment.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test=\"query.productLinkState == 'unlinked'\">",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_order_item_assignment product_link_filter_assignment",
+            "      LEFT JOIN procurement_ali1688_order_item_product_link product_link_filter_unlinked",
+            "        ON product_link_filter_unlinked.assignment_id = product_link_filter_assignment.id",
+            "        AND product_link_filter_unlinked.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_unlinked.status = 'active'",
+            "        AND product_link_filter_unlinked.is_deleted = b'0'",
+            "      WHERE product_link_filter_assignment.order_id = procurement_ali1688_order_header.id",
+            "        AND product_link_filter_assignment.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_assignment.target_type = 'STORE_SITE'",
+            "        AND product_link_filter_assignment.status = 'active'",
+            "        AND product_link_filter_assignment.is_deleted = b'0'",
+            "        AND product_link_filter_unlinked.id IS NULL",
             "    )",
             "  </if>",
             "  <if test='query.keyword != null and query.keyword != \"\"'>",
@@ -951,7 +1034,8 @@ public interface Ali1688HistoricalOrderMapper {
             "  AND oh.is_deleted = b'0'",
             "WHERE oi.id = #{itemId}",
             "  AND oi.is_deleted = b'0'",
-            "LIMIT 1"
+            "LIMIT 1",
+            "FOR UPDATE"
     })
     Ali1688HistoricalOrderItemRow selectOrderItemForAssignment(
             @Param("ownerUserId") Long ownerUserId,
@@ -1128,12 +1212,22 @@ public interface Ali1688HistoricalOrderMapper {
             "  link.psku_code AS pskuCode,",
             "  link.product_title AS productTitle,",
             "  link.product_image_url AS productImageUrl,",
+            "  item.offer_id AS sourceOfferId,",
+            "  item.sku_id AS sourceSkuId,",
+            "  item.product_code AS sourceProductCode,",
+            "  item.single_product_code AS sourceSingleProductCode,",
             "  header.provider_order_no AS orderNo,",
             "  DATE_FORMAT(header.order_time, '%Y-%m-%d %H:%i:%s') AS orderTime,",
             "  header.supplier_name AS supplierName,",
             "  assignment.assigned_quantity AS assignedQuantity,",
             "  item.quantity AS itemQuantity,",
             "  item.amount_text AS itemAmountText,",
+            "  (",
+            "    SELECT SUM(CAST(NULLIF(REPLACE(REPLACE(REPLACE(sibling.amount_text, '¥', ''), ',', ''), ' ', ''), '') AS DECIMAL(18, 4)))",
+            "    FROM procurement_ali1688_order_item sibling",
+            "    WHERE sibling.order_id = header.id",
+            "      AND sibling.is_deleted = b'0'",
+            "  ) AS orderItemAmountTotalText,",
             "  header.goods_total_text AS goodsTotalText,",
             "  header.paid_amount_text AS paidAmountText",
             "FROM procurement_ali1688_order_item_product_link link",
@@ -1318,6 +1412,137 @@ public interface Ali1688HistoricalOrderMapper {
     );
 
     @Select({
+            "<script>",
+            "SELECT",
+            "  id, owner_user_id AS ownerUserId, target_store_code AS storeCode, target_site_code AS siteCode,",
+            "  sku_parent AS skuParent, partner_sku AS partnerSku, psku_code AS pskuCode,",
+            "  batch_label AS batchLabel, batch_sequence AS batchSequence, counted_quantity AS countedQuantity,",
+            "  counted_cost AS countedCost, note, status, created_by AS createdBy, updated_by AS updatedBy,",
+            "  DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
+            "  DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM procurement_ali1688_sku_purchase_batch batch",
+            "WHERE batch.owner_user_id = #{ownerUserId}",
+            "  AND batch.target_store_code = #{storeCode}",
+            "  <if test='siteCode != null and siteCode != \"\"'>",
+            "    AND batch.target_site_code = #{siteCode}",
+            "  </if>",
+            "  AND batch.status = 'active'",
+            "  AND batch.is_deleted = b'0'",
+            "  <if test='keyword != null and keyword != \"\"'>",
+            "    AND (",
+            "      batch.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
+            "      OR batch.partner_sku LIKE CONCAT('%', #{keyword}, '%')",
+            "      OR batch.psku_code LIKE CONCAT('%', #{keyword}, '%')",
+            "    )",
+            "  </if>",
+            "  <if test='purchaseTimeFrom != null and purchaseTimeFrom != \"\"'>",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_sku_purchase_batch_source source_filter",
+            "      JOIN procurement_ali1688_order_header header_filter",
+            "        ON header_filter.id = source_filter.order_id",
+            "       AND header_filter.owner_user_id = source_filter.owner_user_id",
+            "       AND header_filter.is_deleted = b'0'",
+            "      WHERE source_filter.owner_user_id = batch.owner_user_id",
+            "        AND source_filter.batch_id = batch.id",
+            "        AND source_filter.status = 'active'",
+            "        AND source_filter.is_deleted = b'0'",
+            "        AND header_filter.order_time &gt;= CONCAT(#{purchaseTimeFrom}, ' 00:00:00')",
+            "    )",
+            "  </if>",
+            "  <if test='purchaseTimeTo != null and purchaseTimeTo != \"\"'>",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_sku_purchase_batch_source source_filter",
+            "      JOIN procurement_ali1688_order_header header_filter",
+            "        ON header_filter.id = source_filter.order_id",
+            "       AND header_filter.owner_user_id = source_filter.owner_user_id",
+            "       AND header_filter.is_deleted = b'0'",
+            "      WHERE source_filter.owner_user_id = batch.owner_user_id",
+            "        AND source_filter.batch_id = batch.id",
+            "        AND source_filter.status = 'active'",
+            "        AND source_filter.is_deleted = b'0'",
+            "        AND header_filter.order_time &lt;= CONCAT(#{purchaseTimeTo}, ' 23:59:59')",
+            "    )",
+            "  </if>",
+            "ORDER BY batch.sku_parent ASC, batch.batch_sequence ASC, batch.id ASC",
+            "</script>"
+    })
+    List<Ali1688SkuPurchaseBatchRow> listSkuPurchaseBatches(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("keyword") String keyword,
+            @Param("purchaseTimeFrom") String purchaseTimeFrom,
+            @Param("purchaseTimeTo") String purchaseTimeTo
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  id, batch_id AS batchId, owner_user_id AS ownerUserId, order_id AS orderId, item_id AS itemId,",
+            "  assignment_id AS assignmentId, source_order_no AS sourceOrderNo,",
+            "  DATE_FORMAT(source_order_time, '%Y-%m-%d %H:%i:%s') AS sourceOrderTime,",
+            "  supplier_name AS supplierName, status, created_by AS createdBy, updated_by AS updatedBy,",
+            "  DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
+            "  DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM procurement_ali1688_sku_purchase_batch_source",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'",
+            "  AND batch_id IN",
+            "  <foreach collection='batchIds' item='batchId' open='(' separator=',' close=')'>#{batchId}</foreach>",
+            "ORDER BY batch_id ASC, id ASC",
+            "</script>"
+    })
+    List<Ali1688SkuPurchaseBatchSourceRow> listSkuPurchaseBatchSources(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchIds") List<Long> batchIds
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_sku_purchase_batch",
+            "SET status = 'replaced',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND target_store_code = #{storeCode}",
+            "  AND target_site_code = #{siteCode}",
+            "  AND sku_parent = #{skuParent}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSkuPurchaseBatchesForSku(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("skuParent") String skuParent,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO procurement_ali1688_sku_purchase_batch (",
+            "  id, owner_user_id, target_store_code, target_site_code, sku_parent, partner_sku, psku_code,",
+            "  batch_label, batch_sequence, counted_quantity, counted_cost, note, status, created_by, updated_by",
+            ") VALUES (",
+            "  #{id}, #{ownerUserId}, #{storeCode}, #{siteCode}, #{skuParent}, #{partnerSku}, #{pskuCode},",
+            "  #{batchLabel}, #{batchSequence}, #{countedQuantity}, #{countedCost}, #{note}, #{status}, #{createdBy}, #{updatedBy}",
+            ")"
+    })
+    int insertSkuPurchaseBatch(Ali1688SkuPurchaseBatchRow row);
+
+    @Insert({
+            "INSERT INTO procurement_ali1688_sku_purchase_batch_source (",
+            "  id, batch_id, owner_user_id, order_id, item_id, assignment_id, source_order_no, source_order_time,",
+            "  supplier_name, status, created_by, updated_by",
+            ") VALUES (",
+            "  #{id}, #{batchId}, #{ownerUserId}, #{orderId}, #{itemId}, #{assignmentId}, #{sourceOrderNo}, #{sourceOrderTime},",
+            "  #{supplierName}, #{status}, #{createdBy}, #{updatedBy}",
+            ")"
+    })
+    int insertSkuPurchaseBatchSource(Ali1688SkuPurchaseBatchSourceRow row);
+
+    @Select({
             "SELECT",
             "  id, owner_user_id, authorization_id, order_id, item_id, target_type, target_store_code, target_site_code,",
             "  assigned_quantity, status, remark, created_by, updated_by,",
@@ -1442,6 +1667,55 @@ public interface Ali1688HistoricalOrderMapper {
             "  )"
     })
     int countProductSkuInAssignmentTarget(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("targetStoreCode") String targetStoreCode,
+            @Param("targetSiteCode") String targetSiteCode,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  ls.project_code AS storeCode,",
+            "  lss.site AS siteCode,",
+            "  pm.sku_parent AS skuParent,",
+            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  MAX(pso.psku_code) AS pskuCode,",
+            "  pm.title_cache AS productTitle,",
+            "  pm.cover_image_url AS productImageUrl,",
+            "  CASE WHEN COUNT(DISTINCT link.id) > 0 THEN 'linked' ELSE 'unlinked' END AS linkStatus,",
+            "  COUNT(DISTINCT link.assignment_id) AS linkedAssignmentCount",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = b'0'",
+            "LEFT JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.site_id = lss.id",
+            " AND pso.is_deleted = b'0'",
+            "LEFT JOIN procurement_ali1688_order_item_product_link link",
+            "  ON link.owner_user_id = ls.owner_user_id",
+            " AND link.target_store_code = ls.project_code",
+            " AND link.target_site_code = lss.site",
+            " AND link.sku_parent = pm.sku_parent",
+            " AND link.status = 'active'",
+            " AND link.is_deleted = b'0'",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  AND (ls.project_code = #{targetStoreCode} OR lss.store_code = #{targetStoreCode})",
+            "  AND UPPER(lss.site) = UPPER(#{targetSiteCode})",
+            "  AND pm.sku_parent = #{skuParent}",
+            "GROUP BY ls.project_code, lss.site, pm.sku_parent, pm.title_cache, pm.cover_image_url",
+            "LIMIT 1",
+            "</script>"
+    })
+    Ali1688HistoricalOrderProductLinkCandidateRow selectOrderItemProductLinkCandidateBySkuParent(
             @Param("ownerUserId") Long ownerUserId,
             @Param("targetStoreCode") String targetStoreCode,
             @Param("targetSiteCode") String targetSiteCode,
@@ -1678,6 +1952,27 @@ public interface Ali1688HistoricalOrderMapper {
             "    #{authorizationId}",
             "  </foreach>",
             "  AND is_deleted = b'0'",
+            "  AND NOT EXISTS (",
+            "    SELECT 1",
+            "    FROM procurement_ali1688_order_authorization duplicate_source",
+            "    JOIN procurement_ali1688_order_header openapi_duplicate_order",
+            "      ON openapi_duplicate_order.owner_user_id = procurement_ali1688_order_header.owner_user_id",
+            "     AND openapi_duplicate_order.provider_order_no = procurement_ali1688_order_header.provider_order_no",
+            "     AND openapi_duplicate_order.is_deleted = b'0'",
+            "    JOIN procurement_ali1688_order_authorization openapi_duplicate",
+            "      ON openapi_duplicate.id = openapi_duplicate_order.authorization_id",
+            "     AND openapi_duplicate.owner_user_id = #{ownerUserId}",
+            "     AND openapi_duplicate.provider_code = 'ALI1688_OPEN_API'",
+            "     AND openapi_duplicate.is_deleted = b'0'",
+            "    WHERE duplicate_source.id = procurement_ali1688_order_header.authorization_id",
+            "      AND duplicate_source.owner_user_id = #{ownerUserId}",
+            "      AND duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')",
+            "      AND duplicate_source.is_deleted = b'0'",
+            "      AND openapi_duplicate_order.authorization_id IN",
+            "      <foreach collection='authorizationIds' item='authorizationId' open='(' separator=',' close=')'>",
+            "        #{authorizationId}",
+            "      </foreach>",
+            "  )",
             "  <if test='query.placedTimeFrom != null and query.placedTimeFrom != \"\"'>",
             "    AND order_time &gt;= #{query.placedTimeFrom}",
             "  </if>",
@@ -1729,6 +2024,39 @@ public interface Ali1688HistoricalOrderMapper {
             "        </if>",
             "        AND assignment_target_filter.status = 'active'",
             "        AND assignment_target_filter.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test=\"query.productLinkState == 'linked'\">",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_order_item_assignment product_link_filter_assignment",
+            "      JOIN procurement_ali1688_order_item_product_link product_link_filter_link",
+            "        ON product_link_filter_link.assignment_id = product_link_filter_assignment.id",
+            "        AND product_link_filter_link.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_link.status = 'active'",
+            "        AND product_link_filter_link.is_deleted = b'0'",
+            "      WHERE product_link_filter_assignment.order_id = procurement_ali1688_order_header.id",
+            "        AND product_link_filter_assignment.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_assignment.target_type = 'STORE_SITE'",
+            "        AND product_link_filter_assignment.status = 'active'",
+            "        AND product_link_filter_assignment.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test=\"query.productLinkState == 'unlinked'\">",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_order_item_assignment product_link_filter_assignment",
+            "      LEFT JOIN procurement_ali1688_order_item_product_link product_link_filter_unlinked",
+            "        ON product_link_filter_unlinked.assignment_id = product_link_filter_assignment.id",
+            "        AND product_link_filter_unlinked.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_unlinked.status = 'active'",
+            "        AND product_link_filter_unlinked.is_deleted = b'0'",
+            "      WHERE product_link_filter_assignment.order_id = procurement_ali1688_order_header.id",
+            "        AND product_link_filter_assignment.owner_user_id = #{ownerUserId}",
+            "        AND product_link_filter_assignment.target_type = 'STORE_SITE'",
+            "        AND product_link_filter_assignment.status = 'active'",
+            "        AND product_link_filter_assignment.is_deleted = b'0'",
+            "        AND product_link_filter_unlinked.id IS NULL",
             "    )",
             "  </if>",
             "  <if test='query.keyword != null and query.keyword != \"\"'>",
@@ -1784,6 +2112,27 @@ public interface Ali1688HistoricalOrderMapper {
             "    #{authorizationId}",
             "  </foreach>",
             "  AND oi.is_deleted = b'0'",
+            "  AND NOT EXISTS (",
+            "    SELECT 1",
+            "    FROM procurement_ali1688_order_authorization duplicate_source",
+            "    JOIN procurement_ali1688_order_header openapi_duplicate_order",
+            "      ON openapi_duplicate_order.owner_user_id = oh.owner_user_id",
+            "     AND openapi_duplicate_order.provider_order_no = oh.provider_order_no",
+            "     AND openapi_duplicate_order.is_deleted = b'0'",
+            "    JOIN procurement_ali1688_order_authorization openapi_duplicate",
+            "      ON openapi_duplicate.id = openapi_duplicate_order.authorization_id",
+            "     AND openapi_duplicate.owner_user_id = #{ownerUserId}",
+            "     AND openapi_duplicate.provider_code = 'ALI1688_OPEN_API'",
+            "     AND openapi_duplicate.is_deleted = b'0'",
+            "    WHERE duplicate_source.id = oh.authorization_id",
+            "      AND duplicate_source.owner_user_id = #{ownerUserId}",
+            "      AND duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')",
+            "      AND duplicate_source.is_deleted = b'0'",
+            "      AND openapi_duplicate_order.authorization_id IN",
+            "      <foreach collection='authorizationIds' item='authorizationId' open='(' separator=',' close=')'>",
+            "        #{authorizationId}",
+            "      </foreach>",
+            "  )",
             "</script>"
     })
     int countOrderItems(

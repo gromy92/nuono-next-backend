@@ -44,6 +44,18 @@ public class Ali1688HistoricalOrderAssignmentView {
         }
     }
 
+    public static class AssignBatchRequest {
+        private List<AssignRequest> assignments = new ArrayList<>();
+
+        public List<AssignRequest> getAssignments() {
+            return assignments;
+        }
+
+        public void setAssignments(List<AssignRequest> assignments) {
+            this.assignments = assignments == null ? List.of() : assignments;
+        }
+    }
+
     public static class AssignLineRequest {
         private Long itemId;
         private Integer quantity;

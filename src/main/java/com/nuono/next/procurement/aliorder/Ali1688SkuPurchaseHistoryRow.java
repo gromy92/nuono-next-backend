@@ -24,6 +24,7 @@ public class Ali1688SkuPurchaseHistoryRow {
     private Integer assignedQuantity;
     private Integer itemQuantity;
     private String itemAmountText;
+    private String orderItemAmountTotalText;
     private String goodsTotalText;
     private String paidAmountText;
 
@@ -201,6 +202,14 @@ public class Ali1688SkuPurchaseHistoryRow {
 
     public void setItemAmountText(String itemAmountText) {
         this.itemAmountText = itemAmountText;
+    }
+
+    public String getOrderItemAmountTotalText() {
+        return orderItemAmountTotalText;
+    }
+
+    public void setOrderItemAmountTotalText(String orderItemAmountTotalText) {
+        this.orderItemAmountTotalText = orderItemAmountTotalText;
     }
 
     public String getGoodsTotalText() {

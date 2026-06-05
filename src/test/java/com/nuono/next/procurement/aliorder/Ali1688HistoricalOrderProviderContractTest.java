@@ -23,7 +23,7 @@ class Ali1688HistoricalOrderProviderContractTest {
         assertThat(order.getSellerMemberName()).isEqualTo("诚信通源头工厂");
         assertThat(order.getGoodsTotalText()).isEqualTo("¥128.00");
         assertThat(order.getFreightText()).isEqualTo("¥0.00");
-        assertThat(order.getAdjustmentText()).isEqualTo("¥0.00");
+        assertThat(order.getAdjustmentText()).isNull();
         assertThat(order.getPaidAmountText()).isEqualTo("¥128.00");
         assertThat(order.getAmountText()).isEqualTo("¥128.00");
         assertThat(order.getShipperName()).isEqualTo("商家发货");

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.Ali1688HistoricalOrderMapper;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -106,6 +108,77 @@ class Ali1688HistoricalOrderMapperSqlTest {
     }
 
     @Test
+    void listOrdersAndCountOrdersSupportProductLinkFilters() throws Exception {
+        Method listOrdersMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "listOrders",
+                Long.class,
+                java.util.List.class,
+                Ali1688HistoricalOrderQuery.class
+        );
+        Method countOrdersMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "countOrders",
+                Long.class,
+                java.util.List.class,
+                Ali1688HistoricalOrderQuery.class
+        );
+        String listOrdersSql = annotationSql(listOrdersMethod.getAnnotation(Select.class).value());
+        String countOrdersSql = annotationSql(countOrdersMethod.getAnnotation(Select.class).value());
+
+        assertThat(listOrdersSql)
+                .contains("query.productLinkState == 'linked'")
+                .contains("product_link_filter_link.status = 'active'")
+                .contains("query.productLinkState == 'unlinked'")
+                .contains("product_link_filter_assignment.target_type = 'STORE_SITE'")
+                .contains("product_link_filter_unlinked.id IS NULL");
+        assertThat(countOrdersSql)
+                .contains("query.productLinkState == 'linked'")
+                .contains("product_link_filter_link.status = 'active'")
+                .contains("query.productLinkState == 'unlinked'")
+                .contains("product_link_filter_assignment.target_type = 'STORE_SITE'")
+                .contains("product_link_filter_unlinked.id IS NULL");
+    }
+
+    @Test
+    void orderWorkbenchSqlPrefersOpenApiRowsOverDuplicateExcelRows() throws Exception {
+        Method listOrdersMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "listOrders",
+                Long.class,
+                java.util.List.class,
+                Ali1688HistoricalOrderQuery.class
+        );
+        Method countOrdersMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "countOrders",
+                Long.class,
+                java.util.List.class,
+                Ali1688HistoricalOrderQuery.class
+        );
+        Method countOrderItemsMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "countOrderItems",
+                Long.class,
+                java.util.List.class
+        );
+        String listOrdersSql = annotationSql(listOrdersMethod.getAnnotation(Select.class).value());
+        String countOrdersSql = annotationSql(countOrdersMethod.getAnnotation(Select.class).value());
+        String countOrderItemsSql = annotationSql(countOrderItemsMethod.getAnnotation(Select.class).value());
+
+        assertThat(listOrdersSql)
+                .contains("openapi_duplicate.provider_code = 'ALI1688_OPEN_API'")
+                .contains("duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')")
+                .contains("openapi_duplicate_order.provider_order_no = procurement_ali1688_order_header.provider_order_no")
+                .contains("NOT EXISTS");
+        assertThat(countOrdersSql)
+                .contains("openapi_duplicate.provider_code = 'ALI1688_OPEN_API'")
+                .contains("duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')")
+                .contains("openapi_duplicate_order.provider_order_no = procurement_ali1688_order_header.provider_order_no")
+                .contains("NOT EXISTS");
+        assertThat(countOrderItemsSql)
+                .contains("openapi_duplicate.provider_code = 'ALI1688_OPEN_API'")
+                .contains("duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')")
+                .contains("openapi_duplicate_order.provider_order_no = oh.provider_order_no")
+                .contains("NOT EXISTS");
+    }
+
+    @Test
     void orderCleanupSqlSoftDeletesFactsAndPreservesAuditColumns() throws Exception {
         Method method = Ali1688HistoricalOrderMapper.class.getMethod(
                 "softDeleteOrderHeader",
@@ -143,6 +216,72 @@ class Ali1688HistoricalOrderMapperSqlTest {
     }
 
     @Test
+    void assignmentWriteSqlLocksItemRowsBeforeCheckingRemainingQuantity() throws Exception {
+        Method method = Ali1688HistoricalOrderMapper.class.getMethod(
+                "selectOrderItemForAssignment",
+                Long.class,
+                Long.class
+        );
+        String sql = annotationSql(method.getAnnotation(Select.class).value());
+
+        assertThat(sql)
+                .contains("FROM procurement_ali1688_order_item")
+                .contains("FOR UPDATE");
+    }
+
+    @Test
+    void orderAssignmentSchemaAddsActiveUniquenessGuards() throws Exception {
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/init/079_procurement_ali1688_order_assignment_active_guards.sql"
+        ));
+
+        assertThat(sql)
+                .contains("active_item_id")
+                .contains("active_assignment_id")
+                .contains("uk_ali1688_assignment_active_target")
+                .contains("uk_ali1688_product_link_active_assignment")
+                .contains("CASE WHEN `status` = ''active''")
+                .contains("ALTER TABLE `procurement_ali1688_order_item_assignment`")
+                .contains("ALTER TABLE `procurement_ali1688_order_item_product_link`");
+    }
+
+    @Test
+    void skuPurchaseBatchSqlPersistsManualBatchFactsAndSources() throws Exception {
+        Method listBatchesMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "listSkuPurchaseBatches",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class
+        );
+        Method softDeleteMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "softDeleteSkuPurchaseBatchesForSku",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String listSql = annotationSql(listBatchesMethod.getAnnotation(Select.class).value());
+        String softDeleteSql = annotationSql(softDeleteMethod.getAnnotation(Update.class).value());
+
+        assertThat(listSql)
+                .contains("FROM procurement_ali1688_sku_purchase_batch batch")
+                .contains("target_store_code = #{storeCode}")
+                .contains("target_site_code = #{siteCode}")
+                .contains("sku_parent")
+                .contains("purchaseTimeFrom")
+                .contains("procurement_ali1688_sku_purchase_batch_source");
+        assertThat(softDeleteSql)
+                .contains("UPDATE procurement_ali1688_sku_purchase_batch")
+                .contains("status = 'replaced'")
+                .contains("owner_user_id = #{ownerUserId}")
+                .contains("sku_parent = #{skuParent}");
+    }
+
+    @Test
     void skuPurchaseHistorySqlUsesOnlyActiveStoreSkuFacts() throws Exception {
         Method method = Ali1688HistoricalOrderMapper.class.getMethod(
                 "listSkuPurchaseHistoryRows",
@@ -162,6 +301,10 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("assignment.is_deleted = b'0'")
                 .contains("header.is_deleted = b'0'")
                 .contains("item.is_deleted = b'0'")
+                .contains("item.offer_id AS sourceOfferId")
+                .contains("item.sku_id AS sourceSkuId")
+                .contains("item.product_code AS sourceProductCode")
+                .contains("item.single_product_code AS sourceSingleProductCode")
                 .contains("link.status = 'active'")
                 .contains("link.is_deleted = b'0'")
                 .contains("link.target_store_code = #{storeCode}")

@@ -2,9 +2,16 @@ package com.nuono.next.procurement.aliorder;
 
 import java.util.List;
 import java.util.Map;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(
+        prefix = "nuono.procurement.ali1688.historical-order.open-api",
+        name = "enabled",
+        havingValue = "false",
+        matchIfMissing = true
+)
 public class FakeAli1688HistoricalOrderProvider implements Ali1688HistoricalOrderProvider {
 
     private final Map<String, Page> pagesByCursor;
@@ -85,7 +92,6 @@ public class FakeAli1688HistoricalOrderProvider implements Ali1688HistoricalOrde
         order.setSellerMemberName("诚信通源头工厂");
         order.setGoodsTotalText("¥128.00");
         order.setFreightText("¥0.00");
-        order.setAdjustmentText("¥0.00");
         order.setPaidAmountText("¥128.00");
         order.setAmountText("¥128.00");
         order.setCurrency("CNY");
@@ -128,7 +134,6 @@ public class FakeAli1688HistoricalOrderProvider implements Ali1688HistoricalOrde
         order.setSellerMemberName("跨境源头供应商");
         order.setGoodsTotalText("¥88.00");
         order.setFreightText("¥0.00");
-        order.setAdjustmentText("¥0.00");
         order.setPaidAmountText("¥88.00");
         order.setAmountText("¥88.00");
         order.setCurrency("CNY");

@@ -81,6 +81,7 @@ public class Ali1688SkuPurchaseHistoryView {
         private String amountBasis;
         private List<String> dataQualityFlags = new ArrayList<>();
         private List<HistoryView> history = new ArrayList<>();
+        private List<PurchaseBatchView> purchaseBatches = new ArrayList<>();
 
         public String getStoreCode() {
             return storeCode;
@@ -199,7 +200,7 @@ public class Ali1688SkuPurchaseHistoryView {
         }
 
         public void setProductImageUrl(String productImageUrl) {
-            this.productImageUrl = productImageUrl;
+            this.productImageUrl = Ali1688HistoricalOrderProductLinkView.normalizeNoonImageUrl(productImageUrl);
         }
 
         public String getSourceOfferId() {
@@ -320,6 +321,14 @@ public class Ali1688SkuPurchaseHistoryView {
 
         public void setHistory(List<HistoryView> history) {
             this.history = history;
+        }
+
+        public List<PurchaseBatchView> getPurchaseBatches() {
+            return purchaseBatches;
+        }
+
+        public void setPurchaseBatches(List<PurchaseBatchView> purchaseBatches) {
+            this.purchaseBatches = purchaseBatches;
         }
     }
 
@@ -452,6 +461,138 @@ public class Ali1688SkuPurchaseHistoryView {
 
         public void setTotal(int total) {
             this.total = total;
+        }
+    }
+
+    public static class PurchaseBatchView {
+        private Long id;
+        private String label;
+        private Integer batchSequence;
+        private Integer countedQuantity;
+        private BigDecimal countedCost;
+        private BigDecimal unitPrice;
+        private String note;
+        private List<PurchaseBatchSourceView> sources = new ArrayList<>();
+
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        public String getLabel() {
+            return label;
+        }
+
+        public void setLabel(String label) {
+            this.label = label;
+        }
+
+        public Integer getBatchSequence() {
+            return batchSequence;
+        }
+
+        public void setBatchSequence(Integer batchSequence) {
+            this.batchSequence = batchSequence;
+        }
+
+        public Integer getCountedQuantity() {
+            return countedQuantity;
+        }
+
+        public void setCountedQuantity(Integer countedQuantity) {
+            this.countedQuantity = countedQuantity;
+        }
+
+        public BigDecimal getCountedCost() {
+            return countedCost;
+        }
+
+        public void setCountedCost(BigDecimal countedCost) {
+            this.countedCost = countedCost;
+        }
+
+        public BigDecimal getUnitPrice() {
+            return unitPrice;
+        }
+
+        public void setUnitPrice(BigDecimal unitPrice) {
+            this.unitPrice = unitPrice;
+        }
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
+        }
+
+        public List<PurchaseBatchSourceView> getSources() {
+            return sources;
+        }
+
+        public void setSources(List<PurchaseBatchSourceView> sources) {
+            this.sources = sources;
+        }
+    }
+
+    public static class PurchaseBatchSourceView {
+        private Long orderId;
+        private Long itemId;
+        private Long assignmentId;
+        private String orderNo;
+        private String orderTime;
+        private String supplierName;
+
+        public Long getOrderId() {
+            return orderId;
+        }
+
+        public void setOrderId(Long orderId) {
+            this.orderId = orderId;
+        }
+
+        public Long getItemId() {
+            return itemId;
+        }
+
+        public void setItemId(Long itemId) {
+            this.itemId = itemId;
+        }
+
+        public Long getAssignmentId() {
+            return assignmentId;
+        }
+
+        public void setAssignmentId(Long assignmentId) {
+            this.assignmentId = assignmentId;
+        }
+
+        public String getOrderNo() {
+            return orderNo;
+        }
+
+        public void setOrderNo(String orderNo) {
+            this.orderNo = orderNo;
+        }
+
+        public String getOrderTime() {
+            return orderTime;
+        }
+
+        public void setOrderTime(String orderTime) {
+            this.orderTime = orderTime;
+        }
+
+        public String getSupplierName() {
+            return supplierName;
+        }
+
+        public void setSupplierName(String supplierName) {
+            this.supplierName = supplierName;
         }
     }
 }

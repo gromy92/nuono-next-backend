@@ -18,6 +18,7 @@ public class Ali1688HistoricalOrderQuery {
     private String assignmentState;
     private String assignmentTargetStoreCode;
     private String assignmentTargetSiteCode;
+    private String productLinkState;
     private int page;
     private int pageSize;
 
@@ -40,6 +41,7 @@ public class Ali1688HistoricalOrderQuery {
                 orderStatus,
                 supplierKeyword,
                 keyword,
+                null,
                 null,
                 null,
                 null,
@@ -72,6 +74,7 @@ public class Ali1688HistoricalOrderQuery {
                 null,
                 null,
                 null,
+                null,
                 page,
                 pageSize
         );
@@ -91,6 +94,38 @@ public class Ali1688HistoricalOrderQuery {
             Integer page,
             Integer pageSize
     ) {
+        return fromRequest(
+                placedTimeFrom,
+                placedTimeTo,
+                orderStatus,
+                supplierKeyword,
+                keyword,
+                storeCode,
+                siteCode,
+                assignmentState,
+                assignmentTargetStoreCode,
+                assignmentTargetSiteCode,
+                null,
+                page,
+                pageSize
+        );
+    }
+
+    public static Ali1688HistoricalOrderQuery fromRequest(
+            String placedTimeFrom,
+            String placedTimeTo,
+            String orderStatus,
+            String supplierKeyword,
+            String keyword,
+            String storeCode,
+            String siteCode,
+            String assignmentState,
+            String assignmentTargetStoreCode,
+            String assignmentTargetSiteCode,
+            String productLinkState,
+            Integer page,
+            Integer pageSize
+    ) {
         Ali1688HistoricalOrderQuery query = new Ali1688HistoricalOrderQuery();
         query.setPlacedTimeFrom(blankToNull(placedTimeFrom));
         query.setPlacedTimeTo(blankToNull(placedTimeTo));
@@ -102,6 +137,7 @@ public class Ali1688HistoricalOrderQuery {
         query.setAssignmentState(blankToNull(assignmentState));
         query.setAssignmentTargetStoreCode(blankToNull(assignmentTargetStoreCode));
         query.setAssignmentTargetSiteCode(blankToNull(assignmentTargetSiteCode));
+        query.setProductLinkState(blankToNull(productLinkState));
         query.setPage(page == null || page < 1 ? DEFAULT_PAGE : page);
         query.setPageSize(normalizePageSize(pageSize));
         return query;
@@ -205,6 +241,14 @@ public class Ali1688HistoricalOrderQuery {
         this.assignmentTargetSiteCode = blankToNull(assignmentTargetSiteCode);
     }
 
+    public String getProductLinkState() {
+        return productLinkState;
+    }
+
+    public void setProductLinkState(String productLinkState) {
+        this.productLinkState = blankToNull(productLinkState);
+    }
+
     public int getPage() {
         return page;
     }
@@ -241,7 +285,8 @@ public class Ali1688HistoricalOrderQuery {
                 && Objects.equals(siteCode, that.siteCode)
                 && Objects.equals(assignmentState, that.assignmentState)
                 && Objects.equals(assignmentTargetStoreCode, that.assignmentTargetStoreCode)
-                && Objects.equals(assignmentTargetSiteCode, that.assignmentTargetSiteCode);
+                && Objects.equals(assignmentTargetSiteCode, that.assignmentTargetSiteCode)
+                && Objects.equals(productLinkState, that.productLinkState);
     }
 
     @Override
@@ -257,6 +302,7 @@ public class Ali1688HistoricalOrderQuery {
                 assignmentState,
                 assignmentTargetStoreCode,
                 assignmentTargetSiteCode,
+                productLinkState,
                 page,
                 pageSize
         );

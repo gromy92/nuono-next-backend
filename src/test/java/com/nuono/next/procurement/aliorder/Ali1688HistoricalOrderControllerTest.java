@@ -33,13 +33,19 @@ class Ali1688HistoricalOrderControllerTest {
     private LocalDbAli1688HistoricalOrderService service;
 
     @Mock
+    private ObjectProvider<Ali1688HistoricalOrderOAuthService> oauthServiceProvider;
+
+    @Mock
+    private Ali1688HistoricalOrderOAuthService oauthService;
+
+    @Mock
     private BusinessAccessResolver accessResolver;
 
     private Ali1688HistoricalOrderController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new Ali1688HistoricalOrderController(serviceProvider, accessResolver);
+        controller = new Ali1688HistoricalOrderController(serviceProvider, oauthServiceProvider, accessResolver);
     }
 
     @Test
@@ -94,6 +100,7 @@ class Ali1688HistoricalOrderControllerTest {
                 "unassigned",
                 "PRJ108065",
                 "AE",
+                "linked",
                 2,
                 10
         );
@@ -115,6 +122,7 @@ class Ali1688HistoricalOrderControllerTest {
                 "unassigned",
                 "PRJ108065",
                 "AE",
+                "linked",
                 2,
                 10,
                 request
@@ -169,6 +177,67 @@ class Ali1688HistoricalOrderControllerTest {
                 .extracting("status")
                 .isEqualTo(HttpStatus.FORBIDDEN);
         verify(service, never()).createDevAuthorization(context);
+    }
+
+    @Test
+    void bossCanStartRealOpenApiAuthorization() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context(307L, BusinessAccountType.BOSS, "老板", 1);
+        Ali1688HistoricalOrderAuthorizationView.StartView expected =
+                new Ali1688HistoricalOrderAuthorizationView.StartView();
+        expected.setConfigured(true);
+        expected.setProviderCode("ALI1688_OPEN_API");
+        expected.setAuthorizationUrl("https://auth.1688.com/oauth/authorize?client_id=5890829");
+
+        when(oauthServiceProvider.getIfAvailable()).thenReturn(oauthService);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
+                .thenReturn(context);
+        when(oauthService.startAuthorization(context, "PRJ108065", "AE")).thenReturn(expected);
+
+        Ali1688HistoricalOrderAuthorizationView.StartView view =
+                controller.startOpenApiAuthorization("PRJ108065", "AE", request);
+
+        assertThat(view.isConfigured()).isTrue();
+        assertThat(view.getProviderCode()).isEqualTo("ALI1688_OPEN_API");
+        assertThat(view.getAuthorizationUrl()).contains("client_id=5890829");
+        verify(oauthService).startAuthorization(context, "PRJ108065", "AE");
+    }
+
+    @Test
+    void operationsCannotStartRealOpenApiAuthorization() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context(408L, BusinessAccountType.OPERATOR, "运营", 3);
+
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
+                .thenReturn(context);
+
+        assertThatThrownBy(() -> controller.startOpenApiAuthorization("PRJ108065", "AE", request))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        verify(oauthService, never()).startAuthorization(context, "PRJ108065", "AE");
+    }
+
+    @Test
+    void openApiCallbackCompletesAuthorizationFromSignedStateWithoutCurrentLogin() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        Ali1688HistoricalOrderAuthorizationView.CompleteView expected =
+                new Ali1688HistoricalOrderAuthorizationView.CompleteView();
+        expected.setAuthorizationId(91009L);
+        expected.setProviderAccountId("buyer-member-001");
+        expected.setMessage("1688 授权已完成，可以返回系统刷新历史订单。");
+
+        when(oauthServiceProvider.getIfAvailable()).thenReturn(oauthService);
+        when(oauthService.completeAuthorization("oauth-code-001", "signed-state"))
+                .thenReturn(expected);
+
+        String html = controller.openApiAuthorizationCallback("oauth-code-001", "signed-state", null, request)
+                .getBody();
+
+        assertThat(html).contains("1688 授权已完成");
+        assertThat(html).contains("buyer-member-001");
+        assertThat(html).doesNotContain("oauth-code-001");
+        verify(oauthService).completeAuthorization("oauth-code-001", "signed-state");
     }
 
     @Test
@@ -386,6 +455,50 @@ class Ali1688HistoricalOrderControllerTest {
     }
 
     @Test
+    void operationsCanBatchAssignProductLinesThroughHistoricalOrderApi() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context(409L, BusinessAccountType.OPERATOR, "运营", 3);
+        Ali1688HistoricalOrderAssignmentView.AssignRequest canmanRequest =
+                new Ali1688HistoricalOrderAssignmentView.AssignRequest();
+        canmanRequest.setTargetType("STORE_SITE");
+        canmanRequest.setTargetStoreCode("PRJ108065");
+        canmanRequest.setTargetSiteCode("AE");
+        Ali1688HistoricalOrderAssignmentView.AssignLineRequest canmanLine =
+                new Ali1688HistoricalOrderAssignmentView.AssignLineRequest();
+        canmanLine.setItemId(94001L);
+        canmanLine.setQuantity(2);
+        canmanRequest.setLines(List.of(canmanLine));
+        Ali1688HistoricalOrderAssignmentView.AssignRequest sggrRequest =
+                new Ali1688HistoricalOrderAssignmentView.AssignRequest();
+        sggrRequest.setTargetType("STORE_SITE");
+        sggrRequest.setTargetStoreCode("PRJ69486");
+        sggrRequest.setTargetSiteCode("SA");
+        Ali1688HistoricalOrderAssignmentView.AssignLineRequest sggrLine =
+                new Ali1688HistoricalOrderAssignmentView.AssignLineRequest();
+        sggrLine.setItemId(94001L);
+        sggrLine.setQuantity(1);
+        sggrRequest.setLines(List.of(sggrLine));
+        Ali1688HistoricalOrderAssignmentView.AssignBatchRequest body =
+                new Ali1688HistoricalOrderAssignmentView.AssignBatchRequest();
+        body.setAssignments(List.of(canmanRequest, sggrRequest));
+        Ali1688HistoricalOrderAssignmentView.AssignResult expected =
+                Ali1688HistoricalOrderAssignmentView.AssignResult.assigned(2, 3);
+
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
+                .thenReturn(context);
+        when(service.assignProductLineBatches(context, body)).thenReturn(expected);
+
+        Ali1688HistoricalOrderAssignmentView.AssignResult result =
+                controller.assignProductLineBatches(body, request);
+
+        assertThat(result.getStatus()).isEqualTo("assigned");
+        assertThat(result.getAssignedLineCount()).isEqualTo(2);
+        assertThat(result.getAssignedQuantity()).isEqualTo(3);
+        verify(service).assignProductLineBatches(context, body);
+    }
+
+    @Test
     void operationsCanLinkAssignedProductLineThroughHistoricalOrderApi() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         BusinessAccessContext context = context(409L, BusinessAccountType.OPERATOR, "运营", 3);
@@ -411,6 +524,40 @@ class Ali1688HistoricalOrderControllerTest {
         assertThat(result.getAssignmentId()).isEqualTo(99001L);
         assertThat(result.getDisplayText()).isEqualTo("已关联: CANMAN-AE-SKU-001");
         verify(service).linkProductLine(context, body);
+    }
+
+    @Test
+    void operationsCanBatchLinkAssignedProductLinesThroughHistoricalOrderApi() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context(409L, BusinessAccountType.OPERATOR, "运营", 3);
+        Ali1688HistoricalOrderProductLinkView.LinkRequest first =
+                new Ali1688HistoricalOrderProductLinkView.LinkRequest();
+        first.setAssignmentId(99001L);
+        first.setSkuParent("CANMAN-AE-SKU-001");
+        first.setPartnerSku("PAPERSAYSB291");
+        Ali1688HistoricalOrderProductLinkView.LinkRequest second =
+                new Ali1688HistoricalOrderProductLinkView.LinkRequest();
+        second.setAssignmentId(99002L);
+        second.setSkuParent("CANMAN-AE-SKU-001");
+        second.setPartnerSku("PAPERSAYSB291");
+        Ali1688HistoricalOrderProductLinkView.LinkBatchRequest body =
+                new Ali1688HistoricalOrderProductLinkView.LinkBatchRequest();
+        body.setLinks(List.of(first, second));
+        Ali1688HistoricalOrderProductLinkView.LinkBatchResult expected =
+                Ali1688HistoricalOrderProductLinkView.LinkBatchResult.linked(2, "CANMAN-AE-SKU-001");
+
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
+                .thenReturn(context);
+        when(service.linkProductLineBatch(context, body)).thenReturn(expected);
+
+        Ali1688HistoricalOrderProductLinkView.LinkBatchResult result =
+                controller.linkProductLineBatch(body, request);
+
+        assertThat(result.getStatus()).isEqualTo("linked");
+        assertThat(result.getLinkedLineCount()).isEqualTo(2);
+        assertThat(result.getSkuParent()).isEqualTo("CANMAN-AE-SKU-001");
+        verify(service).linkProductLineBatch(context, body);
     }
 
     @Test
@@ -510,6 +657,30 @@ class Ali1688HistoricalOrderControllerTest {
                 org.mockito.ArgumentMatchers.eq(context),
                 org.mockito.ArgumentMatchers.any(Ali1688SkuPurchaseHistoryQuery.class)
         );
+    }
+
+    @Test
+    void procurementCanSaveSkuPurchaseBatchesThroughHistoricalOrderApi() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context(409L, BusinessAccountType.OPERATOR, "采购", 3);
+        Ali1688SkuPurchaseBatchView.SaveRequest body = new Ali1688SkuPurchaseBatchView.SaveRequest();
+        body.setStoreCode("PRJ108065");
+        body.setSiteCode("AE");
+        body.setSkuParent("CANMAN-AE-SKU-001");
+        Ali1688SkuPurchaseBatchView.SaveResult expected =
+                Ali1688SkuPurchaseBatchView.SaveResult.saved(1, 2);
+
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
+                .thenReturn(context);
+        when(service.saveSkuPurchaseBatches(context, body)).thenReturn(expected);
+
+        Ali1688SkuPurchaseBatchView.SaveResult result =
+                controller.saveSkuPurchaseBatches(body, request);
+
+        assertThat(result.getSavedBatchCount()).isEqualTo(1);
+        assertThat(result.getSavedSourceCount()).isEqualTo(2);
+        verify(service).saveSkuPurchaseBatches(context, body);
     }
 
     @Test

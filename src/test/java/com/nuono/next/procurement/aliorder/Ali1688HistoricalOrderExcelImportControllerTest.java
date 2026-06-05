@@ -35,13 +35,16 @@ class Ali1688HistoricalOrderExcelImportControllerTest {
     private LocalDbAli1688HistoricalOrderService service;
 
     @Mock
+    private ObjectProvider<Ali1688HistoricalOrderOAuthService> oauthServiceProvider;
+
+    @Mock
     private BusinessAccessResolver accessResolver;
 
     private Ali1688HistoricalOrderController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new Ali1688HistoricalOrderController(serviceProvider, accessResolver);
+        controller = new Ali1688HistoricalOrderController(serviceProvider, oauthServiceProvider, accessResolver);
     }
 
     @Test

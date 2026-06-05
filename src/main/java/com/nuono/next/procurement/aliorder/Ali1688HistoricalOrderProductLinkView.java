@@ -1,5 +1,8 @@
 package com.nuono.next.procurement.aliorder;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class Ali1688HistoricalOrderProductLinkView {
 
     public static class AuditView {
@@ -119,7 +122,7 @@ public class Ali1688HistoricalOrderProductLinkView {
             view.setPartnerSku(row.getPartnerSku());
             view.setPskuCode(row.getPskuCode());
             view.setProductTitle(row.getProductTitle());
-            view.setProductImageUrl(row.getProductImageUrl());
+            view.setProductImageUrl(normalizeNoonImageUrl(row.getProductImageUrl()));
             view.setDisplayText("已关联: " + row.getSkuParent());
             return view;
         }
@@ -238,6 +241,56 @@ public class Ali1688HistoricalOrderProductLinkView {
         }
     }
 
+    public static class LinkBatchRequest {
+        private List<LinkRequest> links = new ArrayList<>();
+
+        public List<LinkRequest> getLinks() {
+            return links;
+        }
+
+        public void setLinks(List<LinkRequest> links) {
+            this.links = links == null ? List.of() : links;
+        }
+    }
+
+    public static class LinkBatchResult {
+        private String status;
+        private int linkedLineCount;
+        private String skuParent;
+
+        public static LinkBatchResult linked(int linkedLineCount, String skuParent) {
+            LinkBatchResult result = new LinkBatchResult();
+            result.setStatus("linked");
+            result.setLinkedLineCount(linkedLineCount);
+            result.setSkuParent(skuParent);
+            return result;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public int getLinkedLineCount() {
+            return linkedLineCount;
+        }
+
+        public void setLinkedLineCount(int linkedLineCount) {
+            this.linkedLineCount = linkedLineCount;
+        }
+
+        public String getSkuParent() {
+            return skuParent;
+        }
+
+        public void setSkuParent(String skuParent) {
+            this.skuParent = skuParent;
+        }
+    }
+
     public static class CandidateView {
         private String storeCode;
         private String siteCode;
@@ -259,7 +312,7 @@ public class Ali1688HistoricalOrderProductLinkView {
             view.setPskuCode(row.getPskuCode());
             view.setOfferCode(row.getOfferCode());
             view.setProductTitle(row.getProductTitle());
-            view.setProductImageUrl(row.getProductImageUrl());
+            view.setProductImageUrl(normalizeNoonImageUrl(row.getProductImageUrl()));
             view.setLinkStatus(row.getLinkStatus());
             view.setLinkedAssignmentCount(row.getLinkedAssignmentCount());
             return view;
@@ -364,7 +417,7 @@ public class Ali1688HistoricalOrderProductLinkView {
             result.setPartnerSku(row.getPartnerSku());
             result.setPskuCode(row.getPskuCode());
             result.setProductTitle(row.getProductTitle());
-            result.setProductImageUrl(row.getProductImageUrl());
+            result.setProductImageUrl(normalizeNoonImageUrl(row.getProductImageUrl()));
             result.setDisplayText("已关联: " + row.getSkuParent());
             return result;
         }
@@ -440,5 +493,34 @@ public class Ali1688HistoricalOrderProductLinkView {
         public void setDisplayText(String displayText) {
             this.displayText = displayText;
         }
+    }
+
+    static String normalizeNoonImageUrl(String imageUrl) {
+        if (imageUrl == null) {
+            return null;
+        }
+        String trimmed = imageUrl.trim();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+        if (trimmed.startsWith("https://f.nooncdn.com/pzsku/")
+                || trimmed.startsWith("http://f.nooncdn.com/pzsku/")) {
+            String protocol = trimmed.startsWith("https://") ? "https://" : "http://";
+            String normalized = protocol + "f.nooncdn.com/p/" + trimmed.substring((protocol + "f.nooncdn.com/").length());
+            return hasImageExtension(normalized) ? normalized : normalized + ".jpg";
+        }
+        return trimmed;
+    }
+
+    private static boolean hasImageExtension(String imageUrl) {
+        String lower = imageUrl.toLowerCase();
+        return lower.endsWith(".jpg")
+                || lower.endsWith(".jpeg")
+                || lower.endsWith(".png")
+                || lower.endsWith(".webp")
+                || lower.contains(".jpg?")
+                || lower.contains(".jpeg?")
+                || lower.contains(".png?")
+                || lower.contains(".webp?");
     }
 }
