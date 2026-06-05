@@ -3,16 +3,16 @@ package com.nuono.next.product;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,7 +22,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class LocalDbProductMasterServiceListDatasetTest {
+class ProductReadModelServiceListDatasetTest {
 
     @Mock
     private ProductManagementMapper productManagementMapper;
@@ -34,34 +34,23 @@ class LocalDbProductMasterServiceListDatasetTest {
     private ProductProjectionPersistenceService productProjectionPersistenceService;
 
     @Mock
-    private LocalDbStoreInitializationService localDbStoreInitializationService;
+    private ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
 
-    private LocalDbProductMasterService service;
+    private ProductReadModelService service;
 
     @BeforeEach
     void setUp() {
-        service = new LocalDbProductMasterService(
+        service = new ProductReadModelService(
                 productManagementMapper,
                 storeSyncMapper,
-                null,
-                new ObjectMapper(),
-                null,
                 productProjectionPersistenceService,
-                localDbStoreInitializationService,
-                null,
-                null,
-                null,
-                null,
-                null
+                productDetailBaselineBackfillService
         );
     }
 
     @Test
-    void listDatasetReadsLocalProjectionWithoutInitializationStatus() {
-        StoreSyncStoreRecord store = new StoreSyncStoreRecord();
-        store.setStoreCode("STR245027-NAE");
-        store.setProjectCode("PRJ108065");
-        store.setProjectName("canman");
+    void listDatasetReadsLocalProjectionWithoutInitializationStatusOrBackfillEnqueue() {
+        StoreSyncStoreRecord store = ownerStore();
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
         when(productManagementMapper.selectDeletedProductSkuParentsByStoreCode(10002L, "STR245027-NAE"))
                 .thenReturn(List.of());
@@ -73,11 +62,14 @@ class LocalDbProductMasterServiceListDatasetTest {
         summary.setTitle("Paper bag");
         summary.setSyncStatus("synced");
         summary.setDetailBaselineStatus("missing");
+        summary.setLastSyncedAt("2026-06-04 10:00:00");
         when(productProjectionPersistenceService.loadProductListSummaries(
                 eq(10002L),
                 eq("STR245027-NAE"),
                 anyList()
         )).thenReturn(List.of(summary));
+        when(productDetailBaselineBackfillService.state(10002L, "STR245027-NAE", "PAPERSAYSB132"))
+                .thenReturn(new ProductDetailBaselineBackfillService.BackfillState("preparing", "正在后台补齐详情基线。"));
 
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
         command.setOwnerUserId(10002L);
@@ -93,14 +85,57 @@ class LocalDbProductMasterServiceListDatasetTest {
         assertEquals("PRJ108065", view.getProjectCode());
         assertNull(view.getInitializationStatus());
         assertNull(view.getInitializationMessage());
+        assertEquals("2026-06-04 10:00:00", view.getLastDatasetSyncedAt());
         assertEquals(1, view.getItems().size());
         assertEquals("PAPERSAYSB132", view.getItems().get(0).getSkuParent());
+        assertEquals("preparing", view.getItems().get(0).getDetailBaselineStatus());
 
         verify(productProjectionPersistenceService).loadProductListSummaries(
                 eq(10002L),
                 eq("STR245027-NAE"),
                 anyList()
         );
-        verifyNoInteractions(localDbStoreInitializationService);
+        verify(productDetailBaselineBackfillService).state(10002L, "STR245027-NAE", "PAPERSAYSB132");
+        verify(productDetailBaselineBackfillService, never()).enqueue(any(), anyString(), any());
+    }
+
+    @Test
+    void groupCandidatesReadFromProjectionSummaries() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+
+        ProductListSummaryView candidate = new ProductListSummaryView();
+        candidate.setStoreCode("STR245027-NAE");
+        candidate.setSkuParent("PAPERSAYSB133");
+        candidate.setBrand("Paper");
+        when(productProjectionPersistenceService.loadProductGroupCandidateSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("PAPERSAYSB132"),
+                eq(null),
+                anyList()
+        )).thenReturn(List.of(candidate));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+        command.setSkuParent("PAPERSAYSB132");
+
+        ProductGroupCandidatesView view = service.loadGroupCandidates(command);
+
+        assertTrue(view.isReady());
+        assertEquals("projection-primary", view.getSource());
+        assertEquals("STR245027-NAE", view.getStoreCode());
+        assertEquals("PAPERSAYSB132", view.getSkuParent());
+        assertEquals(1, view.getItems().size());
+        assertEquals("PAPERSAYSB133", view.getItems().get(0).getSkuParent());
+    }
+
+    private StoreSyncStoreRecord ownerStore() {
+        StoreSyncStoreRecord store = new StoreSyncStoreRecord();
+        store.setStoreCode("STR245027-NAE");
+        store.setProjectCode("PRJ108065");
+        store.setProjectName("canman");
+        return store;
     }
 }

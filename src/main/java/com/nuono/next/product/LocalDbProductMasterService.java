@@ -112,6 +112,7 @@ public class LocalDbProductMasterService {
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
     private final ProductPublishCommandService productPublishCommandService;
+    private final ProductReadModelService productReadModelService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
     private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
     private final ConcurrentMap<String, ProductWorkbenchRecord> workbenchRecords = new ConcurrentHashMap<>();
@@ -129,9 +130,6 @@ public class LocalDbProductMasterService {
     @Value("${nuono.product-management.detail-baseline-backfill.enabled:true}")
     private boolean detailBaselineBackfillEnabled;
 
-    @Value("${nuono.product-management.detail-baseline-backfill.max-enqueue-per-list:5}")
-    private int detailBaselineBackfillMaxEnqueuePerList;
-
     public LocalDbProductMasterService(
             ProductManagementMapper productManagementMapper,
             StoreSyncMapper storeSyncMapper,
@@ -144,7 +142,8 @@ public class LocalDbProductMasterService {
             ProductGroupPublishService productGroupPublishService,
             ProductNoonCatalogContentService productNoonCatalogContentService,
             ProductDetailBaselineBackfillService productDetailBaselineBackfillService,
-            ProductPublishCommandService productPublishCommandService
+            ProductPublishCommandService productPublishCommandService,
+            ProductReadModelService productReadModelService
     ) {
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
@@ -158,6 +157,7 @@ public class LocalDbProductMasterService {
         this.productNoonCatalogContentService = productNoonCatalogContentService;
         this.productDetailBaselineBackfillService = productDetailBaselineBackfillService;
         this.productPublishCommandService = productPublishCommandService;
+        this.productReadModelService = productReadModelService;
     }
 
     private ProductPublishCommandService requirePublishCommandService() {
@@ -165,6 +165,13 @@ public class LocalDbProductMasterService {
             throw new IllegalStateException("商品发布命令服务尚未初始化。");
         }
         return productPublishCommandService;
+    }
+
+    private ProductReadModelService requireReadModelService() {
+        if (productReadModelService == null) {
+            throw new IllegalStateException("商品读模型服务尚未初始化。");
+        }
+        return productReadModelService;
     }
 
     public ProductMasterSnapshotView fetchSnapshot(ProductMasterFetchCommand command) {
@@ -539,90 +546,12 @@ public class LocalDbProductMasterService {
         return productDetailBaselineBackfillService.enqueue(command, reason, this::fetchSnapshot);
     }
 
-    private void enqueueMissingDetailBaselines(
-            ProductMasterFetchCommand command,
-            List<ProductListSummaryView> summaries
-    ) {
-        if (!detailBaselineBackfillEnabled || command == null || summaries == null || summaries.isEmpty()) {
-            return;
-        }
-        int maxCount = Math.max(0, detailBaselineBackfillMaxEnqueuePerList);
-        int queuedCount = 0;
-        for (ProductListSummaryView summary : summaries) {
-            if (queuedCount >= maxCount) {
-                return;
-            }
-            if (summary == null || !"missing".equalsIgnoreCase(normalize(summary.getDetailBaselineStatus()))) {
-                continue;
-            }
-            ProductMasterFetchCommand backfillCommand = copyFetchCommand(command);
-            backfillCommand.setSkuParent(summary.getSkuParent());
-            backfillCommand.setPartnerSku(summary.getPartnerSku());
-            backfillCommand.setPskuCode(summary.getPskuCode());
-            if ("preparing".equals(enqueueDetailBaselineBackfill(backfillCommand, "list-missing-baseline"))) {
-                queuedCount++;
-                applyDetailBaselineBackfillState(command.getOwnerUserId(), normalize(command.getStoreCode()), summary);
-            }
-        }
-    }
-
-    private void applyDetailBaselineBackfillStates(
-            Long ownerUserId,
-            String storeCode,
-            List<ProductListSummaryView> summaries
-    ) {
-        if (summaries == null || summaries.isEmpty()) {
-            return;
-        }
-        for (ProductListSummaryView summary : summaries) {
-            applyDetailBaselineBackfillState(ownerUserId, storeCode, summary);
-        }
-    }
-
-    private void applyDetailBaselineBackfillState(
-            Long ownerUserId,
-            String storeCode,
-            ProductListSummaryView summary
-    ) {
-        if (summary == null || ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(summary.getSkuParent())) {
-            return;
-        }
-        if ("ready".equalsIgnoreCase(summary.getDetailBaselineStatus())) {
-            return;
-        }
-        if (productDetailBaselineBackfillService == null) {
-            return;
-        }
-        ProductDetailBaselineBackfillService.BackfillState state =
-                productDetailBaselineBackfillService.state(ownerUserId, storeCode, summary.getSkuParent());
-        if (state == null || !StringUtils.hasText(state.getStatus())) {
-            return;
-        }
-        summary.setDetailBaselineStatus(state.getStatus());
-        summary.setDetailBaselineMessage(state.getMessage());
-    }
-
     private String normalizeReason(String reason) {
         String normalized = normalize(reason);
         if (!StringUtils.hasText(normalized)) {
             return "default";
         }
         return normalized.replaceAll("[^a-zA-Z0-9_.-]", "-");
-    }
-
-    private ProductMasterFetchCommand copyFetchCommand(ProductMasterFetchCommand source) {
-        ProductMasterFetchCommand copy = new ProductMasterFetchCommand();
-        if (source == null) {
-            return copy;
-        }
-        copy.setOwnerUserId(source.getOwnerUserId());
-        copy.setStoreCode(source.getStoreCode());
-        copy.setNoonUser(source.getNoonUser());
-        copy.setNoonPassword(source.getNoonPassword());
-        copy.setSkuParent(source.getSkuParent());
-        copy.setPartnerSku(source.getPartnerSku());
-        copy.setPskuCode(source.getPskuCode());
-        return copy;
     }
 
     private ProductMasterWorkbenchView openWorkbenchFromLocalBaseline(ProductMasterFetchCommand command) {
@@ -729,47 +658,7 @@ public class LocalDbProductMasterService {
     }
 
     public ProductGroupCandidatesView loadGroupCandidates(ProductMasterFetchCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
-            throw new IllegalArgumentException("缺少老板上下文，暂时不能读取同类目候选商品。");
-        }
-        String storeCode = normalize(command.getStoreCode());
-        String skuParent = normalize(command.getSkuParent());
-        requireText(storeCode, "缺少店铺编码，暂时不能读取同类目候选商品。");
-        requireText(skuParent, "缺少 skuParent，暂时不能读取同类目候选商品。");
-        StoreSyncStoreRecord store = resolveProductOwnerStore(
-                command.getOwnerUserId(),
-                storeCode,
-                "当前店铺不在选中的老板名下。"
-        );
-        storeCode = normalize(store.getStoreCode());
-
-        List<String> warnings = new ArrayList<>();
-        List<ProductListSummaryView> summaries = productProjectionPersistenceService.loadProductGroupCandidateSummaries(
-                command.getOwnerUserId(),
-                storeCode,
-                skuParent,
-                null,
-                warnings
-        );
-        List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items = new ArrayList<>();
-        for (ProductListSummaryView summary : summaries) {
-            items.add(createListItemFromSummary(summary));
-        }
-
-        ProductGroupCandidatesView view = new ProductGroupCandidatesView();
-        view.setReady(true);
-        view.setSource("projection-primary");
-        view.setOwnerUserId(command.getOwnerUserId());
-        view.setStoreCode(storeCode);
-        view.setSkuParent(skuParent);
-        view.setItems(items);
-        view.setWarnings(warnings);
-        if (items.isEmpty()) {
-            view.setMessage("当前没有找到同品牌、同类目的可加入 SKU。");
-        } else {
-            view.setMessage("已按当前商品品牌和类目匹配可加入分组的 SKU。");
-        }
-        return view;
+        return requireReadModelService().loadGroupCandidates(command);
     }
 
     public ProductClassificationOptionsView loadClassificationOptions(ProductClassificationOptionsCommand command) {
@@ -867,68 +756,7 @@ public class LocalDbProductMasterService {
     }
 
     public ProductListDatasetView loadListDataset(ProductMasterFetchCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
-            throw new IllegalArgumentException("缺少老板上下文，暂时不能读取商品工作台。");
-        }
-        String storeCode = normalize(command.getStoreCode());
-        requireText(storeCode, "缺少店铺编码，暂时不能读取商品工作台。");
-        StoreSyncStoreRecord store = resolveProductOwnerStore(
-                command.getOwnerUserId(),
-                storeCode,
-                "当前店铺不在选中的老板名下。"
-        );
-        storeCode = normalize(store.getStoreCode());
-
-        List<String> warnings = new ArrayList<>();
-        List<ProductListSummaryView> summaries = productProjectionPersistenceService.loadProductListSummaries(
-                command.getOwnerUserId(),
-                storeCode,
-                warnings
-        );
-        Set<String> deletedSkuParents = new LinkedHashSet<>(
-                productManagementMapper.selectDeletedProductSkuParentsByStoreCode(command.getOwnerUserId(), storeCode)
-        );
-        applyDetailBaselineBackfillStates(command.getOwnerUserId(), storeCode, summaries);
-        enqueueMissingDetailBaselines(command, summaries);
-
-        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsBySkuParent =
-                new LinkedHashMap<>();
-        for (ProductListSummaryView summary : summaries) {
-            if (summary == null || !StringUtils.hasText(summary.getSkuParent())) {
-                continue;
-            }
-            String skuParent = normalize(summary.getSkuParent());
-            if (deletedSkuParents.contains(skuParent)) {
-                continue;
-            }
-            LocalDbStoreInitializationService.StoreInitializationProductListItemView current =
-                    itemsBySkuParent.getOrDefault(skuParent, createListItemFromSummary(summary));
-            itemsBySkuParent.put(skuParent, mergeListItemWithSummary(current, summary));
-        }
-
-        List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items =
-                new ArrayList<>(itemsBySkuParent.values());
-
-        ProductListDatasetView view = new ProductListDatasetView();
-        view.setOwnerUserId(command.getOwnerUserId());
-        view.setProjectName(store.getProjectName());
-        view.setProjectCode(store.getProjectCode());
-        view.setStoreCode(storeCode);
-        view.setItems(items);
-        applyDatasetStats(view, items);
-        view.setWarnings(new ArrayList<>(warnings));
-
-        view.setReady(true);
-        if (!items.isEmpty()) {
-            view.setSource("projection-primary");
-            view.setMessage("商品摘要已就绪；列表展示本地商品投影，详情工作台按本地基线和草稿打开。");
-        } else {
-            view.setSource("projection-empty");
-            view.setMessage("本地商品投影暂无数据；商品列表读取不依赖店铺初始化状态。");
-        }
-
-        view.setLastDatasetSyncedAt(resolveLastDatasetSyncedAt(items, null));
-        return view;
+        return requireReadModelService().loadListDataset(command);
     }
 
     @Transactional
@@ -6480,230 +6308,6 @@ public class LocalDbProductMasterService {
     private String noonText(JsonNode node, String field) {
         String value = text(node, field);
         return "null".equalsIgnoreCase(value) ? null : value;
-    }
-
-    private void applyDatasetStats(
-            ProductListDatasetView view,
-            List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items
-    ) {
-        int syncedCount = 0;
-        int draftCount = 0;
-        int conflictCount = 0;
-        int failedCount = 0;
-        int liveCount = 0;
-        int groupedCount = 0;
-        int pendingPriceCount = 0;
-        int historyReadyCount = 0;
-        for (LocalDbStoreInitializationService.StoreInitializationProductListItemView item : items) {
-            String syncStatus = normalize(item.getSyncStatus());
-            if ("draft".equals(syncStatus)) {
-                draftCount++;
-            } else if ("conflict".equals(syncStatus)) {
-                draftCount++;
-            } else if ("failed".equals(syncStatus)) {
-                failedCount++;
-            } else {
-                syncedCount++;
-            }
-            if (isLiveStatusActive(item.getLiveStatus())
-                    || (item.getLiveStatus() == null && item.getLiveStatuses().stream().anyMatch(this::isLiveStatusActive))) {
-                liveCount++;
-            }
-            if (StringUtils.hasText(item.getGroupRef())) {
-                groupedCount++;
-            }
-            if (!StringUtils.hasText(item.getReferencePrice())) {
-                pendingPriceCount++;
-            }
-            if (Boolean.TRUE.equals(item.getHistoryMetaReady())) {
-                historyReadyCount++;
-            }
-        }
-        view.setTotalItems(items.size());
-        view.setSyncedCount(syncedCount);
-        view.setDraftCount(draftCount);
-        view.setConflictCount(conflictCount);
-        view.setFailedCount(failedCount);
-        view.setLiveCount(liveCount);
-        view.setGroupedCount(groupedCount);
-        view.setPendingPriceCount(pendingPriceCount);
-        view.setHistoryReadyCount(historyReadyCount);
-    }
-
-    private LocalDbStoreInitializationService.StoreInitializationProductListItemView copyListItem(
-            LocalDbStoreInitializationService.StoreInitializationProductListItemView source
-    ) {
-        LocalDbStoreInitializationService.StoreInitializationProductListItemView copy =
-                new LocalDbStoreInitializationService.StoreInitializationProductListItemView();
-        copy.setSkuParent(source.getSkuParent());
-        copy.setProductSourceType(source.getProductSourceType());
-        copy.setPartnerSku(source.getPartnerSku());
-        copy.setPskuCode(source.getPskuCode());
-        copy.setOfferCode(source.getOfferCode());
-        copy.setReferenceStoreCode(source.getReferenceStoreCode());
-        copy.setTitle(source.getTitle());
-        copy.setBrand(source.getBrand());
-        copy.setImageUrl(source.getImageUrl());
-        copy.setGalleryImages(new ArrayList<>(source.getGalleryImages()));
-        copy.setBarcode(source.getBarcode());
-        copy.setCurrency(source.getCurrency());
-        copy.setReferencePrice(source.getReferencePrice());
-        copy.setOriginalPrice(source.getOriginalPrice());
-        copy.setSalePrice(source.getSalePrice());
-        copy.setProductFulltype(source.getProductFulltype());
-        copy.setSkuGroup(source.getSkuGroup());
-        copy.setGroupRef(source.getGroupRef());
-        copy.setGroupRefCanonical(source.getGroupRefCanonical());
-        copy.setLiveStatus(source.getLiveStatus());
-        copy.setStatusCode(source.getStatusCode());
-        copy.setIsActive(source.getIsActive());
-        copy.setSyncStatus(source.getSyncStatus());
-        copy.setLastSyncedAt(source.getLastSyncedAt());
-        copy.setLastDraftSavedAt(source.getLastDraftSavedAt());
-        copy.setDetailBaselineStatus(source.getDetailBaselineStatus());
-        copy.setDetailBaselineMessage(source.getDetailBaselineMessage());
-        copy.setDetailBaselineSyncedAt(source.getDetailBaselineSyncedAt());
-        copy.setProductVariantSpecStatus(source.getProductVariantSpecStatus());
-        copy.setProductVariantSpecTotalCount(source.getProductVariantSpecTotalCount());
-        copy.setProductVariantSpecReadyCount(source.getProductVariantSpecReadyCount());
-        copy.setProductVariantSpecMaintainedCount(source.getProductVariantSpecMaintainedCount());
-        copy.setVariantCount(source.getVariantCount());
-        copy.setSiteOfferCount(source.getSiteOfferCount());
-        copy.setHistoryMetaReady(source.getHistoryMetaReady());
-        copy.setPendingKeyContentHistoryCount(source.getPendingKeyContentHistoryCount());
-        copy.setVisibleKeyContentHistoryCount(source.getVisibleKeyContentHistoryCount());
-        copy.setPendingKeyContentHistoryVisibleAfter(source.getPendingKeyContentHistoryVisibleAfter());
-        copy.setSiteLabels(new ArrayList<>(source.getSiteLabels()));
-        copy.setLiveStatuses(new ArrayList<>(source.getLiveStatuses()));
-        copy.setIssueTags(new ArrayList<>(source.getIssueTags()));
-        copy.setTotalFbnStock(source.getTotalFbnStock());
-        copy.setTotalSupermallStock(source.getTotalSupermallStock());
-        copy.setTotalFbpStock(source.getTotalFbpStock());
-        copy.setLastPublishTask(source.getLastPublishTask());
-        return copy;
-    }
-
-    private LocalDbStoreInitializationService.StoreInitializationProductListItemView createListItemFromSummary(
-            ProductListSummaryView summary
-    ) {
-        LocalDbStoreInitializationService.StoreInitializationProductListItemView item =
-                new LocalDbStoreInitializationService.StoreInitializationProductListItemView();
-        item.setSkuParent(summary.getSkuParent());
-        item.setProductSourceType(summary.getProductSourceType());
-        item.setReferenceStoreCode(summary.getStoreCode());
-        item.setSiteLabels(new ArrayList<>());
-        item.setLiveStatuses(new ArrayList<>());
-        item.setIssueTags(new ArrayList<>());
-        return mergeListItemWithSummary(item, summary);
-    }
-
-    private LocalDbStoreInitializationService.StoreInitializationProductListItemView mergeListItemWithSummary(
-            LocalDbStoreInitializationService.StoreInitializationProductListItemView item,
-            ProductListSummaryView summary
-    ) {
-        item.setSkuParent(firstNonBlank(summary.getSkuParent(), item.getSkuParent()));
-        item.setProductSourceType(firstNonBlank(summary.getProductSourceType(), item.getProductSourceType()));
-        item.setPartnerSku(firstNonBlank(summary.getPartnerSku(), item.getPartnerSku()));
-        item.setPskuCode(firstNonBlank(summary.getPskuCode(), item.getPskuCode()));
-        item.setOfferCode(firstNonBlank(summary.getOfferCode(), item.getOfferCode()));
-        item.setReferenceStoreCode(firstNonBlank(summary.getStoreCode(), item.getReferenceStoreCode()));
-        item.setTitle(firstNonBlank(summary.getTitle(), item.getTitle()));
-        item.setBrand(firstNonBlank(summary.getBrand(), item.getBrand()));
-        item.setImageUrl(firstNonBlank(summary.getImageUrl(), item.getImageUrl()));
-        if (!summary.getGalleryImages().isEmpty()) {
-            item.setGalleryImages(new ArrayList<>(summary.getGalleryImages()));
-        }
-        item.setBarcode(firstNonBlank(summary.getBarcode(), item.getBarcode()));
-        item.setReferencePrice(firstNonBlank(summary.getReferencePrice(), item.getReferencePrice()));
-        item.setOriginalPrice(firstNonBlank(summary.getOriginalPrice(), item.getOriginalPrice()));
-        item.setSalePrice(firstNonBlank(summary.getSalePrice(), item.getSalePrice()));
-        item.setProductFulltype(firstNonBlank(summary.getProductFulltype(), item.getProductFulltype()));
-        item.setSkuGroup(normalize(summary.getSkuGroup()));
-        item.setGroupRef(normalize(summary.getGroupRef()));
-        item.setGroupRefCanonical(normalize(summary.getGroupRefCanonical()));
-        item.setLiveStatus(firstNonBlank(summary.getLiveStatus(), item.getLiveStatus()));
-        item.setStatusCode(firstNonBlank(summary.getStatusCode(), item.getStatusCode()));
-        item.setIsActive(summary.getIsActive() != null ? summary.getIsActive() : item.getIsActive());
-        item.setSyncStatus(firstNonBlank(summary.getSyncStatus(), item.getSyncStatus()));
-        item.setLastSyncedAt(firstNonBlank(summary.getLastSyncedAt(), item.getLastSyncedAt()));
-        item.setLastDraftSavedAt(firstNonBlank(summary.getLastDraftSavedAt(), item.getLastDraftSavedAt()));
-        item.setDetailBaselineStatus(firstNonBlank(summary.getDetailBaselineStatus(), item.getDetailBaselineStatus()));
-        item.setDetailBaselineMessage(firstNonBlank(summary.getDetailBaselineMessage(), item.getDetailBaselineMessage()));
-        item.setDetailBaselineSyncedAt(firstNonBlank(summary.getDetailBaselineSyncedAt(), item.getDetailBaselineSyncedAt()));
-        item.setProductVariantSpecStatus(firstNonBlank(summary.getProductVariantSpecStatus(), item.getProductVariantSpecStatus()));
-        item.setProductVariantSpecTotalCount(summary.getProductVariantSpecTotalCount() != null
-                ? summary.getProductVariantSpecTotalCount()
-                : item.getProductVariantSpecTotalCount());
-        item.setProductVariantSpecReadyCount(summary.getProductVariantSpecReadyCount() != null
-                ? summary.getProductVariantSpecReadyCount()
-                : item.getProductVariantSpecReadyCount());
-        item.setProductVariantSpecMaintainedCount(summary.getProductVariantSpecMaintainedCount() != null
-                ? summary.getProductVariantSpecMaintainedCount()
-                : item.getProductVariantSpecMaintainedCount());
-        item.setVariantCount(summary.getVariantCount() != null ? summary.getVariantCount() : item.getVariantCount());
-        item.setSiteOfferCount(summary.getSiteOfferCount() != null ? summary.getSiteOfferCount() : item.getSiteOfferCount());
-        item.setHistoryMetaReady(summary.getHistoryMetaReady() != null ? summary.getHistoryMetaReady() : item.getHistoryMetaReady());
-        item.setPendingKeyContentHistoryCount(
-                summary.getPendingKeyContentHistoryCount() != null
-                        ? summary.getPendingKeyContentHistoryCount()
-                        : item.getPendingKeyContentHistoryCount()
-        );
-        item.setVisibleKeyContentHistoryCount(
-                summary.getVisibleKeyContentHistoryCount() != null
-                        ? summary.getVisibleKeyContentHistoryCount()
-                        : item.getVisibleKeyContentHistoryCount()
-        );
-        item.setPendingKeyContentHistoryVisibleAfter(
-                firstNonBlank(summary.getPendingKeyContentHistoryVisibleAfter(), item.getPendingKeyContentHistoryVisibleAfter())
-        );
-        if (!summary.getSiteLabels().isEmpty()) {
-            item.setSiteLabels(new ArrayList<>(summary.getSiteLabels()));
-        } else if (StringUtils.hasText(summary.getStoreCode()) && item.getSiteLabels().isEmpty()) {
-            item.setSiteLabels(new ArrayList<>(List.of(summary.getStoreCode())));
-        }
-        if (!summary.getLiveStatuses().isEmpty()) {
-            item.setLiveStatuses(new ArrayList<>(summary.getLiveStatuses()));
-        } else if (StringUtils.hasText(summary.getLiveStatus()) && item.getLiveStatuses().isEmpty()) {
-            item.setLiveStatuses(new ArrayList<>(List.of(summary.getLiveStatus())));
-        }
-        if (!summary.getIssueTags().isEmpty()) {
-            item.setIssueTags(new ArrayList<>(summary.getIssueTags()));
-        }
-        item.setTotalFbnStock(summary.getTotalFbnStock() != null ? summary.getTotalFbnStock() : item.getTotalFbnStock());
-        item.setTotalSupermallStock(summary.getTotalSupermallStock() != null ? summary.getTotalSupermallStock() : item.getTotalSupermallStock());
-        item.setTotalFbpStock(summary.getTotalFbpStock() != null ? summary.getTotalFbpStock() : item.getTotalFbpStock());
-        item.setViewsCount(summary.getViewsCount() != null ? summary.getViewsCount() : item.getViewsCount());
-        item.setUnitsSold(summary.getUnitsSold() != null ? summary.getUnitsSold() : item.getUnitsSold());
-        item.setSalesAmount(firstNonBlank(summary.getSalesAmount(), item.getSalesAmount()));
-        item.setSalesCurrency(firstNonBlank(summary.getSalesCurrency(), item.getSalesCurrency()));
-        item.setLastPublishTask(summary.getLastPublishTask() != null ? summary.getLastPublishTask() : item.getLastPublishTask());
-        return item;
-    }
-
-    private String resolveLastDatasetSyncedAt(
-            List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items,
-            String fallbackTime
-    ) {
-        String latest = null;
-        for (LocalDbStoreInitializationService.StoreInitializationProductListItemView item : items) {
-            String candidate = normalize(item.getLastSyncedAt());
-            if (!StringUtils.hasText(candidate)) {
-                continue;
-            }
-            if (!StringUtils.hasText(latest) || candidate.compareTo(latest) > 0) {
-                latest = candidate;
-            }
-        }
-        return StringUtils.hasText(latest) ? latest : fallbackTime;
-    }
-
-    private boolean isLiveStatusActive(String status) {
-        String normalized = normalize(status);
-        if (!StringUtils.hasText(normalized)) {
-            return false;
-        }
-        String lowerCaseValue = normalized.toLowerCase();
-        return "true".equals(lowerCaseValue) || "1".equals(lowerCaseValue) || "live".equals(lowerCaseValue);
     }
 
     private String firstNonBlank(String... values) {
