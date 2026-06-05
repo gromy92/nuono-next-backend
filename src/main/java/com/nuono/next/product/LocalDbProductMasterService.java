@@ -116,7 +116,7 @@ public class LocalDbProductMasterService {
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
     private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
-    private final ConcurrentMap<String, ProductWorkbenchRecord> workbenchRecords = new ConcurrentHashMap<>();
+    private final ProductWorkbenchRecordStore productWorkbenchRecordStore;
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
@@ -144,7 +144,8 @@ public class LocalDbProductMasterService {
             ProductNoonCatalogContentService productNoonCatalogContentService,
             ProductDetailBaselineBackfillService productDetailBaselineBackfillService,
             ProductPublishCommandService productPublishCommandService,
-            ProductReadModelService productReadModelService
+            ProductReadModelService productReadModelService,
+            ProductWorkbenchRecordStore productWorkbenchRecordStore
     ) {
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
@@ -159,6 +160,9 @@ public class LocalDbProductMasterService {
         this.productDetailBaselineBackfillService = productDetailBaselineBackfillService;
         this.productPublishCommandService = productPublishCommandService;
         this.productReadModelService = productReadModelService;
+        this.productWorkbenchRecordStore = productWorkbenchRecordStore == null
+                ? new ProductWorkbenchRecordStore()
+                : productWorkbenchRecordStore;
     }
 
     private ProductPublishCommandService requirePublishCommandService() {
@@ -565,7 +569,7 @@ public class LocalDbProductMasterService {
                     warnings
             );
         }
-        ProductWorkbenchRecord existingRecord = workbenchRecords.get(key);
+        ProductWorkbenchRecord existingRecord = productWorkbenchRecordStore.get(key);
         if (
                 existingRecord != null
                         && !"synced".equalsIgnoreCase(existingRecord.getSyncStatus())
@@ -586,7 +590,7 @@ public class LocalDbProductMasterService {
         if ("synced".equals(record.getSyncStatus())) {
             record.setNote(localBaselineOpenNote(extractFetchedAt(baselineSnapshot)));
         }
-        workbenchRecords.put(key, record);
+        productWorkbenchRecordStore.put(key, record);
         return finalizeWorkbenchView(
                 command.getOwnerUserId(),
                 null,
@@ -838,7 +842,7 @@ public class LocalDbProductMasterService {
                 record.setNote("草稿已保存。后续可以发布共享主档与当前站点经营面。");
             }
             appendRecentAction(record, "save", record.getSyncStatus(), record.getNote(), command.getCurrentSiteCode(), record.getDraftSnapshot());
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "save",
@@ -859,7 +863,7 @@ public class LocalDbProductMasterService {
             record.setNote("已回滚本地草稿，当前工作台恢复到最近本地商品基线。");
             record.setPublishTask(null);
             appendRecentAction(record, "rollback-draft", record.getSyncStatus(), record.getNote(), command.getCurrentSiteCode(), baselineSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "rollback-draft",
@@ -888,7 +892,7 @@ public class LocalDbProductMasterService {
             } else {
                 refreshed.setNote("已按 Noon 当前版本刷新基线，并使用 Noon 内容覆盖本地草稿。");
             }
-            workbenchRecords.put(key, refreshed);
+            productWorkbenchRecordStore.put(key, refreshed);
             appendRecentAction(refreshed, "pull", refreshed.getSyncStatus(), refreshed.getNote(), command.getCurrentSiteCode(), liveSnapshot);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
@@ -927,7 +931,7 @@ public class LocalDbProductMasterService {
             record.setSyncStatus(sameBusinessSnapshot(requestedSnapshot, record.getBaselineSnapshot()) ? "synced" : "draft");
             record.setNote("当前没有待发布改动。");
             appendRecentAction(record, "publish-current", record.getSyncStatus(), record.getNote(), currentSiteCode, requestedSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "publish-current",
@@ -950,7 +954,7 @@ public class LocalDbProductMasterService {
             record.setSyncStatus("failed");
             record.setNote(validationErrors.get(0));
             appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "publish-current",
@@ -1036,7 +1040,7 @@ public class LocalDbProductMasterService {
                 record.setSyncStatus("pending_manual_check");
                 record.setNote("Group 写回可能已部分提交到 Noon，请先从 Noon 同步后确认结果。");
                 appendRecentAction(record, "publish-current", "pending_manual_check", record.getNote(), currentSiteCode, requestedSnapshot);
-                workbenchRecords.put(key, record);
+                productWorkbenchRecordStore.put(key, record);
                 return finalizeWorkbenchView(
                         command.getOwnerUserId(),
                         "publish-current",
@@ -1054,7 +1058,7 @@ public class LocalDbProductMasterService {
                 record.setSyncStatus("failed");
                 record.setNote(shrink(exception.getMessage()));
                 appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-                workbenchRecords.put(key, record);
+                productWorkbenchRecordStore.put(key, record);
                 return finalizeWorkbenchView(
                         command.getOwnerUserId(),
                         "publish-current",
@@ -1068,7 +1072,7 @@ public class LocalDbProductMasterService {
             record.setSyncStatus("failed");
             record.setNote("Noon 发布接口暂时不可用，诺诺草稿已保留。请稍后重试或先从 Noon 同步后再发布。");
             appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "publish-current",
@@ -1103,7 +1107,7 @@ public class LocalDbProductMasterService {
             );
         }
         appendRecentAction(refreshed, "publish-current", refreshed.getSyncStatus(), refreshed.getNote(), currentSiteCode, refreshed.getDraftSnapshot());
-        workbenchRecords.put(key, refreshed);
+        productWorkbenchRecordStore.put(key, refreshed);
 
         List<String> mergedWarnings = mergeWarnings(liveAfterPublish.getWarnings(), actionWarnings);
         ProductMasterWorkbenchView view = finalizeWorkbenchView(
@@ -1248,7 +1252,7 @@ public class LocalDbProductMasterService {
         if (activeTask != null) {
             record.setPublishTask(buildPublishTaskView(activeTask, false));
             record.setNote("当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。");
-            workbenchRecords.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     null,
@@ -1288,7 +1292,7 @@ public class LocalDbProductMasterService {
                     ? "当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。"
                     : publishTaskMessage(task));
             record.setPublishTask(buildPublishTaskView(task, false));
-            workbenchRecords.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     null,
@@ -1304,7 +1308,7 @@ public class LocalDbProductMasterService {
         record.setNote("发布已提交，正在后台校验 Noon 结果。");
         record.setPublishTask(buildPublishTaskView(task, false));
         appendRecentAction(record, "publish-current", "draft", record.getNote(), currentSiteCode, requestedSnapshot);
-        workbenchRecords.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+        productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
         return finalizeWorkbenchView(
                 command.getOwnerUserId(),
                 "publish-current",
@@ -1321,7 +1325,7 @@ public class LocalDbProductMasterService {
         ProductMasterActionCommand command = buildTaskActionCommand(task, draft);
         String currentSiteCode = normalize(task.getCurrentSiteCode());
         ProductWorkbenchRecord record = buildTaskWorkbenchRecord(baseline, draft, "draft", "发布任务正在提交 Noon。");
-        workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+        productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
 
         Map<String, Integer> requestCounts = Map.of();
         NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
@@ -1333,7 +1337,7 @@ public class LocalDbProductMasterService {
             if (sameScopedSnapshot(publishableDraft, baseline, currentSiteCode)) {
                 ProductWorkbenchRecord refreshed = buildTaskWorkbenchRecord(baseline, preparedDraft, "synced", "当前没有待发布改动。");
                 appendRecentAction(refreshed, "publish-current", "synced", refreshed.getNote(), currentSiteCode, preparedDraft);
-                workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
+                productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
                 updatePublishTaskStatus(
                         task,
                         "synced",
@@ -1412,7 +1416,7 @@ public class LocalDbProductMasterService {
                     record.setNote(partialMessage);
                     record.setPublishTask(buildPublishTaskView(task, false));
                     appendRecentAction(record, "publish-current", "pending_manual_check", partialMessage, currentSiteCode, draft);
-                    workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+                    productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
                     return;
                 }
                 if (exception instanceof ProductGroupValidationException) {
@@ -1614,7 +1618,7 @@ public class LocalDbProductMasterService {
                 verifyAttempt
         );
         refreshed.setPublishTask(buildPublishTaskView(task, false));
-        workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
+        productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
     }
 
     private void failPublishTask(
@@ -1638,7 +1642,7 @@ public class LocalDbProductMasterService {
         ProductWorkbenchRecord record = buildTaskWorkbenchRecord(baseline, draft, "failed", errorMessage);
         appendRecentAction(record, "publish-current", "failed", errorMessage, task.getCurrentSiteCode(), draft);
         record.setPublishTask(buildPublishTaskView(task, false));
-        workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+        productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
         finalizeWorkbenchView(
                 task.getOwnerUserId(),
                 "publish-current",
@@ -1688,13 +1692,13 @@ public class LocalDbProductMasterService {
     }
 
     private ProductWorkbenchRecord ensureWorkbenchRecord(ProductMasterFetchCommand command, String key) {
-        ProductWorkbenchRecord existing = workbenchRecords.get(key);
+        ProductWorkbenchRecord existing = productWorkbenchRecordStore.get(key);
         if (existing != null) {
             return existing;
         }
         ProductMasterSnapshotView liveSnapshot = fetchSnapshot(command, "ensure-workbench-record");
         ProductWorkbenchRecord record = createSyncedRecord(liveSnapshot);
-        workbenchRecords.put(key, record);
+        productWorkbenchRecordStore.put(key, record);
         return record;
     }
 
@@ -1797,7 +1801,7 @@ public class LocalDbProductMasterService {
     }
 
     private ProductMasterWorkbenchView buildTerminalPublishTaskWorkbenchView(ProductPublishTaskRecord task) {
-        ProductWorkbenchRecord existingRecord = workbenchRecords.get(
+        ProductWorkbenchRecord existingRecord = productWorkbenchRecordStore.get(
                 workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent())
         );
         ProductPublishTaskView existingTask = existingRecord != null ? existingRecord.getPublishTask() : null;
