@@ -99,6 +99,7 @@ public class LocalDbProductMasterService {
     private final ProductPublishPreparationService productPublishPreparationService;
     private final ProductPublishWriteService productPublishWriteService;
     private final ProductSnapshotHydrator productSnapshotHydrator;
+    private final ProductOperationalKeyHydrator productOperationalKeyHydrator;
     private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
@@ -148,6 +149,7 @@ public class LocalDbProductMasterService {
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
         this.productSnapshotHydrator = new ProductSnapshotHydrator(objectMapper);
+        this.productOperationalKeyHydrator = new ProductOperationalKeyHydrator(productProjectionPersistenceService);
         this.productNoonAdapter = productNoonAdapter;
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
@@ -346,7 +348,7 @@ public class LocalDbProductMasterService {
                 "当前店铺不在选中的老板名下。"
         );
         storeCode = normalize(store.getStoreCode());
-        OperationalKeys operationalKeys = resolveOperationalKeysFromProjection(
+        ProductOperationalKeyHydrator.OperationalKeys operationalKeys = resolveOperationalKeysFromProjection(
                 command.getOwnerUserId(),
                 storeCode,
                 skuParent,
@@ -2210,29 +2212,19 @@ public class LocalDbProductMasterService {
                 && !sameBusinessSnapshot(record.getDraftSnapshot(), record.getBaselineSnapshot());
     }
 
-    private OperationalKeys resolveOperationalKeysFromProjection(
+    private ProductOperationalKeyHydrator.OperationalKeys resolveOperationalKeysFromProjection(
             Long ownerUserId,
             String storeCode,
             String skuParent,
             String partnerSku,
             String pskuCode
     ) {
-        if (StringUtils.hasText(partnerSku) && StringUtils.hasText(pskuCode)) {
-            return new OperationalKeys(partnerSku, pskuCode);
-        }
-        List<String> lookupWarnings = new ArrayList<>();
-        ProductListSummaryView summary = productProjectionPersistenceService.loadProductListSummary(
+        return productOperationalKeyHydrator.resolveOperationalKeysFromProjection(
                 ownerUserId,
                 storeCode,
                 skuParent,
-                lookupWarnings
-        );
-        if (summary == null || !summary.isReady()) {
-            return new OperationalKeys(partnerSku, pskuCode);
-        }
-        return new OperationalKeys(
-                firstNonBlank(partnerSku, summary.getPartnerSku()),
-                firstNonBlank(pskuCode, summary.getPskuCode())
+                partnerSku,
+                pskuCode
         );
     }
 
@@ -2242,18 +2234,12 @@ public class LocalDbProductMasterService {
             String skuParent,
             ProductMasterSnapshotView snapshot
     ) {
-        if (snapshot == null) {
-            return;
-        }
-        OperationalKeys operationalKeys = resolveOperationalKeysFromProjection(
+        productOperationalKeyHydrator.hydrateSnapshotOperationalKeys(
                 ownerUserId,
                 storeCode,
                 skuParent,
-                textValue(snapshot.getIdentity().get("partnerSku")),
-                textValue(snapshot.getIdentity().get("pskuCode"))
+                snapshot
         );
-        putIfNotBlank(snapshot.getIdentity(), "partnerSku", operationalKeys.getPartnerSku());
-        putIfNotBlank(snapshot.getIdentity(), "pskuCode", operationalKeys.getPskuCode());
     }
 
     private void clearResolvedOperationalWarnings(ProductMasterSnapshotView snapshot) {
@@ -4385,14 +4371,7 @@ public class LocalDbProductMasterService {
     }
 
     private List<String> collectMissingOperationalKeys(String partnerSku, String pskuCode) {
-        List<String> missing = new ArrayList<>();
-        if (!StringUtils.hasText(partnerSku)) {
-            missing.add("partnerSku");
-        }
-        if (!StringUtils.hasText(pskuCode)) {
-            missing.add("pskuCode");
-        }
-        return missing;
+        return productOperationalKeyHydrator.collectMissingOperationalKeys(partnerSku, pskuCode);
     }
 
     private String extractDigits(String value) {
@@ -4444,26 +4423,6 @@ public class LocalDbProductMasterService {
         }
         String normalized = value.replaceAll("\\s+", " ").trim();
         return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
-    }
-
-    private static class OperationalKeys {
-
-        private final String partnerSku;
-
-        private final String pskuCode;
-
-        private OperationalKeys(String partnerSku, String pskuCode) {
-            this.partnerSku = partnerSku;
-            this.pskuCode = pskuCode;
-        }
-
-        private String getPartnerSku() {
-            return partnerSku;
-        }
-
-        private String getPskuCode() {
-            return pskuCode;
-        }
     }
 
     private static class ProjectSiteContext {
