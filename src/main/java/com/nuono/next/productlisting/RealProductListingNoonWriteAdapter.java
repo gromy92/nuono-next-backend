@@ -62,12 +62,14 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             );
             String skuParent = requiredText(createProduct, "/products/0/parent/skuParent", "skuParent");
             String pskuCode = requiredText(createProduct, "/products/0/children/0/pskuCode", "pskuCode");
+            setLastStepExternalReference(steps, externalReference(skuParent, pskuCode));
 
             postStep(steps, "sku_cache", session, endpoints.getSkuCacheUrl(), skuCacheBody(skuParent), headers);
             postStep(steps, "upsert_zsku_base", session, endpoints.getUpsertZskuUrl(), upsertZskuBaseBody(draft, skuParent), headers);
             postZskuContentStep(steps, "upsert_zsku_content_en", session, endpoints, draft, skuParent, "en", headers);
             postZskuContentStep(steps, "upsert_zsku_content_ar", session, endpoints, draft, skuParent, "ar", headers);
             postStep(steps, "upsert_price", session, endpoints.getUpsertPriceUrl(), upsertPriceBody(request, draft, binding, pskuCode), headers);
+            setLastStepExternalReference(steps, externalReference(skuParent, pskuCode));
             if (properties.isOfferUpsertEnabled()) {
                 appendUnsupportedOfferStep(steps);
             }
@@ -83,6 +85,24 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             }
             if (StringUtils.hasText(draft.getBarcode())) {
                 postStep(steps, "upsert_barcode", session, endpoints.getUpsertBarcodeUrl(), upsertBarcodeBody(draft), headers);
+            }
+
+            ProductListingNoonWriteStepResult readBack = verifyNoonReadBack(
+                    session,
+                    endpoints,
+                    draft,
+                    skuParent,
+                    pskuCode,
+                    headers
+            );
+            steps.add(readBack);
+            if (!"succeeded".equals(readBack.getStatus())) {
+                return ProductListingNoonWriteResult.failed(
+                        "noon_readback",
+                        readBack.getFailureCode(),
+                        readBack.getFailureMessage(),
+                        steps
+                );
             }
 
             return ProductListingNoonWriteResult.succeeded(steps);
@@ -106,6 +126,126 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         step.setFailureMessage("Noon offer/upsert is not part of the legacy create SKU chain for newly created PSKUs; "
                 + "offer and stock writes remain disabled until a proven Noon endpoint is integrated.");
         steps.add(step);
+    }
+
+    private ProductListingNoonWriteStepResult verifyNoonReadBack(
+            NoonPullGatewaySession session,
+            ProductListingRealWriteProperties.Endpoints endpoints,
+            ProductListingDraftCommand draft,
+            String skuParent,
+            String pskuCode,
+            Map<String, String> headers
+    ) {
+        ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
+        step.setStepKey("verify_noon_readback");
+        step.setExternalReference(externalReference(skuParent, pskuCode));
+        try {
+            JsonNode root = session.postJson(endpoints.getRetrieveZskuUrl(), retrieveZskuBody(skuParent), true, headers);
+            JsonNode product = root.path(skuParent);
+            JsonNode attributes = product.path("attributes");
+            JsonNode common = attributes.path("common");
+            JsonNode en = attributes.path("en");
+            JsonNode ar = attributes.path("ar");
+            List<String> mismatchedFields = mismatchedReadBackFields(draft, common, en, ar);
+            if (!mismatchedFields.isEmpty()) {
+                step.setStatus("failed");
+                step.setFailureCode("noon_listing_readback_incomplete");
+                step.setFailureMessage("Noon listing read-back missing or mismatched fields: "
+                        + String.join(", ", mismatchedFields));
+                return step;
+            }
+            step.setStatus("succeeded");
+            return step;
+        } catch (RuntimeException exception) {
+            step.setStatus("failed");
+            step.setFailureCode("noon_listing_readback_failed");
+            step.setFailureMessage(StringUtils.hasText(exception.getMessage())
+                    ? exception.getMessage()
+                    : "Noon listing read-back failed.");
+            return step;
+        }
+    }
+
+    private List<String> mismatchedReadBackFields(
+            ProductListingDraftCommand draft,
+            JsonNode common,
+            JsonNode en,
+            JsonNode ar
+    ) {
+        List<String> fields = new ArrayList<>();
+        requireReadBackText(
+                fields,
+                "brand",
+                firstNonBlank(draft.getProductBrand(), draft.getProductBrandCode()),
+                text(common, "brand"),
+                true
+        );
+        requireReadBackText(
+                fields,
+                "product_fulltype",
+                draft.getProductFullType(),
+                text(common, "product_fulltype"),
+                false
+        );
+        requireReadBackText(
+                fields,
+                "product_title_en",
+                draft.getProductTitleEn(),
+                text(en, "product_title"),
+                false
+        );
+        requireReadBackText(
+                fields,
+                "product_title_ar",
+                draft.getProductTitleAr(),
+                text(ar, "product_title"),
+                false
+        );
+        List<String> expectedImages = draft.getImageUrls() == null ? List.of() : draft.getImageUrls();
+        int expectedIndex = 1;
+        for (String expectedImage : expectedImages) {
+            if (!StringUtils.hasText(expectedImage)) {
+                continue;
+            }
+            String actualImage = text(common, "image_url_" + expectedIndex);
+            if (!sameText(expectedImage, actualImage, false)) {
+                fields.add("image_url_" + expectedIndex);
+            }
+            expectedIndex++;
+            if (expectedIndex > 15) {
+                break;
+            }
+        }
+        return fields;
+    }
+
+    private void requireReadBackText(
+            List<String> fields,
+            String field,
+            String expected,
+            String actual,
+            boolean ignoreCase
+    ) {
+        if (!StringUtils.hasText(expected)) {
+            return;
+        }
+        if (!sameText(expected, actual, ignoreCase)) {
+            fields.add(field);
+        }
+    }
+
+    private boolean sameText(String expected, String actual, boolean ignoreCase) {
+        String normalizedExpected = normalize(expected);
+        String normalizedActual = normalize(actual);
+        if (!StringUtils.hasText(normalizedExpected)) {
+            return true;
+        }
+        if (!StringUtils.hasText(normalizedActual)) {
+            return false;
+        }
+        return ignoreCase
+                ? normalizedExpected.equalsIgnoreCase(normalizedActual)
+                : normalizedExpected.equals(normalizedActual);
     }
 
     private ProductListingDraftCommand requireDraft(ProductListingNoonWriteRequest request) {
@@ -166,6 +306,13 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     private ObjectNode skuCacheBody(String skuParent) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("skuParent", skuParent);
+        return root;
+    }
+
+    private ObjectNode retrieveZskuBody(String skuParent) {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.putArray("skuParents").add(skuParent);
+        root.putArray("attributeCodes");
         return root;
     }
 
@@ -292,6 +439,17 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return value;
     }
 
+    private void setLastStepExternalReference(List<ProductListingNoonWriteStepResult> steps, String externalReference) {
+        if (steps == null || steps.isEmpty()) {
+            return;
+        }
+        steps.get(steps.size() - 1).setExternalReference(externalReference);
+    }
+
+    private String externalReference(String skuParent, String pskuCode) {
+        return "skuParent=" + normalize(skuParent) + ";pskuCode=" + normalize(pskuCode);
+    }
+
     private String firstNonBlank(String... values) {
         if (values == null) {
             return "";
@@ -308,6 +466,21 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         if (StringUtils.hasText(value)) {
             target.put(field, value.trim());
         }
+    }
+
+    private String text(JsonNode node, String field) {
+        if (node == null || !StringUtils.hasText(field)) {
+            return "";
+        }
+        JsonNode value = node.path(field);
+        if (value.isMissingNode() || value.isNull()) {
+            return "";
+        }
+        return normalize(value.asText(""));
+    }
+
+    private String normalize(String value) {
+        return StringUtils.hasText(value) ? value.trim() : "";
     }
 
     private String upper(String value) {

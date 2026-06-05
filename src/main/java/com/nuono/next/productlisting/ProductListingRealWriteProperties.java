@@ -40,6 +40,8 @@ public class ProductListingRealWriteProperties {
                 "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
         public static final String DEFAULT_UPSERT_ZSKU_URL =
                 "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
+        public static final String DEFAULT_RETRIEVE_ZSKU_URL =
+                "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/retrieve";
         public static final String DEFAULT_WAREHOUSE_LIST_URL =
                 "https://fbp.sc.noon.partners/_svc/sc-ds-api/v2/onboarding/warehouse-list";
         public static final String DEFAULT_UPSERT_PRICE_URL =
@@ -52,6 +54,7 @@ public class ProductListingRealWriteProperties {
         private String createProductUrl = DEFAULT_CREATE_PRODUCT_URL;
         private String skuCacheUrl = DEFAULT_SKU_CACHE_URL;
         private String upsertZskuUrl = DEFAULT_UPSERT_ZSKU_URL;
+        private String retrieveZskuUrl = DEFAULT_RETRIEVE_ZSKU_URL;
         private String warehouseListUrl = DEFAULT_WAREHOUSE_LIST_URL;
         private String upsertPriceUrl = DEFAULT_UPSERT_PRICE_URL;
         private String upsertWarrantyUrl = DEFAULT_UPSERT_WARRANTY_URL;
@@ -79,6 +82,14 @@ public class ProductListingRealWriteProperties {
 
         public void setUpsertZskuUrl(String upsertZskuUrl) {
             this.upsertZskuUrl = upsertZskuUrl;
+        }
+
+        public String getRetrieveZskuUrl() {
+            return retrieveZskuUrl;
+        }
+
+        public void setRetrieveZskuUrl(String retrieveZskuUrl) {
+            this.retrieveZskuUrl = retrieveZskuUrl;
         }
 
         public String getWarehouseListUrl() {

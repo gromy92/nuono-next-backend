@@ -52,7 +52,8 @@ class RealProductListingNoonWriteAdapterTest {
                 "upsert_price",
                 "upsert_offer",
                 "upsert_warranty",
-                "upsert_barcode"
+                "upsert_barcode",
+                "verify_noon_readback"
         ), result.getSteps().stream()
                 .map(ProductListingNoonWriteStepResult::getStepKey)
                 .collect(Collectors.toList()));
@@ -60,7 +61,7 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals("STR245027-NAE", bindingResolver.request.getStoreCode());
         assertEquals(NoonPullDataDomain.PRODUCT, bindingResolver.request.getDataDomain());
         assertEquals(8, sessionFactory.session.calls.size());
-        assertEquals(0, sessionFactory.session.readCalls.size());
+        assertEquals(1, sessionFactory.session.readCalls.size());
 
         FakeSession.Call createProduct = sessionFactory.session.calls.get(0);
         assertEquals(
@@ -105,6 +106,9 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals("skipped", skippedOffer.getStatus());
         assertEquals("noon_offer_upsert_not_supported_for_new_listing", skippedOffer.getFailureCode());
         assertTrue(skippedOffer.getFailureMessage().contains("legacy create SKU chain"));
+        ProductListingNoonWriteStepResult readBack = result.getSteps().get(9);
+        assertEquals("verify_noon_readback", readBack.getStepKey());
+        assertEquals("succeeded", readBack.getStatus());
 
         JsonNode warranty = sessionFactory.session.calls.get(6).body;
         assertEquals("PSKU_CODE_1", warranty.at("/pskuCode").asText());
@@ -135,7 +139,7 @@ class RealProductListingNoonWriteAdapterTest {
         ProductListingNoonWriteResult result = adapter.execute(request);
 
         assertTrue(result.isSuccess());
-        assertEquals(0, sessionFactory.session.readCalls.size());
+        assertEquals(1, sessionFactory.session.readCalls.size());
         assertEquals(8, sessionFactory.session.calls.size());
         ProductListingNoonWriteStepResult skippedOffer = result.getSteps().get(6);
         assertEquals("upsert_offer", skippedOffer.getStepKey());
@@ -156,7 +160,7 @@ class RealProductListingNoonWriteAdapterTest {
         ProductListingNoonWriteResult result = adapter.execute(writeRequest());
 
         assertTrue(result.isSuccess());
-        assertEquals(0, sessionFactory.session.readCalls.size());
+        assertEquals(1, sessionFactory.session.readCalls.size());
         assertEquals(List.of(
                 "create_product",
                 "sku_cache",
@@ -165,7 +169,8 @@ class RealProductListingNoonWriteAdapterTest {
                 "upsert_zsku_content_ar",
                 "upsert_price",
                 "upsert_warranty",
-                "upsert_barcode"
+                "upsert_barcode",
+                "verify_noon_readback"
         ), result.getSteps().stream()
                 .map(ProductListingNoonWriteStepResult::getStepKey)
                 .collect(Collectors.toList()));
@@ -195,14 +200,44 @@ class RealProductListingNoonWriteAdapterTest {
                 "upsert_price",
                 "upsert_offer",
                 "upsert_warranty",
-                "upsert_barcode"
+                "upsert_barcode",
+                "verify_noon_readback"
         ), result.getSteps().stream()
                 .map(ProductListingNoonWriteStepResult::getStepKey)
                 .collect(Collectors.toList()));
         assertEquals("skipped", result.getSteps().get(6).getStatus());
         assertEquals("noon_offer_upsert_not_supported_for_new_listing", result.getSteps().get(6).getFailureCode());
         assertEquals(8, sessionFactory.session.calls.size());
-        assertEquals(0, sessionFactory.session.readCalls.size());
+        assertEquals(1, sessionFactory.session.readCalls.size());
+    }
+
+    @Test
+    void realAdapterFailsWhenNoonReadBackMissesBrandOrFulltypeAndKeepsExternalReferences() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.readBackIncludesBrandAndFulltype = false;
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                new ProductListingRealWriteProperties()
+        );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        assertEquals("noon_readback", result.getFailureCategory());
+        assertEquals("noon_listing_readback_incomplete", result.getFailureCode());
+        assertTrue(result.getFailureMessage().contains("brand"));
+        assertTrue(result.getFailureMessage().contains("product_fulltype"));
+        ProductListingNoonWriteStepResult createProduct = result.getSteps().get(0);
+        assertEquals("create_product", createProduct.getStepKey());
+        assertTrue(createProduct.getExternalReference().contains("ZPARENT"));
+        assertTrue(createProduct.getExternalReference().contains("PSKU_CODE_1"));
+        ProductListingNoonWriteStepResult readBack = result.getSteps().get(result.getSteps().size() - 1);
+        assertEquals("verify_noon_readback", readBack.getStepKey());
+        assertEquals("failed", readBack.getStatus());
+        assertEquals("noon_listing_readback_incomplete", readBack.getFailureCode());
+        assertEquals(1, sessionFactory.session.readCalls.size());
     }
 
     private ProductListingNoonWriteRequest writeRequest() {
@@ -254,11 +289,23 @@ class RealProductListingNoonWriteAdapterTest {
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final List<Call> calls = new ArrayList<>();
         private final List<Call> readCalls = new ArrayList<>();
+        private boolean readBackIncludesBrandAndFulltype = true;
 
         @Override
         public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
             readCalls.add(new Call(url, body, withProject, extraHeaders));
-            throw new AssertionError("unexpected POST read call " + url);
+            ObjectNode root = objectMapper.createObjectNode();
+            ObjectNode product = root.putObject("ZPARENT");
+            ObjectNode attributes = product.putObject("attributes");
+            ObjectNode common = attributes.putObject("common");
+            if (readBackIncludesBrandAndFulltype) {
+                common.put("brand", "Generic");
+                common.put("product_fulltype", "electronic_accessories-headphones-wired_headphones");
+            }
+            common.put("image_url_1", "https://example.test/images/sku-main.jpg");
+            attributes.putObject("en").put("product_title", "Wired headphones with microphone");
+            attributes.putObject("ar").put("product_title", "Arabic wired headphones title");
+            return root;
         }
 
         @Override
