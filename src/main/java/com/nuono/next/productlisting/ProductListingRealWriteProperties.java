@@ -7,8 +7,6 @@ public class ProductListingRealWriteProperties {
 
     private boolean enabled;
     private boolean offerUpsertEnabled;
-    private int offerPricingInfoMaxAttempts = 5;
-    private long offerPricingInfoDelayMs = 2000L;
     private Endpoints endpoints = new Endpoints();
 
     public boolean isEnabled() {
@@ -27,22 +25,6 @@ public class ProductListingRealWriteProperties {
         this.offerUpsertEnabled = offerUpsertEnabled;
     }
 
-    public int getOfferPricingInfoMaxAttempts() {
-        return offerPricingInfoMaxAttempts;
-    }
-
-    public void setOfferPricingInfoMaxAttempts(int offerPricingInfoMaxAttempts) {
-        this.offerPricingInfoMaxAttempts = offerPricingInfoMaxAttempts;
-    }
-
-    public long getOfferPricingInfoDelayMs() {
-        return offerPricingInfoDelayMs;
-    }
-
-    public void setOfferPricingInfoDelayMs(long offerPricingInfoDelayMs) {
-        this.offerPricingInfoDelayMs = offerPricingInfoDelayMs;
-    }
-
     public Endpoints getEndpoints() {
         return endpoints;
     }
@@ -58,12 +40,8 @@ public class ProductListingRealWriteProperties {
                 "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
         public static final String DEFAULT_UPSERT_ZSKU_URL =
                 "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
-        public static final String DEFAULT_UPSERT_OFFER_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/offer/upsert";
         public static final String DEFAULT_WAREHOUSE_LIST_URL =
                 "https://fbp.sc.noon.partners/_svc/sc-ds-api/v2/onboarding/warehouse-list";
-        public static final String DEFAULT_PSKU_PRICING_INFO_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
         public static final String DEFAULT_UPSERT_PRICE_URL =
                 "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-offermgmt/offer/upsert/price";
         public static final String DEFAULT_UPSERT_WARRANTY_URL =
@@ -74,9 +52,7 @@ public class ProductListingRealWriteProperties {
         private String createProductUrl = DEFAULT_CREATE_PRODUCT_URL;
         private String skuCacheUrl = DEFAULT_SKU_CACHE_URL;
         private String upsertZskuUrl = DEFAULT_UPSERT_ZSKU_URL;
-        private String upsertOfferUrl = DEFAULT_UPSERT_OFFER_URL;
         private String warehouseListUrl = DEFAULT_WAREHOUSE_LIST_URL;
-        private String pskuPricingInfoUrl = DEFAULT_PSKU_PRICING_INFO_URL;
         private String upsertPriceUrl = DEFAULT_UPSERT_PRICE_URL;
         private String upsertWarrantyUrl = DEFAULT_UPSERT_WARRANTY_URL;
         private String upsertBarcodeUrl = DEFAULT_UPSERT_BARCODE_URL;
@@ -105,28 +81,12 @@ public class ProductListingRealWriteProperties {
             this.upsertZskuUrl = upsertZskuUrl;
         }
 
-        public String getUpsertOfferUrl() {
-            return upsertOfferUrl;
-        }
-
-        public void setUpsertOfferUrl(String upsertOfferUrl) {
-            this.upsertOfferUrl = upsertOfferUrl;
-        }
-
         public String getWarehouseListUrl() {
             return warehouseListUrl;
         }
 
         public void setWarehouseListUrl(String warehouseListUrl) {
             this.warehouseListUrl = warehouseListUrl;
-        }
-
-        public String getPskuPricingInfoUrl() {
-            return pskuPricingInfoUrl;
-        }
-
-        public void setPskuPricingInfoUrl(String pskuPricingInfoUrl) {
-            this.pskuPricingInfoUrl = pskuPricingInfoUrl;
         }
 
         public String getUpsertPriceUrl() {
