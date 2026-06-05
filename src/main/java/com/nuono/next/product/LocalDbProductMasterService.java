@@ -93,6 +93,7 @@ public class LocalDbProductMasterService {
     private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
     private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
     private final ProductStoreContextBuilder productStoreContextBuilder;
+    private final ProductSnapshotMessageBuilder productSnapshotMessageBuilder = new ProductSnapshotMessageBuilder();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -530,23 +531,13 @@ public class LocalDbProductMasterService {
         view.setStock(buildStock(stockNode));
         view.setSiteOffers(siteFetchResult.getSiteOffers());
         view.setReady(true);
-        if (view.isDegraded()) {
-            view.setMessage(
-                    "已读取 "
-                            + (store.getProjectName() != null ? store.getProjectName() : storeCode)
-                            + " 的 Noon 商品详情，但当前索引还缺少 "
-                            + String.join(" / ", missingOperationalKeys)
-                            + "，站点经营数据先按降级模式展示。"
-            );
-        } else {
-            view.setMessage(
-                    "已读取 "
-                            + (store.getProjectName() != null ? store.getProjectName() : storeCode)
-                            + " 的真实 Noon 商品主档快照，并汇总 "
-                            + projectSites.size()
-                            + " 个站点经营面。"
-            );
-        }
+        view.setMessage(productSnapshotMessageBuilder.buildLoadedMessage(
+                store,
+                storeCode,
+                missingOperationalKeys,
+                view.isDegraded(),
+                projectSites.size()
+        ));
         stageStartedAt = System.nanoTime();
         productProjectionPersistenceService.persistSnapshotProjection(
                 command.getOwnerUserId(),
