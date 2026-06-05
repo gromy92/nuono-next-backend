@@ -118,6 +118,7 @@ public class LocalDbProductMasterService {
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
     private final ProductWorkbenchRecordStore productWorkbenchRecordStore;
     private final ProductWorkbenchOpenService productWorkbenchOpenService;
+    private final ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer;
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
@@ -147,7 +148,8 @@ public class LocalDbProductMasterService {
             ProductPublishCommandService productPublishCommandService,
             ProductReadModelService productReadModelService,
             ProductWorkbenchRecordStore productWorkbenchRecordStore,
-            ProductWorkbenchOpenService productWorkbenchOpenService
+            ProductWorkbenchOpenService productWorkbenchOpenService,
+            ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer
     ) {
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
@@ -168,6 +170,9 @@ public class LocalDbProductMasterService {
         this.productWorkbenchOpenService = productWorkbenchOpenService == null
                 ? new ProductWorkbenchOpenService(productProjectionPersistenceService, this.productWorkbenchRecordStore)
                 : productWorkbenchOpenService;
+        this.productWorkbenchViewFinalizer = productWorkbenchViewFinalizer == null
+                ? new ProductWorkbenchViewFinalizer(productProjectionPersistenceService)
+                : productWorkbenchViewFinalizer;
     }
 
     private ProductPublishCommandService requirePublishCommandService() {
@@ -2551,23 +2556,53 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView actionBaselineSnapshot,
             ProductMasterSnapshotView actionDraftSnapshot
     ) {
-        attachActivePublishTask(ownerUserId, record);
-        ProductMasterWorkbenchView view = buildWorkbenchView(record, message, warnings);
-        syncProductMasterStatus(view, view.getSyncStatus(), view.getLastSyncedAt(), view.getWarnings());
-        if (StringUtils.hasText(actionType)) {
-            productProjectionPersistenceService.persistWorkbenchState(
-                    ownerUserId,
-                    view,
-                    resolveDirtySiteCodes(view.getDraftSnapshot(), view.getBaselineSnapshot()),
-                    actionType,
-                    targetSiteCode,
-                    view.getWarnings(),
-                    actionBaselineSnapshot,
-                    actionDraftSnapshot
-            );
-        }
-        hydrateListSummaryState(ownerUserId, view, view.getWarnings());
-        return view;
+        return productWorkbenchViewFinalizer.finalizeView(
+                ownerUserId,
+                actionType,
+                targetSiteCode,
+                record,
+                message,
+                warnings,
+                actionBaselineSnapshot,
+                actionDraftSnapshot,
+                finalizerSupport()
+        );
+    }
+
+    private ProductWorkbenchViewFinalizer.FinalizeSupport finalizerSupport() {
+        return new ProductWorkbenchViewFinalizer.FinalizeSupport() {
+            @Override
+            public void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
+                LocalDbProductMasterService.this.attachActivePublishTask(ownerUserId, record);
+            }
+
+            @Override
+            public void syncProductMasterStatus(
+                    ProductMasterSnapshotView snapshot,
+                    String syncStatus,
+                    String lastSyncedAt,
+                    List<String> warnings
+            ) {
+                LocalDbProductMasterService.this.syncProductMasterStatus(snapshot, syncStatus, lastSyncedAt, warnings);
+            }
+
+            @Override
+            public List<String> resolveDirtySiteCodes(
+                    ProductMasterSnapshotView draft,
+                    ProductMasterSnapshotView baseline
+            ) {
+                return LocalDbProductMasterService.this.resolveDirtySiteCodes(draft, baseline);
+            }
+
+            @Override
+            public void hydrateListSummaryState(
+                    Long ownerUserId,
+                    ProductMasterSnapshotView snapshot,
+                    List<String> warnings
+            ) {
+                LocalDbProductMasterService.this.hydrateListSummaryState(ownerUserId, snapshot, warnings);
+            }
+        };
     }
 
     private void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
