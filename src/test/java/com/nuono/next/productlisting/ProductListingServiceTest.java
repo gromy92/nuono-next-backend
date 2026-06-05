@@ -61,7 +61,7 @@ class ProductListingServiceTest {
     void dryRunTaskFailsWhenHardIssuesExist() {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand invalid = validCommand();
-        invalid.setPurchasePrice(null);
+        invalid.setPrice(null);
         ProductListingDraftView draft = service.saveDraft(context, invalid);
         ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
         command.setDraftId(draft.getDraftId());
@@ -71,7 +71,46 @@ class ProductListingServiceTest {
 
         assertEquals("validation_failed", task.getStatus());
         assertTrue(task.getValidationIssues().stream()
-                .anyMatch(issue -> "purchasePrice".equals(issue.getFieldKey())));
+                .anyMatch(issue -> "price".equals(issue.getFieldKey())));
+    }
+
+    @Test
+    void dryRunTaskAllowsListingWithoutProcurementOnlyFields() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setIdProductFullType(null);
+        command.setPurchasePrice(null);
+        command.setSupplyEvidenceType(null);
+        command.setSupplyEvidenceRefId(null);
+        command.setOptionalPurchaseOrderId(null);
+        command.setQuantity(null);
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand submit = new ProductListingDryRunSubmitCommand();
+        submit.setDraftId(draft.getDraftId());
+        submit.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, submit);
+
+        assertEquals("validated", task.getStatus());
+        assertTrue(task.getValidationIssues().isEmpty());
+    }
+
+    @Test
+    void dryRunTaskRequiresProductFullTypeTextFromDetail() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setIdProductFullType(3066L);
+        command.setProductFullType(null);
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand submit = new ProductListingDryRunSubmitCommand();
+        submit.setDraftId(draft.getDraftId());
+        submit.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, submit);
+
+        assertEquals("validation_failed", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .anyMatch(issue -> "productFullType".equals(issue.getFieldKey())));
     }
 
     @Test
@@ -187,7 +226,7 @@ class ProductListingServiceTest {
         useRealWrite(true);
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand invalid = validCommand();
-        invalid.setPurchasePrice(null);
+        invalid.setProductFullType(null);
         ProductListingDraftView draft = service.saveDraft(context, invalid);
         ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
         dryRunCommand.setDraftId(draft.getDraftId());
