@@ -35,8 +35,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,10 +52,6 @@ public class LocalDbProductMasterService {
 
     private static final String WHOAMI_URL =
             NoonProductGateway.WHOAMI_URL;
-    private static final String PROJECT_LIST_URL =
-            NoonProductGateway.PROJECT_LIST_URL;
-    private static final String STORE_LIST_URL =
-            NoonProductGateway.STORE_LIST_URL;
     private static final String ZSKU_RETRIEVE_URL =
             NoonProductGateway.ZSKU_RETRIEVE_URL;
     private static final String GROUP_CURRENT_URL_PREFIX =
@@ -113,7 +107,7 @@ public class LocalDbProductMasterService {
     private final ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer;
     private final ProductWorkbenchRecordRestorer productWorkbenchRecordRestorer;
     private final ProductAttributeDictionaryHydrator productAttributeDictionaryHydrator;
-    private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
+    private final ProductProjectSiteResolver productProjectSiteResolver;
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -153,6 +147,7 @@ public class LocalDbProductMasterService {
         this.productSnapshotHydrator = new ProductSnapshotHydrator(objectMapper);
         this.productOperationalKeyHydrator = new ProductOperationalKeyHydrator(productProjectionPersistenceService);
         this.productNoonAdapter = productNoonAdapter;
+        this.productProjectSiteResolver = new ProductProjectSiteResolver(objectMapper, storeSyncMapper, productNoonAdapter);
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
         this.productAttributeTemplateService = productAttributeTemplateService;
@@ -533,7 +528,7 @@ public class LocalDbProductMasterService {
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "variant.info", stageStartedAt);
 
         stageStartedAt = System.nanoTime();
-        List<ProjectSiteContext> projectSites = loadProjectSiteContexts(
+        List<ProductProjectSiteContext> projectSites = loadProjectSiteContexts(
                 session,
                 command.getOwnerUserId(),
                 store,
@@ -2548,82 +2543,18 @@ public class LocalDbProductMasterService {
         return context;
     }
 
-    private List<ProjectSiteContext> loadProjectSiteContexts(
+    private List<ProductProjectSiteContext> loadProjectSiteContexts(
             NoonSession session,
             Long ownerUserId,
             StoreSyncStoreRecord store,
             List<String> warnings
     ) {
-        Map<String, ProjectSiteContext> siteMap = new LinkedHashMap<>();
-        List<StoreSyncStoreRecord> localProjectStores = findRelatedStores(ownerUserId, store);
-        for (StoreSyncStoreRecord localStore : localProjectStores) {
-            if (!StringUtils.hasText(localStore.getStoreCode())) {
-                continue;
-            }
-            siteMap.put(
-                    localStore.getStoreCode(),
-                    new ProjectSiteContext(localStore.getStoreCode(), localStore.getSite(), null)
-            );
-        }
-
-        ObjectNode storeListBody = objectMapper.createObjectNode();
-        storeListBody.put("noonStoreCode", "");
-        long storeListStartedAt = System.nanoTime();
-        JsonNode storeListRoot = safePost(
-                session,
-                STORE_LIST_URL,
-                storeListBody,
-                true,
-                warnings,
-                "读取项目站点列表失败"
-        );
-        log.info(
-                "product-management fetchSnapshot detail stage=store.list store={} durationMs={}",
-                normalize(store.getStoreCode()),
-                nanosToMillis(storeListStartedAt)
-        );
-        JsonNode noonStoresNode = storeListRoot.path("noonStores");
-        if (noonStoresNode.isArray()) {
-            for (JsonNode siteNode : noonStoresNode) {
-                String liveStoreCode = text(siteNode, "noonStoreCode");
-                if (!StringUtils.hasText(liveStoreCode)) {
-                    continue;
-                }
-
-                String liveSite = firstNonBlank(text(siteNode, "countryCode"), deriveSiteFromStoreCode(liveStoreCode));
-                String statusCode = text(siteNode, "statusCode");
-                ProjectSiteContext existing = siteMap.get(liveStoreCode);
-                if (existing != null) {
-                    existing.setSite(firstNonBlank(liveSite, existing.getSite()));
-                    existing.setStatusCode(firstNonBlank(statusCode, existing.getStatusCode()));
-                }
-            }
-        }
-
-        if (!StringUtils.hasText(store.getStoreCode())) {
-            return new ArrayList<>(siteMap.values());
-        }
-
-        ProjectSiteContext referenceStore = siteMap.get(store.getStoreCode());
-        if (referenceStore == null) {
-            siteMap.put(
-                    store.getStoreCode(),
-                    new ProjectSiteContext(
-                            store.getStoreCode(),
-                            firstNonBlank(store.getSite(), deriveSiteFromStoreCode(store.getStoreCode())),
-                            null
-                    )
-            );
-        } else {
-            referenceStore.setSite(firstNonBlank(referenceStore.getSite(), store.getSite(), deriveSiteFromStoreCode(store.getStoreCode())));
-        }
-
-        return new ArrayList<>(siteMap.values());
+        return productProjectSiteResolver.loadProjectSiteContexts(session, ownerUserId, store, warnings);
     }
 
     private ProjectSiteFetchResult loadSiteOffers(
             NoonSession session,
-            List<ProjectSiteContext> projectSites,
+            List<ProductProjectSiteContext> projectSites,
             String referenceStoreCode,
             String idPartner,
             String partnerSku,
@@ -2644,7 +2575,7 @@ public class LocalDbProductMasterService {
             warnings.add("当前索引缺少 pskuCode，站点库存摘要读取已跳过。");
         }
 
-        for (ProjectSiteContext projectSite : projectSites) {
+        for (ProductProjectSiteContext projectSite : projectSites) {
             NoonSession siteSession = session.withStoreCode(projectSite.getStoreCode());
             JsonNode pricingNode = MissingNode.getInstance();
             String resolvedSite = firstNonBlank(projectSite.getSite(), deriveSiteFromStoreCode(projectSite.getStoreCode()), "SA");
@@ -2705,12 +2636,12 @@ public class LocalDbProductMasterService {
 
     private ProjectSiteFetchResult reuseSiteOffersFromSnapshot(
             ProductMasterSnapshotView snapshot,
-            List<ProjectSiteContext> projectSites,
+            List<ProductProjectSiteContext> projectSites,
             String referenceStoreCode
     ) {
         List<Map<String, Object>> siteOffers = new ArrayList<>();
         Map<String, Map<String, Object>> baselineOffers = siteOfferMap(snapshot != null ? snapshot.getSiteOffers() : null);
-        for (ProjectSiteContext projectSite : projectSites) {
+        for (ProductProjectSiteContext projectSite : projectSites) {
             Map<String, Object> baselineOffer = baselineOffers.get(projectSite.getStoreCode());
             Map<String, Object> siteOffer = baselineOffer != null
                     ? new LinkedHashMap<>(baselineOffer)
@@ -2725,13 +2656,8 @@ public class LocalDbProductMasterService {
         return new ProjectSiteFetchResult(siteOffers, MissingNode.getInstance(), MissingNode.getInstance());
     }
 
-    private String resolveReferenceSite(List<ProjectSiteContext> projectSites, String referenceStoreCode) {
-        for (ProjectSiteContext projectSite : projectSites) {
-            if (projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)) {
-                return firstNonBlank(projectSite.getSite(), deriveSiteFromStoreCode(referenceStoreCode));
-            }
-        }
-        return deriveSiteFromStoreCode(referenceStoreCode);
+    private String resolveReferenceSite(List<ProductProjectSiteContext> projectSites, String referenceStoreCode) {
+        return productProjectSiteResolver.resolveReferenceSite(projectSites, referenceStoreCode);
     }
 
     private String resolveProjectCode(
@@ -2740,100 +2666,7 @@ public class LocalDbProductMasterService {
             StoreSyncStoreRecord store,
             List<String> warnings
     ) {
-        String cacheKey = buildResolvedProjectCodeCacheKey(store, localProjectCode);
-        ResolvedProjectCodeCacheEntry cachedEntry = resolvedProjectCodeCache.get(cacheKey);
-        if (cachedEntry != null) {
-            if (StringUtils.hasText(cachedEntry.warning()) && !warnings.contains(cachedEntry.warning())) {
-                warnings.add(cachedEntry.warning());
-            }
-            return cachedEntry.resolvedProjectCode();
-        }
-
-        ObjectNode emptyBody = objectMapper.createObjectNode();
-        JsonNode projectListRoot = safePost(
-                session,
-                PROJECT_LIST_URL,
-                emptyBody,
-                false,
-                warnings,
-                "读取 Noon 项目列表失败"
-        );
-        JsonNode projectsNode = projectListRoot.path("projects");
-        if (!projectsNode.isArray() || projectsNode.size() == 0) {
-            return localProjectCode;
-        }
-
-        String localDigits = extractDigits(localProjectCode);
-        String storeProjectName = normalize(store.getProjectName());
-
-        for (JsonNode projectNode : projectsNode) {
-            String candidateCode = text(projectNode, "projectCode");
-            if (localProjectCode != null && localProjectCode.equalsIgnoreCase(candidateCode)) {
-                return cacheResolvedProjectCode(cacheKey, candidateCode, null);
-            }
-        }
-
-        if (StringUtils.hasText(localDigits)) {
-            for (JsonNode projectNode : projectsNode) {
-                String candidateCode = text(projectNode, "projectCode");
-                if (extractDigits(candidateCode).equals(localDigits)) {
-                    return cacheResolvedProjectCode(cacheKey, candidateCode, null);
-                }
-            }
-        }
-
-        if (StringUtils.hasText(storeProjectName)) {
-            for (JsonNode projectNode : projectsNode) {
-                String candidateName = normalize(text(projectNode, "projectName"));
-                if (storeProjectName.equalsIgnoreCase(candidateName)) {
-                    return cacheResolvedProjectCode(cacheKey, text(projectNode, "projectCode"), null);
-                }
-            }
-        }
-
-        String fallbackProjectCode = text(projectsNode.get(0), "projectCode");
-        if (StringUtils.hasText(fallbackProjectCode)
-                && !fallbackProjectCode.equalsIgnoreCase(localProjectCode)) {
-            String warning = "本地店铺 projectCode="
-                    + localProjectCode
-                    + " 与 Noon 实时 projectCode="
-                    + fallbackProjectCode
-                    + " 不一致，当前已按 Noon 实时项目码读取。";
-            warnings.add(warning);
-            return cacheResolvedProjectCode(cacheKey, fallbackProjectCode, warning);
-        }
-
-        return cacheResolvedProjectCode(
-                cacheKey,
-                StringUtils.hasText(fallbackProjectCode) ? fallbackProjectCode : localProjectCode,
-                null
-        );
-    }
-
-    private String buildResolvedProjectCodeCacheKey(StoreSyncStoreRecord store, String localProjectCode) {
-        String storeCode = normalize(store.getStoreCode());
-        if (StringUtils.hasText(storeCode)) {
-            return "store:" + storeCode.toLowerCase();
-        }
-        String projectCode = normalize(localProjectCode);
-        if (StringUtils.hasText(projectCode)) {
-            return "project:" + projectCode.toLowerCase();
-        }
-        String projectName = normalize(store.getProjectName());
-        if (StringUtils.hasText(projectName)) {
-            return "project-name:" + projectName.toLowerCase();
-        }
-        return "store:unknown";
-    }
-
-    private String cacheResolvedProjectCode(String cacheKey, String resolvedProjectCode, String warning) {
-        if (StringUtils.hasText(cacheKey) && StringUtils.hasText(resolvedProjectCode)) {
-            resolvedProjectCodeCache.put(
-                    cacheKey,
-                    new ResolvedProjectCodeCacheEntry(resolvedProjectCode, warning)
-            );
-        }
-        return resolvedProjectCode;
+        return productProjectSiteResolver.resolveProjectCode(session, localProjectCode, store, warnings);
     }
 
     private Map<String, Object> buildIdentity(
@@ -3925,7 +3758,7 @@ public class LocalDbProductMasterService {
     }
 
     private Map<String, Object> buildSiteOffer(
-            ProjectSiteContext projectSite,
+            ProductProjectSiteContext projectSite,
             JsonNode pricingRoot,
             JsonNode stockRoot,
             boolean reference
@@ -3943,50 +3776,12 @@ public class LocalDbProductMasterService {
         return siteOffer;
     }
 
-    private List<StoreSyncStoreRecord> findRelatedStores(Long ownerUserId, StoreSyncStoreRecord referenceStore) {
-        List<StoreSyncStoreRecord> ownerStores = storeSyncMapper.listOwnerStores(ownerUserId);
-        String projectKey = projectKey(referenceStore);
-        List<StoreSyncStoreRecord> relatedStores = new ArrayList<>();
-        for (StoreSyncStoreRecord ownerStore : ownerStores) {
-            if (projectKey.equals(projectKey(ownerStore))) {
-                relatedStores.add(ownerStore);
-            }
-        }
-        if (relatedStores.isEmpty()) {
-            relatedStores.add(referenceStore);
-        }
-        return relatedStores;
-    }
-
-    private String projectKey(StoreSyncStoreRecord store) {
-        String projectCode = normalize(store.getProjectCode());
-        if (StringUtils.hasText(projectCode)) {
-            return "project:" + projectCode.toLowerCase();
-        }
-        String projectName = normalize(store.getProjectName());
-        if (StringUtils.hasText(projectName)) {
-            return "project-name:" + projectName.toLowerCase();
-        }
-        return "store:" + normalize(store.getStoreCode());
-    }
-
     private String deriveSiteFromStoreCode(String storeCode) {
-        if (!StringUtils.hasText(storeCode) || storeCode.length() < 2) {
-            return null;
-        }
-        String suffix = storeCode.substring(storeCode.length() - 2).toUpperCase();
-        if ("SA".equals(suffix) || "AE".equals(suffix)) {
-            return suffix;
-        }
-        return null;
+        return productProjectSiteResolver.deriveSiteFromStoreCode(storeCode);
     }
 
-    private String describeSite(ProjectSiteContext projectSite) {
-        String storeCode = firstNonBlank(projectSite.getStoreCode(), "未知站点");
-        if (!StringUtils.hasText(projectSite.getSite())) {
-            return storeCode;
-        }
-        return projectSite.getSite() + " / " + storeCode;
+    private String describeSite(ProductProjectSiteContext projectSite) {
+        return productProjectSiteResolver.describeSite(projectSite);
     }
 
     private JsonNode safeGet(
@@ -4233,34 +4028,8 @@ public class LocalDbProductMasterService {
         return value.trim().toLowerCase().replaceAll("[\\s-]+", "_");
     }
 
-    private static final class ResolvedProjectCodeCacheEntry {
-
-        private final String resolvedProjectCode;
-        private final String warning;
-
-        private ResolvedProjectCodeCacheEntry(String resolvedProjectCode, String warning) {
-            this.resolvedProjectCode = resolvedProjectCode;
-            this.warning = warning;
-        }
-
-        private String resolvedProjectCode() {
-            return resolvedProjectCode;
-        }
-
-        private String warning() {
-            return warning;
-        }
-    }
-
     private List<String> collectMissingOperationalKeys(String partnerSku, String pskuCode) {
         return productOperationalKeyHydrator.collectMissingOperationalKeys(partnerSku, pskuCode);
-    }
-
-    private String extractDigits(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        return value.replaceAll("\\D+", "");
     }
 
     private void requireText(String value, String message) {
@@ -4305,41 +4074,6 @@ public class LocalDbProductMasterService {
         }
         String normalized = value.replaceAll("\\s+", " ").trim();
         return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
-    }
-
-    private static class ProjectSiteContext {
-
-        private final String storeCode;
-
-        private String site;
-
-        private String statusCode;
-
-        private ProjectSiteContext(String storeCode, String site, String statusCode) {
-            this.storeCode = storeCode;
-            this.site = site;
-            this.statusCode = statusCode;
-        }
-
-        private String getStoreCode() {
-            return storeCode;
-        }
-
-        private String getSite() {
-            return site;
-        }
-
-        private void setSite(String site) {
-            this.site = site;
-        }
-
-        private String getStatusCode() {
-            return statusCode;
-        }
-
-        private void setStatusCode(String statusCode) {
-            this.statusCode = statusCode;
-        }
     }
 
     private static class ProjectSiteFetchResult {
