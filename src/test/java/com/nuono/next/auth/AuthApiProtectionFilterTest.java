@@ -47,6 +47,21 @@ class AuthApiProtectionFilterTest {
     }
 
     @Test
+    void shouldAllowAli1688OpenApiCallbackWithoutSession() throws ServletException, IOException {
+        MockHttpServletRequest request = request(
+                "GET",
+                "/api/procurement/ali1688-orders/authorizations/open-api/callback"
+        );
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean called = new AtomicBoolean(false);
+
+        filter.doFilter(request, response, chain(called));
+
+        assertTrue(called.get());
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
     void shouldAllowMobileApiToUseMobileTokenFlow() throws ServletException, IOException {
         MockHttpServletRequest request = request("GET", "/api/mobile/dashboard/overview");
         MockHttpServletResponse response = new MockHttpServletResponse();
