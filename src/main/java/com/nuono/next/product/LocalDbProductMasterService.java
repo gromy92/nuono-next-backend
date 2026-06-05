@@ -113,6 +113,7 @@ public class LocalDbProductMasterService {
     private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
     private final ProductPublishCommandService productPublishCommandService;
     private final ProductPublishChangedDomainComparator productPublishChangedDomainComparator;
+    private final ProductPublishUnsupportedChangesDetector productPublishUnsupportedChangesDetector;
     private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
@@ -184,6 +185,7 @@ public class LocalDbProductMasterService {
                 ? new ProductWorkbenchStatusHydrator(productProjectionPersistenceService)
                 : productWorkbenchStatusHydrator;
         this.productPublishChangedDomainComparator = new ProductPublishChangedDomainComparator(objectMapper);
+        this.productPublishUnsupportedChangesDetector = new ProductPublishUnsupportedChangesDetector(objectMapper);
         this.productPublishTaskChangedDomainsResolver = new ProductPublishTaskChangedDomainsResolver(
                 objectMapper,
                 this::recomputePublishTaskChangedDomains
@@ -948,7 +950,7 @@ public class LocalDbProductMasterService {
             requireText(currentSiteCode, "缺少当前站点编码，暂时不能发布当前站点。");
         }
         requestedSnapshot = prepareSnapshotForPublish(requestedSnapshot, record.getBaselineSnapshot(), currentSiteCode);
-        UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(
+        ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(
                 requestedSnapshot,
                 record.getBaselineSnapshot(),
                 currentSiteCode
@@ -985,7 +987,7 @@ public class LocalDbProductMasterService {
                 currentSiteCode
         );
         validationErrors.addAll(validatePublishOperationalKeys(publishableSnapshot, record.getBaselineSnapshot(), currentSiteCode));
-        validationErrors.addAll(validatePublishWriteCoverage(unsupportedChanges));
+        validationErrors.addAll(productPublishUnsupportedChangesDetector.validateWriteCoverage(unsupportedChanges));
         if (!validationErrors.isEmpty()) {
             record.setDraftSnapshot(requestedSnapshot);
             record.setSyncStatus("failed");
@@ -1265,7 +1267,7 @@ public class LocalDbProductMasterService {
             ProductWorkbenchRecord record,
             ProductMasterSnapshotView requestedSnapshot,
             String currentSiteCode,
-            UnsupportedChanges unsupportedChanges
+            ProductPublishUnsupportedChanges unsupportedChanges
     ) {
         Long productMasterId = resolveProductMasterId(command);
         ProductPublishTaskRecord activeTask = productMasterId == null
@@ -1360,7 +1362,7 @@ public class LocalDbProductMasterService {
         boolean writeSubmitted = false;
         try {
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, currentSiteCode);
-            UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(preparedDraft, baseline, currentSiteCode);
+            ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, currentSiteCode);
             ProductMasterSnapshotView publishableDraft = publishableSnapshotForSupportedChanges(preparedDraft, baseline, unsupportedChanges);
             if (sameScopedSnapshot(publishableDraft, baseline, currentSiteCode)) {
                 ProductWorkbenchRecord refreshed = buildTaskWorkbenchRecord(baseline, preparedDraft, "synced", "当前没有待发布改动。");
@@ -1380,7 +1382,7 @@ public class LocalDbProductMasterService {
             }
             List<String> validationErrors = validatePublishSnapshot(publishableDraft, baseline, currentSiteCode);
             validationErrors.addAll(validatePublishOperationalKeys(publishableDraft, baseline, currentSiteCode));
-            validationErrors.addAll(validatePublishWriteCoverage(unsupportedChanges));
+            validationErrors.addAll(productPublishUnsupportedChangesDetector.validateWriteCoverage(unsupportedChanges));
             if (!validationErrors.isEmpty()) {
                 failPublishTask(task, "validation_failed", validationErrors.get(0), requestCountScope.snapshot());
                 return;
@@ -1526,7 +1528,7 @@ public class LocalDbProductMasterService {
         try {
             ProductMasterSnapshotView liveAfterPublish = fetchSnapshot(command, "publish-task.verify");
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, task.getCurrentSiteCode());
-            UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(preparedDraft, baseline, task.getCurrentSiteCode());
+            ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, task.getCurrentSiteCode());
             ProductMasterSnapshotView publishableDraft = publishableSnapshotForSupportedChanges(preparedDraft, baseline, unsupportedChanges);
             completePublishTaskAfterVerification(
                     task,
@@ -1570,7 +1572,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView publishableDraft,
             ProductMasterSnapshotView liveAfterPublish,
-            UnsupportedChanges unsupportedChanges,
+            ProductPublishUnsupportedChanges unsupportedChanges,
             Map<String, Integer> requestCounts,
             List<String> actionWarnings,
             int verifyAttempt
@@ -1979,7 +1981,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView baseline,
             String currentSiteCode
     ) {
-        UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(draft, baseline, currentSiteCode);
+        ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(draft, baseline, currentSiteCode);
         return productPublishChangedDomainComparator.resolve(
                 draft,
                 baseline,
@@ -3397,31 +3399,10 @@ public class LocalDbProductMasterService {
         return errors;
     }
 
-    private List<String> validatePublishWriteCoverage(UnsupportedChanges unsupportedChanges) {
-        List<String> errors = new ArrayList<>();
-        if (unsupportedChanges == null) {
-            return errors;
-        }
-        errors.addAll(unsupportedChanges.getPublishBlockers());
-        if (unsupportedChanges.isGroupChanged()) {
-            errors.add("Group 换组或轴定义当前暂未开放 Noon 写回；本期支持已有成员 Group 轴属性值、新增未分组商品和 Unlink。");
-        }
-        if (unsupportedChanges.isVariantStructureChanged()) {
-            errors.add("尺码新增、删除或 Child SKU 变更当前没有 Noon 写回适配，请撤回这类修改后再发布。");
-        }
-        for (String code : unsupportedChanges.getUnsupportedAttributeCodes()) {
-            errors.add("关键属性 " + code + " 当前没有 Noon 写回适配，请撤回这类修改后再发布。");
-        }
-        for (Map.Entry<String, Set<String>> entry : unsupportedChanges.getUnsupportedSiteFields().entrySet()) {
-            errors.add(entry.getKey() + " 的 " + String.join("、", entry.getValue()) + " 当前没有 Noon 写回适配，或属于 Noon 只读/汇总字段。");
-        }
-        return errors;
-    }
-
     private ProductMasterSnapshotView publishableSnapshotForSupportedChanges(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
-            UnsupportedChanges unsupportedChanges
+            ProductPublishUnsupportedChanges unsupportedChanges
     ) {
         ProductMasterSnapshotView publishable = copySnapshot(draft);
         ProductPublishPlan plan = productPublishPlanner.plan(publishable, baseline, null);
@@ -3456,72 +3437,6 @@ public class LocalDbProductMasterService {
         throw new IllegalArgumentException("当前只开放 xingyao 测试店铺的受控发布。");
     }
 
-    private UnsupportedChanges detectUnsupportedChanges(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            String currentSiteCode
-    ) {
-        UnsupportedChanges unsupportedChanges = new UnsupportedChanges();
-
-        if (!objectMapper.valueToTree(groupDefinitionComparable(draft.getGroup()))
-                .equals(objectMapper.valueToTree(groupDefinitionComparable(baseline.getGroup())))) {
-            unsupportedChanges.setGroupChanged(true);
-        }
-        Map<String, Map<String, Object>> draftVariants = variantMap(draft.getVariants());
-        Map<String, Map<String, Object>> baselineVariants = variantMap(baseline.getVariants());
-        if (!draftVariants.keySet().equals(baselineVariants.keySet())) {
-            unsupportedChanges.setVariantStructureChanged(true);
-        }
-
-        Map<String, Map<String, Object>> draftAttributes = keyAttributeMap(draft.getKeyAttributes());
-        Map<String, Map<String, Object>> baselineAttributes = keyAttributeMap(baseline.getKeyAttributes());
-        Set<String> allAttributeCodes = new LinkedHashSet<>();
-        allAttributeCodes.addAll(draftAttributes.keySet());
-        allAttributeCodes.addAll(baselineAttributes.keySet());
-        for (String code : allAttributeCodes) {
-            Map<String, Object> draftAttribute = draftAttributes.get(code);
-            Map<String, Object> baselineAttribute = baselineAttributes.get(code);
-            if (objectMapper.valueToTree(draftAttribute).equals(objectMapper.valueToTree(baselineAttribute))) {
-                continue;
-            }
-            if (draftAttribute == null || baselineAttribute == null || isCoreAttribute(code) || isBarcodeAttribute(code)) {
-                unsupportedChanges.getUnsupportedAttributeCodes().add(code);
-                continue;
-            }
-            if (!isScalarAttributeValue(attributeValue(draftAttribute, "commonValue"))
-                    || !isScalarAttributeValue(attributeValue(draftAttribute, "enValue"))
-                    || !isScalarAttributeValue(attributeValue(draftAttribute, "arValue"))
-                    || !isScalarAttributeValue(attributeValue(baselineAttribute, "commonValue"))
-                    || !isScalarAttributeValue(attributeValue(baselineAttribute, "enValue"))
-                    || !isScalarAttributeValue(attributeValue(baselineAttribute, "arValue"))) {
-                unsupportedChanges.getUnsupportedAttributeCodes().add(code);
-            }
-        }
-
-        Map<String, Map<String, Object>> draftOffers = siteOfferMap(draft.getSiteOffers());
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline.getSiteOffers());
-        Set<String> relevantSiteCodes = new LinkedHashSet<>();
-        if (StringUtils.hasText(currentSiteCode)) {
-            relevantSiteCodes.add(currentSiteCode);
-        } else {
-            relevantSiteCodes.addAll(draftOffers.keySet());
-        }
-        for (String siteCode : relevantSiteCodes) {
-            Map<String, Object> draftOffer = draftOffers.get(siteCode);
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (draftOffer == null || baselineOffer == null) {
-                continue;
-            }
-            for (String field : new String[]{"barcode"}) {
-                if (!objectMapper.valueToTree(draftOffer.get(field)).equals(objectMapper.valueToTree(baselineOffer.get(field)))) {
-                    unsupportedChanges.markUnsupportedSiteField(siteCode, field);
-                }
-            }
-        }
-
-        return unsupportedChanges;
-    }
-
     private void publishSupportedChanges(
             ProductMasterActionCommand command,
             StoreSyncStoreRecord store,
@@ -3529,7 +3444,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView baseline,
             ProductMasterSnapshotView liveBeforePublish,
             String currentSiteCode,
-            UnsupportedChanges unsupportedChanges,
+            ProductPublishUnsupportedChanges unsupportedChanges,
             List<String> actionWarnings
     ) {
         StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(command.getOwnerUserId());
@@ -3613,7 +3528,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             ProductMasterSnapshotView liveBeforePublish,
-            UnsupportedChanges unsupportedChanges,
+            ProductPublishUnsupportedChanges unsupportedChanges,
             List<String> actionWarnings
     ) {
         publishVariantSizes(session, draft, baseline, liveBeforePublish, unsupportedChanges);
@@ -3634,7 +3549,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             ProductMasterSnapshotView liveBeforePublish,
-            UnsupportedChanges unsupportedChanges
+            ProductPublishUnsupportedChanges unsupportedChanges
     ) {
         if (unsupportedChanges == null
                 || unsupportedChanges.isVariantStructureChanged()
@@ -3793,7 +3708,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             String lang,
-            UnsupportedChanges unsupportedChanges
+            ProductPublishUnsupportedChanges unsupportedChanges
     ) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("skuParent", textValue(draft.getIdentity().get("skuParent")));
@@ -3963,7 +3878,7 @@ public class LocalDbProductMasterService {
     private void overlayUnsupportedDraft(
             ProductMasterSnapshotView targetDraft,
             ProductMasterSnapshotView sourceDraft,
-            UnsupportedChanges unsupportedChanges
+            ProductPublishUnsupportedChanges unsupportedChanges
     ) {
         if (unsupportedChanges.isGroupChanged()) {
             targetDraft.setGroup(new LinkedHashMap<>(sourceDraft.getGroup()));
@@ -6162,54 +6077,6 @@ public class LocalDbProductMasterService {
         }
         String normalized = value.replaceAll("\\s+", " ").trim();
         return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
-    }
-
-    private static class UnsupportedChanges {
-
-        private boolean groupChanged;
-
-        private boolean variantStructureChanged;
-
-        private final Set<String> unsupportedAttributeCodes = new LinkedHashSet<>();
-
-        private final Map<String, Set<String>> unsupportedSiteFields = new LinkedHashMap<>();
-
-        private final List<String> publishBlockers = new ArrayList<>();
-
-        private boolean isGroupChanged() {
-            return groupChanged;
-        }
-
-        private void setGroupChanged(boolean groupChanged) {
-            this.groupChanged = groupChanged;
-        }
-
-        private boolean isVariantStructureChanged() {
-            return variantStructureChanged;
-        }
-
-        private void setVariantStructureChanged(boolean variantStructureChanged) {
-            this.variantStructureChanged = variantStructureChanged;
-        }
-
-        private Set<String> getUnsupportedAttributeCodes() {
-            return unsupportedAttributeCodes;
-        }
-
-        private Map<String, Set<String>> getUnsupportedSiteFields() {
-            return unsupportedSiteFields;
-        }
-
-        private List<String> getPublishBlockers() {
-            return publishBlockers;
-        }
-
-        private void markUnsupportedSiteField(String siteCode, String field) {
-            if (!StringUtils.hasText(siteCode) || !StringUtils.hasText(field)) {
-                return;
-            }
-            unsupportedSiteFields.computeIfAbsent(siteCode, ignored -> new LinkedHashSet<>()).add(field);
-        }
     }
 
     private static class OperationalKeys {

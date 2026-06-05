@@ -339,19 +339,12 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         return (boolean) method.invoke(service, left, right, currentSiteCode);
     }
 
-    private Object invokeDetectUnsupportedChanges(
+    private ProductPublishUnsupportedChanges invokeDetectUnsupportedChanges(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             String currentSiteCode
-    ) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "detectUnsupportedChanges",
-                ProductMasterSnapshotView.class,
-                ProductMasterSnapshotView.class,
-                String.class
-        );
-        method.setAccessible(true);
-        return method.invoke(service, draft, baseline, currentSiteCode);
+    ) {
+        return new ProductPublishUnsupportedChangesDetector(objectMapper).detect(draft, baseline, currentSiteCode);
     }
 
     private void invokePublishableSnapshotForSupportedChanges(
@@ -370,13 +363,9 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
     }
 
     @SuppressWarnings("unchecked")
-    private List<String> invokeValidatePublishWriteCoverage(Object unsupportedChanges) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "validatePublishWriteCoverage",
-                unsupportedChanges.getClass()
-        );
-        method.setAccessible(true);
-        return (List<String>) method.invoke(service, unsupportedChanges);
+    private List<String> invokeValidatePublishWriteCoverage(Object unsupportedChanges) {
+        return new ProductPublishUnsupportedChangesDetector(objectMapper)
+                .validateWriteCoverage((ProductPublishUnsupportedChanges) unsupportedChanges);
     }
 
     @SuppressWarnings("unchecked")
