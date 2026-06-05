@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_item_product_link_audit` (
+  `id` BIGINT NOT NULL,
+  `owner_user_id` BIGINT NOT NULL,
+  `assignment_id` BIGINT NOT NULL,
+  `old_link_id` BIGINT DEFAULT NULL,
+  `new_link_id` BIGINT DEFAULT NULL,
+  `action_type` VARCHAR(30) NOT NULL,
+  `old_sku_parent` VARCHAR(160) DEFAULT NULL,
+  `old_partner_sku` VARCHAR(160) DEFAULT NULL,
+  `old_psku_code` VARCHAR(160) DEFAULT NULL,
+  `old_product_title` VARCHAR(1000) DEFAULT NULL,
+  `new_sku_parent` VARCHAR(160) DEFAULT NULL,
+  `new_partner_sku` VARCHAR(160) DEFAULT NULL,
+  `new_psku_code` VARCHAR(160) DEFAULT NULL,
+  `new_product_title` VARCHAR(1000) DEFAULT NULL,
+  `remark` VARCHAR(500) DEFAULT NULL,
+  `created_by` BIGINT DEFAULT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  KEY `idx_ali1688_item_product_link_audit_owner_assignment` (`owner_user_id`, `assignment_id`, `is_deleted`, `gmt_create`),
+  KEY `idx_ali1688_item_product_link_audit_action` (`owner_user_id`, `action_type`, `is_deleted`, `gmt_create`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单商品关联操作审计';

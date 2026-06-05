@@ -98,6 +98,27 @@ class BusinessAccessResolverTest {
     }
 
     @Test
+    void ali1688HistoricalOrdersCapabilityUsesDedicatedPurchaseMenu() {
+        BusinessAccessContext exact = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/purchase/ali1688-orders"))
+                .build();
+        BusinessAccessContext skuPurchaseHistory = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/purchase/ali1688-sku-purchase-history"))
+                .build();
+        BusinessAccessContext apiPath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/procurement/ali1688-orders/workbench"))
+                .build();
+        BusinessAccessContext oldCandidateCollection = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/purchase/1688-collection"))
+                .build();
+
+        assertThat(exact.hasCapability(BusinessCapability.ALI1688_HISTORICAL_ORDERS)).isTrue();
+        assertThat(skuPurchaseHistory.hasCapability(BusinessCapability.ALI1688_HISTORICAL_ORDERS)).isTrue();
+        assertThat(apiPath.hasCapability(BusinessCapability.ALI1688_HISTORICAL_ORDERS)).isTrue();
+        assertThat(oldCandidateCollection.hasCapability(BusinessCapability.ALI1688_HISTORICAL_ORDERS)).isFalse();
+    }
+
+    @Test
     void exposedCollectionsAreImmutable() {
         BusinessAccessContext context = BusinessAccessContext.builder()
                 .storeCodes(Set.of("STR-A"))
