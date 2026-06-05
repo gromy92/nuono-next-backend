@@ -62,11 +62,6 @@ public class LocalDbProductMasterService {
             NoonProductGateway.GROUP_LIST_URL;
     private static final String VARIANT_INFO_URL =
             NoonProductGateway.VARIANT_INFO_URL;
-    private static final String PRICING_INFO_URL =
-            NoonProductGateway.PRICING_INFO_URL;
-    private static final String STOCK_INFO_URL =
-            NoonProductGateway.STOCK_INFO_URL;
-    private static final String PRICING_METHOD_MANUAL = "manual";
     private static final ThreadLocal<Boolean> PUBLISH_TASK_WORKER_MODE =
             ThreadLocal.withInitial(() -> Boolean.FALSE);
 
@@ -108,6 +103,7 @@ public class LocalDbProductMasterService {
     private final ProductWorkbenchRecordRestorer productWorkbenchRecordRestorer;
     private final ProductAttributeDictionaryHydrator productAttributeDictionaryHydrator;
     private final ProductProjectSiteResolver productProjectSiteResolver;
+    private final ProductSiteOfferFetcher productSiteOfferFetcher;
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -148,6 +144,11 @@ public class LocalDbProductMasterService {
         this.productOperationalKeyHydrator = new ProductOperationalKeyHydrator(productProjectionPersistenceService);
         this.productNoonAdapter = productNoonAdapter;
         this.productProjectSiteResolver = new ProductProjectSiteResolver(objectMapper, storeSyncMapper, productNoonAdapter);
+        this.productSiteOfferFetcher = new ProductSiteOfferFetcher(
+                objectMapper,
+                productNoonAdapter,
+                this.productProjectSiteResolver
+        );
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
         this.productAttributeTemplateService = productAttributeTemplateService;
@@ -537,7 +538,7 @@ public class LocalDbProductMasterService {
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "projectSites", stageStartedAt);
 
         stageStartedAt = System.nanoTime();
-        ProjectSiteFetchResult siteFetchResult;
+        ProductSiteOfferFetchResult siteFetchResult;
         if (siteOfferReuseSeed != null) {
             siteFetchResult = reuseSiteOffersFromSnapshot(siteOfferReuseSeed, projectSites, storeCode);
             log.info(
@@ -2467,17 +2468,6 @@ public class LocalDbProductMasterService {
         throw new IllegalArgumentException("当前只开放 xingyao 测试店铺的受控发布。");
     }
 
-    private Map<String, Map<String, Object>> siteOfferMap(List<Map<String, Object>> siteOffers) {
-        Map<String, Map<String, Object>> map = new LinkedHashMap<>();
-        if (siteOffers == null) {
-            return map;
-        }
-        for (Map<String, Object> siteOffer : siteOffers) {
-            map.put(siteOfferCode(siteOffer), new LinkedHashMap<>(siteOffer));
-        }
-        return map;
-    }
-
     private List<String> mergeWarnings(List<String> baseWarnings, List<String> extraWarnings) {
         return productSnapshotHydrator.mergeWarnings(baseWarnings, extraWarnings);
     }
@@ -2552,7 +2542,7 @@ public class LocalDbProductMasterService {
         return productProjectSiteResolver.loadProjectSiteContexts(session, ownerUserId, store, warnings);
     }
 
-    private ProjectSiteFetchResult loadSiteOffers(
+    private ProductSiteOfferFetchResult loadSiteOffers(
             NoonSession session,
             List<ProductProjectSiteContext> projectSites,
             String referenceStoreCode,
@@ -2561,99 +2551,23 @@ public class LocalDbProductMasterService {
             String pskuCode,
             List<String> warnings
     ) {
-        List<Map<String, Object>> siteOffers = new ArrayList<>();
-        JsonNode referencePricingNode = MissingNode.getInstance();
-        JsonNode referenceStockNode = MissingNode.getInstance();
-
-        if (!StringUtils.hasText(idPartner)) {
-            warnings.add("当前商品没有返回 id_partner，价格读取已跳过。");
-        }
-        if (!StringUtils.hasText(partnerSku)) {
-            warnings.add("当前索引缺少 partnerSku，站点价格读取已跳过。");
-        }
-        if (!StringUtils.hasText(pskuCode)) {
-            warnings.add("当前索引缺少 pskuCode，站点库存摘要读取已跳过。");
-        }
-
-        for (ProductProjectSiteContext projectSite : projectSites) {
-            NoonSession siteSession = session.withStoreCode(projectSite.getStoreCode());
-            JsonNode pricingNode = MissingNode.getInstance();
-            String resolvedSite = firstNonBlank(projectSite.getSite(), deriveSiteFromStoreCode(projectSite.getStoreCode()), "SA");
-            if (StringUtils.hasText(idPartner) && StringUtils.hasText(partnerSku)) {
-                ObjectNode pricingBody = objectMapper.createObjectNode();
-                ArrayNode pskuList = pricingBody.putArray("psku_list");
-                ObjectNode pricingItem = pskuList.addObject();
-                pricingItem.put("psku", partnerSku);
-                pricingItem.put("country_code", resolvedSite.toUpperCase());
-                pricingItem.put("id_partner", idPartner);
-                long pricingStartedAt = System.nanoTime();
-                pricingNode = safePostOptional(
-                        siteSession,
-                        PRICING_INFO_URL,
-                        pricingBody,
-                        true,
-                        "读取站点 " + describeSite(projectSite) + " 价格信息失败"
-                );
-                log.info(
-                        "product-management fetchSnapshot detail stage=pricing.info store={} site={} durationMs={}",
-                        projectSite.getStoreCode(),
-                        resolvedSite,
-                        nanosToMillis(pricingStartedAt)
-                );
-            }
-
-            JsonNode stockNode = MissingNode.getInstance();
-            if (StringUtils.hasText(pskuCode)) {
-                ObjectNode stockBody = objectMapper.createObjectNode();
-                ArrayNode pskuCodes = stockBody.putArray("psku_codes");
-                pskuCodes.add(pskuCode);
-                stockBody.put("noon_store_code", projectSite.getStoreCode());
-                long stockStartedAt = System.nanoTime();
-                stockNode = safePostOptional(
-                        siteSession,
-                        STOCK_INFO_URL,
-                        stockBody,
-                        true,
-                        "读取站点 " + describeSite(projectSite) + " 库存摘要失败"
-                );
-                log.info(
-                        "product-management fetchSnapshot detail stage=stock.info store={} site={} durationMs={}",
-                        projectSite.getStoreCode(),
-                        resolvedSite,
-                        nanosToMillis(stockStartedAt)
-                );
-            }
-
-            siteOffers.add(buildSiteOffer(projectSite, pricingNode, stockNode, projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)));
-            if (projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)) {
-                referencePricingNode = pricingNode;
-                referenceStockNode = stockNode;
-            }
-        }
-
-        return new ProjectSiteFetchResult(siteOffers, referencePricingNode, referenceStockNode);
+        return productSiteOfferFetcher.loadSiteOffers(
+                session,
+                projectSites,
+                referenceStoreCode,
+                idPartner,
+                partnerSku,
+                pskuCode,
+                warnings
+        );
     }
 
-    private ProjectSiteFetchResult reuseSiteOffersFromSnapshot(
+    private ProductSiteOfferFetchResult reuseSiteOffersFromSnapshot(
             ProductMasterSnapshotView snapshot,
             List<ProductProjectSiteContext> projectSites,
             String referenceStoreCode
     ) {
-        List<Map<String, Object>> siteOffers = new ArrayList<>();
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(snapshot != null ? snapshot.getSiteOffers() : null);
-        for (ProductProjectSiteContext projectSite : projectSites) {
-            Map<String, Object> baselineOffer = baselineOffers.get(projectSite.getStoreCode());
-            Map<String, Object> siteOffer = baselineOffer != null
-                    ? new LinkedHashMap<>(baselineOffer)
-                    : buildSiteOffer(
-                    projectSite,
-                    MissingNode.getInstance(),
-                    MissingNode.getInstance(),
-                    projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)
-            );
-            siteOffers.add(siteOffer);
-        }
-        return new ProjectSiteFetchResult(siteOffers, MissingNode.getInstance(), MissingNode.getInstance());
+        return productSiteOfferFetcher.reuseSiteOffersFromSnapshot(snapshot, projectSites, referenceStoreCode);
     }
 
     private String resolveReferenceSite(List<ProductProjectSiteContext> projectSites, String referenceStoreCode) {
@@ -3650,138 +3564,11 @@ public class LocalDbProductMasterService {
     }
 
     private Map<String, Object> buildPricing(JsonNode pricingRoot) {
-        Map<String, Object> pricing = new LinkedHashMap<>();
-        JsonNode pricingItem = firstDataItem(pricingRoot);
-        if (pricingItem.isMissingNode()) {
-            return pricing;
-        }
-
-        putIfNotBlank(pricing, "partnerSku", text(pricingItem, "psku"));
-        putIfNotBlank(pricing, "offerCode", text(pricingItem, "offer_code"));
-        putIfNotBlank(pricing, "currency", text(pricingItem, "currency"));
-        putIfNotBlank(pricing, "barcode", firstNonBlank(
-                text(pricingItem, "barcode"),
-                text(pricingItem, "gtin"),
-                text(pricingItem, "ean"),
-                text(pricingItem, "upc")
-        ));
-        putIfNotNull(pricing, "price", numberOrText(pricingItem.path("price")));
-        putIfNotNull(pricing, "salePrice", numberOrText(pricingItem.path("sale_price")));
-        putIfNotBlank(pricing, "saleStart", text(pricingItem, "sale_start"));
-        putIfNotBlank(pricing, "saleEnd", text(pricingItem, "sale_end"));
-        putIfNotNull(pricing, "priceMin", numberOrText(pricingItem.path("price_min")));
-        putIfNotNull(pricing, "priceMax", numberOrText(pricingItem.path("price_max")));
-        putIfNotNull(
-                pricing,
-                "finalPrice",
-                numberOrText(firstExisting(
-                        pricingItem,
-                        "final_price",
-                        "finalPrice",
-                        "final_selling_price",
-                        "finalSellingPrice",
-                        "selling_price",
-                        "sellingPrice",
-                        "current_price",
-                        "currentPrice",
-                        "promo_price",
-                        "promoPrice",
-                        "promotion_price",
-                        "promotionPrice",
-                        "deal_price",
-                        "dealPrice"
-                ))
-        );
-        putIfNotBlank(
-                pricing,
-                "finalPriceSource",
-                firstNonBlank(text(pricingItem, "final_price_source"), text(pricingItem, "price_source"))
-        );
-        putIfNotBlank(
-                pricing,
-                "activePromotionCode",
-                firstNonBlank(
-                        text(pricingItem, "active_promotion_code"),
-                        text(pricingItem, "promotion_code"),
-                        text(pricingItem, "promo_code"),
-                        text(pricingItem, "campaign_code"),
-                        text(pricingItem, "deal_code")
-                )
-        );
-        putIfNotBlank(
-                pricing,
-                "activePromotionName",
-                firstNonBlank(
-                        text(pricingItem, "active_promotion_name"),
-                        text(pricingItem, "promotion_name"),
-                        text(pricingItem, "promo_name"),
-                        text(pricingItem, "campaign_name"),
-                        text(pricingItem, "deal_name")
-                )
-        );
-        putIfNotBlank(
-                pricing,
-                "activePromotionUrl",
-                firstNonBlank(
-                        text(pricingItem, "active_promotion_url"),
-                        text(pricingItem, "promotion_url"),
-                        text(pricingItem, "promo_url"),
-                        text(pricingItem, "campaign_url"),
-                        text(pricingItem, "deal_url")
-                )
-        );
-        pricing.put("pricingMethod", PRICING_METHOD_MANUAL);
-        putIfNotBlank(pricing, "offerNote", text(pricingItem, "offer_note"));
-        if (!pricingItem.path("is_active").isMissingNode() && !pricingItem.path("is_active").isNull()) {
-            pricing.put("isActive", pricingItem.path("is_active").asBoolean());
-        }
-        putIfNotNull(pricing, "idWarranty", numberOrText(pricingItem.path("id_warranty")));
-        putIfNotBlank(pricing, "priceSource", text(pricingItem, "price_source"));
-        putIfNotNull(pricing, "liveStatus", pricingItem.path("live_status").isBoolean()
-                ? pricingItem.path("live_status").asBoolean()
-                : null);
-        return pricing;
+        return productSiteOfferFetcher.buildPricing(pricingRoot);
     }
 
     private Map<String, Object> buildStock(JsonNode stockRoot) {
-        Map<String, Object> stock = new LinkedHashMap<>();
-        JsonNode stockItem = firstDataItem(stockRoot);
-        if (stockItem.isMissingNode()) {
-            return stock;
-        }
-
-        putIfNotBlank(stock, "pskuCode", text(stockItem, "psku_code"));
-        putIfNotNull(stock, "fbnStock", numberOrText(stockItem.path("fbn_stock")));
-        putIfNotNull(stock, "supermallStock", numberOrText(firstExisting(stockItem, "supermall_stock", "supermall_fbn_stock", "fbn_supermall_stock")));
-        putIfNotNull(stock, "fbpStock", numberOrText(stockItem.path("fbp_stock")));
-        return stock;
-    }
-
-    private Map<String, Object> buildSiteOffer(
-            ProductProjectSiteContext projectSite,
-            JsonNode pricingRoot,
-            JsonNode stockRoot,
-            boolean reference
-    ) {
-        Map<String, Object> siteOffer = new LinkedHashMap<>();
-        putIfNotBlank(siteOffer, "storeCode", projectSite.getStoreCode());
-        putIfNotBlank(siteOffer, "site", projectSite.getSite());
-        putIfNotBlank(siteOffer, "statusCode", projectSite.getStatusCode());
-        putIfNotNull(siteOffer, "reference", reference);
-
-        Map<String, Object> pricing = buildPricing(pricingRoot);
-        Map<String, Object> stock = buildStock(stockRoot);
-        siteOffer.putAll(pricing);
-        siteOffer.putAll(stock);
-        return siteOffer;
-    }
-
-    private String deriveSiteFromStoreCode(String storeCode) {
-        return productProjectSiteResolver.deriveSiteFromStoreCode(storeCode);
-    }
-
-    private String describeSite(ProductProjectSiteContext projectSite) {
-        return productProjectSiteResolver.describeSite(projectSite);
+        return productSiteOfferFetcher.buildStock(stockRoot);
     }
 
     private JsonNode safeGet(
@@ -3811,21 +3598,6 @@ public class LocalDbProductMasterService {
             return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
             warnings.add(warningPrefix + "：" + noonFailureMessage(exception));
-            return MissingNode.getInstance();
-        }
-    }
-
-    private JsonNode safePostOptional(
-            NoonSession session,
-            String url,
-            JsonNode body,
-            boolean withProject,
-            String warningPrefix
-    ) {
-        try {
-            return productNoonAdapter.postJson(session, url, body, withProject);
-        } catch (IllegalStateException exception) {
-            log.warn("{}：{}", warningPrefix, noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
     }
@@ -4074,37 +3846,6 @@ public class LocalDbProductMasterService {
         }
         String normalized = value.replaceAll("\\s+", " ").trim();
         return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
-    }
-
-    private static class ProjectSiteFetchResult {
-
-        private final List<Map<String, Object>> siteOffers;
-
-        private final JsonNode referencePricingNode;
-
-        private final JsonNode referenceStockNode;
-
-        private ProjectSiteFetchResult(
-                List<Map<String, Object>> siteOffers,
-                JsonNode referencePricingNode,
-                JsonNode referenceStockNode
-        ) {
-            this.siteOffers = siteOffers;
-            this.referencePricingNode = referencePricingNode;
-            this.referenceStockNode = referenceStockNode;
-        }
-
-        private List<Map<String, Object>> getSiteOffers() {
-            return siteOffers;
-        }
-
-        private JsonNode getReferencePricingNode() {
-            return referencePricingNode;
-        }
-
-        private JsonNode getReferenceStockNode() {
-            return referenceStockNode;
-        }
     }
 
 }
