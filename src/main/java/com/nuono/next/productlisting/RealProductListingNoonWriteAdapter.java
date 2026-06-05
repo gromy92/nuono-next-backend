@@ -11,6 +11,7 @@ import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
 import com.nuono.next.noonpull.NoonPullStoreBinding;
 import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -71,6 +72,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             postZskuContentStep(steps, "upsert_zsku_content_ar", session, endpoints, draft, skuParent, "ar", headers);
             postStep(steps, "upsert_price", session, endpoints.getUpsertPriceUrl(), upsertPriceBody(request, draft, binding, pskuCode), headers);
             if (properties.isOfferUpsertEnabled()) {
+                waitForOfferPricingInfo(steps, session, endpoints, draft, binding, pskuCode, headers);
                 ProductListingNoonWarehouseClient.ResolvedWarehouseStock warehouseStock =
                         warehouseClient.resolveWarehouseStock(session, endpoints, binding, draft, headers);
                 postStep(steps, "upsert_offer", session, endpoints.getUpsertOfferUrl(), upsertOfferBody(draft, binding, pskuCode, warehouseStock), headers);
@@ -99,6 +101,44 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                             : "Product listing Noon write failed.",
                     steps
             );
+        }
+    }
+
+    private void waitForOfferPricingInfo(
+            List<ProductListingNoonWriteStepResult> steps,
+            NoonPullGatewaySession session,
+            ProductListingRealWriteProperties.Endpoints endpoints,
+            ProductListingDraftCommand draft,
+            NoonPullStoreBinding binding,
+            String pskuCode,
+            Map<String, String> headers
+    ) {
+        ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
+        step.setStepKey("wait_offer_pricing_info");
+        try {
+            int attempts = Math.max(1, properties.getOfferPricingInfoMaxAttempts());
+            for (int attempt = 1; attempt <= attempts; attempt++) {
+                JsonNode response = session.postJson(
+                        endpoints.getPskuPricingInfoUrl(),
+                        pskuPricingInfoBody(draft, binding),
+                        true,
+                        headers
+                );
+                if (containsAnyText(response, pskuCode, draft.getPsku())) {
+                    step.setStatus("succeeded");
+                    steps.add(step);
+                    return;
+                }
+                sleepBeforeNextPricingInfoAttempt(attempt, attempts);
+            }
+            throw new IllegalStateException("Noon pricing info did not recognize PSKU "
+                    + draft.getPsku() + " / " + pskuCode + " after " + attempts + " attempt(s).");
+        } catch (RuntimeException exception) {
+            step.setStatus("failed");
+            step.setFailureCode("noon_pricing_info_not_ready");
+            step.setFailureMessage(exception.getMessage());
+            steps.add(step);
+            throw exception;
         }
     }
 
@@ -145,6 +185,15 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             steps.add(step);
             throw exception;
         }
+    }
+
+    private ObjectNode pskuPricingInfoBody(ProductListingDraftCommand draft, NoonPullStoreBinding binding) {
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode item = root.putArray("psku_list").addObject();
+        item.put("psku", draft.getPsku().trim().toUpperCase(Locale.ROOT));
+        item.put("country_code", lower(binding.getSiteCode()));
+        item.put("id_partner", binding.getPartnerId());
+        return root;
     }
 
     private ObjectNode createProductBody(ProductListingDraftCommand draft) {
@@ -338,6 +387,45 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
 
     private String upper(String value) {
         return ProductListingNoonHeaders.upper(value);
+    }
+
+    private String lower(String value) {
+        return StringUtils.hasText(value) ? value.trim().toLowerCase(Locale.ROOT) : "";
+    }
+
+    private void sleepBeforeNextPricingInfoAttempt(int attempt, int attempts) {
+        if (attempt >= attempts || properties.getOfferPricingInfoDelayMs() <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(properties.getOfferPricingInfoDelayMs());
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for Noon pricing info.", exception);
+        }
+    }
+
+    private boolean containsAnyText(JsonNode node, String... expectedValues) {
+        if (node == null || node.isMissingNode() || expectedValues == null) {
+            return false;
+        }
+        if (node.isTextual()) {
+            String actual = node.asText();
+            for (String expected : expectedValues) {
+                if (StringUtils.hasText(expected) && actual.equalsIgnoreCase(expected.trim())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (node.isContainerNode()) {
+            for (JsonNode child : node) {
+                if (containsAnyText(child, expectedValues)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static class ProductFullTypeParts {

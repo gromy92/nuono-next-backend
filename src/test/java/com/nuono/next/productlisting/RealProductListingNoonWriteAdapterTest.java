@@ -1,6 +1,7 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,6 +23,9 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class RealProductListingNoonWriteAdapterTest {
+
+    private static final String PSKU_PRICING_INFO_URL =
+            "https://noon-catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
 
     @Test
     void realAdapterBuildsExpectedNoonWriteRequests() {
@@ -52,6 +56,7 @@ class RealProductListingNoonWriteAdapterTest {
                 "upsert_zsku_content_en",
                 "upsert_zsku_content_ar",
                 "upsert_price",
+                "wait_offer_pricing_info",
                 "upsert_offer",
                 "upsert_warranty",
                 "upsert_barcode"
@@ -62,7 +67,7 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals("STR245027-NAE", bindingResolver.request.getStoreCode());
         assertEquals(NoonPullDataDomain.PRODUCT, bindingResolver.request.getDataDomain());
         assertEquals(9, sessionFactory.session.calls.size());
-        assertEquals(1, sessionFactory.session.readCalls.size());
+        assertEquals(2, sessionFactory.session.readCalls.size());
 
         FakeSession.Call createProduct = sessionFactory.session.calls.get(0);
         assertEquals(
@@ -102,6 +107,15 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals("PSKU_CODE_1", price.at("/pskuCode").asText());
         assertEquals("NN-TEST-PSKU", price.at("/partnerSku").asText());
         assertEquals("manual", price.at("/pricingMethod").asText());
+
+        FakeSession.Call pricingInfo = sessionFactory.session.readCalls.get(0);
+        assertEquals(PSKU_PRICING_INFO_URL, pricingInfo.url);
+        assertTrue(pricingInfo.withProject);
+        assertEquals("AE", pricingInfo.extraHeaders.get("Country-Code"));
+        assertEquals("PRJ240053", pricingInfo.extraHeaders.get("x-project"));
+        assertEquals("NN-TEST-PSKU", pricingInfo.body.at("/psku_list/0/psku").asText());
+        assertEquals("240053", pricingInfo.body.at("/psku_list/0/id_partner").asText());
+        assertEquals("ae", pricingInfo.body.at("/psku_list/0/country_code").asText());
 
         JsonNode offer = sessionFactory.session.calls.get(6).body;
         assertEquals("PSKU_CODE_1", offer.at("/pskus/0/pskuCode").asText());
@@ -143,7 +157,7 @@ class RealProductListingNoonWriteAdapterTest {
         ProductListingNoonWriteResult result = adapter.execute(request);
 
         assertTrue(result.isSuccess());
-        assertEquals(0, sessionFactory.session.readCalls.size());
+        assertEquals(1, sessionFactory.session.readCalls.size());
         JsonNode offer = sessionFactory.session.calls.get(6).body;
         assertEquals("73001", offer.at("/pskus/0/stocks/0/idWarehouse").asText());
         assertEquals("W00752151SA", offer.at("/pskus/0/stocks/0/whCode").asText());
@@ -176,6 +190,42 @@ class RealProductListingNoonWriteAdapterTest {
         ), result.getSteps().stream()
                 .map(ProductListingNoonWriteStepResult::getStepKey)
                 .collect(Collectors.toList()));
+    }
+
+    @Test
+    void realAdapterFailsBeforeOfferUpsertWhenPricingInfoDoesNotRecognizePsku() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.pricingInfoRecognized = false;
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setOfferUpsertEnabled(true);
+        properties.setOfferPricingInfoMaxAttempts(2);
+        properties.setOfferPricingInfoDelayMs(0L);
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                properties
+        );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertFalse(result.isSuccess());
+        assertTrue(result.getFailureMessage().contains("Noon pricing info did not recognize PSKU NN-TEST-PSKU / PSKU_CODE_1"));
+        assertEquals(List.of(
+                "create_product",
+                "sku_cache",
+                "upsert_zsku_base",
+                "upsert_zsku_content_en",
+                "upsert_zsku_content_ar",
+                "upsert_price",
+                "wait_offer_pricing_info"
+        ), result.getSteps().stream()
+                .map(ProductListingNoonWriteStepResult::getStepKey)
+                .collect(Collectors.toList()));
+        assertEquals("failed", result.getSteps().get(6).getStatus());
+        assertEquals("noon_pricing_info_not_ready", result.getSteps().get(6).getFailureCode());
+        assertEquals(6, sessionFactory.session.calls.size());
+        assertEquals(2, sessionFactory.session.readCalls.size());
     }
 
     private ProductListingNoonWriteRequest writeRequest() {
@@ -227,10 +277,23 @@ class RealProductListingNoonWriteAdapterTest {
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final List<Call> calls = new ArrayList<>();
         private final List<Call> readCalls = new ArrayList<>();
+        private boolean pricingInfoRecognized = true;
 
         @Override
         public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            throw new AssertionError("real listing adapter warehouse lookup must use Noon GET endpoint");
+            readCalls.add(new Call(url, body, withProject, extraHeaders));
+            if (!PSKU_PRICING_INFO_URL.equals(url)) {
+                throw new AssertionError("unexpected POST read call " + url);
+            }
+            ObjectNode response = objectMapper.createObjectNode();
+            ArrayNode data = response.putArray("data");
+            if (!pricingInfoRecognized) {
+                return response;
+            }
+            data.addObject()
+                    .put("psku", "NN-TEST-PSKU")
+                    .put("pskuCode", "PSKU_CODE_1");
+            return response;
         }
 
         @Override
