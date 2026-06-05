@@ -112,6 +112,7 @@ public class LocalDbProductMasterService {
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
     private final ProductPublishCommandService productPublishCommandService;
+    private final ProductPublishChangedDomainComparator productPublishChangedDomainComparator;
     private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
@@ -182,6 +183,7 @@ public class LocalDbProductMasterService {
         this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator == null
                 ? new ProductWorkbenchStatusHydrator(productProjectionPersistenceService)
                 : productWorkbenchStatusHydrator;
+        this.productPublishChangedDomainComparator = new ProductPublishChangedDomainComparator(objectMapper);
         this.productPublishTaskChangedDomainsResolver = new ProductPublishTaskChangedDomainsResolver(
                 objectMapper,
                 this::recomputePublishTaskChangedDomains
@@ -1300,7 +1302,13 @@ public class LocalDbProductMasterService {
         createCommand.setDraftJson(draftJson);
         createCommand.setBaselineJson(writeJson(record.getBaselineSnapshot()));
         createCommand.setDraftHash(draftHash);
-        createCommand.setChangedDomainsJson(writeJson(resolvePublishChangedDomains(requestedSnapshot, record.getBaselineSnapshot(), currentSiteCode, unsupportedChanges)));
+        createCommand.setChangedDomainsJson(writeJson(productPublishChangedDomainComparator.resolve(
+                requestedSnapshot,
+                record.getBaselineSnapshot(),
+                currentSiteCode,
+                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
+                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
+        )));
         createCommand.setRequestJson(writeJson(buildPublishTaskRequestPayload(command, currentSiteCode)));
         createCommand.setIdempotencyKey(productMasterId + ":" + draftHash + ":" + normalize(currentSiteCode));
         ProductPublishTaskCreateResult createResult = requirePublishCommandService().createPublishCurrentTask(createCommand);
@@ -1966,72 +1974,19 @@ public class LocalDbProductMasterService {
         return payload;
     }
 
-    private List<String> resolvePublishChangedDomains(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            String currentSiteCode,
-            UnsupportedChanges unsupportedChanges
-    ) {
-        List<String> domains = new ArrayList<>();
-        if (!objectMapper.valueToTree(publishComparableContent(draft))
-                .equals(objectMapper.valueToTree(publishComparableContent(baseline)))) {
-            domains.add("content");
-        }
-        if (!objectMapper.valueToTree(publishComparableIdentity(draft))
-                .equals(objectMapper.valueToTree(publishComparableIdentity(baseline)))
-                || !objectMapper.valueToTree(publishComparableTaxonomy(draft))
-                .equals(objectMapper.valueToTree(publishComparableTaxonomy(baseline)))) {
-            domains.add("main");
-        }
-        if (!objectMapper.valueToTree(publishComparableKeyAttributes(draft))
-                .equals(objectMapper.valueToTree(publishComparableKeyAttributes(baseline)))) {
-            domains.add("attributes");
-        }
-        if (!objectMapper.valueToTree(siteOfferComparableList(draft, currentSiteCode, false))
-                .equals(objectMapper.valueToTree(siteOfferComparableList(baseline, currentSiteCode, false)))) {
-            domains.add("site_offer");
-        }
-        if (variantSizeChanged(draft, baseline)) {
-            domains.add("sizes");
-        }
-        if (!objectMapper.valueToTree(publishComparableGroup(draft))
-                .equals(objectMapper.valueToTree(publishComparableGroup(baseline)))
-                || (unsupportedChanges != null && unsupportedChanges.isGroupChanged())) {
-            domains.add("grouping");
-        }
-        if (unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged() && !domains.contains("sizes")) {
-            domains.add("sizes");
-        }
-        return domains.isEmpty() ? List.of("unknown") : domains;
-    }
-
     private List<String> recomputePublishTaskChangedDomains(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             String currentSiteCode
     ) {
         UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(draft, baseline, currentSiteCode);
-        return resolvePublishChangedDomains(draft, baseline, currentSiteCode, unsupportedChanges);
-    }
-
-    private boolean variantSizeChanged(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
-        Map<String, Map<String, Object>> draftVariants = variantMap(draft != null ? draft.getVariants() : null);
-        Map<String, Map<String, Object>> baselineVariants = variantMap(baseline != null ? baseline.getVariants() : null);
-        Set<String> childSkus = new LinkedHashSet<>();
-        childSkus.addAll(draftVariants.keySet());
-        childSkus.addAll(baselineVariants.keySet());
-        for (String childSku : childSkus) {
-            Map<String, Object> draftVariant = draftVariants.get(childSku);
-            Map<String, Object> baselineVariant = baselineVariants.get(childSku);
-            if (draftVariant == null || baselineVariant == null) {
-                return true;
-            }
-            if (!Objects.equals(textValue(draftVariant.get("sizeEn")), textValue(baselineVariant.get("sizeEn")))
-                    || !Objects.equals(textValue(draftVariant.get("sizeAr")), textValue(baselineVariant.get("sizeAr")))) {
-                return true;
-            }
-        }
-        return false;
+        return productPublishChangedDomainComparator.resolve(
+                draft,
+                baseline,
+                currentSiteCode,
+                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
+                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
+        );
     }
 
     private boolean publishChangedFieldsMatch(
@@ -3681,7 +3636,9 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView liveBeforePublish,
             UnsupportedChanges unsupportedChanges
     ) {
-        if (unsupportedChanges == null || unsupportedChanges.isVariantStructureChanged() || !variantSizeChanged(draft, baseline)) {
+        if (unsupportedChanges == null
+                || unsupportedChanges.isVariantStructureChanged()
+                || !productPublishChangedDomainComparator.variantSizeChanged(draft, baseline)) {
             return;
         }
         ObjectNode body = buildProductUpdateVariantSizeBody(draft, baseline, liveBeforePublish);
