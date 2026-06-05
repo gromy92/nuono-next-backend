@@ -112,6 +112,7 @@ public class LocalDbProductMasterService {
     private final ProductWorkbenchPublishTaskAttacher productWorkbenchPublishTaskAttacher;
     private final ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer;
     private final ProductWorkbenchRecordRestorer productWorkbenchRecordRestorer;
+    private final ProductAttributeDictionaryHydrator productAttributeDictionaryHydrator;
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
@@ -155,6 +156,7 @@ public class LocalDbProductMasterService {
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
         this.productAttributeTemplateService = productAttributeTemplateService;
+        this.productAttributeDictionaryHydrator = new ProductAttributeDictionaryHydrator(productAttributeTemplateService);
         this.productGroupPublishService = productGroupPublishService;
         this.productNoonCatalogContentService = productNoonCatalogContentService;
         this.productDetailBaselineBackfillService = productDetailBaselineBackfillService;
@@ -2247,11 +2249,7 @@ public class LocalDbProductMasterService {
             ProductWorkbenchRecord record,
             List<String> warnings
     ) {
-        if (record == null) {
-            return;
-        }
-        hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, record.getBaselineSnapshot(), warnings);
-        hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, record.getDraftSnapshot(), warnings);
+        productAttributeDictionaryHydrator.hydrateWorkbenchAttributeDictionary(ownerUserId, storeCode, record, warnings);
     }
 
     private void hydrateSnapshotAttributeDictionary(
@@ -2260,74 +2258,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView snapshot,
             List<String> warnings
     ) {
-        if (snapshot == null || snapshot.getKeyAttributes() == null || snapshot.getKeyAttributes().isEmpty()) {
-            return;
-        }
-        String projectCode = firstNonBlank(
-                textValue(snapshot.getStoreContext().get("projectCode")),
-                storeCode
-        );
-        String resolvedStoreCode = firstNonBlank(
-                textValue(snapshot.getStoreContext().get("storeCode")),
-                storeCode
-        );
-        String productFulltype = textValue(snapshot.getTaxonomy().get("productFulltype"));
-        if (!StringUtils.hasText(projectCode)
-                || !StringUtils.hasText(resolvedStoreCode)
-                || !StringUtils.hasText(productFulltype)) {
-            return;
-        }
-        JsonNode templateRoot = productAttributeTemplateService.loadTemplate(
-                null,
-                projectCode,
-                resolvedStoreCode,
-                productFulltype,
-                ownerUserId,
-                warnings
-        );
-        Map<String, JsonNode> dictionaryByCode = attributeDictionaryMap(templateRoot);
-        if (dictionaryByCode.isEmpty()) {
-            return;
-        }
-        for (Map<String, Object> attribute : snapshot.getKeyAttributes()) {
-            String code = textValue(attribute.get("code"));
-            JsonNode dictionaryNode = dictionaryByCode.get(normalizeAttributeCode(code));
-            if (dictionaryNode == null || dictionaryNode.isMissingNode()) {
-                continue;
-            }
-            List<Map<String, Object>> options = extractDictionaryOptions(dictionaryNode.path("options"));
-            List<Map<String, Object>> unitOptions = extractDictionaryOptions(dictionaryNode.path("unitOptions"));
-            if (!options.isEmpty() && !hasListValue(attribute.get("options"))) {
-                attribute.put("options", options);
-            }
-            if (!unitOptions.isEmpty() && !hasListValue(attribute.get("unitOptions"))) {
-                attribute.put("unitOptions", unitOptions);
-            }
-            if (StringUtils.hasText(text(dictionaryNode, "labelEn")) && !StringUtils.hasText(textValue(attribute.get("labelEn")))) {
-                attribute.put("labelEn", text(dictionaryNode, "labelEn"));
-            }
-            if (StringUtils.hasText(text(dictionaryNode, "labelAr")) && !StringUtils.hasText(textValue(attribute.get("labelAr")))) {
-                attribute.put("labelAr", text(dictionaryNode, "labelAr"));
-            }
-            if (StringUtils.hasText(text(dictionaryNode, "groupName")) && !StringUtils.hasText(textValue(attribute.get("groupName")))) {
-                attribute.put("groupName", text(dictionaryNode, "groupName"));
-            }
-            if (!options.isEmpty() || !unitOptions.isEmpty()) {
-                attribute.put("dictionarySource", firstNonBlank(text(dictionaryNode, "dictionarySource"), "official-template"));
-            }
-            String currentKind = normalize(textValue(attribute.get("kind")));
-            if (!unitOptions.isEmpty()) {
-                attribute.put("kind", "dimension");
-            } else if (!options.isEmpty()) {
-                attribute.put("kind", "select");
-            } else if (!StringUtils.hasText(currentKind) && StringUtils.hasText(text(dictionaryNode, "kind"))) {
-                attribute.put("kind", text(dictionaryNode, "kind"));
-            }
-        }
-    }
-
-    private boolean hasListValue(Object value) {
-        return value instanceof List<?> && !((List<?>) value).isEmpty();
+        productAttributeDictionaryHydrator.hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, snapshot, warnings);
     }
 
     private boolean isKeepDraftSyncPolicy(String syncMergePolicy) {
