@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_item_assignment` (
+  `id` BIGINT NOT NULL,
+  `owner_user_id` BIGINT NOT NULL,
+  `authorization_id` BIGINT NOT NULL,
+  `order_id` BIGINT NOT NULL,
+  `item_id` BIGINT NOT NULL,
+  `target_type` VARCHAR(30) NOT NULL DEFAULT 'STORE_SITE',
+  `target_store_code` VARCHAR(120) DEFAULT NULL,
+  `target_site_code` VARCHAR(40) DEFAULT NULL,
+  `assigned_quantity` INT NOT NULL,
+  `status` VARCHAR(30) NOT NULL DEFAULT 'active',
+  `remark` VARCHAR(500) DEFAULT NULL,
+  `created_by` BIGINT DEFAULT NULL,
+  `updated_by` BIGINT DEFAULT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  KEY `idx_ali1688_item_assignment_owner_item` (`owner_user_id`, `item_id`, `status`, `is_deleted`),
+  KEY `idx_ali1688_item_assignment_owner_target` (`owner_user_id`, `target_type`, `target_store_code`, `target_site_code`, `status`, `is_deleted`),
+  KEY `idx_ali1688_item_assignment_order` (`order_id`, `item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单货品行分配事实';
