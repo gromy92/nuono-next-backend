@@ -20,23 +20,18 @@ import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -78,17 +73,11 @@ public class LocalDbProductMasterService {
     private static final String STOCK_INFO_URL =
             NoonProductGateway.STOCK_INFO_URL;
     private static final String PRICING_METHOD_MANUAL = "manual";
-    private static final Set<String> EXPLICIT_CLEARABLE_OFFER_FIELDS = Set.of(
-            "salePrice",
-            "saleStart",
-            "saleEnd"
-    );
     private static final ThreadLocal<Boolean> PUBLISH_TASK_WORKER_MODE =
             ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final DateTimeFormatter NOON_OFFER_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
 
     private final ProductManagementMapper productManagementMapper;
     private final StoreSyncMapper storeSyncMapper;
@@ -109,6 +98,7 @@ public class LocalDbProductMasterService {
     private final ProductPublishSharedZskuWriter productPublishSharedZskuWriter;
     private final ProductPublishPreparationService productPublishPreparationService;
     private final ProductPublishWriteService productPublishWriteService;
+    private final ProductSnapshotHydrator productSnapshotHydrator;
     private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
@@ -157,6 +147,7 @@ public class LocalDbProductMasterService {
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
+        this.productSnapshotHydrator = new ProductSnapshotHydrator(objectMapper);
         this.productNoonAdapter = productNoonAdapter;
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
@@ -2177,62 +2168,15 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView snapshot,
             ProductMasterSnapshotView fallback
     ) {
-        if (snapshot == null) {
-            return copySnapshot(fallback);
-        }
-        ProductMasterSnapshotView sanitized = copySnapshot(snapshot);
-        sanitized.setMode("local-db");
-        sanitized.setReady(true);
-        if (sanitized.getWarnings() == null) {
-            sanitized.setWarnings(new ArrayList<>());
-        }
-        sanitized.setWarnings(userVisibleWarnings(sanitized.getWarnings()));
-        if (sanitized.getMissingCoreTables() == null) {
-            sanitized.setMissingCoreTables(new ArrayList<>());
-        }
-        if (sanitized.getMissingOperationalKeys() == null) {
-            sanitized.setMissingOperationalKeys(new ArrayList<>());
-        }
-        hydrateProjectionOnlyFields(sanitized, fallback);
-        return sanitized;
-    }
-
-    private void copySnapshotFields(ProductMasterSnapshotView target, ProductMasterSnapshotView source) {
-        if (target == null || source == null) {
-            return;
-        }
-        target.setMode(source.getMode());
-        target.setReady(source.isReady());
-        target.setDegraded(source.isDegraded());
-        target.setMessage(source.getMessage());
-        target.setWarnings(userVisibleWarnings(source.getWarnings()));
-        target.setMissingCoreTables(new ArrayList<>(source.getMissingCoreTables()));
-        target.setMissingOperationalKeys(new ArrayList<>(source.getMissingOperationalKeys()));
-        target.setStoreContext(new LinkedHashMap<>(source.getStoreContext()));
-        target.setIdentity(new LinkedHashMap<>(source.getIdentity()));
-        target.setTaxonomy(new LinkedHashMap<>(source.getTaxonomy()));
-        target.setContent(new LinkedHashMap<>(source.getContent()));
-        target.setPlatformSignals(new LinkedHashMap<>(source.getPlatformSignals()));
-        target.setKeyAttributes(copyRecordList(source.getKeyAttributes()));
-        target.setGroup(new LinkedHashMap<>(source.getGroup()));
-        target.setVariants(copyRecordList(source.getVariants()));
-        target.setPricing(new LinkedHashMap<>(source.getPricing()));
-        target.setStock(new LinkedHashMap<>(source.getStock()));
-        target.setSiteOffers(copyRecordList(source.getSiteOffers()));
+        return productSnapshotHydrator.sanitizeSnapshot(snapshot, fallback);
     }
 
     private ProductMasterSnapshotView copySnapshot(ProductMasterSnapshotView source) {
-        if (source == null) {
-            return null;
-        }
-        return objectMapper.convertValue(source, ProductMasterSnapshotView.class);
+        return productSnapshotHydrator.copySnapshot(source);
     }
 
     private List<Map<String, Object>> copyRecordList(List<Map<String, Object>> source) {
-        return source == null
-                ? new ArrayList<>()
-                : objectMapper.convertValue(source, objectMapper.getTypeFactory()
-                .constructCollectionType(List.class, Map.class));
+        return productSnapshotHydrator.copyRecordList(source);
     }
 
     private String workbenchKey(Long ownerUserId, String storeCode, String skuParent) {
@@ -2313,29 +2257,7 @@ public class LocalDbProductMasterService {
     }
 
     private void clearResolvedOperationalWarnings(ProductMasterSnapshotView snapshot) {
-        if (snapshot == null) {
-            return;
-        }
-        boolean hasPartnerSku = StringUtils.hasText(textValue(snapshot.getIdentity().get("partnerSku")));
-        boolean hasPskuCode = StringUtils.hasText(textValue(snapshot.getIdentity().get("pskuCode")));
-        if (snapshot.getMissingOperationalKeys() != null) {
-            snapshot.getMissingOperationalKeys().removeIf((key) ->
-                    (hasPartnerSku && "partnerSku".equalsIgnoreCase(String.valueOf(key)))
-                            || (hasPskuCode && "pskuCode".equalsIgnoreCase(String.valueOf(key)))
-            );
-        }
-        if (snapshot.getWarnings() != null) {
-            snapshot.getWarnings().removeIf((warning) ->
-                    (hasPartnerSku && hasPskuCode && warning.contains("当前索引缺少 partnerSku / pskuCode"))
-                            || (hasPartnerSku && warning.contains("当前索引缺少 partnerSku"))
-                            || (hasPskuCode && warning.contains("当前索引缺少 pskuCode"))
-                            || (hasPartnerSku && warning.contains("当前详情还缺少 partnerSku"))
-                            || isNonBlockingNoonRealtimeWarning(warning)
-            );
-        }
-        if (snapshot.getMissingOperationalKeys() == null || snapshot.getMissingOperationalKeys().isEmpty()) {
-            snapshot.setDegraded(false);
-        }
+        productSnapshotHydrator.clearResolvedOperationalWarnings(snapshot);
     }
 
     private void hydrateWorkbenchAttributeDictionary(
@@ -2568,40 +2490,7 @@ public class LocalDbProductMasterService {
     }
 
     private void hydrateProjectionOnlyFields(ProductMasterSnapshotView target, ProductMasterSnapshotView source) {
-        if (target == null || source == null) {
-            return;
-        }
-        Map<String, Map<String, Object>> sourceOffers = siteOfferMap(source.getSiteOffers());
-        for (Map<String, Object> targetOffer : target.getSiteOffers()) {
-            String storeCode = siteOfferCode(targetOffer);
-            Map<String, Object> sourceOffer = sourceOffers.get(storeCode);
-            if (sourceOffer == null) {
-                continue;
-            }
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "finalPrice");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "finalPriceSource");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "activePromotionCode");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "activePromotionName");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "activePromotionUrl");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "barcode");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "fbnStock");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "supermallStock");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "fbpStock");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "statusCode");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "deliveryMethod");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "isWinningBuybox");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "viewsCount");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "unitsSold");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "salesAmount");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "salesCurrency");
-        }
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "finalPrice");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "finalPriceSource");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "activePromotionCode");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "activePromotionName");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "activePromotionUrl");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "barcode");
-        target.setPlatformSignals(new LinkedHashMap<>(source.getPlatformSignals()));
+        productSnapshotHydrator.hydrateProjectionOnlyFields(target, source);
     }
 
     private ProductMasterSnapshotView prepareSnapshotForPublish(
@@ -2610,16 +2499,6 @@ public class LocalDbProductMasterService {
             String currentSiteCode
     ) {
         return productPublishPreparationService.prepareSnapshotForPublish(requestedSnapshot, baseline, currentSiteCode);
-    }
-
-    private void copyProjectionOnlyOfferField(Map<String, Object> target, Map<String, Object> source, String fieldName) {
-        if (target == null || source == null || !source.containsKey(fieldName)) {
-            return;
-        }
-        Object value = source.get(fieldName);
-        if (value != null) {
-            target.put(fieldName, value);
-        }
     }
 
     private boolean shouldSkipSiteOfferLiveReadForSharedOnlyPublish(
@@ -2737,41 +2616,11 @@ public class LocalDbProductMasterService {
     }
 
     private List<String> mergeWarnings(List<String> baseWarnings, List<String> extraWarnings) {
-        LinkedHashSet<String> merged = new LinkedHashSet<>();
-        if (baseWarnings != null) {
-            merged.addAll(userVisibleWarnings(baseWarnings));
-        }
-        if (extraWarnings != null) {
-            merged.addAll(userVisibleWarnings(extraWarnings));
-        }
-        return new ArrayList<>(merged);
+        return productSnapshotHydrator.mergeWarnings(baseWarnings, extraWarnings);
     }
 
     private List<String> userVisibleWarnings(List<String> warnings) {
-        if (warnings == null || warnings.isEmpty()) {
-            return new ArrayList<>();
-        }
-        List<String> visible = new ArrayList<>();
-        for (String warning : warnings) {
-            if (!StringUtils.hasText(warning) || isNonBlockingNoonRealtimeWarning(warning)) {
-                continue;
-            }
-            visible.add(warning);
-        }
-        return visible;
-    }
-
-    private boolean isNonBlockingNoonRealtimeWarning(String warning) {
-        if (!StringUtils.hasText(warning)) {
-            return false;
-        }
-        String normalized = warning.toLowerCase(Locale.ROOT);
-        return normalized.contains("价格信息失败")
-                || normalized.contains("库存摘要失败")
-                || normalized.contains("读取 fulltype 模板失败")
-                || normalized.contains("fulltype 模板实时读取失败")
-                || normalized.contains("没有返回 product_fulltype")
-                || normalized.contains("类目模板读取已跳过");
+        return productSnapshotHydrator.userVisibleWarnings(warnings);
     }
 
     private String siteOfferCode(Map<String, Object> siteOffer) {
