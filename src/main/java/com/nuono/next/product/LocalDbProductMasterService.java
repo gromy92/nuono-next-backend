@@ -361,16 +361,11 @@ public class LocalDbProductMasterService {
         partnerSku = operationalKeys.getPartnerSku();
         pskuCode = operationalKeys.getPskuCode();
 
-        List<String> missingOperationalKeys = collectMissingOperationalKeys(partnerSku, pskuCode);
-        view.setMissingOperationalKeys(missingOperationalKeys);
-        view.setDegraded(!missingOperationalKeys.isEmpty());
-        if (view.isDegraded()) {
-            view.getWarnings().add(
-                    "当前索引缺少 "
-                            + String.join(" / ", missingOperationalKeys)
-                            + "，本次会先按降级模式打开详情，站点价格或库存信息可能不完整。"
-            );
-        }
+        List<String> missingOperationalKeys = productOperationalKeyHydrator.applyMissingOperationalKeyStatus(
+                view,
+                partnerSku,
+                pskuCode
+        );
 
         StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(command.getOwnerUserId());
         if (owner == null) {
@@ -2625,10 +2620,6 @@ public class LocalDbProductMasterService {
             return "";
         }
         return value.trim().toLowerCase().replaceAll("[\\s-]+", "_");
-    }
-
-    private List<String> collectMissingOperationalKeys(String partnerSku, String pskuCode) {
-        return productOperationalKeyHydrator.collectMissingOperationalKeys(partnerSku, pskuCode);
     }
 
     private void requireText(String value, String message) {

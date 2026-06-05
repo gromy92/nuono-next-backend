@@ -70,6 +70,27 @@ class ProductOperationalKeyHydrator {
         return missing;
     }
 
+    List<String> applyMissingOperationalKeyStatus(
+            ProductMasterSnapshotView snapshot,
+            String partnerSku,
+            String pskuCode
+    ) {
+        List<String> missing = collectMissingOperationalKeys(partnerSku, pskuCode);
+        if (snapshot == null) {
+            return missing;
+        }
+        snapshot.setMissingOperationalKeys(missing);
+        snapshot.setDegraded(!missing.isEmpty());
+        if (snapshot.isDegraded()) {
+            snapshot.getWarnings().add(
+                    "当前索引缺少 "
+                            + String.join(" / ", missing)
+                            + "，本次会先按降级模式打开详情，站点价格或库存信息可能不完整。"
+            );
+        }
+        return missing;
+    }
+
     private void putIfNotBlank(Map<String, Object> target, String key, String value) {
         if (StringUtils.hasText(value)) {
             target.put(key, value);

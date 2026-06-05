@@ -122,4 +122,32 @@ class ProductOperationalKeyHydratorTest {
                 anyList()
         );
     }
+
+    @Test
+    void shouldApplyDegradedStatusWhenOperationalKeysAreMissing() {
+        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+
+        List<String> missing = hydrator.applyMissingOperationalKeyStatus(snapshot, " ", null);
+
+        assertEquals(List.of("partnerSku", "pskuCode"), missing);
+        assertEquals(List.of("partnerSku", "pskuCode"), snapshot.getMissingOperationalKeys());
+        assertEquals(true, snapshot.isDegraded());
+        assertEquals(
+                List.of("当前索引缺少 partnerSku / pskuCode，本次会先按降级模式打开详情，站点价格或库存信息可能不完整。"),
+                snapshot.getWarnings()
+        );
+    }
+
+    @Test
+    void shouldKeepSnapshotNonDegradedWhenOperationalKeysExist() {
+        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+        snapshot.getWarnings().add("existing warning");
+
+        List<String> missing = hydrator.applyMissingOperationalKeyStatus(snapshot, "PARTNER-1", "PSKU-1");
+
+        assertEquals(List.of(), missing);
+        assertEquals(List.of(), snapshot.getMissingOperationalKeys());
+        assertEquals(false, snapshot.isDegraded());
+        assertEquals(List.of("existing warning"), snapshot.getWarnings());
+    }
 }
