@@ -2,15 +2,17 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,7 +29,10 @@ class ProductWorkbenchViewFinalizerTest {
 
     @BeforeEach
     void setUp() {
-        finalizer = new ProductWorkbenchViewFinalizer(productProjectionPersistenceService);
+        finalizer = new ProductWorkbenchViewFinalizer(
+                productProjectionPersistenceService,
+                new ProductWorkbenchDirtySiteResolver(new ObjectMapper())
+        );
     }
 
     @Test
@@ -98,7 +103,7 @@ class ProductWorkbenchViewFinalizerTest {
                 support
         );
 
-        assertEquals(List.of("attach", "sync", "dirty", "hydrate"), support.calls);
+        assertEquals(List.of("attach", "sync", "hydrate"), support.calls);
         verify(productProjectionPersistenceService).persistWorkbenchState(
                 eq(10002L),
                 eq(view),
@@ -115,8 +120,12 @@ class ProductWorkbenchViewFinalizerTest {
 
     private ProductWorkbenchRecord record(String baselineTitle, String draftTitle) {
         ProductWorkbenchRecord record = new ProductWorkbenchRecord();
-        record.setBaselineSnapshot(snapshot(baselineTitle));
-        record.setDraftSnapshot(snapshot(draftTitle));
+        ProductMasterSnapshotView baseline = snapshot(baselineTitle);
+        baseline.setSiteOffers(List.of(siteOffer("188.00")));
+        ProductMasterSnapshotView draft = snapshot(draftTitle);
+        draft.setSiteOffers(List.of(siteOffer("199.00")));
+        record.setBaselineSnapshot(baseline);
+        record.setDraftSnapshot(draft);
         record.setSyncStatus("draft");
         record.setLastSyncedAt("2026-06-04 10:00:00");
         return record;
@@ -130,6 +139,14 @@ class ProductWorkbenchViewFinalizerTest {
         snapshot.getIdentity().put("skuParent", "PAPERSAYSB132");
         snapshot.getContent().put("title", title);
         return snapshot;
+    }
+
+    private Map<String, Object> siteOffer(String price) {
+        Map<String, Object> offer = new LinkedHashMap<>();
+        offer.put("storeCode", "STR245027-NAE");
+        offer.put("site", "ae");
+        offer.put("price", price);
+        return offer;
     }
 
     private static class FakeFinalizeSupport implements ProductWorkbenchViewFinalizer.FinalizeSupport {
@@ -155,14 +172,6 @@ class ProductWorkbenchViewFinalizerTest {
             assertEquals("draft", syncStatus);
             assertEquals("2026-06-04 10:00:00", lastSyncedAt);
             warnings.add("status-synced");
-        }
-
-        @Override
-        public List<String> resolveDirtySiteCodes(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
-            calls.add("dirty");
-            assertTrue(draft.getContent().containsKey("title"));
-            assertTrue(baseline.getContent().containsKey("title"));
-            return List.of("STR245027-NAE");
         }
 
         @Override

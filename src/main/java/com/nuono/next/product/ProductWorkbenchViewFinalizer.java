@@ -10,10 +10,15 @@ import org.springframework.util.StringUtils;
 class ProductWorkbenchViewFinalizer {
 
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
+    private final ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver;
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
 
-    ProductWorkbenchViewFinalizer(ProductProjectionPersistenceService productProjectionPersistenceService) {
+    ProductWorkbenchViewFinalizer(
+            ProductProjectionPersistenceService productProjectionPersistenceService,
+            ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver
+    ) {
         this.productProjectionPersistenceService = productProjectionPersistenceService;
+        this.productWorkbenchDirtySiteResolver = productWorkbenchDirtySiteResolver;
     }
 
     ProductMasterWorkbenchView finalizeView(
@@ -34,7 +39,10 @@ class ProductWorkbenchViewFinalizer {
             productProjectionPersistenceService.persistWorkbenchState(
                     ownerUserId,
                     view,
-                    support.resolveDirtySiteCodes(view.getDraftSnapshot(), view.getBaselineSnapshot()),
+                    productWorkbenchDirtySiteResolver.resolveDirtySiteCodes(
+                            view.getDraftSnapshot(),
+                            view.getBaselineSnapshot()
+                    ),
                     actionType,
                     targetSiteCode,
                     view.getWarnings(),
@@ -55,8 +63,6 @@ class ProductWorkbenchViewFinalizer {
                 String lastSyncedAt,
                 List<String> warnings
         );
-
-        List<String> resolveDirtySiteCodes(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline);
 
         void hydrateListSummaryState(
                 Long ownerUserId,

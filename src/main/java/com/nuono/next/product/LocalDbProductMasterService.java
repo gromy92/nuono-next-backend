@@ -118,6 +118,7 @@ public class LocalDbProductMasterService {
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
     private final ProductWorkbenchRecordStore productWorkbenchRecordStore;
     private final ProductWorkbenchOpenService productWorkbenchOpenService;
+    private final ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver;
     private final ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer;
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
@@ -149,6 +150,7 @@ public class LocalDbProductMasterService {
             ProductReadModelService productReadModelService,
             ProductWorkbenchRecordStore productWorkbenchRecordStore,
             ProductWorkbenchOpenService productWorkbenchOpenService,
+            ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver,
             ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer
     ) {
         this.productManagementMapper = productManagementMapper;
@@ -170,8 +172,14 @@ public class LocalDbProductMasterService {
         this.productWorkbenchOpenService = productWorkbenchOpenService == null
                 ? new ProductWorkbenchOpenService(productProjectionPersistenceService, this.productWorkbenchRecordStore)
                 : productWorkbenchOpenService;
+        this.productWorkbenchDirtySiteResolver = productWorkbenchDirtySiteResolver == null
+                ? new ProductWorkbenchDirtySiteResolver(objectMapper)
+                : productWorkbenchDirtySiteResolver;
         this.productWorkbenchViewFinalizer = productWorkbenchViewFinalizer == null
-                ? new ProductWorkbenchViewFinalizer(productProjectionPersistenceService)
+                ? new ProductWorkbenchViewFinalizer(
+                        productProjectionPersistenceService,
+                        this.productWorkbenchDirtySiteResolver
+                )
                 : productWorkbenchViewFinalizer;
     }
 
@@ -2587,14 +2595,6 @@ public class LocalDbProductMasterService {
             }
 
             @Override
-            public List<String> resolveDirtySiteCodes(
-                    ProductMasterSnapshotView draft,
-                    ProductMasterSnapshotView baseline
-            ) {
-                return LocalDbProductMasterService.this.resolveDirtySiteCodes(draft, baseline);
-            }
-
-            @Override
             public void hydrateListSummaryState(
                     Long ownerUserId,
                     ProductMasterSnapshotView snapshot,
@@ -2929,35 +2929,6 @@ public class LocalDbProductMasterService {
         if (value != null) {
             target.put(fieldName, value);
         }
-    }
-
-    private List<String> resolveDirtySiteCodes(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline
-    ) {
-        LinkedHashSet<String> dirtySiteCodes = new LinkedHashSet<>();
-        if (draft == null) {
-            return new ArrayList<>();
-        }
-        Map<String, Map<String, Object>> draftOffers = siteOfferMap(draft.getSiteOffers());
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline != null ? baseline.getSiteOffers() : null);
-        LinkedHashSet<String> siteCodes = new LinkedHashSet<>();
-        siteCodes.addAll(draftOffers.keySet());
-        siteCodes.addAll(baselineOffers.keySet());
-        for (String siteCode : siteCodes) {
-            Map<String, Object> draftOffer = draftOffers.get(siteCode);
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (!objectMapper.valueToTree(siteOfferComparable(
-                    draftOffer != null ? draftOffer : new LinkedHashMap<>(),
-                    false
-            )).equals(objectMapper.valueToTree(siteOfferComparable(
-                    baselineOffer != null ? baselineOffer : new LinkedHashMap<>(),
-                    false
-            )))) {
-                dirtySiteCodes.add(siteCode);
-            }
-        }
-        return new ArrayList<>(dirtySiteCodes);
     }
 
     private boolean shouldSkipSiteOfferLiveReadForSharedOnlyPublish(
