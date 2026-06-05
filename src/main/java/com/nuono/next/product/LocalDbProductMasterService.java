@@ -115,6 +115,7 @@ public class LocalDbProductMasterService {
     private final ProductReadModelService productReadModelService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
     private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
+    private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
     private final ConcurrentMap<String, ProductWorkbenchRecord> workbenchRecords = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
@@ -492,51 +493,12 @@ public class LocalDbProductMasterService {
             return cachedWorkbench;
         }
 
-        ProductMasterWorkbenchView missingWorkbench = buildLocalBaselineMissingWorkbench(command);
-        applyMissingBaselineBackfillPrompt(missingWorkbench, enqueueDetailBaselineBackfill(command, "open-missing-baseline"));
+        ProductMasterWorkbenchView missingWorkbench = productWorkbenchViewAssembler.buildLocalBaselineMissingWorkbench(command);
+        productWorkbenchViewAssembler.applyMissingBaselineBackfillPrompt(
+                missingWorkbench,
+                enqueueDetailBaselineBackfill(command, "open-missing-baseline")
+        );
         return missingWorkbench;
-    }
-
-    private ProductMasterWorkbenchView buildLocalBaselineMissingWorkbench(ProductMasterFetchCommand command) {
-        ProductMasterWorkbenchView view = new ProductMasterWorkbenchView();
-        view.setMode("local-db");
-        view.setReady(false);
-        view.setSyncStatus("failed");
-        view.setMessage("本地还没有这条商品的详情基线，详情编辑暂不可用。");
-        view.setNote("系统会在后台补齐详情基线；完成后刷新列表或重新打开详情即可编辑。");
-        if (command != null) {
-            if (StringUtils.hasText(command.getStoreCode())) {
-                view.getStoreContext().put("storeCode", command.getStoreCode());
-            }
-            if (StringUtils.hasText(command.getSkuParent())) {
-                view.getIdentity().put("skuParent", command.getSkuParent());
-            }
-            if (StringUtils.hasText(command.getPartnerSku())) {
-                view.getIdentity().put("partnerSku", command.getPartnerSku());
-            }
-            if (StringUtils.hasText(command.getPskuCode())) {
-                view.getIdentity().put("pskuCode", command.getPskuCode());
-            }
-        }
-        return view;
-    }
-
-    private void applyMissingBaselineBackfillPrompt(ProductMasterWorkbenchView view, String backfillStatus) {
-        if (view == null) {
-            return;
-        }
-        if ("preparing".equals(backfillStatus)) {
-            view.setSyncStatus("preparing");
-            view.setMessage("本地还没有这条商品的详情基线，系统正在后台准备。");
-            view.setNote("已启动后台补齐详情基线；补齐完成后刷新列表或重新打开详情即可编辑。");
-            view.getWarnings().add("系统正在后台从 Noon 补齐当前商品详情基线，详情打开不会等待该任务完成。");
-            return;
-        }
-        if ("failed".equals(backfillStatus)) {
-            view.setSyncStatus("failed");
-            view.setMessage("详情基线后台补齐失败，详情编辑暂不可用。");
-            view.setNote("详情基线上次后台补齐失败；请稍后重试或手动从 Noon 同步。");
-        }
     }
 
     private String enqueueDetailBaselineBackfill(ProductMasterFetchCommand command, String reason) {
@@ -1822,25 +1784,7 @@ public class LocalDbProductMasterService {
             String message,
             List<String> warnings
     ) {
-        ProductMasterWorkbenchView view = new ProductMasterWorkbenchView();
-        copySnapshotFields(view, record.getDraftSnapshot());
-        view.setBaselineSnapshot(copySnapshot(record.getBaselineSnapshot()));
-        view.setDraftSnapshot(copySnapshot(record.getDraftSnapshot()));
-        view.setSyncStatus(record.getSyncStatus());
-        view.setLastSyncedAt(record.getLastSyncedAt());
-        view.setNote(record.getNote());
-        view.setRecentActions(copyRecordList(record.getRecentActions()));
-        view.setKeyContentHistory(copyRecordList(record.getKeyContentHistory()));
-        view.setPendingKeyContentHistoryCount(record.getPendingKeyContentHistoryCount());
-        view.setPendingKeyContentHistoryVisibleAfter(record.getPendingKeyContentHistoryVisibleAfter());
-        view.setPublishTask(record.getPublishTask());
-        if (StringUtils.hasText(message)) {
-            view.setMessage(message);
-        }
-        if (warnings != null) {
-            view.setWarnings(userVisibleWarnings(warnings));
-        }
-        return view;
+        return productWorkbenchViewAssembler.buildWorkbenchView(record, message, warnings);
     }
 
     private ProductPublishTaskView buildPublishTaskView(ProductPublishTaskRecord task, boolean includeWorkbench) {
@@ -6412,109 +6356,6 @@ public class LocalDbProductMasterService {
         }
         String normalized = value.replaceAll("\\s+", " ").trim();
         return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
-    }
-
-    private static class ProductWorkbenchRecord {
-
-        private ProductMasterSnapshotView baselineSnapshot;
-
-        private ProductMasterSnapshotView draftSnapshot;
-
-        private String syncStatus;
-
-        private String lastSyncedAt;
-
-        private String note;
-
-        private List<Map<String, Object>> recentActions = new ArrayList<>();
-
-        private List<Map<String, Object>> keyContentHistory = new ArrayList<>();
-
-        private Integer pendingKeyContentHistoryCount;
-
-        private String pendingKeyContentHistoryVisibleAfter;
-
-        private ProductPublishTaskView publishTask;
-
-        private ProductMasterSnapshotView getBaselineSnapshot() {
-            return baselineSnapshot;
-        }
-
-        private void setBaselineSnapshot(ProductMasterSnapshotView baselineSnapshot) {
-            this.baselineSnapshot = baselineSnapshot;
-        }
-
-        private ProductMasterSnapshotView getDraftSnapshot() {
-            return draftSnapshot;
-        }
-
-        private void setDraftSnapshot(ProductMasterSnapshotView draftSnapshot) {
-            this.draftSnapshot = draftSnapshot;
-        }
-
-        private String getSyncStatus() {
-            return syncStatus;
-        }
-
-        private void setSyncStatus(String syncStatus) {
-            this.syncStatus = syncStatus;
-        }
-
-        private String getLastSyncedAt() {
-            return lastSyncedAt;
-        }
-
-        private void setLastSyncedAt(String lastSyncedAt) {
-            this.lastSyncedAt = lastSyncedAt;
-        }
-
-        private String getNote() {
-            return note;
-        }
-
-        private void setNote(String note) {
-            this.note = note;
-        }
-
-        private List<Map<String, Object>> getRecentActions() {
-            return recentActions;
-        }
-
-        private void setRecentActions(List<Map<String, Object>> recentActions) {
-            this.recentActions = recentActions;
-        }
-
-        private List<Map<String, Object>> getKeyContentHistory() {
-            return keyContentHistory;
-        }
-
-        private void setKeyContentHistory(List<Map<String, Object>> keyContentHistory) {
-            this.keyContentHistory = keyContentHistory;
-        }
-
-        private Integer getPendingKeyContentHistoryCount() {
-            return pendingKeyContentHistoryCount;
-        }
-
-        private void setPendingKeyContentHistoryCount(Integer pendingKeyContentHistoryCount) {
-            this.pendingKeyContentHistoryCount = pendingKeyContentHistoryCount;
-        }
-
-        private String getPendingKeyContentHistoryVisibleAfter() {
-            return pendingKeyContentHistoryVisibleAfter;
-        }
-
-        private void setPendingKeyContentHistoryVisibleAfter(String pendingKeyContentHistoryVisibleAfter) {
-            this.pendingKeyContentHistoryVisibleAfter = pendingKeyContentHistoryVisibleAfter;
-        }
-
-        private ProductPublishTaskView getPublishTask() {
-            return publishTask;
-        }
-
-        private void setPublishTask(ProductPublishTaskView publishTask) {
-            this.publishTask = publishTask;
-        }
     }
 
     private static class UnsupportedChanges {
