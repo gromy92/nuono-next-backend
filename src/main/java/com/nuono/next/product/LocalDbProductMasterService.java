@@ -75,7 +75,6 @@ public class LocalDbProductMasterService {
     private final LocalDbStoreInitializationService localDbStoreInitializationService;
     private final ProductAttributeTemplateService productAttributeTemplateService;
     private final ProductGroupPublishService productGroupPublishService;
-    private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
     private final ProductPublishCommandService productPublishCommandService;
     private final ProductPublishChangedDomainComparator productPublishChangedDomainComparator;
@@ -104,6 +103,7 @@ public class LocalDbProductMasterService {
     private final ProductSiteOfferFetcher productSiteOfferFetcher;
     private final ProductSnapshotSectionBuilder productSnapshotSectionBuilder;
     private final ProductKeyAttributeBuilder productKeyAttributeBuilder;
+    private final ProductCatalogContentFallbackApplier productCatalogContentFallbackApplier;
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -156,7 +156,7 @@ public class LocalDbProductMasterService {
         this.productAttributeTemplateService = productAttributeTemplateService;
         this.productAttributeDictionaryHydrator = new ProductAttributeDictionaryHydrator(productAttributeTemplateService);
         this.productGroupPublishService = productGroupPublishService;
-        this.productNoonCatalogContentService = productNoonCatalogContentService;
+        this.productCatalogContentFallbackApplier = new ProductCatalogContentFallbackApplier(productNoonCatalogContentService);
         this.productDetailBaselineBackfillService = productDetailBaselineBackfillService;
         this.productPublishCommandService = productPublishCommandService;
         this.productReadModelService = productReadModelService;
@@ -2618,67 +2618,7 @@ public class LocalDbProductMasterService {
             String referenceSite,
             String reason
     ) {
-        if (!needsCatalogContentFallback(content)) {
-            return;
-        }
-        String catalogSku = textValue(identity.get("childSku"));
-        productNoonCatalogContentService.fetchFollowSellCatalogContent(
-                session,
-                catalogSku,
-                referenceSite,
-                "detail." + normalizeReason(reason)
-        ).ifPresent(catalogContent -> mergeCatalogContent(identity, content, catalogContent));
-    }
-
-    private boolean needsCatalogContentFallback(Map<String, Object> content) {
-        if (content == null) {
-            return true;
-        }
-        return !StringUtils.hasText(textValue(content.get("titleEn")))
-                || stringList(content.get("images")).isEmpty();
-    }
-
-    private void mergeCatalogContent(
-            Map<String, Object> identity,
-            Map<String, Object> content,
-            ProductNoonCatalogContentService.CatalogContent catalogContent
-    ) {
-        if (catalogContent == null) {
-            return;
-        }
-        if (!StringUtils.hasText(textValue(identity.get("brand")))) {
-            putIfNotBlank(identity, "brand", catalogContent.getBrand());
-        }
-        if (!StringUtils.hasText(textValue(identity.get("childSku")))) {
-            putIfNotBlank(identity, "childSku", catalogContent.getCatalogSku());
-        }
-        putIfNotBlank(identity, "productSourceType", ProductSourceTypeSupport.resolve(
-                textValue(identity.get("productSourceType")),
-                textValue(identity.get("childSku")),
-                textValue(identity.get("skuParent"))
-        ));
-        if (!StringUtils.hasText(textValue(content.get("titleEn")))) {
-            putIfNotBlank(content, "titleEn", catalogContent.getTitleEn());
-        }
-        if (!StringUtils.hasText(textValue(content.get("titleAr")))) {
-            putIfNotBlank(content, "titleAr", catalogContent.getTitleAr());
-        }
-        if (!StringUtils.hasText(textValue(content.get("descriptionEn")))) {
-            putIfNotBlank(content, "descriptionEn", catalogContent.getDescriptionEn());
-        }
-        if (!StringUtils.hasText(textValue(content.get("descriptionAr")))) {
-            putIfNotBlank(content, "descriptionAr", catalogContent.getDescriptionAr());
-        }
-        if (stringList(content.get("images")).isEmpty()) {
-            putIfNotEmpty(content, "images", catalogContent.getImages());
-            putIfNotNull(content, "imageCount", catalogContent.getImages().size());
-        }
-        if (stringList(content.get("highlightsEn")).isEmpty()) {
-            putIfNotEmpty(content, "highlightsEn", catalogContent.getHighlightsEn());
-        }
-        if (stringList(content.get("highlightsAr")).isEmpty()) {
-            putIfNotEmpty(content, "highlightsAr", catalogContent.getHighlightsAr());
-        }
+        productCatalogContentFallbackApplier.applyIfNeeded(session, identity, content, referenceSite, reason);
     }
 
     private Map<String, Object> buildPlatformSignals(JsonNode commonNode) {
