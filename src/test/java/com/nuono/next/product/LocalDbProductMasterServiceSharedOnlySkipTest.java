@@ -347,19 +347,15 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         return new ProductPublishUnsupportedChangesDetector(objectMapper).detect(draft, baseline, currentSiteCode);
     }
 
-    private void invokePublishableSnapshotForSupportedChanges(
+    private ProductMasterSnapshotView invokePublishableSnapshotForSupportedChanges(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             Object unsupportedChanges
-    ) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "publishableSnapshotForSupportedChanges",
-                ProductMasterSnapshotView.class,
-                ProductMasterSnapshotView.class,
-                unsupportedChanges.getClass()
-        );
-        method.setAccessible(true);
-        method.invoke(service, draft, baseline, unsupportedChanges);
+    ) {
+        return new ProductPublishSupportedSnapshotBuilder(
+                objectMapper,
+                new ProductPublishPlanner(new ProductDraftMergePolicy())
+        ).build(draft, baseline, (ProductPublishUnsupportedChanges) unsupportedChanges);
     }
 
     @SuppressWarnings("unchecked")

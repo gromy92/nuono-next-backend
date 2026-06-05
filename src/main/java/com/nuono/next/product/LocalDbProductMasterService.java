@@ -114,11 +114,11 @@ public class LocalDbProductMasterService {
     private final ProductPublishCommandService productPublishCommandService;
     private final ProductPublishChangedDomainComparator productPublishChangedDomainComparator;
     private final ProductPublishUnsupportedChangesDetector productPublishUnsupportedChangesDetector;
+    private final ProductPublishSupportedSnapshotBuilder productPublishSupportedSnapshotBuilder;
     private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
-    private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
     private final ProductWorkbenchRecordStore productWorkbenchRecordStore;
     private final ProductWorkbenchOpenService productWorkbenchOpenService;
@@ -186,6 +186,10 @@ public class LocalDbProductMasterService {
                 : productWorkbenchStatusHydrator;
         this.productPublishChangedDomainComparator = new ProductPublishChangedDomainComparator(objectMapper);
         this.productPublishUnsupportedChangesDetector = new ProductPublishUnsupportedChangesDetector(objectMapper);
+        this.productPublishSupportedSnapshotBuilder = new ProductPublishSupportedSnapshotBuilder(
+                objectMapper,
+                new ProductPublishPlanner(productDraftMergePolicy)
+        );
         this.productPublishTaskChangedDomainsResolver = new ProductPublishTaskChangedDomainsResolver(
                 objectMapper,
                 this::recomputePublishTaskChangedDomains
@@ -955,7 +959,7 @@ public class LocalDbProductMasterService {
                 record.getBaselineSnapshot(),
                 currentSiteCode
         );
-        ProductMasterSnapshotView publishableSnapshot = publishableSnapshotForSupportedChanges(
+        ProductMasterSnapshotView publishableSnapshot = productPublishSupportedSnapshotBuilder.build(
                 requestedSnapshot,
                 record.getBaselineSnapshot(),
                 unsupportedChanges
@@ -1134,7 +1138,7 @@ public class LocalDbProductMasterService {
         );
         ProductWorkbenchRecord refreshed = createSyncedRecord(liveAfterPublish);
         refreshed.setDraftSnapshot(copySnapshot(liveAfterPublish));
-        overlayUnsupportedDraft(refreshed.getDraftSnapshot(), requestedSnapshot, unsupportedChanges);
+        productPublishSupportedSnapshotBuilder.overlayUnsupportedDraft(refreshed.getDraftSnapshot(), requestedSnapshot, unsupportedChanges);
 
         if (sameBusinessSnapshot(refreshed.getDraftSnapshot(), refreshed.getBaselineSnapshot())) {
             refreshed.setSyncStatus("synced");
@@ -1363,7 +1367,7 @@ public class LocalDbProductMasterService {
         try {
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, currentSiteCode);
             ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, currentSiteCode);
-            ProductMasterSnapshotView publishableDraft = publishableSnapshotForSupportedChanges(preparedDraft, baseline, unsupportedChanges);
+            ProductMasterSnapshotView publishableDraft = productPublishSupportedSnapshotBuilder.build(preparedDraft, baseline, unsupportedChanges);
             if (sameScopedSnapshot(publishableDraft, baseline, currentSiteCode)) {
                 ProductWorkbenchRecord refreshed = buildTaskWorkbenchRecord(baseline, preparedDraft, "synced", "当前没有待发布改动。");
                 appendRecentAction(refreshed, "publish-current", "synced", refreshed.getNote(), currentSiteCode, preparedDraft);
@@ -1529,7 +1533,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView liveAfterPublish = fetchSnapshot(command, "publish-task.verify");
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, task.getCurrentSiteCode());
             ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, task.getCurrentSiteCode());
-            ProductMasterSnapshotView publishableDraft = publishableSnapshotForSupportedChanges(preparedDraft, baseline, unsupportedChanges);
+            ProductMasterSnapshotView publishableDraft = productPublishSupportedSnapshotBuilder.build(preparedDraft, baseline, unsupportedChanges);
             completePublishTaskAfterVerification(
                     task,
                     baseline,
@@ -1607,7 +1611,7 @@ public class LocalDbProductMasterService {
 
         ProductWorkbenchRecord refreshed = createSyncedRecord(liveAfterPublish);
         refreshed.setDraftSnapshot(copySnapshot(liveAfterPublish));
-        overlayUnsupportedDraft(refreshed.getDraftSnapshot(), draft, unsupportedChanges);
+        productPublishSupportedSnapshotBuilder.overlayUnsupportedDraft(refreshed.getDraftSnapshot(), draft, unsupportedChanges);
         if (sameBusinessSnapshot(refreshed.getDraftSnapshot(), refreshed.getBaselineSnapshot())) {
             refreshed.setSyncStatus("synced");
             refreshed.setNote("共享主档和当前站点经营面已同步完成。");
@@ -3399,19 +3403,6 @@ public class LocalDbProductMasterService {
         return errors;
     }
 
-    private ProductMasterSnapshotView publishableSnapshotForSupportedChanges(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            ProductPublishUnsupportedChanges unsupportedChanges
-    ) {
-        ProductMasterSnapshotView publishable = copySnapshot(draft);
-        ProductPublishPlan plan = productPublishPlanner.plan(publishable, baseline, null);
-        if (!plan.isPublishable() && unsupportedChanges != null) {
-            unsupportedChanges.getPublishBlockers().addAll(plan.getBlockers());
-        }
-        return plan.getPublishableSnapshot();
-    }
-
     private StoreSyncStoreRecord requirePublishStore(Long ownerUserId, String storeCode) {
         return resolveProductOwnerStore(ownerUserId, storeCode, "当前店铺不在选中的老板名下。");
     }
@@ -3873,44 +3864,6 @@ public class LocalDbProductMasterService {
                 deriveSiteFromStoreCode(siteOfferCode(siteOffer)),
                 "AE"
         );
-    }
-
-    private void overlayUnsupportedDraft(
-            ProductMasterSnapshotView targetDraft,
-            ProductMasterSnapshotView sourceDraft,
-            ProductPublishUnsupportedChanges unsupportedChanges
-    ) {
-        if (unsupportedChanges.isGroupChanged()) {
-            targetDraft.setGroup(new LinkedHashMap<>(sourceDraft.getGroup()));
-        }
-        if (unsupportedChanges.isVariantStructureChanged()) {
-            targetDraft.setVariants(copyRecordList(sourceDraft.getVariants()));
-        }
-        if (!unsupportedChanges.getUnsupportedAttributeCodes().isEmpty()) {
-            Map<String, Map<String, Object>> targetAttributes = keyAttributeMap(targetDraft.getKeyAttributes());
-            Map<String, Map<String, Object>> sourceAttributes = keyAttributeMap(sourceDraft.getKeyAttributes());
-            for (String code : unsupportedChanges.getUnsupportedAttributeCodes()) {
-                if (targetAttributes.containsKey(code) && sourceAttributes.containsKey(code)) {
-                    targetAttributes.put(code, new LinkedHashMap<>(sourceAttributes.get(code)));
-                }
-            }
-            targetDraft.setKeyAttributes(new ArrayList<>(targetAttributes.values()));
-        }
-        if (!unsupportedChanges.getUnsupportedSiteFields().isEmpty()) {
-            Map<String, Map<String, Object>> targetOffers = siteOfferMap(targetDraft.getSiteOffers());
-            Map<String, Map<String, Object>> sourceOffers = siteOfferMap(sourceDraft.getSiteOffers());
-            for (Map.Entry<String, Set<String>> entry : unsupportedChanges.getUnsupportedSiteFields().entrySet()) {
-                Map<String, Object> targetOffer = targetOffers.get(entry.getKey());
-                Map<String, Object> sourceOffer = sourceOffers.get(entry.getKey());
-                if (targetOffer == null || sourceOffer == null) {
-                    continue;
-                }
-                for (String field : entry.getValue()) {
-                    targetOffer.put(field, sourceOffer.get(field));
-                }
-            }
-            targetDraft.setSiteOffers(new ArrayList<>(targetOffers.values()));
-        }
     }
 
     private Map<String, Map<String, Object>> keyAttributeMap(List<Map<String, Object>> keyAttributes) {
