@@ -115,6 +115,7 @@ public class LocalDbProductMasterService {
     private final ProductPublishChangedDomainComparator productPublishChangedDomainComparator;
     private final ProductPublishUnsupportedChangesDetector productPublishUnsupportedChangesDetector;
     private final ProductPublishSupportedSnapshotBuilder productPublishSupportedSnapshotBuilder;
+    private final ProductPublishWriteService productPublishWriteService;
     private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
@@ -189,6 +190,89 @@ public class LocalDbProductMasterService {
         this.productPublishSupportedSnapshotBuilder = new ProductPublishSupportedSnapshotBuilder(
                 objectMapper,
                 new ProductPublishPlanner(productDraftMergePolicy)
+        );
+        this.productPublishWriteService = new ProductPublishWriteService(
+                storeSyncMapper,
+                productNoonAdapter,
+                productGroupPublishService,
+                new ProductPublishWriteService.WriteOperations() {
+                    @Override
+                    public String resolveProjectCode(
+                            NoonSession session,
+                            String localProjectCode,
+                            StoreSyncStoreRecord store,
+                            List<String> warnings
+                    ) {
+                        return LocalDbProductMasterService.this.resolveProjectCode(session, localProjectCode, store, warnings);
+                    }
+
+                    @Override
+                    public NoonSession withProjectAndStore(NoonSession session, String projectCode, String storeCode) {
+                        return session.withProjectCode(projectCode).withStoreCode(storeCode);
+                    }
+
+                    @Override
+                    public NoonSession withStore(NoonSession session, String storeCode) {
+                        return session.withStoreCode(storeCode);
+                    }
+
+                    @Override
+                    public boolean sharedZskuChanged(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
+                        return !LocalDbProductMasterService.this.objectMapper.valueToTree(sharedZskuComparableView(draft))
+                                .equals(LocalDbProductMasterService.this.objectMapper.valueToTree(sharedZskuComparableView(baseline)));
+                    }
+
+                    @Override
+                    public boolean groupChanged(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
+                        return !LocalDbProductMasterService.this.objectMapper.valueToTree(publishComparableGroup(draft))
+                                .equals(LocalDbProductMasterService.this.objectMapper.valueToTree(publishComparableGroup(baseline)));
+                    }
+
+                    @Override
+                    public void publishSharedAttributes(
+                            NoonSession session,
+                            ProductMasterSnapshotView draft,
+                            ProductMasterSnapshotView baseline,
+                            ProductMasterSnapshotView liveBeforePublish,
+                            ProductPublishUnsupportedChanges unsupportedChanges,
+                            List<String> actionWarnings
+                    ) {
+                        LocalDbProductMasterService.this.publishSharedAttributes(
+                                session,
+                                draft,
+                                baseline,
+                                liveBeforePublish,
+                                unsupportedChanges,
+                                actionWarnings
+                        );
+                    }
+
+                    @Override
+                    public List<Map<String, Object>> targetOffers(ProductMasterSnapshotView draft, String currentSiteCode) {
+                        return siteOfferComparableList(draft, currentSiteCode, false);
+                    }
+
+                    @Override
+                    public Map<String, Map<String, Object>> baselineOffers(ProductMasterSnapshotView baseline) {
+                        return siteOfferMap(baseline.getSiteOffers());
+                    }
+
+                    @Override
+                    public boolean siteOfferChanged(Map<String, Object> siteOffer, Map<String, Object> baselineOffer) {
+                        return !LocalDbProductMasterService.this.objectMapper.valueToTree(siteOfferComparable(siteOffer, false))
+                                .equals(LocalDbProductMasterService.this.objectMapper.valueToTree(siteOfferComparable(baselineOffer, false)));
+                    }
+
+                    @Override
+                    public void publishOffer(
+                            NoonSession session,
+                            String pskuCode,
+                            Map<String, Object> siteOffer,
+                            List<String> actionWarnings
+                    ) {
+                        LocalDbProductMasterService.this.publishOffer(session, pskuCode, siteOffer, actionWarnings);
+                    }
+                }
         );
         this.productPublishTaskChangedDomainsResolver = new ProductPublishTaskChangedDomainsResolver(
                 objectMapper,
@@ -1059,7 +1143,7 @@ public class LocalDbProductMasterService {
 
         List<String> actionWarnings = new ArrayList<>(prePublishWarnings);
         try {
-            publishSupportedChanges(
+            productPublishWriteService.publishSupportedChanges(
                     command,
                     store,
                     publishableSnapshot,
@@ -1411,7 +1495,7 @@ public class LocalDbProductMasterService {
             StoreSyncStoreRecord store = requirePublishStore(task.getOwnerUserId(), task.getStoreCode());
             ensurePublishStoreAllowed(store);
             try {
-                publishSupportedChanges(
+                productPublishWriteService.publishSupportedChanges(
                         command,
                         store,
                         publishableDraft,
@@ -3426,92 +3510,6 @@ public class LocalDbProductMasterService {
             return;
         }
         throw new IllegalArgumentException("当前只开放 xingyao 测试店铺的受控发布。");
-    }
-
-    private void publishSupportedChanges(
-            ProductMasterActionCommand command,
-            StoreSyncStoreRecord store,
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            ProductMasterSnapshotView liveBeforePublish,
-            String currentSiteCode,
-            ProductPublishUnsupportedChanges unsupportedChanges,
-            List<String> actionWarnings
-    ) {
-        StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(command.getOwnerUserId());
-        if (owner == null) {
-            throw new IllegalArgumentException("老板账号不存在，无法执行商品发布。");
-        }
-
-        String noonUser = firstNonBlank(
-                normalize(command.getNoonUser()),
-                owner.getNoonPartnerProjectUser(),
-                owner.getNoonPartnerUser()
-        );
-        String noonPassword = firstNonBlank(
-                normalize(command.getNoonPassword()),
-                normalize(owner.getNoonPartnerPwd())
-        );
-        requireText(noonUser, "当前店铺缺少 Noon 账号上下文，暂时不能发布。");
-        requireText(noonPassword, "当前店铺缺少 Noon 登录密码，暂时不能发布。");
-
-        String storeCode = normalize(store.getStoreCode());
-        String projectCode = firstNonBlank(store.getProjectCode(), owner.getNoonPartnerId());
-        requireText(projectCode, "当前店铺缺少 Noon projectCode，暂时不能发布。");
-
-        NoonSession session = productNoonAdapter.login(
-                owner.getId(),
-                noonUser,
-                noonPassword,
-                owner.getNoonPartnerCookie(),
-                projectCode,
-                storeCode
-        );
-        String resolvedProjectCode = resolveProjectCode(session, projectCode, store, actionWarnings);
-        session = session.withProjectCode(resolvedProjectCode).withStoreCode(storeCode);
-
-        boolean sharedZskuChanged = !objectMapper.valueToTree(sharedZskuComparableView(draft))
-                .equals(objectMapper.valueToTree(sharedZskuComparableView(baseline)));
-        boolean groupChanged = !objectMapper.valueToTree(publishComparableGroup(draft))
-                .equals(objectMapper.valueToTree(publishComparableGroup(baseline)));
-        if (sharedZskuChanged) {
-            publishSharedAttributes(session, draft, baseline, liveBeforePublish, unsupportedChanges, actionWarnings);
-        }
-        if (groupChanged) {
-            productGroupPublishService.publishGroupChanges(session, draft, baseline, command.getOwnerUserId(), storeCode);
-        }
-
-        List<Map<String, Object>> targetOffers = siteOfferComparableList(draft, currentSiteCode, false);
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline.getSiteOffers());
-        for (Map<String, Object> siteOffer : targetOffers) {
-            String siteCode = textValue(siteOffer.get("storeCode"));
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (baselineOffer == null) {
-                continue;
-            }
-            if (objectMapper.valueToTree(siteOfferComparable(siteOffer, false))
-                    .equals(objectMapper.valueToTree(siteOfferComparable(baselineOffer, false)))) {
-                continue;
-            }
-            String resolvedPskuCode = firstNonBlank(
-                    textValue(siteOffer.get("pskuCode")),
-                    textValue(baselineOffer.get("pskuCode"))
-            );
-            publishOffer(session.withStoreCode(siteCode), resolvedPskuCode, siteOffer, actionWarnings);
-        }
-
-        if (unsupportedChanges.isGroupChanged()) {
-            actionWarnings.add("Group 换组或轴定义暂未写回 Noon，仍保留在诺诺草稿中。");
-        }
-        if (unsupportedChanges.isVariantStructureChanged()) {
-            actionWarnings.add("当前尺码结构存在新增或移除，暂未开启真实 Noon 写回。");
-        }
-        if (!unsupportedChanges.getUnsupportedAttributeCodes().isEmpty()) {
-            actionWarnings.add("有部分复杂属性值暂未写回 Noon，仍保留在诺诺草稿中。");
-        }
-        if (!unsupportedChanges.getUnsupportedSiteFields().isEmpty()) {
-            actionWarnings.add("库存汇总和状态码仍保留展示，本轮发布未写回 Noon。");
-        }
     }
 
     private void publishSharedAttributes(
