@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.ProductGroupMapper;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
+import com.nuono.next.product.noon.NoonProductGateway;
+import com.nuono.next.product.noon.ProductNoonAdapter;
 import java.math.BigDecimal;
 import java.net.http.HttpTimeoutException;
 import java.util.List;
@@ -19,18 +21,24 @@ import org.springframework.util.StringUtils;
 public class ProductGroupPublishService {
 
     private static final String ZSKU_UPSERT_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
+            NoonProductGateway.ZSKU_UPSERT_URL;
     private static final String CATPLAT_SKU_CACHE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
+            NoonProductGateway.CATPLAT_SKU_CACHE_URL;
     private static final String GROUP_UPSERT_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/group/upsert";
+            NoonProductGateway.GROUP_UPSERT_URL;
 
     private final ProductGroupMapper productGroupMapper;
     private final ObjectMapper objectMapper;
+    private final ProductNoonAdapter productNoonAdapter;
 
-    public ProductGroupPublishService(ProductGroupMapper productGroupMapper, ObjectMapper objectMapper) {
+    public ProductGroupPublishService(
+            ProductGroupMapper productGroupMapper,
+            ObjectMapper objectMapper,
+            ProductNoonAdapter productNoonAdapter
+    ) {
         this.productGroupMapper = productGroupMapper;
         this.objectMapper = objectMapper;
+        this.productNoonAdapter = productNoonAdapter;
     }
 
     public void publishGroupChanges(
@@ -219,7 +227,7 @@ public class ProductGroupPublishService {
         ObjectNode cacheBody = objectMapper.createObjectNode();
         cacheBody.put("skuParent", skuParent);
         try {
-            session.postWriteJson(CATPLAT_SKU_CACHE_URL, cacheBody, true);
+            postWriteJsonThroughAdapter(session, CATPLAT_SKU_CACHE_URL, cacheBody);
         } catch (IllegalStateException exception) {
             throw partialPublishException("Group 写回后刷新 Noon 缓存结果未知：" + shrink(exception.getMessage()), exception);
         }
@@ -227,13 +235,20 @@ public class ProductGroupPublishService {
 
     private JsonNode postWriteJson(NoonSession session, String url, ObjectNode body, String action) {
         try {
-            return session.postWriteJson(url, body, true);
+            return postWriteJsonThroughAdapter(session, url, body);
         } catch (IllegalStateException exception) {
             if (isNoonWriteResultUnknown(exception)) {
                 throw partialPublishException(action + " 请求结果未知：" + shrink(exception.getMessage()), exception);
             }
             throw exception;
         }
+    }
+
+    private JsonNode postWriteJsonThroughAdapter(NoonSession session, String url, ObjectNode body) {
+        if (productNoonAdapter == null) {
+            return session.postWriteJson(url, body, true);
+        }
+        return productNoonAdapter.postWriteJson(session, url, body, true);
     }
 
     private void throwIfNoonBusinessError(JsonNode response, String action, boolean priorSuccessfulWrite) {

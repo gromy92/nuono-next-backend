@@ -9,8 +9,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.ProductAttributeTemplateMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
+import com.nuono.next.product.noon.ProductNoonAdapter;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.nio.charset.StandardCharsets;
@@ -48,7 +48,7 @@ public class ProductAttributeTemplateService {
     private final ProductAttributeTemplateMapper templateMapper;
     private final ProductManagementMapper productManagementMapper;
     private final StoreSyncMapper storeSyncMapper;
-    private final NoonSessionGateway noonSessionGateway;
+    private final ProductNoonAdapter productNoonAdapter;
     private final ObjectMapper objectMapper;
     private final ConcurrentMap<String, JsonNode> memoryCache = new ConcurrentHashMap<>();
 
@@ -65,13 +65,13 @@ public class ProductAttributeTemplateService {
             ProductAttributeTemplateMapper templateMapper,
             ProductManagementMapper productManagementMapper,
             StoreSyncMapper storeSyncMapper,
-            NoonSessionGateway noonSessionGateway,
+            ProductNoonAdapter productNoonAdapter,
             ObjectMapper objectMapper
     ) {
         this.templateMapper = templateMapper;
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
-        this.noonSessionGateway = noonSessionGateway;
+        this.productNoonAdapter = productNoonAdapter;
         this.objectMapper = objectMapper;
     }
 
@@ -180,10 +180,10 @@ public class ProductAttributeTemplateService {
         selectFields.putArray("attributeSpecs");
 
         try {
-            return session.postJson(FULLTYPE_ATTRS_URL, body, true);
+            return postJson(session, FULLTYPE_ATTRS_URL, body);
         } catch (IllegalStateException exception) {
             if (warnings != null) {
-                warnings.add("读取 fulltype 模板失败：" + shrink(exception.getMessage()));
+                warnings.add("读取 fulltype 模板失败：" + noonFailureMessage(exception));
             }
             return MissingNode.getInstance();
         }
@@ -268,7 +268,7 @@ public class ProductAttributeTemplateService {
                     store != null ? store.getNoonPartnerCookie() : null,
                     owner != null ? owner.getNoonPartnerCookie() : null
             );
-            NoonSession session = noonSessionGateway.login(
+            NoonSession session = productNoonAdapter.login(
                     candidate.getOwnerUserId(),
                     noonUser,
                     noonPassword,
@@ -302,6 +302,20 @@ public class ProductAttributeTemplateService {
                     errorMessage
             );
         }
+    }
+
+    private JsonNode postJson(NoonSession session, String url, JsonNode body) {
+        if (productNoonAdapter == null) {
+            return session.postJson(url, body, true);
+        }
+        return productNoonAdapter.postJson(session, url, body, true);
+    }
+
+    private String noonFailureMessage(RuntimeException exception) {
+        if (productNoonAdapter == null) {
+            return shrink(exception.getMessage());
+        }
+        return shrink(productNoonAdapter.userMessage(exception));
     }
 
     private void insertSyncLog(

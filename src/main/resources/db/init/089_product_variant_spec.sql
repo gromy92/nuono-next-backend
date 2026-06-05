@@ -1,3 +1,4 @@
+-- Renamed from 074_product_variant_spec.sql to keep migration prefixes unique.
 CREATE TABLE IF NOT EXISTS `product_variant_spec` (
     `id` BIGINT NOT NULL,
     `variant_id` BIGINT NOT NULL,

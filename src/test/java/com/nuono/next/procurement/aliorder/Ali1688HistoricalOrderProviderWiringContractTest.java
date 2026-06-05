@@ -1,8 +1,10 @@
 package com.nuono.next.procurement.aliorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.infrastructure.mapper.Ali1688HistoricalOrderMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -36,6 +38,7 @@ class Ali1688HistoricalOrderProviderWiringContractTest {
                 )
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(RestTemplateBuilder.class, RestTemplateBuilder::new)
+                .withBean(Ali1688HistoricalOrderMapper.class, () -> mock(Ali1688HistoricalOrderMapper.class))
                 .withUserConfiguration(ProviderConfig.class)
                 .run(context -> {
                     assertThat(context).hasSingleBean(Ali1688HistoricalOrderProvider.class);

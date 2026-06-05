@@ -1,3 +1,4 @@
+-- Renamed from 069_operation_config_typed_version_library.sql to keep migration prefixes unique.
 -- User-facing typed operations configuration version library.
 -- Each row is either a business calendar version or a product lifecycle version.
 

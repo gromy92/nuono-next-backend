@@ -1,3 +1,4 @@
+-- Renamed from 063_product_lifecycle_job_recalculation_audit.sql to keep migration prefixes unique.
 -- Record controlled lifecycle recalculation trigger metadata.
 
 SET NAMES utf8mb4;

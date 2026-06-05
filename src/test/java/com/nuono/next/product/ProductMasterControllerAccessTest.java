@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,6 +11,12 @@ import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.permission.access.BusinessCapability;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,17 +52,25 @@ class ProductMasterControllerAccessTest {
     @Mock
     private ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider;
 
+    @Mock
+    private ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider;
+
+    @Mock
+    private BusinessAccessResolver businessAccessResolver;
+
     private ProductMasterController controller;
 
     @BeforeEach
     void setUp() {
         ProductMasterAccessGuard accessGuard = new ProductMasterAccessGuard(storeSyncMapper, productManagementMapper);
-        when(productMasterAccessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
+        lenient().when(productMasterAccessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
+        lenient().when(businessAccessResolverProvider.getIfAvailable()).thenReturn(businessAccessResolver);
         controller = new ProductMasterController(
                 productMasterServiceProvider,
                 translationServiceProvider,
                 sessionTokenService,
-                productMasterAccessGuardProvider
+                productMasterAccessGuardProvider,
+                businessAccessResolverProvider
         );
     }
 
@@ -63,12 +78,16 @@ class ProductMasterControllerAccessTest {
     void shouldOverwriteRequestOwnerWithAuthorizedOwnerBeforeOpeningWorkbench() {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(productMasterServiceProvider.getIfAvailable()).thenReturn(productMasterService);
-        when(storeSyncMapper.selectAccessibleOwnerUserIdForStore(10003L, "STR245027-NAE")).thenReturn(10002L);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                "STR245027-NAE"
+        )).thenReturn(productContext(10003L, 10002L, "STR245027-NAE"));
         when(productMasterService.openWorkbench(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new ProductMasterWorkbenchView());
 
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
-        command.setOwnerUserId(10002L);
+        command.setOwnerUserId(99999L);
         command.setStoreCode("STR245027-NAE");
         command.setSkuParent("MILKYWAYA17");
 
@@ -80,13 +99,16 @@ class ProductMasterControllerAccessTest {
     }
 
     @Test
-    void shouldRejectCrossOwnerWorkbenchRequestBeforeCallingService() {
+    void shouldRejectStoreDeniedByBusinessAccessBeforeCallingService() {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(productMasterServiceProvider.getIfAvailable()).thenReturn(productMasterService);
-        when(storeSyncMapper.selectAccessibleOwnerUserIdForStore(10003L, "STR245027-NAE")).thenReturn(10002L);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                "STR245027-NAE"
+        )).thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号不能操作该店铺。"));
 
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
-        command.setOwnerUserId(99999L);
         command.setStoreCode("STR245027-NAE");
         command.setSkuParent("MILKYWAYA17");
 
@@ -116,7 +138,20 @@ class ProductMasterControllerAccessTest {
 
     private MockHttpServletRequest requestFor(AuthenticatedSession session) {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(sessionTokenService.requireSession(request)).thenReturn(session);
+        lenient().when(sessionTokenService.requireSession(request)).thenReturn(session);
         return request;
+    }
+
+    private BusinessAccessContext productContext(Long sessionUserId, Long ownerUserId, String storeCode) {
+        return BusinessAccessContext.builder()
+                .sessionUserId(sessionUserId)
+                .businessOwnerUserId(ownerUserId)
+                .accountType(BusinessAccountType.OPERATOR)
+                .roleLevel(2)
+                .roleName("运营")
+                .storeCodes(Set.of(storeCode))
+                .storeOwnerUserIds(Map.of(storeCode, ownerUserId))
+                .menuPaths(Set.of("/api/sku/manage"))
+                .build();
     }
 }

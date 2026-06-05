@@ -232,7 +232,7 @@ class Ali1688HistoricalOrderMapperSqlTest {
     @Test
     void orderAssignmentSchemaAddsActiveUniquenessGuards() throws Exception {
         String sql = Files.readString(Path.of(
-                "src/main/resources/db/init/079_procurement_ali1688_order_assignment_active_guards.sql"
+                "src/main/resources/db/init/097_procurement_ali1688_order_assignment_active_guards.sql"
         ));
 
         assertThat(sql)
