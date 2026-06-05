@@ -52,12 +52,6 @@ public class LocalDbProductMasterService {
             NoonProductGateway.WHOAMI_URL;
     private static final String ZSKU_RETRIEVE_URL =
             NoonProductGateway.ZSKU_RETRIEVE_URL;
-    private static final String GROUP_CURRENT_URL_PREFIX =
-            NoonProductGateway.GROUP_CURRENT_URL_PREFIX;
-    private static final String GROUP_DETAIL_URL =
-            NoonProductGateway.GROUP_DETAIL_URL;
-    private static final String GROUP_LIST_URL =
-            NoonProductGateway.GROUP_LIST_URL;
     private static final String VARIANT_INFO_URL =
             NoonProductGateway.VARIANT_INFO_URL;
     private static final ThreadLocal<Boolean> PUBLISH_TASK_WORKER_MODE =
@@ -104,6 +98,7 @@ public class LocalDbProductMasterService {
     private final ProductSnapshotSectionBuilder productSnapshotSectionBuilder;
     private final ProductKeyAttributeBuilder productKeyAttributeBuilder;
     private final ProductCatalogContentFallbackApplier productCatalogContentFallbackApplier;
+    private final ProductSnapshotGroupFetcher productSnapshotGroupFetcher;
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -143,6 +138,11 @@ public class LocalDbProductMasterService {
         this.productSnapshotHydrator = new ProductSnapshotHydrator(objectMapper);
         this.productSnapshotSectionBuilder = new ProductSnapshotSectionBuilder(objectMapper);
         this.productKeyAttributeBuilder = new ProductKeyAttributeBuilder(objectMapper);
+        this.productSnapshotGroupFetcher = new ProductSnapshotGroupFetcher(
+                objectMapper,
+                productNoonAdapter,
+                this.productSnapshotSectionBuilder
+        );
         this.productOperationalKeyHydrator = new ProductOperationalKeyHydrator(productProjectionPersistenceService);
         this.productNoonAdapter = productNoonAdapter;
         this.productProjectSiteResolver = new ProductProjectSiteResolver(objectMapper, storeSyncMapper, productNoonAdapter);
@@ -439,7 +439,6 @@ public class LocalDbProductMasterService {
         String productFulltype = text(commonNode, "product_fulltype");
         String brand = text(commonNode, "brand");
         String idPartner = text(commonNode, "id_partner");
-        String resolvedSkuGroup = null;
 
         JsonNode fulltypeTemplateNode = MissingNode.getInstance();
         if (StringUtils.hasText(productFulltype)) {
@@ -455,67 +454,26 @@ public class LocalDbProductMasterService {
             recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "fulltypeTemplate", stageStartedAt);
         }
 
-        stageStartedAt = System.nanoTime();
-        JsonNode groupCurrentNode = safeGet(
+        ProductSnapshotGroupFetchResult groupFetchResult = productSnapshotGroupFetcher.fetch(
                 session,
-                GROUP_CURRENT_URL_PREFIX + skuParent,
-                true,
+                skuParent,
+                productFulltype,
+                brand,
                 view.getWarnings(),
-                "读取当前 group 失败"
+                (stageName, startedAt) -> recordFetchStage(
+                        timingEntries,
+                        timingBreakdownMs,
+                        traceLabel,
+                        reason,
+                        stageName,
+                        startedAt
+                )
         );
-        recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.current", stageStartedAt);
-        if (groupCurrentNode.isObject()) {
-            resolvedSkuGroup = text(groupCurrentNode, "sku_group");
-        }
-
-        JsonNode groupDetailNode = MissingNode.getInstance();
-        if (StringUtils.hasText(resolvedSkuGroup)) {
-            ObjectNode groupBody = objectMapper.createObjectNode();
-            ArrayNode groupCodes = groupBody.putArray("zskuGroup");
-            groupCodes.add(resolvedSkuGroup);
-            stageStartedAt = System.nanoTime();
-            groupDetailNode = safePost(
-                    session,
-                    GROUP_DETAIL_URL,
-                    groupBody,
-                    true,
-                    view.getWarnings(),
-                    "读取 group 详情失败"
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.detail", stageStartedAt);
-        }
-
-        JsonNode groupParentAttributesNode = MissingNode.getInstance();
-        ObjectNode groupParentAttributesBody = buildGroupParentAttributeFetchBody(groupDetailNode, resolvedSkuGroup);
-        if (groupParentAttributesBody != null) {
-            stageStartedAt = System.nanoTime();
-            groupParentAttributesNode = safePost(
-                    session,
-                    ZSKU_RETRIEVE_URL,
-                    groupParentAttributesBody,
-                    true,
-                    view.getWarnings(),
-                    "读取 group 轴属性失败"
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.parentAttributes", stageStartedAt);
-        }
-
-        JsonNode groupListNode = MissingNode.getInstance();
-        if (StringUtils.hasText(productFulltype) && StringUtils.hasText(brand)) {
-            ObjectNode groupListBody = objectMapper.createObjectNode();
-            groupListBody.put("fulltype", productFulltype);
-            groupListBody.put("brand", brand);
-            stageStartedAt = System.nanoTime();
-            groupListNode = safePost(
-                    session,
-                    GROUP_LIST_URL,
-                    groupListBody,
-                    true,
-                    view.getWarnings(),
-                    "读取候选 group 列表失败"
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.list", stageStartedAt);
-        }
+        String resolvedSkuGroup = groupFetchResult.getSkuGroup();
+        JsonNode groupCurrentNode = groupFetchResult.getGroupCurrentNode();
+        JsonNode groupDetailNode = groupFetchResult.getGroupDetailNode();
+        JsonNode groupParentAttributesNode = groupFetchResult.getGroupParentAttributesNode();
+        JsonNode groupListNode = groupFetchResult.getGroupListNode();
 
         ObjectNode variantBody = objectMapper.createObjectNode();
         variantBody.put("zskuParent", skuParent);
@@ -2632,10 +2590,6 @@ public class LocalDbProductMasterService {
             JsonNode arNode
     ) {
         return productKeyAttributeBuilder.buildKeyAttributes(fulltypeTemplateRoot, commonNode, enNode, arNode);
-    }
-
-    private ObjectNode buildGroupParentAttributeFetchBody(JsonNode groupDetailRoot, String skuGroup) {
-        return productSnapshotSectionBuilder.buildGroupParentAttributeFetchBody(groupDetailRoot, skuGroup);
     }
 
     private Map<String, Object> buildGroup(
