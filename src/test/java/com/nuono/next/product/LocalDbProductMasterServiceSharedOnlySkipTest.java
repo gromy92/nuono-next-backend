@@ -34,6 +34,7 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
             null,
             null,
             null,
+            null,
             null
     );
 

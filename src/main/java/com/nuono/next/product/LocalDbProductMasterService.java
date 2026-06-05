@@ -117,6 +117,7 @@ public class LocalDbProductMasterService {
     private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
     private final ProductWorkbenchRecordStore productWorkbenchRecordStore;
+    private final ProductWorkbenchOpenService productWorkbenchOpenService;
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
@@ -145,7 +146,8 @@ public class LocalDbProductMasterService {
             ProductDetailBaselineBackfillService productDetailBaselineBackfillService,
             ProductPublishCommandService productPublishCommandService,
             ProductReadModelService productReadModelService,
-            ProductWorkbenchRecordStore productWorkbenchRecordStore
+            ProductWorkbenchRecordStore productWorkbenchRecordStore,
+            ProductWorkbenchOpenService productWorkbenchOpenService
     ) {
         this.productManagementMapper = productManagementMapper;
         this.storeSyncMapper = storeSyncMapper;
@@ -163,6 +165,9 @@ public class LocalDbProductMasterService {
         this.productWorkbenchRecordStore = productWorkbenchRecordStore == null
                 ? new ProductWorkbenchRecordStore()
                 : productWorkbenchRecordStore;
+        this.productWorkbenchOpenService = productWorkbenchOpenService == null
+                ? new ProductWorkbenchOpenService(productProjectionPersistenceService, this.productWorkbenchRecordStore)
+                : productWorkbenchOpenService;
     }
 
     private ProductPublishCommandService requirePublishCommandService() {
@@ -492,7 +497,8 @@ public class LocalDbProductMasterService {
     }
 
     public ProductMasterWorkbenchView openWorkbench(ProductMasterFetchCommand command) {
-        ProductMasterWorkbenchView cachedWorkbench = openWorkbenchFromLocalBaseline(command);
+        ProductMasterWorkbenchView cachedWorkbench =
+                productWorkbenchOpenService.openFromLocalBaseline(command, openWorkbenchSupport());
         if (cachedWorkbench != null) {
             return cachedWorkbench;
         }
@@ -512,93 +518,88 @@ public class LocalDbProductMasterService {
         return productDetailBaselineBackfillService.enqueue(command, reason, this::fetchSnapshot);
     }
 
+    private ProductWorkbenchOpenService.OpenSupport openWorkbenchSupport() {
+        return new ProductWorkbenchOpenService.OpenSupport() {
+            @Override
+            public void hydrateBaselineSnapshot(
+                    Long ownerUserId,
+                    String storeCode,
+                    String skuParent,
+                    ProductMasterSnapshotView baselineSnapshot,
+                    List<String> warnings
+            ) {
+                hydrateSnapshotOperationalKeys(ownerUserId, storeCode, skuParent, baselineSnapshot);
+                hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, baselineSnapshot, warnings);
+                clearResolvedOperationalWarnings(baselineSnapshot);
+                productProjectionPersistenceService.hydrateSnapshotGroupFromCurrentProjection(
+                        ownerUserId,
+                        storeCode,
+                        skuParent,
+                        baselineSnapshot,
+                        warnings
+                );
+            }
+
+            @Override
+            public boolean hasActivePersistedDraft(
+                    ProductProjectionPersistenceService.PersistedWorkbenchState persistedState
+            ) {
+                return LocalDbProductMasterService.this.hasActivePersistedDraft(persistedState);
+            }
+
+            @Override
+            public void hydrateWorkbenchRecord(
+                    Long ownerUserId,
+                    String storeCode,
+                    ProductWorkbenchRecord record,
+                    List<String> warnings
+            ) {
+                hydrateWorkbenchAttributeDictionary(ownerUserId, storeCode, record, warnings);
+            }
+
+            @Override
+            public ProductWorkbenchRecord restorePersistedWorkbenchRecord(
+                    ProductMasterSnapshotView baselineSnapshot,
+                    ProductProjectionPersistenceService.PersistedWorkbenchState persistedState
+            ) {
+                return LocalDbProductMasterService.this.restorePersistedWorkbenchRecord(baselineSnapshot, persistedState);
+            }
+
+            @Override
+            public String extractFetchedAt(ProductMasterSnapshotView snapshot) {
+                return LocalDbProductMasterService.this.extractFetchedAt(snapshot);
+            }
+
+            @Override
+            public ProductMasterWorkbenchView finalizeWorkbenchView(
+                    Long ownerUserId,
+                    ProductWorkbenchRecord record,
+                    String message,
+                    List<String> warnings
+            ) {
+                return LocalDbProductMasterService.this.finalizeWorkbenchView(
+                        ownerUserId,
+                        null,
+                        null,
+                        record,
+                        message,
+                        warnings
+                );
+            }
+
+            @Override
+            public List<String> mergeWarnings(List<String> baseWarnings, List<String> extraWarnings) {
+                return LocalDbProductMasterService.this.mergeWarnings(baseWarnings, extraWarnings);
+            }
+        };
+    }
+
     private String normalizeReason(String reason) {
         String normalized = normalize(reason);
         if (!StringUtils.hasText(normalized)) {
             return "default";
         }
         return normalized.replaceAll("[^a-zA-Z0-9_.-]", "-");
-    }
-
-    private ProductMasterWorkbenchView openWorkbenchFromLocalBaseline(ProductMasterFetchCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
-            return null;
-        }
-        String storeCode = normalize(command.getStoreCode());
-        String skuParent = normalize(command.getSkuParent());
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
-            return null;
-        }
-
-        String key = workbenchKey(command.getOwnerUserId(), storeCode, skuParent);
-        List<String> warnings = new ArrayList<>();
-        ProductMasterSnapshotView baselineSnapshot =
-                productProjectionPersistenceService.loadLatestBaselineSnapshot(
-                        command.getOwnerUserId(),
-                        storeCode,
-                        skuParent,
-                        warnings
-                );
-        if (baselineSnapshot == null || !baselineSnapshot.isReady()) {
-            return null;
-        }
-        hydrateSnapshotOperationalKeys(command.getOwnerUserId(), storeCode, skuParent, baselineSnapshot);
-        hydrateSnapshotAttributeDictionary(command.getOwnerUserId(), storeCode, baselineSnapshot, warnings);
-        clearResolvedOperationalWarnings(baselineSnapshot);
-        productProjectionPersistenceService.hydrateSnapshotGroupFromCurrentProjection(
-                command.getOwnerUserId(),
-                storeCode,
-                skuParent,
-                baselineSnapshot,
-                warnings
-        );
-
-        ProductProjectionPersistenceService.PersistedWorkbenchState persistedState =
-                productProjectionPersistenceService.loadPersistedWorkbenchState(
-                        command.getOwnerUserId(),
-                        storeCode,
-                        skuParent,
-                        warnings
-                );
-        if (!hasActivePersistedDraft(persistedState)) {
-            productProjectionPersistenceService.clearInactivePersistedDraft(
-                    command.getOwnerUserId(),
-                    storeCode,
-                    skuParent,
-                    extractFetchedAt(baselineSnapshot),
-                    warnings
-            );
-        }
-        ProductWorkbenchRecord existingRecord = productWorkbenchRecordStore.get(key);
-        if (
-                existingRecord != null
-                        && !"synced".equalsIgnoreCase(existingRecord.getSyncStatus())
-                        && hasActivePersistedDraft(persistedState)
-        ) {
-            hydrateWorkbenchAttributeDictionary(command.getOwnerUserId(), storeCode, existingRecord, warnings);
-            return finalizeWorkbenchView(
-                    command.getOwnerUserId(),
-                    null,
-                    null,
-                    existingRecord,
-                    localBaselineOpenNote(existingRecord.getLastSyncedAt()),
-                    existingRecord.getDraftSnapshot() != null ? existingRecord.getDraftSnapshot().getWarnings() : new ArrayList<>()
-            );
-        }
-        ProductWorkbenchRecord record = restorePersistedWorkbenchRecord(baselineSnapshot, persistedState);
-        hydrateWorkbenchAttributeDictionary(command.getOwnerUserId(), storeCode, record, warnings);
-        if ("synced".equals(record.getSyncStatus())) {
-            record.setNote(localBaselineOpenNote(extractFetchedAt(baselineSnapshot)));
-        }
-        productWorkbenchRecordStore.put(key, record);
-        return finalizeWorkbenchView(
-                command.getOwnerUserId(),
-                null,
-                null,
-                record,
-                localBaselineOpenNote(extractFetchedAt(baselineSnapshot)),
-                mergeWarnings(baselineSnapshot.getWarnings(), warnings)
-        );
     }
 
     private boolean hasActivePersistedDraft(ProductProjectionPersistenceService.PersistedWorkbenchState persistedState) {
@@ -1823,7 +1824,7 @@ public class LocalDbProductMasterService {
         }
 
         if ("synced".equalsIgnoreCase(normalize(task.getStatus()))) {
-            return openWorkbenchFromLocalBaseline(buildFetchCommand(task));
+            return productWorkbenchOpenService.openFromLocalBaseline(buildFetchCommand(task), openWorkbenchSupport());
         }
 
         ProductMasterSnapshotView baseline = readTaskSnapshot(task.getBaselineJson());
@@ -2316,13 +2317,6 @@ public class LocalDbProductMasterService {
                 && record.getDraftSnapshot() != null
                 && record.getBaselineSnapshot() != null
                 && !sameBusinessSnapshot(record.getDraftSnapshot(), record.getBaselineSnapshot());
-    }
-
-    private String localBaselineOpenNote(String lastSyncedAt) {
-        if (StringUtils.hasText(lastSyncedAt)) {
-            return "当前使用本地商品基线，最后同步时间：" + lastSyncedAt + "。需要核对 Noon 当前版本时可手动同步。";
-        }
-        return "当前使用本地商品基线。需要核对 Noon 当前版本时可手动同步。";
     }
 
     private OperationalKeys resolveOperationalKeysFromProjection(
