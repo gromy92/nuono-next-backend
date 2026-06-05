@@ -88,12 +88,21 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/065_unified_logistics_quote_facts.sql",
                 "classpath:db/init/067_official_fbn_outbound_fee_facts.sql",
                 "classpath:db/init/068_noon_call_store_data_system_reports_path.sql",
+                "classpath:db/init/071_procurement_ali1688_historical_order_sync.sql",
+                "classpath:db/init/072_procurement_ali1688_historical_order_excel_import.sql",
+                "classpath:db/init/073_procurement_ali1688_order_assignment.sql",
                 "classpath:db/init/074_product_site_offer_listing_started_at.sql",
                 "classpath:db/init/089_product_variant_spec.sql",
                 "classpath:db/init/079_product_site_offer_data_missing_site_coverage.sql",
-                "classpath:db/init/080_product_listing_dry_run.sql",
-                "classpath:db/init/081_product_listing_menu_permission.sql",
-                "classpath:db/init/091_operational_task_foundation.sql"
+                "classpath:db/init/090_product_listing_dry_run.sql",
+                "classpath:db/init/091_product_listing_menu_permission.sql",
+                "classpath:db/init/092_procurement_ali1688_order_cleanup_audit.sql",
+                "classpath:db/init/093_procurement_ali1688_order_consumable_assignment.sql",
+                "classpath:db/init/094_procurement_ali1688_order_product_link.sql",
+                "classpath:db/init/095_procurement_ali1688_order_product_link_audit.sql",
+                "classpath:db/init/096_procurement_ali1688_sku_purchase_batch.sql",
+                "classpath:db/init/097_procurement_ali1688_order_assignment_active_guards.sql",
+                "classpath:db/init/098_operational_task_foundation.sql"
             ));
         return payload;
     }
