@@ -92,6 +92,7 @@ public class LocalDbProductMasterService {
     private final ProductSnapshotGroupFetcher productSnapshotGroupFetcher;
     private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
     private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
+    private final ProductStoreContextBuilder productStoreContextBuilder;
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -132,6 +133,7 @@ public class LocalDbProductMasterService {
         this.productSnapshotCoreFetcher = new ProductSnapshotCoreFetcher(objectMapper, productNoonAdapter);
         this.productSnapshotSectionBuilder = new ProductSnapshotSectionBuilder(objectMapper);
         this.productKeyAttributeBuilder = new ProductKeyAttributeBuilder(objectMapper);
+        this.productStoreContextBuilder = new ProductStoreContextBuilder();
         this.productSnapshotGroupFetcher = new ProductSnapshotGroupFetcher(
                 objectMapper,
                 productNoonAdapter,
@@ -506,7 +508,7 @@ public class LocalDbProductMasterService {
         applyFollowSellCatalogContentIfNeeded(session, identity, content, resolveReferenceSite(projectSites, storeCode), reason);
 
         view.setStoreContext(
-                buildStoreContext(
+                productStoreContextBuilder.build(
                         owner,
                         store,
                         noonUser,
@@ -2443,36 +2445,6 @@ public class LocalDbProductMasterService {
         return StringUtils.hasText(text) ? text : null;
     }
 
-    private Map<String, Object> buildStoreContext(
-            StoreSyncOwnerContext owner,
-            StoreSyncStoreRecord store,
-            String noonUser,
-            JsonNode whoamiNode,
-            String projectCode,
-            String referenceStoreCode,
-            String referenceSite,
-            int projectSiteCount
-    ) {
-        Map<String, Object> context = new LinkedHashMap<>();
-        putIfNotNull(context, "ownerUserId", owner.getId());
-        putIfNotBlank(context, "ownerName", resolveOwnerName(owner));
-        putIfNotBlank(context, "accountNo", owner.getAccountNo());
-        putIfNotBlank(context, "projectName", store.getProjectName());
-        putIfNotBlank(context, "projectCode", projectCode);
-        putIfNotBlank(context, "storeCode", referenceStoreCode);
-        putIfNotBlank(context, "site", referenceSite);
-        putIfNotNull(context, "projectSiteCount", projectSiteCount);
-        putIfNotBlank(context, "noonUser", noonUser);
-        putIfNotBlank(context, "whoamiEmail", text(whoamiNode, "email"));
-        putIfNotBlank(context, "whoamiRole", text(whoamiNode, "idp_role"));
-        putIfNotBlank(
-                context,
-                "fetchedAt",
-                ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).format(FETCH_TIME_FORMATTER)
-        );
-        return context;
-    }
-
     private List<ProductProjectSiteContext> loadProjectSiteContexts(
             NoonSession session,
             Long ownerUserId,
@@ -2622,16 +2594,6 @@ public class LocalDbProductMasterService {
         if (values != null && !values.isEmpty()) {
             target.put(key, values);
         }
-    }
-
-    private String resolveOwnerName(StoreSyncOwnerContext owner) {
-        if (StringUtils.hasText(owner.getRealName())) {
-            return owner.getRealName();
-        }
-        if (StringUtils.hasText(owner.getAccountNo())) {
-            return owner.getAccountNo();
-        }
-        return "当前老板";
     }
 
     private String text(JsonNode node, String field) {
