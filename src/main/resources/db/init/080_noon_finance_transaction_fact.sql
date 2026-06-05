@@ -1,4 +1,3 @@
--- Renamed from 080_noon_finance_transaction_fact.sql to keep migration prefixes unique.
 CREATE TABLE IF NOT EXISTS `noon_finance_transaction_id_sequence` (
   `sequence_name` VARCHAR(80) NOT NULL,
   `next_id` BIGINT NOT NULL,
