@@ -112,6 +112,7 @@ public class LocalDbProductMasterService {
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
     private final ProductPublishCommandService productPublishCommandService;
+    private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
     private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
     private final ProductReadModelService productReadModelService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
@@ -181,10 +182,14 @@ public class LocalDbProductMasterService {
         this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator == null
                 ? new ProductWorkbenchStatusHydrator(productProjectionPersistenceService)
                 : productWorkbenchStatusHydrator;
+        this.productPublishTaskChangedDomainsResolver = new ProductPublishTaskChangedDomainsResolver(
+                objectMapper,
+                this::recomputePublishTaskChangedDomains
+        );
         this.productPublishTaskViewBuilder = new ProductPublishTaskViewBuilder(
                 productPublishCommandService,
                 this::buildTerminalPublishTaskWorkbenchView,
-                this::resolvePublishTaskChangedDomains
+                this.productPublishTaskChangedDomainsResolver
         );
         this.productWorkbenchPublishTaskAttacher = new ProductWorkbenchPublishTaskAttacher(
                 productManagementMapper,
@@ -1863,7 +1868,7 @@ public class LocalDbProductMasterService {
     }
 
     private String publishTaskMessage(ProductPublishTaskRecord task) {
-        return requirePublishCommandService().message(task, this::resolvePublishTaskChangedDomains);
+        return requirePublishCommandService().message(task, productPublishTaskChangedDomainsResolver);
     }
 
     private boolean isTerminalPublishTaskStatus(String status) {
@@ -2000,6 +2005,15 @@ public class LocalDbProductMasterService {
         return domains.isEmpty() ? List.of("unknown") : domains;
     }
 
+    private List<String> recomputePublishTaskChangedDomains(
+            ProductMasterSnapshotView draft,
+            ProductMasterSnapshotView baseline,
+            String currentSiteCode
+    ) {
+        UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(draft, baseline, currentSiteCode);
+        return resolvePublishChangedDomains(draft, baseline, currentSiteCode, unsupportedChanges);
+    }
+
     private boolean variantSizeChanged(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
         Map<String, Map<String, Object>> draftVariants = variantMap(draft != null ? draft.getVariants() : null);
         Map<String, Map<String, Object>> baselineVariants = variantMap(baseline != null ? baseline.getVariants() : null);
@@ -2125,81 +2139,6 @@ public class LocalDbProductMasterService {
         } catch (Exception exception) {
             throw new IllegalStateException("商品发布任务 JSON 序列化失败：" + exception.getMessage(), exception);
         }
-    }
-
-    private List<String> parseStringList(String json) {
-        if (!StringUtils.hasText(json)) {
-            return new ArrayList<>();
-        }
-        try {
-            JsonNode node = objectMapper.readTree(json);
-            List<String> values = new ArrayList<>();
-            if (node != null && node.isArray()) {
-                for (JsonNode item : node) {
-                    if (item != null && item.isTextual()) {
-                        values.add(item.asText());
-                    }
-                }
-            }
-            return values;
-        } catch (Exception exception) {
-            return new ArrayList<>();
-        }
-    }
-
-    private List<String> resolvePublishTaskChangedDomains(ProductPublishTaskRecord task) {
-        List<String> domains = parseStringList(task != null ? task.getChangedDomainsJson() : null);
-        boolean needsRecompute = domains.isEmpty()
-                || domains.stream().anyMatch((domain) -> "unknown".equalsIgnoreCase(normalize(domain)));
-        if (!needsRecompute || task == null) {
-            return domains;
-        }
-        try {
-            ProductMasterSnapshotView baseline = readTaskSnapshot(task.getBaselineJson());
-            ProductMasterSnapshotView draft = readTaskSnapshot(task.getDraftJson());
-            UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(draft, baseline, task.getCurrentSiteCode());
-            List<String> recomputedDomains = resolvePublishChangedDomains(draft, baseline, task.getCurrentSiteCode(), unsupportedChanges);
-            return recomputedDomains == null || recomputedDomains.isEmpty() ? domains : recomputedDomains;
-        } catch (Exception exception) {
-            return domains;
-        }
-    }
-
-    private String publishTaskChangedDomainText(ProductPublishTaskRecord task) {
-        Set<String> labels = new LinkedHashSet<>();
-        for (String domain : resolvePublishTaskChangedDomains(task)) {
-            String label = publishTaskChangedDomainLabel(domain);
-            if (StringUtils.hasText(label)) {
-                labels.add(label);
-            }
-        }
-        return String.join("、", labels);
-    }
-
-    private String publishTaskChangedDomainLabel(String domain) {
-        String normalized = normalize(domain);
-        if ("main".equalsIgnoreCase(normalized)) {
-            return "商品主档";
-        }
-        if ("content".equalsIgnoreCase(normalized)) {
-            return "图文内容";
-        }
-        if ("attributes".equalsIgnoreCase(normalized)) {
-            return "关键属性";
-        }
-        if ("site".equalsIgnoreCase(normalized) || "site_offer".equalsIgnoreCase(normalized)) {
-            return "当前站点经营";
-        }
-        if ("grouping".equalsIgnoreCase(normalized)) {
-            return "Group 与变体";
-        }
-        if ("sizes".equalsIgnoreCase(normalized)) {
-            return "尺码";
-        }
-        if ("unknown".equalsIgnoreCase(normalized)) {
-            return "未识别字段";
-        }
-        return normalized;
     }
 
     private String sha256Hex(String value) {
