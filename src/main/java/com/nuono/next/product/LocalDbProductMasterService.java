@@ -119,6 +119,7 @@ public class LocalDbProductMasterService {
     private final ProductWorkbenchRecordStore productWorkbenchRecordStore;
     private final ProductWorkbenchOpenService productWorkbenchOpenService;
     private final ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver;
+    private final ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator;
     private final ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer;
     private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
 
@@ -151,6 +152,7 @@ public class LocalDbProductMasterService {
             ProductWorkbenchRecordStore productWorkbenchRecordStore,
             ProductWorkbenchOpenService productWorkbenchOpenService,
             ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver,
+            ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator,
             ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer
     ) {
         this.productManagementMapper = productManagementMapper;
@@ -175,10 +177,14 @@ public class LocalDbProductMasterService {
         this.productWorkbenchDirtySiteResolver = productWorkbenchDirtySiteResolver == null
                 ? new ProductWorkbenchDirtySiteResolver(objectMapper)
                 : productWorkbenchDirtySiteResolver;
+        this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator == null
+                ? new ProductWorkbenchStatusHydrator(productProjectionPersistenceService)
+                : productWorkbenchStatusHydrator;
         this.productWorkbenchViewFinalizer = productWorkbenchViewFinalizer == null
                 ? new ProductWorkbenchViewFinalizer(
                         productProjectionPersistenceService,
-                        this.productWorkbenchDirtySiteResolver
+                        this.productWorkbenchDirtySiteResolver,
+                        this.productWorkbenchStatusHydrator
                 )
                 : productWorkbenchViewFinalizer;
     }
@@ -2512,28 +2518,6 @@ public class LocalDbProductMasterService {
         return fetchedAt == null ? null : String.valueOf(fetchedAt);
     }
 
-    private void syncProductMasterStatus(
-            ProductMasterSnapshotView snapshot,
-            String syncStatus,
-            String lastSyncedAt,
-            List<String> warnings
-    ) {
-        if (snapshot == null) {
-            return;
-        }
-        Object ownerUserId = snapshot.getStoreContext().get("ownerUserId");
-        Long resolvedOwnerUserId = ownerUserId instanceof Number ? ((Number) ownerUserId).longValue() : null;
-        productProjectionPersistenceService.updateProductMasterStatus(
-                resolvedOwnerUserId,
-                textValue(snapshot.getStoreContext().get("projectCode")),
-                textValue(snapshot.getStoreContext().get("projectName")),
-                textValue(snapshot.getIdentity().get("skuParent")),
-                syncStatus,
-                lastSyncedAt,
-                warnings
-        );
-    }
-
     private ProductMasterWorkbenchView finalizeWorkbenchView(
             Long ownerUserId,
             String actionType,
@@ -2583,25 +2567,6 @@ public class LocalDbProductMasterService {
             public void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
                 LocalDbProductMasterService.this.attachActivePublishTask(ownerUserId, record);
             }
-
-            @Override
-            public void syncProductMasterStatus(
-                    ProductMasterSnapshotView snapshot,
-                    String syncStatus,
-                    String lastSyncedAt,
-                    List<String> warnings
-            ) {
-                LocalDbProductMasterService.this.syncProductMasterStatus(snapshot, syncStatus, lastSyncedAt, warnings);
-            }
-
-            @Override
-            public void hydrateListSummaryState(
-                    Long ownerUserId,
-                    ProductMasterSnapshotView snapshot,
-                    List<String> warnings
-            ) {
-                LocalDbProductMasterService.this.hydrateListSummaryState(ownerUserId, snapshot, warnings);
-            }
         };
     }
 
@@ -2624,24 +2589,6 @@ public class LocalDbProductMasterService {
 
     private int recoverStaleRunningProductPublishTasks() {
         return requirePublishCommandService().recoverStaleRunningTasks();
-    }
-
-    private void hydrateListSummaryState(
-            Long ownerUserId,
-            ProductMasterSnapshotView snapshot,
-            List<String> warnings
-    ) {
-        if (!(snapshot instanceof ProductMasterWorkbenchView) || ownerUserId == null || snapshot == null) {
-            return;
-        }
-        ProductMasterWorkbenchView workbenchView = (ProductMasterWorkbenchView) snapshot;
-        ProductListSummaryView summary = productProjectionPersistenceService.loadProductListSummary(
-                ownerUserId,
-                textValue(snapshot.getStoreContext().get("storeCode")),
-                textValue(snapshot.getIdentity().get("skuParent")),
-                warnings
-        );
-        workbenchView.setListSummary(summary);
     }
 
     private void hydratePendingKeyContentHistoryState(

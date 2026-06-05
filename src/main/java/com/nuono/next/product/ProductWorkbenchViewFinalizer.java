@@ -11,14 +11,17 @@ class ProductWorkbenchViewFinalizer {
 
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
     private final ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver;
+    private final ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator;
     private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
 
     ProductWorkbenchViewFinalizer(
             ProductProjectionPersistenceService productProjectionPersistenceService,
-            ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver
+            ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver,
+            ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator
     ) {
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.productWorkbenchDirtySiteResolver = productWorkbenchDirtySiteResolver;
+        this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator;
     }
 
     ProductMasterWorkbenchView finalizeView(
@@ -34,7 +37,12 @@ class ProductWorkbenchViewFinalizer {
     ) {
         support.attachActivePublishTask(ownerUserId, record);
         ProductMasterWorkbenchView view = productWorkbenchViewAssembler.buildWorkbenchView(record, message, warnings);
-        support.syncProductMasterStatus(view, view.getSyncStatus(), view.getLastSyncedAt(), view.getWarnings());
+        productWorkbenchStatusHydrator.syncProductMasterStatus(
+                view,
+                view.getSyncStatus(),
+                view.getLastSyncedAt(),
+                view.getWarnings()
+        );
         if (StringUtils.hasText(actionType)) {
             productProjectionPersistenceService.persistWorkbenchState(
                     ownerUserId,
@@ -50,24 +58,11 @@ class ProductWorkbenchViewFinalizer {
                     actionDraftSnapshot
             );
         }
-        support.hydrateListSummaryState(ownerUserId, view, view.getWarnings());
+        productWorkbenchStatusHydrator.hydrateListSummaryState(ownerUserId, view, view.getWarnings());
         return view;
     }
 
     interface FinalizeSupport {
         void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record);
-
-        void syncProductMasterStatus(
-                ProductMasterSnapshotView snapshot,
-                String syncStatus,
-                String lastSyncedAt,
-                List<String> warnings
-        );
-
-        void hydrateListSummaryState(
-                Long ownerUserId,
-                ProductMasterSnapshotView snapshot,
-                List<String> warnings
-        );
     }
 }

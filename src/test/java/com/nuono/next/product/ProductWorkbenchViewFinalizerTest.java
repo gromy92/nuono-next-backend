@@ -25,13 +25,17 @@ class ProductWorkbenchViewFinalizerTest {
     @Mock
     private ProductProjectionPersistenceService productProjectionPersistenceService;
 
+    @Mock
+    private ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator;
+
     private ProductWorkbenchViewFinalizer finalizer;
 
     @BeforeEach
     void setUp() {
         finalizer = new ProductWorkbenchViewFinalizer(
                 productProjectionPersistenceService,
-                new ProductWorkbenchDirtySiteResolver(new ObjectMapper())
+                new ProductWorkbenchDirtySiteResolver(new ObjectMapper()),
+                productWorkbenchStatusHydrator
         );
     }
 
@@ -39,6 +43,7 @@ class ProductWorkbenchViewFinalizerTest {
     void finalizesViewWithoutPersistingWhenActionTypeIsBlank() {
         ProductWorkbenchRecord record = record("Baseline title", "Draft title");
         FakeFinalizeSupport support = new FakeFinalizeSupport();
+        stubStatusHydrator(support);
 
         ProductMasterWorkbenchView view = finalizer.finalizeView(
                 10002L,
@@ -76,8 +81,10 @@ class ProductWorkbenchViewFinalizerTest {
         ProductMasterSnapshotView actionBaseline = snapshot("Baseline title");
         ProductMasterSnapshotView actionDraft = snapshot("Edited title");
         FakeFinalizeSupport support = new FakeFinalizeSupport();
+        stubStatusHydrator(support);
         List<List<String>> persistedWarnings = new ArrayList<>();
         doAnswer((invocation) -> {
+            support.calls.add("persist");
             persistedWarnings.add(List.copyOf(invocation.getArgument(5)));
             return null;
         }).when(productProjectionPersistenceService).persistWorkbenchState(
@@ -103,7 +110,7 @@ class ProductWorkbenchViewFinalizerTest {
                 support
         );
 
-        assertEquals(List.of("attach", "sync", "hydrate"), support.calls);
+        assertEquals(List.of("attach", "sync", "persist", "hydrate"), support.calls);
         verify(productProjectionPersistenceService).persistWorkbenchState(
                 eq(10002L),
                 eq(view),
@@ -116,6 +123,35 @@ class ProductWorkbenchViewFinalizerTest {
         );
         assertEquals(List.of(List.of("初始提示", "status-synced")), persistedWarnings);
         assertEquals(List.of("初始提示", "status-synced", "summary-hydrated"), view.getWarnings());
+    }
+
+    private void stubStatusHydrator(FakeFinalizeSupport support) {
+        doAnswer((invocation) -> {
+            support.calls.add("sync");
+            support.statusSnapshot = invocation.getArgument(0);
+            assertEquals("draft", invocation.getArgument(1));
+            assertEquals("2026-06-04 10:00:00", invocation.getArgument(2));
+            List<String> warnings = invocation.getArgument(3);
+            warnings.add("status-synced");
+            return null;
+        }).when(productWorkbenchStatusHydrator).syncProductMasterStatus(
+                any(ProductMasterSnapshotView.class),
+                any(),
+                any(),
+                any()
+        );
+        doAnswer((invocation) -> {
+            support.calls.add("hydrate");
+            assertEquals(Long.valueOf(10002L), invocation.getArgument(0));
+            support.summarySnapshot = invocation.getArgument(1);
+            List<String> warnings = invocation.getArgument(2);
+            warnings.add("summary-hydrated");
+            return null;
+        }).when(productWorkbenchStatusHydrator).hydrateListSummaryState(
+                eq(10002L),
+                any(ProductMasterSnapshotView.class),
+                any()
+        );
     }
 
     private ProductWorkbenchRecord record(String baselineTitle, String draftTitle) {
@@ -158,32 +194,6 @@ class ProductWorkbenchViewFinalizerTest {
         public void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
             calls.add("attach");
             assertEquals(10002L, ownerUserId);
-        }
-
-        @Override
-        public void syncProductMasterStatus(
-                ProductMasterSnapshotView snapshot,
-                String syncStatus,
-                String lastSyncedAt,
-                List<String> warnings
-        ) {
-            calls.add("sync");
-            statusSnapshot = snapshot;
-            assertEquals("draft", syncStatus);
-            assertEquals("2026-06-04 10:00:00", lastSyncedAt);
-            warnings.add("status-synced");
-        }
-
-        @Override
-        public void hydrateListSummaryState(
-                Long ownerUserId,
-                ProductMasterSnapshotView snapshot,
-                List<String> warnings
-        ) {
-            calls.add("hydrate");
-            summarySnapshot = snapshot;
-            assertEquals(10002L, ownerUserId);
-            warnings.add("summary-hydrated");
         }
     }
 }
