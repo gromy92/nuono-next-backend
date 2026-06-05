@@ -91,6 +91,7 @@ public class LocalDbProductMasterService {
     private final ProductCatalogContentFallbackApplier productCatalogContentFallbackApplier;
     private final ProductSnapshotGroupFetcher productSnapshotGroupFetcher;
     private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
+    private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -147,6 +148,7 @@ public class LocalDbProductMasterService {
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
         this.productAttributeTemplateService = productAttributeTemplateService;
+        this.productSnapshotTemplateFetcher = new ProductSnapshotTemplateFetcher(productAttributeTemplateService);
         this.productAttributeDictionaryHydrator = new ProductAttributeDictionaryHydrator(productAttributeTemplateService);
         this.productGroupPublishService = productGroupPublishService;
         this.productCatalogContentFallbackApplier = new ProductCatalogContentFallbackApplier(productNoonCatalogContentService);
@@ -428,19 +430,22 @@ public class LocalDbProductMasterService {
         String brand = text(commonNode, "brand");
         String idPartner = text(commonNode, "id_partner");
 
-        JsonNode fulltypeTemplateNode = MissingNode.getInstance();
-        if (StringUtils.hasText(productFulltype)) {
-            stageStartedAt = System.nanoTime();
-            fulltypeTemplateNode = productAttributeTemplateService.loadTemplate(
-                    session,
-                    resolvedProjectCode,
-                    storeCode,
-                    productFulltype,
-                    command.getOwnerUserId(),
-                    view.getWarnings()
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "fulltypeTemplate", stageStartedAt);
-        }
+        JsonNode fulltypeTemplateNode = productSnapshotTemplateFetcher.fetch(
+                session,
+                resolvedProjectCode,
+                storeCode,
+                productFulltype,
+                command.getOwnerUserId(),
+                view.getWarnings(),
+                (stageName, startedAt) -> recordFetchStage(
+                        timingEntries,
+                        timingBreakdownMs,
+                        traceLabel,
+                        reason,
+                        stageName,
+                        startedAt
+                )
+        );
 
         ProductSnapshotGroupFetchResult groupFetchResult = productSnapshotGroupFetcher.fetch(
                 session,
