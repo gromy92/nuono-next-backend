@@ -28,7 +28,7 @@ class ProductListingPermissionSeedContractTest {
                 "resources",
                 "db",
                 "init",
-                "081_product_listing_menu_permission.sql"
+                "091_product_listing_menu_permission.sql"
         );
         assertTrue(Files.exists(seedPath), "product listing permission seed must exist for local databases");
 
@@ -59,8 +59,8 @@ class ProductListingPermissionSeedContractTest {
                 "LocalDbBootstrapStatusService.java"
         ));
 
-        assertTrue(source.contains("classpath:db/init/080_product_listing_dry_run.sql"));
-        assertTrue(source.contains("classpath:db/init/081_product_listing_menu_permission.sql"));
+        assertTrue(source.contains("classpath:db/init/090_product_listing_dry_run.sql"));
+        assertTrue(source.contains("classpath:db/init/091_product_listing_menu_permission.sql"));
     }
 
     private static Pattern roleGrant(int roleId) {
