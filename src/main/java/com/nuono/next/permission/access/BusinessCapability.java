@@ -6,6 +6,11 @@ public enum BusinessCapability {
     PRODUCT_MASTER(List.of("/api/sku/manage", "/product/groups", "/product/manage")),
     PRODUCT_LISTING(List.of("/purchase/listing", "/api/product-listing")),
     PROCUREMENT(List.of("/api/purchase/order", "/purchase/order")),
+    ALI1688_HISTORICAL_ORDERS(List.of(
+            "/api/procurement/ali1688-orders",
+            "/purchase/ali1688-orders",
+            "/purchase/ali1688-sku-purchase-history"
+    )),
     STORE_SYNC(List.of("/api/user/role", "/user/store-noon")),
     MASTER_DATA_SYSTEM(List.of("/system/role", "/system/menu")),
     SALES_DATA(List.of("/data/sales-analysis", "/data/sales-forecast", "/data/sales", "/data/order-analysis", "/api/sales-forecast", "/api/order-finance")),
