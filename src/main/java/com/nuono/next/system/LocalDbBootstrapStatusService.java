@@ -94,7 +94,9 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/074_procurement_ali1688_order_cleanup_audit.sql",
                 "classpath:db/init/075_procurement_ali1688_order_consumable_assignment.sql",
                 "classpath:db/init/076_procurement_ali1688_order_product_link.sql",
-                "classpath:db/init/077_procurement_ali1688_order_product_link_audit.sql"
+                "classpath:db/init/077_procurement_ali1688_order_product_link_audit.sql",
+                "classpath:db/init/078_procurement_ali1688_sku_purchase_batch.sql",
+                "classpath:db/init/079_procurement_ali1688_order_assignment_active_guards.sql"
             ));
         return payload;
     }
