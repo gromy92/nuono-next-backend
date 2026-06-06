@@ -3,6 +3,7 @@ package com.nuono.next.product;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
+import com.nuono.next.infrastructure.mapper.ProductLiteMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
@@ -52,6 +53,7 @@ public class LocalDbProductMasterService {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final ProductManagementMapper productManagementMapper;
+    private final ProductLiteMapper productLiteMapper;
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final ObjectMapper objectMapper;
@@ -109,6 +111,7 @@ public class LocalDbProductMasterService {
 
     public LocalDbProductMasterService(
             ProductManagementMapper productManagementMapper,
+            ProductLiteMapper productLiteMapper,
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
             ObjectMapper objectMapper,
@@ -127,6 +130,7 @@ public class LocalDbProductMasterService {
             ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator
     ) {
         this.productManagementMapper = productManagementMapper;
+        this.productLiteMapper = productLiteMapper;
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
@@ -714,7 +718,7 @@ public class LocalDbProductMasterService {
         );
         boolean usedProjectionFallback = false;
         if (brands.isEmpty() && !StringUtils.hasText(brandQuery)) {
-            brands = productManagementMapper.selectBrandProjectionClassificationOptions(
+            brands = productLiteMapper.selectBrandProjectionClassificationOptions(
                     command.getOwnerUserId(),
                     storeCode,
                     brandQuery,
@@ -723,7 +727,7 @@ public class LocalDbProductMasterService {
             usedProjectionFallback = !brands.isEmpty();
         }
         if (fulltypes.isEmpty() && !StringUtils.hasText(fulltypeQuery)) {
-            fulltypes = productManagementMapper.selectFulltypeProjectionClassificationOptions(
+            fulltypes = productLiteMapper.selectFulltypeProjectionClassificationOptions(
                     command.getOwnerUserId(),
                     storeCode,
                     fulltypeQuery,
