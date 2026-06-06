@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -130,6 +131,32 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertFalse(summary.isReady());
         assertEquals("missing", summary.getSource());
         assertEquals("ZMISS001", summary.getSkuParent());
+    }
+
+    @Test
+    void listSummariesShouldNotHydrateHistoryMetadataPerRow() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setTitle("Amber Burner");
+        record.setDetailBaselineStatus("missing");
+        record.setSyncStatus("synced");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        assertEquals("ZTEST001", summaries.get(0).getSkuParent());
+        assertNull(summaries.get(0).getHistoryMetaReady());
+        verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("ZTEST001")
+        );
     }
 
     @Test
