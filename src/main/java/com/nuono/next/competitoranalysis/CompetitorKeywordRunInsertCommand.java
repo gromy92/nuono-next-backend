@@ -1,5 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
+import java.time.LocalDateTime;
+
 public class CompetitorKeywordRunInsertCommand {
     private Long id;
     private Long searchRunId;
@@ -12,6 +14,7 @@ public class CompetitorKeywordRunInsertCommand {
     private String parserVersion;
     private Integer providerHttpStatus;
     private String responseHash;
+    private LocalDateTime capturedAt;
     private String errorCode;
     private String errorMessage;
     private Long actorUserId;
@@ -38,6 +41,8 @@ public class CompetitorKeywordRunInsertCommand {
     public void setProviderHttpStatus(Integer providerHttpStatus) { this.providerHttpStatus = providerHttpStatus; }
     public String getResponseHash() { return responseHash; }
     public void setResponseHash(String responseHash) { this.responseHash = responseHash; }
+    public LocalDateTime getCapturedAt() { return capturedAt; }
+    public void setCapturedAt(LocalDateTime capturedAt) { this.capturedAt = capturedAt; }
     public String getErrorCode() { return errorCode; }
     public void setErrorCode(String errorCode) { this.errorCode = errorCode; }
     public String getErrorMessage() { return errorMessage; }

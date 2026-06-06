@@ -1,5 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
+import java.math.BigDecimal;
+
 public class CompetitorProductInsertCommand {
     private Long id;
     private Long watchProductId;
@@ -9,6 +11,10 @@ public class CompetitorProductInsertCommand {
     private String titleSnapshot;
     private String brandSnapshot;
     private String imageUrlSnapshot;
+    private BigDecimal priceAmountSnapshot;
+    private String currencyCodeSnapshot;
+    private BigDecimal ratingSnapshot;
+    private Integer reviewCountSnapshot;
     private String sourceType;
     private String reviewStatus;
     private Long actorUserId;
@@ -29,6 +35,14 @@ public class CompetitorProductInsertCommand {
     public void setBrandSnapshot(String brandSnapshot) { this.brandSnapshot = brandSnapshot; }
     public String getImageUrlSnapshot() { return imageUrlSnapshot; }
     public void setImageUrlSnapshot(String imageUrlSnapshot) { this.imageUrlSnapshot = imageUrlSnapshot; }
+    public BigDecimal getPriceAmountSnapshot() { return priceAmountSnapshot; }
+    public void setPriceAmountSnapshot(BigDecimal priceAmountSnapshot) { this.priceAmountSnapshot = priceAmountSnapshot; }
+    public String getCurrencyCodeSnapshot() { return currencyCodeSnapshot; }
+    public void setCurrencyCodeSnapshot(String currencyCodeSnapshot) { this.currencyCodeSnapshot = currencyCodeSnapshot; }
+    public BigDecimal getRatingSnapshot() { return ratingSnapshot; }
+    public void setRatingSnapshot(BigDecimal ratingSnapshot) { this.ratingSnapshot = ratingSnapshot; }
+    public Integer getReviewCountSnapshot() { return reviewCountSnapshot; }
+    public void setReviewCountSnapshot(Integer reviewCountSnapshot) { this.reviewCountSnapshot = reviewCountSnapshot; }
     public String getSourceType() { return sourceType; }
     public void setSourceType(String sourceType) { this.sourceType = sourceType; }
     public String getReviewStatus() { return reviewStatus; }

@@ -1,6 +1,7 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.competitoranalysis.CompetitorKeywordProductRow;
+import com.nuono.next.competitoranalysis.CompetitorKeywordProductSearchCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordRow;
 import com.nuono.next.competitoranalysis.CompetitorKeywordRunInsertCommand;
@@ -11,8 +12,10 @@ import com.nuono.next.competitoranalysis.CompetitorProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorProductOptionRow;
 import com.nuono.next.competitoranalysis.CompetitorProductRow;
 import com.nuono.next.competitoranalysis.CompetitorProductScopeRow;
+import com.nuono.next.competitoranalysis.CompetitorRankFactInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchRunInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchRunRow;
+import com.nuono.next.competitoranalysis.CompetitorSearchResultInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductListRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductQuery;
@@ -74,6 +77,14 @@ public interface CompetitorAnalysisMapper {
 
     default Long nextKeywordRunId() {
         return nextCompetitorAnalysisId("operations_competitor_keyword_run", 230000L);
+    }
+
+    default Long nextSearchResultId() {
+        return nextCompetitorAnalysisId("operations_competitor_search_result", 240000L);
+    }
+
+    default Long nextRankFactId() {
+        return nextCompetitorAnalysisId("operations_competitor_rank_fact", 250000L);
     }
 
     @Select({
@@ -378,15 +389,37 @@ public interface CompetitorAnalysisMapper {
     @Insert({
             "INSERT INTO operations_competitor_product (",
             "  id, watch_product_id, noon_product_code, code_type, canonical_url, title_snapshot,",
-            "  brand_snapshot, image_url_snapshot, source_type, review_status, confirmed_by, confirmed_at,",
+            "  brand_snapshot, image_url_snapshot, price_amount_snapshot, currency_code_snapshot,",
+            "  rating_snapshot, review_count_snapshot, source_type, review_status, confirmed_by, confirmed_at,",
             "  first_seen_at, last_seen_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "  #{id}, #{watchProductId}, #{noonProductCode}, #{codeType}, #{canonicalUrl}, #{titleSnapshot},",
-            "  #{brandSnapshot}, #{imageUrlSnapshot}, #{sourceType}, #{reviewStatus}, #{actorUserId}, NOW(),",
+            "  #{brandSnapshot}, #{imageUrlSnapshot}, #{priceAmountSnapshot}, #{currencyCodeSnapshot},",
+            "  #{ratingSnapshot}, #{reviewCountSnapshot}, #{sourceType}, #{reviewStatus},",
+            "  CASE WHEN #{reviewStatus} = 'CONFIRMED' THEN #{actorUserId} ELSE NULL END,",
+            "  CASE WHEN #{reviewStatus} = 'CONFIRMED' THEN NOW() ELSE NULL END,",
             "  NOW(), NOW(), b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
             ")"
     })
     int insertCompetitorProduct(CompetitorProductInsertCommand command);
+
+    @Update({
+            "UPDATE operations_competitor_product",
+            "SET canonical_url = COALESCE(#{canonicalUrl}, canonical_url),",
+            "    title_snapshot = COALESCE(#{titleSnapshot}, title_snapshot),",
+            "    brand_snapshot = COALESCE(#{brandSnapshot}, brand_snapshot),",
+            "    image_url_snapshot = COALESCE(#{imageUrlSnapshot}, image_url_snapshot),",
+            "    price_amount_snapshot = COALESCE(#{priceAmountSnapshot}, price_amount_snapshot),",
+            "    currency_code_snapshot = COALESCE(#{currencyCodeSnapshot}, currency_code_snapshot),",
+            "    rating_snapshot = COALESCE(#{ratingSnapshot}, rating_snapshot),",
+            "    review_count_snapshot = COALESCE(#{reviewCountSnapshot}, review_count_snapshot),",
+            "    last_seen_at = NOW(),",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateCompetitorProductFromSearch(CompetitorProductInsertCommand command);
 
     @Update({
             "UPDATE operations_competitor_product",
@@ -718,16 +751,103 @@ public interface CompetitorAnalysisMapper {
             "INSERT INTO operations_competitor_keyword_run (",
             "  id, search_run_id, keyword_id, keyword_snapshot, locale_snapshot, provider_status,",
             "  result_count, source_url, parser_version, provider_http_status, response_hash,",
-            "  error_code, error_message, started_at, finished_at, is_deleted, created_by, updated_by,",
+            "  captured_at, error_code, error_message, started_at, finished_at, is_deleted, created_by, updated_by,",
             "  gmt_create, gmt_updated",
             ") VALUES (",
             "  #{id}, #{searchRunId}, #{keywordId}, #{keywordSnapshot}, #{localeSnapshot}, #{providerStatus},",
             "  #{resultCount}, #{sourceUrl}, #{parserVersion}, #{providerHttpStatus}, #{responseHash},",
-            "  #{errorCode}, #{errorMessage}, NOW(), NOW(), b'0', #{actorUserId}, #{actorUserId},",
+            "  #{capturedAt}, #{errorCode}, #{errorMessage}, NOW(), NOW(), b'0', #{actorUserId}, #{actorUserId},",
             "  NOW(), NOW()",
             ")"
     })
     int insertKeywordRun(CompetitorKeywordRunInsertCommand command);
+
+    @Select({
+            "SELECT",
+            "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "  logical_store_id AS logicalStoreId, product_master_id AS productMasterId,",
+            "  product_variant_id AS productVariantId, product_site_offer_id AS productSiteOfferId,",
+            "  sku_parent AS skuParent, partner_sku AS partnerSku, child_sku AS childSku,",
+            "  self_noon_product_code AS selfNoonProductCode, self_code_type AS selfCodeType,",
+            "  title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
+            "  image_url_snapshot AS imageUrlSnapshot, product_fulltype_snapshot AS productFulltypeSnapshot,",
+            "  status, latest_run_id AS latestRunId, latest_run_status AS latestRunStatus,",
+            "  latest_run_at AS latestRunAt, gmt_updated AS gmtUpdated",
+            "FROM operations_competitor_watch_product",
+            "WHERE id = #{watchProductId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorWatchProductRow selectWatchProductForRefresh(@Param("watchProductId") Long watchProductId);
+
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, noon_product_code AS noonProductCode, code_type AS codeType,",
+            "  canonical_url AS canonicalUrl, title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
+            "  image_url_snapshot AS imageUrlSnapshot, price_amount_snapshot AS priceAmountSnapshot,",
+            "  currency_code_snapshot AS currencyCodeSnapshot, rating_snapshot AS ratingSnapshot,",
+            "  review_count_snapshot AS reviewCountSnapshot, source_type AS sourceType, review_status AS reviewStatus,",
+            "  confirmed_by AS confirmedBy, confirmed_at AS confirmedAt, first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt",
+            "FROM operations_competitor_product",
+            "WHERE watch_product_id = #{watchProductId}",
+            "  AND review_status = 'CONFIRMED'",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC"
+    })
+    List<CompetitorProductRow> listConfirmedCompetitorProductsByWatchProductId(@Param("watchProductId") Long watchProductId);
+
+    @Insert({
+            "INSERT INTO operations_competitor_keyword_product (",
+            "  id, keyword_id, competitor_product_id, relation_status,",
+            "  first_seen_run_id, last_seen_run_id, first_seen_rank_no, last_seen_rank_no,",
+            "  last_seen_sponsored, last_seen_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{keywordId}, #{competitorProductId}, 'DISCOVERED',",
+            "  #{searchRunId}, #{searchRunId}, #{rankNo}, #{rankNo}, #{sponsored}, NOW(),",
+            "  b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  relation_status = CASE WHEN relation_status = 'IGNORED' THEN relation_status ELSE 'DISCOVERED' END,",
+            "  last_seen_run_id = VALUES(last_seen_run_id),",
+            "  first_seen_rank_no = COALESCE(first_seen_rank_no, VALUES(first_seen_rank_no)),",
+            "  last_seen_rank_no = VALUES(last_seen_rank_no),",
+            "  last_seen_sponsored = VALUES(last_seen_sponsored),",
+            "  last_seen_at = NOW(),",
+            "  is_deleted = b'0',",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertKeywordProductRelationFromSearch(CompetitorKeywordProductSearchCommand command);
+
+    @Insert({
+            "INSERT INTO operations_competitor_search_result (",
+            "  id, keyword_run_id, result_position, noon_product_code, code_type, canonical_url,",
+            "  title_snapshot, brand_snapshot, image_url_snapshot, price_amount, currency_code,",
+            "  rating, review_count, is_sponsored, raw_result_json, captured_at, is_deleted,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{keywordRunId}, #{resultPosition}, #{noonProductCode}, #{codeType}, #{canonicalUrl},",
+            "  #{titleSnapshot}, #{brandSnapshot}, #{imageUrlSnapshot}, #{priceAmount}, #{currencyCode},",
+            "  #{rating}, #{reviewCount}, #{sponsored}, #{rawResultJson}, #{capturedAt}, b'0',",
+            "  #{actorUserId}, #{actorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertSearchResult(CompetitorSearchResultInsertCommand command);
+
+    @Insert({
+            "INSERT INTO operations_competitor_rank_fact (",
+            "  id, watch_product_id, keyword_id, keyword_run_id, search_run_id, fact_time, fact_date,",
+            "  tracked_product_type, noon_product_code, rank_status, rank_no, is_sponsored,",
+            "  price_amount, currency_code, rating, review_count, source_result_id, is_deleted,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{watchProductId}, #{keywordId}, #{keywordRunId}, #{searchRunId}, #{factTime}, #{factDate},",
+            "  #{trackedProductType}, #{noonProductCode}, #{rankStatus}, #{rankNo}, #{sponsored},",
+            "  #{priceAmount}, #{currencyCode}, #{rating}, #{reviewCount}, #{sourceResultId}, b'0',",
+            "  #{actorUserId}, #{actorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertRankFact(CompetitorRankFactInsertCommand command);
 
     @Update({
             "UPDATE operations_competitor_keyword",

@@ -162,10 +162,14 @@ public class CompetitorAnalysisRefreshService {
         String firstErrorMessage = null;
         try {
             operationalTaskService.progress(taskId, 5, RUNNING_MESSAGE);
+            CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(watchProductId);
+            if (watchProduct == null) {
+                throw new IllegalStateException("监控商品不存在或已删除。");
+            }
             List<CompetitorKeywordRow> keywords = mapper.listActiveKeywordsByWatchProductId(watchProductId);
             int total = keywords.size();
             for (CompetitorKeywordRow keyword : keywords) {
-                CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(runId, keyword, actorUserId);
+                CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(runId, watchProduct, keyword, actorUserId);
                 if (result.isSuccess()) {
                     success++;
                     candidateUpsertedCount += result.getCandidateUpsertedCount();
