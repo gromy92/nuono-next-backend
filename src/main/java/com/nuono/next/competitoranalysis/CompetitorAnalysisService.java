@@ -2,6 +2,8 @@ package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -269,6 +271,27 @@ public class CompetitorAnalysisService {
         );
     }
 
+    public CompetitorRankHistoryView rankHistory(
+            BusinessAccessContext context,
+            Long watchProductId,
+            Long keywordId,
+            Integer rangeDays
+    ) {
+        CompetitorWatchProductRow watchProduct = requireWatchProduct(context, watchProductId);
+        CompetitorKeywordScopeRow keyword = requireKeywordScope(keywordId);
+        if (!watchProduct.getId().equals(keyword.getWatchProductId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_SCOPE_MISMATCH");
+        }
+        int normalizedRangeDays = normalizeHistoryRangeDays(rangeDays);
+        LocalDateTime fromTime = LocalDate.now().minusDays(normalizedRangeDays - 1L).atStartOfDay();
+        return CompetitorRankHistoryView.fromRows(mapper.listRankHistoryByWatchProductIdAndKeywordId(
+                watchProduct.getId(),
+                keyword.getKeywordId(),
+                fromTime,
+                1000
+        ));
+    }
+
     private CompetitorProductOptionView toProductOptionView(CompetitorProductOptionRow row) {
         String noonCode = normalizeNoonCode(row == null ? null : row.getPskuCode());
         String codeType = resolveNoonCodeType(noonCode);
@@ -466,6 +489,13 @@ public class CompetitorAnalysisService {
             return 20;
         }
         return Math.min(limit, 50);
+    }
+
+    private int normalizeHistoryRangeDays(Integer rangeDays) {
+        if (rangeDays == null || rangeDays < 1) {
+            return 30;
+        }
+        return Math.min(rangeDays, 365);
     }
 
     private Long actorUserId(BusinessAccessContext context) {
