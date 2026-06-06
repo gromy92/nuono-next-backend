@@ -3,6 +3,7 @@ package com.nuono.next.competitoranalysis;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -168,6 +170,45 @@ class CompetitorAnalysisServiceTest {
         verify(mapper, never()).countWatchProducts(any(), any(), any());
     }
 
+    @Test
+    void rankHistoryReturnsRowsForKeywordInsideWatchProductScope() {
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
+        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
+        CompetitorLatestRankPointRow point = rankPoint(190001L, "SELF", "Z6122BASKETSA", 4);
+        when(mapper.listRankHistoryByWatchProductIdAndKeywordId(
+                eq(180123L),
+                eq(190001L),
+                any(LocalDateTime.class),
+                eq(1000)
+        )).thenReturn(List.of(point));
+
+        CompetitorRankHistoryView view = service.rankHistory(operatorContext(), 180123L, 190001L, 999);
+
+        assertEquals(1, view.getItems().size());
+        assertEquals("Z6122BASKETSA", view.getItems().get(0).getNoonProductCode());
+        verify(mapper).listRankHistoryByWatchProductIdAndKeywordId(
+                eq(180123L),
+                eq(190001L),
+                any(LocalDateTime.class),
+                eq(1000)
+        );
+    }
+
+    @Test
+    void rankHistoryRejectsKeywordOutsideWatchProduct() {
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
+        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180999L));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> service.rankHistory(operatorContext(), 180123L, 190001L, 30)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        assertEquals("COMPETITOR_KEYWORD_SCOPE_MISMATCH", error.getReason());
+        verify(mapper, never()).listRankHistoryByWatchProductIdAndKeywordId(any(), any(), any(), any());
+    }
+
     private static CompetitorWatchProductCreateCommand createCommand(String selfNoonProductCode) {
         CompetitorWatchProductCreateCommand command = new CompetitorWatchProductCreateCommand();
         command.setStoreCode(" str108065-nsa ");
@@ -209,6 +250,35 @@ class CompetitorAnalysisServiceTest {
         row.setSelfCodeType("Z_CODE");
         row.setTitleSnapshot("Foldable Laundry Basket With Bamboo Handles");
         row.setStatus("ACTIVE");
+        return row;
+    }
+
+    private static CompetitorKeywordScopeRow keywordScope(Long keywordId, Long watchProductId) {
+        CompetitorKeywordScopeRow row = new CompetitorKeywordScopeRow();
+        row.setKeywordId(keywordId);
+        row.setWatchProductId(watchProductId);
+        row.setOwnerUserId(501L);
+        row.setStoreCode("STR108065-NSA");
+        row.setSiteCode("SA");
+        row.setStatus("ACTIVE");
+        return row;
+    }
+
+    private static CompetitorLatestRankPointRow rankPoint(
+            Long keywordId,
+            String trackedProductType,
+            String noonProductCode,
+            Integer rankNo
+    ) {
+        CompetitorLatestRankPointRow row = new CompetitorLatestRankPointRow();
+        row.setKeywordId(keywordId);
+        row.setKeyword("laundry basket");
+        row.setTrackedProductType(trackedProductType);
+        row.setNoonProductCode(noonProductCode);
+        row.setRankStatus(rankNo == null ? "NOT_IN_TOP_30" : "RANKED");
+        row.setRankNo(rankNo);
+        row.setSponsored(false);
+        row.setFactTime(LocalDateTime.of(2026, 6, 5, 8, 4));
         return row;
     }
 

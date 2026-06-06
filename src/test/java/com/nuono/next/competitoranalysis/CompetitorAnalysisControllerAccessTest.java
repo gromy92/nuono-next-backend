@@ -90,6 +90,37 @@ class CompetitorAnalysisControllerAccessTest {
         verify(service).detail(context, 180123L);
     }
 
+    @Test
+    void rankHistoryLoadsWatchProductScopeBeforeCheckingStorePermission() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = operatorContext();
+        CompetitorWatchProductScopeRow scope = new CompetitorWatchProductScopeRow();
+        scope.setId(180123L);
+        scope.setOwnerUserId(501L);
+        scope.setStoreCode("STR108065-NSA");
+        scope.setSiteCode("SA");
+        CompetitorRankHistoryView history = new CompetitorRankHistoryView();
+        when(service.requireWatchProductScope(180123L)).thenReturn(scope);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        )).thenReturn(context);
+        when(service.rankHistory(context, 180123L, 190001L, 30)).thenReturn(history);
+
+        CompetitorRankHistoryView result = controller.rankHistory(180123L, 190001L, 30, request);
+
+        assertEquals(history, result);
+        InOrder order = inOrder(service, businessAccessResolver);
+        order.verify(service).requireWatchProductScope(180123L);
+        order.verify(businessAccessResolver).requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        );
+        verify(service).rankHistory(context, 180123L, 190001L, 30);
+    }
+
     private static BusinessAccessContext operatorContext() {
         return BusinessAccessContext.builder()
                 .sessionUserId(601L)
