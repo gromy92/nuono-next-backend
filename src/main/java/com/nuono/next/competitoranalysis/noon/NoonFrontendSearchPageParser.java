@@ -16,6 +16,7 @@ import java.util.Map;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,6 +27,7 @@ public class NoonFrontendSearchPageParser {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    @Autowired
     public NoonFrontendSearchPageParser(ObjectMapper objectMapper) {
         this(objectMapper, Clock.systemUTC());
     }
