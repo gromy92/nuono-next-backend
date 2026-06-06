@@ -402,8 +402,8 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `menu` (`id`, `name`, `parent_id`, `url_path`, `is_deleted`, `gmt_create`, `gmt_updated`)
 VALUES
-  (9401, '1688 历史订单', 2, '/purchase/ali1688-orders', b'0', NOW(), NOW()),
-  (9402, 'SKU 采购历史', 2, '/purchase/ali1688-sku-purchase-history', b'0', NOW(), NOW())
+  (2402, '1688 历史订单', 2, '/purchase/ali1688-orders', b'0', NOW(), NOW()),
+  (2403, 'SKU 采购历史', 2, '/purchase/ali1688-sku-purchase-history', b'0', NOW(), NOW())
 ON DUPLICATE KEY UPDATE
   `name` = VALUES(`name`),
   `parent_id` = VALUES(`parent_id`),
