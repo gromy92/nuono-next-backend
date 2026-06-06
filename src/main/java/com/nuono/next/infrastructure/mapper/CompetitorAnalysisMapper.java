@@ -3,6 +3,7 @@ package com.nuono.next.infrastructure.mapper;
 import com.nuono.next.competitoranalysis.CompetitorKeywordProductRow;
 import com.nuono.next.competitoranalysis.CompetitorKeywordInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordRow;
+import com.nuono.next.competitoranalysis.CompetitorKeywordRunInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordScopeRow;
 import com.nuono.next.competitoranalysis.CompetitorKeywordUpdateCommand;
 import com.nuono.next.competitoranalysis.CompetitorLatestRankPointRow;
@@ -10,6 +11,8 @@ import com.nuono.next.competitoranalysis.CompetitorProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorProductOptionRow;
 import com.nuono.next.competitoranalysis.CompetitorProductRow;
 import com.nuono.next.competitoranalysis.CompetitorProductScopeRow;
+import com.nuono.next.competitoranalysis.CompetitorSearchRunInsertCommand;
+import com.nuono.next.competitoranalysis.CompetitorSearchRunRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductListRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductQuery;
@@ -63,6 +66,14 @@ public interface CompetitorAnalysisMapper {
 
     default Long nextKeywordProductId() {
         return nextCompetitorAnalysisId("operations_competitor_keyword_product", 210000L);
+    }
+
+    default Long nextSearchRunId() {
+        return nextCompetitorAnalysisId("operations_competitor_search_run", 220000L);
+    }
+
+    default Long nextKeywordRunId() {
+        return nextCompetitorAnalysisId("operations_competitor_keyword_run", 230000L);
     }
 
     @Select({
@@ -616,4 +627,156 @@ public interface CompetitorAnalysisMapper {
             "ORDER BY kw.display_order ASC, rf.tracked_product_type ASC, rf.rank_no ASC"
     })
     List<CompetitorLatestRankPointRow> listLatestRankPointsByWatchProductId(@Param("watchProductId") Long watchProductId);
+
+    @Insert({
+            "INSERT INTO operations_competitor_search_run (",
+            "  id, watch_product_id, task_id, trigger_mode, status, requested_by, started_at,",
+            "  keyword_total, keyword_success, keyword_failed, candidate_upserted_count,",
+            "  rank_fact_written_count, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{watchProductId}, #{taskId}, #{triggerMode}, #{status}, #{requestedBy}, NOW(),",
+            "  #{keywordTotal}, 0, 0, 0, 0, b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertSearchRun(CompetitorSearchRunInsertCommand command);
+
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, task_id AS taskId, trigger_mode AS triggerMode,",
+            "  status, requested_by AS requestedBy, started_at AS startedAt, finished_at AS finishedAt,",
+            "  keyword_total AS keywordTotal, keyword_success AS keywordSuccess, keyword_failed AS keywordFailed,",
+            "  candidate_upserted_count AS candidateUpsertedCount,",
+            "  rank_fact_written_count AS rankFactWrittenCount,",
+            "  error_code AS errorCode, error_message AS errorMessage",
+            "FROM operations_competitor_search_run",
+            "WHERE id = #{runId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorSearchRunRow selectSearchRunById(@Param("runId") Long runId);
+
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, task_id AS taskId, trigger_mode AS triggerMode,",
+            "  status, requested_by AS requestedBy, started_at AS startedAt, finished_at AS finishedAt,",
+            "  keyword_total AS keywordTotal, keyword_success AS keywordSuccess, keyword_failed AS keywordFailed,",
+            "  candidate_upserted_count AS candidateUpsertedCount,",
+            "  rank_fact_written_count AS rankFactWrittenCount,",
+            "  error_code AS errorCode, error_message AS errorMessage",
+            "FROM operations_competitor_search_run",
+            "WHERE task_id = #{taskId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    CompetitorSearchRunRow selectSearchRunByTaskId(@Param("taskId") Long taskId);
+
+    @Update({
+            "UPDATE operations_competitor_search_run",
+            "SET status = 'FAILED',",
+            "    finished_at = NOW(),",
+            "    error_code = #{errorCode},",
+            "    error_message = #{errorMessage},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{runId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markSearchRunFailed(
+            @Param("runId") Long runId,
+            @Param("errorCode") String errorCode,
+            @Param("errorMessage") String errorMessage
+    );
+
+    @Update({
+            "UPDATE operations_competitor_search_run",
+            "SET status = #{status},",
+            "    finished_at = NOW(),",
+            "    keyword_success = #{keywordSuccess},",
+            "    keyword_failed = #{keywordFailed},",
+            "    candidate_upserted_count = #{candidateUpsertedCount},",
+            "    rank_fact_written_count = #{rankFactWrittenCount},",
+            "    error_code = #{errorCode},",
+            "    error_message = #{errorMessage},",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{runId}",
+            "  AND is_deleted = b'0'"
+    })
+    int completeSearchRun(
+            @Param("runId") Long runId,
+            @Param("status") String status,
+            @Param("keywordSuccess") int keywordSuccess,
+            @Param("keywordFailed") int keywordFailed,
+            @Param("candidateUpsertedCount") int candidateUpsertedCount,
+            @Param("rankFactWrittenCount") int rankFactWrittenCount,
+            @Param("errorCode") String errorCode,
+            @Param("errorMessage") String errorMessage,
+            @Param("actorUserId") Long actorUserId
+    );
+
+    @Insert({
+            "INSERT INTO operations_competitor_keyword_run (",
+            "  id, search_run_id, keyword_id, keyword_snapshot, locale_snapshot, provider_status,",
+            "  result_count, source_url, parser_version, provider_http_status, response_hash,",
+            "  error_code, error_message, started_at, finished_at, is_deleted, created_by, updated_by,",
+            "  gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{searchRunId}, #{keywordId}, #{keywordSnapshot}, #{localeSnapshot}, #{providerStatus},",
+            "  #{resultCount}, #{sourceUrl}, #{parserVersion}, #{providerHttpStatus}, #{responseHash},",
+            "  #{errorCode}, #{errorMessage}, NOW(), NOW(), b'0', #{actorUserId}, #{actorUserId},",
+            "  NOW(), NOW()",
+            ")"
+    })
+    int insertKeywordRun(CompetitorKeywordRunInsertCommand command);
+
+    @Update({
+            "UPDATE operations_competitor_keyword",
+            "SET last_provider_status = #{providerStatus},",
+            "    last_succeeded_at = NOW(),",
+            "    last_error_code = NULL,",
+            "    last_error_message = NULL,",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{keywordId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markKeywordProviderSucceeded(
+            @Param("keywordId") Long keywordId,
+            @Param("providerStatus") String providerStatus,
+            @Param("actorUserId") Long actorUserId
+    );
+
+    @Update({
+            "UPDATE operations_competitor_keyword",
+            "SET last_provider_status = 'FAILED',",
+            "    last_error_code = #{errorCode},",
+            "    last_error_message = #{errorMessage},",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{keywordId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markKeywordProviderFailed(
+            @Param("keywordId") Long keywordId,
+            @Param("errorCode") String errorCode,
+            @Param("errorMessage") String errorMessage,
+            @Param("actorUserId") Long actorUserId
+    );
+
+    @Update({
+            "UPDATE operations_competitor_watch_product",
+            "SET latest_run_id = #{runId},",
+            "    latest_run_status = #{runStatus},",
+            "    latest_run_at = NOW(),",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{watchProductId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateWatchProductLatestRun(
+            @Param("watchProductId") Long watchProductId,
+            @Param("runId") Long runId,
+            @Param("runStatus") String runStatus,
+            @Param("actorUserId") Long actorUserId
+    );
 }

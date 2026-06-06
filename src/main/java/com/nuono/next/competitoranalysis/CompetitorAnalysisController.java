@@ -6,6 +6,7 @@ import com.nuono.next.permission.access.BusinessCapability;
 import java.util.List;
 import java.util.Locale;
 import javax.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -24,14 +26,25 @@ import org.springframework.web.server.ResponseStatusException;
 public class CompetitorAnalysisController {
 
     private final CompetitorAnalysisService service;
+    private final CompetitorAnalysisRefreshService refreshService;
     private final BusinessAccessResolver businessAccessResolver;
 
+    @Autowired
     public CompetitorAnalysisController(
             CompetitorAnalysisService service,
+            CompetitorAnalysisRefreshService refreshService,
             BusinessAccessResolver businessAccessResolver
     ) {
         this.service = service;
+        this.refreshService = refreshService;
         this.businessAccessResolver = businessAccessResolver;
+    }
+
+    CompetitorAnalysisController(
+            CompetitorAnalysisService service,
+            BusinessAccessResolver businessAccessResolver
+    ) {
+        this(service, null, businessAccessResolver);
     }
 
     @GetMapping("/watch-products")
@@ -148,6 +161,41 @@ public class CompetitorAnalysisController {
         return service.ignoreCandidate(context, keywordId, competitorProductId);
     }
 
+    @PostMapping("/watch-products/{watchProductId}/refresh")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public CompetitorRefreshRunView refreshWatchProduct(
+            @PathVariable Long watchProductId,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return requireRefreshService().requestRefresh(context, watchProductId);
+    }
+
+    @GetMapping("/refresh-runs/{runId}")
+    public CompetitorRefreshRunView refreshRun(
+            @PathVariable Long runId,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS
+        );
+        return requireRefreshService().getRefreshRun(context, runId);
+    }
+
+    @GetMapping("/tasks/{taskId}")
+    public CompetitorTaskView task(
+            @PathVariable Long taskId,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS
+        );
+        return requireRefreshService().getTask(context, taskId);
+    }
+
     @GetMapping("/product-options")
     public List<CompetitorProductOptionView> productOptions(
             @RequestParam String storeCode,
@@ -185,6 +233,13 @@ public class CompetitorAnalysisController {
                 normalizedStoreCode
         );
         return service.createWatchProduct(context, command);
+    }
+
+    private CompetitorAnalysisRefreshService requireRefreshService() {
+        if (refreshService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "COMPETITOR_REFRESH_UNAVAILABLE");
+        }
+        return refreshService;
     }
 
     private BusinessAccessContext requireScopedStore(
