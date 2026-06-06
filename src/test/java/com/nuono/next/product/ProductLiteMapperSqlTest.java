@@ -46,4 +46,52 @@ class ProductLiteMapperSqlTest {
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
     }
+
+    @Test
+    void classificationFallbackSqlUsesProductLiteScopeWithoutSkuOfferTables() throws Exception {
+        assertClassificationFallbackSql(
+                "selectBrandProjectionClassificationOptions",
+                "pm.brand_cache",
+                "GROUP BY pm.brand_cache"
+        );
+        assertClassificationFallbackSql(
+                "selectFulltypeProjectionClassificationOptions",
+                "pm.product_fulltype_cache",
+                "GROUP BY pm.product_fulltype_cache"
+        );
+    }
+
+    private static void assertClassificationFallbackSql(
+            String methodName,
+            String selectedColumn,
+            String groupByColumn
+    ) throws Exception {
+        Method method = ProductLiteMapper.class.getMethod(
+                methodName,
+                Long.class,
+                String.class,
+                String.class,
+                int.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String rawSql = String.join("\n", select.value());
+        String sql = rawSql.replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("FROM logical_store ls")
+                .contains("JOIN logical_store_site lss")
+                .contains("JOIN product_master pm")
+                .contains("ls.owner_user_id = #{ownerUserId}")
+                .contains("(ls.project_code = #{storeCode} OR lss.store_code = #{storeCode})")
+                .contains(selectedColumn)
+                .contains(groupByColumn)
+                .doesNotContain("product_variant")
+                .doesNotContain("product_site_offer")
+                .doesNotContain("variant_id")
+                .doesNotContain("offer_code")
+                .doesNotContain("stock")
+                .doesNotContain("price");
+
+        new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
+    }
 }

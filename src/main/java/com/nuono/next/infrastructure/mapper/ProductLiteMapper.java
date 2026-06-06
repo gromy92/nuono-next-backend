@@ -1,6 +1,7 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.product.ProductLiteRecord;
+import com.nuono.next.product.ProductClassificationOptionRecord;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -85,6 +86,85 @@ public interface ProductLiteMapper {
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode,
             @Param("titleKeyword") String titleKeyword,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.brand_cache AS value,",
+            "  pm.brand_cache AS label,",
+            "  COUNT(*) AS usageCount",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.is_deleted = b'0'",
+            " AND (ls.project_code = #{storeCode} OR lss.store_code = #{storeCode})",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  AND pm.brand_cache IS NOT NULL",
+            "  AND pm.brand_cache != ''",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND pm.brand_cache LIKE CONCAT('%', #{query}, '%')",
+            "  </if>",
+            "GROUP BY pm.brand_cache",
+            "ORDER BY usageCount DESC, pm.brand_cache",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectBrandProjectionClassificationOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.product_fulltype_cache AS value,",
+            "  pm.product_fulltype_cache AS label,",
+            "  SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 1) AS family,",
+            "  CASE",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
+            "      SUBSTRING_INDEX(SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 2), '-', -1)",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%' THEN",
+            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
+            "    ELSE NULL",
+            "  END AS productType,",
+            "  CASE",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
+            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
+            "    ELSE NULL",
+            "  END AS productSubtype,",
+            "  COUNT(*) AS usageCount",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.is_deleted = b'0'",
+            " AND (ls.project_code = #{storeCode} OR lss.store_code = #{storeCode})",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  AND pm.product_fulltype_cache IS NOT NULL",
+            "  AND pm.product_fulltype_cache != ''",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND pm.product_fulltype_cache LIKE CONCAT('%', #{query}, '%')",
+            "  </if>",
+            "GROUP BY pm.product_fulltype_cache",
+            "ORDER BY usageCount DESC, pm.product_fulltype_cache",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectFulltypeProjectionClassificationOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
             @Param("limit") int limit
     );
 }
