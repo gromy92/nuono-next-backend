@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -13,6 +15,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class CompetitorAnalysisService {
+
+    private static final Pattern COLLAPSED_WHITESPACE = Pattern.compile("\\s+");
+    private static final Pattern NOON_CODE_PATTERN = Pattern.compile("(?i)(^|/)([ZN][A-Z0-9]{4,79})(/|\\?|$)");
 
     private final CompetitorAnalysisMapper mapper;
 
@@ -61,6 +66,140 @@ public class CompetitorAnalysisService {
                 .map(this::toProductOptionView)
                 .filter(item -> item != null)
                 .collect(Collectors.toList());
+    }
+
+    public CompetitorWatchProductDetailView addKeyword(
+            BusinessAccessContext context,
+            Long watchProductId,
+            CompetitorKeywordCommand command
+    ) {
+        CompetitorWatchProductRow watchProduct = requireWatchProduct(context, watchProductId);
+        String keyword = normalizeKeywordDisplay(command == null ? null : command.getKeyword());
+        String keywordNorm = normalizeKeywordNorm(keyword);
+        CompetitorKeywordRow existing = mapper.selectKeywordByNorm(watchProduct.getId(), keywordNorm);
+        if (existing == null) {
+            CompetitorKeywordInsertCommand insert = new CompetitorKeywordInsertCommand();
+            insert.setId(mapper.nextKeywordId());
+            insert.setWatchProductId(watchProduct.getId());
+            insert.setKeyword(keyword);
+            insert.setKeywordNorm(keywordNorm);
+            insert.setLocale(normalizeText(command == null ? null : command.getLocale()));
+            insert.setStatus("ACTIVE");
+            insert.setDisplayOrder(command == null || command.getDisplayOrder() == null ? 0 : command.getDisplayOrder());
+            insert.setActorUserId(actorUserId(context));
+            mapper.insertKeyword(insert);
+        }
+        return detail(context, watchProduct.getId());
+    }
+
+    public CompetitorWatchProductDetailView updateKeyword(
+            BusinessAccessContext context,
+            Long keywordId,
+            CompetitorKeywordCommand command
+    ) {
+        CompetitorKeywordScopeRow scope = requireKeywordScope(keywordId);
+        requireStoreInContext(context, scope.getStoreCode());
+        CompetitorKeywordUpdateCommand update = new CompetitorKeywordUpdateCommand();
+        update.setId(keywordId);
+        if (command != null && StringUtils.hasText(command.getKeyword())) {
+            String keyword = normalizeKeywordDisplay(command.getKeyword());
+            update.setKeyword(keyword);
+            update.setKeywordNorm(normalizeKeywordNorm(keyword));
+        }
+        if (command != null) {
+            update.setLocale(normalizeNullableText(command.getLocale()));
+            update.setStatus(normalizeStatus(command.getStatus()));
+            update.setDisplayOrder(command.getDisplayOrder());
+        }
+        update.setActorUserId(actorUserId(context));
+        mapper.updateKeyword(update);
+        return detail(context, scope.getWatchProductId());
+    }
+
+    public CompetitorWatchProductDetailView deleteKeyword(BusinessAccessContext context, Long keywordId) {
+        CompetitorKeywordScopeRow scope = requireKeywordScope(keywordId);
+        requireStoreInContext(context, scope.getStoreCode());
+        mapper.softDeleteKeyword(keywordId, actorUserId(context));
+        return detail(context, scope.getWatchProductId());
+    }
+
+    public CompetitorWatchProductDetailView addManualCompetitor(
+            BusinessAccessContext context,
+            Long watchProductId,
+            CompetitorManualCompetitorCommand command
+    ) {
+        CompetitorWatchProductRow watchProduct = requireWatchProduct(context, watchProductId);
+        ParsedNoonCode parsed = parseNoonCode(command == null ? null : command.getInput());
+        if (parsed == null) {
+            throw badRequest("COMPETITOR_NOON_CODE_REQUIRED");
+        }
+        if (parsed.noonCode.equals(normalizeNoonCode(watchProduct.getSelfNoonProductCode()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_SELF_CODE_FORBIDDEN");
+        }
+        Long actorUserId = actorUserId(context);
+        CompetitorProductRow product = mapper.selectCompetitorProductByCode(watchProduct.getId(), parsed.noonCode);
+        Long competitorProductId;
+        if (product == null) {
+            competitorProductId = mapper.nextCompetitorProductId();
+            mapper.insertCompetitorProduct(buildManualProductInsert(
+                    competitorProductId,
+                    watchProduct.getId(),
+                    parsed,
+                    command,
+                    actorUserId
+            ));
+        } else {
+            competitorProductId = product.getId();
+            if (!"CONFIRMED".equalsIgnoreCase(nullToEmpty(product.getReviewStatus()))) {
+                mapper.markCompetitorProductConfirmed(competitorProductId, actorUserId);
+            }
+        }
+        applyCompetitorToAllActiveKeywords(watchProduct.getId(), competitorProductId, "CONFIRMED", actorUserId);
+        return detail(context, watchProduct.getId());
+    }
+
+    public CompetitorWatchProductScopeRow requireKeywordCandidateScope(
+            Long keywordId,
+            Long competitorProductId
+    ) {
+        KeywordCandidateScope scope = requireKeywordCandidateScopeInternal(keywordId, competitorProductId);
+        return scope.toWatchProductScope();
+    }
+
+    public CompetitorWatchProductScopeRow requireKeywordWatchProductScope(Long keywordId) {
+        return toWatchProductScope(requireKeywordScope(keywordId));
+    }
+
+    public CompetitorWatchProductDetailView confirmCandidate(
+            BusinessAccessContext context,
+            Long keywordId,
+            Long competitorProductId
+    ) {
+        KeywordCandidateScope scope = requireKeywordCandidateScopeInternal(keywordId, competitorProductId);
+        requireStoreInContext(context, scope.keyword.getStoreCode());
+        CompetitorWatchProductRow watchProduct = mapper.selectWatchProductById(scope.keyword.getOwnerUserId(), scope.keyword.getWatchProductId());
+        String selfCode = watchProduct == null ? null : normalizeNoonCode(watchProduct.getSelfNoonProductCode());
+        if (selfCode != null && selfCode.equals(normalizeNoonCode(scope.product.getNoonProductCode()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_SELF_CODE_FORBIDDEN");
+        }
+        Long actorUserId = actorUserId(context);
+        mapper.markCompetitorProductConfirmed(competitorProductId, actorUserId);
+        applyCompetitorToAllActiveKeywords(scope.keyword.getWatchProductId(), competitorProductId, "CONFIRMED", actorUserId);
+        return detail(context, scope.keyword.getWatchProductId());
+    }
+
+    public CompetitorWatchProductDetailView ignoreCandidate(
+            BusinessAccessContext context,
+            Long keywordId,
+            Long competitorProductId
+    ) {
+        KeywordCandidateScope scope = requireKeywordCandidateScopeInternal(keywordId, competitorProductId);
+        requireStoreInContext(context, scope.keyword.getStoreCode());
+        if ("CONFIRMED".equalsIgnoreCase(nullToEmpty(scope.product.getReviewStatus()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_CONFIRMED_CANNOT_IGNORE");
+        }
+        mapper.markKeywordProductRelationIgnored(keywordId, competitorProductId, actorUserId(context));
+        return detail(context, scope.keyword.getWatchProductId());
     }
 
     public CompetitorWatchProductDetailView createWatchProduct(
@@ -139,6 +278,121 @@ public class CompetitorAnalysisService {
         return CompetitorProductOptionView.fromRow(row, noonCode, codeType);
     }
 
+    private CompetitorWatchProductRow requireWatchProduct(BusinessAccessContext context, Long watchProductId) {
+        if (watchProductId == null) {
+            throw badRequest("COMPETITOR_WATCH_PRODUCT_REQUIRED");
+        }
+        Long ownerUserId = context == null ? null : context.getBusinessOwnerUserId();
+        CompetitorWatchProductRow watchProduct = mapper.selectWatchProductById(ownerUserId, watchProductId);
+        if (watchProduct == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_WATCH_PRODUCT_NOT_FOUND");
+        }
+        requireStoreInContext(context, watchProduct.getStoreCode());
+        return watchProduct;
+    }
+
+    private CompetitorKeywordScopeRow requireKeywordScope(Long keywordId) {
+        if (keywordId == null) {
+            throw badRequest("COMPETITOR_KEYWORD_REQUIRED");
+        }
+        CompetitorKeywordScopeRow scope = mapper.selectKeywordScopeById(keywordId);
+        if (scope == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_KEYWORD_NOT_FOUND");
+        }
+        return scope;
+    }
+
+    private CompetitorWatchProductScopeRow toWatchProductScope(CompetitorKeywordScopeRow keyword) {
+        CompetitorWatchProductScopeRow scope = new CompetitorWatchProductScopeRow();
+        scope.setId(keyword.getWatchProductId());
+        scope.setOwnerUserId(keyword.getOwnerUserId());
+        scope.setStoreCode(keyword.getStoreCode());
+        scope.setSiteCode(keyword.getSiteCode());
+        return scope;
+    }
+
+    private KeywordCandidateScope requireKeywordCandidateScopeInternal(Long keywordId, Long competitorProductId) {
+        CompetitorKeywordScopeRow keyword = requireKeywordScope(keywordId);
+        if (competitorProductId == null) {
+            throw badRequest("COMPETITOR_PRODUCT_REQUIRED");
+        }
+        CompetitorProductScopeRow product = mapper.selectCompetitorProductScopeById(competitorProductId);
+        if (product == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_PRODUCT_NOT_FOUND");
+        }
+        if (!keyword.getWatchProductId().equals(product.getWatchProductId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_SCOPE_MISMATCH");
+        }
+        return new KeywordCandidateScope(keyword, product);
+    }
+
+    private CompetitorProductInsertCommand buildManualProductInsert(
+            Long competitorProductId,
+            Long watchProductId,
+            ParsedNoonCode parsed,
+            CompetitorManualCompetitorCommand command,
+            Long actorUserId
+    ) {
+        CompetitorProductInsertCommand insert = new CompetitorProductInsertCommand();
+        insert.setId(competitorProductId);
+        insert.setWatchProductId(watchProductId);
+        insert.setNoonProductCode(parsed.noonCode);
+        insert.setCodeType(parsed.codeType);
+        insert.setCanonicalUrl(normalizeText(firstNonBlank(command == null ? null : command.getCanonicalUrl(), parsed.canonicalUrl)));
+        insert.setTitleSnapshot(normalizeText(command == null ? null : command.getTitle()));
+        insert.setBrandSnapshot(normalizeText(command == null ? null : command.getBrand()));
+        insert.setImageUrlSnapshot(normalizeText(command == null ? null : command.getImageUrl()));
+        insert.setSourceType("MANUAL_ADD");
+        insert.setReviewStatus("CONFIRMED");
+        insert.setActorUserId(actorUserId);
+        return insert;
+    }
+
+    private void applyCompetitorToAllActiveKeywords(
+            Long watchProductId,
+            Long competitorProductId,
+            String relationStatus,
+            Long actorUserId
+    ) {
+        List<CompetitorKeywordRow> keywords = mapper.listActiveKeywordsByWatchProductId(watchProductId);
+        for (CompetitorKeywordRow keyword : keywords) {
+            mapper.upsertKeywordProductRelation(keyword.getId(), competitorProductId, relationStatus, actorUserId);
+        }
+    }
+
+    private String normalizeKeywordDisplay(String keyword) {
+        String normalized = normalizeText(keyword);
+        if (normalized == null) {
+            throw badRequest("COMPETITOR_KEYWORD_REQUIRED");
+        }
+        return COLLAPSED_WHITESPACE.matcher(normalized).replaceAll(" ");
+    }
+
+    private String normalizeKeywordNorm(String keyword) {
+        return normalizeKeywordDisplay(keyword).toLowerCase(Locale.ROOT);
+    }
+
+    private ParsedNoonCode parseNoonCode(String input) {
+        String normalized = normalizeText(input);
+        if (normalized == null) {
+            return null;
+        }
+        Matcher matcher = NOON_CODE_PATTERN.matcher(normalized);
+        String code;
+        if (matcher.find()) {
+            code = matcher.group(2);
+        } else {
+            code = normalized;
+        }
+        String noonCode = normalizeNoonCode(code);
+        String codeType = resolveNoonCodeType(noonCode);
+        if (codeType == null) {
+            return null;
+        }
+        String canonicalUrl = normalized.startsWith("http://") || normalized.startsWith("https://") ? normalized : null;
+        return new ParsedNoonCode(noonCode, codeType, canonicalUrl);
+    }
+
     private CompetitorWatchProductInsertCommand buildInsertCommand(
             Long watchProductId,
             Long ownerUserId,
@@ -214,6 +468,36 @@ public class CompetitorAnalysisService {
         return Math.min(limit, 50);
     }
 
+    private Long actorUserId(BusinessAccessContext context) {
+        return context == null ? null : context.getSessionUserId();
+    }
+
+    private void requireStoreInContext(BusinessAccessContext context, String storeCode) {
+        if (context == null || !context.canAccessStore(storeCode)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "COMPETITOR_STORE_SCOPE_REQUIRED");
+        }
+    }
+
+    private String normalizeStatus(String status) {
+        String normalized = normalizeText(status);
+        return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeNullableText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (StringUtils.hasText(first)) {
+            return first;
+        }
+        return second;
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
     private String resolveNoonCodeType(String noonCode) {
         if (!StringUtils.hasText(noonCode)) {
             return null;
@@ -250,5 +534,36 @@ public class CompetitorAnalysisService {
 
     private ResponseStatusException badRequest(String reason) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, reason);
+    }
+
+    private static class ParsedNoonCode {
+        private final String noonCode;
+        private final String codeType;
+        private final String canonicalUrl;
+
+        private ParsedNoonCode(String noonCode, String codeType, String canonicalUrl) {
+            this.noonCode = noonCode;
+            this.codeType = codeType;
+            this.canonicalUrl = canonicalUrl;
+        }
+    }
+
+    private static class KeywordCandidateScope {
+        private final CompetitorKeywordScopeRow keyword;
+        private final CompetitorProductScopeRow product;
+
+        private KeywordCandidateScope(CompetitorKeywordScopeRow keyword, CompetitorProductScopeRow product) {
+            this.keyword = keyword;
+            this.product = product;
+        }
+
+        private CompetitorWatchProductScopeRow toWatchProductScope() {
+            CompetitorWatchProductScopeRow scope = new CompetitorWatchProductScopeRow();
+            scope.setId(keyword.getWatchProductId());
+            scope.setOwnerUserId(keyword.getOwnerUserId());
+            scope.setStoreCode(keyword.getStoreCode());
+            scope.setSiteCode(keyword.getSiteCode());
+            return scope;
+        }
     }
 }

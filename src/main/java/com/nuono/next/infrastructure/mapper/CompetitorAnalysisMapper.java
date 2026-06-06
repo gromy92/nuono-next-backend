@@ -1,10 +1,15 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.competitoranalysis.CompetitorKeywordProductRow;
+import com.nuono.next.competitoranalysis.CompetitorKeywordInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordRow;
+import com.nuono.next.competitoranalysis.CompetitorKeywordScopeRow;
+import com.nuono.next.competitoranalysis.CompetitorKeywordUpdateCommand;
 import com.nuono.next.competitoranalysis.CompetitorLatestRankPointRow;
+import com.nuono.next.competitoranalysis.CompetitorProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorProductOptionRow;
 import com.nuono.next.competitoranalysis.CompetitorProductRow;
+import com.nuono.next.competitoranalysis.CompetitorProductScopeRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductListRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductQuery;
@@ -15,6 +20,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
+import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorAnalysisMapper {
 
@@ -45,6 +51,18 @@ public interface CompetitorAnalysisMapper {
 
     default Long nextWatchProductId() {
         return nextCompetitorAnalysisId("operations_competitor_watch_product", 180000L);
+    }
+
+    default Long nextKeywordId() {
+        return nextCompetitorAnalysisId("operations_competitor_keyword", 190000L);
+    }
+
+    default Long nextCompetitorProductId() {
+        return nextCompetitorAnalysisId("operations_competitor_product", 200000L);
+    }
+
+    default Long nextKeywordProductId() {
+        return nextCompetitorAnalysisId("operations_competitor_keyword_product", 210000L);
     }
 
     @Select({
@@ -239,6 +257,203 @@ public interface CompetitorAnalysisMapper {
             @Param("siteCode") String siteCode,
             @Param("keyword") String keyword,
             @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, keyword, keyword_norm AS keywordNorm, locale,",
+            "  status, display_order AS displayOrder, last_provider_status AS lastProviderStatus,",
+            "  last_succeeded_at AS lastSucceededAt, last_error_code AS lastErrorCode,",
+            "  last_error_message AS lastErrorMessage",
+            "FROM operations_competitor_keyword",
+            "WHERE watch_product_id = #{watchProductId}",
+            "  AND keyword_norm = #{keywordNorm}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorKeywordRow selectKeywordByNorm(
+            @Param("watchProductId") Long watchProductId,
+            @Param("keywordNorm") String keywordNorm
+    );
+
+    @Insert({
+            "INSERT INTO operations_competitor_keyword (",
+            "  id, watch_product_id, keyword, keyword_norm, locale, status, display_order,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{watchProductId}, #{keyword}, #{keywordNorm}, #{locale}, #{status}, #{displayOrder},",
+            "  b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertKeyword(CompetitorKeywordInsertCommand command);
+
+    @Update({
+            "<script>",
+            "UPDATE operations_competitor_keyword",
+            "SET updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "  <if test='keyword != null and keyword != \"\"'>, keyword = #{keyword}</if>",
+            "  <if test='keywordNorm != null and keywordNorm != \"\"'>, keyword_norm = #{keywordNorm}</if>",
+            "  <if test='locale != null'>, locale = #{locale}</if>",
+            "  <if test='status != null and status != \"\"'>, status = #{status}</if>",
+            "  <if test='displayOrder != null'>, display_order = #{displayOrder}</if>",
+            "WHERE id = #{id}",
+            "  AND is_deleted = b'0'",
+            "</script>"
+    })
+    int updateKeyword(CompetitorKeywordUpdateCommand command);
+
+    @Update({
+            "UPDATE operations_competitor_keyword",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{keywordId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteKeyword(
+            @Param("keywordId") Long keywordId,
+            @Param("actorUserId") Long actorUserId
+    );
+
+    @Select({
+            "SELECT",
+            "  kw.id AS keywordId, kw.watch_product_id AS watchProductId,",
+            "  wp.owner_user_id AS ownerUserId, wp.store_code AS storeCode, wp.site_code AS siteCode,",
+            "  kw.status AS status",
+            "FROM operations_competitor_keyword kw",
+            "JOIN operations_competitor_watch_product wp",
+            "  ON wp.id = kw.watch_product_id",
+            " AND wp.is_deleted = b'0'",
+            "WHERE kw.id = #{keywordId}",
+            "  AND kw.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorKeywordScopeRow selectKeywordScopeById(@Param("keywordId") Long keywordId);
+
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, keyword, keyword_norm AS keywordNorm, locale,",
+            "  status, display_order AS displayOrder, last_provider_status AS lastProviderStatus,",
+            "  last_succeeded_at AS lastSucceededAt, last_error_code AS lastErrorCode,",
+            "  last_error_message AS lastErrorMessage",
+            "FROM operations_competitor_keyword",
+            "WHERE watch_product_id = #{watchProductId}",
+            "  AND status = 'ACTIVE'",
+            "  AND is_deleted = b'0'",
+            "ORDER BY display_order ASC, id ASC"
+    })
+    List<CompetitorKeywordRow> listActiveKeywordsByWatchProductId(@Param("watchProductId") Long watchProductId);
+
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, noon_product_code AS noonProductCode, code_type AS codeType,",
+            "  canonical_url AS canonicalUrl, title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
+            "  image_url_snapshot AS imageUrlSnapshot, price_amount_snapshot AS priceAmountSnapshot,",
+            "  currency_code_snapshot AS currencyCodeSnapshot, rating_snapshot AS ratingSnapshot,",
+            "  review_count_snapshot AS reviewCountSnapshot, source_type AS sourceType, review_status AS reviewStatus,",
+            "  confirmed_by AS confirmedBy, confirmed_at AS confirmedAt, first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt",
+            "FROM operations_competitor_product",
+            "WHERE watch_product_id = #{watchProductId}",
+            "  AND noon_product_code = #{noonProductCode}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorProductRow selectCompetitorProductByCode(
+            @Param("watchProductId") Long watchProductId,
+            @Param("noonProductCode") String noonProductCode
+    );
+
+    @Insert({
+            "INSERT INTO operations_competitor_product (",
+            "  id, watch_product_id, noon_product_code, code_type, canonical_url, title_snapshot,",
+            "  brand_snapshot, image_url_snapshot, source_type, review_status, confirmed_by, confirmed_at,",
+            "  first_seen_at, last_seen_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{watchProductId}, #{noonProductCode}, #{codeType}, #{canonicalUrl}, #{titleSnapshot},",
+            "  #{brandSnapshot}, #{imageUrlSnapshot}, #{sourceType}, #{reviewStatus}, #{actorUserId}, NOW(),",
+            "  NOW(), NOW(), b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertCompetitorProduct(CompetitorProductInsertCommand command);
+
+    @Update({
+            "UPDATE operations_competitor_product",
+            "SET review_status = 'CONFIRMED',",
+            "    confirmed_by = #{actorUserId},",
+            "    confirmed_at = NOW(),",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{competitorProductId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markCompetitorProductConfirmed(
+            @Param("competitorProductId") Long competitorProductId,
+            @Param("actorUserId") Long actorUserId
+    );
+
+    @Select({
+            "SELECT",
+            "  cp.id AS competitorProductId, cp.watch_product_id AS watchProductId,",
+            "  wp.owner_user_id AS ownerUserId, wp.store_code AS storeCode, wp.site_code AS siteCode,",
+            "  cp.review_status AS reviewStatus, cp.noon_product_code AS noonProductCode",
+            "FROM operations_competitor_product cp",
+            "JOIN operations_competitor_watch_product wp",
+            "  ON wp.id = cp.watch_product_id",
+            " AND wp.is_deleted = b'0'",
+            "WHERE cp.id = #{competitorProductId}",
+            "  AND cp.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorProductScopeRow selectCompetitorProductScopeById(@Param("competitorProductId") Long competitorProductId);
+
+    default int upsertKeywordProductRelation(
+            Long keywordId,
+            Long competitorProductId,
+            String relationStatus,
+            Long actorUserId
+    ) {
+        Long id = nextKeywordProductId();
+        return upsertKeywordProductRelationWithId(id, keywordId, competitorProductId, relationStatus, actorUserId);
+    }
+
+    @Insert({
+            "INSERT INTO operations_competitor_keyword_product (",
+            "  id, keyword_id, competitor_product_id, relation_status, is_deleted,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{id}, #{keywordId}, #{competitorProductId}, #{relationStatus}, b'0',",
+            "  #{actorUserId}, #{actorUserId}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  relation_status = VALUES(relation_status),",
+            "  is_deleted = b'0',",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertKeywordProductRelationWithId(
+            @Param("id") Long id,
+            @Param("keywordId") Long keywordId,
+            @Param("competitorProductId") Long competitorProductId,
+            @Param("relationStatus") String relationStatus,
+            @Param("actorUserId") Long actorUserId
+    );
+
+    @Update({
+            "UPDATE operations_competitor_keyword_product",
+            "SET relation_status = 'IGNORED',",
+            "    ignored_by = #{actorUserId},",
+            "    ignored_at = NOW(),",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE keyword_id = #{keywordId}",
+            "  AND competitor_product_id = #{competitorProductId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markKeywordProductRelationIgnored(
+            @Param("keywordId") Long keywordId,
+            @Param("competitorProductId") Long competitorProductId,
+            @Param("actorUserId") Long actorUserId
     );
 
     @Select({

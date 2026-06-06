@@ -6,9 +6,11 @@ import com.nuono.next.permission.access.BusinessCapability;
 import java.util.List;
 import java.util.Locale;
 import javax.servlet.http.HttpServletRequest;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -81,6 +83,71 @@ public class CompetitorAnalysisController {
         return service.detail(context, watchProductId);
     }
 
+    @PostMapping("/watch-products/{watchProductId}/keywords")
+    public CompetitorWatchProductDetailView addKeyword(
+            @PathVariable Long watchProductId,
+            @RequestBody CompetitorKeywordCommand command,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.addKeyword(context, watchProductId, command);
+    }
+
+    @PatchMapping("/keywords/{keywordId}")
+    public CompetitorWatchProductDetailView updateKeyword(
+            @PathVariable Long keywordId,
+            @RequestBody CompetitorKeywordCommand command,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireKeywordWatchProductScope(keywordId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.updateKeyword(context, keywordId, command);
+    }
+
+    @DeleteMapping("/keywords/{keywordId}")
+    public CompetitorWatchProductDetailView deleteKeyword(
+            @PathVariable Long keywordId,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireKeywordWatchProductScope(keywordId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.deleteKeyword(context, keywordId);
+    }
+
+    @PostMapping("/watch-products/{watchProductId}/manual-competitors")
+    public CompetitorWatchProductDetailView addManualCompetitor(
+            @PathVariable Long watchProductId,
+            @RequestBody CompetitorManualCompetitorCommand command,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.addManualCompetitor(context, watchProductId, command);
+    }
+
+    @PostMapping("/keywords/{keywordId}/candidates/{competitorProductId}/confirm")
+    public CompetitorWatchProductDetailView confirmCandidate(
+            @PathVariable Long keywordId,
+            @PathVariable Long competitorProductId,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireKeywordCandidateScope(keywordId, competitorProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.confirmCandidate(context, keywordId, competitorProductId);
+    }
+
+    @PostMapping("/keywords/{keywordId}/candidates/{competitorProductId}/ignore")
+    public CompetitorWatchProductDetailView ignoreCandidate(
+            @PathVariable Long keywordId,
+            @PathVariable Long competitorProductId,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireKeywordCandidateScope(keywordId, competitorProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.ignoreCandidate(context, keywordId, competitorProductId);
+    }
+
     @GetMapping("/product-options")
     public List<CompetitorProductOptionView> productOptions(
             @RequestParam String storeCode,
@@ -118,6 +185,17 @@ public class CompetitorAnalysisController {
                 normalizedStoreCode
         );
         return service.createWatchProduct(context, command);
+    }
+
+    private BusinessAccessContext requireScopedStore(
+            HttpServletRequest request,
+            CompetitorWatchProductScopeRow scope
+    ) {
+        return businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                scope.getStoreCode()
+        );
     }
 
     private String requireStoreCode(String storeCode) {
