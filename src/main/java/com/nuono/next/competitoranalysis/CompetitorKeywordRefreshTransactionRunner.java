@@ -1,5 +1,6 @@
 package com.nuono.next.competitoranalysis;
 
+import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -23,13 +24,25 @@ public class CompetitorKeywordRefreshTransactionRunner {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public CompetitorKeywordRefreshResult runKeyword(Long searchRunId, CompetitorKeywordRow keyword, Long actorUserId) {
+    public CompetitorKeywordRefreshResult runKeyword(
+            Long searchRunId,
+            CompetitorWatchProductRow watchProduct,
+            CompetitorKeywordRow keyword,
+            Long actorUserId
+    ) {
+        Long keywordRunId = mapper.nextKeywordRunId();
         try {
-            CompetitorKeywordRefreshOutcome outcome = runner.refresh(keyword);
+            CompetitorKeywordRefreshOutcome outcome = runner.refresh(CompetitorKeywordRefreshContext.builder()
+                    .searchRunId(searchRunId)
+                    .keywordRunId(keywordRunId)
+                    .watchProduct(watchProduct)
+                    .keyword(keyword)
+                    .actorUserId(actorUserId)
+                    .build());
             if (outcome == null) {
                 outcome = CompetitorKeywordRefreshOutcome.success(0);
             }
-            mapper.insertKeywordRun(buildKeywordRun(searchRunId, keyword, outcome, actorUserId));
+            mapper.insertKeywordRun(buildKeywordRun(keywordRunId, searchRunId, keyword, outcome, actorUserId));
             if (outcome.isSuccess()) {
                 mapper.markKeywordProviderSucceeded(
                         keyword.getId(),
@@ -47,24 +60,34 @@ public class CompetitorKeywordRefreshTransactionRunner {
             return CompetitorKeywordRefreshResult.failure(errorCode, errorMessage);
         } catch (RuntimeException exception) {
             String message = firstNonBlank(exception.getMessage(), DEFAULT_PROVIDER_FAILURE_MESSAGE);
+            String errorCode = exception instanceof NoonSearchProviderException
+                    ? firstNonBlank(((NoonSearchProviderException) exception).getErrorCode(), DEFAULT_PROVIDER_FAILURE)
+                    : DEFAULT_PROVIDER_FAILURE;
             CompetitorKeywordRefreshOutcome failed = CompetitorKeywordRefreshOutcome.failure(
-                    DEFAULT_PROVIDER_FAILURE,
+                    errorCode,
                     message
             );
-            mapper.insertKeywordRun(buildKeywordRun(searchRunId, keyword, failed, actorUserId));
-            mapper.markKeywordProviderFailed(keyword.getId(), DEFAULT_PROVIDER_FAILURE, message, actorUserId);
-            return CompetitorKeywordRefreshResult.failure(DEFAULT_PROVIDER_FAILURE, message);
+            if (exception instanceof NoonSearchProviderException) {
+                NoonSearchProviderException providerException = (NoonSearchProviderException) exception;
+                failed.setSourceUrl(providerException.getSourceUrl());
+                failed.setProviderHttpStatus(providerException.getProviderHttpStatus());
+                failed.setResponseHash(providerException.getResponseHash());
+            }
+            mapper.insertKeywordRun(buildKeywordRun(keywordRunId, searchRunId, keyword, failed, actorUserId));
+            mapper.markKeywordProviderFailed(keyword.getId(), errorCode, message, actorUserId);
+            return CompetitorKeywordRefreshResult.failure(errorCode, message);
         }
     }
 
     private CompetitorKeywordRunInsertCommand buildKeywordRun(
+            Long keywordRunId,
             Long searchRunId,
             CompetitorKeywordRow keyword,
             CompetitorKeywordRefreshOutcome outcome,
             Long actorUserId
     ) {
         CompetitorKeywordRunInsertCommand command = new CompetitorKeywordRunInsertCommand();
-        command.setId(mapper.nextKeywordRunId());
+        command.setId(keywordRunId);
         command.setSearchRunId(searchRunId);
         command.setKeywordId(keyword.getId());
         command.setKeywordSnapshot(keyword.getKeyword());
@@ -75,6 +98,7 @@ public class CompetitorKeywordRefreshTransactionRunner {
         command.setParserVersion(normalize(outcome.getParserVersion()));
         command.setProviderHttpStatus(outcome.getProviderHttpStatus());
         command.setResponseHash(normalize(outcome.getResponseHash()));
+        command.setCapturedAt(outcome.getCapturedAt());
         command.setErrorCode(normalize(outcome.getErrorCode()));
         command.setErrorMessage(normalize(outcome.getErrorMessage()));
         command.setActorUserId(actorUserId);
