@@ -56,7 +56,6 @@ public class ProductReadModelService {
         Set<String> deletedSkuParents = new LinkedHashSet<>(
                 productManagementMapper.selectDeletedProductSkuParentsByStoreCode(command.getOwnerUserId(), storeCode)
         );
-        applyDetailBaselineBackfillStates(command.getOwnerUserId(), storeCode, summaries);
 
         LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsBySkuParent =
                 new LinkedHashMap<>();

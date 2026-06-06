@@ -556,7 +556,6 @@ public class ProductProjectionPersistenceService {
         List<ProductListSummaryView> summaries = new ArrayList<>();
         for (ProductListProjectionRecord record : loadProductListProjection(ownerUserId, storeCode, warnings)) {
             ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode));
-            hydrateHistoryMeta(summary, ownerUserId, normalize(storeCode));
             summaries.add(summary);
         }
         return summaries;
