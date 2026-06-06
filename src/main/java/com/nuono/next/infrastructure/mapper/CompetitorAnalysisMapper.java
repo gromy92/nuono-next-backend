@@ -21,6 +21,7 @@ import com.nuono.next.competitoranalysis.CompetitorWatchProductListRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductQuery;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductScopeRow;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -660,6 +661,30 @@ public interface CompetitorAnalysisMapper {
             "ORDER BY kw.display_order ASC, rf.tracked_product_type ASC, rf.rank_no ASC"
     })
     List<CompetitorLatestRankPointRow> listLatestRankPointsByWatchProductId(@Param("watchProductId") Long watchProductId);
+
+    @Select({
+            "SELECT",
+            "  rf.keyword_id AS keywordId, kw.keyword AS keyword, rf.tracked_product_type AS trackedProductType,",
+            "  rf.noon_product_code AS noonProductCode, rf.rank_status AS rankStatus, rf.rank_no AS rankNo,",
+            "  rf.is_sponsored AS sponsored, rf.price_amount AS priceAmount, rf.currency_code AS currencyCode,",
+            "  rf.fact_time AS factTime",
+            "FROM operations_competitor_rank_fact rf",
+            "JOIN operations_competitor_keyword kw",
+            "  ON kw.id = rf.keyword_id",
+            "WHERE rf.watch_product_id = #{watchProductId}",
+            "  AND rf.keyword_id = #{keywordId}",
+            "  AND rf.fact_time >= #{fromTime}",
+            "  AND rf.is_deleted = b'0'",
+            "  AND kw.is_deleted = b'0'",
+            "ORDER BY rf.fact_time DESC, rf.tracked_product_type ASC, COALESCE(rf.rank_no, 999999) ASC, rf.noon_product_code ASC",
+            "LIMIT #{limit}"
+    })
+    List<CompetitorLatestRankPointRow> listRankHistoryByWatchProductIdAndKeywordId(
+            @Param("watchProductId") Long watchProductId,
+            @Param("keywordId") Long keywordId,
+            @Param("fromTime") LocalDateTime fromTime,
+            @Param("limit") Integer limit
+    );
 
     @Insert({
             "INSERT INTO operations_competitor_search_run (",

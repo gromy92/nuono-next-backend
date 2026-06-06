@@ -96,6 +96,18 @@ public class CompetitorAnalysisController {
         return service.detail(context, watchProductId);
     }
 
+    @GetMapping("/watch-products/{watchProductId}/rank-history")
+    public CompetitorRankHistoryView rankHistory(
+            @PathVariable Long watchProductId,
+            @RequestParam Long keywordId,
+            @RequestParam(required = false) Integer rangeDays,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.rankHistory(context, watchProductId, keywordId, rangeDays);
+    }
+
     @PostMapping("/watch-products/{watchProductId}/keywords")
     public CompetitorWatchProductDetailView addKeyword(
             @PathVariable Long watchProductId,
