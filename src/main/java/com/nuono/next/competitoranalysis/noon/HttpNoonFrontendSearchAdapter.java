@@ -8,6 +8,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     private final Duration requestTimeout;
     private final String baseUrl;
 
+    @Autowired
     public HttpNoonFrontendSearchAdapter(
             NoonFrontendSearchPageParser parser,
             @Value("${nuono.competitor-analysis.noon-search.connect-timeout-seconds:5}") int connectTimeoutSeconds,
