@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS `operations_competitor_keyword_run` (
     `parser_version` VARCHAR(80) DEFAULT NULL,
     `provider_http_status` INT DEFAULT NULL,
     `response_hash` VARCHAR(128) DEFAULT NULL,
+    `captured_at` DATETIME DEFAULT NULL,
     `error_code` VARCHAR(128) DEFAULT NULL,
     `error_message` VARCHAR(1024) DEFAULT NULL,
     `started_at` DATETIME DEFAULT NULL,

@@ -43,6 +43,7 @@ class CompetitorAnalysisSchemaContractTest {
         assertTrue(sql.contains("parser_version"));
         assertTrue(sql.contains("provider_http_status"));
         assertTrue(sql.contains("response_hash"));
+        assertTrue(sql.contains("captured_at"));
         assertTrue(sql.contains("rank_status"));
         assertTrue(sql.contains("not_in_top_30"));
         assertFalse(sql.contains("provider_failed"), "provider failures must not be encoded as rank facts");
