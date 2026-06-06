@@ -3,6 +3,7 @@ package com.nuono.next.outboundfee;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.OfficialOutboundFeeMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -105,6 +106,11 @@ class MyBatisOfficialOutboundFeeFactRepositoryTest {
         }
 
         @Override
+        public void nextId(IdSequenceCommand command) {
+            command.setAllocatedId(720001L);
+        }
+
+        @Override
         public int countBySourceVersionItemId(String tableName, Long sourceVersionItemId) {
             return 0;
         }
@@ -188,6 +194,22 @@ class MyBatisOfficialOutboundFeeFactRepositoryTest {
         public int insertCalculationPolicy(Long id, OutboundFeeCalculationPolicyFact fact, Long operatorUserId) {
             policies.add(fact);
             return 1;
+        }
+
+        @Override
+        public int insertCalculationFact(Long id, OfficialOutboundFeeCalculationFact fact, Long operatorUserId) {
+            return 1;
+        }
+
+        @Override
+        public List<OfficialOutboundFeeCalculationView> selectLatestCalculationViewsBySkuIds(
+                Long ownerUserId,
+                String storeCode,
+                String site,
+                List<String> skuIds,
+                String specSourceType
+        ) {
+            return List.of();
         }
 
         private Map<String, Object> sizeClassificationRow(OutboundSizeClassificationRuleFact fact) {
