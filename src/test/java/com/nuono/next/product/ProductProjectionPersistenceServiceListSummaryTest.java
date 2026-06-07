@@ -160,6 +160,39 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void listSummariesShouldHydrateGalleryImagesFromSnapshotMedia() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setTitle("Amber Burner");
+        record.setImageUrl("https://img.example.com/cover.jpg");
+        record.setDetailBaselineStatus("ready");
+        record.setSyncStatus("synced");
+        ProductListSnapshotMediaRecord firstImage = new ProductListSnapshotMediaRecord();
+        firstImage.setSkuParent("ZTEST001");
+        firstImage.setImageUrl("https://img.example.com/a.jpg");
+        ProductListSnapshotMediaRecord secondImage = new ProductListSnapshotMediaRecord();
+        secondImage.setSkuParent("ZTEST001");
+        secondImage.setImageUrl("https://img.example.com/b.jpg");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+        when(productManagementMapper.selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(firstImage, secondImage));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        ProductListSummaryView summary = summaries.get(0);
+        assertEquals("https://img.example.com/cover.jpg", summary.getImageUrl());
+        assertEquals(List.of("https://img.example.com/a.jpg", "https://img.example.com/b.jpg"),
+                summary.getGalleryImages());
+        verify(productManagementMapper).selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE");
+    }
+
+    @Test
     void shouldPreserveExistingEditableOfferProjectionWhenIncomingOfferOmitsFields() throws Exception {
         Map<String, Object> incoming = new LinkedHashMap<>();
         incoming.put("storeCode", "STR245027-NAE");
