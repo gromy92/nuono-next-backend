@@ -8,6 +8,7 @@ import com.nuono.next.product.ProductMasterDraftRecord;
 import com.nuono.next.product.ProductKeyContentHistoryRecord;
 import com.nuono.next.product.ProductMasterSnapshotRecord;
 import com.nuono.next.product.ProductListProjectionRecord;
+import com.nuono.next.product.ProductListSnapshotMediaRecord;
 import com.nuono.next.product.ProductPublishTaskRecord;
 import com.nuono.next.product.ProductVariantSpecCommand;
 import com.nuono.next.product.ProductVariantSpecRecord;
@@ -1027,6 +1028,32 @@ public interface ProductManagementMapper {
             "ORDER BY pm.gmt_updated DESC, pm.id DESC"
     })
     List<ProductListProjectionRecord> selectProductListProjection(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode
+    );
+
+    @Select({
+            "SELECT",
+            "  pm.sku_parent AS skuParent,",
+            "  pia.url AS imageUrl",
+            "FROM logical_store ls",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "JOIN product_image_asset pia",
+            "  ON pia.product_master_id = pm.id",
+            " AND pia.source_type = 'noon'",
+            " AND pia.asset_status = 'synced'",
+            " AND pia.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "ORDER BY pm.id, pia.id"
+    })
+    List<ProductListSnapshotMediaRecord> selectLatestProductListSnapshotMedia(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode
     );
