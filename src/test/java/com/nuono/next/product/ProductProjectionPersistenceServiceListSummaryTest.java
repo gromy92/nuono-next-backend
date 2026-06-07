@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -130,6 +131,65 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertFalse(summary.isReady());
         assertEquals("missing", summary.getSource());
         assertEquals("ZMISS001", summary.getSkuParent());
+    }
+
+    @Test
+    void listSummariesShouldNotHydrateHistoryMetadataPerRow() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setTitle("Amber Burner");
+        record.setDetailBaselineStatus("missing");
+        record.setSyncStatus("synced");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        assertEquals("ZTEST001", summaries.get(0).getSkuParent());
+        assertNull(summaries.get(0).getHistoryMetaReady());
+        verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("ZTEST001")
+        );
+    }
+
+    @Test
+    void listSummariesShouldHydrateGalleryImagesFromSnapshotMedia() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setTitle("Amber Burner");
+        record.setImageUrl("https://img.example.com/cover.jpg");
+        record.setDetailBaselineStatus("ready");
+        record.setSyncStatus("synced");
+        ProductListSnapshotMediaRecord firstImage = new ProductListSnapshotMediaRecord();
+        firstImage.setSkuParent("ZTEST001");
+        firstImage.setImageUrl("https://img.example.com/a.jpg");
+        ProductListSnapshotMediaRecord secondImage = new ProductListSnapshotMediaRecord();
+        secondImage.setSkuParent("ZTEST001");
+        secondImage.setImageUrl("https://img.example.com/b.jpg");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+        when(productManagementMapper.selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(firstImage, secondImage));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        ProductListSummaryView summary = summaries.get(0);
+        assertEquals("https://img.example.com/cover.jpg", summary.getImageUrl());
+        assertEquals(List.of("https://img.example.com/a.jpg", "https://img.example.com/b.jpg"),
+                summary.getGalleryImages());
+        verify(productManagementMapper).selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE");
     }
 
     @Test

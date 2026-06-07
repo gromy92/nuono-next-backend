@@ -49,7 +49,7 @@ class ProductReadModelServiceListDatasetTest {
     }
 
     @Test
-    void listDatasetReadsLocalProjectionWithoutInitializationStatusOrBackfillEnqueue() {
+    void listDatasetReadsLocalProjectionWithoutInitializationStatusOrBackfillSideEffects() {
         StoreSyncStoreRecord store = ownerStore();
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
         when(productManagementMapper.selectDeletedProductSkuParentsByStoreCode(10002L, "STR245027-NAE"))
@@ -68,9 +68,6 @@ class ProductReadModelServiceListDatasetTest {
                 eq("STR245027-NAE"),
                 anyList()
         )).thenReturn(List.of(summary));
-        when(productDetailBaselineBackfillService.state(10002L, "STR245027-NAE", "PAPERSAYSB132"))
-                .thenReturn(new ProductDetailBaselineBackfillService.BackfillState("preparing", "正在后台补齐详情基线。"));
-
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
         command.setOwnerUserId(10002L);
         command.setStoreCode("STR245027-NAE");
@@ -88,14 +85,14 @@ class ProductReadModelServiceListDatasetTest {
         assertEquals("2026-06-04 10:00:00", view.getLastDatasetSyncedAt());
         assertEquals(1, view.getItems().size());
         assertEquals("PAPERSAYSB132", view.getItems().get(0).getSkuParent());
-        assertEquals("preparing", view.getItems().get(0).getDetailBaselineStatus());
+        assertEquals("missing", view.getItems().get(0).getDetailBaselineStatus());
 
         verify(productProjectionPersistenceService).loadProductListSummaries(
                 eq(10002L),
                 eq("STR245027-NAE"),
                 anyList()
         );
-        verify(productDetailBaselineBackfillService).state(10002L, "STR245027-NAE", "PAPERSAYSB132");
+        verify(productDetailBaselineBackfillService, never()).state(10002L, "STR245027-NAE", "PAPERSAYSB132");
         verify(productDetailBaselineBackfillService, never()).enqueue(any(), anyString(), any());
     }
 

@@ -553,13 +553,65 @@ public class ProductProjectionPersistenceService {
             String storeCode,
             List<String> warnings
     ) {
+        String normalizedStoreCode = normalize(storeCode);
         List<ProductListSummaryView> summaries = new ArrayList<>();
-        for (ProductListProjectionRecord record : loadProductListProjection(ownerUserId, storeCode, warnings)) {
-            ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode));
-            hydrateHistoryMeta(summary, ownerUserId, normalize(storeCode));
+        for (ProductListProjectionRecord record : loadProductListProjection(ownerUserId, normalizedStoreCode, warnings)) {
+            ProductListSummaryView summary = toListSummaryView(record, normalizedStoreCode);
             summaries.add(summary);
         }
+        hydrateListSnapshotMedia(summaries, ownerUserId, normalizedStoreCode);
         return summaries;
+    }
+
+    private void hydrateListSnapshotMedia(
+            List<ProductListSummaryView> summaries,
+            Long ownerUserId,
+            String storeCode
+    ) {
+        if (summaries == null || summaries.isEmpty() || ownerUserId == null || !StringUtils.hasText(storeCode)) {
+            return;
+        }
+        Map<String, ProductListSummaryView> summariesBySkuParent = new LinkedHashMap<>();
+        for (ProductListSummaryView summary : summaries) {
+            String skuParent = summary == null ? null : normalize(summary.getSkuParent());
+            if (!StringUtils.hasText(skuParent) || summariesBySkuParent.containsKey(skuParent)) {
+                continue;
+            }
+            summariesBySkuParent.put(skuParent, summary);
+        }
+        if (summariesBySkuParent.isEmpty()) {
+            return;
+        }
+        List<ProductListSnapshotMediaRecord> mediaRecords =
+                productManagementMapper.selectLatestProductListSnapshotMedia(ownerUserId, storeCode);
+        if (mediaRecords == null || mediaRecords.isEmpty()) {
+            return;
+        }
+        Map<String, List<String>> imagesBySkuParent = new LinkedHashMap<>();
+        for (ProductListSnapshotMediaRecord mediaRecord : mediaRecords) {
+            String skuParent = mediaRecord == null ? null : normalize(mediaRecord.getSkuParent());
+            String imageUrl = mediaRecord == null ? null : normalize(mediaRecord.getImageUrl());
+            if (!StringUtils.hasText(skuParent)
+                    || !StringUtils.hasText(imageUrl)
+                    || !summariesBySkuParent.containsKey(skuParent)) {
+                continue;
+            }
+            List<String> images = imagesBySkuParent.computeIfAbsent(skuParent, ignored -> new ArrayList<>());
+            if (!images.contains(imageUrl)) {
+                images.add(imageUrl);
+            }
+        }
+        for (Map.Entry<String, List<String>> entry : imagesBySkuParent.entrySet()) {
+            ProductListSummaryView summary = summariesBySkuParent.get(entry.getKey());
+            List<String> images = entry.getValue();
+            if (summary == null || images.isEmpty()) {
+                continue;
+            }
+            summary.setGalleryImages(images);
+            if (!StringUtils.hasText(summary.getImageUrl())) {
+                summary.setImageUrl(images.get(0));
+            }
+        }
     }
 
     public ProductListSummaryView loadProductListSummary(
