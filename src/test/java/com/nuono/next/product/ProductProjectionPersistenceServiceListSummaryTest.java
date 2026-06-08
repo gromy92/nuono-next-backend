@@ -117,6 +117,33 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void listSummariesShouldNormalizeNoonPzskuProjectionImageUrls() {
+        ProductListProjectionRecord normalPzsku = new ProductListProjectionRecord();
+        normalPzsku.setSkuParent("ZIMAGE001");
+        normalPzsku.setImageUrl("https://f.nooncdn.com/pzsku/ZIMAGE001/45/1764317423/b5c0c19a-bdd7-4189-a1d2-afff85837e54");
+        ProductListProjectionRecord pipePzsku = new ProductListProjectionRecord();
+        pipePzsku.setSkuParent("ZPIPE001");
+        pipePzsku.setImageUrl("https://f.nooncdn.com/dff8d2f18fdd53dd90234aa6d1e70724|pzsku/ZPIPE001/45/1770090580/0aa1671e-a711-4eea-8768-445bfe7365e8");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(normalPzsku, pipePzsku));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(
+                "https://f.nooncdn.com/p/pzsku/ZIMAGE001/45/1764317423/b5c0c19a-bdd7-4189-a1d2-afff85837e54.jpg",
+                summaries.get(0).getImageUrl()
+        );
+        assertEquals(
+                "https://f.nooncdn.com/p/dff8d2f18fdd53dd90234aa6d1e70724|pzsku/ZPIPE001/45/1770090580/0aa1671e-a711-4eea-8768-445bfe7365e8.jpg",
+                summaries.get(1).getImageUrl()
+        );
+    }
+
+    @Test
     void shouldReturnMissingSummaryWhenProjectionRowAbsent() {
         when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZMISS001"))
                 .thenReturn(null);
@@ -190,6 +217,42 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals(List.of("https://img.example.com/a.jpg", "https://img.example.com/b.jpg"),
                 summary.getGalleryImages());
         verify(productManagementMapper).selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE");
+    }
+
+    @Test
+    void listSummariesShouldNormalizeSnapshotMediaImages() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setTitle("Amber Burner");
+        record.setDetailBaselineStatus("ready");
+        record.setSyncStatus("synced");
+        ProductListSnapshotMediaRecord firstImage = new ProductListSnapshotMediaRecord();
+        firstImage.setSkuParent("ZTEST001");
+        firstImage.setImageUrl("https://f.nooncdn.com/pzsku/ZTEST001/45/1764317423/b5c0c19a-bdd7-4189-a1d2-afff85837e54");
+        ProductListSnapshotMediaRecord secondImage = new ProductListSnapshotMediaRecord();
+        secondImage.setSkuParent("ZTEST001");
+        secondImage.setImageUrl("https://storage.googleapis.com/slapi-production/psku_assets/example.jpeg");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+        when(productManagementMapper.selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(firstImage, secondImage));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        ProductListSummaryView summary = summaries.get(0);
+        assertEquals(
+                "https://f.nooncdn.com/p/pzsku/ZTEST001/45/1764317423/b5c0c19a-bdd7-4189-a1d2-afff85837e54.jpg",
+                summary.getImageUrl()
+        );
+        assertEquals(List.of(
+                "https://f.nooncdn.com/p/pzsku/ZTEST001/45/1764317423/b5c0c19a-bdd7-4189-a1d2-afff85837e54.jpg",
+                "https://storage.googleapis.com/slapi-production/psku_assets/example.jpeg"
+        ), summary.getGalleryImages());
     }
 
     @Test

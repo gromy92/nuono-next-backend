@@ -590,7 +590,7 @@ public class ProductProjectionPersistenceService {
         Map<String, List<String>> imagesBySkuParent = new LinkedHashMap<>();
         for (ProductListSnapshotMediaRecord mediaRecord : mediaRecords) {
             String skuParent = mediaRecord == null ? null : normalize(mediaRecord.getSkuParent());
-            String imageUrl = mediaRecord == null ? null : normalize(mediaRecord.getImageUrl());
+            String imageUrl = mediaRecord == null ? null : normalizeDisplayImageUrl(mediaRecord.getImageUrl());
             if (!StringUtils.hasText(skuParent)
                     || !StringUtils.hasText(imageUrl)
                     || !summariesBySkuParent.containsKey(skuParent)) {
@@ -1568,7 +1568,7 @@ public class ProductProjectionPersistenceService {
         view.setOfferCode(record.getOfferCode());
         view.setTitle(record.getTitle());
         view.setBrand(record.getBrand());
-        view.setImageUrl(record.getImageUrl());
+        view.setImageUrl(normalizeDisplayImageUrl(record.getImageUrl()));
         view.setBarcode(record.getBarcode());
         view.setReferencePrice(record.getReferencePrice());
         view.setOriginalPrice(record.getOriginalPrice());
@@ -1618,6 +1618,36 @@ public class ProductProjectionPersistenceService {
         view.setSalesCurrency(record.getSalesCurrency());
         view.setMessage("已从本地商品投影读取权威列表摘要。");
         return view;
+    }
+
+    private String normalizeDisplayImageUrl(String value) {
+        String normalized = normalize(value);
+        if (!StringUtils.hasText(normalized)) {
+            return null;
+        }
+
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        if (lower.startsWith("https://f.nooncdn.com/") && lower.contains("|pzsku/")) {
+            normalized = "https://f.nooncdn.com/p/"
+                    + normalized.substring("https://f.nooncdn.com/".length());
+        } else if (lower.startsWith("original/pzsku/")) {
+            normalized = "https://f.nooncdn.com/p/pzsku/" + normalized.substring("original/pzsku/".length());
+        } else if (lower.startsWith("pzsku/") || lower.contains("|pzsku/")) {
+            normalized = "https://f.nooncdn.com/p/" + normalized;
+        } else if (lower.startsWith("https://f.nooncdn.com/p/original/pzsku/")) {
+            normalized = "https://f.nooncdn.com/p/pzsku/"
+                    + normalized.substring("https://f.nooncdn.com/p/original/pzsku/".length());
+        } else if (lower.startsWith("https://f.nooncdn.com/pzsku/")) {
+            normalized = "https://f.nooncdn.com/p/pzsku/"
+                    + normalized.substring("https://f.nooncdn.com/pzsku/".length());
+        }
+
+        String normalizedLower = normalized.toLowerCase(Locale.ROOT);
+        if (normalizedLower.startsWith("https://f.nooncdn.com/p/")
+                && !normalizedLower.matches(".*\\.(avif|gif|jpe?g|png|webp)([?#].*)?$")) {
+            return normalized + ".jpg";
+        }
+        return normalized;
     }
 
     private void hydrateHistoryMeta(ProductListSummaryView view, Long ownerUserId, String storeCode) {
@@ -1719,9 +1749,16 @@ public class ProductProjectionPersistenceService {
         }
         List<String> images = stringList(snapshot.getContent().get("images"));
         if (!images.isEmpty()) {
-            view.setGalleryImages(images);
+            List<String> normalizedImages = new ArrayList<>();
+            for (String image : images) {
+                String normalizedImage = normalizeDisplayImageUrl(image);
+                if (StringUtils.hasText(normalizedImage) && !normalizedImages.contains(normalizedImage)) {
+                    normalizedImages.add(normalizedImage);
+                }
+            }
+            view.setGalleryImages(normalizedImages);
             if (!StringUtils.hasText(view.getImageUrl())) {
-                view.setImageUrl(images.get(0));
+                view.setImageUrl(normalizedImages.isEmpty() ? null : normalizedImages.get(0));
             }
         }
         view.setBarcode(firstNonBlank(view.getBarcode(), extractBarcode(snapshot)));
