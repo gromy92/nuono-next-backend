@@ -84,6 +84,46 @@ class CompetitorAnalysisRefreshControllerAccessTest {
     }
 
     @Test
+    void manualMonitoringUsesStorePermissionBeforeDelegating() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = operatorContext();
+        CompetitorTaskView view = new CompetitorTaskView();
+        view.setTaskId(150001L);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        )).thenReturn(context);
+        when(refreshService.requestStoreMonitoring(context, "STR108065-NSA", "SA")).thenReturn(view);
+
+        CompetitorTaskView result = controller.manualMonitoring("STR108065-NSA", "sa", request);
+
+        assertEquals(view, result);
+        InOrder order = inOrder(businessAccessResolver, refreshService);
+        order.verify(businessAccessResolver).requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        );
+        order.verify(refreshService).requestStoreMonitoring(context, "STR108065-NSA", "SA");
+    }
+
+    @Test
+    void manualMonitoringReturnsAccepted() throws Exception {
+        Method method = CompetitorAnalysisController.class.getMethod(
+                "manualMonitoring",
+                String.class,
+                String.class,
+                HttpServletRequest.class
+        );
+
+        ResponseStatus responseStatus = method.getAnnotation(ResponseStatus.class);
+
+        assertNotNull(responseStatus);
+        assertEquals(HttpStatus.ACCEPTED, responseStatus.value());
+    }
+
+    @Test
     void refreshRunUsesBusinessContextBeforeDelegating() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         BusinessAccessContext context = operatorContext();

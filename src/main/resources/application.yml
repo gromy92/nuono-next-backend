@@ -84,6 +84,13 @@ nuono:
         enabled: ${NUONO_NOON_PULL_SCHEDULER_ENABLED:false}
         initial-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_INITIAL_DELAY_MS:60000}
         fixed-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_FIXED_DELAY_MS:300000}
+  competitor-analysis:
+    monitor:
+      scheduler:
+        enabled: ${NUONO_COMPETITOR_ANALYSIS_MONITOR_SCHEDULER_ENABLED:false}
+        cron: "${NUONO_COMPETITOR_ANALYSIS_MONITOR_SCHEDULER_CRON:0 0 8 * * *}"
+        zone: ${NUONO_COMPETITOR_ANALYSIS_MONITOR_SCHEDULER_ZONE:Asia/Shanghai}
+        max-scopes-per-tick: ${NUONO_COMPETITOR_ANALYSIS_MONITOR_MAX_SCOPES_PER_TICK:100}
   bootstrap:
     db-enabled: false
     schema: nuono_new_dev

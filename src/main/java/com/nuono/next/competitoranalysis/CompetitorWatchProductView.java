@@ -14,6 +14,7 @@ public class CompetitorWatchProductView {
     private String selfNoonProductCode;
     private String selfCodeType;
     private String title;
+    private String titleCn;
     private String brand;
     private String imageUrl;
     private String productFulltype;
@@ -38,6 +39,7 @@ public class CompetitorWatchProductView {
         view.setSelfNoonProductCode(row.getSelfNoonProductCode());
         view.setSelfCodeType(row.getSelfCodeType());
         view.setTitle(row.getTitleSnapshot());
+        view.setTitleCn(row.getTitleCnSnapshot());
         view.setBrand(row.getBrandSnapshot());
         view.setImageUrl(row.getImageUrlSnapshot());
         view.setProductFulltype(row.getProductFulltypeSnapshot());
@@ -70,6 +72,8 @@ public class CompetitorWatchProductView {
     public void setSelfCodeType(String selfCodeType) { this.selfCodeType = selfCodeType; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+    public String getTitleCn() { return titleCn; }
+    public void setTitleCn(String titleCn) { this.titleCn = titleCn; }
     public String getBrand() { return brand; }
     public void setBrand(String brand) { this.brand = brand; }
     public String getImageUrl() { return imageUrl; }

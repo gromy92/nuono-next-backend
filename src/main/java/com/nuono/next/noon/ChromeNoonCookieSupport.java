@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.StringJoiner;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.SecretKey;
@@ -41,8 +42,10 @@ public final class ChromeNoonCookieSupport {
     private static final byte[] IV = "                ".getBytes(StandardCharsets.UTF_8);
     private static final Duration CACHE_TTL = Duration.ofMinutes(2);
     private static final List<String> REQUIRED_COOKIE_NAMES = List.of("_npsid", "_nprtnetid");
+    private static final long CHROME_EPOCH_OFFSET_MICROS = 11_644_473_600_000_000L;
 
     private static volatile CachedCookies cachedCookies;
+    private static volatile CachedCookies frontendCachedCookies;
 
     private ChromeNoonCookieSupport() {
     }
@@ -58,15 +61,7 @@ public final class ChromeNoonCookieSupport {
         }
 
         try {
-            String safeStorageValue = runCommand(List.of(
-                    "security",
-                    "find-generic-password",
-                    "-w",
-                    "-s",
-                    SAFE_STORAGE_SERVICE,
-                    "-a",
-                    SAFE_STORAGE_ACCOUNT
-            )).trim();
+            String safeStorageValue = loadSafeStorageValue();
             if (!StringUtils.hasText(safeStorageValue)) {
                 throw new IllegalStateException("没有拿到 Chrome Safe Storage 密钥。");
             }
@@ -91,6 +86,57 @@ public final class ChromeNoonCookieSupport {
         } catch (IOException | GeneralSecurityException exception) {
             throw new IllegalStateException("读取 Chrome Noon 会话失败：" + exception.getMessage(), exception);
         }
+    }
+
+    public static String loadNoonFrontendCookieHeader() {
+        CachedCookies cached = frontendCachedCookies;
+        if (cached != null && !cached.isExpired()) {
+            return toCookieHeader(cached.cookies);
+        }
+
+        if (!Files.exists(CHROME_COOKIE_DB)) {
+            throw new IllegalStateException("本机 Chrome 默认资料目录里没有 Noon 前台 Cookie。");
+        }
+
+        try {
+            String safeStorageValue = loadSafeStorageValue();
+            if (!StringUtils.hasText(safeStorageValue)) {
+                throw new IllegalStateException("没有拿到 Chrome Safe Storage 密钥。");
+            }
+
+            Path tempDb = Files.createTempFile("nuono-chrome-noon-frontend-cookies", ".db");
+            try {
+                Files.copy(CHROME_COOKIE_DB, tempDb, StandardCopyOption.REPLACE_EXISTING);
+                long nowChromeMicros = System.currentTimeMillis() * 1000L + CHROME_EPOCH_OFFSET_MICROS;
+                String query = "select name, value, hex(encrypted_value) from cookies "
+                        + "where host_key in ('.noon.com','www.noon.com','noon.com') "
+                        + "and (expires_utc = 0 or expires_utc > " + nowChromeMicros + ") "
+                        + "order by length(host_key) desc, length(path) desc, creation_utc desc";
+                String rawRows = runCommand(List.of("sqlite3", "-separator", "\t", tempDb.toString(), query));
+                Map<String, String> cookies = decryptCookieRowsWithPlainValue(rawRows, safeStorageValue);
+                if (cookies.isEmpty()) {
+                    throw new IllegalStateException("Chrome 缺少 www.noon.com 前台 Cookie，请先用 Chrome 打开 Noon 前台搜索页。");
+                }
+                frontendCachedCookies = new CachedCookies(cookies);
+                return toCookieHeader(cookies);
+            } finally {
+                Files.deleteIfExists(tempDb);
+            }
+        } catch (IOException | GeneralSecurityException exception) {
+            throw new IllegalStateException("读取 Chrome Noon 前台会话失败：" + exception.getMessage(), exception);
+        }
+    }
+
+    private static String loadSafeStorageValue() throws IOException {
+        return runCommand(List.of(
+                "security",
+                "find-generic-password",
+                "-w",
+                "-s",
+                SAFE_STORAGE_SERVICE,
+                "-a",
+                SAFE_STORAGE_ACCOUNT
+        )).trim();
     }
 
     private static Map<String, String> decryptCookieRows(String rawRows, String safeStorageValue)
@@ -139,6 +185,78 @@ public final class ChromeNoonCookieSupport {
             cookies.put(name, new String(decrypted, StandardCharsets.UTF_8));
         }
         return cookies;
+    }
+
+    private static Map<String, String> decryptCookieRowsWithPlainValue(String rawRows, String safeStorageValue)
+            throws GeneralSecurityException {
+        Map<String, String> cookies = new LinkedHashMap<>();
+        if (!StringUtils.hasText(rawRows)) {
+            return cookies;
+        }
+
+        SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
+        KeySpec spec = new PBEKeySpec(safeStorageValue.toCharArray(), SALT, 1003, 128);
+        SecretKey tmp = factory.generateSecret(spec);
+        SecretKeySpec secretKey = new SecretKeySpec(tmp.getEncoded(), "AES");
+
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, new IvParameterSpec(IV));
+
+        String[] lines = rawRows.split("\\R");
+        for (String line : lines) {
+            if (!StringUtils.hasText(line)) {
+                continue;
+            }
+            String[] fields = line.split("\\t", -1);
+            if (fields.length < 3) {
+                continue;
+            }
+            String name = fields[0].trim();
+            String plainValue = fields[1];
+            String encryptedHex = fields[2].trim();
+            if (!StringUtils.hasText(name) || cookies.containsKey(name)) {
+                continue;
+            }
+
+            String value = plainValue;
+            if (!StringUtils.hasText(value) && StringUtils.hasText(encryptedHex)) {
+                value = decryptCookieValue(cipher, encryptedHex);
+            }
+            if (StringUtils.hasText(value)) {
+                cookies.put(name, value);
+            }
+        }
+        return cookies;
+    }
+
+    private static String decryptCookieValue(Cipher cipher, String encryptedHex) throws GeneralSecurityException {
+        byte[] encryptedBytes = hexToBytes(encryptedHex);
+        byte[] payload = encryptedBytes;
+        if (encryptedBytes.length > 3
+                && encryptedBytes[0] == 'v'
+                && encryptedBytes[1] == '1'
+                && encryptedBytes[2] == '0') {
+            payload = new byte[encryptedBytes.length - 3];
+            System.arraycopy(encryptedBytes, 3, payload, 0, payload.length);
+        }
+
+        byte[] decrypted = cipher.doFinal(payload);
+        if (decrypted.length > 32) {
+            byte[] stripped = new byte[decrypted.length - 32];
+            System.arraycopy(decrypted, 32, stripped, 0, stripped.length);
+            decrypted = stripped;
+        }
+        return new String(decrypted, StandardCharsets.UTF_8);
+    }
+
+    private static String toCookieHeader(Map<String, String> cookies) {
+        StringJoiner joiner = new StringJoiner("; ");
+        for (Map.Entry<String, String> entry : cookies.entrySet()) {
+            if (StringUtils.hasText(entry.getKey()) && StringUtils.hasText(entry.getValue())) {
+                joiner.add(entry.getKey() + "=" + entry.getValue());
+            }
+        }
+        return joiner.toString();
     }
 
     private static String runCommand(List<String> command) throws IOException {

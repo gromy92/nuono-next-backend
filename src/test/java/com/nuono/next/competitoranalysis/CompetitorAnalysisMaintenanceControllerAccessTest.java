@@ -88,6 +88,32 @@ class CompetitorAnalysisMaintenanceControllerAccessTest {
         );
     }
 
+    @Test
+    void removeCandidateLoadsKeywordCandidateScopeBeforeStorePermission() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        CompetitorWatchProductScopeRow scope = watchScope();
+        BusinessAccessContext context = operatorContext();
+        CompetitorWatchProductDetailView detail = new CompetitorWatchProductDetailView();
+        when(service.requireKeywordCandidateScope(190001L, 200001L)).thenReturn(scope);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        )).thenReturn(context);
+        when(service.removeCandidateFromKeyword(context, 190001L, 200001L)).thenReturn(detail);
+
+        CompetitorWatchProductDetailView result = controller.removeCandidate(190001L, 200001L, request);
+
+        assertEquals(detail, result);
+        InOrder order = inOrder(service, businessAccessResolver);
+        order.verify(service).requireKeywordCandidateScope(190001L, 200001L);
+        order.verify(businessAccessResolver).requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        );
+    }
+
     private static CompetitorWatchProductScopeRow watchScope() {
         CompetitorWatchProductScopeRow row = new CompetitorWatchProductScopeRow();
         row.setId(180123L);

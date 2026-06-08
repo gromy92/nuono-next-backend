@@ -18,6 +18,7 @@ public class CompetitorProductRow {
     private Integer reviewCountSnapshot;
     private String sourceType;
     private String reviewStatus;
+    private Boolean ownedByCurrentStore;
     private Long confirmedBy;
     private LocalDateTime confirmedAt;
     private LocalDateTime firstSeenAt;
@@ -51,6 +52,8 @@ public class CompetitorProductRow {
     public void setSourceType(String sourceType) { this.sourceType = sourceType; }
     public String getReviewStatus() { return reviewStatus; }
     public void setReviewStatus(String reviewStatus) { this.reviewStatus = reviewStatus; }
+    public Boolean getOwnedByCurrentStore() { return ownedByCurrentStore; }
+    public void setOwnedByCurrentStore(Boolean ownedByCurrentStore) { this.ownedByCurrentStore = ownedByCurrentStore; }
     public Long getConfirmedBy() { return confirmedBy; }
     public void setConfirmedBy(Long confirmedBy) { this.confirmedBy = confirmedBy; }
     public LocalDateTime getConfirmedAt() { return confirmedAt; }

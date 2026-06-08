@@ -71,21 +71,38 @@ class CompetitorAnalysisMaintenanceServiceTest {
     }
 
     @Test
-    void manualCompetitorUpgradesPendingCandidateAndAppliesAllActiveKeywords() {
+    void manualCompetitorUpgradesPendingCandidateAndAppliesSelectedKeywordOnly() {
         CompetitorManualCompetitorCommand command = new CompetitorManualCompetitorCommand();
         command.setInput("https://www.noon.com/saudi-en/example/N51004211A/p/");
+        command.setKeywordId(190001L);
         when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct("ZSELF001"));
+        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
         CompetitorProductRow pending = competitorProduct(200123L, "N51004211A", "PENDING");
         when(mapper.selectCompetitorProductByCode(180123L, "N51004211A")).thenReturn(pending);
-        when(mapper.listActiveKeywordsByWatchProductId(180123L))
-                .thenReturn(List.of(keyword(190001L, "laundry basket"), keyword(190002L, "foldable hamper")));
         mockDetail();
 
         service.addManualCompetitor(operatorContext(), 180123L, command);
 
         verify(mapper).markCompetitorProductConfirmed(200123L, 601L);
         verify(mapper).upsertKeywordProductRelation(190001L, 200123L, "CONFIRMED", 601L);
-        verify(mapper).upsertKeywordProductRelation(190002L, 200123L, "CONFIRMED", 601L);
+        verify(mapper, never()).upsertKeywordProductRelation(190002L, 200123L, "CONFIRMED", 601L);
+        verify(mapper, never()).listActiveKeywordsByWatchProductId(180123L);
+    }
+
+    @Test
+    void manualCompetitorRequiresKeywordId() {
+        CompetitorManualCompetitorCommand command = new CompetitorManualCompetitorCommand();
+        command.setInput("N51004211A");
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct("ZSELF001"));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> service.addManualCompetitor(operatorContext(), 180123L, command)
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, error.getStatus());
+        assertEquals("COMPETITOR_KEYWORD_REQUIRED", error.getReason());
+        verify(mapper, never()).selectCompetitorProductByCode(any(), any());
     }
 
     @Test
@@ -117,7 +134,37 @@ class CompetitorAnalysisMaintenanceServiceTest {
 
         assertEquals(HttpStatus.CONFLICT, error.getStatus());
         assertEquals("COMPETITOR_CONFIRMED_CANNOT_IGNORE", error.getReason());
-        verify(mapper, never()).markKeywordProductRelationIgnored(any(), any(), any());
+        verify(mapper, never()).softDeleteKeywordProductRelation(any(), any(), any());
+    }
+
+    @Test
+    void removeConfirmedCandidateOnlyRemovesCurrentKeywordRelation() {
+        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
+        when(mapper.selectCompetitorProductScopeById(200001L))
+                .thenReturn(productScope(200001L, 180123L, "CONFIRMED", "ZCOMP001"));
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct("ZSELF001"));
+        mockDetail();
+
+        service.removeCandidateFromKeyword(operatorContext(), 190001L, 200001L);
+
+        verify(mapper).softDeleteKeywordProductRelation(190001L, 200001L, 601L);
+        verify(mapper, never()).markCompetitorProductConfirmed(any(), any());
+        verify(mapper, never()).upsertKeywordProductRelation(any(), any(), any(), any());
+    }
+
+    @Test
+    void ignorePendingCandidateDeletesCurrentKeywordRelation() {
+        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
+        when(mapper.selectCompetitorProductScopeById(200001L))
+                .thenReturn(productScope(200001L, 180123L, "PENDING", "ZCOMP001"));
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct("ZSELF001"));
+        mockDetail();
+
+        service.ignoreCandidate(operatorContext(), 190001L, 200001L);
+
+        verify(mapper).softDeleteKeywordProductRelation(190001L, 200001L, 601L);
+        verify(mapper, never()).markCompetitorProductConfirmed(any(), any());
+        verify(mapper, never()).upsertKeywordProductRelation(any(), any(), any(), any());
     }
 
     private void mockDetail() {

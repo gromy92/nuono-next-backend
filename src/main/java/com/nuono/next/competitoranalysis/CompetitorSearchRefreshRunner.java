@@ -7,6 +7,7 @@ import com.nuono.next.competitoranalysis.noon.NoonSearchRequest;
 import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -20,7 +21,7 @@ import org.springframework.util.StringUtils;
 @Primary
 @Profile("local-db")
 public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRunner {
-    private static final int SEARCH_LIMIT = 30;
+    private static final int SEARCH_LIMIT = 20;
 
     private final CompetitorAnalysisMapper mapper;
     private final NoonFrontendSearchAdapter adapter;
@@ -72,6 +73,7 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
             Map<String, NoonSearchResult> resultsByCode
     ) {
         int count = 0;
+        List<Long> currentProductIds = new ArrayList<>();
         String selfCode = normalizeCode(context.getWatchProduct().getSelfNoonProductCode());
         for (NoonSearchResult result : resultsByCode.values()) {
             if (result.getNoonProductCode().equals(selfCode)) {
@@ -89,9 +91,15 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 productId = existing.getId();
                 mapper.updateCompetitorProductFromSearch(buildProductInsert(context, result, productId));
             }
-            mapper.upsertKeywordProductRelationFromSearch(buildRelationCommand(context, result, productId));
+            mapper.upsertKeywordProductRelationFromSearch(buildRelationCommand(context, result, productId, existing));
+            currentProductIds.add(productId);
             count++;
         }
+        mapper.softDeleteDiscoveredKeywordProductRelationsOutsideSet(
+                context.getKeyword().getId(),
+                currentProductIds,
+                context.getActorUserId()
+        );
         return count;
     }
 
@@ -115,8 +123,8 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
             count++;
         }
 
-        List<CompetitorProductRow> confirmedProducts = mapper.listConfirmedCompetitorProductsByWatchProductId(
-                context.getWatchProduct().getId()
+        List<CompetitorProductRow> confirmedProducts = mapper.listConfirmedCompetitorProductsByKeywordId(
+                context.getKeyword().getId()
         );
         for (CompetitorProductRow product : confirmedProducts) {
             String code = normalizeCode(product.getNoonProductCode());
@@ -183,17 +191,23 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
     private CompetitorKeywordProductSearchCommand buildRelationCommand(
             CompetitorKeywordRefreshContext context,
             NoonSearchResult result,
-            Long productId
+            Long productId,
+            CompetitorProductRow existingProduct
     ) {
         CompetitorKeywordProductSearchCommand command = new CompetitorKeywordProductSearchCommand();
         command.setId(mapper.nextKeywordProductId());
         command.setKeywordId(context.getKeyword().getId());
         command.setCompetitorProductId(productId);
+        command.setRelationStatus(isConfirmedProduct(existingProduct) ? "CONFIRMED" : "DISCOVERED");
         command.setSearchRunId(context.getSearchRunId());
         command.setRankNo(result.getPosition());
         command.setSponsored(result.isSponsored());
         command.setActorUserId(context.getActorUserId());
         return command;
+    }
+
+    private boolean isConfirmedProduct(CompetitorProductRow product) {
+        return product != null && "CONFIRMED".equalsIgnoreCase(product.getReviewStatus());
     }
 
     private CompetitorSearchResultInsertCommand buildSearchResult(
@@ -243,14 +257,17 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setTrackedProductType(trackedProductType);
         command.setNoonProductCode(noonProductCode);
         command.setActorUserId(context.getActorUserId());
+        command.setScanDepth(page == null || page.getResults() == null ? null : page.getResults().size());
         if (result == null) {
-            command.setRankStatus("NOT_IN_TOP_30");
+            command.setRankStatus("NOT_IN_TOP_20");
             command.setSponsored(false);
+            command.setRankChannel("ORGANIC");
             return command;
         }
         command.setRankStatus("RANKED");
         command.setRankNo(result.getPosition());
         command.setSponsored(result.isSponsored());
+        command.setRankChannel(result.isSponsored() ? "SPONSORED" : "ORGANIC");
         command.setPriceAmount(result.getPriceAmount());
         command.setCurrencyCode(normalizeText(result.getCurrencyCode()));
         command.setRating(result.getRating());
