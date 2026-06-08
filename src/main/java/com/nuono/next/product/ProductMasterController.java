@@ -2,6 +2,9 @@ package com.nuono.next.product;
 
 import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
+import com.nuono.next.noonpull.NoonProductDetailBaselineSyncRequest;
+import com.nuono.next.noonpull.NoonProductDetailBaselineSyncResult;
+import com.nuono.next.noonpull.NoonProductDetailBaselineSyncer;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
@@ -39,25 +42,30 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProductMasterController {
 
     private static final long MAX_IMAGE_BYTES = 8L * 1024L * 1024L;
+    private static final int DEFAULT_DETAIL_BASELINE_SYNC_FETCHES = 20;
+    private static final int MAX_DETAIL_BASELINE_SYNC_FETCHES = 50;
 
     private final ObjectProvider<LocalDbProductMasterService> localDbProductMasterServiceProvider;
     private final ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider;
     private final AuthSessionTokenService sessionTokenService;
     private final ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider;
     private final ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider;
+    private final ObjectProvider<NoonProductDetailBaselineSyncer> productDetailBaselineSyncerProvider;
 
     public ProductMasterController(
             ObjectProvider<LocalDbProductMasterService> localDbProductMasterServiceProvider,
             ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider,
             AuthSessionTokenService sessionTokenService,
             ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider,
-            ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider
+            ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider,
+            ObjectProvider<NoonProductDetailBaselineSyncer> productDetailBaselineSyncerProvider
     ) {
         this.localDbProductMasterServiceProvider = localDbProductMasterServiceProvider;
         this.productContentTranslationServiceProvider = productContentTranslationServiceProvider;
         this.sessionTokenService = sessionTokenService;
         this.productMasterAccessGuardProvider = productMasterAccessGuardProvider;
         this.businessAccessResolverProvider = businessAccessResolverProvider;
+        this.productDetailBaselineSyncerProvider = productDetailBaselineSyncerProvider;
     }
 
     @PostMapping("/snapshot")
@@ -157,6 +165,29 @@ public class ProductMasterController {
         try {
             applyProductScope(command, request);
             return productMasterService.loadListDataset(command);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/detail-baseline/sync-missing")
+    public NoonProductDetailBaselineSyncResult syncMissingDetailBaselines(
+            @RequestBody NoonProductDetailBaselineSyncRequest command,
+            HttpServletRequest request
+    ) {
+        NoonProductDetailBaselineSyncer syncer = productDetailBaselineSyncerProvider.getIfAvailable();
+        if (syncer == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品详情基线同步暂时不可用。");
+        }
+
+        try {
+            applyProductScope(command, request);
+            command.setMaxDetailFetches(resolveDetailBaselineSyncFetches(command.getMaxDetailFetches()));
+            return syncer.sync(command);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {
@@ -525,6 +556,30 @@ public class ProductMasterController {
                 command.getStoreCode()
         );
         command.setOwnerUserId(resolveOwnerUserId(access, command.getStoreCode()));
+    }
+
+    private void applyProductScope(NoonProductDetailBaselineSyncRequest command, HttpServletRequest request) {
+        if (command == null) {
+            throw new IllegalArgumentException("缺少商品详情基线同步请求参数。");
+        }
+        if (!StringUtils.hasText(command.getStoreCode())) {
+            throw new IllegalArgumentException("缺少店铺编码。");
+        }
+        String storeCode = command.getStoreCode().trim();
+        command.setStoreCode(storeCode);
+        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                storeCode
+        );
+        command.setOwnerUserId(resolveOwnerUserId(access, storeCode));
+    }
+
+    private int resolveDetailBaselineSyncFetches(int requested) {
+        if (requested <= 0) {
+            return DEFAULT_DETAIL_BASELINE_SYNC_FETCHES;
+        }
+        return Math.min(requested, MAX_DETAIL_BASELINE_SYNC_FETCHES);
     }
 
     private Long resolveOwnerUserId(BusinessAccessContext access, String storeCode) {
