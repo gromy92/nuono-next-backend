@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpRequest;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class HttpNoonFrontendSearchAdapterTest {
@@ -157,5 +158,30 @@ class HttpNoonFrontendSearchAdapterTest {
         assertTrue(config.contains("header = \"cookie: visitor_id=visitor-test; nguestv2=session-test\""));
         assertTrue(config.contains("header = \"x-locale: en-sa\""));
         assertTrue(config.contains("header = \"referer: https://www.noon.com/saudi-en/search/?originalQuery=Qili&q=Qili\""));
+    }
+
+    @Test
+    void configuredFrontendCookieHeaderTakesPrecedenceOverChromeCookieSupplier() {
+        AtomicBoolean supplierCalled = new AtomicBoolean(false);
+        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
+                new NoonFrontendSearchPageParser(new ObjectMapper()),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(9),
+                "https://www.noon.com",
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u",
+                "visitor_id=configured-visitor; nguestv2=configured-session",
+                true,
+                () -> {
+                    supplierCalled.set(true);
+                    throw new IllegalStateException("local chrome should not be read");
+                },
+                true
+        );
+
+        String cookieHeader = adapter.loadFrontendCookieHeader("https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search");
+
+        assertEquals("visitor_id=configured-visitor; nguestv2=configured-session", cookieHeader);
+        assertEquals(false, supplierCalled.get());
     }
 }

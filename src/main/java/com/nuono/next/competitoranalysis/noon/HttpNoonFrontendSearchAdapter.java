@@ -29,6 +29,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     private final String baseUrl;
     private final String catalogBaseUrl;
     private final String customerCatalogV3BaseUrl;
+    private final String configuredFrontendCookieHeader;
     private final boolean chromeFrontendCookieEnabled;
     private final Supplier<String> frontendCookieHeaderSupplier;
     private final boolean curlEnabled;
@@ -41,6 +42,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             @Value("${nuono.competitor-analysis.noon-search.base-url:https://www.noon.com}") String baseUrl,
             @Value("${nuono.competitor-analysis.noon-search.catalog-base-url:https://noon-catalog.noon.partners/_svc/catalog/api/u}") String catalogBaseUrl,
             @Value("${nuono.competitor-analysis.noon-search.customer-catalog-v3-base-url:https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u}") String customerCatalogV3BaseUrl,
+            @Value("${nuono.competitor-analysis.noon-search.frontend-cookie-header:}") String configuredFrontendCookieHeader,
             @Value("${nuono.competitor-analysis.noon-search.chrome-frontend-cookie-enabled:true}") boolean chromeFrontendCookieEnabled,
             @Value("${nuono.competitor-analysis.noon-search.curl-enabled:true}") boolean curlEnabled
     ) {
@@ -51,6 +53,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 baseUrl,
                 catalogBaseUrl,
                 customerCatalogV3BaseUrl,
+                configuredFrontendCookieHeader,
                 chromeFrontendCookieEnabled,
                 ChromeNoonCookieSupport::loadNoonFrontendCookieHeader,
                 curlEnabled
@@ -72,9 +75,35 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 baseUrl,
                 catalogBaseUrl,
                 customerCatalogV3BaseUrl,
+                null,
                 false,
                 () -> null,
                 false
+        );
+    }
+
+    HttpNoonFrontendSearchAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String baseUrl,
+            String catalogBaseUrl,
+            String customerCatalogV3BaseUrl,
+            boolean chromeFrontendCookieEnabled,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled
+    ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                baseUrl,
+                catalogBaseUrl,
+                customerCatalogV3BaseUrl,
+                null,
+                chromeFrontendCookieEnabled,
+                frontendCookieHeaderSupplier,
+                curlEnabled
         );
     }
 
@@ -95,6 +124,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 baseUrl,
                 catalogBaseUrl,
                 customerCatalogV3BaseUrl,
+                null,
                 chromeFrontendCookieEnabled,
                 frontendCookieHeaderSupplier,
                 false
@@ -108,6 +138,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             String baseUrl,
             String catalogBaseUrl,
             String customerCatalogV3BaseUrl,
+            String configuredFrontendCookieHeader,
             boolean chromeFrontendCookieEnabled,
             Supplier<String> frontendCookieHeaderSupplier,
             boolean curlEnabled
@@ -117,6 +148,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         this.baseUrl = normalizeBaseUrl(baseUrl);
         this.catalogBaseUrl = normalizeCatalogBaseUrl(catalogBaseUrl);
         this.customerCatalogV3BaseUrl = normalizeCustomerCatalogV3BaseUrl(customerCatalogV3BaseUrl);
+        this.configuredFrontendCookieHeader = configuredFrontendCookieHeader == null ? "" : configuredFrontendCookieHeader.trim();
         this.chromeFrontendCookieEnabled = chromeFrontendCookieEnabled;
         this.frontendCookieHeaderSupplier = frontendCookieHeaderSupplier == null ? () -> null : frontendCookieHeaderSupplier;
         this.curlEnabled = curlEnabled;
@@ -339,7 +371,10 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         return builder.GET().build();
     }
 
-    private String loadFrontendCookieHeader(String url) {
+    String loadFrontendCookieHeader(String url) {
+        if (StringUtils.hasText(configuredFrontendCookieHeader)) {
+            return configuredFrontendCookieHeader;
+        }
         if (!chromeFrontendCookieEnabled) {
             return null;
         }
