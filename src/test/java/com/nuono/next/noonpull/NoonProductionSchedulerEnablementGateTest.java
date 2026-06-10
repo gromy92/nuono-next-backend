@@ -45,9 +45,9 @@ class NoonProductionSchedulerEnablementGateTest {
 
         assertFalse(result.isEnabled());
         assertEquals(140000L, result.getSmokeRunId());
-        assertTrue(result.getRejectionReasons().contains("PRODUCT_SMOKE_NOT_READY"));
         assertTrue(result.getRejectionReasons().contains("SALES_SMOKE_NOT_READY"));
         assertTrue(result.getRejectionReasons().contains("ORDER_SMOKE_NOT_READY"));
+        assertFalse(result.getRejectionReasons().contains("PRODUCT_SMOKE_NOT_READY"));
         assertEquals(0, scheduledPlans().size());
         assertEquals(1, enablementRepository.savedRecords.size());
         NoonProductionSchedulerEnablementRecord record = enablementRepository.savedRecords.get(0);
@@ -67,12 +67,12 @@ class NoonProductionSchedulerEnablementGateTest {
         assertEquals(140100L, result.getSmokeRunId());
         assertEquals(List.of(), result.getRejectionReasons());
         List<NoonPullPlanRecord> scheduledPlans = scheduledPlans();
-        assertEquals(3, scheduledPlans.size());
+        assertEquals(2, scheduledPlans.size());
         assertTrue(scheduledPlans.stream().anyMatch((plan) ->
                 plan.getDataDomain() == NoonPullDataDomain.SALES
                         && plan.getPullType() == NoonPullType.REPORT
                         && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY));
-        assertTrue(scheduledPlans.stream().anyMatch((plan) ->
+        assertFalse(scheduledPlans.stream().anyMatch((plan) ->
                 plan.getDataDomain() == NoonPullDataDomain.SALES
                         && plan.getPullType() == NoonPullType.PAGE_QUERY
                         && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY));
@@ -83,7 +83,7 @@ class NoonProductionSchedulerEnablementGateTest {
         assertFalse(scheduledPlans.stream().anyMatch((plan) ->
                 plan.getDataDomain() == NoonPullDataDomain.PRODUCT
                         && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY));
-        assertEquals(3, result.getPlanIds().size());
+        assertEquals(2, result.getPlanIds().size());
         NoonProductionSchedulerEnablementRecord record = enablementRepository.savedRecords.get(0);
         assertEquals("ENABLED", record.getDecision());
         assertEquals("SALES,ORDER", record.getEnabledDomainsText());
@@ -92,28 +92,61 @@ class NoonProductionSchedulerEnablementGateTest {
     }
 
     @Test
-    void shouldReuseExistingSalesPageQueryScheduleWhenEnablingProductionPlans() {
+    void shouldEnableProductionTargetWhenSmokeEvidenceIsReadyAndApproved() {
+        NoonPullSmokeRunRecord smokeRun = smokeRun(140101L, true, readyEvidence());
+        smokeRun.setTargetEnvironment("production");
+        smokeRunRepository.savedRuns.add(smokeRun);
+        NoonProductionSchedulerEnablementCommand production = command();
+        production.setTargetEnvironment("production");
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(production, 10001L);
+
+        assertTrue(result.isEnabled());
+        assertEquals(140101L, result.getSmokeRunId());
+        assertEquals(List.of(), result.getRejectionReasons());
+    }
+
+    @Test
+    void shouldRequireSmokeEvidenceOnlyForRequestedSchedulableDomains() {
+        smokeRunRepository.savedRuns.add(smokeRun(
+                140102L,
+                true,
+                List.of(evidence("SALES", NoonPullTaskStatus.SUCCEEDED.name(), "ready", null))
+        ));
+        NoonProductionSchedulerEnablementCommand salesOnly = command();
+        salesOnly.setEnabledDomains(List.of(NoonPullDataDomain.SALES));
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(salesOnly, 10001L);
+
+        assertTrue(result.isEnabled());
+        assertEquals(List.of("SALES"), result.getEnabledDomains());
+        assertFalse(result.getRejectionReasons().contains("PRODUCT_SMOKE_NOT_READY"));
+        assertFalse(result.getRejectionReasons().contains("ORDER_SMOKE_NOT_READY"));
+    }
+
+    @Test
+    void shouldReuseExistingSalesReportScheduleWhenEnablingProductionPlans() {
         smokeRunRepository.savedRuns.add(smokeRun(140100L, true, readyEvidence()));
-        NoonPullPlanRecord existingPageQuery = foundationService.createPlan(NoonPullPlanDraft.builder()
+        NoonPullPlanRecord existingSalesReport = foundationService.createPlan(NoonPullPlanDraft.builder()
                 .ownerUserId(10002L)
                 .storeCode("STR245027-NAE")
                 .siteCode("AE")
-                .pullType(NoonPullType.PAGE_QUERY)
+                .pullType(NoonPullType.REPORT)
                 .dataDomain(NoonPullDataDomain.SALES)
                 .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
-                .scheduleExpression("latest-day page-query after 08:00 Asia/Shanghai")
+                .scheduleExpression("latest-day report after 08:00 Asia/Shanghai")
                 .build());
 
         NoonProductionSchedulerEnablementResult result = gate.enable(command(), 10001L);
 
-        List<NoonPullPlanRecord> pageQueryPlans = scheduledPlans().stream()
+        List<NoonPullPlanRecord> salesReportPlans = scheduledPlans().stream()
                 .filter((plan) -> plan.getDataDomain() == NoonPullDataDomain.SALES)
-                .filter((plan) -> plan.getPullType() == NoonPullType.PAGE_QUERY)
+                .filter((plan) -> plan.getPullType() == NoonPullType.REPORT)
                 .collect(Collectors.toList());
-        assertEquals(1, pageQueryPlans.size());
-        assertEquals(existingPageQuery.getId(), pageQueryPlans.get(0).getId());
-        assertTrue(result.getPlanIds().contains(existingPageQuery.getId()));
-        assertEquals(3, scheduledPlans().size());
+        assertEquals(1, salesReportPlans.size());
+        assertEquals(existingSalesReport.getId(), salesReportPlans.get(0).getId());
+        assertTrue(result.getPlanIds().contains(existingSalesReport.getId()));
+        assertEquals(2, scheduledPlans().size());
     }
 
     @Test
