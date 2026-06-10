@@ -33,7 +33,8 @@ class LocalDbBootstrapStatusServiceTest {
                 .asList()
                 .contains(
                         "classpath:db/init/096_procurement_ali1688_sku_purchase_batch.sql",
-                        "classpath:db/init/097_procurement_ali1688_order_assignment_active_guards.sql"
+                        "classpath:db/init/097_procurement_ali1688_order_assignment_active_guards.sql",
+                        "classpath:db/init/117_in_transit_sequence_seed.sql"
                 );
     }
 }

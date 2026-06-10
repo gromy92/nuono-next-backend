@@ -108,7 +108,20 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/101_operations_competitor_watch_product_remove_confirmation.sql",
                 "classpath:db/init/102_operations_competitor_keyword_product_ignore_cleanup.sql",
                 "classpath:db/init/103_operations_competitor_product_snapshot_change.sql",
-                "classpath:db/init/104_operations_competitor_rank_fact_channel_scan_depth.sql"
+                "classpath:db/init/104_operations_competitor_rank_fact_channel_scan_depth.sql",
+                "classpath:db/init/105_in_transit_goods_contract.sql",
+                "classpath:db/init/106_in_transit_goods_batch.sql",
+                "classpath:db/init/107_in_transit_goods_line.sql",
+                "classpath:db/init/108_in_transit_logistics_node.sql",
+                "classpath:db/init/109_in_transit_import_audit.sql",
+                "classpath:db/init/110_in_transit_operation_audit.sql",
+                "classpath:db/init/111_in_transit_goods_menu_permission.sql",
+                "classpath:db/init/112_in_transit_package.sql",
+                "classpath:db/init/113_in_transit_goods_line_psku_key.sql",
+                "classpath:db/init/114_in_transit_batch_box_count_remove_remark.sql",
+                "classpath:db/init/115_in_transit_destination_forwarder_canonical.sql",
+                "classpath:db/init/116_in_transit_package_chargeable_weight.sql",
+                "classpath:db/init/117_in_transit_sequence_seed.sql"
             ));
         return payload;
     }
