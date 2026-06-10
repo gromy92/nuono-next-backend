@@ -167,9 +167,6 @@ public class NoonProductionSchedulerEnablementGate {
                 reasons.add(domain.name() + "_SMOKE_NOT_READY");
             }
         }
-        if (!smokeRun.isProductionSchedulingAllowed()) {
-            reasons.add("SMOKE_RUN_GATE_NOT_READY");
-        }
         if (!StringUtils.hasText(smokeRun.getRollbackOrGlobalPauseStrategy())) {
             reasons.add("SMOKE_RUN_ROLLBACK_OR_GLOBAL_PAUSE_REQUIRED");
         }
