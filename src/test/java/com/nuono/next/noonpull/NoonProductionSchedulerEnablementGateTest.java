@@ -110,7 +110,7 @@ class NoonProductionSchedulerEnablementGateTest {
     void shouldRequireSmokeEvidenceOnlyForRequestedSchedulableDomains() {
         smokeRunRepository.savedRuns.add(smokeRun(
                 140102L,
-                true,
+                false,
                 List.of(evidence("SALES", NoonPullTaskStatus.SUCCEEDED.name(), "ready", null))
         ));
         NoonProductionSchedulerEnablementCommand salesOnly = command();
@@ -122,6 +122,7 @@ class NoonProductionSchedulerEnablementGateTest {
         assertEquals(List.of("SALES"), result.getEnabledDomains());
         assertFalse(result.getRejectionReasons().contains("PRODUCT_SMOKE_NOT_READY"));
         assertFalse(result.getRejectionReasons().contains("ORDER_SMOKE_NOT_READY"));
+        assertFalse(result.getRejectionReasons().contains("SMOKE_RUN_GATE_NOT_READY"));
     }
 
     @Test
