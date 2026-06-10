@@ -334,7 +334,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     String buildCustomerCatalogV3CurlConfig(NoonSearchRequest request, String url, String frontendCookieHeader) {
         StringBuilder config = new StringBuilder();
         appendCurlOption(config, "url", url);
-        String curlProxy = curlProxySupplier.get();
+        String curlProxy = shouldUseCurlProxy(url) ? curlProxySupplier.get() : null;
         if (StringUtils.hasText(curlProxy)) {
             appendCurlOption(config, "proxy", curlProxy.trim());
         }
@@ -519,6 +519,19 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         }
         return StringUtils.hasText(noonProxyProviderUrl)
                 || (StringUtils.hasText(noonProxyHost) && noonProxyPort > 0);
+    }
+
+    private boolean shouldUseCurlProxy(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            if (!StringUtils.hasText(host)) {
+                return true;
+            }
+            String normalizedHost = host.toLowerCase(Locale.ROOT);
+            return "www.noon.com".equals(normalizedHost);
+        } catch (RuntimeException ignored) {
+            return true;
+        }
     }
 
     private NoonSearchPage searchCatalog(NoonSearchRequest request) {

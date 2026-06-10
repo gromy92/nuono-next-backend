@@ -193,6 +193,37 @@ class HttpNoonFrontendSearchAdapterTest {
     }
 
     @Test
+    void skipsNoonProxyWhenCustomerCatalogV3UrlUsesGatewayHost() {
+        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
+                new NoonFrontendSearchPageParser(new ObjectMapper()),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(9),
+                "https://www.noon.com",
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
+                "http://123.60.15.70/noon-gateway/_vs/nc/mp-customer-catalog-api/api/v3/u",
+                true,
+                () -> null,
+                true,
+                () -> "http://broken-proxy.example:18080"
+        );
+        NoonSearchRequest searchRequest = NoonSearchRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .keyword("Qili")
+                .limit(20)
+                .build();
+
+        String config = adapter.buildCustomerCatalogV3CurlConfig(
+                searchRequest,
+                adapter.buildCustomerCatalogV3SearchUrl(searchRequest),
+                null
+        );
+
+        assertTrue(config.contains("url = \"http://123.60.15.70/noon-gateway/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=Qili&limit=20\""));
+        assertTrue(!config.contains("proxy = "));
+    }
+
+    @Test
     void configuredFrontendCookieHeaderTakesPrecedenceOverChromeCookieSupplier() {
         AtomicBoolean supplierCalled = new AtomicBoolean(false);
         HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
