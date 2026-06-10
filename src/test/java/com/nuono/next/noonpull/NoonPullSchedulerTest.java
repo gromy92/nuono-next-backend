@@ -51,6 +51,24 @@ class NoonPullSchedulerTest {
     }
 
     @Test
+    void shouldNotRecreateCompletedSalesDailyTargetsOnRepeatedTicks() {
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.SALES, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
+        NoonPullScheduler scheduler = scheduler();
+
+        NoonPullSchedulerResult firstRun = scheduler.runDuePlans();
+        for (NoonPullTaskRecord task : repository.listTasks()) {
+            foundationService.markSucceeded(task.getId(), "batch-" + task.getTargetIdentity(), "ready");
+        }
+        NoonPullSchedulerResult secondRun = scheduler.runDuePlans();
+
+        assertEquals(2, firstRun.getCreatedTaskCount());
+        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-20".equals(task.getTargetIdentity())));
+        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-21".equals(task.getTargetIdentity())));
+        assertEquals(0, secondRun.getCreatedTaskCount());
+        assertEquals(2, repository.listTasks().size());
+    }
+
+    @Test
     void shouldCreateLatestSalesPageQueryTaskAfterReadyTime() {
         Clock afterReady = Clock.fixed(Instant.parse("2026-05-24T01:00:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();
