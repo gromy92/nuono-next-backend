@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis.noon;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -161,6 +162,37 @@ class HttpNoonFrontendSearchAdapterTest {
     }
 
     @Test
+    void buildsCustomerCatalogV3CurlConfigWithNoonProxyOnStdinConfig() {
+        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
+                new NoonFrontendSearchPageParser(new ObjectMapper()),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(9),
+                "https://www.noon.com",
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u",
+                true,
+                () -> null,
+                true,
+                () -> "http://proxy.example:18080"
+        );
+        NoonSearchRequest searchRequest = NoonSearchRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .keyword("Qili")
+                .limit(20)
+                .build();
+
+        String config = adapter.buildCustomerCatalogV3CurlConfig(
+                searchRequest,
+                adapter.buildCustomerCatalogV3SearchUrl(searchRequest),
+                null
+        );
+
+        assertTrue(config.contains("proxy = \"http://proxy.example:18080\""));
+        assertTrue(config.contains("url = \"https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=Qili&limit=20\""));
+    }
+
+    @Test
     void configuredFrontendCookieHeaderTakesPrecedenceOverChromeCookieSupplier() {
         AtomicBoolean supplierCalled = new AtomicBoolean(false);
         HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
@@ -183,5 +215,31 @@ class HttpNoonFrontendSearchAdapterTest {
 
         assertEquals("visitor_id=configured-visitor; nguestv2=configured-session", cookieHeader);
         assertEquals(false, supplierCalled.get());
+    }
+
+    @Test
+    void missingChromeCookieDoesNotBlockSearchWhenNoonProxyIsConfigured() {
+        AtomicBoolean supplierCalled = new AtomicBoolean(false);
+        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
+                new NoonFrontendSearchPageParser(new ObjectMapper()),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(9),
+                "https://www.noon.com",
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u",
+                true,
+                () -> {
+                    supplierCalled.set(true);
+                    throw new IllegalStateException("local chrome missing");
+                },
+                true,
+                () -> "http://proxy.example:18080",
+                true
+        );
+
+        String cookieHeader = adapter.loadFrontendCookieHeader("https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search");
+
+        assertNull(cookieHeader);
+        assertEquals(true, supplierCalled.get());
     }
 }

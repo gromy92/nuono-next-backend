@@ -31,8 +31,10 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     private final String customerCatalogV3BaseUrl;
     private final String configuredFrontendCookieHeader;
     private final boolean chromeFrontendCookieEnabled;
+    private final boolean allowMissingChromeFrontendCookie;
     private final Supplier<String> frontendCookieHeaderSupplier;
     private final boolean curlEnabled;
+    private final Supplier<String> curlProxySupplier;
 
     @Autowired
     public HttpNoonFrontendSearchAdapter(
@@ -44,7 +46,12 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             @Value("${nuono.competitor-analysis.noon-search.customer-catalog-v3-base-url:https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u}") String customerCatalogV3BaseUrl,
             @Value("${nuono.competitor-analysis.noon-search.frontend-cookie-header:}") String configuredFrontendCookieHeader,
             @Value("${nuono.competitor-analysis.noon-search.chrome-frontend-cookie-enabled:true}") boolean chromeFrontendCookieEnabled,
-            @Value("${nuono.competitor-analysis.noon-search.curl-enabled:true}") boolean curlEnabled
+            @Value("${nuono.competitor-analysis.noon-search.curl-enabled:true}") boolean curlEnabled,
+            @Value("${nuono.noon.proxy.enabled:false}") boolean noonProxyEnabled,
+            @Value("${nuono.noon.proxy.type:HTTP}") String noonProxyType,
+            @Value("${nuono.noon.proxy.host:}") String noonProxyHost,
+            @Value("${nuono.noon.proxy.port:0}") int noonProxyPort,
+            @Value("${nuono.noon.proxy.provider-url:}") String noonProxyProviderUrl
     ) {
         this(
                 parser,
@@ -55,8 +62,16 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 customerCatalogV3BaseUrl,
                 configuredFrontendCookieHeader,
                 chromeFrontendCookieEnabled,
+                isNoonProxyConfigured(noonProxyEnabled, noonProxyHost, noonProxyPort, noonProxyProviderUrl),
                 ChromeNoonCookieSupport::loadNoonFrontendCookieHeader,
-                curlEnabled
+                curlEnabled,
+                new NoonFrontendSearchCurlProxyResolver(
+                        noonProxyEnabled,
+                        noonProxyType,
+                        noonProxyHost,
+                        noonProxyPort,
+                        noonProxyProviderUrl
+                )::resolveCurlProxy
         );
     }
 
@@ -77,8 +92,10 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 customerCatalogV3BaseUrl,
                 null,
                 false,
+                false,
                 () -> null,
-                false
+                false,
+                () -> null
         );
     }
 
@@ -102,8 +119,10 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 customerCatalogV3BaseUrl,
                 null,
                 chromeFrontendCookieEnabled,
+                false,
                 frontendCookieHeaderSupplier,
-                curlEnabled
+                curlEnabled,
+                () -> null
         );
     }
 
@@ -126,8 +145,67 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 customerCatalogV3BaseUrl,
                 null,
                 chromeFrontendCookieEnabled,
+                false,
                 frontendCookieHeaderSupplier,
-                false
+                false,
+                () -> null
+        );
+    }
+
+    HttpNoonFrontendSearchAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String baseUrl,
+            String catalogBaseUrl,
+            String customerCatalogV3BaseUrl,
+            boolean chromeFrontendCookieEnabled,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled,
+            Supplier<String> curlProxySupplier
+    ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                baseUrl,
+                catalogBaseUrl,
+                customerCatalogV3BaseUrl,
+                null,
+                chromeFrontendCookieEnabled,
+                false,
+                frontendCookieHeaderSupplier,
+                curlEnabled,
+                curlProxySupplier
+        );
+    }
+
+    HttpNoonFrontendSearchAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String baseUrl,
+            String catalogBaseUrl,
+            String customerCatalogV3BaseUrl,
+            boolean chromeFrontendCookieEnabled,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled,
+            Supplier<String> curlProxySupplier,
+            boolean allowMissingChromeFrontendCookie
+    ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                baseUrl,
+                catalogBaseUrl,
+                customerCatalogV3BaseUrl,
+                null,
+                chromeFrontendCookieEnabled,
+                allowMissingChromeFrontendCookie,
+                frontendCookieHeaderSupplier,
+                curlEnabled,
+                curlProxySupplier
         );
     }
 
@@ -143,6 +221,36 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             Supplier<String> frontendCookieHeaderSupplier,
             boolean curlEnabled
     ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                baseUrl,
+                catalogBaseUrl,
+                customerCatalogV3BaseUrl,
+                configuredFrontendCookieHeader,
+                chromeFrontendCookieEnabled,
+                false,
+                frontendCookieHeaderSupplier,
+                curlEnabled,
+                () -> null
+        );
+    }
+
+    HttpNoonFrontendSearchAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String baseUrl,
+            String catalogBaseUrl,
+            String customerCatalogV3BaseUrl,
+            String configuredFrontendCookieHeader,
+            boolean chromeFrontendCookieEnabled,
+            boolean allowMissingChromeFrontendCookie,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled,
+            Supplier<String> curlProxySupplier
+    ) {
         this.parser = parser;
         this.requestTimeout = requestTimeout == null ? Duration.ofSeconds(20) : requestTimeout;
         this.baseUrl = normalizeBaseUrl(baseUrl);
@@ -150,8 +258,10 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         this.customerCatalogV3BaseUrl = normalizeCustomerCatalogV3BaseUrl(customerCatalogV3BaseUrl);
         this.configuredFrontendCookieHeader = configuredFrontendCookieHeader == null ? "" : configuredFrontendCookieHeader.trim();
         this.chromeFrontendCookieEnabled = chromeFrontendCookieEnabled;
+        this.allowMissingChromeFrontendCookie = allowMissingChromeFrontendCookie;
         this.frontendCookieHeaderSupplier = frontendCookieHeaderSupplier == null ? () -> null : frontendCookieHeaderSupplier;
         this.curlEnabled = curlEnabled;
+        this.curlProxySupplier = curlProxySupplier == null ? () -> null : curlProxySupplier;
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(connectTimeout == null ? Duration.ofSeconds(5) : connectTimeout)
@@ -224,6 +334,10 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     String buildCustomerCatalogV3CurlConfig(NoonSearchRequest request, String url, String frontendCookieHeader) {
         StringBuilder config = new StringBuilder();
         appendCurlOption(config, "url", url);
+        String curlProxy = curlProxySupplier.get();
+        if (StringUtils.hasText(curlProxy)) {
+            appendCurlOption(config, "proxy", curlProxy.trim());
+        }
         appendCurlHeader(config, "accept", "application/json, text/plain, */*");
         appendCurlHeader(config, "accept-language", acceptLanguage(request));
         appendCurlHeader(config, "cache-control", "no-cache, max-age=0, must-revalidate, no-store");
@@ -381,6 +495,9 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         try {
             return frontendCookieHeaderSupplier.get();
         } catch (RuntimeException exception) {
+            if (allowMissingChromeFrontendCookie) {
+                return null;
+            }
             throw new NoonSearchProviderException(
                     "PROVIDER_UNAVAILABLE",
                     "Noon 前台 catalog v3 搜索缺少浏览器会话：" + shrink(exception.getMessage(), 180),
@@ -389,6 +506,19 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                     null
             );
         }
+    }
+
+    private static boolean isNoonProxyConfigured(
+            boolean noonProxyEnabled,
+            String noonProxyHost,
+            int noonProxyPort,
+            String noonProxyProviderUrl
+    ) {
+        if (!noonProxyEnabled) {
+            return false;
+        }
+        return StringUtils.hasText(noonProxyProviderUrl)
+                || (StringUtils.hasText(noonProxyHost) && noonProxyPort > 0);
     }
 
     private NoonSearchPage searchCatalog(NoonSearchRequest request) {
