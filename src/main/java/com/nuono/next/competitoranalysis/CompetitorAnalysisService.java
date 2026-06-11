@@ -267,7 +267,7 @@ public class CompetitorAnalysisService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_PRODUCT_OPTION_NOT_FOUND");
         }
 
-        String selfCode = normalizeNoonCode(option.getPskuCode());
+        String selfCode = normalizeNoonCode(option.getSkuParent());
         String selfCodeType = resolveNoonCodeType(selfCode);
         if (selfCodeType == null) {
             throw badRequest("COMPETITOR_SELF_CODE_REQUIRED");
@@ -438,7 +438,7 @@ public class CompetitorAnalysisService {
     }
 
     private CompetitorProductOptionView toProductOptionView(CompetitorProductOptionRow row) {
-        String noonCode = normalizeNoonCode(row == null ? null : row.getPskuCode());
+        String noonCode = normalizeNoonCode(row == null ? null : row.getSkuParent());
         String codeType = resolveNoonCodeType(noonCode);
         if (codeType == null) {
             return null;

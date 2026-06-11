@@ -35,6 +35,30 @@ class CompetitorAnalysisMapperSqlTest {
         );
     }
 
+    @Test
+    void productBaselineSelfNoonCodeComesFromSkuParent() throws NoSuchMethodException {
+        String productBaselinesSql = selectSql(
+                "listProductBaselines",
+                Long.class,
+                String.class,
+                String.class,
+                CompetitorWatchProductQuery.class
+        );
+        String productOptionsSql = selectSql(
+                "listProductOptions",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                int.class
+        );
+
+        assertThat(productBaselinesSql).contains("pm.sku_parent as selfnoonproductcode");
+        assertThat(productBaselinesSql).doesNotContain("pso.psku_code as selfnoonproductcode");
+        assertThat(productOptionsSql).contains("upper(pm.sku_parent) like 'z%'");
+        assertThat(productOptionsSql).doesNotContain("upper(pso.psku_code) like 'z%'");
+    }
+
     private static String selectSql(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
         Method method = CompetitorAnalysisMapper.class.getMethod(methodName, parameterTypes);
         Select select = method.getAnnotation(Select.class);

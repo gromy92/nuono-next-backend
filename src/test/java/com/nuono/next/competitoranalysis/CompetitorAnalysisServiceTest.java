@@ -39,7 +39,7 @@ class CompetitorAnalysisServiceTest {
     }
 
     @Test
-    void createWatchProductUsesProductSiteOfferPskuAsSelfNoonCode() {
+    void createWatchProductUsesSkuParentAsSelfNoonCode() {
         CompetitorWatchProductCreateCommand command = createCommand(" z6122basketsa ");
         CompetitorProductOptionRow option = productOption("Z6122BASKETSA");
         when(mapper.selectProductOptionByOfferId(501L, "STR108065-NSA", "SA", 91001L))
@@ -359,7 +359,7 @@ class CompetitorAnalysisServiceTest {
         return command;
     }
 
-    private static CompetitorProductOptionRow productOption(String pskuCode) {
+    private static CompetitorProductOptionRow productOption(String skuParent) {
         CompetitorProductOptionRow row = new CompetitorProductOptionRow();
         row.setOwnerUserId(501L);
         row.setLogicalStoreId(701L);
@@ -368,10 +368,10 @@ class CompetitorAnalysisServiceTest {
         row.setProductMasterId(801L);
         row.setProductVariantId(901L);
         row.setProductSiteOfferId(91001L);
-        row.setSkuParent("BASKET-SA-001");
+        row.setSkuParent(skuParent);
         row.setPartnerSku("BASKET-SA-001-BLUE");
         row.setChildSku("BASKET-SA-001-01");
-        row.setPskuCode(pskuCode);
+        row.setPskuCode("a8da669114a53dddb03da44e27e06c5a");
         row.setTitle("Foldable Laundry Basket With Bamboo Handles");
         row.setBrand("Canman");
         row.setImageUrl("https://image.example/basket.jpg");
