@@ -60,10 +60,13 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("is_deleted = b'0'")
                 .contains("COALESCE(SUM(grouped.target_quantity), 0) AS assigned_quantity")
                 .contains("consumable_assignment_count")
+                .contains("discontinued_assignment_count")
                 .contains("store_site_assignment_count")
                 .contains("assignment_breakdown_text")
                 .contains("target_type")
                 .contains("WHEN target_type = 'CONSUMABLE' THEN '耗材'")
+                .contains("WHEN target_type = 'DISCONTINUED' AND (target_store_code IS NULL OR target_store_code = '') THEN '已下架'")
+                .contains("WHEN target_type = 'DISCONTINUED' THEN CONCAT(target_store_code, ' ', target_site_code, ' 已下架')")
                 .contains("target_site_code")
                 .contains("GROUP BY item_id, target_type, target_store_code, target_site_code")
                 .contains("GROUP BY grouped.item_id");
@@ -90,9 +93,11 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("query.assignmentState == 'unassigned'")
                 .contains("query.assignmentState == 'consumable'")
                 .contains("consumable_filter_assignment.target_type = 'CONSUMABLE'")
+                .contains("query.assignmentState == 'discontinued'")
+                .contains("discontinued_filter_assignment.target_type = 'DISCONTINUED'")
                 .contains("COALESCE(SUM(unassigned_filter_assignment.assigned_quantity), 0) = 0")
                 .contains("query.assignmentTargetStoreCode != null")
-                .contains("assignment_target_filter.target_type = 'STORE_SITE'")
+                .contains("assignment_target_filter.target_type IN ('STORE_SITE', 'DISCONTINUED')")
                 .contains("assignment_target_filter.target_store_code = #{query.assignmentTargetStoreCode}")
                 .contains("query.assignmentTargetSiteCode != null")
                 .contains("assignment_target_filter.target_site_code = #{query.assignmentTargetSiteCode}");
@@ -100,8 +105,10 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("query.assignmentState == 'unassigned'")
                 .contains("query.assignmentState == 'consumable'")
                 .contains("consumable_filter_assignment.target_type = 'CONSUMABLE'")
+                .contains("query.assignmentState == 'discontinued'")
+                .contains("discontinued_filter_assignment.target_type = 'DISCONTINUED'")
                 .contains("query.assignmentTargetStoreCode != null")
-                .contains("assignment_target_filter.target_type = 'STORE_SITE'")
+                .contains("assignment_target_filter.target_type IN ('STORE_SITE', 'DISCONTINUED')")
                 .contains("assignment_target_filter.target_store_code = #{query.assignmentTargetStoreCode}")
                 .contains("query.assignmentTargetSiteCode != null")
                 .contains("assignment_target_filter.target_site_code = #{query.assignmentTargetSiteCode}");
@@ -279,6 +286,49 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("status = 'replaced'")
                 .contains("owner_user_id = #{ownerUserId}")
                 .contains("sku_parent = #{skuParent}");
+    }
+
+    @Test
+    void skuPurchaseBatchSourceMatchSqlUsesExactOrderOfferSkuAndCurrentBatchScope() throws Exception {
+        Method matchMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "listSkuPurchaseBatchSourceMatchCandidates",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                String.class
+        );
+        Method replaceSourcesMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "replaceSkuPurchaseBatchSources",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        String matchSql = annotationSql(matchMethod.getAnnotation(Select.class).value());
+        String replaceSql = annotationSql(replaceSourcesMethod.getAnnotation(Update.class).value());
+
+        assertThat(matchSql)
+                .contains("FROM procurement_ali1688_sku_purchase_batch batch")
+                .contains("JOIN procurement_ali1688_order_header header")
+                .contains("JOIN procurement_ali1688_order_item item")
+                .contains("JOIN procurement_ali1688_order_item_assignment assignment")
+                .contains("JOIN procurement_ali1688_order_item_product_link link")
+                .contains("assignment.target_type = 'STORE_SITE'")
+                .contains("assignment.status = 'active'")
+                .contains("link.status = 'active'")
+                .contains("header.provider_order_no = #{orderNo}")
+                .contains("item.offer_id = #{offerId}")
+                .contains("item.sku_id = #{skuId}")
+                .contains("assignment.target_store_code = batch.target_store_code")
+                .contains("assignment.target_site_code = batch.target_site_code")
+                .contains("link.sku_parent = batch.sku_parent")
+                .contains("batch.id = #{batchId}");
+        assertThat(replaceSql)
+                .contains("UPDATE procurement_ali1688_sku_purchase_batch_source")
+                .contains("status = 'replaced'")
+                .contains("batch_id = #{batchId}")
+                .contains("owner_user_id = #{ownerUserId}");
+        new XMLLanguageDriver().createSqlSource(new Configuration(), matchSql, Object.class);
     }
 
     @Test

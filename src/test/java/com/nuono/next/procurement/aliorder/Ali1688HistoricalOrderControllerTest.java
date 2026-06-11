@@ -684,6 +684,58 @@ class Ali1688HistoricalOrderControllerTest {
     }
 
     @Test
+    void procurementCanPreviewSkuPurchaseBatchSourceMatchThroughHistoricalOrderApi() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context(409L, BusinessAccountType.OPERATOR, "采购", 3);
+        Ali1688SkuPurchaseBatchView.SourceMatchPreviewRequest body =
+                new Ali1688SkuPurchaseBatchView.SourceMatchPreviewRequest();
+        body.setBatchId(102001L);
+        body.setOrderNo("ALI-001");
+        body.setOfferId("727682641739");
+        body.setSkuId("5045758236994");
+        Ali1688SkuPurchaseBatchView.SourceMatchCandidate candidate =
+                new Ali1688SkuPurchaseBatchView.SourceMatchCandidate();
+        candidate.setAssignmentId(99001L);
+        Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult expected =
+                Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult.matched(102001L, List.of(candidate));
+
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
+                .thenReturn(context);
+        when(service.previewSkuPurchaseBatchSourceMatch(context, body)).thenReturn(expected);
+
+        Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult result =
+                controller.previewSkuPurchaseBatchSourceMatch(body, request);
+
+        assertThat(result.getMatchedCount()).isEqualTo(1);
+        verify(service).previewSkuPurchaseBatchSourceMatch(context, body);
+    }
+
+    @Test
+    void procurementCanSaveSkuPurchaseBatchSourceMatchThroughHistoricalOrderApi() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context(409L, BusinessAccountType.OPERATOR, "采购", 3);
+        Ali1688SkuPurchaseBatchView.SourceMatchSaveRequest body =
+                new Ali1688SkuPurchaseBatchView.SourceMatchSaveRequest();
+        body.setBatchId(102001L);
+        Ali1688SkuPurchaseBatchView.SourceMatchSaveResult expected =
+                Ali1688SkuPurchaseBatchView.SourceMatchSaveResult.saved(102001L, 1, 2);
+
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
+                .thenReturn(context);
+        when(service.saveSkuPurchaseBatchSourceMatch(context, body)).thenReturn(expected);
+
+        Ali1688SkuPurchaseBatchView.SourceMatchSaveResult result =
+                controller.saveSkuPurchaseBatchSourceMatch(body, request);
+
+        assertThat(result.getBatchId()).isEqualTo(102001L);
+        assertThat(result.getSavedSourceCount()).isEqualTo(1);
+        assertThat(result.getReplacedSourceCount()).isEqualTo(2);
+        verify(service).saveSkuPurchaseBatchSourceMatch(context, body);
+    }
+
+    @Test
     void serviceUnavailableIsReportedExplicitly() {
         when(serviceProvider.getIfAvailable()).thenReturn(null);
 

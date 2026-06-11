@@ -168,6 +168,243 @@ public class Ali1688SkuPurchaseBatchView {
         }
     }
 
+    public static class SourceMatchCandidate {
+        private Long orderId;
+        private Long itemId;
+        private Long assignmentId;
+        private String orderNo;
+        private String orderTime;
+        private String supplierName;
+        private String offerId;
+        private String skuId;
+        private Integer assignedQuantity;
+
+        public Long getOrderId() {
+            return orderId;
+        }
+
+        public void setOrderId(Long orderId) {
+            this.orderId = orderId;
+        }
+
+        public Long getItemId() {
+            return itemId;
+        }
+
+        public void setItemId(Long itemId) {
+            this.itemId = itemId;
+        }
+
+        public Long getAssignmentId() {
+            return assignmentId;
+        }
+
+        public void setAssignmentId(Long assignmentId) {
+            this.assignmentId = assignmentId;
+        }
+
+        public String getOrderNo() {
+            return orderNo;
+        }
+
+        public void setOrderNo(String orderNo) {
+            this.orderNo = orderNo;
+        }
+
+        public String getOrderTime() {
+            return orderTime;
+        }
+
+        public void setOrderTime(String orderTime) {
+            this.orderTime = orderTime;
+        }
+
+        public String getSupplierName() {
+            return supplierName;
+        }
+
+        public void setSupplierName(String supplierName) {
+            this.supplierName = supplierName;
+        }
+
+        public String getOfferId() {
+            return offerId;
+        }
+
+        public void setOfferId(String offerId) {
+            this.offerId = offerId;
+        }
+
+        public String getSkuId() {
+            return skuId;
+        }
+
+        public void setSkuId(String skuId) {
+            this.skuId = skuId;
+        }
+
+        public Integer getAssignedQuantity() {
+            return assignedQuantity;
+        }
+
+        public void setAssignedQuantity(Integer assignedQuantity) {
+            this.assignedQuantity = assignedQuantity;
+        }
+    }
+
+    public static class SourceMatchPreviewRequest {
+        private Long batchId;
+        private String orderNo;
+        private String offerId;
+        private String skuId;
+
+        public Long getBatchId() {
+            return batchId;
+        }
+
+        public void setBatchId(Long batchId) {
+            this.batchId = batchId;
+        }
+
+        public String getOrderNo() {
+            return orderNo;
+        }
+
+        public void setOrderNo(String orderNo) {
+            this.orderNo = orderNo;
+        }
+
+        public String getOfferId() {
+            return offerId;
+        }
+
+        public void setOfferId(String offerId) {
+            this.offerId = offerId;
+        }
+
+        public String getSkuId() {
+            return skuId;
+        }
+
+        public void setSkuId(String skuId) {
+            this.skuId = skuId;
+        }
+    }
+
+    public static class SourceMatchSaveRequest {
+        private Long batchId;
+        private List<SourceRequest> sources = new ArrayList<>();
+
+        public Long getBatchId() {
+            return batchId;
+        }
+
+        public void setBatchId(Long batchId) {
+            this.batchId = batchId;
+        }
+
+        public List<SourceRequest> getSources() {
+            return sources;
+        }
+
+        public void setSources(List<SourceRequest> sources) {
+            this.sources = sources;
+        }
+    }
+
+    public static class SourceMatchPreviewResult {
+        private Long batchId;
+        private int matchedCount;
+        private List<SourceMatchCandidate> candidates = new ArrayList<>();
+        private String rejectionReason;
+
+        public static SourceMatchPreviewResult rejected(Long batchId, String rejectionReason) {
+            SourceMatchPreviewResult result = new SourceMatchPreviewResult();
+            result.setBatchId(batchId);
+            result.setRejectionReason(rejectionReason);
+            result.setMatchedCount(0);
+            return result;
+        }
+
+        public static SourceMatchPreviewResult matched(Long batchId, List<SourceMatchCandidate> candidates) {
+            SourceMatchPreviewResult result = new SourceMatchPreviewResult();
+            result.setBatchId(batchId);
+            result.setCandidates(candidates == null ? new ArrayList<>() : new ArrayList<>(candidates));
+            result.setMatchedCount(result.getCandidates().size());
+            return result;
+        }
+
+        public Long getBatchId() {
+            return batchId;
+        }
+
+        public void setBatchId(Long batchId) {
+            this.batchId = batchId;
+        }
+
+        public int getMatchedCount() {
+            return matchedCount;
+        }
+
+        public void setMatchedCount(int matchedCount) {
+            this.matchedCount = matchedCount;
+        }
+
+        public List<SourceMatchCandidate> getCandidates() {
+            return candidates;
+        }
+
+        public void setCandidates(List<SourceMatchCandidate> candidates) {
+            this.candidates = candidates;
+        }
+
+        public String getRejectionReason() {
+            return rejectionReason;
+        }
+
+        public void setRejectionReason(String rejectionReason) {
+            this.rejectionReason = rejectionReason;
+        }
+    }
+
+    public static class SourceMatchSaveResult {
+        private Long batchId;
+        private int savedSourceCount;
+        private int replacedSourceCount;
+
+        public static SourceMatchSaveResult saved(Long batchId, int savedSourceCount, int replacedSourceCount) {
+            SourceMatchSaveResult result = new SourceMatchSaveResult();
+            result.setBatchId(batchId);
+            result.setSavedSourceCount(savedSourceCount);
+            result.setReplacedSourceCount(replacedSourceCount);
+            return result;
+        }
+
+        public Long getBatchId() {
+            return batchId;
+        }
+
+        public void setBatchId(Long batchId) {
+            this.batchId = batchId;
+        }
+
+        public int getSavedSourceCount() {
+            return savedSourceCount;
+        }
+
+        public void setSavedSourceCount(int savedSourceCount) {
+            this.savedSourceCount = savedSourceCount;
+        }
+
+        public int getReplacedSourceCount() {
+            return replacedSourceCount;
+        }
+
+        public void setReplacedSourceCount(int replacedSourceCount) {
+            this.replacedSourceCount = replacedSourceCount;
+        }
+    }
+
     public static class SaveResult {
         private int savedBatchCount;
         private int savedSourceCount;

@@ -6,6 +6,7 @@ public class Ali1688HistoricalOrderItemAssignmentSummaryRow {
     private Integer assignedQuantity;
     private String assignmentBreakdownText;
     private Integer consumableAssignmentCount;
+    private Integer discontinuedAssignmentCount;
     private Integer storeSiteAssignmentCount;
 
     public Long getItemId() {
@@ -38,6 +39,14 @@ public class Ali1688HistoricalOrderItemAssignmentSummaryRow {
 
     public void setConsumableAssignmentCount(Integer consumableAssignmentCount) {
         this.consumableAssignmentCount = consumableAssignmentCount;
+    }
+
+    public Integer getDiscontinuedAssignmentCount() {
+        return discontinuedAssignmentCount;
+    }
+
+    public void setDiscontinuedAssignmentCount(Integer discontinuedAssignmentCount) {
+        this.discontinuedAssignmentCount = discontinuedAssignmentCount;
     }
 
     public Integer getStoreSiteAssignmentCount() {
