@@ -23,6 +23,7 @@ import org.springframework.util.StringUtils;
 public class NoonPullScheduler {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private static final LocalTime SALES_READY_AFTER = LocalTime.of(8, 0);
+    private static final LocalTime SALES_LATEST_DAY_READY_AFTER = LocalTime.of(20, 0);
     private static final Duration STALE_RUNNING_TASK_MAX_AGE = Duration.ofHours(2);
 
     private final NoonPullFoundationService foundationService;
@@ -132,7 +133,9 @@ public class NoonPullScheduler {
             if (plan.getPullType() == NoonPullType.REPORT) {
                 LocalDate stableDate = targetDate.minusDays(1);
                 createTask(plan, "sales:" + stableDate, stableDate, stableDate);
-                createTask(plan, "sales:" + targetDate, targetDate, targetDate);
+                if (isSalesLatestDayReportReadyWindow()) {
+                    createTask(plan, "sales:" + targetDate, targetDate, targetDate);
+                }
             }
             return;
         }
@@ -222,6 +225,10 @@ public class NoonPullScheduler {
 
     private boolean isSalesReportReadyWindow() {
         return !LocalTime.now(clock).isBefore(SALES_READY_AFTER);
+    }
+
+    private boolean isSalesLatestDayReportReadyWindow() {
+        return !LocalTime.now(clock).isBefore(SALES_LATEST_DAY_READY_AFTER);
     }
 
     private Duration safeStaleRunningTaskMaxAge(Duration maxAge) {
