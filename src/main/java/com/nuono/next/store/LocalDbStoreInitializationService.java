@@ -934,6 +934,7 @@ public class LocalDbStoreInitializationService {
             item.setPskuCode(firstNonBlank(summary.getPskuCode(), item.getPskuCode()));
             item.setOfferCode(firstNonBlank(summary.getOfferCode(), item.getOfferCode()));
             item.setTitle(firstNonBlank(summary.getTitle(), item.getTitle()));
+            item.setTitleCn(firstNonBlank(summary.getTitleCn(), item.getTitleCn()));
             item.setBrand(firstNonBlank(summary.getBrand(), item.getBrand()));
             item.setImageUrl(firstNonBlank(summary.getImageUrl(), item.getImageUrl()));
             item.setBarcode(firstNonBlank(summary.getBarcode(), item.getBarcode()));
@@ -2303,6 +2304,7 @@ public class LocalDbStoreInitializationService {
             target.setOfferCode(source.getOfferCode());
             target.setReferenceStoreCode(source.getReferenceStoreCode());
             target.setTitle(source.getTitle());
+            target.setTitleCn(source.getTitleCn());
             target.setBrand(source.getBrand());
             target.setImageUrl(source.getImageUrl());
             target.setBarcode(source.getBarcode());
@@ -2984,6 +2986,7 @@ public class LocalDbStoreInitializationService {
         private String offerCode;
         private String referenceStoreCode;
         private String title;
+        private String titleCn;
         private String brand;
         private String imageUrl;
         private List<String> galleryImages = new ArrayList<>();
@@ -3081,6 +3084,14 @@ public class LocalDbStoreInitializationService {
 
         public void setTitle(String title) {
             this.title = title;
+        }
+
+        public String getTitleCn() {
+            return titleCn;
+        }
+
+        public void setTitleCn(String titleCn) {
+            this.titleCn = titleCn;
         }
 
         public String getBrand() {

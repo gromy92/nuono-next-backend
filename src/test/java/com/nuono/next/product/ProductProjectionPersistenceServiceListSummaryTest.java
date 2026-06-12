@@ -60,6 +60,7 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         record.setPskuCode("PSKU-001");
         record.setOfferCode("OFFER-001");
         record.setTitle("Amber Burner");
+        record.setTitleCn("星耀琥珀香薰炉");
         record.setBrand("xingyao");
         record.setImageUrl("https://img.example.com/a.jpg");
         record.setReferencePrice("139.00");
@@ -112,6 +113,7 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("LIVE", summary.getLiveStatus());
         assertEquals("2026-05-10 00:00:00", summary.getListingStartedAt());
         assertEquals("pv", summary.getListingStartedSource());
+        assertEquals("星耀琥珀香薰炉", summary.getTitleCn());
         assertEquals(List.of("AE"), summary.getSiteLabels());
         assertEquals(List.of("LIVE"), summary.getLiveStatuses());
     }
