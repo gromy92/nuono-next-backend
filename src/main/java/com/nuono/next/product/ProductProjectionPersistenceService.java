@@ -1514,6 +1514,7 @@ public class ProductProjectionPersistenceService {
         view.setPskuCode(record.getPskuCode());
         view.setOfferCode(record.getOfferCode());
         view.setTitle(record.getTitle());
+        view.setTitleCn(record.getTitleCn());
         view.setBrand(record.getBrand());
         view.setImageUrl(record.getImageUrl());
         view.setBarcode(record.getBarcode());

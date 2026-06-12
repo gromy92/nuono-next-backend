@@ -32,6 +32,7 @@ class ProductLiteMapperSqlTest {
                 .contains("LEFT JOIN product_master_draft pmd")
                 .contains("LEFT JOIN product_master_snapshot pms")
                 .contains("pm.title_cache")
+                .contains("pm.title_cn_cache")
                 .contains("$.content.titleEn")
                 .contains("$.content.titleCn")
                 .doesNotContain("product_variant")

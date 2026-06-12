@@ -262,6 +262,7 @@ public class ProductReadModelService {
         item.setOfferCode(firstNonBlank(summary.getOfferCode(), item.getOfferCode()));
         item.setReferenceStoreCode(firstNonBlank(summary.getStoreCode(), item.getReferenceStoreCode()));
         item.setTitle(firstNonBlank(summary.getTitle(), item.getTitle()));
+        item.setTitleCn(firstNonBlank(summary.getTitleCn(), item.getTitleCn()));
         item.setBrand(firstNonBlank(summary.getBrand(), item.getBrand()));
         item.setImageUrl(firstNonBlank(summary.getImageUrl(), item.getImageUrl()));
         if (!summary.getGalleryImages().isEmpty()) {
