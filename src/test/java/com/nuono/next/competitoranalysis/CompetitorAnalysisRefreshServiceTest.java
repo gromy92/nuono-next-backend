@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,6 +40,12 @@ class CompetitorAnalysisRefreshServiceTest {
 
     @Mock
     private CompetitorAnalysisMapper mapper;
+
+    @Mock
+    private CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner;
+
+    @Mock
+    private CompetitorProductDetailRefreshService productDetailRefreshService;
 
     private InMemoryOperationalTaskRepository taskRepository;
     private List<Runnable> submittedTasks;
@@ -93,6 +100,185 @@ class CompetitorAnalysisRefreshServiceTest {
     }
 
     @Test
+    void refreshMarksTaskFailedWhenEveryKeywordFails() {
+        CompetitorKeywordRefreshTransactionRunner failingRunner =
+                new CompetitorKeywordRefreshTransactionRunner(
+                        mapper,
+                        (context) -> CompetitorKeywordRefreshOutcome.failure("PROVIDER_UNAVAILABLE", "Noon down")
+                );
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                failingRunner,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+        );
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct());
+        when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(keyword(190001L, "laundry basket")));
+        when(mapper.nextSearchRunId()).thenReturn(220123L);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct());
+        when(mapper.nextKeywordRunId()).thenReturn(230123L);
+
+        CompetitorRefreshRunView view = service.requestRefresh(operatorContext(), 180123L);
+        submittedTasks.get(0).run();
+
+        OperationalTask task = taskRepository.selectById(view.getTaskId());
+        assertEquals(OperationalTaskStatus.FAILED, task.getStatus());
+        assertEquals("PROVIDER_UNAVAILABLE", task.getErrorCode());
+        assertEquals("竞品刷新失败。", task.getMessage());
+        verify(mapper).completeSearchRun(
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq("FAILED"),
+                org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.eq(1),
+                org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.eq("PROVIDER_UNAVAILABLE"),
+                org.mockito.ArgumentMatchers.eq("Noon down"),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
+        verify(mapper).updateWatchProductLatestRun(180123L, 220123L, "FAILED", 601L);
+    }
+
+    @Test
+    void refreshRunsConfirmedCompetitorDetailRefreshOncePerWatchProductRun() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+        );
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct);
+        when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(
+                keyword(190001L, "laundry basket"),
+                keyword(190002L, "storage basket")
+        ));
+        when(mapper.nextSearchRunId()).thenReturn(220123L);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
+        when(keywordRefreshRunner.runKeyword(
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(watchProduct),
+                org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
+                org.mockito.ArgumentMatchers.eq(601L)
+        )).thenReturn(CompetitorKeywordRefreshResult.success(0, 1));
+
+        CompetitorRefreshRunView view = service.requestRefresh(operatorContext(), 180123L);
+        submittedTasks.get(0).run();
+
+        verify(productDetailRefreshService, times(1)).refreshConfirmedCompetitors(
+                watchProduct,
+                220123L,
+                view.getTaskId(),
+                601L
+        );
+        verify(keywordRefreshRunner, times(2)).runKeyword(
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(watchProduct),
+                org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
+    }
+
+    @Test
+    void scheduledRankMonitoringRunsKeywordsWithoutDetailSnapshots() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+        );
+        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
+                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(keyword(190001L, "laundry basket")));
+        when(mapper.nextSearchRunId()).thenReturn(220123L);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
+        when(keywordRefreshRunner.runKeyword(
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(watchProduct),
+                org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
+                org.mockito.ArgumentMatchers.isNull()
+        )).thenReturn(CompetitorKeywordRefreshResult.success(0, 1));
+
+        CompetitorTaskView view = service.requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA");
+        submittedTasks.get(0).run();
+        submittedTasks.get(1).run();
+
+        OperationalTask productTask = taskRepository.selectById(view.getTaskId() + 1);
+        assertEquals(OperationalTaskStatus.SUCCEEDED, productTask.getStatus());
+        assertEquals("竞品排名刷新完成。", productTask.getMessage());
+        assertTrue(productTask.getNaturalKey().endsWith(":rank"));
+        verify(productDetailRefreshService, never()).refreshConfirmedCompetitors(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+        verify(keywordRefreshRunner).runKeyword(
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(watchProduct),
+                org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
+                org.mockito.ArgumentMatchers.isNull()
+        );
+    }
+
+    @Test
+    void scheduledDetailMonitoringRunsDetailSnapshotsWithoutKeywordRank() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+        );
+        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
+                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        when(mapper.nextSearchRunId()).thenReturn(220123L);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
+
+        CompetitorTaskView view = service.requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
+        submittedTasks.get(0).run();
+        submittedTasks.get(1).run();
+
+        OperationalTask productTask = taskRepository.selectById(view.getTaskId() + 1);
+        assertEquals(OperationalTaskStatus.SUCCEEDED, productTask.getStatus());
+        assertEquals("竞品详情快照刷新完成。", productTask.getMessage());
+        assertTrue(productTask.getNaturalKey().endsWith(":detail"));
+        verify(productDetailRefreshService).refreshConfirmedCompetitors(
+                watchProduct,
+                220123L,
+                productTask.getId(),
+                null
+        );
+        verify(keywordRefreshRunner, never()).runKeyword(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+        verify(mapper, never()).listActiveKeywordsByWatchProductId(180123L);
+    }
+
+    @Test
     void refreshFailsStaleTaskAndCreatesNewTaskRun() {
         OperationalTask stale = runningTask(150000L);
         stale.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
@@ -112,14 +298,57 @@ class CompetitorAnalysisRefreshServiceTest {
         verify(mapper).insertSearchRun(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void storeMonitoringSubmitsRefreshForEveryRefreshableWatchProduct() {
+        CompetitorWatchProductRow first = watchProduct(180123L, "ZSELF001");
+        CompetitorWatchProductRow second = watchProduct(180124L, "ZSELF002");
+        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
+                .thenReturn(List.of(first, second), List.of(first, second));
+        when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(keyword(190001L, "laundry basket")));
+        when(mapper.listActiveKeywordsByWatchProductId(180124L)).thenReturn(List.of(keyword(190002L, "storage basket")));
+        when(mapper.nextSearchRunId()).thenReturn(220123L, 220124L);
+
+        CompetitorTaskView view = service.requestStoreMonitoring(operatorContext(), "STR108065-NSA", "SA");
+
+        assertEquals(CompetitorAnalysisRefreshService.MONITOR_TASK_TYPE, view.getTaskType());
+        assertEquals(1, submittedTasks.size());
+
+        submittedTasks.get(0).run();
+
+        OperationalTask task = taskRepository.selectById(view.getTaskId());
+        assertEquals(OperationalTaskStatus.SUCCEEDED, task.getStatus());
+        assertEquals("竞品监控批次已提交。", task.getMessage());
+        assertTrue(task.getResultJson().contains("\"submittedCount\":2"));
+        assertEquals(3, submittedTasks.size(), "batch task plus two product refresh tasks should be queued");
+        verify(mapper, times(2)).insertSearchRun(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void storeMonitoringRejectsEmptyScope() {
+        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500)).thenReturn(List.of());
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> service.requestStoreMonitoring(operatorContext(), "STR108065-NSA", "SA")
+        );
+
+        assertEquals(HttpStatus.BAD_REQUEST, error.getStatus());
+        assertEquals("COMPETITOR_MONITOR_NO_REFRESHABLE_PRODUCT", error.getReason());
+        assertTrue(taskRepository.tasks.isEmpty());
+    }
+
     private static CompetitorWatchProductRow watchProduct() {
+        return watchProduct(180123L, "ZSELF001");
+    }
+
+    private static CompetitorWatchProductRow watchProduct(Long id, String noonCode) {
         CompetitorWatchProductRow row = new CompetitorWatchProductRow();
-        row.setId(180123L);
+        row.setId(id);
         row.setOwnerUserId(501L);
         row.setStoreCode("STR108065-NSA");
         row.setSiteCode("SA");
         row.setPartnerSku("BASKET-SA-001-BLUE");
-        row.setSelfNoonProductCode("ZSELF001");
+        row.setSelfNoonProductCode(noonCode);
         row.setStatus("ACTIVE");
         return row;
     }

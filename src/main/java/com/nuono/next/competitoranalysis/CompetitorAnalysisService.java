@@ -5,11 +5,14 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -22,9 +25,19 @@ public class CompetitorAnalysisService {
     private static final Pattern NOON_CODE_PATTERN = Pattern.compile("(?i)(^|/)([ZN][A-Z0-9]{4,79})(/|\\?|$)");
 
     private final CompetitorAnalysisMapper mapper;
+    private final CompetitorProductChangeService productChangeService;
+
+    @Autowired
+    public CompetitorAnalysisService(
+            CompetitorAnalysisMapper mapper,
+            CompetitorProductChangeService productChangeService
+    ) {
+        this.mapper = mapper;
+        this.productChangeService = productChangeService;
+    }
 
     public CompetitorAnalysisService(CompetitorAnalysisMapper mapper) {
-        this.mapper = mapper;
+        this(mapper, null);
     }
 
     public CompetitorWatchProductListView listWatchProducts(
@@ -43,6 +56,25 @@ public class CompetitorAnalysisService {
         List<CompetitorWatchProductListRow> rows = total <= 0
                 ? List.of()
                 : mapper.listWatchProducts(ownerUserId, scopedStoreCodes, resolvedQuery);
+        return CompetitorWatchProductListView.fromRows(rows, resolvedQuery, total);
+    }
+
+    public CompetitorWatchProductListView listProductBaselines(
+            BusinessAccessContext context,
+            CompetitorWatchProductQuery query
+    ) {
+        CompetitorWatchProductQuery resolvedQuery = query == null
+                ? CompetitorWatchProductQuery.fromRequest(null, null, null, null, null, null, null, null)
+                : query;
+        String storeCode = requireText(resolvedQuery.getStoreCode(), "COMPETITOR_STORE_REQUIRED")
+                .toUpperCase(Locale.ROOT);
+        String siteCode = requireText(resolvedQuery.getSiteCode(), "COMPETITOR_SITE_REQUIRED")
+                .toUpperCase(Locale.ROOT);
+        Long ownerUserId = ownerUserId(context, storeCode);
+        long total = mapper.countProductBaselines(ownerUserId, storeCode, siteCode, resolvedQuery);
+        List<CompetitorWatchProductListRow> rows = total <= 0
+                ? List.of()
+                : mapper.listProductBaselines(ownerUserId, storeCode, siteCode, resolvedQuery);
         return CompetitorWatchProductListView.fromRows(rows, resolvedQuery, total);
     }
 
@@ -131,6 +163,14 @@ public class CompetitorAnalysisService {
             CompetitorManualCompetitorCommand command
     ) {
         CompetitorWatchProductRow watchProduct = requireWatchProduct(context, watchProductId);
+        Long keywordId = command == null ? null : command.getKeywordId();
+        CompetitorKeywordScopeRow keyword = requireKeywordScope(keywordId);
+        if (!watchProduct.getId().equals(keyword.getWatchProductId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_SCOPE_MISMATCH");
+        }
+        if (!"ACTIVE".equalsIgnoreCase(nullToEmpty(keyword.getStatus()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_INACTIVE");
+        }
         ParsedNoonCode parsed = parseNoonCode(command == null ? null : command.getInput());
         if (parsed == null) {
             throw badRequest("COMPETITOR_NOON_CODE_REQUIRED");
@@ -156,7 +196,7 @@ public class CompetitorAnalysisService {
                 mapper.markCompetitorProductConfirmed(competitorProductId, actorUserId);
             }
         }
-        applyCompetitorToAllActiveKeywords(watchProduct.getId(), competitorProductId, "CONFIRMED", actorUserId);
+        mapper.upsertKeywordProductRelation(keyword.getKeywordId(), competitorProductId, "CONFIRMED", actorUserId);
         return detail(context, watchProduct.getId());
     }
 
@@ -200,7 +240,18 @@ public class CompetitorAnalysisService {
         if ("CONFIRMED".equalsIgnoreCase(nullToEmpty(scope.product.getReviewStatus()))) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_CONFIRMED_CANNOT_IGNORE");
         }
-        mapper.markKeywordProductRelationIgnored(keywordId, competitorProductId, actorUserId(context));
+        mapper.softDeleteKeywordProductRelation(keywordId, competitorProductId, actorUserId(context));
+        return detail(context, scope.keyword.getWatchProductId());
+    }
+
+    public CompetitorWatchProductDetailView removeCandidateFromKeyword(
+            BusinessAccessContext context,
+            Long keywordId,
+            Long competitorProductId
+    ) {
+        KeywordCandidateScope scope = requireKeywordCandidateScopeInternal(keywordId, competitorProductId);
+        requireStoreInContext(context, scope.keyword.getStoreCode());
+        mapper.softDeleteKeywordProductRelation(keywordId, competitorProductId, actorUserId(context));
         return detail(context, scope.keyword.getWatchProductId());
     }
 
@@ -235,6 +286,16 @@ public class CompetitorAnalysisService {
         String frontendSelfCode = normalizeNoonCode(command.getSelfNoonProductCode());
         if (StringUtils.hasText(frontendSelfCode) && !selfCode.equals(frontendSelfCode)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_SELF_CODE_MISMATCH");
+        }
+
+        CompetitorWatchProductRow existing = mapper.selectWatchProductByProductSiteOfferId(
+                ownerUserId,
+                storeCode,
+                siteCode,
+                option.getProductSiteOfferId()
+        );
+        if (existing != null) {
+            return detail(context, existing.getId());
         }
 
         Long watchProductId = mapper.nextWatchProductId();
@@ -292,6 +353,112 @@ public class CompetitorAnalysisService {
         ));
     }
 
+    public CompetitorProductChangeListView productChanges(
+            BusinessAccessContext context,
+            Long watchProductId,
+            Integer limit
+    ) {
+        if (productChangeService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "COMPETITOR_PRODUCT_CHANGE_UNAVAILABLE");
+        }
+        return productChangeService.productChanges(context, watchProductId, limit);
+    }
+
+    public CompetitorBrowserObservationResultView applyBrowserObservations(
+            BusinessAccessContext context,
+            Long keywordId,
+            CompetitorBrowserObservationCommand command
+    ) {
+        CompetitorKeywordScopeRow keyword = requireKeywordScope(keywordId);
+        requireStoreInContext(context, keyword.getStoreCode());
+        CompetitorKeywordRunRow latestRun = mapper.selectLatestSucceededKeywordRunByKeywordId(keywordId);
+        if (latestRun == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_NO_LATEST_RUN");
+        }
+        CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(keyword.getWatchProductId());
+        if (watchProduct == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_WATCH_PRODUCT_NOT_FOUND");
+        }
+
+        Long actorUserId = actorUserId(context);
+        String selfCode = normalizeNoonCode(watchProduct.getSelfNoonProductCode());
+        CompetitorBrowserObservationResultView result = new CompetitorBrowserObservationResultView();
+        result.setObservedCount(command == null ? 0 : command.getItems().size());
+        Map<String, CompetitorBrowserObservationItem> sponsoredItems = normalizeSponsoredObservationItems(command);
+        result.setSponsoredObservedCount(sponsoredItems.size());
+
+        for (CompetitorBrowserObservationItem item : sponsoredItems.values()) {
+            String noonCode = normalizeNoonCode(item.getNoonProductCode());
+            int updatedSearchResultCount = mapper.markSearchResultSponsored(latestRun.getId(), noonCode, actorUserId);
+            if (updatedSearchResultCount > 0) {
+                result.setSearchResultUpdatedCount(result.getSearchResultUpdatedCount() + updatedSearchResultCount);
+            } else {
+                mapper.insertSearchResult(buildBrowserObservedSearchResult(latestRun, item, noonCode, actorUserId));
+                result.setSearchResultInsertedCount(result.getSearchResultInsertedCount() + 1);
+            }
+
+            result.setRankFactUpdatedCount(result.getRankFactUpdatedCount()
+                    + mapper.markRankFactSponsored(latestRun.getId(), noonCode, actorUserId));
+            if (noonCode.equals(selfCode)) {
+                continue;
+            }
+
+            CompetitorProductRow product = mapper.selectCompetitorProductByCode(keyword.getWatchProductId(), noonCode);
+            Long competitorProductId;
+            String relationStatus;
+            if (product == null) {
+                competitorProductId = mapper.nextCompetitorProductId();
+                mapper.insertCompetitorProduct(buildBrowserObservedProductInsert(
+                        competitorProductId,
+                        keyword.getWatchProductId(),
+                        item,
+                        noonCode,
+                        actorUserId
+                ));
+                result.setCompetitorInsertedCount(result.getCompetitorInsertedCount() + 1);
+                relationStatus = "DISCOVERED";
+            } else {
+                competitorProductId = product.getId();
+                mapper.updateCompetitorProductFromSearch(buildBrowserObservedProductInsert(
+                        competitorProductId,
+                        keyword.getWatchProductId(),
+                        item,
+                        noonCode,
+                        actorUserId
+                ));
+                relationStatus = "CONFIRMED".equalsIgnoreCase(nullToEmpty(product.getReviewStatus()))
+                        ? "CONFIRMED"
+                        : "DISCOVERED";
+            }
+
+            mapper.upsertKeywordProductRelationFromSearch(buildBrowserObservedRelation(
+                    keywordId,
+                    competitorProductId,
+                    latestRun.getSearchRunId(),
+                    item,
+                    relationStatus,
+                    actorUserId
+            ));
+            result.setRelationUpsertedCount(result.getRelationUpsertedCount() + 1);
+        }
+
+        return result;
+    }
+
+    public CompetitorBrowserObservationResultView applyBrowserObservationsByKeyword(
+            BusinessAccessContext context,
+            Long watchProductId,
+            CompetitorBrowserObservationCommand command
+    ) {
+        CompetitorWatchProductRow watchProduct = requireWatchProduct(context, watchProductId);
+        String keywordNorm = normalizeKeywordNorm(command == null ? null : command.getKeyword());
+        CompetitorKeywordRow keyword = mapper.selectKeywordByNorm(watchProduct.getId(), keywordNorm);
+        if (keyword == null || !"ACTIVE".equalsIgnoreCase(nullToEmpty(keyword.getStatus()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_NOT_FOUND");
+        }
+        return applyBrowserObservations(context, keyword.getId(), command);
+    }
+
     private CompetitorProductOptionView toProductOptionView(CompetitorProductOptionRow row) {
         String noonCode = normalizeNoonCode(row == null ? null : row.getPskuCode());
         String codeType = resolveNoonCodeType(noonCode);
@@ -299,6 +466,115 @@ public class CompetitorAnalysisService {
             return null;
         }
         return CompetitorProductOptionView.fromRow(row, noonCode, codeType);
+    }
+
+    private Map<String, CompetitorBrowserObservationItem> normalizeSponsoredObservationItems(
+            CompetitorBrowserObservationCommand command
+    ) {
+        Map<String, CompetitorBrowserObservationItem> itemsByCode = new LinkedHashMap<>();
+        if (command == null || command.getItems() == null) {
+            return itemsByCode;
+        }
+        for (CompetitorBrowserObservationItem item : command.getItems()) {
+            if (item == null || !Boolean.TRUE.equals(item.getSponsored())) {
+                continue;
+            }
+            String noonCode = normalizeNoonCode(item.getNoonProductCode());
+            if (resolveNoonCodeType(noonCode) == null) {
+                continue;
+            }
+            item.setNoonProductCode(noonCode);
+            itemsByCode.putIfAbsent(noonCode, item);
+        }
+        return itemsByCode;
+    }
+
+    private CompetitorSearchResultInsertCommand buildBrowserObservedSearchResult(
+            CompetitorKeywordRunRow latestRun,
+            CompetitorBrowserObservationItem item,
+            String noonCode,
+            Long actorUserId
+    ) {
+        CompetitorSearchResultInsertCommand insert = new CompetitorSearchResultInsertCommand();
+        insert.setId(mapper.nextSearchResultId());
+        insert.setKeywordRunId(latestRun.getId());
+        insert.setResultPosition(normalizeObservedPosition(item.getPosition()));
+        insert.setNoonProductCode(noonCode);
+        insert.setCodeType(resolveNoonCodeType(noonCode));
+        insert.setCanonicalUrl(normalizeText(item.getCanonicalUrl()));
+        insert.setTitleSnapshot(normalizeText(item.getTitle()));
+        insert.setBrandSnapshot(normalizeText(item.getBrand()));
+        insert.setImageUrlSnapshot(normalizeText(item.getImageUrl()));
+        insert.setPriceAmount(item.getPriceAmount());
+        insert.setCurrencyCode(normalizeText(item.getCurrencyCode()));
+        insert.setRating(item.getRating());
+        insert.setReviewCount(item.getReviewCount());
+        insert.setSponsored(true);
+        insert.setRawResultJson(browserObservationRawJson(noonCode));
+        insert.setCapturedAt(latestRun.getCapturedAt() == null ? LocalDateTime.now() : latestRun.getCapturedAt());
+        insert.setActorUserId(actorUserId);
+        return insert;
+    }
+
+    private CompetitorProductInsertCommand buildBrowserObservedProductInsert(
+            Long productId,
+            Long watchProductId,
+            CompetitorBrowserObservationItem item,
+            String noonCode,
+            Long actorUserId
+    ) {
+        CompetitorProductInsertCommand insert = new CompetitorProductInsertCommand();
+        insert.setId(productId);
+        insert.setWatchProductId(watchProductId);
+        insert.setNoonProductCode(noonCode);
+        insert.setCodeType(resolveNoonCodeType(noonCode));
+        insert.setCanonicalUrl(normalizeText(item.getCanonicalUrl()));
+        insert.setTitleSnapshot(normalizeText(item.getTitle()));
+        insert.setBrandSnapshot(normalizeText(item.getBrand()));
+        insert.setImageUrlSnapshot(normalizeText(item.getImageUrl()));
+        insert.setPriceAmountSnapshot(item.getPriceAmount());
+        insert.setCurrencyCodeSnapshot(normalizeText(item.getCurrencyCode()));
+        insert.setRatingSnapshot(item.getRating());
+        insert.setReviewCountSnapshot(item.getReviewCount());
+        insert.setSourceType("SEARCH_DISCOVERY");
+        insert.setReviewStatus("PENDING");
+        insert.setActorUserId(actorUserId);
+        return insert;
+    }
+
+    private CompetitorKeywordProductSearchCommand buildBrowserObservedRelation(
+            Long keywordId,
+            Long competitorProductId,
+            Long searchRunId,
+            CompetitorBrowserObservationItem item,
+            String relationStatus,
+            Long actorUserId
+    ) {
+        CompetitorKeywordProductSearchCommand relation = new CompetitorKeywordProductSearchCommand();
+        relation.setId(mapper.nextKeywordProductId());
+        relation.setKeywordId(keywordId);
+        relation.setCompetitorProductId(competitorProductId);
+        relation.setRelationStatus(relationStatus);
+        relation.setSearchRunId(searchRunId);
+        relation.setRankNo(normalizeObservedPosition(item.getPosition()));
+        relation.setSponsored(true);
+        relation.setActorUserId(actorUserId);
+        return relation;
+    }
+
+    private int normalizeObservedPosition(Integer position) {
+        if (position == null || position < 1) {
+            return 999;
+        }
+        return Math.min(position, 999);
+    }
+
+    private String browserObservationRawJson(String noonCode) {
+        return "{\"source\":\"browser-observation\",\"noonProductCode\":\"" + escapeJson(noonCode) + "\"}";
+    }
+
+    private String escapeJson(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private CompetitorWatchProductRow requireWatchProduct(BusinessAccessContext context, Long watchProductId) {

@@ -5,6 +5,7 @@ import com.nuono.next.competitoranalysis.CompetitorKeywordProductSearchCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordRow;
 import com.nuono.next.competitoranalysis.CompetitorKeywordRunInsertCommand;
+import com.nuono.next.competitoranalysis.CompetitorKeywordRunRow;
 import com.nuono.next.competitoranalysis.CompetitorKeywordScopeRow;
 import com.nuono.next.competitoranalysis.CompetitorKeywordUpdateCommand;
 import com.nuono.next.competitoranalysis.CompetitorLatestRankPointRow;
@@ -136,6 +137,22 @@ public interface CompetitorAnalysisMapper {
             "        )",
             "    )",
             "  </if>",
+            "  <if test='query.pendingCandidateCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'PENDING'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test='query.confirmedCompetitorCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'CONFIRMED'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
             "</script>"
     })
     long countWatchProducts(
@@ -160,6 +177,20 @@ public interface CompetitorAnalysisMapper {
             "    SELECT COUNT(1) FROM operations_competitor_keyword kw",
             "    WHERE kw.watch_product_id = wp.id AND kw.status = 'ACTIVE' AND kw.is_deleted = b'0'",
             "  ) AS activeKeywordCount,",
+            "  (",
+            "    SELECT GROUP_CONCAT(CONCAT(kw.keyword, CHAR(9), (",
+            "      SELECT COUNT(1)",
+            "      FROM operations_competitor_keyword_product kp",
+            "      JOIN operations_competitor_product cp",
+            "        ON cp.id = kp.competitor_product_id",
+            "       AND cp.is_deleted = b'0'",
+            "      WHERE kp.keyword_id = kw.id",
+            "        AND kp.relation_status = 'CONFIRMED'",
+            "        AND kp.is_deleted = b'0'",
+            "    )) ORDER BY kw.display_order ASC, kw.id ASC SEPARATOR '||')",
+            "    FROM operations_competitor_keyword kw",
+            "    WHERE kw.watch_product_id = wp.id AND kw.status = 'ACTIVE' AND kw.is_deleted = b'0'",
+            "  ) AS activeKeywordSummary,",
             "  (",
             "    SELECT COUNT(1) FROM operations_competitor_product cp",
             "    WHERE cp.watch_product_id = wp.id AND cp.review_status = 'PENDING' AND cp.is_deleted = b'0'",
@@ -213,13 +244,296 @@ public interface CompetitorAnalysisMapper {
             "        )",
             "    )",
             "  </if>",
-            "ORDER BY wp.gmt_updated DESC, wp.id DESC",
+            "  <if test='query.pendingCandidateCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'PENDING'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test='query.confirmedCompetitorCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'CONFIRMED'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "ORDER BY pendingCandidateCount DESC, confirmedCompetitorCount DESC, wp.gmt_updated DESC, wp.id DESC",
             "LIMIT #{query.pageSize} OFFSET #{query.offset}",
             "</script>"
     })
     List<CompetitorWatchProductListRow> listWatchProducts(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCodes") List<String> storeCodes,
+            @Param("query") CompetitorWatchProductQuery query
+    );
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(DISTINCT pso.id)",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND UPPER(lss.site) = UPPER(#{siteCode})",
+            " AND lss.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = b'0'",
+            "JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.site_id = lss.id",
+            " AND pso.is_deleted = b'0'",
+            "LEFT JOIN product_master_draft pmd",
+            "  ON pmd.product_master_id = pm.id",
+            " AND pmd.is_deleted = b'0'",
+            "LEFT JOIN product_master_snapshot pms",
+            "  ON pms.id = (",
+            "    SELECT pms_latest.id",
+            "    FROM product_master_snapshot pms_latest",
+            "    WHERE pms_latest.product_master_id = pm.id",
+            "      AND pms_latest.snapshot_type = 'baseline'",
+            "      AND pms_latest.is_deleted = b'0'",
+            "    ORDER BY pms_latest.fetched_at DESC, pms_latest.id DESC",
+            "    LIMIT 1",
+            "  )",
+            "LEFT JOIN operations_competitor_watch_product wp",
+            "  ON wp.owner_user_id = ls.owner_user_id",
+            " AND wp.store_code = #{storeCode}",
+            " AND UPPER(wp.site_code) = UPPER(#{siteCode})",
+            " AND wp.product_site_offer_id = pso.id",
+            " AND wp.is_deleted = b'0'",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  <if test='query.status != null and query.status != \"\"'>",
+            "    AND COALESCE(wp.status, 'ACTIVE') = #{query.status}",
+            "  </if>",
+            "  <if test='query.productSearch != null and query.productSearch != \"\"'>",
+            "    AND (",
+            "      LOWER(COALESCE(pm.sku_parent, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pv.partner_sku, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pv.child_sku, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pso.psku_code, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pso.offer_code, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pm.title_cache, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleEn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleEn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleCn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleZh')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleCn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleZh')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "    )",
+            "  </if>",
+            "  <if test='query.keywordSearch != null and query.keywordSearch != \"\"'>",
+            "    AND wp.id IS NOT NULL",
+            "    AND EXISTS (",
+            "      SELECT 1 FROM operations_competitor_keyword kw",
+            "      WHERE kw.watch_product_id = wp.id",
+            "        AND kw.is_deleted = b'0'",
+            "        AND LOWER(kw.keyword) LIKE CONCAT('%', LOWER(#{query.keywordSearch}), '%')",
+            "    )",
+            "  </if>",
+            "  <if test='query.competitorSearch != null and query.competitorSearch != \"\"'>",
+            "    AND wp.id IS NOT NULL",
+            "    AND EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp",
+            "      WHERE cp.watch_product_id = wp.id",
+            "        AND cp.is_deleted = b'0'",
+            "        AND (",
+            "          LOWER(cp.noon_product_code) LIKE CONCAT('%', LOWER(#{query.competitorSearch}), '%')",
+            "          OR LOWER(COALESCE(cp.title_snapshot, '')) LIKE CONCAT('%', LOWER(#{query.competitorSearch}), '%')",
+            "          OR LOWER(COALESCE(cp.brand_snapshot, '')) LIKE CONCAT('%', LOWER(#{query.competitorSearch}), '%')",
+            "        )",
+            "    )",
+            "  </if>",
+            "  <if test='query.pendingCandidateCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'PENDING'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test='query.confirmedCompetitorCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'CONFIRMED'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "</script>"
+    })
+    long countProductBaselines(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("query") CompetitorWatchProductQuery query
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  wp.id AS id,",
+            "  ls.owner_user_id AS ownerUserId, lss.store_code AS storeCode, lss.site AS siteCode,",
+            "  ls.id AS logicalStoreId, pm.id AS productMasterId, pv.id AS productVariantId,",
+            "  pso.id AS productSiteOfferId, pm.sku_parent AS skuParent, pv.partner_sku AS partnerSku,",
+            "  pv.child_sku AS childSku, pso.psku_code AS selfNoonProductCode,",
+            "  CASE",
+            "    WHEN UPPER(COALESCE(pso.psku_code, '')) LIKE 'Z%' THEN 'Z_CODE'",
+            "    WHEN UPPER(COALESCE(pso.psku_code, '')) LIKE 'N%' THEN 'N_CODE'",
+            "    ELSE NULL",
+            "  END AS selfCodeType,",
+            "  COALESCE(",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleEn')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleEn')), ''),",
+            "    NULLIF(pm.title_cache, '')",
+            "  ) AS titleSnapshot,",
+            "  COALESCE(",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleCn')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleZh')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleCn')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleZh')), ''),",
+            "    NULLIF(pm.title_cache, '')",
+            "  ) AS titleCnSnapshot,",
+            "  pm.brand_cache AS brandSnapshot,",
+            "  pm.cover_image_url AS imageUrlSnapshot, pm.product_fulltype_cache AS productFulltypeSnapshot,",
+            "  COALESCE(wp.status, 'ACTIVE') AS status, wp.latest_run_id AS latestRunId,",
+            "  wp.latest_run_status AS latestRunStatus, wp.latest_run_at AS latestRunAt,",
+            "  wp.gmt_updated AS gmtUpdated,",
+            "  (",
+            "    SELECT COUNT(1) FROM operations_competitor_keyword kw",
+            "    WHERE kw.watch_product_id = wp.id AND kw.status = 'ACTIVE' AND kw.is_deleted = b'0'",
+            "  ) AS activeKeywordCount,",
+            "  (",
+            "    SELECT GROUP_CONCAT(CONCAT(kw.keyword, CHAR(9), (",
+            "      SELECT COUNT(1)",
+            "      FROM operations_competitor_keyword_product kp",
+            "      JOIN operations_competitor_product cp",
+            "        ON cp.id = kp.competitor_product_id",
+            "       AND cp.is_deleted = b'0'",
+            "      WHERE kp.keyword_id = kw.id",
+            "        AND kp.relation_status = 'CONFIRMED'",
+            "        AND kp.is_deleted = b'0'",
+            "    )) ORDER BY kw.display_order ASC, kw.id ASC SEPARATOR '||')",
+            "    FROM operations_competitor_keyword kw",
+            "    WHERE kw.watch_product_id = wp.id AND kw.status = 'ACTIVE' AND kw.is_deleted = b'0'",
+            "  ) AS activeKeywordSummary,",
+            "  (",
+            "    SELECT COUNT(1) FROM operations_competitor_product cp",
+            "    WHERE cp.watch_product_id = wp.id AND cp.review_status = 'PENDING' AND cp.is_deleted = b'0'",
+            "  ) AS pendingCandidateCount,",
+            "  (",
+            "    SELECT COUNT(1) FROM operations_competitor_product cp",
+            "    WHERE cp.watch_product_id = wp.id AND cp.review_status = 'CONFIRMED' AND cp.is_deleted = b'0'",
+            "  ) AS confirmedCompetitorCount",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND UPPER(lss.site) = UPPER(#{siteCode})",
+            " AND lss.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = b'0'",
+            "JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.site_id = lss.id",
+            " AND pso.is_deleted = b'0'",
+            "LEFT JOIN product_master_draft pmd",
+            "  ON pmd.product_master_id = pm.id",
+            " AND pmd.is_deleted = b'0'",
+            "LEFT JOIN product_master_snapshot pms",
+            "  ON pms.id = (",
+            "    SELECT pms_latest.id",
+            "    FROM product_master_snapshot pms_latest",
+            "    WHERE pms_latest.product_master_id = pm.id",
+            "      AND pms_latest.snapshot_type = 'baseline'",
+            "      AND pms_latest.is_deleted = b'0'",
+            "    ORDER BY pms_latest.fetched_at DESC, pms_latest.id DESC",
+            "    LIMIT 1",
+            "  )",
+            "LEFT JOIN operations_competitor_watch_product wp",
+            "  ON wp.owner_user_id = ls.owner_user_id",
+            " AND wp.store_code = #{storeCode}",
+            " AND UPPER(wp.site_code) = UPPER(#{siteCode})",
+            " AND wp.product_site_offer_id = pso.id",
+            " AND wp.is_deleted = b'0'",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  <if test='query.status != null and query.status != \"\"'>",
+            "    AND COALESCE(wp.status, 'ACTIVE') = #{query.status}",
+            "  </if>",
+            "  <if test='query.productSearch != null and query.productSearch != \"\"'>",
+            "    AND (",
+            "      LOWER(COALESCE(pm.sku_parent, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pv.partner_sku, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pv.child_sku, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pso.psku_code, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pso.offer_code, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(pm.title_cache, '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleEn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleEn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleCn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleZh')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleCn')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleZh')), '')) LIKE CONCAT('%', LOWER(#{query.productSearch}), '%')",
+            "    )",
+            "  </if>",
+            "  <if test='query.keywordSearch != null and query.keywordSearch != \"\"'>",
+            "    AND wp.id IS NOT NULL",
+            "    AND EXISTS (",
+            "      SELECT 1 FROM operations_competitor_keyword kw",
+            "      WHERE kw.watch_product_id = wp.id",
+            "        AND kw.is_deleted = b'0'",
+            "        AND LOWER(kw.keyword) LIKE CONCAT('%', LOWER(#{query.keywordSearch}), '%')",
+            "    )",
+            "  </if>",
+            "  <if test='query.competitorSearch != null and query.competitorSearch != \"\"'>",
+            "    AND wp.id IS NOT NULL",
+            "    AND EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp",
+            "      WHERE cp.watch_product_id = wp.id",
+            "        AND cp.is_deleted = b'0'",
+            "        AND (",
+            "          LOWER(cp.noon_product_code) LIKE CONCAT('%', LOWER(#{query.competitorSearch}), '%')",
+            "          OR LOWER(COALESCE(cp.title_snapshot, '')) LIKE CONCAT('%', LOWER(#{query.competitorSearch}), '%')",
+            "          OR LOWER(COALESCE(cp.brand_snapshot, '')) LIKE CONCAT('%', LOWER(#{query.competitorSearch}), '%')",
+            "        )",
+            "    )",
+            "  </if>",
+            "  <if test='query.pendingCandidateCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'PENDING'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "  <if test='query.confirmedCompetitorCountZero'>",
+            "    AND NOT EXISTS (",
+            "      SELECT 1 FROM operations_competitor_product cp_zero",
+            "      WHERE cp_zero.watch_product_id = wp.id",
+            "        AND cp_zero.review_status = 'CONFIRMED'",
+            "        AND cp_zero.is_deleted = b'0'",
+            "    )",
+            "  </if>",
+            "ORDER BY pendingCandidateCount DESC, confirmedCompetitorCount DESC, pm.sku_parent ASC, pv.partner_sku ASC, pso.id ASC",
+            "LIMIT #{query.pageSize} OFFSET #{query.offset}",
+            "</script>"
+    })
+    List<CompetitorWatchProductListRow> listProductBaselines(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
             @Param("query") CompetitorWatchProductQuery query
     );
 
@@ -370,6 +684,89 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
+            "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "  logical_store_id AS logicalStoreId, product_master_id AS productMasterId,",
+            "  product_variant_id AS productVariantId, product_site_offer_id AS productSiteOfferId,",
+            "  sku_parent AS skuParent, partner_sku AS partnerSku, child_sku AS childSku,",
+            "  self_noon_product_code AS selfNoonProductCode, self_code_type AS selfCodeType,",
+            "  title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
+            "  image_url_snapshot AS imageUrlSnapshot, product_fulltype_snapshot AS productFulltypeSnapshot,",
+            "  status, latest_run_id AS latestRunId, latest_run_status AS latestRunStatus,",
+            "  latest_run_at AS latestRunAt, gmt_updated AS gmtUpdated",
+            "FROM operations_competitor_watch_product wp",
+            "WHERE wp.owner_user_id = #{ownerUserId}",
+            "  AND wp.store_code = #{storeCode}",
+            "  AND UPPER(wp.site_code) = UPPER(#{siteCode})",
+            "  AND wp.status = 'ACTIVE'",
+            "  AND wp.is_deleted = b'0'",
+            "  AND EXISTS (",
+            "    SELECT 1",
+            "    FROM operations_competitor_keyword kw",
+            "    WHERE kw.watch_product_id = wp.id",
+            "      AND kw.status = 'ACTIVE'",
+            "      AND kw.is_deleted = b'0'",
+            "  )",
+            "  AND EXISTS (",
+            "    SELECT 1",
+            "    FROM operations_competitor_keyword kw",
+            "    JOIN operations_competitor_keyword_product kp",
+            "      ON kp.keyword_id = kw.id",
+            "     AND kp.relation_status = 'CONFIRMED'",
+            "     AND kp.is_deleted = b'0'",
+            "    JOIN operations_competitor_product cp",
+            "      ON cp.id = kp.competitor_product_id",
+            "     AND cp.review_status = 'CONFIRMED'",
+            "     AND cp.is_deleted = b'0'",
+            "    WHERE kw.watch_product_id = wp.id",
+            "      AND kw.status = 'ACTIVE'",
+            "      AND kw.is_deleted = b'0'",
+            "  )",
+            "ORDER BY wp.id ASC",
+            "LIMIT #{limit}"
+    })
+    List<CompetitorWatchProductRow> listRefreshableWatchProducts(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT",
+            "  MIN(wp.id) AS id, wp.owner_user_id AS ownerUserId, wp.store_code AS storeCode, wp.site_code AS siteCode",
+            "FROM operations_competitor_watch_product wp",
+            "WHERE wp.status = 'ACTIVE'",
+            "  AND wp.is_deleted = b'0'",
+            "  AND EXISTS (",
+            "    SELECT 1",
+            "    FROM operations_competitor_keyword kw",
+            "    WHERE kw.watch_product_id = wp.id",
+            "      AND kw.status = 'ACTIVE'",
+            "      AND kw.is_deleted = b'0'",
+            "  )",
+            "  AND EXISTS (",
+            "    SELECT 1",
+            "    FROM operations_competitor_keyword kw",
+            "    JOIN operations_competitor_keyword_product kp",
+            "      ON kp.keyword_id = kw.id",
+            "     AND kp.relation_status = 'CONFIRMED'",
+            "     AND kp.is_deleted = b'0'",
+            "    JOIN operations_competitor_product cp",
+            "      ON cp.id = kp.competitor_product_id",
+            "     AND cp.review_status = 'CONFIRMED'",
+            "     AND cp.is_deleted = b'0'",
+            "    WHERE kw.watch_product_id = wp.id",
+            "      AND kw.status = 'ACTIVE'",
+            "      AND kw.is_deleted = b'0'",
+            "  )",
+            "GROUP BY wp.owner_user_id, wp.store_code, wp.site_code",
+            "ORDER BY wp.owner_user_id ASC, wp.store_code ASC, wp.site_code ASC",
+            "LIMIT #{limit}"
+    })
+    List<CompetitorWatchProductScopeRow> listRefreshableWatchProductScopes(@Param("limit") int limit);
+
+    @Select({
+            "SELECT",
             "  id, watch_product_id AS watchProductId, noon_product_code AS noonProductCode, code_type AS codeType,",
             "  canonical_url AS canonicalUrl, title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
             "  image_url_snapshot AS imageUrlSnapshot, price_amount_snapshot AS priceAmountSnapshot,",
@@ -421,6 +818,25 @@ public interface CompetitorAnalysisMapper {
             "  AND is_deleted = b'0'"
     })
     int updateCompetitorProductFromSearch(CompetitorProductInsertCommand command);
+
+    @Update({
+            "UPDATE operations_competitor_product",
+            "SET canonical_url = COALESCE(#{canonicalUrl}, canonical_url),",
+            "    title_snapshot = COALESCE(#{titleSnapshot}, title_snapshot),",
+            "    brand_snapshot = COALESCE(#{brandSnapshot}, brand_snapshot),",
+            "    image_url_snapshot = COALESCE(#{imageUrlSnapshot}, image_url_snapshot),",
+            "    price_amount_snapshot = COALESCE(#{priceAmountSnapshot}, price_amount_snapshot),",
+            "    currency_code_snapshot = COALESCE(#{currencyCodeSnapshot}, currency_code_snapshot),",
+            "    rating_snapshot = COALESCE(#{ratingSnapshot}, rating_snapshot),",
+            "    review_count_snapshot = COALESCE(#{reviewCountSnapshot}, review_count_snapshot),",
+            "    source_type = COALESCE(#{sourceType}, source_type),",
+            "    last_seen_at = NOW(),",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateCompetitorProductFromDetail(CompetitorProductInsertCommand command);
 
     @Update({
             "UPDATE operations_competitor_product",
@@ -486,16 +902,14 @@ public interface CompetitorAnalysisMapper {
 
     @Update({
             "UPDATE operations_competitor_keyword_product",
-            "SET relation_status = 'IGNORED',",
-            "    ignored_by = #{actorUserId},",
-            "    ignored_at = NOW(),",
+            "SET is_deleted = b'1',",
             "    updated_by = #{actorUserId},",
             "    gmt_updated = NOW()",
             "WHERE keyword_id = #{keywordId}",
             "  AND competitor_product_id = #{competitorProductId}",
             "  AND is_deleted = b'0'"
     })
-    int markKeywordProductRelationIgnored(
+    int softDeleteKeywordProductRelation(
             @Param("keywordId") Long keywordId,
             @Param("competitorProductId") Long competitorProductId,
             @Param("actorUserId") Long actorUserId
@@ -587,6 +1001,32 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
+            "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "  logical_store_id AS logicalStoreId, product_master_id AS productMasterId,",
+            "  product_variant_id AS productVariantId, product_site_offer_id AS productSiteOfferId,",
+            "  sku_parent AS skuParent, partner_sku AS partnerSku, child_sku AS childSku,",
+            "  self_noon_product_code AS selfNoonProductCode, self_code_type AS selfCodeType,",
+            "  title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
+            "  image_url_snapshot AS imageUrlSnapshot, product_fulltype_snapshot AS productFulltypeSnapshot,",
+            "  status, latest_run_id AS latestRunId, latest_run_status AS latestRunStatus,",
+            "  latest_run_at AS latestRunAt, gmt_updated AS gmtUpdated",
+            "FROM operations_competitor_watch_product",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND UPPER(site_code) = UPPER(#{siteCode})",
+            "  AND product_site_offer_id = #{productSiteOfferId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorWatchProductRow selectWatchProductByProductSiteOfferId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("productSiteOfferId") Long productSiteOfferId
+    );
+
+    @Select({
+            "SELECT",
             "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode",
             "FROM operations_competitor_watch_product",
             "WHERE id = #{watchProductId}",
@@ -610,16 +1050,36 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
-            "  id, watch_product_id AS watchProductId, noon_product_code AS noonProductCode, code_type AS codeType,",
-            "  canonical_url AS canonicalUrl, title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
-            "  image_url_snapshot AS imageUrlSnapshot, price_amount_snapshot AS priceAmountSnapshot,",
-            "  currency_code_snapshot AS currencyCodeSnapshot, rating_snapshot AS ratingSnapshot,",
-            "  review_count_snapshot AS reviewCountSnapshot, source_type AS sourceType, review_status AS reviewStatus,",
-            "  confirmed_by AS confirmedBy, confirmed_at AS confirmedAt, first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt",
-            "FROM operations_competitor_product",
-            "WHERE watch_product_id = #{watchProductId}",
-            "  AND is_deleted = b'0'",
-            "ORDER BY FIELD(review_status, 'PENDING', 'CONFIRMED', 'IGNORED'), id ASC"
+            "  cp.id, cp.watch_product_id AS watchProductId, cp.noon_product_code AS noonProductCode, cp.code_type AS codeType,",
+            "  cp.canonical_url AS canonicalUrl, cp.title_snapshot AS titleSnapshot, cp.brand_snapshot AS brandSnapshot,",
+            "  cp.image_url_snapshot AS imageUrlSnapshot, cp.price_amount_snapshot AS priceAmountSnapshot,",
+            "  cp.currency_code_snapshot AS currencyCodeSnapshot, cp.rating_snapshot AS ratingSnapshot,",
+            "  cp.review_count_snapshot AS reviewCountSnapshot, cp.source_type AS sourceType, cp.review_status AS reviewStatus,",
+            "  CASE WHEN EXISTS (",
+            "    SELECT 1",
+            "    FROM operations_competitor_watch_product wp",
+            "    JOIN product_site_offer base_pso",
+            "      ON base_pso.id = wp.product_site_offer_id",
+            "     AND base_pso.is_deleted = b'0'",
+            "    JOIN product_site_offer pso",
+            "      ON pso.site_id = base_pso.site_id",
+            "     AND pso.is_deleted = b'0'",
+            "    JOIN product_variant pv",
+            "      ON pv.id = pso.variant_id",
+            "     AND pv.is_deleted = b'0'",
+            "    JOIN product_master pm",
+            "      ON pm.id = pv.product_master_id",
+            "     AND pm.logical_store_id = wp.logical_store_id",
+            "     AND pm.is_deleted = b'0'",
+            "    WHERE wp.id = cp.watch_product_id",
+            "      AND wp.is_deleted = b'0'",
+            "      AND BINARY UPPER(TRIM(pso.psku_code)) = BINARY UPPER(TRIM(cp.noon_product_code))",
+            "  ) THEN TRUE ELSE FALSE END AS ownedByCurrentStore,",
+            "  cp.confirmed_by AS confirmedBy, cp.confirmed_at AS confirmedAt, cp.first_seen_at AS firstSeenAt, cp.last_seen_at AS lastSeenAt",
+            "FROM operations_competitor_product cp",
+            "WHERE cp.watch_product_id = #{watchProductId}",
+            "  AND cp.is_deleted = b'0'",
+            "ORDER BY FIELD(cp.review_status, 'PENDING', 'CONFIRMED', 'IGNORED'), cp.id ASC"
     })
     List<CompetitorProductRow> listProductsByWatchProductId(@Param("watchProductId") Long watchProductId);
 
@@ -627,6 +1087,7 @@ public interface CompetitorAnalysisMapper {
             "SELECT",
             "  id, keyword_id AS keywordId, competitor_product_id AS competitorProductId,",
             "  relation_status AS relationStatus, first_seen_rank_no AS firstSeenRankNo,",
+            "  first_seen_run_id AS firstSeenRunId, last_seen_run_id AS lastSeenRunId,",
             "  last_seen_rank_no AS lastSeenRankNo, last_seen_sponsored AS lastSeenSponsored, last_seen_at AS lastSeenAt",
             "FROM operations_competitor_keyword_product",
             "WHERE is_deleted = b'0'",
@@ -641,6 +1102,7 @@ public interface CompetitorAnalysisMapper {
             "SELECT",
             "  rf.keyword_id AS keywordId, kw.keyword AS keyword, rf.tracked_product_type AS trackedProductType,",
             "  rf.noon_product_code AS noonProductCode, rf.rank_status AS rankStatus, rf.rank_no AS rankNo,",
+            "  rf.rank_channel AS rankChannel, rf.scan_depth AS scanDepth,",
             "  rf.is_sponsored AS sponsored, rf.price_amount AS priceAmount, rf.currency_code AS currencyCode,",
             "  rf.fact_time AS factTime",
             "FROM operations_competitor_rank_fact rf",
@@ -656,9 +1118,10 @@ public interface CompetitorAnalysisMapper {
             "      AND latest.keyword_id = rf.keyword_id",
             "      AND latest.noon_product_code = rf.noon_product_code",
             "      AND latest.tracked_product_type = rf.tracked_product_type",
+            "      AND latest.rank_channel = rf.rank_channel",
             "      AND latest.is_deleted = b'0'",
             "  )",
-            "ORDER BY kw.display_order ASC, rf.tracked_product_type ASC, rf.rank_no ASC"
+            "ORDER BY kw.display_order ASC, rf.tracked_product_type ASC, rf.rank_channel ASC, rf.rank_no ASC"
     })
     List<CompetitorLatestRankPointRow> listLatestRankPointsByWatchProductId(@Param("watchProductId") Long watchProductId);
 
@@ -666,6 +1129,7 @@ public interface CompetitorAnalysisMapper {
             "SELECT",
             "  rf.keyword_id AS keywordId, kw.keyword AS keyword, rf.tracked_product_type AS trackedProductType,",
             "  rf.noon_product_code AS noonProductCode, rf.rank_status AS rankStatus, rf.rank_no AS rankNo,",
+            "  rf.rank_channel AS rankChannel, rf.scan_depth AS scanDepth,",
             "  rf.is_sponsored AS sponsored, rf.price_amount AS priceAmount, rf.currency_code AS currencyCode,",
             "  rf.fact_time AS factTime",
             "FROM operations_competitor_rank_fact rf",
@@ -676,7 +1140,7 @@ public interface CompetitorAnalysisMapper {
             "  AND rf.fact_time >= #{fromTime}",
             "  AND rf.is_deleted = b'0'",
             "  AND kw.is_deleted = b'0'",
-            "ORDER BY rf.fact_time DESC, rf.tracked_product_type ASC, COALESCE(rf.rank_no, 999999) ASC, rf.noon_product_code ASC",
+            "ORDER BY rf.fact_time DESC, rf.tracked_product_type ASC, rf.rank_channel ASC, COALESCE(rf.rank_no, 999999) ASC, rf.noon_product_code ASC",
             "LIMIT #{limit}"
     })
     List<CompetitorLatestRankPointRow> listRankHistoryByWatchProductIdAndKeywordId(
@@ -789,6 +1253,19 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
+            "  id, search_run_id AS searchRunId, keyword_id AS keywordId,",
+            "  keyword_snapshot AS keywordSnapshot, captured_at AS capturedAt",
+            "FROM operations_competitor_keyword_run",
+            "WHERE keyword_id = #{keywordId}",
+            "  AND provider_status = 'SUCCESS'",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    CompetitorKeywordRunRow selectLatestSucceededKeywordRunByKeywordId(@Param("keywordId") Long keywordId);
+
+    @Select({
+            "SELECT",
             "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
             "  logical_store_id AS logicalStoreId, product_master_id AS productMasterId,",
             "  product_variant_id AS productVariantId, product_site_offer_id AS productSiteOfferId,",
@@ -821,18 +1298,38 @@ public interface CompetitorAnalysisMapper {
     })
     List<CompetitorProductRow> listConfirmedCompetitorProductsByWatchProductId(@Param("watchProductId") Long watchProductId);
 
+    @Select({
+            "SELECT",
+            "  cp.id, cp.watch_product_id AS watchProductId, cp.noon_product_code AS noonProductCode, cp.code_type AS codeType,",
+            "  cp.canonical_url AS canonicalUrl, cp.title_snapshot AS titleSnapshot, cp.brand_snapshot AS brandSnapshot,",
+            "  cp.image_url_snapshot AS imageUrlSnapshot, cp.price_amount_snapshot AS priceAmountSnapshot,",
+            "  cp.currency_code_snapshot AS currencyCodeSnapshot, cp.rating_snapshot AS ratingSnapshot,",
+            "  cp.review_count_snapshot AS reviewCountSnapshot, cp.source_type AS sourceType, cp.review_status AS reviewStatus,",
+            "  cp.confirmed_by AS confirmedBy, cp.confirmed_at AS confirmedAt, cp.first_seen_at AS firstSeenAt, cp.last_seen_at AS lastSeenAt",
+            "FROM operations_competitor_product cp",
+            "JOIN operations_competitor_keyword_product kp",
+            "  ON kp.competitor_product_id = cp.id",
+            " AND kp.keyword_id = #{keywordId}",
+            " AND kp.relation_status <> 'IGNORED'",
+            " AND kp.is_deleted = b'0'",
+            "WHERE cp.review_status = 'CONFIRMED'",
+            "  AND cp.is_deleted = b'0'",
+            "ORDER BY cp.id ASC"
+    })
+    List<CompetitorProductRow> listConfirmedCompetitorProductsByKeywordId(@Param("keywordId") Long keywordId);
+
     @Insert({
             "INSERT INTO operations_competitor_keyword_product (",
             "  id, keyword_id, competitor_product_id, relation_status,",
             "  first_seen_run_id, last_seen_run_id, first_seen_rank_no, last_seen_rank_no,",
             "  last_seen_sponsored, last_seen_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{keywordId}, #{competitorProductId}, 'DISCOVERED',",
+            "  #{id}, #{keywordId}, #{competitorProductId}, #{relationStatus},",
             "  #{searchRunId}, #{searchRunId}, #{rankNo}, #{rankNo}, #{sponsored}, NOW(),",
             "  b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
-            "  relation_status = CASE WHEN relation_status = 'IGNORED' THEN relation_status ELSE 'DISCOVERED' END,",
+            "  relation_status = VALUES(relation_status),",
             "  last_seen_run_id = VALUES(last_seen_run_id),",
             "  first_seen_rank_no = COALESCE(first_seen_rank_no, VALUES(first_seen_rank_no)),",
             "  last_seen_rank_no = VALUES(last_seen_rank_no),",
@@ -843,6 +1340,29 @@ public interface CompetitorAnalysisMapper {
             "  gmt_updated = NOW()"
     })
     int upsertKeywordProductRelationFromSearch(CompetitorKeywordProductSearchCommand command);
+
+    @Update({
+            "<script>",
+            "UPDATE operations_competitor_keyword_product",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE keyword_id = #{keywordId}",
+            "  AND relation_status = 'DISCOVERED'",
+            "  AND is_deleted = b'0'",
+            "  <if test='competitorProductIds != null and competitorProductIds.size() > 0'>",
+            "    AND competitor_product_id NOT IN",
+            "    <foreach collection='competitorProductIds' item='competitorProductId' open='(' separator=',' close=')'>",
+            "      #{competitorProductId}",
+            "    </foreach>",
+            "  </if>",
+            "</script>"
+    })
+    int softDeleteDiscoveredKeywordProductRelationsOutsideSet(
+            @Param("keywordId") Long keywordId,
+            @Param("competitorProductIds") List<Long> competitorProductIds,
+            @Param("actorUserId") Long actorUserId
+    );
 
     @Insert({
             "INSERT INTO operations_competitor_search_result (",
@@ -859,20 +1379,50 @@ public interface CompetitorAnalysisMapper {
     })
     int insertSearchResult(CompetitorSearchResultInsertCommand command);
 
+    @Update({
+            "UPDATE operations_competitor_search_result",
+            "SET is_sponsored = b'1',",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE keyword_run_id = #{keywordRunId}",
+            "  AND noon_product_code = #{noonProductCode}",
+            "  AND is_deleted = b'0'"
+    })
+    int markSearchResultSponsored(
+            @Param("keywordRunId") Long keywordRunId,
+            @Param("noonProductCode") String noonProductCode,
+            @Param("actorUserId") Long actorUserId
+    );
+
     @Insert({
             "INSERT INTO operations_competitor_rank_fact (",
             "  id, watch_product_id, keyword_id, keyword_run_id, search_run_id, fact_time, fact_date,",
-            "  tracked_product_type, noon_product_code, rank_status, rank_no, is_sponsored,",
+            "  tracked_product_type, rank_channel, noon_product_code, rank_status, rank_no, scan_depth, is_sponsored,",
             "  price_amount, currency_code, rating, review_count, source_result_id, is_deleted,",
             "  created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "  #{id}, #{watchProductId}, #{keywordId}, #{keywordRunId}, #{searchRunId}, #{factTime}, #{factDate},",
-            "  #{trackedProductType}, #{noonProductCode}, #{rankStatus}, #{rankNo}, #{sponsored},",
+            "  #{trackedProductType}, #{rankChannel}, #{noonProductCode}, #{rankStatus}, #{rankNo}, #{scanDepth}, #{sponsored},",
             "  #{priceAmount}, #{currencyCode}, #{rating}, #{reviewCount}, #{sourceResultId}, b'0',",
             "  #{actorUserId}, #{actorUserId}, NOW(), NOW()",
             ")"
     })
     int insertRankFact(CompetitorRankFactInsertCommand command);
+
+    @Update({
+            "UPDATE operations_competitor_rank_fact",
+            "SET is_sponsored = b'1',",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE keyword_run_id = #{keywordRunId}",
+            "  AND noon_product_code = #{noonProductCode}",
+            "  AND is_deleted = b'0'"
+    })
+    int markRankFactSponsored(
+            @Param("keywordRunId") Long keywordRunId,
+            @Param("noonProductCode") String noonProductCode,
+            @Param("actorUserId") Long actorUserId
+    );
 
     @Update({
             "UPDATE operations_competitor_keyword",
@@ -924,4 +1474,5 @@ public interface CompetitorAnalysisMapper {
             @Param("runStatus") String runStatus,
             @Param("actorUserId") Long actorUserId
     );
+
 }

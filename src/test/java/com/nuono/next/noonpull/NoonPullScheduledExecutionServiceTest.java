@@ -52,7 +52,54 @@ class NoonPullScheduledExecutionServiceTest {
     }
 
     @Test
-    void shouldCreateAndExecuteStableAndLatestSalesReportAfterDailyReadyTime() {
+    void shouldCreateAndExecuteStableSalesReportAfterDailyReadyTime() {
+        foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("latest-day after 08:00 Asia/Shanghai")
+                .build());
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(1, result.getCreatedTaskCount());
+        assertEquals(1, result.getExecutedTaskCount());
+        List<NoonPullTaskRecord> tasks = repository.listTasks();
+        assertEquals(1, tasks.size());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, tasks.get(0).getStatus());
+        assertEquals(1, writer.facts.size());
+        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-05-22|PSKU-1").unitsSold);
+    }
+
+    @Test
+    void shouldCreateAndExecuteStableAndLatestSalesReportAfterLatestReadyTime() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
+        writer = new InMemorySalesFactWriter();
+        service = new NoonPullScheduledExecutionService(
+                new NoonPullScheduler(
+                        foundationService,
+                        clock,
+                        new NoonOrderReportSchedulePolicy(clock),
+                        new NoonOrderBackfillPlanner(),
+                        new NoonSalesRetentionPolicy(clock),
+                        (plan) -> true
+                ),
+                foundationService,
+                new NoonReportPuller(foundationService),
+                new NoonInterfacePuller(foundationService),
+                new NoonSalesReportAdapter(writer),
+                new NoonOrderReportAdapter((fact) -> {
+                }, clock),
+                (Supplier<NoonReportProvider>) this::salesProviderForRequestDate,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonSalesPageQueryProvider>) () -> null,
+                true
+        );
         foundationService.createPlan(NoonPullPlanDraft.builder()
                 .ownerUserId(10002L)
                 .storeCode("STR245027-NAE")
@@ -188,9 +235,10 @@ class NoonPullScheduledExecutionServiceTest {
 
         NoonPullScheduledExecutionResult result = service.runOnce();
 
-        assertEquals(3, result.getCreatedTaskCount());
-        assertEquals(3, result.getExecutedTaskCount());
+        assertEquals(2, result.getCreatedTaskCount());
+        assertEquals(2, result.getExecutedTaskCount());
         assertEquals("PAGE_QUERY:2026-05-23", executionOrder.get(0));
+        assertEquals("REPORT:2026-05-22", executionOrder.get(1));
     }
 
     private NoonReportProvider salesProvider(String csv) {

@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS `operations_competitor_search_result` (
     KEY `idx_ops_comp_search_result_product` (`noon_product_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Allowed rank_status values: RANKED, NOT_IN_TOP_30.
+-- Allowed rank_status values: RANKED, NOT_IN_TOP_20.
 CREATE TABLE IF NOT EXISTS `operations_competitor_rank_fact` (
     `id` BIGINT NOT NULL,
     `watch_product_id` BIGINT NOT NULL,

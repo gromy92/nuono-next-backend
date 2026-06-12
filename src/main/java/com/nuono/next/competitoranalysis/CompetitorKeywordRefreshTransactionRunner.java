@@ -11,6 +11,11 @@ import org.springframework.util.StringUtils;
 public class CompetitorKeywordRefreshTransactionRunner {
     private static final String DEFAULT_PROVIDER_FAILURE = "COMPETITOR_PROVIDER_FAILED";
     private static final String DEFAULT_PROVIDER_FAILURE_MESSAGE = "关键词刷新失败。";
+    private static final int MAX_PROVIDER_STATUS_LENGTH = 32;
+    private static final int MAX_SOURCE_URL_LENGTH = 1000;
+    private static final int MAX_PARSER_VERSION_LENGTH = 80;
+    private static final int MAX_ERROR_CODE_LENGTH = 128;
+    private static final int MAX_ERROR_MESSAGE_LENGTH = 1024;
 
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorKeywordRefreshRunner runner;
@@ -54,15 +59,25 @@ public class CompetitorKeywordRefreshTransactionRunner {
                         nullToZero(outcome.getRankFactWrittenCount())
                 );
             }
-            String errorCode = firstNonBlank(outcome.getErrorCode(), DEFAULT_PROVIDER_FAILURE);
-            String errorMessage = firstNonBlank(outcome.getErrorMessage(), DEFAULT_PROVIDER_FAILURE_MESSAGE);
+            String errorCode = truncate(
+                    firstNonBlank(outcome.getErrorCode(), DEFAULT_PROVIDER_FAILURE),
+                    MAX_ERROR_CODE_LENGTH
+            );
+            String errorMessage = truncate(
+                    firstNonBlank(outcome.getErrorMessage(), DEFAULT_PROVIDER_FAILURE_MESSAGE),
+                    MAX_ERROR_MESSAGE_LENGTH
+            );
             mapper.markKeywordProviderFailed(keyword.getId(), errorCode, errorMessage, actorUserId);
             return CompetitorKeywordRefreshResult.failure(errorCode, errorMessage);
         } catch (RuntimeException exception) {
-            String message = firstNonBlank(exception.getMessage(), DEFAULT_PROVIDER_FAILURE_MESSAGE);
+            String message = truncate(
+                    firstNonBlank(exception.getMessage(), DEFAULT_PROVIDER_FAILURE_MESSAGE),
+                    MAX_ERROR_MESSAGE_LENGTH
+            );
             String errorCode = exception instanceof NoonSearchProviderException
                     ? firstNonBlank(((NoonSearchProviderException) exception).getErrorCode(), DEFAULT_PROVIDER_FAILURE)
                     : DEFAULT_PROVIDER_FAILURE;
+            errorCode = truncate(errorCode, MAX_ERROR_CODE_LENGTH);
             CompetitorKeywordRefreshOutcome failed = CompetitorKeywordRefreshOutcome.failure(
                     errorCode,
                     message
@@ -92,15 +107,15 @@ public class CompetitorKeywordRefreshTransactionRunner {
         command.setKeywordId(keyword.getId());
         command.setKeywordSnapshot(keyword.getKeyword());
         command.setLocaleSnapshot(keyword.getLocale());
-        command.setProviderStatus(firstNonBlank(outcome.getProviderStatus(), "FAILED"));
+        command.setProviderStatus(truncate(firstNonBlank(outcome.getProviderStatus(), "FAILED"), MAX_PROVIDER_STATUS_LENGTH));
         command.setResultCount(nullToZero(outcome.getResultCount()));
-        command.setSourceUrl(normalize(outcome.getSourceUrl()));
-        command.setParserVersion(normalize(outcome.getParserVersion()));
+        command.setSourceUrl(truncate(outcome.getSourceUrl(), MAX_SOURCE_URL_LENGTH));
+        command.setParserVersion(truncate(outcome.getParserVersion(), MAX_PARSER_VERSION_LENGTH));
         command.setProviderHttpStatus(outcome.getProviderHttpStatus());
-        command.setResponseHash(normalize(outcome.getResponseHash()));
+        command.setResponseHash(truncate(outcome.getResponseHash(), MAX_ERROR_CODE_LENGTH));
         command.setCapturedAt(outcome.getCapturedAt());
-        command.setErrorCode(normalize(outcome.getErrorCode()));
-        command.setErrorMessage(normalize(outcome.getErrorMessage()));
+        command.setErrorCode(truncate(outcome.getErrorCode(), MAX_ERROR_CODE_LENGTH));
+        command.setErrorMessage(truncate(outcome.getErrorMessage(), MAX_ERROR_MESSAGE_LENGTH));
         command.setActorUserId(actorUserId);
         return command;
     }
@@ -115,5 +130,13 @@ public class CompetitorKeywordRefreshTransactionRunner {
 
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String truncate(String value, int maxLength) {
+        String normalized = normalize(value);
+        if (normalized == null || normalized.length() <= maxLength) {
+            return normalized;
+        }
+        return normalized.substring(0, maxLength);
     }
 }

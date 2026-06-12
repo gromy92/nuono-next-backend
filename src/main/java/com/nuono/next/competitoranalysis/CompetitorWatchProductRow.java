@@ -17,6 +17,7 @@ public class CompetitorWatchProductRow {
     private String selfNoonProductCode;
     private String selfCodeType;
     private String titleSnapshot;
+    private String titleCnSnapshot;
     private String brandSnapshot;
     private String imageUrlSnapshot;
     private String productFulltypeSnapshot;
@@ -54,6 +55,8 @@ public class CompetitorWatchProductRow {
     public void setSelfCodeType(String selfCodeType) { this.selfCodeType = selfCodeType; }
     public String getTitleSnapshot() { return titleSnapshot; }
     public void setTitleSnapshot(String titleSnapshot) { this.titleSnapshot = titleSnapshot; }
+    public String getTitleCnSnapshot() { return titleCnSnapshot; }
+    public void setTitleCnSnapshot(String titleCnSnapshot) { this.titleCnSnapshot = titleCnSnapshot; }
     public String getBrandSnapshot() { return brandSnapshot; }
     public void setBrandSnapshot(String brandSnapshot) { this.brandSnapshot = brandSnapshot; }
     public String getImageUrlSnapshot() { return imageUrlSnapshot; }

@@ -7,6 +7,8 @@ public class CompetitorKeywordProductRow {
     private Long keywordId;
     private Long competitorProductId;
     private String relationStatus;
+    private Long firstSeenRunId;
+    private Long lastSeenRunId;
     private Integer firstSeenRankNo;
     private Integer lastSeenRankNo;
     private Boolean lastSeenSponsored;
@@ -20,6 +22,10 @@ public class CompetitorKeywordProductRow {
     public void setCompetitorProductId(Long competitorProductId) { this.competitorProductId = competitorProductId; }
     public String getRelationStatus() { return relationStatus; }
     public void setRelationStatus(String relationStatus) { this.relationStatus = relationStatus; }
+    public Long getFirstSeenRunId() { return firstSeenRunId; }
+    public void setFirstSeenRunId(Long firstSeenRunId) { this.firstSeenRunId = firstSeenRunId; }
+    public Long getLastSeenRunId() { return lastSeenRunId; }
+    public void setLastSeenRunId(Long lastSeenRunId) { this.lastSeenRunId = lastSeenRunId; }
     public Integer getFirstSeenRankNo() { return firstSeenRankNo; }
     public void setFirstSeenRankNo(Integer firstSeenRankNo) { this.firstSeenRankNo = firstSeenRankNo; }
     public Integer getLastSeenRankNo() { return lastSeenRankNo; }

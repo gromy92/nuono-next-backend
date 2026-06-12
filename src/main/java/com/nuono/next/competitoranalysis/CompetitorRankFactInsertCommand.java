@@ -13,9 +13,11 @@ public class CompetitorRankFactInsertCommand {
     private LocalDateTime factTime;
     private LocalDate factDate;
     private String trackedProductType;
+    private String rankChannel;
     private String noonProductCode;
     private String rankStatus;
     private Integer rankNo;
+    private Integer scanDepth;
     private Boolean sponsored;
     private BigDecimal priceAmount;
     private String currencyCode;
@@ -40,12 +42,16 @@ public class CompetitorRankFactInsertCommand {
     public void setFactDate(LocalDate factDate) { this.factDate = factDate; }
     public String getTrackedProductType() { return trackedProductType; }
     public void setTrackedProductType(String trackedProductType) { this.trackedProductType = trackedProductType; }
+    public String getRankChannel() { return rankChannel; }
+    public void setRankChannel(String rankChannel) { this.rankChannel = rankChannel; }
     public String getNoonProductCode() { return noonProductCode; }
     public void setNoonProductCode(String noonProductCode) { this.noonProductCode = noonProductCode; }
     public String getRankStatus() { return rankStatus; }
     public void setRankStatus(String rankStatus) { this.rankStatus = rankStatus; }
     public Integer getRankNo() { return rankNo; }
     public void setRankNo(Integer rankNo) { this.rankNo = rankNo; }
+    public Integer getScanDepth() { return scanDepth; }
+    public void setScanDepth(Integer scanDepth) { this.scanDepth = scanDepth; }
     public Boolean getSponsored() { return sponsored; }
     public void setSponsored(Boolean sponsored) { this.sponsored = sponsored; }
     public BigDecimal getPriceAmount() { return priceAmount; }

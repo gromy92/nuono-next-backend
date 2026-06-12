@@ -4,6 +4,7 @@ public class CompetitorKeywordProductSearchCommand {
     private Long id;
     private Long keywordId;
     private Long competitorProductId;
+    private String relationStatus;
     private Long searchRunId;
     private Integer rankNo;
     private Boolean sponsored;
@@ -15,6 +16,8 @@ public class CompetitorKeywordProductSearchCommand {
     public void setKeywordId(Long keywordId) { this.keywordId = keywordId; }
     public Long getCompetitorProductId() { return competitorProductId; }
     public void setCompetitorProductId(Long competitorProductId) { this.competitorProductId = competitorProductId; }
+    public String getRelationStatus() { return relationStatus; }
+    public void setRelationStatus(String relationStatus) { this.relationStatus = relationStatus; }
     public Long getSearchRunId() { return searchRunId; }
     public void setSearchRunId(Long searchRunId) { this.searchRunId = searchRunId; }
     public Integer getRankNo() { return rankNo; }

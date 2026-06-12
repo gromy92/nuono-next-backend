@@ -55,6 +55,8 @@ public class CompetitorAnalysisController {
             @RequestParam(required = false) String keywordSearch,
             @RequestParam(required = false) String competitorSearch,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean confirmedCompetitorCountZero,
+            @RequestParam(required = false) Boolean pendingCandidateCountZero,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize,
             HttpServletRequest request
@@ -66,6 +68,8 @@ public class CompetitorAnalysisController {
                 keywordSearch,
                 competitorSearch,
                 status,
+                confirmedCompetitorCountZero,
+                pendingCandidateCountZero,
                 page,
                 pageSize
         );
@@ -80,6 +84,42 @@ public class CompetitorAnalysisController {
                         BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS
                 );
         return service.listWatchProducts(context, query);
+    }
+
+    @GetMapping("/product-baselines")
+    public CompetitorWatchProductListView productBaselines(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            @RequestParam(required = false) String productSearch,
+            @RequestParam(required = false) String keywordSearch,
+            @RequestParam(required = false) String competitorSearch,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Boolean confirmedCompetitorCountZero,
+            @RequestParam(required = false) Boolean pendingCandidateCountZero,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize,
+            HttpServletRequest request
+    ) {
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        String normalizedSiteCode = requireSiteCode(siteCode);
+        CompetitorWatchProductQuery query = CompetitorWatchProductQuery.fromRequest(
+                normalizedStoreCode,
+                normalizedSiteCode,
+                productSearch,
+                keywordSearch,
+                competitorSearch,
+                status,
+                confirmedCompetitorCountZero,
+                pendingCandidateCountZero,
+                page,
+                pageSize
+        );
+        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                normalizedStoreCode
+        );
+        return service.listProductBaselines(context, query);
     }
 
     @GetMapping("/watch-products/{watchProductId}")
@@ -106,6 +146,39 @@ public class CompetitorAnalysisController {
         CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
         BusinessAccessContext context = requireScopedStore(request, scope);
         return service.rankHistory(context, watchProductId, keywordId, rangeDays);
+    }
+
+    @GetMapping("/watch-products/{watchProductId}/product-changes")
+    public CompetitorProductChangeListView productChanges(
+            @PathVariable Long watchProductId,
+            @RequestParam(required = false) Integer limit,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.productChanges(context, watchProductId, limit);
+    }
+
+    @PostMapping("/keywords/{keywordId}/browser-observations")
+    public CompetitorBrowserObservationResultView browserObservations(
+            @PathVariable Long keywordId,
+            @RequestBody CompetitorBrowserObservationCommand command,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireKeywordWatchProductScope(keywordId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.applyBrowserObservations(context, keywordId, command);
+    }
+
+    @PostMapping("/watch-products/{watchProductId}/browser-observations")
+    public CompetitorBrowserObservationResultView watchProductBrowserObservations(
+            @PathVariable Long watchProductId,
+            @RequestBody CompetitorBrowserObservationCommand command,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.applyBrowserObservationsByKeyword(context, watchProductId, command);
     }
 
     @PostMapping("/watch-products/{watchProductId}/keywords")
@@ -173,6 +246,17 @@ public class CompetitorAnalysisController {
         return service.ignoreCandidate(context, keywordId, competitorProductId);
     }
 
+    @PostMapping("/keywords/{keywordId}/candidates/{competitorProductId}/remove")
+    public CompetitorWatchProductDetailView removeCandidate(
+            @PathVariable Long keywordId,
+            @PathVariable Long competitorProductId,
+            HttpServletRequest request
+    ) {
+        CompetitorWatchProductScopeRow scope = service.requireKeywordCandidateScope(keywordId, competitorProductId);
+        BusinessAccessContext context = requireScopedStore(request, scope);
+        return service.removeCandidateFromKeyword(context, keywordId, competitorProductId);
+    }
+
     @PostMapping("/watch-products/{watchProductId}/refresh")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public CompetitorRefreshRunView refreshWatchProduct(
@@ -182,6 +266,23 @@ public class CompetitorAnalysisController {
         CompetitorWatchProductScopeRow scope = service.requireWatchProductScope(watchProductId);
         BusinessAccessContext context = requireScopedStore(request, scope);
         return requireRefreshService().requestRefresh(context, watchProductId);
+    }
+
+    @PostMapping("/monitoring-runs/manual")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public CompetitorTaskView manualMonitoring(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            HttpServletRequest request
+    ) {
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        String normalizedSiteCode = requireSiteCode(siteCode);
+        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                normalizedStoreCode
+        );
+        return requireRefreshService().requestStoreMonitoring(context, normalizedStoreCode, normalizedSiteCode);
     }
 
     @GetMapping("/refresh-runs/{runId}")

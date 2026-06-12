@@ -23,6 +23,8 @@ import org.springframework.util.StringUtils;
 @Component
 public class NoonFrontendSearchPageParser {
     public static final String PARSER_VERSION = "noon-search-html-v1";
+    public static final String CATALOG_PARSER_VERSION = "noon-search-catalog-v1";
+    public static final String CUSTOMER_CATALOG_V3_PARSER_VERSION = "noon-search-customer-catalog-v3";
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -72,6 +74,113 @@ public class NoonFrontendSearchPageParser {
         page.setCapturedAt(LocalDateTime.now(clock));
         page.setResults(new ArrayList<>(byCode.values()));
         return page;
+    }
+
+    public NoonSearchPage parseCatalogJson(String json, String sourceUrl, int providerHttpStatus) {
+        String body = json == null ? "" : json;
+        String hash = sha256(body);
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(body);
+        } catch (Exception exception) {
+            throw new NoonSearchProviderException(
+                    "PARSE_FAILED",
+                    "Noon catalog 搜索响应不是有效 JSON。",
+                    providerHttpStatus,
+                    sourceUrl,
+                    hash
+            );
+        }
+
+        Map<String, NoonSearchResult> byCode = new LinkedHashMap<>();
+        PositionCounter positionCounter = new PositionCounter();
+        collectCatalogSponsoredResults(root, sourceUrl, byCode, positionCounter, 0, false);
+        JsonNode hits = firstArray(root, "hits", "products", "items", "results");
+        if (hits != null) {
+            for (JsonNode hit : hits) {
+                NoonSearchResult result = toCatalogResult(hit, sourceUrl);
+                if (result == null || byCode.containsKey(result.getNoonProductCode())) {
+                    continue;
+                }
+                result.setPosition(positionCounter.next());
+                byCode.put(result.getNoonProductCode(), result);
+            }
+        }
+        if (byCode.isEmpty()) {
+            throw new NoonSearchProviderException(
+                    "PARSE_FAILED",
+                    "Noon catalog 搜索响应无法解析出商品结果。",
+                    providerHttpStatus,
+                    sourceUrl,
+                    hash
+            );
+        }
+
+        NoonSearchPage page = new NoonSearchPage();
+        page.setSourceUrl(sourceUrl);
+        page.setParserVersion(catalogParserVersion(sourceUrl));
+        page.setProviderHttpStatus(providerHttpStatus);
+        page.setResponseHash(hash);
+        page.setCapturedAt(LocalDateTime.now(clock));
+        page.setResults(new ArrayList<>(byCode.values()));
+        return page;
+    }
+
+    private void collectCatalogSponsoredResults(
+            JsonNode node,
+            String sourceUrl,
+            Map<String, NoonSearchResult> byCode,
+            PositionCounter positionCounter,
+            int depth,
+            boolean sponsoredContext
+    ) {
+        if (node == null || depth > 5) {
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                collectCatalogSponsoredResults(item, sourceUrl, byCode, positionCounter, depth + 1, sponsoredContext);
+            }
+            return;
+        }
+        if (!node.isObject()) {
+            return;
+        }
+
+        boolean currentSponsoredContext = sponsoredContext || resolveSponsored(node);
+        if (currentSponsoredContext) {
+            NoonSearchResult result = toCatalogResult(node, sourceUrl);
+            if (result != null && !byCode.containsKey(result.getNoonProductCode())) {
+                result.setSponsored(true);
+                result.setPosition(positionCounter.next());
+                byCode.put(result.getNoonProductCode(), result);
+            }
+        }
+
+        var fields = node.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> entry = fields.next();
+            boolean childSponsoredContext = currentSponsoredContext || isSponsoredCatalogContainer(entry.getKey());
+            collectCatalogSponsoredResults(
+                    entry.getValue(),
+                    sourceUrl,
+                    byCode,
+                    positionCounter,
+                    depth + 1,
+                    childSponsoredContext
+            );
+        }
+    }
+
+    private boolean isSponsoredCatalogContainer(String fieldName) {
+        String value = fieldName == null ? "" : fieldName.toLowerCase(Locale.ROOT);
+        return value.contains("sponsor")
+                || value.contains("advert")
+                || value.equals("ads")
+                || value.endsWith("_ads")
+                || value.contains("promoted")
+                || value.equals("pla")
+                || value.contains("product_listing_ad");
     }
 
     private void collectJsonResults(
@@ -141,12 +250,87 @@ public class NoonFrontendSearchPageParser {
         result.setBrand(resolveBrand(node.path("brand")));
         result.setImageUrl(resolveImage(node));
         result.setPriceAmount(resolvePrice(node));
-        result.setCurrencyCode(firstNonBlank(textAny(node, "currency", "currencyCode", "priceCurrency"), textAny(node.path("price"), "currency", "currencyCode")));
+        result.setCurrencyCode(firstNonBlank(
+                textAny(node, "currency", "currencyCode", "priceCurrency"),
+                textAny(node.path("price"), "currency", "currencyCode"),
+                inferCurrencyCode(sourceUrl)
+        ));
         result.setRating(resolveRating(node));
         result.setReviewCount(resolveReviewCount(node));
-        result.setSponsored(booleanAny(node, "isSponsored", "sponsored", "isAd", "is_ad", "ad", "is_plp_sponsored"));
+        result.setSponsored(resolveSponsored(node));
         result.setRawResultJson(node.toString());
         return result;
+    }
+
+    private NoonSearchResult toCatalogResult(JsonNode node, String sourceUrl) {
+        JsonNode payload = catalogProductPayload(node);
+        if (payload == null || !payload.isObject()) {
+            return null;
+        }
+        String code = NoonProductCodeSupport.extractFirst(firstNonBlank(
+                textAny(payload, "sku", "sku_config", "catalog_sku", "noonProductCode", "productCode", "product_code", "offer_code", "pskuCode"),
+                textAny(payload, "url", "href", "canonicalUrl", "productUrl")
+        )).orElse(null);
+        if (!StringUtils.hasText(code)) {
+            return null;
+        }
+        String codeType = NoonProductCodeSupport.codeType(code).orElse(null);
+        if (!StringUtils.hasText(codeType)) {
+            return null;
+        }
+
+        NoonSearchResult result = new NoonSearchResult();
+        result.setNoonProductCode(code);
+        result.setCodeType(codeType);
+        result.setCanonicalUrl(catalogCanonicalUrl(sourceUrl, payload, code));
+        result.setTitle(firstNonBlank(textAny(payload, "name", "title", "product_title", "productTitle", "name_en", "title_en"), null));
+        result.setBrand(resolveBrand(payload.path("brand")));
+        result.setImageUrl(resolveImage(payload));
+        result.setPriceAmount(resolvePrice(payload));
+        result.setCurrencyCode(firstNonBlank(
+                textAny(payload, "currency", "currencyCode", "priceCurrency"),
+                textAny(payload.path("price"), "currency", "currencyCode"),
+                inferCurrencyCode(sourceUrl)
+        ));
+        result.setRating(resolveRating(payload));
+        result.setReviewCount(resolveReviewCount(payload));
+        result.setSponsored(resolveSponsored(node) || resolveSponsored(payload));
+        result.setRawResultJson(node == payload ? payload.toString() : node.toString());
+        return result;
+    }
+
+    private JsonNode catalogProductPayload(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        if (hasCatalogProductCode(node)) {
+            return node;
+        }
+        for (String field : List.of(
+                "_source",
+                "source",
+                "product",
+                "item",
+                "data",
+                "catalog",
+                "catalog_sku",
+                "sku",
+                "hit",
+                "record"
+        )) {
+            JsonNode child = node.path(field);
+            if (child.isObject() && hasCatalogProductCode(child)) {
+                return child;
+            }
+        }
+        return node;
+    }
+
+    private boolean hasCatalogProductCode(JsonNode node) {
+        return StringUtils.hasText(NoonProductCodeSupport.extractFirst(firstNonBlank(
+                textAny(node, "sku", "sku_config", "catalog_sku", "noonProductCode", "productCode", "product_code", "offer_code", "pskuCode"),
+                textAny(node, "url", "href", "canonicalUrl", "productUrl")
+        )).orElse(null));
     }
 
     private void collectHtmlResults(
@@ -201,7 +385,15 @@ public class NoonFrontendSearchPageParser {
         if (direct != null) {
             return direct;
         }
-        return decimalAny(node.path("rating"), "value", "ratingValue", "rating");
+        BigDecimal rating = decimalAny(node.path("rating"), "value", "ratingValue", "rating");
+        if (rating != null) {
+            return rating;
+        }
+        rating = decimalAny(node.path("product_rating"), "value", "ratingValue", "rating");
+        if (rating != null) {
+            return rating;
+        }
+        return decimalAny(node.path("aggregateRating"), "value", "ratingValue", "rating");
     }
 
     private Integer resolveReviewCount(JsonNode node) {
@@ -209,7 +401,15 @@ public class NoonFrontendSearchPageParser {
         if (direct != null) {
             return direct;
         }
-        return intAny(node.path("rating"), "count", "reviewCount", "rating_count", "ratingsCount");
+        Integer reviewCount = intAny(node.path("rating"), "count", "reviewCount", "rating_count", "ratingsCount");
+        if (reviewCount != null) {
+            return reviewCount;
+        }
+        reviewCount = intAny(node.path("product_rating"), "count", "reviewCount", "rating_count", "ratingsCount");
+        if (reviewCount != null) {
+            return reviewCount;
+        }
+        return intAny(node.path("aggregateRating"), "count", "reviewCount", "rating_count", "ratingsCount");
     }
 
     private String resolveBrand(JsonNode brandNode) {
@@ -227,7 +427,9 @@ public class NoonFrontendSearchPageParser {
                 textAny(node, "image", "imageUrl", "image_url", "imageUrlSnapshot"),
                 firstTextFromArray(node.path("images")),
                 firstTextFromArray(node.path("image_urls")),
-                firstTextFromArray(node.path("imageUrls"))
+                firstTextFromArray(node.path("imageUrls")),
+                noonImageUrl(textAny(node, "image_key")),
+                noonImageUrl(firstTextFromArray(node.path("image_keys")))
         );
         return compact(image);
     }
@@ -321,6 +523,202 @@ public class NoonFrontendSearchPageParser {
             }
         }
         return false;
+    }
+
+    private boolean resolveSponsored(JsonNode node) {
+        if (booleanAny(
+                node,
+                "isSponsored",
+                "is_sponsored",
+                "sponsored",
+                "isAd",
+                "is_ad",
+                "ad",
+                "is_plp_sponsored",
+                "isPlpSponsored",
+                "is_product_listing_ad",
+                "isProductListingAd",
+                "is_sponsored_product",
+                "isSponsoredProduct",
+                "product_listing_ad",
+                "pla",
+                "promoted"
+        )) {
+            return true;
+        }
+        JsonNode flags = node == null ? null : node.path("flags");
+        if (containsSponsoredText(flags)) {
+            return true;
+        }
+        if (containsSponsoredText(node == null ? null : node.path("badges"))) {
+            return true;
+        }
+        if (containsSponsoredText(node == null ? null : node.path("labels"))) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean containsSponsoredText(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return false;
+        }
+        if (node.isTextual()) {
+            return containsIgnoreCase(node.asText(), "sponsor")
+                    || "ad".equalsIgnoreCase(compact(node.asText()))
+                    || containsIgnoreCase(node.asText(), "advert");
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                if (containsSponsoredText(item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!node.isObject()) {
+            return false;
+        }
+        if (booleanAny(node, "sponsored", "isSponsored", "is_sponsored", "isAd", "is_ad", "ad")) {
+            return true;
+        }
+        String text = firstNonBlank(
+                textAny(node, "text", "label", "name", "type", "code", "value", "badge")
+        );
+        return containsIgnoreCase(text, "sponsor")
+                || "ad".equalsIgnoreCase(compact(text))
+                || containsIgnoreCase(text, "advert");
+    }
+
+    private JsonNode firstArray(JsonNode root, String... fieldNames) {
+        if (root == null || root.isNull() || root.isMissingNode()) {
+            return null;
+        }
+        if (root.isArray()) {
+            return root;
+        }
+        if (!root.isObject()) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode direct = root.path(fieldName);
+            if (direct.isArray()) {
+                return direct;
+            }
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode found = findArray(root, fieldName, 0);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private JsonNode findArray(JsonNode node, String fieldName, int depth) {
+        if (node == null || depth > 4) {
+            return null;
+        }
+        if (node.isObject()) {
+            JsonNode direct = node.path(fieldName);
+            if (direct.isArray()) {
+                return direct;
+            }
+            var fields = node.fields();
+            while (fields.hasNext()) {
+                JsonNode found = findArray(fields.next().getValue(), fieldName, depth + 1);
+                if (found != null) {
+                    return found;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode item : node) {
+                JsonNode found = findArray(item, fieldName, depth + 1);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String catalogCanonicalUrl(String sourceUrl, JsonNode node, String noonProductCode) {
+        String rawUrl = compact(textAny(node, "url", "href", "canonicalUrl", "productUrl", "product_url"));
+        if (StringUtils.hasText(rawUrl)) {
+            try {
+                URI uri = URI.create(rawUrl);
+                if (uri.isAbsolute()) {
+                    return uri.toString();
+                }
+            } catch (Exception ignored) {
+                // Build the public Noon URL below.
+            }
+        }
+        String slug = rawUrl;
+        if (StringUtils.hasText(slug)) {
+            slug = slug.replaceFirst("^/+", "").replaceFirst("/+$", "");
+        }
+        StringBuilder url = new StringBuilder("https://www.noon.com")
+                .append(publicMarketPath(sourceUrl))
+                .append('/');
+        if (StringUtils.hasText(slug)) {
+            url.append(slug).append('/');
+        }
+        url.append(noonProductCode).append("/p/");
+        String offerCode = compact(textAny(node, "offer_code", "offerCode"));
+        if (StringUtils.hasText(offerCode)) {
+            url.append("?o=").append(offerCode);
+        }
+        return url.toString();
+    }
+
+    private String publicMarketPath(String sourceUrl) {
+        String value = sourceUrl == null ? "" : sourceUrl.toLowerCase(Locale.ROOT);
+        if (value.contains("/uae-ar")) {
+            return "/uae-ar";
+        }
+        if (value.contains("/uae-en")) {
+            return "/uae-en";
+        }
+        if (value.contains("/egypt-ar") || value.contains("/egy-ar")) {
+            return "/egypt-ar";
+        }
+        if (value.contains("/egypt-en") || value.contains("/egy-en")) {
+            return "/egypt-en";
+        }
+        if (value.contains("/saudi-ar") || value.contains("/ksa-ar")) {
+            return "/saudi-ar";
+        }
+        return "/saudi-en";
+    }
+
+    private String inferCurrencyCode(String sourceUrl) {
+        String value = sourceUrl == null ? "" : sourceUrl.toLowerCase(Locale.ROOT);
+        if (value.contains("/uae-")) {
+            return "AED";
+        }
+        if (value.contains("/egypt-") || value.contains("/egy-")) {
+            return "EGP";
+        }
+        return "SAR";
+    }
+
+    private String catalogParserVersion(String sourceUrl) {
+        String value = sourceUrl == null ? "" : sourceUrl.toLowerCase(Locale.ROOT);
+        return value.contains("/mp-customer-catalog-api/api/v3/")
+                ? CUSTOMER_CATALOG_V3_PARSER_VERSION
+                : CATALOG_PARSER_VERSION;
+    }
+
+    private String noonImageUrl(String imageKey) {
+        String value = compact(imageKey);
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        return "https://f.nooncdn.com/p/" + value.replaceFirst("^/+", "") + ".jpg";
     }
 
     private String firstNonBlank(String... values) {

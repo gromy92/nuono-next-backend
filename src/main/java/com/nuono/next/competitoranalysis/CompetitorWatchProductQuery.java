@@ -14,6 +14,8 @@ public class CompetitorWatchProductQuery {
     private String keywordSearch;
     private String competitorSearch;
     private String status;
+    private boolean confirmedCompetitorCountZero;
+    private boolean pendingCandidateCountZero;
     private int page;
     private int pageSize;
 
@@ -27,6 +29,32 @@ public class CompetitorWatchProductQuery {
             Integer page,
             Integer pageSize
     ) {
+        return fromRequest(
+                storeCode,
+                siteCode,
+                productSearch,
+                keywordSearch,
+                competitorSearch,
+                status,
+                null,
+                null,
+                page,
+                pageSize
+        );
+    }
+
+    public static CompetitorWatchProductQuery fromRequest(
+            String storeCode,
+            String siteCode,
+            String productSearch,
+            String keywordSearch,
+            String competitorSearch,
+            String status,
+            Boolean confirmedCompetitorCountZero,
+            Boolean pendingCandidateCountZero,
+            Integer page,
+            Integer pageSize
+    ) {
         CompetitorWatchProductQuery query = new CompetitorWatchProductQuery();
         query.setStoreCode(upperBlankToNull(storeCode));
         query.setSiteCode(upperBlankToNull(siteCode));
@@ -34,6 +62,8 @@ public class CompetitorWatchProductQuery {
         query.setKeywordSearch(blankToNull(keywordSearch));
         query.setCompetitorSearch(blankToNull(competitorSearch));
         query.setStatus(upperBlankToNull(status));
+        query.setConfirmedCompetitorCountZero(Boolean.TRUE.equals(confirmedCompetitorCountZero));
+        query.setPendingCandidateCountZero(Boolean.TRUE.equals(pendingCandidateCountZero));
         query.setPage(page == null || page < 1 ? DEFAULT_PAGE : page);
         query.setPageSize(normalizePageSize(pageSize));
         return query;
@@ -74,6 +104,14 @@ public class CompetitorWatchProductQuery {
     public void setCompetitorSearch(String competitorSearch) { this.competitorSearch = competitorSearch; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public boolean isConfirmedCompetitorCountZero() { return confirmedCompetitorCountZero; }
+    public void setConfirmedCompetitorCountZero(boolean confirmedCompetitorCountZero) {
+        this.confirmedCompetitorCountZero = confirmedCompetitorCountZero;
+    }
+    public boolean isPendingCandidateCountZero() { return pendingCandidateCountZero; }
+    public void setPendingCandidateCountZero(boolean pendingCandidateCountZero) {
+        this.pendingCandidateCountZero = pendingCandidateCountZero;
+    }
     public int getPage() { return page; }
     public void setPage(int page) { this.page = page; }
     public int getPageSize() { return pageSize; }

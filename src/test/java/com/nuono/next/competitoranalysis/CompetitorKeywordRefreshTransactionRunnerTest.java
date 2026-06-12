@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -55,6 +56,44 @@ class CompetitorKeywordRefreshTransactionRunnerTest {
         assertEquals("hash429", keywordRunCaptor.getValue().getResponseHash());
         verify(mapper).markKeywordProviderFailed(190001L, "RATE_LIMITED", "Noon 前台搜索返回 HTTP 429。", 601L);
         verify(mapper, never()).insertRankFact(any());
+    }
+
+    @Test
+    void providerFailureTruncatesLongErrorMessageBeforeWritingKeywordRun() {
+        when(mapper.nextKeywordRunId()).thenReturn(230002L);
+        String longMessage = "x".repeat(1_500);
+        CompetitorKeywordRefreshTransactionRunner runner = new CompetitorKeywordRefreshTransactionRunner(
+                mapper,
+                (context) -> {
+                    throw new NoonSearchProviderException(
+                            "NOON_SEARCH_FAILED",
+                            longMessage,
+                            500,
+                            "https://www.noon.com/saudi-en/search?q=x",
+                            "hash500"
+                    );
+                }
+        );
+
+        CompetitorKeywordRefreshResult result = runner.runKeyword(
+                220124L,
+                watchProduct(),
+                keyword(),
+                601L
+        );
+
+        assertEquals(false, result.isSuccess());
+        assertTrue(result.getErrorMessage().length() <= 1024);
+        ArgumentCaptor<CompetitorKeywordRunInsertCommand> keywordRunCaptor =
+                ArgumentCaptor.forClass(CompetitorKeywordRunInsertCommand.class);
+        verify(mapper).insertKeywordRun(keywordRunCaptor.capture());
+        assertTrue(keywordRunCaptor.getValue().getErrorMessage().length() <= 1024);
+        verify(mapper).markKeywordProviderFailed(
+                org.mockito.ArgumentMatchers.eq(190001L),
+                org.mockito.ArgumentMatchers.eq("NOON_SEARCH_FAILED"),
+                org.mockito.ArgumentMatchers.argThat(message -> message != null && message.length() <= 1024),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
     }
 
     private static CompetitorWatchProductRow watchProduct() {

@@ -2,6 +2,8 @@ package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -15,6 +17,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -91,6 +94,49 @@ class CompetitorAnalysisControllerAccessTest {
     }
 
     @Test
+    void productBaselinesUseStoreScopedCompetitorAnalysisListService() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = operatorContext();
+        CompetitorWatchProductListView list = new CompetitorWatchProductListView();
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        )).thenReturn(context);
+        when(service.listProductBaselines(eq(context), any(CompetitorWatchProductQuery.class))).thenReturn(list);
+
+        CompetitorWatchProductListView result = controller.productBaselines(
+                " str108065-nsa ",
+                " sa ",
+                " basket ",
+                " sticky notes ",
+                " zcomp ",
+                " active ",
+                true,
+                true,
+                2,
+                15,
+                request
+        );
+
+        assertEquals(list, result);
+        ArgumentCaptor<CompetitorWatchProductQuery> queryCaptor =
+                ArgumentCaptor.forClass(CompetitorWatchProductQuery.class);
+        verify(service).listProductBaselines(eq(context), queryCaptor.capture());
+        CompetitorWatchProductQuery query = queryCaptor.getValue();
+        assertEquals("STR108065-NSA", query.getStoreCode());
+        assertEquals("SA", query.getSiteCode());
+        assertEquals("basket", query.getProductSearch());
+        assertEquals("sticky notes", query.getKeywordSearch());
+        assertEquals("zcomp", query.getCompetitorSearch());
+        assertEquals("ACTIVE", query.getStatus());
+        assertEquals(true, query.isConfirmedCompetitorCountZero());
+        assertEquals(true, query.isPendingCandidateCountZero());
+        assertEquals(2, query.getPage());
+        assertEquals(15, query.getPageSize());
+    }
+
+    @Test
     void rankHistoryLoadsWatchProductScopeBeforeCheckingStorePermission() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         BusinessAccessContext context = operatorContext();
@@ -119,6 +165,37 @@ class CompetitorAnalysisControllerAccessTest {
                 "STR108065-NSA"
         );
         verify(service).rankHistory(context, 180123L, 190001L, 30);
+    }
+
+    @Test
+    void productChangesLoadsWatchProductScopeBeforeCheckingStorePermission() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = operatorContext();
+        CompetitorWatchProductScopeRow scope = new CompetitorWatchProductScopeRow();
+        scope.setId(180123L);
+        scope.setOwnerUserId(501L);
+        scope.setStoreCode("STR108065-NSA");
+        scope.setSiteCode("SA");
+        CompetitorProductChangeListView changes = new CompetitorProductChangeListView();
+        when(service.requireWatchProductScope(180123L)).thenReturn(scope);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        )).thenReturn(context);
+        when(service.productChanges(context, 180123L, 80)).thenReturn(changes);
+
+        CompetitorProductChangeListView result = controller.productChanges(180123L, 80, request);
+
+        assertEquals(changes, result);
+        InOrder order = inOrder(service, businessAccessResolver);
+        order.verify(service).requireWatchProductScope(180123L);
+        order.verify(businessAccessResolver).requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        );
+        verify(service).productChanges(context, 180123L, 80);
     }
 
     private static BusinessAccessContext operatorContext() {

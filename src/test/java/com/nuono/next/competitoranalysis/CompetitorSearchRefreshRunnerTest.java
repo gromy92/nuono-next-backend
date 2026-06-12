@@ -2,6 +2,7 @@ package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
@@ -54,7 +55,7 @@ class CompetitorSearchRefreshRunnerTest {
         when(mapper.selectCompetitorProductByCode(180123L, "Z11111111AD")).thenReturn(null);
         when(mapper.nextCompetitorProductId()).thenReturn(200012L);
         when(mapper.selectCompetitorProductByCode(180123L, "NCONFIRM01")).thenReturn(confirmedPresent);
-        when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L))
+        when(mapper.listConfirmedCompetitorProductsByKeywordId(190001L))
                 .thenReturn(List.of(confirmedPresent, confirmedMissing));
         when(mapper.nextKeywordProductId()).thenReturn(210001L, 210002L);
         when(mapper.nextSearchResultId()).thenReturn(240001L, 240002L, 240003L);
@@ -75,14 +76,23 @@ class CompetitorSearchRefreshRunnerTest {
         verify(adapter).search(argThat((request) ->
                 "SA".equals(request.getSiteCode())
                         && "laundry basket".equals(request.getKeyword())
-                        && Integer.valueOf(30).equals(request.getLimit())
+                        && Integer.valueOf(20).equals(request.getLimit())
         ));
         verify(mapper).insertCompetitorProduct(argThat((command) ->
                 Long.valueOf(200012L).equals(command.getId())
                         && "Z11111111AD".equals(command.getNoonProductCode())
                         && "PENDING".equals(command.getReviewStatus())
         ));
-        verify(mapper, times(2)).upsertKeywordProductRelationFromSearch(any());
+        ArgumentCaptor<CompetitorKeywordProductSearchCommand> relationCaptor =
+                ArgumentCaptor.forClass(CompetitorKeywordProductSearchCommand.class);
+        verify(mapper, times(2)).upsertKeywordProductRelationFromSearch(relationCaptor.capture());
+        assertEquals("DISCOVERED", relationCaptor.getAllValues().get(0).getRelationStatus());
+        assertEquals("CONFIRMED", relationCaptor.getAllValues().get(1).getRelationStatus());
+        verify(mapper).softDeleteDiscoveredKeywordProductRelationsOutsideSet(
+                org.mockito.ArgumentMatchers.eq(190001L),
+                org.mockito.ArgumentMatchers.eq(List.of(200012L, 200010L)),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
         verify(mapper, times(3)).insertSearchResult(any());
 
         ArgumentCaptor<CompetitorRankFactInsertCommand> rankCaptor =
@@ -97,8 +107,88 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("RANKED", facts.get(1).getRankStatus());
         assertEquals(3, facts.get(1).getRankNo());
         assertEquals("COMPETITOR", facts.get(2).getTrackedProductType());
-        assertEquals("NOT_IN_TOP_30", facts.get(2).getRankStatus());
+        assertEquals("NOT_IN_TOP_20", facts.get(2).getRankStatus());
         assertNull(facts.get(2).getRankNo());
+    }
+
+    @Test
+    void recordsSponsoredResultWhenAdAppearsBeforeNaturalDuplicate() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorKeywordRow keyword = keyword();
+        CompetitorProductRow confirmedPresent = confirmedProduct(200010L, "NCONFIRM01");
+        NoonSearchPage page = page(
+                result(1, "NSELF0001", false, "Self basket"),
+                result(2, "NCONFIRM01", true, "Confirmed competitor ad"),
+                result(5, "NCONFIRM01", false, "Confirmed competitor natural")
+        );
+        when(adapter.search(any(NoonSearchRequest.class))).thenReturn(page);
+        when(mapper.selectCompetitorProductByCode(180123L, "NCONFIRM01")).thenReturn(confirmedPresent);
+        when(mapper.listConfirmedCompetitorProductsByKeywordId(190001L)).thenReturn(List.of(confirmedPresent));
+        when(mapper.nextKeywordProductId()).thenReturn(210001L);
+        when(mapper.nextSearchResultId()).thenReturn(240001L, 240002L);
+        when(mapper.nextRankFactId()).thenReturn(250001L, 250002L);
+
+        runner.refresh(CompetitorKeywordRefreshContext.builder()
+                .searchRunId(220123L)
+                .keywordRunId(230123L)
+                .keyword(keyword)
+                .watchProduct(watchProduct)
+                .actorUserId(601L)
+                .build());
+
+        ArgumentCaptor<CompetitorSearchResultInsertCommand> searchCaptor =
+                ArgumentCaptor.forClass(CompetitorSearchResultInsertCommand.class);
+        verify(mapper, times(2)).insertSearchResult(searchCaptor.capture());
+        assertEquals("NCONFIRM01", searchCaptor.getAllValues().get(1).getNoonProductCode());
+        assertEquals(2, searchCaptor.getAllValues().get(1).getResultPosition());
+        assertEquals(Boolean.TRUE, searchCaptor.getAllValues().get(1).getSponsored());
+
+        ArgumentCaptor<CompetitorKeywordProductSearchCommand> relationCaptor =
+                ArgumentCaptor.forClass(CompetitorKeywordProductSearchCommand.class);
+        verify(mapper).upsertKeywordProductRelationFromSearch(relationCaptor.capture());
+        assertEquals(2, relationCaptor.getValue().getRankNo());
+        assertEquals(Boolean.TRUE, relationCaptor.getValue().getSponsored());
+
+        ArgumentCaptor<CompetitorRankFactInsertCommand> rankCaptor =
+                ArgumentCaptor.forClass(CompetitorRankFactInsertCommand.class);
+        verify(mapper, times(2)).insertRankFact(rankCaptor.capture());
+        CompetitorRankFactInsertCommand competitorFact = rankCaptor.getAllValues().get(1);
+        assertEquals("COMPETITOR", competitorFact.getTrackedProductType());
+        assertEquals(2, competitorFact.getRankNo());
+        assertEquals(Boolean.TRUE, competitorFact.getSponsored());
+    }
+
+    @Test
+    void truncatesLongSearchResultTitlesBeforeWritingSnapshotColumns() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorKeywordRow keyword = keyword();
+        String longTitle = "x".repeat(800);
+        NoonSearchPage page = page(result(1, "Z11111111AD", false, longTitle));
+        when(adapter.search(any(NoonSearchRequest.class))).thenReturn(page);
+        when(mapper.selectCompetitorProductByCode(180123L, "Z11111111AD")).thenReturn(null);
+        when(mapper.nextCompetitorProductId()).thenReturn(200012L);
+        when(mapper.nextKeywordProductId()).thenReturn(210001L);
+        when(mapper.nextSearchResultId()).thenReturn(240001L);
+        when(mapper.nextRankFactId()).thenReturn(250001L);
+        when(mapper.listConfirmedCompetitorProductsByKeywordId(190001L)).thenReturn(List.of());
+
+        runner.refresh(CompetitorKeywordRefreshContext.builder()
+                .searchRunId(220123L)
+                .keywordRunId(230123L)
+                .keyword(keyword)
+                .watchProduct(watchProduct)
+                .actorUserId(601L)
+                .build());
+
+        ArgumentCaptor<CompetitorSearchResultInsertCommand> searchCaptor =
+                ArgumentCaptor.forClass(CompetitorSearchResultInsertCommand.class);
+        verify(mapper).insertSearchResult(searchCaptor.capture());
+        assertTrue(searchCaptor.getValue().getTitleSnapshot().length() <= 500);
+
+        ArgumentCaptor<CompetitorProductInsertCommand> productCaptor =
+                ArgumentCaptor.forClass(CompetitorProductInsertCommand.class);
+        verify(mapper).insertCompetitorProduct(productCaptor.capture());
+        assertTrue(productCaptor.getValue().getTitleSnapshot().length() <= 500);
     }
 
     private static NoonSearchPage page(NoonSearchResult... results) {

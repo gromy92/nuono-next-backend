@@ -14,6 +14,8 @@ public class CompetitorLatestRankPointRow {
     private BigDecimal priceAmount;
     private String currencyCode;
     private LocalDateTime factTime;
+    private String rankChannel;
+    private Integer scanDepth;
 
     public Long getKeywordId() { return keywordId; }
     public void setKeywordId(Long keywordId) { this.keywordId = keywordId; }
@@ -29,6 +31,10 @@ public class CompetitorLatestRankPointRow {
     public void setRankNo(Integer rankNo) { this.rankNo = rankNo; }
     public Boolean getSponsored() { return sponsored; }
     public void setSponsored(Boolean sponsored) { this.sponsored = sponsored; }
+    public String getRankChannel() { return rankChannel; }
+    public void setRankChannel(String rankChannel) { this.rankChannel = rankChannel; }
+    public Integer getScanDepth() { return scanDepth; }
+    public void setScanDepth(Integer scanDepth) { this.scanDepth = scanDepth; }
     public BigDecimal getPriceAmount() { return priceAmount; }
     public void setPriceAmount(BigDecimal priceAmount) { this.priceAmount = priceAmount; }
     public String getCurrencyCode() { return currencyCode; }
