@@ -21,7 +21,8 @@ import org.springframework.util.StringUtils;
 @Primary
 @Profile("local-db")
 public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRunner {
-    private static final int SEARCH_LIMIT = 20;
+    private static final int CANDIDATE_DISCOVERY_LIMIT = 20;
+    private static final int RANK_SCAN_DEPTH = 100;
     private static final int MAX_TITLE_SNAPSHOT_LENGTH = 500;
 
     private final CompetitorAnalysisMapper mapper;
@@ -43,10 +44,14 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 .siteCode(watchProduct.getSiteCode())
                 .locale(keyword.getLocale())
                 .keyword(keyword.getKeyword())
-                .limit(SEARCH_LIMIT)
+                .limit(RANK_SCAN_DEPTH)
                 .build());
 
-        Map<String, NoonSearchResult> resultsByCode = firstResultsByCode(page.getResults());
+        Map<String, NoonSearchResult> resultsByCode = firstResultsByCode(page.getResults(), RANK_SCAN_DEPTH);
+        Map<String, NoonSearchResult> candidateResultsByCode = firstResultsByCode(
+                page.getResults(),
+                CANDIDATE_DISCOVERY_LIMIT
+        );
         Map<String, Long> searchResultIdsByCode = new LinkedHashMap<>();
         int resultCount = 0;
         for (NoonSearchResult result : resultsByCode.values()) {
@@ -56,11 +61,12 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
             resultCount++;
         }
 
-        int candidateCount = upsertCandidates(context, resultsByCode);
+        int candidateCount = upsertCandidates(context, candidateResultsByCode);
         int rankFactCount = writeRankFacts(context, resultsByCode, searchResultIdsByCode, page);
         CompetitorKeywordRefreshOutcome outcome = CompetitorKeywordRefreshOutcome.success(resultCount);
         outcome.setCandidateUpsertedCount(candidateCount);
         outcome.setRankFactWrittenCount(rankFactCount);
+        outcome.setRequestedResultLimit(RANK_SCAN_DEPTH);
         outcome.setSourceUrl(page.getSourceUrl());
         outcome.setParserVersion(page.getParserVersion());
         outcome.setProviderHttpStatus(page.getProviderHttpStatus());
@@ -145,13 +151,13 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         return count;
     }
 
-    private Map<String, NoonSearchResult> firstResultsByCode(List<NoonSearchResult> results) {
+    private Map<String, NoonSearchResult> firstResultsByCode(List<NoonSearchResult> results, int limit) {
         Map<String, NoonSearchResult> byCode = new LinkedHashMap<>();
         if (results == null) {
             return byCode;
         }
         for (NoonSearchResult result : results) {
-            if (byCode.size() >= SEARCH_LIMIT) {
+            if (byCode.size() >= limit) {
                 break;
             }
             String code = normalizeCode(result.getNoonProductCode());
@@ -258,9 +264,9 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setTrackedProductType(trackedProductType);
         command.setNoonProductCode(noonProductCode);
         command.setActorUserId(context.getActorUserId());
-        command.setScanDepth(page == null || page.getResults() == null ? null : page.getResults().size());
+        command.setScanDepth(RANK_SCAN_DEPTH);
         if (result == null) {
-            command.setRankStatus("NOT_IN_TOP_20");
+            command.setRankStatus("NOT_IN_SCAN_DEPTH");
             command.setSponsored(false);
             command.setRankChannel("ORGANIC");
             return command;

@@ -10,6 +10,7 @@ public class CompetitorKeywordRunInsertCommand {
     private String localeSnapshot;
     private String providerStatus;
     private Integer resultCount;
+    private Integer requestedResultLimit;
     private String sourceUrl;
     private String parserVersion;
     private Integer providerHttpStatus;
@@ -33,6 +34,8 @@ public class CompetitorKeywordRunInsertCommand {
     public void setProviderStatus(String providerStatus) { this.providerStatus = providerStatus; }
     public Integer getResultCount() { return resultCount; }
     public void setResultCount(Integer resultCount) { this.resultCount = resultCount; }
+    public Integer getRequestedResultLimit() { return requestedResultLimit; }
+    public void setRequestedResultLimit(Integer requestedResultLimit) { this.requestedResultLimit = requestedResultLimit; }
     public String getSourceUrl() { return sourceUrl; }
     public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
     public String getParserVersion() { return parserVersion; }

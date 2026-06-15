@@ -96,6 +96,36 @@ class CompetitorKeywordRefreshTransactionRunnerTest {
         );
     }
 
+    @Test
+    void successPersistsRequestedResultLimitForAudit() {
+        when(mapper.nextKeywordRunId()).thenReturn(230003L);
+        CompetitorKeywordRefreshTransactionRunner runner = new CompetitorKeywordRefreshTransactionRunner(
+                mapper,
+                (context) -> {
+                    CompetitorKeywordRefreshOutcome outcome = CompetitorKeywordRefreshOutcome.success(21);
+                    outcome.setRequestedResultLimit(100);
+                    outcome.setCandidateUpsertedCount(20);
+                    outcome.setRankFactWrittenCount(1);
+                    return outcome;
+                }
+        );
+
+        CompetitorKeywordRefreshResult result = runner.runKeyword(
+                220125L,
+                watchProduct(),
+                keyword(),
+                601L
+        );
+
+        assertTrue(result.isSuccess());
+        ArgumentCaptor<CompetitorKeywordRunInsertCommand> keywordRunCaptor =
+                ArgumentCaptor.forClass(CompetitorKeywordRunInsertCommand.class);
+        verify(mapper).insertKeywordRun(keywordRunCaptor.capture());
+        assertEquals(Integer.valueOf(21), keywordRunCaptor.getValue().getResultCount());
+        assertEquals(Integer.valueOf(100), keywordRunCaptor.getValue().getRequestedResultLimit());
+        verify(mapper).markKeywordProviderSucceeded(190001L, "SUCCESS", 601L);
+    }
+
     private static CompetitorWatchProductRow watchProduct() {
         CompetitorWatchProductRow row = new CompetitorWatchProductRow();
         row.setId(180123L);
