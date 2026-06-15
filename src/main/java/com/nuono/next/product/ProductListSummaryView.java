@@ -31,12 +31,18 @@ public class ProductListSummaryView {
     private Boolean isActive;
     private String liveStatus;
     private String statusCode;
+    private String listingStartedAt;
+    private String listingStartedSource;
     private String syncStatus;
     private String lastSyncedAt;
     private String lastDraftSavedAt;
     private String detailBaselineStatus;
     private String detailBaselineMessage;
     private String detailBaselineSyncedAt;
+    private String productVariantSpecStatus;
+    private Integer productVariantSpecTotalCount;
+    private Integer productVariantSpecReadyCount;
+    private Integer productVariantSpecMaintainedCount;
     private Integer variantCount;
     private Integer siteOfferCount;
     private List<String> siteLabels = new ArrayList<>();
@@ -256,6 +262,22 @@ public class ProductListSummaryView {
         this.statusCode = statusCode;
     }
 
+    public String getListingStartedAt() {
+        return listingStartedAt;
+    }
+
+    public void setListingStartedAt(String listingStartedAt) {
+        this.listingStartedAt = listingStartedAt;
+    }
+
+    public String getListingStartedSource() {
+        return listingStartedSource;
+    }
+
+    public void setListingStartedSource(String listingStartedSource) {
+        this.listingStartedSource = listingStartedSource;
+    }
+
     public String getSyncStatus() {
         return syncStatus;
     }
@@ -302,6 +324,38 @@ public class ProductListSummaryView {
 
     public void setDetailBaselineSyncedAt(String detailBaselineSyncedAt) {
         this.detailBaselineSyncedAt = detailBaselineSyncedAt;
+    }
+
+    public String getProductVariantSpecStatus() {
+        return productVariantSpecStatus;
+    }
+
+    public void setProductVariantSpecStatus(String productVariantSpecStatus) {
+        this.productVariantSpecStatus = productVariantSpecStatus;
+    }
+
+    public Integer getProductVariantSpecTotalCount() {
+        return productVariantSpecTotalCount;
+    }
+
+    public void setProductVariantSpecTotalCount(Integer productVariantSpecTotalCount) {
+        this.productVariantSpecTotalCount = productVariantSpecTotalCount;
+    }
+
+    public Integer getProductVariantSpecReadyCount() {
+        return productVariantSpecReadyCount;
+    }
+
+    public void setProductVariantSpecReadyCount(Integer productVariantSpecReadyCount) {
+        this.productVariantSpecReadyCount = productVariantSpecReadyCount;
+    }
+
+    public Integer getProductVariantSpecMaintainedCount() {
+        return productVariantSpecMaintainedCount;
+    }
+
+    public void setProductVariantSpecMaintainedCount(Integer productVariantSpecMaintainedCount) {
+        this.productVariantSpecMaintainedCount = productVariantSpecMaintainedCount;
     }
 
     public Integer getVariantCount() {

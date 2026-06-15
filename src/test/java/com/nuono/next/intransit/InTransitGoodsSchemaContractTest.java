@@ -17,7 +17,7 @@ class InTransitGoodsSchemaContractTest {
             "resources",
             "db",
             "init",
-            "071_in_transit_goods_contract.sql"
+            "101_in_transit_goods_contract.sql"
     );
 
     @Test

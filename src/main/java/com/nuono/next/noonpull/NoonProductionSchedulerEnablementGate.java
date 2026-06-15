@@ -19,11 +19,6 @@ import org.springframework.util.StringUtils;
 @Service
 public class NoonProductionSchedulerEnablementGate {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
-    private static final List<NoonPullDataDomain> REQUIRED_SMOKE_DOMAINS = List.of(
-            NoonPullDataDomain.PRODUCT,
-            NoonPullDataDomain.SALES,
-            NoonPullDataDomain.ORDER
-    );
 
     private final NoonPullFoundationService foundationService;
     private final NoonPullSmokeRunRepository smokeRunRepository;
@@ -76,7 +71,7 @@ public class NoonProductionSchedulerEnablementGate {
         }
 
         validateCommand(command, rejectionReasons);
-        validateSmokeRun(smokeRun, rejectionReasons);
+        validateSmokeRun(smokeRun, schedulableDomains, rejectionReasons);
 
         if (!rejectionReasons.isEmpty()) {
             NoonProductionSchedulerEnablementRecord record = saveDecision(
@@ -128,8 +123,8 @@ public class NoonProductionSchedulerEnablementGate {
     }
 
     private void validateCommand(NoonProductionSchedulerEnablementCommand command, List<String> reasons) {
-        if (!"test".equalsIgnoreCase(command.getTargetEnvironment())) {
-            reasons.add("ONLY_TEST_ENVIRONMENT_ALLOWED");
+        if (!isSupportedTargetEnvironment(command.getTargetEnvironment())) {
+            reasons.add("UNSUPPORTED_TARGET_ENVIRONMENT");
         }
         if (command.getOwnerUserId() == null || !StringUtils.hasText(command.getStoreCode())
                 || !StringUtils.hasText(command.getSiteCode())) {
@@ -146,7 +141,16 @@ public class NoonProductionSchedulerEnablementGate {
         }
     }
 
-    private void validateSmokeRun(NoonPullSmokeRunRecord smokeRun, List<String> reasons) {
+    private boolean isSupportedTargetEnvironment(String targetEnvironment) {
+        return "test".equalsIgnoreCase(targetEnvironment)
+                || "production".equalsIgnoreCase(targetEnvironment);
+    }
+
+    private void validateSmokeRun(
+            NoonPullSmokeRunRecord smokeRun,
+            List<NoonPullDataDomain> requiredDomains,
+            List<String> reasons
+    ) {
         if (smokeRun == null) {
             reasons.add("READY_SMOKE_RUN_REQUIRED");
             return;
@@ -157,14 +161,11 @@ public class NoonProductionSchedulerEnablementGate {
                 evidenceByDomain.put(NoonPullDataDomain.valueOf(evidence.getDataDomain()), evidence);
             }
         }
-        for (NoonPullDataDomain domain : REQUIRED_SMOKE_DOMAINS) {
+        for (NoonPullDataDomain domain : requiredDomains) {
             NoonPullSmokeEvidenceRecord evidence = evidenceByDomain.get(domain);
             if (!isReadyEvidence(evidence)) {
                 reasons.add(domain.name() + "_SMOKE_NOT_READY");
             }
-        }
-        if (!smokeRun.isProductionSchedulingAllowed()) {
-            reasons.add("SMOKE_RUN_GATE_NOT_READY");
         }
         if (!StringUtils.hasText(smokeRun.getRollbackOrGlobalPauseStrategy())) {
             reasons.add("SMOKE_RUN_ROLLBACK_OR_GLOBAL_PAUSE_REQUIRED");
@@ -212,7 +213,6 @@ public class NoonProductionSchedulerEnablementGate {
         for (NoonPullDataDomain domain : schedulableDomains) {
             if (domain == NoonPullDataDomain.SALES) {
                 specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.SALES));
-                specs.add(new ScheduledPlanSpec(NoonPullType.PAGE_QUERY, NoonPullDataDomain.SALES));
             } else if (domain == NoonPullDataDomain.ORDER) {
                 specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.ORDER));
             }

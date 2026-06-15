@@ -16,7 +16,7 @@ class InTransitFreightCostSchemaContractTest {
             "resources",
             "db",
             "init",
-            "083_in_transit_freight_cost_foundation.sql"
+            "113_in_transit_freight_cost_foundation.sql"
     );
 
     @Test

@@ -3,11 +3,14 @@ package com.nuono.next.noonpull;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -54,21 +57,49 @@ public class NoonOrderReportAdapter {
             return NoonReportProcessResult.missingColumns(missingColumnsDiagnostic(headerIndex));
         }
 
-        int imported = 0;
         int exceptions = 0;
+        int outsideWindowRows = 0;
+        LocalDate actualDateFrom = null;
+        LocalDate actualDateTo = null;
+        List<NoonOrderLineFact> factsToWrite = new ArrayList<>();
         for (int i = 1; i < lines.length; i++) {
             if (!StringUtils.hasText(lines[i])) {
                 continue;
             }
             try {
-                writer.upsertLine(toFact(file, split(lines[i]), headerIndex));
-                imported++;
+                NoonOrderLineFact fact = toFact(file, split(lines[i]), headerIndex);
+                LocalDate orderDate = orderDate(fact);
+                if (orderDate != null) {
+                    actualDateFrom = min(actualDateFrom, orderDate);
+                    actualDateTo = max(actualDateTo, orderDate);
+                }
+                if (outsideRequestedWindow(orderDate, file.getRequest())) {
+                    outsideWindowRows++;
+                    continue;
+                }
+                factsToWrite.add(fact);
             } catch (RuntimeException exception) {
                 exceptions++;
             }
         }
-        if (imported == 0 && exceptions == 0) {
+        if (outsideWindowRows > 0) {
+            return NoonReportProcessResult.mappingFailed(
+                    outsideWindowRows + exceptions,
+                    outsideWindowDiagnostic(file, outsideWindowRows, actualDateFrom, actualDateTo)
+            );
+        }
+        if (factsToWrite.isEmpty() && exceptions == 0) {
             return emptyOrNotReady();
+        }
+
+        int imported = 0;
+        for (NoonOrderLineFact fact : factsToWrite) {
+            try {
+                writer.upsertLine(fact);
+                imported++;
+            } catch (RuntimeException exception) {
+                exceptions++;
+            }
         }
         if (imported == 0) {
             return NoonReportProcessResult.mappingFailed(exceptions);
@@ -109,6 +140,44 @@ public class NoonOrderReportAdapter {
                 request.getDateTo(),
                 file.getSourceBatchId()
         );
+    }
+
+    private LocalDate orderDate(NoonOrderLineFact fact) {
+        return fact.getOrderTimestamp() == null ? null : fact.getOrderTimestamp().toLocalDate();
+    }
+
+    private boolean outsideRequestedWindow(LocalDate actualDate, NoonReportPullRequest request) {
+        if (actualDate == null || request.getDateFrom() == null || request.getDateTo() == null) {
+            return false;
+        }
+        return actualDate.isBefore(request.getDateFrom()) || actualDate.isAfter(request.getDateTo());
+    }
+
+    private LocalDate min(LocalDate left, LocalDate right) {
+        if (left == null) {
+            return right;
+        }
+        return right.isBefore(left) ? right : left;
+    }
+
+    private LocalDate max(LocalDate left, LocalDate right) {
+        if (left == null) {
+            return right;
+        }
+        return right.isAfter(left) ? right : left;
+    }
+
+    private String outsideWindowDiagnostic(
+            NoonReportDownloadedFile file,
+            int outsideWindowRows,
+            LocalDate actualDateFrom,
+            LocalDate actualDateTo
+    ) {
+        NoonReportPullRequest request = file.getRequest();
+        return "provider_reused_latest_export: requested=" + request.getDateFrom() + ".." + request.getDateTo()
+                + "; actual=" + actualDateFrom + ".." + actualDateTo
+                + "; outside_rows=" + outsideWindowRows
+                + "; source_batch_id=" + file.getSourceBatchId();
     }
 
     private NoonOrderFactWriter factWriter() {

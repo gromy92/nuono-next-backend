@@ -1,0 +1,46 @@
+name: Bug report
+description: Track a reproducible Nuono Next defect
+title: "[Bug]: "
+labels: ["needs-triage"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Procurement
+        - Noon Data
+        - File Management
+        - Operations Config
+        - Sales Lifecycle
+        - Product Management
+        - System Foundation
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: What is wrong, where it happens, and who is affected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Include environment, account role, URL/API, and input data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, screenshots, task IDs, API responses, or local evidence file paths.
+    validations:
+      required: false

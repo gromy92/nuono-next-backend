@@ -111,7 +111,9 @@ public class NoonReportPuller {
                 return "partial success";
             case MAPPING_FAILED:
             default:
-                return "mapping failed";
+                return StringUtils.hasText(result.getDiagnosticMessage())
+                        ? "mapping failed: " + result.getDiagnosticMessage()
+                        : "mapping failed";
         }
     }
 

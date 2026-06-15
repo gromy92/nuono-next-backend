@@ -23,7 +23,7 @@ class InTransitBatchSchemaContractTest {
             "resources",
             "db",
             "init",
-            "072_in_transit_goods_batch.sql"
+            "102_in_transit_goods_batch.sql"
     );
     private static final Path LINE_MIGRATION = Path.of(
             "src",
@@ -31,7 +31,7 @@ class InTransitBatchSchemaContractTest {
             "resources",
             "db",
             "init",
-            "073_in_transit_goods_line.sql"
+            "103_in_transit_goods_line.sql"
     );
     private static final Path NODE_MIGRATION = Path.of(
             "src",
@@ -39,7 +39,7 @@ class InTransitBatchSchemaContractTest {
             "resources",
             "db",
             "init",
-            "074_in_transit_logistics_node.sql"
+            "104_in_transit_logistics_node.sql"
     );
     private static final Path IMPORT_MIGRATION = Path.of(
             "src",
@@ -47,7 +47,7 @@ class InTransitBatchSchemaContractTest {
             "resources",
             "db",
             "init",
-            "075_in_transit_import_audit.sql"
+            "105_in_transit_import_audit.sql"
     );
     private static final Path OPERATION_AUDIT_MIGRATION = Path.of(
             "src",
@@ -55,7 +55,7 @@ class InTransitBatchSchemaContractTest {
             "resources",
             "db",
             "init",
-            "076_in_transit_operation_audit.sql"
+            "106_in_transit_operation_audit.sql"
     );
     private static final Path PACKAGE_MIGRATION = Path.of(
             "src",
@@ -63,7 +63,7 @@ class InTransitBatchSchemaContractTest {
             "resources",
             "db",
             "init",
-            "078_in_transit_package.sql"
+            "108_in_transit_package.sql"
     );
     private static final Path PACKAGE_CHARGEABLE_WEIGHT_MIGRATION = Path.of(
             "src",
@@ -71,7 +71,7 @@ class InTransitBatchSchemaContractTest {
             "resources",
             "db",
             "init",
-            "082_in_transit_package_chargeable_weight.sql"
+            "112_in_transit_package_chargeable_weight.sql"
     );
 
     @Test

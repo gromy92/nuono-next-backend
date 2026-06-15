@@ -1,0 +1,51 @@
+name: Feature slice
+description: Track a Nuono Next implementation slice
+title: "[Feature]: "
+labels: ["needs-triage"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - Procurement
+        - Noon Data
+        - File Management
+        - Operations Config
+        - Sales Lifecycle
+        - Product Management
+        - System Foundation
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0
+        - P1
+        - P2
+        - P3
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: State the user-visible or operator-visible outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use concrete checks, API calls, UI paths, or business states.
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Source context
+      description: Link the originating PRD, local .scratch file, module hub, decision, or prior issue.
+    validations:
+      required: true

@@ -21,7 +21,7 @@ class InTransitGoodsPermissionSeedContractTest {
                 "resources",
                 "db",
                 "init",
-                "077_in_transit_goods_menu_permission.sql"
+                "107_in_transit_goods_menu_permission.sql"
         );
         assertTrue(Files.exists(seedPath), "in-transit goods permission seed must exist for local and test databases");
 
