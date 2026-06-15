@@ -78,6 +78,7 @@ public class CompetitorAnalysisMonitoringScheduler {
         if (!enabled) {
             return 0;
         }
+        refreshService.recoverStaleRefreshTasks();
         List<CompetitorWatchProductScopeRow> scopes = mapper.listRefreshableWatchProductScopes(
                 Math.max(1, maxScopesPerTick)
         );

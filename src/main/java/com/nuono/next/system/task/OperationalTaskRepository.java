@@ -15,5 +15,7 @@ public interface OperationalTaskRepository {
 
     void update(OperationalTask task);
 
+    List<OperationalTask> listActiveByTaskType(String taskType, int limit);
+
     List<OperationalTask> listRecent(String taskType, int limit);
 }

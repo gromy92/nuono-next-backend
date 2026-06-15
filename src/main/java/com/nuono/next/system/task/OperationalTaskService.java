@@ -82,6 +82,15 @@ public class OperationalTaskService {
                 .collect(Collectors.toList());
     }
 
+    public List<OperationalTask> listActive(String taskType, int limit) {
+        return repository.listActiveByTaskType(
+                        requireText(taskType, "taskType"),
+                        Math.max(1, Math.min(limit, 1000))
+                ).stream()
+                .map(OperationalTask::copy)
+                .collect(Collectors.toList());
+    }
+
     public OperationalTask progress(Long taskId, Integer progressPercent, String message) {
         OperationalTask task = requireMutableTask(taskId);
         task.setStatus(OperationalTaskStatus.RUNNING);

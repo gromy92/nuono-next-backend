@@ -103,6 +103,20 @@ public interface OperationalTaskMapper {
     int update(OperationalTask task);
 
     @Select({
+            "SELECT",
+            "  id, task_type, owner_user_id, store_code, site_code, natural_key, status,",
+            "  progress_percent, message, payload_json, result_json, error_code,",
+            "  started_at, finished_at, gmt_create AS created_at, gmt_updated AS updated_at",
+            "FROM operational_task",
+            "WHERE task_type = #{taskType}",
+            "  AND status IN ('QUEUED', 'RUNNING')",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC",
+            "LIMIT #{limit}"
+    })
+    List<OperationalTask> listActiveByTaskType(@Param("taskType") String taskType, @Param("limit") int limit);
+
+    @Select({
             "<script>",
             "SELECT",
             "  id, task_type, owner_user_id, store_code, site_code, natural_key, status,",

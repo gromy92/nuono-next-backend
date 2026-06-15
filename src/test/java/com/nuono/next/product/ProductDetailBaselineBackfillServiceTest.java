@@ -184,6 +184,17 @@ class ProductDetailBaselineBackfillServiceTest {
         }
 
         @Override
+        public List<OperationalTask> listActiveByTaskType(String taskType, int limit) {
+            return new ArrayList<>(tasks.values()).stream()
+                    .filter((task) -> taskType.equals(task.getTaskType()))
+                    .filter((task) -> task.getStatus() != null && task.getStatus().isActive())
+                    .sorted(Comparator.comparing(OperationalTask::getId))
+                    .limit(limit)
+                    .map(OperationalTask::copy)
+                    .collect(Collectors.toList());
+        }
+
+        @Override
         public List<OperationalTask> listRecent(String taskType, int limit) {
             return new ArrayList<>(tasks.values()).stream()
                     .filter((task) -> taskType == null || taskType.equals(task.getTaskType()))

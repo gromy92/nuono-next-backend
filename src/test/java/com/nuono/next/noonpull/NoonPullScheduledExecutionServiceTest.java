@@ -75,6 +75,39 @@ class NoonPullScheduledExecutionServiceTest {
     }
 
     @Test
+    void shouldExecuteExistingQueuedSalesReportTaskWhenSchedulerCreatesNoNewTask() {
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("latest-day after 08:00 Asia/Shanghai")
+                .build());
+        NoonPullTaskRecord queued = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("sales:2026-05-22")
+                .targetDateFrom(LocalDate.of(2026, 5, 22))
+                .targetDateTo(LocalDate.of(2026, 5, 22))
+                .build()).orElseThrow();
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(1, result.getExecutedTaskCount());
+        NoonPullTaskRecord executed = repository.selectTask(queued.getId());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, executed.getStatus());
+        assertEquals(1, writer.facts.size());
+        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-05-22|PSKU-1").unitsSold);
+    }
+
+    @Test
     void shouldCreateAndExecuteStableAndLatestSalesReportAfterLatestReadyTime() {
         Clock clock = Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();

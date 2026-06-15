@@ -1,6 +1,9 @@
 package com.nuono.next.noonpull;
 
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -93,13 +96,46 @@ public class NoonPullScheduledExecutionService {
         }
         NoonPullSchedulerResult schedulerResult = scheduler.runDuePlans();
         result.created(schedulerResult.getCreatedTaskCount());
-        for (NoonPullTaskRecord task : schedulerResult.getCreatedTasks().stream()
-                .sorted(Comparator.comparingInt(this::executionPriority)
-                        .thenComparing(NoonPullTaskRecord::getId))
-                .collect(Collectors.toList())) {
+        for (NoonPullTaskRecord task : executableQueuedTasks(schedulerResult)) {
             executeTask(task, result);
         }
         return result;
+    }
+
+    private List<NoonPullTaskRecord> executableQueuedTasks(NoonPullSchedulerResult schedulerResult) {
+        Map<Long, NoonPullTaskRecord> tasksById = new LinkedHashMap<>();
+        if (schedulerResult != null) {
+            for (NoonPullTaskRecord task : schedulerResult.getCreatedTasks()) {
+                addExecutableQueuedTask(tasksById, task);
+            }
+        }
+        for (NoonPullTaskRecord task : foundationService.listTasks()) {
+            addExecutableQueuedTask(tasksById, task);
+        }
+        return tasksById.values().stream()
+                .sorted(Comparator.comparingInt(this::executionPriority)
+                        .thenComparing(NoonPullTaskRecord::getId))
+                .collect(Collectors.toList());
+    }
+
+    private void addExecutableQueuedTask(Map<Long, NoonPullTaskRecord> tasksById, NoonPullTaskRecord task) {
+        if (task == null || task.getId() == null || task.getStatus() != NoonPullTaskStatus.QUEUED) {
+            return;
+        }
+        if (!foundationService.isTaskPlanActive(task) || !isExecutableByScheduledWorker(task)) {
+            return;
+        }
+        tasksById.putIfAbsent(task.getId(), task);
+    }
+
+    private boolean isExecutableByScheduledWorker(NoonPullTaskRecord task) {
+        if (task.getPullType() == NoonPullType.PAGE_QUERY && task.getDataDomain() == NoonPullDataDomain.SALES) {
+            return true;
+        }
+        if (task.getPullType() != NoonPullType.REPORT) {
+            return false;
+        }
+        return task.getDataDomain() == NoonPullDataDomain.SALES || task.getDataDomain() == NoonPullDataDomain.ORDER;
     }
 
     private int executionPriority(NoonPullTaskRecord task) {

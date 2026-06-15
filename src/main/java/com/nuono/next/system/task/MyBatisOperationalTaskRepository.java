@@ -48,6 +48,11 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public List<OperationalTask> listActiveByTaskType(String taskType, int limit) {
+        return mapper.listActiveByTaskType(taskType, limit);
+    }
+
+    @Override
     public List<OperationalTask> listRecent(String taskType, int limit) {
         return mapper.listRecent(taskType, limit);
     }

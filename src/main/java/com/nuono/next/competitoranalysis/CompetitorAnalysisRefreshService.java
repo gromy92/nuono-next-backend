@@ -38,6 +38,7 @@ public class CompetitorAnalysisRefreshService {
     private static final String STALE_MESSAGE = "刷新任务超过 30 分钟未完成，已自动释放。";
     private static final String FAILED_MESSAGE = "竞品刷新失败，请稍后重试。";
     private static final int STORE_MONITOR_PRODUCT_LIMIT = 500;
+    private static final int STALE_RECOVERY_LIMIT = 1000;
     private static final int MAX_ERROR_MESSAGE_LENGTH = 1024;
 
     private final CompetitorAnalysisMapper mapper;
@@ -179,6 +180,25 @@ public class CompetitorAnalysisRefreshService {
                 null,
                 RefreshExecutionMode.SCHEDULED_DETAIL
         );
+    }
+
+    public int recoverStaleRefreshTasks() {
+        int recovered = 0;
+        recovered += recoverStaleTasks(TASK_TYPE);
+        recovered += recoverStaleTasks(MONITOR_TASK_TYPE);
+        return recovered;
+    }
+
+    private int recoverStaleTasks(String taskType) {
+        int recovered = 0;
+        for (OperationalTask task : operationalTaskService.listActive(taskType, STALE_RECOVERY_LIMIT)) {
+            if (!isStale(task)) {
+                continue;
+            }
+            releaseStaleTask(task);
+            recovered++;
+        }
+        return recovered;
     }
 
     private CompetitorTaskView requestStoreMonitoring(

@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.lang.reflect.Method;
 import java.util.List;
+import org.mockito.InOrder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -74,6 +76,20 @@ class CompetitorAnalysisMonitoringSchedulerTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()
         );
+    }
+
+    @Test
+    void enabledSchedulerRecoversStaleRefreshTasksBeforeSubmittingScopes() {
+        ReflectionTestUtils.setField(scheduler, "enabled", true);
+        CompetitorWatchProductScopeRow scope = scope();
+        when(mapper.listRefreshableWatchProductScopes(100)).thenReturn(List.of(scope));
+
+        assertEquals(1, scheduler.runDetailOnce());
+
+        InOrder inOrder = inOrder(refreshService, mapper);
+        inOrder.verify(refreshService).recoverStaleRefreshTasks();
+        inOrder.verify(mapper).listRefreshableWatchProductScopes(100);
+        inOrder.verify(refreshService).requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
     }
 
     @Test
