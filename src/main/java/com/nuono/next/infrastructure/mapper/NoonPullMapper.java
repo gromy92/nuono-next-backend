@@ -205,4 +205,20 @@ public interface NoonPullMapper {
             "LIMIT 200"
     })
     List<NoonPullTaskRecord> listTasks();
+
+    @Select({
+            "SELECT",
+            "  id, plan_id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
+            "  target_identity, target_date_from, target_date_to, active_lock_key, status,",
+            "  source_batch_id, failure_type, retry_action, retryable, requires_manual_action,",
+            "  diagnostic_summary, checkpoint_cursor, processed_item_count, request_count,",
+            "  next_resume_position, last_safe_response_summary, readiness_state,",
+            "  locked_by, queued_at, started_at, finished_at,",
+            "  gmt_create AS created_at, gmt_updated AS updated_at",
+            "FROM noon_pull_task",
+            "WHERE status IN ('QUEUED', 'RUNNING')",
+            "  AND is_deleted = b'0'",
+            "ORDER BY queued_at ASC, started_at ASC, id ASC"
+    })
+    List<NoonPullTaskRecord> listActiveTasks();
 }

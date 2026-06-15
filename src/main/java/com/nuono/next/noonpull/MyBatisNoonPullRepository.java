@@ -71,4 +71,9 @@ public class MyBatisNoonPullRepository implements NoonPullRepository {
     public List<NoonPullTaskRecord> listTasks() {
         return mapper.listTasks();
     }
+
+    @Override
+    public List<NoonPullTaskRecord> listActiveTasks() {
+        return mapper.listActiveTasks();
+    }
 }

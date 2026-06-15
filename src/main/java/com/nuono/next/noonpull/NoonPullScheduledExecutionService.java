@@ -109,7 +109,7 @@ public class NoonPullScheduledExecutionService {
                 addExecutableQueuedTask(tasksById, task);
             }
         }
-        for (NoonPullTaskRecord task : foundationService.listTasks()) {
+        for (NoonPullTaskRecord task : foundationService.listActiveTasks()) {
             addExecutableQueuedTask(tasksById, task);
         }
         return tasksById.values().stream()

@@ -1,6 +1,7 @@
 package com.nuono.next.noonpull;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public interface NoonPullRepository {
     Long nextId(String sequenceName, Long initialValue);
@@ -24,4 +25,11 @@ public interface NoonPullRepository {
     List<NoonPullPlanRecord> listPlans();
 
     List<NoonPullTaskRecord> listTasks();
+
+    default List<NoonPullTaskRecord> listActiveTasks() {
+        return listTasks().stream()
+                .filter((task) -> task.getStatus() == NoonPullTaskStatus.QUEUED
+                        || task.getStatus() == NoonPullTaskStatus.RUNNING)
+                .collect(Collectors.toList());
+    }
 }
