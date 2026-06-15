@@ -87,7 +87,7 @@ class NoonOrderReportAdapterTest {
     }
 
     @Test
-    void shouldRejectMixedWindowOrderReportBeforeWritingAnyFacts() {
+    void shouldImportRequestedWindowRowsFromMixedWindowOrderReport() {
         InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
         NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
                 writer,
@@ -108,11 +108,14 @@ class NoonOrderReportAdapterTest {
                         + "2026-05-20 00:01:00,,\n"
         ));
 
-        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
-        assertTrue(writer.facts.isEmpty());
-        assertTrue(result.getDiagnosticMessage().contains("requested=2026-05-19..2026-05-19"));
-        assertTrue(result.getDiagnosticMessage().contains("actual=2026-05-19..2026-05-20"));
-        assertTrue(result.getDiagnosticMessage().contains("outside_rows=1"));
+        assertEquals(NoonReportProcessResult.Code.SUCCEEDED, result.getCode());
+        assertEquals(1, result.getImportedCount());
+        assertEquals(1, writer.facts.size());
+        NoonOrderLineFact imported = writer.facts.get("noon_order_report|108065|SA|NSAI50094671190-1");
+        assertEquals(LocalDate.of(2026, 5, 19), imported.getOrderTimestamp().toLocalDate());
+        assertEquals(LocalDate.of(2026, 5, 19), imported.getReportDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 19), imported.getReportDateTo());
+        assertNull(writer.facts.get("noon_order_report|108065|SA|NSAI50094671191-1"));
     }
 
     @Test
