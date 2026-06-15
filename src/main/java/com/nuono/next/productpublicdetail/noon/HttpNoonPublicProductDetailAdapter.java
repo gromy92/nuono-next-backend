@@ -155,7 +155,15 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             } catch (NoonSearchProviderException fallbackException) {
                 return mapProviderException(code, fallbackException);
             } catch (Exception fallbackException) {
-                return failed(code, "PROVIDER_UNAVAILABLE", "Noon 前台公开商品详情暂不可用：" + shrink(exception.getMessage(), 180), null, url, null, null);
+                return failed(
+                        code,
+                        "PROVIDER_UNAVAILABLE",
+                        "Noon catalog partner 公开搜索暂不可用：" + shrink(fallbackException.getMessage(), 180),
+                        null,
+                        buildCatalogSearchUrl(searchRequest),
+                        null,
+                        null
+                );
             }
         }
     }

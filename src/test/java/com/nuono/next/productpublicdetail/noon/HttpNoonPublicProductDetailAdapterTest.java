@@ -101,6 +101,25 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
+    void genericCustomerAndFallbackFailuresReportFallbackSource() {
+        StubAdapter adapter = new StubAdapter(null, false, "");
+        adapter.runtimeFailure = new IllegalStateException("customer transport exploded");
+        adapter.catalogRuntimeFailure = new IllegalStateException("catalog transport exploded");
+
+        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                .siteCode("AE")
+                .locale("en-AE")
+                .noonProductCode("ZABCDEF12")
+                .build());
+
+        assertEquals(ProductPublicDetailSyncStatus.FAILED, detail.getStatus());
+        assertEquals("PROVIDER_UNAVAILABLE", detail.getFailureCode());
+        assertTrue(detail.getProviderSourceUrl().contains("noon-catalog.noon.partners"));
+        assertTrue(detail.getFailureMessage().contains("catalog transport exploded"));
+        assertFalse(detail.getFailureMessage().contains("customer transport exploded"));
+    }
+
+    @Test
     void requestDoesNotSendCookieUnlessExplicitlyConfigured() {
         StubAdapter adapter = new StubAdapter(page(result("ZABCDEF12", "Canman Bag")), false, "");
         NoonSearchRequest request = NoonSearchRequest.builder().siteCode("SA").locale("en-SA").keyword("ZABCDEF12").limit(20).build();
@@ -146,7 +165,9 @@ class HttpNoonPublicProductDetailAdapterTest {
     private static final class StubAdapter extends HttpNoonPublicProductDetailAdapter {
         private final NoonSearchPage page;
         private NoonSearchProviderException failure;
+        private RuntimeException runtimeFailure;
         private NoonSearchPage catalogFallbackPage;
+        private RuntimeException catalogRuntimeFailure;
 
         private StubAdapter(NoonSearchPage page, boolean curlEnabled, String cookie) {
             super(
@@ -164,7 +185,13 @@ class HttpNoonPublicProductDetailAdapterTest {
         @Override
         NoonSearchPage fetchSearchPageWithHttp(NoonSearchRequest request, String url, String frontendCookieHeader) {
             if (url.contains("noon-catalog.noon.partners")) {
+                if (catalogRuntimeFailure != null) {
+                    throw catalogRuntimeFailure;
+                }
                 return catalogFallbackPage;
+            }
+            if (runtimeFailure != null) {
+                throw runtimeFailure;
             }
             if (failure != null) {
                 throw failure;

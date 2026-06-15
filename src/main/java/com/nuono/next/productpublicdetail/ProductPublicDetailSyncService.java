@@ -271,6 +271,9 @@ public class ProductPublicDetailSyncService {
             snapshot.setLatest(snapshot.getSyncStatus() != null && snapshot.getSyncStatus().updatesLatestPointer());
             mapper.insertSnapshot(snapshot);
         } else {
+            if (shouldPreserveExistingLatestSuccess(existing, snapshot)) {
+                return;
+            }
             snapshot.setId(existing.getId());
             snapshot.setLatest(existing.getLatest());
             mapper.updateSnapshotPreservingTrustedData(snapshot);
@@ -286,6 +289,15 @@ public class ProductPublicDetailSyncService {
             );
             mapper.markLatest(snapshot.getId(), snapshot.getUpdatedBy());
         }
+    }
+
+    private boolean shouldPreserveExistingLatestSuccess(ProductPublicDetailSnapshot existing,
+                                                       ProductPublicDetailSnapshot incoming) {
+        return Boolean.TRUE.equals(existing.getLatest())
+                && existing.getSyncStatus() != null
+                && existing.getSyncStatus().updatesLatestPointer()
+                && incoming.getSyncStatus() != null
+                && !incoming.getSyncStatus().updatesLatestPointer();
     }
 
     private ProductPublicDetailSnapshot toSnapshot(ProductPublicDetailCandidate candidate, NoonPublicProductDetailResult result, Long actorUserId) {

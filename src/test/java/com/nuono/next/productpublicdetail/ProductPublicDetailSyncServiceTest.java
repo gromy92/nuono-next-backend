@@ -89,7 +89,7 @@ class ProductPublicDetailSyncServiceTest {
     }
 
     @Test
-    void failedSameDayResultUpdatesFailureButDoesNotPromoteLatestPointer() {
+    void failedSameDayResultDoesNotOverwriteExistingLatestPartial() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
         when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
@@ -98,17 +98,36 @@ class ProductPublicDetailSyncServiceTest {
         ProductPublicDetailSnapshot existing = new ProductPublicDetailSnapshot();
         existing.setId(300002L);
         existing.setLatest(Boolean.TRUE);
+        existing.setSyncStatus(ProductPublicDetailSyncStatus.PARTIAL);
         when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(existing);
 
         service.submitManual(context(), "CANMAN", "SA");
 
+        verify(mapper, never()).insertSnapshot(any(ProductPublicDetailSnapshot.class));
+        verify(mapper, never()).updateSnapshotPreservingTrustedData(any(ProductPublicDetailSnapshot.class));
+        verify(mapper, never()).clearLatestForProduct(any(), any(), any(), any(), any(), any());
+        verify(mapper, never()).markLatest(any(), any());
+    }
+
+    @Test
+    void failedResultInsertsNonLatestDailySnapshotWhenNoExistingSnapshot() {
+        when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(List.of(candidate()));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(failedResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300003L);
+
+        service.submitManual(context(), "CANMAN", "SA");
+
         ArgumentCaptor<ProductPublicDetailSnapshot> snapshotCaptor = ArgumentCaptor.forClass(ProductPublicDetailSnapshot.class);
-        verify(mapper).updateSnapshotPreservingTrustedData(snapshotCaptor.capture());
+        verify(mapper).insertSnapshot(snapshotCaptor.capture());
         ProductPublicDetailSnapshot snapshot = snapshotCaptor.getValue();
-        assertEquals(300002L, snapshot.getId());
+        assertEquals(300003L, snapshot.getId());
         assertEquals(ProductPublicDetailSyncStatus.FAILED, snapshot.getSyncStatus());
         assertEquals("RATE_LIMITED", snapshot.getFailureCode());
-        assertEquals(Boolean.TRUE, snapshot.getLatest());
+        assertEquals(Boolean.FALSE, snapshot.getLatest());
         verify(mapper, never()).clearLatestForProduct(any(), any(), any(), any(), any(), any());
         verify(mapper, never()).markLatest(any(), any());
     }
