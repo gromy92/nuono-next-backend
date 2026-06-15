@@ -28,13 +28,16 @@ import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderResolveView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccountType;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Set;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -86,7 +89,10 @@ class InTransitImportServiceTest {
         assertEquals(1, result.getBatches().size());
         assertEquals("BATCH-001", result.getBatches().get(0).getBatchReferenceNo());
         assertEquals("AIR", result.getBatches().get(0).getTransportMode());
+        assertEquals("DB", result.getBatches().get(0).getTargetStoreCode());
         assertEquals(2, result.getBatches().get(0).getLines().size());
+        assertEquals("STR245027-NAE", result.getBatches().get(0).getLines().get(0).getStoreCode());
+        assertEquals("AE", result.getBatches().get(0).getLines().get(0).getSiteCode());
         assertEquals("SKU-AE-001", result.getBatches().get(0).getLines().get(0).getSku());
         assertFalse(result.getFieldNames().contains("purchaseOrderNo"));
         assertFalse(result.getFieldNames().contains("feeStatus"));
@@ -115,15 +121,16 @@ class InTransitImportServiceTest {
     void shouldMarkInvalidTransportAndRequiredFieldErrors() {
         when(mapper.nextImportBatchId()).thenReturn(56003L);
         when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matchedForwarder());
-        String csv = "批次号,原始货代,运输方式,目标店铺,目标站点,目标仓,SKU,发货数量,已入仓数量\n"
-                + "BATCH-ERR,义特物流,铁路,STR245027-NAE,,FBN-DXB,SKU-AE-001,,0\n"
-                + "BATCH-ERR,义特物流,AIR,STR245027-NAE,AE,,SKU-AE-002,3,5\n";
+        String csv = "批次号,原始货代,运输方式,目的地,店铺编码,站点,目的仓,箱号,PSKU,SKU,发货数量,已入仓数量\n"
+                + "BATCH-ERR,义特物流,铁路,JED,STR245027-NAE,,FBN-DXB,BATCH-ERR-1,PSKU-AE-001,SKU-AE-001,,0\n"
+                + "BATCH-ERR,义特物流,AIR,DB,STR245027-NAE,AE,,BATCH-ERR-2,PSKU-AE-002,SKU-AE-002,3,5\n";
 
         ImportPreviewView result = service.preview(command("错误在途.csv", csv));
 
         assertEquals("has_errors", result.getStatus());
-        assertEquals(5, result.getErrorCount());
+        assertEquals(6, result.getErrorCount());
         assertTrue(result.getIssues().stream().anyMatch(issue -> "transport_mode_invalid".equals(issue.getCode())));
+        assertTrue(result.getIssues().stream().anyMatch(issue -> "destination_invalid".equals(issue.getCode())));
         assertTrue(result.getIssues().stream().anyMatch(issue -> "target_site_missing".equals(issue.getCode())));
         assertTrue(result.getIssues().stream().anyMatch(issue -> "shipped_quantity_missing".equals(issue.getCode())));
         assertTrue(result.getIssues().stream().anyMatch(issue -> "target_warehouse_missing".equals(issue.getCode())));
@@ -152,6 +159,14 @@ class InTransitImportServiceTest {
         ImportPreviewView result = service.preview(command("在途商品导入模板.xlsx", template));
 
         assertTrue(template.length > 0);
+        try (Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(template))) {
+            Row header = workbook.getSheetAt(0).getRow(0);
+            assertEquals("目的地", header.getCell(4).getStringCellValue());
+            assertEquals("店铺编码", header.getCell(5).getStringCellValue());
+            assertEquals("站点", header.getCell(6).getStringCellValue());
+            assertEquals("目的仓", header.getCell(7).getStringCellValue());
+            assertEquals("预计到仓", header.getCell(9).getStringCellValue());
+        }
         assertEquals("ready", result.getStatus());
         assertEquals(2, result.getTotalRowCount());
         assertEquals(2, result.getValidRowCount());
@@ -159,10 +174,14 @@ class InTransitImportServiceTest {
         assertEquals(2, result.getWillUpsertLineCount());
         assertEquals("TMP-INTRANSIT-SEA-001", result.getBatches().get(0).getBatchReferenceNo());
         assertEquals("SEA", result.getBatches().get(0).getTransportMode());
-        assertEquals("SKU-TEMPLATE-SEA-001", result.getBatches().get(0).getLines().get(0).getSku());
+        assertEquals("DB", result.getBatches().get(0).getTargetStoreCode());
+        assertEquals("PSKU-TEMPLATE-SEA-001", result.getBatches().get(0).getLines().get(0).getPsku());
+        assertEquals("STR245027-NAE", result.getBatches().get(0).getLines().get(0).getStoreCode());
         assertEquals("TMP-INTRANSIT-AIR-001", result.getBatches().get(1).getBatchReferenceNo());
         assertEquals("AIR", result.getBatches().get(1).getTransportMode());
-        assertEquals("SKU-TEMPLATE-AIR-001", result.getBatches().get(1).getLines().get(0).getSku());
+        assertEquals("RUH", result.getBatches().get(1).getTargetStoreCode());
+        assertEquals("PSKU-TEMPLATE-AIR-001", result.getBatches().get(1).getLines().get(0).getPsku());
+        assertEquals("STR245027-NSA", result.getBatches().get(1).getLines().get(0).getStoreCode());
         assertEquals("TMP-INTRANSIT-AIR-001-BOX-1", getProperty(result.getBatches().get(1).getLines().get(0), "boxNo"));
         assertFalse(result.getFieldNames().contains("purchaseOrderNo"));
         assertFalse(result.getFieldNames().contains("feeStatus"));
@@ -182,7 +201,9 @@ class InTransitImportServiceTest {
         assertEquals(1, result.getWillCreateBatchCount());
         assertEquals(3, result.getWillUpsertLineCount());
         assertEquals("XGGEUAE04029", result.getBatches().get(0).getBatchReferenceNo());
+        assertEquals("DB", result.getBatches().get(0).getTargetStoreCode());
         assertEquals("XGGEUAE04029-1", getProperty(result.getBatches().get(0).getLines().get(0), "boxNo"));
+        assertEquals("STR245027-NAE", result.getBatches().get(0).getLines().get(0).getStoreCode());
         assertEquals("SKU-QIKE-001", result.getBatches().get(0).getLines().get(0).getSku());
         assertEquals("XGGEUAE04029-1", getProperty(result.getBatches().get(0).getLines().get(1), "boxNo"));
         assertEquals("SKU-QIKE-002", result.getBatches().get(0).getLines().get(1).getSku());
@@ -260,10 +281,13 @@ class InTransitImportServiceTest {
         verify(batchService).saveBatch(batchCaptor.capture());
         assertEquals(10002L, batchCaptor.getValue().getOwnerUserId());
         assertEquals("BATCH-001", batchCaptor.getValue().getBatchReferenceNo());
+        assertEquals("DB", batchCaptor.getValue().getTargetStoreCode());
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
         verify(batchService, org.mockito.Mockito.times(2)).saveLine(lineCaptor.capture());
         assertEquals(53088L, lineCaptor.getAllValues().get(0).getBatchId());
         assertEquals("SKU-AE-001", lineCaptor.getAllValues().get(0).getSku());
+        assertEquals("STR245027-NAE", lineCaptor.getAllValues().get(0).getStoreCode());
+        assertEquals("AE", lineCaptor.getAllValues().get(0).getSiteCode());
         verify(mapper).markImportBatchImported(any(Long.class), any(Long.class), any(Long.class), any(String.class));
         assertAudit("import_confirmed", "import_batch", 56006L);
     }
@@ -292,9 +316,11 @@ class InTransitImportServiceTest {
         ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
         verify(batchService).saveBatch(batchCaptor.capture());
         assertEquals("XGGEUAE04029", batchCaptor.getValue().getBatchReferenceNo());
+        assertEquals("DB", batchCaptor.getValue().getTargetStoreCode());
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
         verify(batchService, org.mockito.Mockito.times(3)).saveLine(lineCaptor.capture());
         assertEquals("XGGEUAE04029-1", getProperty(lineCaptor.getAllValues().get(0), "boxNo"));
+        assertEquals("STR245027-NAE", lineCaptor.getAllValues().get(0).getStoreCode());
         assertEquals("XGGEUAE04029-2", getProperty(lineCaptor.getAllValues().get(2), "boxNo"));
     }
 
@@ -308,8 +334,8 @@ class InTransitImportServiceTest {
         ImportBatchRow row = importBatchRow(56013L, preview);
         when(mapper.selectImportBatchById(10002L, 56013L)).thenReturn(row);
         when(mapper.selectBatchByReferenceNo(10002L, "XGGEUAE04029")).thenReturn(existingBatch(53101L, "XGGEUAE04029"));
-        when(mapper.selectLineByBoxNoAndSku(10002L, 53101L, "XGGEUAE04029-1", "SKU-QIKE-001"))
-                .thenReturn(existingLine(54101L, 53101L, "XGGEUAE04029-1", "SKU-QIKE-001"));
+        when(mapper.selectLineByBoxNoAndPsku(10002L, 53101L, "XGGEUAE04029-1", "PSKU-QIKE-001"))
+                .thenReturn(existingLine(54101L, 53101L, "XGGEUAE04029-1", "SKU-QIKE-001", "PSKU-QIKE-001"));
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53101L);
         when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
@@ -323,10 +349,48 @@ class InTransitImportServiceTest {
         ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
         verify(batchService).saveBatch(batchCaptor.capture());
         assertEquals(53101L, batchCaptor.getValue().getBatchId());
+        verify(batchService).reconcileSyncedDetails(
+                eq(10002L),
+                eq(90001L),
+                eq(53101L),
+                eq(List.of("XGGEUAE04029-1", "XGGEUAE04029-2")),
+                eq(List.of(
+                        "XGGEUAE04029-1\nPSKU-QIKE-001",
+                        "XGGEUAE04029-1\nPSKU-QIKE-002",
+                        "XGGEUAE04029-2\nPSKU-QIKE-003"
+                ))
+        );
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
         verify(batchService, org.mockito.Mockito.times(3)).saveLine(lineCaptor.capture());
         assertEquals(54101L, lineCaptor.getAllValues().get(0).getLineId());
         assertEquals("SKU-QIKE-001", lineCaptor.getAllValues().get(0).getSku());
+        assertEquals("PSKU-QIKE-001", lineCaptor.getAllValues().get(0).getPsku());
+    }
+
+    @Test
+    void shouldRejectImportRowsWithoutPskuBecausePskuIsProductKey() {
+        when(mapper.nextImportBatchId()).thenReturn(56014L);
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matchedForwarder());
+        String csv = "批次号,原始货代,运输方式,目的地,店铺编码,站点,目的仓,箱号,SKU,发货数量,已入仓数量\n"
+                + "BATCH-NO-PSKU,义特物流,AIR,DB,STR245027-NAE,AE,FBN-DXB,BATCH-NO-PSKU-1,SOURCE-SKU-001,3,0\n";
+
+        ImportPreviewView result = service.preview(command("缺PSKU.csv", csv));
+
+        assertEquals("has_errors", result.getStatus());
+        assertTrue(result.getIssues().stream().anyMatch(issue -> "psku_missing".equals(issue.getCode())));
+    }
+
+    @Test
+    void shouldRejectImportRowsWithoutBoxNoBecauseLineNaturalKeyIncludesBox() {
+        when(mapper.nextImportBatchId()).thenReturn(56015L);
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matchedForwarder());
+        String csv = "批次号,原始货代,运输方式,目的地,店铺编码,站点,目的仓,PSKU,SKU,发货数量,已入仓数量\n"
+                + "BATCH-NO-BOX,义特物流,AIR,DB,STR245027-NAE,AE,FBN-DXB,PSKU-AE-001,SOURCE-SKU-001,3,0\n";
+
+        ImportPreviewView result = service.preview(command("缺箱号.csv", csv));
+
+        assertEquals("has_errors", result.getStatus());
+        assertTrue(result.getIssues().stream().anyMatch(issue -> "box_no_missing".equals(issue.getCode())));
     }
 
     @Test
@@ -383,33 +447,33 @@ class InTransitImportServiceTest {
     }
 
     private String validCsv() {
-        return "批次号,原始货代,运输方式,目标店铺,目标站点,目标仓,发货日期,ETA,物流单号,柜号,SKU,MSKU,PSKU,商品名称,发货数量,已入仓数量,箱数,单箱数量,单箱重量,单箱体积,备注\n"
-                + "BATCH-001,义特物流,空运,STR245027-NAE,AE,FBN-DXB,2026-05-20,2026-06-08,TRK-001,CONT-001,SKU-AE-001,MSKU-001,PSKU-001,折叠手机壳,10,4,2,5,12.5,0.25,首批\n"
-                + "BATCH-001,义特物流,AIR,STR245027-NAE,AE,FBN-DXB,2026-05-20,2026-06-08,TRK-001,CONT-001,SKU-AE-002,MSKU-002,PSKU-002,折叠手机膜,8,0,1,8,3.2,0.08,第二行\n";
+        return "批次号,原始货代,运输方式,目的地,店铺编码,站点,目的仓,发货日期,预计到仓,物流单号,箱号,柜号,PSKU,SKU,MSKU,商品名称,发货数量,已入仓数量,箱数,单箱数量,单箱重量,单箱体积\n"
+                + "BATCH-001,义特物流,空运,DB,STR245027-NAE,AE,FBN-DXB,2026-05-20,2026-06-08,TRK-001,BATCH-001-BOX-1,CONT-001,PSKU-001,SKU-AE-001,MSKU-001,折叠手机壳,10,4,2,5,12.5,0.25\n"
+                + "BATCH-001,义特物流,AIR,DB,STR245027-NAE,AE,FBN-DXB,2026-05-20,2026-06-08,TRK-001,BATCH-001-BOX-1,CONT-001,PSKU-002,SKU-AE-002,MSKU-002,折叠手机膜,8,0,1,8,3.2,0.08\n";
     }
 
     private String qikeBoxCsv() {
-        return "批次号,箱号,原始货代,运输方式,目标店铺,目标站点,目标仓,物流单号,SKU,商品名称,发货数量,已入仓数量\n"
-                + "XGGEUAE04029,XGGEUAE04029-1,启客,空运,STR245027-NAE,AE,FBN-DXB,XGGEUAE04029-1,SKU-QIKE-001,启客商品1,20,0\n"
-                + "XGGEUAE04029,XGGEUAE04029-1,启客,空运,STR245027-NAE,AE,FBN-DXB,XGGEUAE04029-1,SKU-QIKE-002,启客商品2,5,0\n"
-                + "XGGEUAE04029,XGGEUAE04029-2,启客,空运,STR245027-NAE,AE,FBN-DXB,XGGEUAE04029-2,SKU-QIKE-003,启客商品3,10,0\n";
+        return "批次号,箱号,原始货代,运输方式,目标店铺,目标站点,目标仓,物流单号,PSKU,SKU,商品名称,发货数量,已入仓数量\n"
+                + "XGGEUAE04029,XGGEUAE04029-1,启客,空运,STR245027-NAE,AE,FBN-DXB,XGGEUAE04029-1,PSKU-QIKE-001,SKU-QIKE-001,启客商品1,20,0\n"
+                + "XGGEUAE04029,XGGEUAE04029-1,启客,空运,STR245027-NAE,AE,FBN-DXB,XGGEUAE04029-1,PSKU-QIKE-002,SKU-QIKE-002,启客商品2,5,0\n"
+                + "XGGEUAE04029,XGGEUAE04029-2,启客,空运,STR245027-NAE,AE,FBN-DXB,XGGEUAE04029-2,PSKU-QIKE-003,SKU-QIKE-003,启客商品3,10,0\n";
     }
 
     private String completedBatchCsv() {
-        return "批次号,批次状态,箱号,原始货代,运输方式,目标店铺,目标站点,目标仓,物流单号,SKU,商品名称,发货数量,已入仓数量\n"
-                + "XGGEKSA04074,已完成,XGGEKSA04074-1,义特物流,空运,STR245027-NAE,AE,FBN-DXB,XGGEKSA04074-1,SKU-DONE-001,历史已完成商品,10,10\n";
+        return "批次号,批次状态,箱号,原始货代,运输方式,目标店铺,目标站点,目标仓,物流单号,PSKU,SKU,商品名称,发货数量,已入仓数量\n"
+                + "XGGEKSA04074,已完成,XGGEKSA04074-1,义特物流,空运,STR245027-NAE,AE,FBN-DXB,XGGEKSA04074-1,PSKU-DONE-001,SKU-DONE-001,历史已完成商品,10,10\n";
     }
 
     private byte[] xlsxBytes() throws Exception {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("在途");
             Row header = sheet.createRow(0);
-            String[] headers = {"批次号", "原始货代", "运输方式", "目标店铺", "目标站点", "目标仓", "SKU", "发货数量", "已入仓数量"};
+            String[] headers = {"批次号", "原始货代", "运输方式", "目的地", "店铺编码", "站点", "目的仓", "箱号", "PSKU", "SKU", "发货数量", "已入仓数量"};
             for (int index = 0; index < headers.length; index++) {
                 header.createCell(index).setCellValue(headers[index]);
             }
             Row row = sheet.createRow(1);
-            String[] values = {"BATCH-XLSX", "义特物流", "SEA", "STR245027-NAE", "AE", "FBN-DXB", "SKU-AE-003", "5", "0"};
+            String[] values = {"BATCH-XLSX", "义特物流", "SEA", "DB", "STR245027-NAE", "AE", "FBN-DXB", "BATCH-XLSX-BOX-1", "PSKU-AE-003", "SKU-AE-003", "5", "0"};
             for (int index = 0; index < values.length; index++) {
                 row.createCell(index).setCellValue(values[index]);
             }
@@ -422,8 +486,8 @@ class InTransitImportServiceTest {
         ForwarderResolveView view = new ForwarderResolveView();
         view.setStandardForwarderId(51001L);
         view.setStandardForwarderCode("YITE");
-        view.setStandardForwarderName("义特物流");
-        view.setRawForwarderName("义特物流");
+        view.setStandardForwarderName("义特");
+        view.setRawForwarderName("义特");
         view.setNormalizedRawForwarderName("义特物流");
         view.setQualityStatus("forwarder_matched");
         return view;
@@ -449,13 +513,14 @@ class InTransitImportServiceTest {
         return row;
     }
 
-    private LineRow existingLine(Long id, Long batchId, String boxNo, String sku) {
+    private LineRow existingLine(Long id, Long batchId, String boxNo, String sku, String psku) {
         LineRow row = new LineRow();
         row.setId(id);
         row.setOwnerUserId(10002L);
         row.setBatchId(batchId);
         row.setBoxNo(boxNo);
         row.setSku(sku);
+        row.setPsku(psku);
         return row;
     }
 

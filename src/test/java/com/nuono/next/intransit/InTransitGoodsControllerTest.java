@@ -15,6 +15,7 @@ import com.nuono.next.intransit.InTransitBatchCommands.PreviewImportCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
+import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchListView;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
 import com.nuono.next.intransit.InTransitBatchRecords.ImportConfirmView;
@@ -23,6 +24,16 @@ import com.nuono.next.intransit.InTransitBatchRecords.LineListView;
 import com.nuono.next.intransit.InTransitBatchRecords.LineView;
 import com.nuono.next.intransit.InTransitBatchRecords.NodeListView;
 import com.nuono.next.intransit.InTransitBatchRecords.NodeView;
+import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightSyncCommand;
+import com.nuono.next.intransit.InTransitFreightCostCommands.SaveRateCardVersionCommand;
+import com.nuono.next.intransit.InTransitFreightCostRecords.ActualFreightSyncView;
+import com.nuono.next.intransit.InTransitFreightCostRecords.BatchFreightCostView;
+import com.nuono.next.intransit.InTransitFreightCostRecords.ForwarderFreightComparisonView;
+import com.nuono.next.intransit.InTransitFreightCostRecords.FreightStatisticsView;
+import com.nuono.next.intransit.InTransitFreightCostRecords.RateCardVersionView;
+import com.nuono.next.intransit.InTransitFreightCostRecords.SkuFreightCostHistoryView;
+import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncCommitView;
+import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncPreviewView;
 import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
@@ -56,6 +67,12 @@ class InTransitGoodsControllerTest {
     private InTransitImportService importService;
 
     @Mock
+    private InTransitPluginSyncService pluginSyncService;
+
+    @Mock
+    private InTransitFreightCostService freightCostService;
+
+    @Mock
     private BusinessAccessResolver businessAccessResolver;
 
     @Mock
@@ -68,7 +85,15 @@ class InTransitGoodsControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new InTransitGoodsController(service, batchService, importService, businessAccessResolver, accessScopeService);
+        controller = new InTransitGoodsController(
+                service,
+                batchService,
+                importService,
+                pluginSyncService,
+                freightCostService,
+                businessAccessResolver,
+                accessScopeService
+        );
     }
 
     @Test
@@ -324,6 +349,186 @@ class InTransitGoodsControllerTest {
         assertEquals(10002L, captor.getValue().getOwnerUserId());
         assertEquals(90001L, captor.getValue().getOperatorUserId());
         assertEquals(context, captor.getValue().getAccessContext());
+    }
+
+    @Test
+    void shouldOverwriteOwnerOperatorWhenPreviewingPluginSync() {
+        BusinessAccessContext context = context();
+        PluginSyncCommand command = new PluginSyncCommand();
+        command.setOwnerUserId(1L);
+        command.setOperatorUserId(2L);
+        command.setSourceSystem("CHIC");
+        PluginSyncPreviewView preview = new PluginSyncPreviewView();
+        preview.setSourceSystem("CHIC");
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        ArgumentCaptor<PluginSyncCommand> captor = ArgumentCaptor.forClass(PluginSyncCommand.class);
+        when(pluginSyncService.preview(captor.capture())).thenReturn(preview);
+
+        PluginSyncPreviewView result = controller.previewPluginSync(command, request);
+
+        assertEquals("CHIC", result.getSourceSystem());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(90001L, captor.getValue().getOperatorUserId());
+        assertEquals(context, captor.getValue().getAccessContext());
+    }
+
+    @Test
+    void shouldInjectOwnerOperatorWhenPluginSyncPayloadOmitsIdentity() {
+        BusinessAccessContext context = context();
+        PluginSyncCommand command = new PluginSyncCommand();
+        command.setSourceSystem("ET");
+        PluginSyncPreviewView preview = new PluginSyncPreviewView();
+        preview.setSourceSystem("ET");
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        ArgumentCaptor<PluginSyncCommand> captor = ArgumentCaptor.forClass(PluginSyncCommand.class);
+        when(pluginSyncService.preview(captor.capture())).thenReturn(preview);
+
+        PluginSyncPreviewView result = controller.previewPluginSync(command, request);
+
+        assertEquals("ET", result.getSourceSystem());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(90001L, captor.getValue().getOperatorUserId());
+        assertEquals(context, captor.getValue().getAccessContext());
+    }
+
+    @Test
+    void shouldOverwriteOwnerOperatorWhenCommittingPluginSync() {
+        BusinessAccessContext context = context();
+        PluginSyncCommand command = new PluginSyncCommand();
+        command.setOwnerUserId(1L);
+        command.setOperatorUserId(2L);
+        command.setSourceSystem("CHIC");
+        PluginSyncCommitView commitView = new PluginSyncCommitView();
+        commitView.setCommitted(true);
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        ArgumentCaptor<PluginSyncCommand> captor = ArgumentCaptor.forClass(PluginSyncCommand.class);
+        when(pluginSyncService.commit(captor.capture())).thenReturn(commitView);
+
+        PluginSyncCommitView result = controller.commitPluginSync(command, request);
+
+        Assertions.assertTrue(result.isCommitted());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(90001L, captor.getValue().getOperatorUserId());
+        assertEquals(context, captor.getValue().getAccessContext());
+    }
+
+    @Test
+    void shouldOverwriteOwnerOperatorWhenSyncingActualFreightCosts() {
+        BusinessAccessContext context = context();
+        ActualFreightSyncCommand command = new ActualFreightSyncCommand();
+        command.setOwnerUserId(1L);
+        command.setOperatorUserId(2L);
+        command.setSourceSystem("YITONG");
+        ActualFreightSyncView syncView = new ActualFreightSyncView();
+        syncView.setBillCount(1);
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        ArgumentCaptor<ActualFreightSyncCommand> captor = ArgumentCaptor.forClass(ActualFreightSyncCommand.class);
+        when(freightCostService.syncActualCosts(captor.capture())).thenReturn(syncView);
+
+        ActualFreightSyncView result = controller.syncActualFreightCosts(command, request);
+
+        assertEquals(1, result.getBillCount());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(90001L, captor.getValue().getOperatorUserId());
+        assertEquals(context, captor.getValue().getAccessContext());
+    }
+
+    @Test
+    void shouldReadBatchFreightCostsAfterBatchAccessCheck() {
+        BusinessAccessContext context = context();
+        BatchView scopedBatch = scopedBatch();
+        BatchFreightCostView costView = new BatchFreightCostView();
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        when(batchService.getBatch(10002L, 53001L)).thenReturn(scopedBatch);
+        when(freightCostService.batchActualCosts(10002L, 53001L)).thenReturn(costView);
+
+        BatchFreightCostView result = controller.batchFreightCosts(53001L, request);
+
+        assertEquals(costView, result);
+        verify(accessScopeService).requireBatchAccess(context, scopedBatch);
+    }
+
+    @Test
+    void shouldReadFreightStatisticsUsingBackendOwnerContext() {
+        BusinessAccessContext context = context();
+        FreightStatisticsView statisticsView = new FreightStatisticsView();
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        when(freightCostService.statistics(eq(10002L), eq(null), eq(null), eq(30700002L)))
+                .thenReturn(statisticsView);
+
+        FreightStatisticsView result = controller.freightStatistics(null, null, 30700002L, request);
+
+        assertEquals(statisticsView, result);
+    }
+
+    @Test
+    void shouldReadSkuFreightHistoryUsingBackendOwnerContext() {
+        BusinessAccessContext context = context();
+        SkuFreightCostHistoryView historyView = new SkuFreightCostHistoryView();
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        when(freightCostService.skuHistory(eq(10002L), eq("SGGRB148"), eq("SA"), eq(null), eq(null)))
+                .thenReturn(historyView);
+
+        SkuFreightCostHistoryView result = controller.skuFreightHistory("SGGRB148", "SA", null, null, request);
+
+        assertEquals(historyView, result);
+    }
+
+    @Test
+    void shouldReadForwarderComparisonUsingBackendOwnerContext() {
+        BusinessAccessContext context = context();
+        ForwarderFreightComparisonView comparisonView = new ForwarderFreightComparisonView();
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        when(freightCostService.forwarderComparison(eq(10002L), eq("SGGRB148"), eq("SA"), eq("SEA"), eq("RUH")))
+                .thenReturn(comparisonView);
+
+        ForwarderFreightComparisonView result = controller.forwarderFreightComparison(
+                "SGGRB148",
+                "SA",
+                "SEA",
+                "RUH",
+                request
+        );
+
+        assertEquals(comparisonView, result);
+    }
+
+    @Test
+    void shouldOverwriteOwnerOperatorWhenSavingRateCardVersion() {
+        BusinessAccessContext context = context();
+        SaveRateCardVersionCommand command = new SaveRateCardVersionCommand();
+        command.setOwnerUserId(1L);
+        command.setOperatorUserId(2L);
+        command.setForwarderCode("YITONG");
+        RateCardVersionView saved = new RateCardVersionView();
+        saved.setRateCardVersionId(64001L);
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        ArgumentCaptor<SaveRateCardVersionCommand> captor = ArgumentCaptor.forClass(SaveRateCardVersionCommand.class);
+        when(freightCostService.saveRateCardVersion(captor.capture())).thenReturn(saved);
+
+        RateCardVersionView result = controller.saveFreightRateCardVersion(command, request);
+
+        assertEquals(64001L, result.getRateCardVersionId());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(90001L, captor.getValue().getOperatorUserId());
     }
 
     @Test

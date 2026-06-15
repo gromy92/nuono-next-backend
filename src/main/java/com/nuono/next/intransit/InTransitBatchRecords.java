@@ -32,11 +32,17 @@ public final class InTransitBatchRecords {
         private String targetWarehouseName;
         private LocalDate departureDate;
         private LocalDate etaDate;
+        private LocalDateTime domesticReceivedAt;
         private String trackingNo;
         private String containerNo;
         private String batchReferenceNo;
-        private String remark;
+        private String externalShipmentNo;
+        private LocalDateTime sourceCreatedAt;
+        private LocalDateTime estimatedDepartureAt;
+        private LocalDateTime estimatedArrivalAt;
+        private String deliveryAppointmentText;
         private String missingFieldsJson;
+        private Integer boxCount;
         private Integer skuCount;
         private Integer shippedQuantityTotal;
         private Integer receivedQuantityTotal;
@@ -80,16 +86,28 @@ public final class InTransitBatchRecords {
         public void setDepartureDate(LocalDate departureDate) { this.departureDate = departureDate; }
         public LocalDate getEtaDate() { return etaDate; }
         public void setEtaDate(LocalDate etaDate) { this.etaDate = etaDate; }
+        public LocalDateTime getDomesticReceivedAt() { return domesticReceivedAt; }
+        public void setDomesticReceivedAt(LocalDateTime domesticReceivedAt) { this.domesticReceivedAt = domesticReceivedAt; }
         public String getTrackingNo() { return trackingNo; }
         public void setTrackingNo(String trackingNo) { this.trackingNo = trackingNo; }
         public String getContainerNo() { return containerNo; }
         public void setContainerNo(String containerNo) { this.containerNo = containerNo; }
         public String getBatchReferenceNo() { return batchReferenceNo; }
         public void setBatchReferenceNo(String batchReferenceNo) { this.batchReferenceNo = batchReferenceNo; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
+        public String getExternalShipmentNo() { return externalShipmentNo; }
+        public void setExternalShipmentNo(String externalShipmentNo) { this.externalShipmentNo = externalShipmentNo; }
+        public LocalDateTime getSourceCreatedAt() { return sourceCreatedAt; }
+        public void setSourceCreatedAt(LocalDateTime sourceCreatedAt) { this.sourceCreatedAt = sourceCreatedAt; }
+        public LocalDateTime getEstimatedDepartureAt() { return estimatedDepartureAt; }
+        public void setEstimatedDepartureAt(LocalDateTime estimatedDepartureAt) { this.estimatedDepartureAt = estimatedDepartureAt; }
+        public LocalDateTime getEstimatedArrivalAt() { return estimatedArrivalAt; }
+        public void setEstimatedArrivalAt(LocalDateTime estimatedArrivalAt) { this.estimatedArrivalAt = estimatedArrivalAt; }
+        public String getDeliveryAppointmentText() { return deliveryAppointmentText; }
+        public void setDeliveryAppointmentText(String deliveryAppointmentText) { this.deliveryAppointmentText = deliveryAppointmentText; }
         public String getMissingFieldsJson() { return missingFieldsJson; }
         public void setMissingFieldsJson(String missingFieldsJson) { this.missingFieldsJson = missingFieldsJson; }
+        public Integer getBoxCount() { return boxCount; }
+        public void setBoxCount(Integer boxCount) { this.boxCount = boxCount; }
         public Integer getSkuCount() { return skuCount; }
         public void setSkuCount(Integer skuCount) { this.skuCount = skuCount; }
         public Integer getShippedQuantityTotal() { return shippedQuantityTotal; }
@@ -131,11 +149,17 @@ public final class InTransitBatchRecords {
         private String targetWarehouseName;
         private LocalDate departureDate;
         private LocalDate etaDate;
+        private LocalDateTime domesticReceivedAt;
         private String trackingNo;
         private String containerNo;
         private String batchReferenceNo;
-        private String remark;
+        private String externalShipmentNo;
+        private LocalDateTime sourceCreatedAt;
+        private LocalDateTime estimatedDepartureAt;
+        private LocalDateTime estimatedArrivalAt;
+        private String deliveryAppointmentText;
         private List<String> missingFields = Collections.emptyList();
+        private Integer boxCount;
         private Integer skuCount;
         private Integer shippedQuantityTotal;
         private Integer receivedQuantityTotal;
@@ -163,11 +187,17 @@ public final class InTransitBatchRecords {
             view.setTargetWarehouseName(row.getTargetWarehouseName());
             view.setDepartureDate(row.getDepartureDate());
             view.setEtaDate(row.getEtaDate());
+            view.setDomesticReceivedAt(row.getDomesticReceivedAt());
             view.setTrackingNo(row.getTrackingNo());
             view.setContainerNo(row.getContainerNo());
             view.setBatchReferenceNo(row.getBatchReferenceNo());
-            view.setRemark(row.getRemark());
+            view.setExternalShipmentNo(row.getExternalShipmentNo());
+            view.setSourceCreatedAt(row.getSourceCreatedAt());
+            view.setEstimatedDepartureAt(row.getEstimatedDepartureAt());
+            view.setEstimatedArrivalAt(row.getEstimatedArrivalAt());
+            view.setDeliveryAppointmentText(row.getDeliveryAppointmentText());
             view.setMissingFields(parseMissingFields(row.getMissingFieldsJson()));
+            view.setBoxCount(row.getBoxCount());
             view.setSkuCount(row.getSkuCount());
             view.setShippedQuantityTotal(row.getShippedQuantityTotal());
             view.setReceivedQuantityTotal(row.getReceivedQuantityTotal());
@@ -221,16 +251,28 @@ public final class InTransitBatchRecords {
         public void setDepartureDate(LocalDate departureDate) { this.departureDate = departureDate; }
         public LocalDate getEtaDate() { return etaDate; }
         public void setEtaDate(LocalDate etaDate) { this.etaDate = etaDate; }
+        public LocalDateTime getDomesticReceivedAt() { return domesticReceivedAt; }
+        public void setDomesticReceivedAt(LocalDateTime domesticReceivedAt) { this.domesticReceivedAt = domesticReceivedAt; }
         public String getTrackingNo() { return trackingNo; }
         public void setTrackingNo(String trackingNo) { this.trackingNo = trackingNo; }
         public String getContainerNo() { return containerNo; }
         public void setContainerNo(String containerNo) { this.containerNo = containerNo; }
         public String getBatchReferenceNo() { return batchReferenceNo; }
         public void setBatchReferenceNo(String batchReferenceNo) { this.batchReferenceNo = batchReferenceNo; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
+        public String getExternalShipmentNo() { return externalShipmentNo; }
+        public void setExternalShipmentNo(String externalShipmentNo) { this.externalShipmentNo = externalShipmentNo; }
+        public LocalDateTime getSourceCreatedAt() { return sourceCreatedAt; }
+        public void setSourceCreatedAt(LocalDateTime sourceCreatedAt) { this.sourceCreatedAt = sourceCreatedAt; }
+        public LocalDateTime getEstimatedDepartureAt() { return estimatedDepartureAt; }
+        public void setEstimatedDepartureAt(LocalDateTime estimatedDepartureAt) { this.estimatedDepartureAt = estimatedDepartureAt; }
+        public LocalDateTime getEstimatedArrivalAt() { return estimatedArrivalAt; }
+        public void setEstimatedArrivalAt(LocalDateTime estimatedArrivalAt) { this.estimatedArrivalAt = estimatedArrivalAt; }
+        public String getDeliveryAppointmentText() { return deliveryAppointmentText; }
+        public void setDeliveryAppointmentText(String deliveryAppointmentText) { this.deliveryAppointmentText = deliveryAppointmentText; }
         public List<String> getMissingFields() { return missingFields; }
         public void setMissingFields(List<String> missingFields) { this.missingFields = missingFields; }
+        public Integer getBoxCount() { return boxCount; }
+        public void setBoxCount(Integer boxCount) { this.boxCount = boxCount; }
         public Integer getSkuCount() { return skuCount; }
         public void setSkuCount(Integer skuCount) { this.skuCount = skuCount; }
         public Integer getShippedQuantityTotal() { return shippedQuantityTotal; }
@@ -285,7 +327,22 @@ public final class InTransitBatchRecords {
         private Integer unitsPerCarton;
         private BigDecimal cartonWeightKg;
         private BigDecimal cartonVolumeCbm;
-        private String remark;
+        private String externalBoxNo;
+        private String packageTrackingNo;
+        private BigDecimal packageWeightKg;
+        private BigDecimal packageLengthCm;
+        private BigDecimal packageWidthCm;
+        private BigDecimal packageHeightCm;
+        private BigDecimal packageVolumeCbm;
+        private BigDecimal packageVolumeWeightKg;
+        private BigDecimal packageChargeableWeightKg;
+        private BigDecimal measuredWeightKg;
+        private BigDecimal measuredLengthCm;
+        private BigDecimal measuredWidthCm;
+        private BigDecimal measuredHeightCm;
+        private BigDecimal measuredVolumeCbm;
+        private String packageStatus;
+        private String logisticsStatus;
         private Long matchedProductId;
         private String productSkuParent;
         private String productTitle;
@@ -329,8 +386,38 @@ public final class InTransitBatchRecords {
         public void setCartonWeightKg(BigDecimal cartonWeightKg) { this.cartonWeightKg = cartonWeightKg; }
         public BigDecimal getCartonVolumeCbm() { return cartonVolumeCbm; }
         public void setCartonVolumeCbm(BigDecimal cartonVolumeCbm) { this.cartonVolumeCbm = cartonVolumeCbm; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
+        public String getExternalBoxNo() { return externalBoxNo; }
+        public void setExternalBoxNo(String externalBoxNo) { this.externalBoxNo = externalBoxNo; }
+        public String getPackageTrackingNo() { return packageTrackingNo; }
+        public void setPackageTrackingNo(String packageTrackingNo) { this.packageTrackingNo = packageTrackingNo; }
+        public BigDecimal getPackageWeightKg() { return packageWeightKg; }
+        public void setPackageWeightKg(BigDecimal packageWeightKg) { this.packageWeightKg = packageWeightKg; }
+        public BigDecimal getPackageLengthCm() { return packageLengthCm; }
+        public void setPackageLengthCm(BigDecimal packageLengthCm) { this.packageLengthCm = packageLengthCm; }
+        public BigDecimal getPackageWidthCm() { return packageWidthCm; }
+        public void setPackageWidthCm(BigDecimal packageWidthCm) { this.packageWidthCm = packageWidthCm; }
+        public BigDecimal getPackageHeightCm() { return packageHeightCm; }
+        public void setPackageHeightCm(BigDecimal packageHeightCm) { this.packageHeightCm = packageHeightCm; }
+        public BigDecimal getPackageVolumeCbm() { return packageVolumeCbm; }
+        public void setPackageVolumeCbm(BigDecimal packageVolumeCbm) { this.packageVolumeCbm = packageVolumeCbm; }
+        public BigDecimal getPackageVolumeWeightKg() { return packageVolumeWeightKg; }
+        public void setPackageVolumeWeightKg(BigDecimal packageVolumeWeightKg) { this.packageVolumeWeightKg = packageVolumeWeightKg; }
+        public BigDecimal getPackageChargeableWeightKg() { return packageChargeableWeightKg; }
+        public void setPackageChargeableWeightKg(BigDecimal packageChargeableWeightKg) { this.packageChargeableWeightKg = packageChargeableWeightKg; }
+        public BigDecimal getMeasuredWeightKg() { return measuredWeightKg; }
+        public void setMeasuredWeightKg(BigDecimal measuredWeightKg) { this.measuredWeightKg = measuredWeightKg; }
+        public BigDecimal getMeasuredLengthCm() { return measuredLengthCm; }
+        public void setMeasuredLengthCm(BigDecimal measuredLengthCm) { this.measuredLengthCm = measuredLengthCm; }
+        public BigDecimal getMeasuredWidthCm() { return measuredWidthCm; }
+        public void setMeasuredWidthCm(BigDecimal measuredWidthCm) { this.measuredWidthCm = measuredWidthCm; }
+        public BigDecimal getMeasuredHeightCm() { return measuredHeightCm; }
+        public void setMeasuredHeightCm(BigDecimal measuredHeightCm) { this.measuredHeightCm = measuredHeightCm; }
+        public BigDecimal getMeasuredVolumeCbm() { return measuredVolumeCbm; }
+        public void setMeasuredVolumeCbm(BigDecimal measuredVolumeCbm) { this.measuredVolumeCbm = measuredVolumeCbm; }
+        public String getPackageStatus() { return packageStatus; }
+        public void setPackageStatus(String packageStatus) { this.packageStatus = packageStatus; }
+        public String getLogisticsStatus() { return logisticsStatus; }
+        public void setLogisticsStatus(String logisticsStatus) { this.logisticsStatus = logisticsStatus; }
         public Long getMatchedProductId() { return matchedProductId; }
         public void setMatchedProductId(Long matchedProductId) { this.matchedProductId = matchedProductId; }
         public String getProductSkuParent() { return productSkuParent; }
@@ -363,7 +450,22 @@ public final class InTransitBatchRecords {
         private Integer unitsPerCarton;
         private BigDecimal cartonWeightKg;
         private BigDecimal cartonVolumeCbm;
-        private String remark;
+        private String externalBoxNo;
+        private String packageTrackingNo;
+        private BigDecimal packageWeightKg;
+        private BigDecimal packageLengthCm;
+        private BigDecimal packageWidthCm;
+        private BigDecimal packageHeightCm;
+        private BigDecimal packageVolumeCbm;
+        private BigDecimal packageVolumeWeightKg;
+        private BigDecimal packageChargeableWeightKg;
+        private BigDecimal measuredWeightKg;
+        private BigDecimal measuredLengthCm;
+        private BigDecimal measuredWidthCm;
+        private BigDecimal measuredHeightCm;
+        private BigDecimal measuredVolumeCbm;
+        private String packageStatus;
+        private String logisticsStatus;
         private Long matchedProductId;
         private String productSkuParent;
         private String productTitle;
@@ -388,7 +490,22 @@ public final class InTransitBatchRecords {
             view.setUnitsPerCarton(row.getUnitsPerCarton());
             view.setCartonWeightKg(row.getCartonWeightKg());
             view.setCartonVolumeCbm(row.getCartonVolumeCbm());
-            view.setRemark(row.getRemark());
+            view.setExternalBoxNo(row.getExternalBoxNo());
+            view.setPackageTrackingNo(row.getPackageTrackingNo());
+            view.setPackageWeightKg(row.getPackageWeightKg());
+            view.setPackageLengthCm(row.getPackageLengthCm());
+            view.setPackageWidthCm(row.getPackageWidthCm());
+            view.setPackageHeightCm(row.getPackageHeightCm());
+            view.setPackageVolumeCbm(row.getPackageVolumeCbm());
+            view.setPackageVolumeWeightKg(row.getPackageVolumeWeightKg());
+            view.setPackageChargeableWeightKg(row.getPackageChargeableWeightKg());
+            view.setMeasuredWeightKg(row.getMeasuredWeightKg());
+            view.setMeasuredLengthCm(row.getMeasuredLengthCm());
+            view.setMeasuredWidthCm(row.getMeasuredWidthCm());
+            view.setMeasuredHeightCm(row.getMeasuredHeightCm());
+            view.setMeasuredVolumeCbm(row.getMeasuredVolumeCbm());
+            view.setPackageStatus(row.getPackageStatus());
+            view.setLogisticsStatus(row.getLogisticsStatus());
             view.setMatchedProductId(row.getMatchedProductId());
             view.setProductSkuParent(row.getProductSkuParent());
             view.setProductTitle(row.getProductTitle());
@@ -430,8 +547,38 @@ public final class InTransitBatchRecords {
         public void setCartonWeightKg(BigDecimal cartonWeightKg) { this.cartonWeightKg = cartonWeightKg; }
         public BigDecimal getCartonVolumeCbm() { return cartonVolumeCbm; }
         public void setCartonVolumeCbm(BigDecimal cartonVolumeCbm) { this.cartonVolumeCbm = cartonVolumeCbm; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
+        public String getExternalBoxNo() { return externalBoxNo; }
+        public void setExternalBoxNo(String externalBoxNo) { this.externalBoxNo = externalBoxNo; }
+        public String getPackageTrackingNo() { return packageTrackingNo; }
+        public void setPackageTrackingNo(String packageTrackingNo) { this.packageTrackingNo = packageTrackingNo; }
+        public BigDecimal getPackageWeightKg() { return packageWeightKg; }
+        public void setPackageWeightKg(BigDecimal packageWeightKg) { this.packageWeightKg = packageWeightKg; }
+        public BigDecimal getPackageLengthCm() { return packageLengthCm; }
+        public void setPackageLengthCm(BigDecimal packageLengthCm) { this.packageLengthCm = packageLengthCm; }
+        public BigDecimal getPackageWidthCm() { return packageWidthCm; }
+        public void setPackageWidthCm(BigDecimal packageWidthCm) { this.packageWidthCm = packageWidthCm; }
+        public BigDecimal getPackageHeightCm() { return packageHeightCm; }
+        public void setPackageHeightCm(BigDecimal packageHeightCm) { this.packageHeightCm = packageHeightCm; }
+        public BigDecimal getPackageVolumeCbm() { return packageVolumeCbm; }
+        public void setPackageVolumeCbm(BigDecimal packageVolumeCbm) { this.packageVolumeCbm = packageVolumeCbm; }
+        public BigDecimal getPackageVolumeWeightKg() { return packageVolumeWeightKg; }
+        public void setPackageVolumeWeightKg(BigDecimal packageVolumeWeightKg) { this.packageVolumeWeightKg = packageVolumeWeightKg; }
+        public BigDecimal getPackageChargeableWeightKg() { return packageChargeableWeightKg; }
+        public void setPackageChargeableWeightKg(BigDecimal packageChargeableWeightKg) { this.packageChargeableWeightKg = packageChargeableWeightKg; }
+        public BigDecimal getMeasuredWeightKg() { return measuredWeightKg; }
+        public void setMeasuredWeightKg(BigDecimal measuredWeightKg) { this.measuredWeightKg = measuredWeightKg; }
+        public BigDecimal getMeasuredLengthCm() { return measuredLengthCm; }
+        public void setMeasuredLengthCm(BigDecimal measuredLengthCm) { this.measuredLengthCm = measuredLengthCm; }
+        public BigDecimal getMeasuredWidthCm() { return measuredWidthCm; }
+        public void setMeasuredWidthCm(BigDecimal measuredWidthCm) { this.measuredWidthCm = measuredWidthCm; }
+        public BigDecimal getMeasuredHeightCm() { return measuredHeightCm; }
+        public void setMeasuredHeightCm(BigDecimal measuredHeightCm) { this.measuredHeightCm = measuredHeightCm; }
+        public BigDecimal getMeasuredVolumeCbm() { return measuredVolumeCbm; }
+        public void setMeasuredVolumeCbm(BigDecimal measuredVolumeCbm) { this.measuredVolumeCbm = measuredVolumeCbm; }
+        public String getPackageStatus() { return packageStatus; }
+        public void setPackageStatus(String packageStatus) { this.packageStatus = packageStatus; }
+        public String getLogisticsStatus() { return logisticsStatus; }
+        public void setLogisticsStatus(String logisticsStatus) { this.logisticsStatus = logisticsStatus; }
         public Long getMatchedProductId() { return matchedProductId; }
         public void setMatchedProductId(Long matchedProductId) { this.matchedProductId = matchedProductId; }
         public String getProductSkuParent() { return productSkuParent; }
@@ -460,8 +607,22 @@ public final class InTransitBatchRecords {
         private Long ownerUserId;
         private Long batchId;
         private String boxNo;
+        private String externalBoxNo;
         private String trackingNo;
-        private String remark;
+        private BigDecimal weightKg;
+        private BigDecimal lengthCm;
+        private BigDecimal widthCm;
+        private BigDecimal heightCm;
+        private BigDecimal volumeCbm;
+        private BigDecimal volumeWeightKg;
+        private BigDecimal chargeableWeightKg;
+        private BigDecimal measuredWeightKg;
+        private BigDecimal measuredLengthCm;
+        private BigDecimal measuredWidthCm;
+        private BigDecimal measuredHeightCm;
+        private BigDecimal measuredVolumeCbm;
+        private String packageStatus;
+        private String logisticsStatus;
         private Long createdBy;
         private Long updatedBy;
 
@@ -473,10 +634,38 @@ public final class InTransitBatchRecords {
         public void setBatchId(Long batchId) { this.batchId = batchId; }
         public String getBoxNo() { return boxNo; }
         public void setBoxNo(String boxNo) { this.boxNo = boxNo; }
+        public String getExternalBoxNo() { return externalBoxNo; }
+        public void setExternalBoxNo(String externalBoxNo) { this.externalBoxNo = externalBoxNo; }
         public String getTrackingNo() { return trackingNo; }
         public void setTrackingNo(String trackingNo) { this.trackingNo = trackingNo; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
+        public BigDecimal getWeightKg() { return weightKg; }
+        public void setWeightKg(BigDecimal weightKg) { this.weightKg = weightKg; }
+        public BigDecimal getLengthCm() { return lengthCm; }
+        public void setLengthCm(BigDecimal lengthCm) { this.lengthCm = lengthCm; }
+        public BigDecimal getWidthCm() { return widthCm; }
+        public void setWidthCm(BigDecimal widthCm) { this.widthCm = widthCm; }
+        public BigDecimal getHeightCm() { return heightCm; }
+        public void setHeightCm(BigDecimal heightCm) { this.heightCm = heightCm; }
+        public BigDecimal getVolumeCbm() { return volumeCbm; }
+        public void setVolumeCbm(BigDecimal volumeCbm) { this.volumeCbm = volumeCbm; }
+        public BigDecimal getVolumeWeightKg() { return volumeWeightKg; }
+        public void setVolumeWeightKg(BigDecimal volumeWeightKg) { this.volumeWeightKg = volumeWeightKg; }
+        public BigDecimal getChargeableWeightKg() { return chargeableWeightKg; }
+        public void setChargeableWeightKg(BigDecimal chargeableWeightKg) { this.chargeableWeightKg = chargeableWeightKg; }
+        public BigDecimal getMeasuredWeightKg() { return measuredWeightKg; }
+        public void setMeasuredWeightKg(BigDecimal measuredWeightKg) { this.measuredWeightKg = measuredWeightKg; }
+        public BigDecimal getMeasuredLengthCm() { return measuredLengthCm; }
+        public void setMeasuredLengthCm(BigDecimal measuredLengthCm) { this.measuredLengthCm = measuredLengthCm; }
+        public BigDecimal getMeasuredWidthCm() { return measuredWidthCm; }
+        public void setMeasuredWidthCm(BigDecimal measuredWidthCm) { this.measuredWidthCm = measuredWidthCm; }
+        public BigDecimal getMeasuredHeightCm() { return measuredHeightCm; }
+        public void setMeasuredHeightCm(BigDecimal measuredHeightCm) { this.measuredHeightCm = measuredHeightCm; }
+        public BigDecimal getMeasuredVolumeCbm() { return measuredVolumeCbm; }
+        public void setMeasuredVolumeCbm(BigDecimal measuredVolumeCbm) { this.measuredVolumeCbm = measuredVolumeCbm; }
+        public String getPackageStatus() { return packageStatus; }
+        public void setPackageStatus(String packageStatus) { this.packageStatus = packageStatus; }
+        public String getLogisticsStatus() { return logisticsStatus; }
+        public void setLogisticsStatus(String logisticsStatus) { this.logisticsStatus = logisticsStatus; }
         public Long getCreatedBy() { return createdBy; }
         public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
         public Long getUpdatedBy() { return updatedBy; }
@@ -484,6 +673,7 @@ public final class InTransitBatchRecords {
     }
 
     public static class BatchAggregateRow {
+        private Integer boxCount;
         private Integer skuCount;
         private Integer shippedQuantityTotal;
         private Integer receivedQuantityTotal;
@@ -492,6 +682,8 @@ public final class InTransitBatchRecords {
         private BigDecimal totalWeightKg;
         private BigDecimal totalVolumeCbm;
 
+        public Integer getBoxCount() { return boxCount; }
+        public void setBoxCount(Integer boxCount) { this.boxCount = boxCount; }
         public Integer getSkuCount() { return skuCount; }
         public void setSkuCount(Integer skuCount) { this.skuCount = skuCount; }
         public Integer getShippedQuantityTotal() { return shippedQuantityTotal; }
@@ -729,7 +921,6 @@ public final class InTransitBatchRecords {
         private Integer unitsPerCarton;
         private BigDecimal cartonWeightKg;
         private BigDecimal cartonVolumeCbm;
-        private String remark;
         private List<ImportPreviewIssueView> issues = Collections.emptyList();
 
         public Integer getRowNumber() { return rowNumber; }
@@ -760,8 +951,6 @@ public final class InTransitBatchRecords {
         public void setCartonWeightKg(BigDecimal cartonWeightKg) { this.cartonWeightKg = cartonWeightKg; }
         public BigDecimal getCartonVolumeCbm() { return cartonVolumeCbm; }
         public void setCartonVolumeCbm(BigDecimal cartonVolumeCbm) { this.cartonVolumeCbm = cartonVolumeCbm; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
         public List<ImportPreviewIssueView> getIssues() { return issues; }
         public void setIssues(List<ImportPreviewIssueView> issues) { this.issues = issues == null ? Collections.emptyList() : issues; }
     }
@@ -780,9 +969,12 @@ public final class InTransitBatchRecords {
         private String targetWarehouseName;
         private LocalDate departureDate;
         private LocalDate etaDate;
+        private LocalDate domesticReceivedAt;
+        private LocalDate outboundAt;
+        private LocalDate customsReleasedAt;
+        private LocalDate etWarehouseReceivedAt;
         private String trackingNo;
         private String containerNo;
-        private String remark;
         private List<ImportPreviewLineView> lines = Collections.emptyList();
         private List<ImportPreviewIssueView> issues = Collections.emptyList();
 
@@ -812,12 +1004,18 @@ public final class InTransitBatchRecords {
         public void setDepartureDate(LocalDate departureDate) { this.departureDate = departureDate; }
         public LocalDate getEtaDate() { return etaDate; }
         public void setEtaDate(LocalDate etaDate) { this.etaDate = etaDate; }
+        public LocalDate getDomesticReceivedAt() { return domesticReceivedAt; }
+        public void setDomesticReceivedAt(LocalDate domesticReceivedAt) { this.domesticReceivedAt = domesticReceivedAt; }
+        public LocalDate getOutboundAt() { return outboundAt; }
+        public void setOutboundAt(LocalDate outboundAt) { this.outboundAt = outboundAt; }
+        public LocalDate getCustomsReleasedAt() { return customsReleasedAt; }
+        public void setCustomsReleasedAt(LocalDate customsReleasedAt) { this.customsReleasedAt = customsReleasedAt; }
+        public LocalDate getEtWarehouseReceivedAt() { return etWarehouseReceivedAt; }
+        public void setEtWarehouseReceivedAt(LocalDate etWarehouseReceivedAt) { this.etWarehouseReceivedAt = etWarehouseReceivedAt; }
         public String getTrackingNo() { return trackingNo; }
         public void setTrackingNo(String trackingNo) { this.trackingNo = trackingNo; }
         public String getContainerNo() { return containerNo; }
         public void setContainerNo(String containerNo) { this.containerNo = containerNo; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
         public List<ImportPreviewLineView> getLines() { return lines; }
         public void setLines(List<ImportPreviewLineView> lines) { this.lines = lines == null ? Collections.emptyList() : lines; }
         public List<ImportPreviewIssueView> getIssues() { return issues; }
@@ -884,6 +1082,7 @@ public final class InTransitBatchRecords {
         private String status;
         private Integer importedBatchCount;
         private Integer importedLineCount;
+        private Integer importedNodeCount;
 
         public Long getImportBatchId() { return importBatchId; }
         public void setImportBatchId(Long importBatchId) { this.importBatchId = importBatchId; }
@@ -893,6 +1092,8 @@ public final class InTransitBatchRecords {
         public void setImportedBatchCount(Integer importedBatchCount) { this.importedBatchCount = importedBatchCount; }
         public Integer getImportedLineCount() { return importedLineCount; }
         public void setImportedLineCount(Integer importedLineCount) { this.importedLineCount = importedLineCount; }
+        public Integer getImportedNodeCount() { return importedNodeCount; }
+        public void setImportedNodeCount(Integer importedNodeCount) { this.importedNodeCount = importedNodeCount; }
     }
 
     public static String toMissingFieldsJson(List<String> missingFields) {

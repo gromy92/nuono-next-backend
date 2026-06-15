@@ -9,6 +9,7 @@ import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderAliasView;
 import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderResolveView;
 import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderRow;
 import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderView;
+import com.nuono.next.intransit.InTransitForwarderCatalog.CanonicalForwarder;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -46,8 +47,10 @@ public class InTransitForwarderService {
     public ForwarderView saveForwarder(SaveForwarderCommand command) {
         SaveForwarderCommand resolved = command == null ? new SaveForwarderCommand() : command;
         Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
-        String forwarderName = requireText(resolved.getForwarderName(), "标准货代名称不能为空。");
-        String forwarderCode = normalizeForwarderCode(resolved.getForwarderCode(), forwarderName);
+        String inputName = requireText(resolved.getForwarderName(), "标准货代名称不能为空。");
+        CanonicalForwarder canonical = InTransitForwarderCatalog.require(resolved.getForwarderCode(), inputName);
+        String forwarderName = canonical.name();
+        String forwarderCode = canonical.code();
         Long operatorUserId = resolved.getOperatorUserId();
 
         ForwarderRow row = mapper.selectForwarderByOwnerAndCode(ownerUserId, forwarderCode);
@@ -148,10 +151,18 @@ public class InTransitForwarderService {
         String rawForwarderName = requireText(resolved.getRawForwarderName(), "原始货代名称不能为空。");
         String normalizedRawName = normalizeRawForwarderName(rawForwarderName);
         ForwarderAliasRow alias = mapper.selectActiveAliasByOwnerAndNormalized(ownerUserId, normalizedRawName);
-        if (alias == null) {
+        if (alias != null) {
+            return ForwarderResolveView.matched(alias);
+        }
+        CanonicalForwarder canonical = InTransitForwarderCatalog.match(null, rawForwarderName);
+        if (canonical == null) {
             return ForwarderResolveView.unmatched(rawForwarderName, normalizedRawName);
         }
-        return ForwarderResolveView.matched(alias);
+        ForwarderRow row = mapper.selectForwarderByOwnerAndCode(ownerUserId, canonical.code());
+        if (row == null) {
+            return ForwarderResolveView.unmatched(canonical.name(), normalizedRawName);
+        }
+        return ForwarderResolveView.matched(row, canonical.name(), normalizedRawName);
     }
 
     static String normalizeRawForwarderName(String value) {
@@ -192,13 +203,6 @@ public class InTransitForwarderService {
             throw new IllegalArgumentException(message);
         }
         return value.trim();
-    }
-
-    private static String normalizeForwarderCode(String code, String name) {
-        if (StringUtils.hasText(code)) {
-            return code.trim().toUpperCase(Locale.ROOT);
-        }
-        return "FWD_" + Integer.toHexString(normalizeRawForwarderName(name).hashCode()).toUpperCase(Locale.ROOT);
     }
 
     private void audit(

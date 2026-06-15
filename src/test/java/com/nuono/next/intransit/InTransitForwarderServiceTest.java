@@ -51,33 +51,38 @@ class InTransitForwarderServiceTest {
 
         when(mapper.selectForwarderByOwnerAndCode(10002L, "YITE")).thenReturn(null);
         when(mapper.nextForwarderId()).thenReturn(51001L);
-        when(mapper.selectForwarderById(10002L, 51001L)).thenReturn(forwarder(51001L, "YITE", "义特物流"));
+        when(mapper.selectForwarderById(10002L, 51001L)).thenReturn(forwarder(51001L, "YITE", "义特"));
 
         ForwarderView result = service.saveForwarder(command);
 
         assertEquals(51001L, result.getId());
         assertEquals("YITE", result.getForwarderCode());
-        assertEquals("义特物流", result.getForwarderName());
-        verify(mapper).insertForwarder(any(ForwarderRow.class));
+        assertEquals("义特", result.getForwarderName());
+        ArgumentCaptor<ForwarderRow> rowCaptor = ArgumentCaptor.forClass(ForwarderRow.class);
+        verify(mapper).insertForwarder(rowCaptor.capture());
+        assertEquals("YITE", rowCaptor.getValue().getForwarderCode());
+        assertEquals("义特", rowCaptor.getValue().getForwarderName());
         assertAudit("forwarder_created", "forwarder", 51001L);
     }
 
     @Test
-    void shouldAuditStandardForwarderUpdate() {
+    void shouldAuditStandardForwarderUpdateAndKeepCanonicalName() {
         SaveForwarderCommand command = new SaveForwarderCommand();
         command.setOwnerUserId(10002L);
         command.setOperatorUserId(90001L);
         command.setForwarderCode("YITE");
         command.setForwarderName("义特国际物流");
 
-        when(mapper.selectForwarderByOwnerAndCode(10002L, "YITE")).thenReturn(forwarder(51001L, "YITE", "义特物流"));
-        when(mapper.selectForwarderById(10002L, 51001L)).thenReturn(forwarder(51001L, "YITE", "义特国际物流"));
+        when(mapper.selectForwarderByOwnerAndCode(10002L, "YITE")).thenReturn(forwarder(51001L, "YITE", "义特"));
+        when(mapper.selectForwarderById(10002L, 51001L)).thenReturn(forwarder(51001L, "YITE", "义特"));
 
         ForwarderView result = service.saveForwarder(command);
 
         assertEquals(51001L, result.getId());
-        assertEquals("义特国际物流", result.getForwarderName());
-        verify(mapper).updateForwarder(any(ForwarderRow.class));
+        assertEquals("义特", result.getForwarderName());
+        ArgumentCaptor<ForwarderRow> rowCaptor = ArgumentCaptor.forClass(ForwarderRow.class);
+        verify(mapper).updateForwarder(rowCaptor.capture());
+        assertEquals("义特", rowCaptor.getValue().getForwarderName());
         assertAudit("forwarder_updated", "forwarder", 51001L);
     }
 
@@ -89,7 +94,7 @@ class InTransitForwarderServiceTest {
         command.setStandardForwarderId(51001L);
         command.setRawForwarderName(" 义特 物流 ");
 
-        when(mapper.selectForwarderById(10002L, 51001L)).thenReturn(forwarder(51001L, "YITE", "义特物流"));
+        when(mapper.selectForwarderById(10002L, 51001L)).thenReturn(forwarder(51001L, "YITE", "义特"));
         when(mapper.selectAliasByOwnerAndNormalized(10002L, "义特物流")).thenReturn(null);
         when(mapper.nextForwarderAliasId()).thenReturn(52001L);
         when(mapper.selectAliasById(10002L, 52001L)).thenReturn(alias(52001L, 51001L, " 义特 物流 ", "义特物流"));
@@ -117,7 +122,25 @@ class InTransitForwarderServiceTest {
         assertEquals("forwarder_matched", result.getQualityStatus());
         assertEquals(51001L, result.getStandardForwarderId());
         assertEquals("YITE", result.getStandardForwarderCode());
-        assertEquals("义特物流", result.getStandardForwarderName());
+        assertEquals("义特", result.getStandardForwarderName());
+    }
+
+    @Test
+    void shouldResolveCanonicalForwarderWithoutAlias() {
+        ResolveForwarderCommand command = new ResolveForwarderCommand();
+        command.setOwnerUserId(10002L);
+        command.setRawForwarderName("义特国际物流");
+
+        when(mapper.selectActiveAliasByOwnerAndNormalized(10002L, "义特国际物流")).thenReturn(null);
+        when(mapper.selectForwarderByOwnerAndCode(10002L, "YITE")).thenReturn(forwarder(51001L, "YITE", "义特"));
+
+        ForwarderResolveView result = service.resolveForwarder(command);
+
+        assertEquals("forwarder_matched", result.getQualityStatus());
+        assertEquals(51001L, result.getStandardForwarderId());
+        assertEquals("YITE", result.getStandardForwarderCode());
+        assertEquals("义特", result.getStandardForwarderName());
+        assertEquals("义特", result.getRawForwarderName());
     }
 
     @Test
@@ -165,7 +188,7 @@ class InTransitForwarderServiceTest {
         row.setNormalizedRawForwarderName(normalizedName);
         row.setStatus("ACTIVE");
         row.setStandardForwarderCode("YITE");
-        row.setStandardForwarderName("义特物流");
+        row.setStandardForwarderName("义特");
         return row;
     }
 

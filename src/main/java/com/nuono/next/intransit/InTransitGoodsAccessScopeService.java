@@ -25,27 +25,21 @@ public class InTransitGoodsAccessScopeService {
 
     public void applyReadableBatchScope(BusinessAccessContext context, InTransitBatchQuery query) {
         InTransitBatchQuery resolved = query == null ? new InTransitBatchQuery() : query;
-        List<InTransitStoreSiteScope> authorized = authorizedStoreSites(context);
-        String storeCode = cleanUpper(resolved.getTargetStoreCode());
-        String siteCode = cleanUpper(resolved.getTargetSiteCode());
-        if (StringUtils.hasText(storeCode) || StringUtils.hasText(siteCode)) {
-            InTransitStoreSiteScope matched = requireAuthorizedStoreSite(authorized, storeCode, siteCode);
-            resolved.setTargetStoreCode(matched.getStoreCode());
-            resolved.setTargetSiteCode(matched.getSiteCode());
-            resolved.setAllowedStoreSites(List.of(matched));
-            resolved.setAccessScopeRestricted(true);
-            return;
+        if (StringUtils.hasText(resolved.getTargetStoreCode())) {
+            resolved.setTargetStoreCode(InTransitDestination.require(resolved.getTargetStoreCode()).code());
         }
-        resolved.setAllowedStoreSites(authorized);
-        resolved.setAccessScopeRestricted(true);
+        resolved.setTargetSiteCode(cleanUpper(resolved.getTargetSiteCode()));
+        resolved.setAllowedStoreSites(List.of());
+        resolved.setAccessScopeRestricted(false);
     }
 
     public void requireWritableBatchScope(BusinessAccessContext context, SaveBatchCommand command) {
         if (command == null) {
             return;
         }
-        requireWritableStoreSite(context, command.getTargetStoreCode(), command.getTargetSiteCode());
-        command.setTargetStoreCode(cleanUpper(command.getTargetStoreCode()));
+        if (StringUtils.hasText(command.getTargetStoreCode())) {
+            command.setTargetStoreCode(InTransitDestination.require(command.getTargetStoreCode()).code());
+        }
         command.setTargetSiteCode(cleanUpper(command.getTargetSiteCode()));
     }
 
@@ -62,7 +56,6 @@ public class InTransitGoodsAccessScopeService {
         if (batch == null) {
             throw new BusinessAccessDeniedException("在途批次不存在。");
         }
-        requireReadableStoreSite(context, batch.getTargetStoreCode(), batch.getTargetSiteCode());
     }
 
     public void requireReadableStoreSite(BusinessAccessContext context, String storeCode, String siteCode) {

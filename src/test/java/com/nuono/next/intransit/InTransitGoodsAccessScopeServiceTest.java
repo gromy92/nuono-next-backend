@@ -1,10 +1,12 @@
 package com.nuono.next.intransit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.operationsconfig.OperationConfigBossOption;
 import com.nuono.next.operationsconfig.OperationConfigScopeRepository;
 import com.nuono.next.operationsconfig.OperationConfigStoreScope;
@@ -34,69 +36,65 @@ class InTransitGoodsAccessScopeServiceTest {
     }
 
     @Test
-    void shouldRestrictBatchQueryToAllAuthorizedStoreSitesWhenNoFilterSupplied() {
+    void shouldKeepBatchQueryOwnerWideWhenNoDestinationFilterSupplied() {
         InTransitBatchQuery query = new InTransitBatchQuery();
 
         service.applyReadableBatchScope(operatorContext(), query);
 
-        assertEquals(2, query.getAllowedStoreSites().size());
-        assertEquals("STR245027-NAE", query.getAllowedStoreSites().get(0).getStoreCode());
-        assertEquals("AE", query.getAllowedStoreSites().get(0).getSiteCode());
-        assertEquals("STR245027-NSA", query.getAllowedStoreSites().get(1).getStoreCode());
-        assertEquals("SA", query.getAllowedStoreSites().get(1).getSiteCode());
+        assertFalse(query.isAccessScopeRestricted());
+        assertEquals(0, query.getAllowedStoreSites().size());
     }
 
     @Test
-    void shouldNarrowBatchQueryToExplicitAuthorizedStoreSite() {
+    void shouldNormalizeBatchQueryDestinationFilter() {
         InTransitBatchQuery query = new InTransitBatchQuery();
         query.setTargetStoreCode(" str245027-nae ");
         query.setTargetSiteCode(" ae ");
 
         service.applyReadableBatchScope(operatorContext(), query);
 
-        assertEquals("STR245027-NAE", query.getTargetStoreCode());
+        assertEquals("DB", query.getTargetStoreCode());
         assertEquals("AE", query.getTargetSiteCode());
-        assertEquals(1, query.getAllowedStoreSites().size());
+        assertFalse(query.isAccessScopeRestricted());
+        assertEquals(0, query.getAllowedStoreSites().size());
     }
 
     @Test
-    void shouldAllowBossScopeByBusinessOwnerEvenWithoutStoreOwnerMap() {
+    void shouldNormalizeBossBatchDestinationFilterWithoutStoreOwnerMap() {
         InTransitBatchQuery query = new InTransitBatchQuery();
         query.setTargetStoreCode("STR245027-NAE");
         query.setTargetSiteCode("AE");
 
         service.applyReadableBatchScope(bossContext(), query);
 
-        assertEquals("STR245027-NAE", query.getTargetStoreCode());
+        assertEquals("DB", query.getTargetStoreCode());
         assertEquals("AE", query.getTargetSiteCode());
     }
 
     @Test
-    void shouldRejectBatchQueryForUnauthorizedStoreSite() {
+    void shouldRejectUnsupportedBatchDestinationFilter() {
         InTransitBatchQuery query = new InTransitBatchQuery();
-        query.setTargetStoreCode("STR999999-NAE");
+        query.setTargetStoreCode("JED");
         query.setTargetSiteCode("AE");
 
-        BusinessAccessDeniedException exception = assertThrows(
-                BusinessAccessDeniedException.class,
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
                 () -> service.applyReadableBatchScope(operatorContext(), query)
         );
 
-        assertEquals("当前账号不能操作该店铺。", exception.getMessage());
+        assertEquals("目的地只支持 RUH 利雅得或 DB 迪拜。", exception.getMessage());
     }
 
     @Test
-    void shouldRejectBatchWriteForAuthorizedStoreWithWrongSite() {
+    void shouldNormalizeBatchWriteDestinationWithoutStoreScopeCheck() {
         SaveBatchCommand command = new SaveBatchCommand();
         command.setTargetStoreCode("STR245027-NAE");
         command.setTargetSiteCode("SA");
 
-        BusinessAccessDeniedException exception = assertThrows(
-                BusinessAccessDeniedException.class,
-                () -> service.requireWritableBatchScope(operatorContext(), command)
-        );
+        service.requireWritableBatchScope(operatorContext(), command);
 
-        assertEquals("当前账号不能操作该店铺。", exception.getMessage());
+        assertEquals("DB", command.getTargetStoreCode());
+        assertEquals("SA", command.getTargetSiteCode());
     }
 
     @Test
@@ -107,6 +105,32 @@ class InTransitGoodsAccessScopeServiceTest {
 
         assertEquals(null, command.getTargetStoreCode());
         assertEquals(null, command.getTargetSiteCode());
+    }
+
+    @Test
+    void shouldRejectLineWriteForUnauthorizedStoreSite() {
+        SaveLineCommand command = new SaveLineCommand();
+        command.setStoreCode("STR999999-NAE");
+        command.setSiteCode("AE");
+
+        BusinessAccessDeniedException exception = assertThrows(
+                BusinessAccessDeniedException.class,
+                () -> service.requireWritableLineScope(operatorContext(), command)
+        );
+
+        assertEquals("当前账号不能操作该店铺。", exception.getMessage());
+    }
+
+    @Test
+    void shouldNormalizeLineWriteStoreSiteWhenAuthorized() {
+        SaveLineCommand command = new SaveLineCommand();
+        command.setStoreCode(" str245027-nae ");
+        command.setSiteCode(" ae ");
+
+        service.requireWritableLineScope(operatorContext(), command);
+
+        assertEquals("STR245027-NAE", command.getStoreCode());
+        assertEquals("AE", command.getSiteCode());
     }
 
     private static BusinessAccessContext operatorContext() {

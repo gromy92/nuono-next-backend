@@ -178,6 +178,23 @@ public final class InTransitBatchCommands {
         private Long ownerUserId;
         private Long operatorUserId;
         private String boxNo;
+        private String externalBoxNo;
+        private String packageTrackingNo;
+        private BigDecimal packageWeightKg;
+        private BigDecimal packageLengthCm;
+        private BigDecimal packageWidthCm;
+        private BigDecimal packageHeightCm;
+        private BigDecimal packageVolumeCbm;
+        private BigDecimal packageVolumeWeightKg;
+        private BigDecimal packageChargeableWeightKg;
+        private BigDecimal measuredWeightKg;
+        private BigDecimal measuredLengthCm;
+        private BigDecimal measuredWidthCm;
+        private BigDecimal measuredHeightCm;
+        private BigDecimal measuredVolumeCbm;
+        private String packageStatus;
+        private String logisticsStatus;
+        private boolean packageSnapshotAuthoritative;
         private String sku;
         private String msku;
         private String psku;
@@ -190,7 +207,6 @@ public final class InTransitBatchCommands {
         private Integer unitsPerCarton;
         private BigDecimal cartonWeightKg;
         private BigDecimal cartonVolumeCbm;
-        private String remark;
 
         public Long getLineId() { return lineId; }
         public void setLineId(Long lineId) { this.lineId = lineId; }
@@ -204,6 +220,42 @@ public final class InTransitBatchCommands {
         public void setOperatorUserId(Long operatorUserId) { this.operatorUserId = operatorUserId; }
         public String getBoxNo() { return boxNo; }
         public void setBoxNo(String boxNo) { this.boxNo = boxNo; }
+        public String getExternalBoxNo() { return externalBoxNo; }
+        public void setExternalBoxNo(String externalBoxNo) { this.externalBoxNo = externalBoxNo; }
+        public String getPackageTrackingNo() { return packageTrackingNo; }
+        public void setPackageTrackingNo(String packageTrackingNo) { this.packageTrackingNo = packageTrackingNo; }
+        public BigDecimal getPackageWeightKg() { return packageWeightKg; }
+        public void setPackageWeightKg(BigDecimal packageWeightKg) { this.packageWeightKg = packageWeightKg; }
+        public BigDecimal getPackageLengthCm() { return packageLengthCm; }
+        public void setPackageLengthCm(BigDecimal packageLengthCm) { this.packageLengthCm = packageLengthCm; }
+        public BigDecimal getPackageWidthCm() { return packageWidthCm; }
+        public void setPackageWidthCm(BigDecimal packageWidthCm) { this.packageWidthCm = packageWidthCm; }
+        public BigDecimal getPackageHeightCm() { return packageHeightCm; }
+        public void setPackageHeightCm(BigDecimal packageHeightCm) { this.packageHeightCm = packageHeightCm; }
+        public BigDecimal getPackageVolumeCbm() { return packageVolumeCbm; }
+        public void setPackageVolumeCbm(BigDecimal packageVolumeCbm) { this.packageVolumeCbm = packageVolumeCbm; }
+        public BigDecimal getPackageVolumeWeightKg() { return packageVolumeWeightKg; }
+        public void setPackageVolumeWeightKg(BigDecimal packageVolumeWeightKg) { this.packageVolumeWeightKg = packageVolumeWeightKg; }
+        public BigDecimal getPackageChargeableWeightKg() { return packageChargeableWeightKg; }
+        public void setPackageChargeableWeightKg(BigDecimal packageChargeableWeightKg) { this.packageChargeableWeightKg = packageChargeableWeightKg; }
+        public BigDecimal getMeasuredWeightKg() { return measuredWeightKg; }
+        public void setMeasuredWeightKg(BigDecimal measuredWeightKg) { this.measuredWeightKg = measuredWeightKg; }
+        public BigDecimal getMeasuredLengthCm() { return measuredLengthCm; }
+        public void setMeasuredLengthCm(BigDecimal measuredLengthCm) { this.measuredLengthCm = measuredLengthCm; }
+        public BigDecimal getMeasuredWidthCm() { return measuredWidthCm; }
+        public void setMeasuredWidthCm(BigDecimal measuredWidthCm) { this.measuredWidthCm = measuredWidthCm; }
+        public BigDecimal getMeasuredHeightCm() { return measuredHeightCm; }
+        public void setMeasuredHeightCm(BigDecimal measuredHeightCm) { this.measuredHeightCm = measuredHeightCm; }
+        public BigDecimal getMeasuredVolumeCbm() { return measuredVolumeCbm; }
+        public void setMeasuredVolumeCbm(BigDecimal measuredVolumeCbm) { this.measuredVolumeCbm = measuredVolumeCbm; }
+        public String getPackageStatus() { return packageStatus; }
+        public void setPackageStatus(String packageStatus) { this.packageStatus = packageStatus; }
+        public String getLogisticsStatus() { return logisticsStatus; }
+        public void setLogisticsStatus(String logisticsStatus) { this.logisticsStatus = logisticsStatus; }
+        public boolean isPackageSnapshotAuthoritative() { return packageSnapshotAuthoritative; }
+        public void setPackageSnapshotAuthoritative(boolean packageSnapshotAuthoritative) {
+            this.packageSnapshotAuthoritative = packageSnapshotAuthoritative;
+        }
         public String getSku() { return sku; }
         public void setSku(String sku) { this.sku = sku; }
         public String getMsku() { return msku; }
@@ -228,8 +280,6 @@ public final class InTransitBatchCommands {
         public void setCartonWeightKg(BigDecimal cartonWeightKg) { this.cartonWeightKg = cartonWeightKg; }
         public BigDecimal getCartonVolumeCbm() { return cartonVolumeCbm; }
         public void setCartonVolumeCbm(BigDecimal cartonVolumeCbm) { this.cartonVolumeCbm = cartonVolumeCbm; }
-        public String getRemark() { return remark; }
-        public void setRemark(String remark) { this.remark = remark; }
     }
 
     public static class DeleteLineCommand {
@@ -329,8 +379,12 @@ public final class InTransitBatchCommands {
         private String trackingNo;
         private String containerNo;
         private String batchReferenceNo;
+        private String externalShipmentNo;
+        private LocalDateTime sourceCreatedAt;
+        private LocalDateTime estimatedDepartureAt;
+        private LocalDateTime estimatedArrivalAt;
+        private String deliveryAppointmentText;
         private String batchStatus;
-        private String remark;
 
         public Long getBatchId() {
             return batchId;
@@ -444,6 +498,46 @@ public final class InTransitBatchCommands {
             this.batchReferenceNo = batchReferenceNo;
         }
 
+        public String getExternalShipmentNo() {
+            return externalShipmentNo;
+        }
+
+        public void setExternalShipmentNo(String externalShipmentNo) {
+            this.externalShipmentNo = externalShipmentNo;
+        }
+
+        public LocalDateTime getSourceCreatedAt() {
+            return sourceCreatedAt;
+        }
+
+        public void setSourceCreatedAt(LocalDateTime sourceCreatedAt) {
+            this.sourceCreatedAt = sourceCreatedAt;
+        }
+
+        public LocalDateTime getEstimatedDepartureAt() {
+            return estimatedDepartureAt;
+        }
+
+        public void setEstimatedDepartureAt(LocalDateTime estimatedDepartureAt) {
+            this.estimatedDepartureAt = estimatedDepartureAt;
+        }
+
+        public LocalDateTime getEstimatedArrivalAt() {
+            return estimatedArrivalAt;
+        }
+
+        public void setEstimatedArrivalAt(LocalDateTime estimatedArrivalAt) {
+            this.estimatedArrivalAt = estimatedArrivalAt;
+        }
+
+        public String getDeliveryAppointmentText() {
+            return deliveryAppointmentText;
+        }
+
+        public void setDeliveryAppointmentText(String deliveryAppointmentText) {
+            this.deliveryAppointmentText = deliveryAppointmentText;
+        }
+
         public String getBatchStatus() {
             return batchStatus;
         }
@@ -452,12 +546,5 @@ public final class InTransitBatchCommands {
             this.batchStatus = batchStatus;
         }
 
-        public String getRemark() {
-            return remark;
-        }
-
-        public void setRemark(String remark) {
-            this.remark = remark;
-        }
     }
 }

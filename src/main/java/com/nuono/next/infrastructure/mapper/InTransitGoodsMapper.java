@@ -37,8 +37,15 @@ public interface InTransitGoodsMapper {
             + "forwarder.forwarder_code AS standard_forwarder_code, forwarder.forwarder_name AS standard_forwarder_name, "
             + "batch.raw_forwarder_name, batch.normalized_raw_forwarder_name, batch.forwarder_quality_status, "
             + "batch.transport_mode, batch.batch_status, batch.target_store_code, batch.target_site_code, batch.target_warehouse_name, "
-            + "batch.departure_date, batch.eta_date, batch.tracking_no, batch.container_no, batch.batch_reference_no, batch.remark, "
-            + "batch.missing_fields_json, batch.sku_count, batch.shipped_quantity_total, batch.received_quantity_total, "
+            + "batch.departure_date, batch.eta_date, batch.external_shipment_no, batch.source_created_at, "
+            + "batch.estimated_departure_at, batch.estimated_arrival_at, batch.delivery_appointment_text, "
+            + "(SELECT domestic.node_happened_at FROM in_transit_logistics_node domestic "
+            + "WHERE domestic.owner_user_id = batch.owner_user_id AND domestic.batch_id = batch.id "
+            + "AND domestic.node_status = 'handed_to_forwarder' AND domestic.description = '国内收货' "
+            + "AND domestic.is_deleted = b'0' "
+            + "ORDER BY domestic.node_happened_at ASC, domestic.id ASC LIMIT 1) AS domestic_received_at, "
+            + "batch.tracking_no, batch.container_no, batch.batch_reference_no, "
+            + "batch.missing_fields_json, batch.box_count, batch.sku_count, batch.shipped_quantity_total, batch.received_quantity_total, "
             + "batch.remaining_quantity_total, batch.carton_count_total, batch.total_weight_kg, batch.total_volume_cbm, "
             + "batch.latest_node_status, batch.latest_node_happened_at, batch.latest_node_description, "
             + "batch.created_by, batch.updated_by "
@@ -50,10 +57,20 @@ public interface InTransitGoodsMapper {
             + "SELECT line.id, line.owner_user_id, line.batch_id, line.package_id, line.box_no, line.sku, line.msku, line.psku, "
             + "line.product_name, line.store_code, line.site_code, line.shipped_quantity, line.received_quantity, "
             + "line.remaining_quantity, line.carton_count, line.units_per_carton, line.carton_weight_kg, line.carton_volume_cbm, "
-            + "line.remark, line.created_by, line.updated_by, "
+            + "line.created_by, line.updated_by, "
+            + "pkg.external_box_no AS external_box_no, pkg.tracking_no AS package_tracking_no, "
+            + "pkg.weight_kg AS package_weight_kg, pkg.length_cm AS package_length_cm, "
+            + "pkg.width_cm AS package_width_cm, pkg.height_cm AS package_height_cm, pkg.volume_cbm AS package_volume_cbm, "
+            + "pkg.volume_weight_kg AS package_volume_weight_kg, pkg.chargeable_weight_kg AS package_chargeable_weight_kg, "
+            + "pkg.measured_weight_kg AS measured_weight_kg, pkg.measured_length_cm AS measured_length_cm, "
+            + "pkg.measured_width_cm AS measured_width_cm, pkg.measured_height_cm AS measured_height_cm, "
+            + "pkg.measured_volume_cbm AS measured_volume_cbm, pkg.package_status AS package_status, "
+            + "pkg.logistics_status AS logistics_status, "
             + "pm.id AS matched_product_id, pm.sku_parent AS product_sku_parent, "
             + "pm.title_cache AS product_title, pm.cover_image_url AS product_image_url "
             + "FROM in_transit_goods_line line "
+            + "LEFT JOIN in_transit_package pkg ON pkg.owner_user_id = line.owner_user_id "
+            + "AND pkg.batch_id = line.batch_id AND pkg.id = line.package_id AND pkg.is_deleted = b'0' "
             + "LEFT JOIN product_master pm ON pm.id = COALESCE("
             + "(SELECT exact_pm.id "
             + "FROM logical_store_site exact_lss "
@@ -80,7 +97,11 @@ public interface InTransitGoodsMapper {
             + "AND pm.is_deleted = b'0' ";
 
     String PACKAGE_SELECT = ""
-            + "SELECT id, owner_user_id, batch_id, box_no, tracking_no, remark, created_by, updated_by "
+            + "SELECT id, owner_user_id, batch_id, box_no, external_box_no, tracking_no, "
+            + "weight_kg, length_cm, width_cm, height_cm, volume_cbm, "
+            + "volume_weight_kg, chargeable_weight_kg, "
+            + "measured_weight_kg, measured_length_cm, measured_width_cm, measured_height_cm, measured_volume_cbm, "
+            + "package_status, logistics_status, created_by, updated_by "
             + "FROM in_transit_package ";
 
     String NODE_SELECT = ""
@@ -274,11 +295,14 @@ public interface InTransitGoodsMapper {
             "INSERT INTO in_transit_batch (",
             "id, owner_user_id, standard_forwarder_id, raw_forwarder_name, normalized_raw_forwarder_name, forwarder_quality_status,",
             "transport_mode, batch_status, target_store_code, target_site_code, target_warehouse_name, departure_date, eta_date,",
-            "tracking_no, container_no, batch_reference_no, remark, missing_fields_json, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            "tracking_no, container_no, batch_reference_no, external_shipment_no, source_created_at, estimated_departure_at,",
+            "estimated_arrival_at, delivery_appointment_text, missing_fields_json, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.ownerUserId}, #{row.standardForwarderId}, #{row.rawForwarderName}, #{row.normalizedRawForwarderName}, #{row.forwarderQualityStatus},",
             "#{row.transportMode}, #{row.batchStatus}, #{row.targetStoreCode}, #{row.targetSiteCode}, #{row.targetWarehouseName}, #{row.departureDate}, #{row.etaDate},",
-            "#{row.trackingNo}, #{row.containerNo}, #{row.batchReferenceNo}, #{row.remark}, #{row.missingFieldsJson}, b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
+            "#{row.trackingNo}, #{row.containerNo}, #{row.batchReferenceNo}, #{row.externalShipmentNo}, #{row.sourceCreatedAt},",
+            "#{row.estimatedDepartureAt}, #{row.estimatedArrivalAt}, #{row.deliveryAppointmentText}, #{row.missingFieldsJson},",
+            "b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertBatch(@Param("row") BatchRow row);
 
@@ -289,7 +313,10 @@ public interface InTransitGoodsMapper {
             "transport_mode = #{row.transportMode}, batch_status = #{row.batchStatus}, target_store_code = #{row.targetStoreCode},",
             "target_site_code = #{row.targetSiteCode}, target_warehouse_name = #{row.targetWarehouseName}, departure_date = #{row.departureDate},",
             "eta_date = #{row.etaDate}, tracking_no = #{row.trackingNo}, container_no = #{row.containerNo}, batch_reference_no = #{row.batchReferenceNo},",
-            "remark = #{row.remark}, missing_fields_json = #{row.missingFieldsJson}, updated_by = #{row.updatedBy}, gmt_updated = NOW()",
+            "external_shipment_no = #{row.externalShipmentNo}, source_created_at = #{row.sourceCreatedAt},",
+            "estimated_departure_at = #{row.estimatedDepartureAt}, estimated_arrival_at = #{row.estimatedArrivalAt},",
+            "delivery_appointment_text = #{row.deliveryAppointmentText},",
+            "missing_fields_json = #{row.missingFieldsJson}, updated_by = #{row.updatedBy}, gmt_updated = NOW()",
             "WHERE owner_user_id = #{row.ownerUserId} AND id = #{row.id} AND is_deleted = b'0'"
     })
     int updateBatch(@Param("row") BatchRow row);
@@ -316,16 +343,16 @@ public interface InTransitGoodsMapper {
             "WHERE line.owner_user_id = #{ownerUserId}",
             "AND line.batch_id = #{batchId}",
             "AND line.box_no = #{boxNo}",
-            "AND line.sku = #{sku}",
+            "AND line.psku = #{psku}",
             "AND line.is_deleted = b'0'",
             "ORDER BY line.gmt_updated DESC, line.id DESC",
             "LIMIT 1"
     })
-    LineRow selectLineByBoxNoAndSku(
+    LineRow selectLineByBoxNoAndPsku(
             @Param("ownerUserId") Long ownerUserId,
             @Param("batchId") Long batchId,
             @Param("boxNo") String boxNo,
-            @Param("sku") String sku
+            @Param("psku") String psku
     );
 
     @Select({
@@ -340,22 +367,78 @@ public interface InTransitGoodsMapper {
 
     @Insert({
             "INSERT INTO in_transit_package (",
-            "id, owner_user_id, batch_id, box_no, tracking_no, remark, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            "id, owner_user_id, batch_id, box_no, external_box_no, tracking_no,",
+            "weight_kg, length_cm, width_cm, height_cm, volume_cbm, volume_weight_kg, chargeable_weight_kg,",
+            "measured_weight_kg, measured_length_cm, measured_width_cm, measured_height_cm, measured_volume_cbm,",
+            "package_status, logistics_status, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.batchId}, #{row.boxNo}, #{row.trackingNo}, #{row.remark},",
-            "b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
+            "#{row.id}, #{row.ownerUserId}, #{row.batchId}, #{row.boxNo}, #{row.externalBoxNo}, #{row.trackingNo},",
+            "#{row.weightKg}, #{row.lengthCm}, #{row.widthCm}, #{row.heightCm}, #{row.volumeCbm}, #{row.volumeWeightKg}, #{row.chargeableWeightKg},",
+            "#{row.measuredWeightKg}, #{row.measuredLengthCm}, #{row.measuredWidthCm}, #{row.measuredHeightCm}, #{row.measuredVolumeCbm},",
+            "#{row.packageStatus}, #{row.logisticsStatus}, b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertPackage(@Param("row") PackageRow row);
+
+    @Update({
+            "UPDATE in_transit_package",
+            "SET external_box_no = #{row.externalBoxNo}, tracking_no = #{row.trackingNo},",
+            "weight_kg = #{row.weightKg}, length_cm = #{row.lengthCm}, width_cm = #{row.widthCm}, height_cm = #{row.heightCm},",
+            "volume_cbm = #{row.volumeCbm}, volume_weight_kg = #{row.volumeWeightKg}, chargeable_weight_kg = #{row.chargeableWeightKg},",
+            "measured_weight_kg = #{row.measuredWeightKg},",
+            "measured_length_cm = #{row.measuredLengthCm}, measured_width_cm = #{row.measuredWidthCm},",
+            "measured_height_cm = #{row.measuredHeightCm}, measured_volume_cbm = #{row.measuredVolumeCbm},",
+            "package_status = #{row.packageStatus}, logistics_status = #{row.logisticsStatus},",
+            "updated_by = #{row.updatedBy}, gmt_updated = NOW()",
+            "WHERE owner_user_id = #{row.ownerUserId} AND batch_id = #{row.batchId} AND id = #{row.id} AND is_deleted = b'0'"
+    })
+    int updatePackage(@Param("row") PackageRow row);
+
+    @Update({
+            "<script>",
+            "UPDATE in_transit_goods_line",
+            "SET is_deleted = b'1', updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND is_deleted = b'0'",
+            "AND (",
+            "box_no NOT IN",
+            "<foreach collection='boxNos' item='boxNo' open='(' separator=',' close=')'>#{boxNo}</foreach>",
+            "OR CONCAT(box_no, '\n', psku) NOT IN",
+            "<foreach collection='lineKeys' item='lineKey' open='(' separator=',' close=')'>#{lineKey}</foreach>",
+            ")",
+            "</script>"
+    })
+    int softDeleteLinesNotInSyncedDetails(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchId") Long batchId,
+            @Param("boxNos") List<String> boxNos,
+            @Param("lineKeys") List<String> lineKeys,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE in_transit_package",
+            "SET is_deleted = b'1', updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND is_deleted = b'0'",
+            "AND box_no NOT IN",
+            "<foreach collection='boxNos' item='boxNo' open='(' separator=',' close=')'>#{boxNo}</foreach>",
+            "</script>"
+    })
+    int softDeletePackagesNotInSyncedBoxes(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchId") Long batchId,
+            @Param("boxNos") List<String> boxNos,
+            @Param("operatorUserId") Long operatorUserId
+    );
 
     @Insert({
             "INSERT INTO in_transit_goods_line (",
             "id, owner_user_id, batch_id, package_id, box_no, sku, msku, psku, product_name, store_code, site_code,",
             "shipped_quantity, received_quantity, remaining_quantity, carton_count, units_per_carton,",
-            "carton_weight_kg, carton_volume_cbm, remark, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            "carton_weight_kg, carton_volume_cbm, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.ownerUserId}, #{row.batchId}, #{row.packageId}, #{row.boxNo}, #{row.sku}, #{row.msku}, #{row.psku}, #{row.productName},",
             "#{row.storeCode}, #{row.siteCode}, #{row.shippedQuantity}, #{row.receivedQuantity}, #{row.remainingQuantity},",
-            "#{row.cartonCount}, #{row.unitsPerCarton}, #{row.cartonWeightKg}, #{row.cartonVolumeCbm}, #{row.remark},",
+            "#{row.cartonCount}, #{row.unitsPerCarton}, #{row.cartonWeightKg}, #{row.cartonVolumeCbm},",
             "b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertLine(@Param("row") LineRow row);
@@ -367,7 +450,7 @@ public interface InTransitGoodsMapper {
             "received_quantity = #{row.receivedQuantity}, remaining_quantity = #{row.remainingQuantity},",
             "carton_count = #{row.cartonCount}, units_per_carton = #{row.unitsPerCarton},",
             "carton_weight_kg = #{row.cartonWeightKg}, carton_volume_cbm = #{row.cartonVolumeCbm},",
-            "remark = #{row.remark}, updated_by = #{row.updatedBy}, gmt_updated = NOW()",
+            "updated_by = #{row.updatedBy}, gmt_updated = NOW()",
             "WHERE owner_user_id = #{row.ownerUserId} AND batch_id = #{row.batchId} AND id = #{row.id} AND is_deleted = b'0'"
     })
     int updateLine(@Param("row") LineRow row);
@@ -386,13 +469,24 @@ public interface InTransitGoodsMapper {
 
     @Select({
             "SELECT",
-            "CASE WHEN COUNT(*) = 0 THEN NULL ELSE COUNT(DISTINCT NULLIF(TRIM(sku), '')) END AS sku_count,",
+            "CASE WHEN COUNT(*) = 0 THEN NULL ELSE COUNT(DISTINCT NULLIF(TRIM(psku), '')) END AS sku_count,",
+            "CASE WHEN COUNT(*) = 0 THEN NULL ELSE COUNT(DISTINCT NULLIF(TRIM(box_no), '')) END AS box_count,",
             "SUM(shipped_quantity) AS shipped_quantity_total,",
             "SUM(received_quantity) AS received_quantity_total,",
             "SUM(remaining_quantity) AS remaining_quantity_total,",
             "SUM(carton_count) AS carton_count_total,",
-            "SUM(CASE WHEN carton_weight_kg IS NULL THEN NULL ELSE carton_count * carton_weight_kg END) AS total_weight_kg,",
-            "SUM(CASE WHEN carton_volume_cbm IS NULL THEN NULL ELSE carton_count * carton_volume_cbm END) AS total_volume_cbm",
+            "COALESCE(",
+            "(SELECT SUM(pkg.weight_kg) FROM in_transit_package pkg",
+            "WHERE pkg.owner_user_id = #{ownerUserId} AND pkg.batch_id = #{batchId}",
+            "AND pkg.is_deleted = b'0' AND pkg.weight_kg IS NOT NULL),",
+            "SUM(CASE WHEN carton_weight_kg IS NULL THEN NULL ELSE carton_count * carton_weight_kg END)",
+            ") AS total_weight_kg,",
+            "COALESCE(",
+            "(SELECT SUM(pkg.volume_cbm) FROM in_transit_package pkg",
+            "WHERE pkg.owner_user_id = #{ownerUserId} AND pkg.batch_id = #{batchId}",
+            "AND pkg.is_deleted = b'0' AND pkg.volume_cbm IS NOT NULL),",
+            "SUM(CASE WHEN carton_volume_cbm IS NULL THEN NULL ELSE carton_count * carton_volume_cbm END)",
+            ") AS total_volume_cbm",
             "FROM in_transit_goods_line",
             "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND is_deleted = b'0'"
     })
@@ -400,10 +494,12 @@ public interface InTransitGoodsMapper {
 
     @Update({
             "UPDATE in_transit_batch",
-            "SET sku_count = #{aggregate.skuCount}, shipped_quantity_total = #{aggregate.shippedQuantityTotal},",
+            "SET box_count = #{aggregate.boxCount}, sku_count = #{aggregate.skuCount}, shipped_quantity_total = #{aggregate.shippedQuantityTotal},",
             "received_quantity_total = #{aggregate.receivedQuantityTotal}, remaining_quantity_total = #{aggregate.remainingQuantityTotal},",
-            "carton_count_total = #{aggregate.cartonCountTotal}, total_weight_kg = #{aggregate.totalWeightKg},",
-            "total_volume_cbm = #{aggregate.totalVolumeCbm}, gmt_updated = NOW()",
+            "carton_count_total = #{aggregate.cartonCountTotal},",
+            "total_weight_kg = COALESCE(#{aggregate.totalWeightKg}, total_weight_kg),",
+            "total_volume_cbm = COALESCE(#{aggregate.totalVolumeCbm}, total_volume_cbm),",
+            "gmt_updated = NOW()",
             "WHERE owner_user_id = #{ownerUserId} AND id = #{batchId} AND is_deleted = b'0'"
     })
     int refreshBatchAggregate(
@@ -427,6 +523,22 @@ public interface InTransitGoodsMapper {
             @Param("ownerUserId") Long ownerUserId,
             @Param("batchId") Long batchId,
             @Param("nodeId") Long nodeId
+    );
+
+    @Select({
+            NODE_SELECT,
+            "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId}",
+            "AND node_status = #{nodeStatus} AND node_happened_at = #{nodeHappenedAt}",
+            "AND (description = #{description} OR (description IS NULL AND #{description} IS NULL)) AND is_deleted = b'0'",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    NodeRow selectNodeByStatusDescriptionAndHappenedAt(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchId") Long batchId,
+            @Param("nodeStatus") String nodeStatus,
+            @Param("nodeHappenedAt") java.time.LocalDateTime nodeHappenedAt,
+            @Param("description") String description
     );
 
     @Insert({

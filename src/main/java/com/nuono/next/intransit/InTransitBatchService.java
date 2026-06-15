@@ -20,6 +20,7 @@ import com.nuono.next.intransit.InTransitBatchRecords.NodeView;
 import com.nuono.next.intransit.InTransitBatchRecords.PackageRow;
 import com.nuono.next.intransit.InTransitForwarderCommands.ResolveForwarderCommand;
 import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderResolveView;
+import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderRow;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -56,6 +57,9 @@ public class InTransitBatchService {
         if (StringUtils.hasText(resolved.getBatchStatus())) {
             resolved.setBatchStatus(InTransitBatchStatus.require(resolved.getBatchStatus()).code());
         }
+        if (StringUtils.hasText(resolved.getTargetStoreCode())) {
+            resolved.setTargetStoreCode(InTransitDestination.require(resolved.getTargetStoreCode()).code());
+        }
         if (resolved.getLimit() == null || resolved.getLimit() <= 0 || resolved.getLimit() > 200) {
             resolved.setLimit(100);
         }
@@ -88,8 +92,10 @@ public class InTransitBatchService {
         String transportMode = StringUtils.hasText(resolved.getTransportMode())
                 ? InTransitTransportMode.require(resolved.getTransportMode()).code()
                 : null;
+        String destinationCode = resolveDestinationCode(resolved);
+        resolved.setTargetStoreCode(destinationCode);
         ForwarderResolveView forwarder = resolveForwarder(ownerUserId, resolved);
-        List<String> missingFields = missingFields(resolved, forwarder, transportMode);
+        List<String> missingFields = missingFields(resolved, forwarder, transportMode, destinationCode);
         if (!InTransitBatchStatus.DRAFT.code().equals(batchStatus) && !missingFields.isEmpty()) {
             throw new IllegalStateException("在途批次进入跟踪前需补齐：" + String.join(",", missingFields) + "。");
         }
@@ -100,20 +106,24 @@ public class InTransitBatchService {
         row.setStandardForwarderId(forwarder == null ? resolved.getStandardForwarderId() : forwarder.getStandardForwarderId());
         row.setStandardForwarderCode(forwarder == null ? null : forwarder.getStandardForwarderCode());
         row.setStandardForwarderName(forwarder == null ? null : forwarder.getStandardForwarderName());
-        row.setRawForwarderName(StringUtils.hasText(resolved.getRawForwarderName()) ? resolved.getRawForwarderName().trim() : null);
+        row.setRawForwarderName(canonicalRawForwarderName(forwarder, resolved));
         row.setNormalizedRawForwarderName(forwarder == null ? null : forwarder.getNormalizedRawForwarderName());
         row.setForwarderQualityStatus(forwarderQualityStatus(forwarder, resolved));
         row.setTransportMode(transportMode);
         row.setBatchStatus(batchStatus);
-        row.setTargetStoreCode(clean(resolved.getTargetStoreCode()));
-        row.setTargetSiteCode(clean(resolved.getTargetSiteCode()));
+        row.setTargetStoreCode(destinationCode);
+        row.setTargetSiteCode(null);
         row.setTargetWarehouseName(clean(resolved.getTargetWarehouseName()));
         row.setDepartureDate(resolved.getDepartureDate());
         row.setEtaDate(resolved.getEtaDate());
         row.setTrackingNo(clean(resolved.getTrackingNo()));
         row.setContainerNo(clean(resolved.getContainerNo()));
         row.setBatchReferenceNo(clean(resolved.getBatchReferenceNo()));
-        row.setRemark(clean(resolved.getRemark()));
+        row.setExternalShipmentNo(clean(resolved.getExternalShipmentNo()));
+        row.setSourceCreatedAt(resolved.getSourceCreatedAt());
+        row.setEstimatedDepartureAt(resolved.getEstimatedDepartureAt());
+        row.setEstimatedArrivalAt(resolved.getEstimatedArrivalAt());
+        row.setDeliveryAppointmentText(clean(resolved.getDeliveryAppointmentText()));
         row.setMissingFieldsJson(InTransitBatchRecords.toMissingFieldsJson(missingFields));
         row.setCreatedBy(operatorUserId);
         row.setUpdatedBy(operatorUserId);
@@ -157,8 +167,11 @@ public class InTransitBatchService {
         if (resolved.getLineId() != null) {
             requireLine(ownerUserId, batchId, resolved.getLineId());
         }
-        if (!StringUtils.hasText(resolved.getSku())) {
-            throw new IllegalArgumentException("SKU不能为空。");
+        if (!StringUtils.hasText(resolved.getBoxNo())) {
+            throw new IllegalArgumentException("箱号不能为空。");
+        }
+        if (!StringUtils.hasText(resolved.getPsku())) {
+            throw new IllegalArgumentException("PSKU不能为空。");
         }
 
         Integer shippedQuantity = nonNegativeOrZero(resolved.getShippedQuantity(), "发货数量不能为负数。");
@@ -170,7 +183,41 @@ public class InTransitBatchService {
         assertNonNegative(resolved.getUnitsPerCarton(), "单箱数量不能为负数。");
         assertNonNegative(resolved.getCartonWeightKg(), "单箱重量不能为负数。");
         assertNonNegative(resolved.getCartonVolumeCbm(), "单箱体积不能为负数。");
-        PackageRow packageRow = resolvePackage(ownerUserId, batchId, clean(resolved.getBoxNo()), operatorUserId);
+        assertNonNegative(resolved.getPackageWeightKg(), "箱子重量不能为负数。");
+        assertNonNegative(resolved.getPackageLengthCm(), "箱子长度不能为负数。");
+        assertNonNegative(resolved.getPackageWidthCm(), "箱子宽度不能为负数。");
+        assertNonNegative(resolved.getPackageHeightCm(), "箱子高度不能为负数。");
+        assertNonNegative(resolved.getPackageVolumeCbm(), "箱子体积不能为负数。");
+        assertNonNegative(resolved.getPackageVolumeWeightKg(), "箱子体积重量不能为负数。");
+        assertNonNegative(resolved.getPackageChargeableWeightKg(), "箱子计费重量不能为负数。");
+        assertNonNegative(resolved.getMeasuredWeightKg(), "仓库测量箱子重量不能为负数。");
+        assertNonNegative(resolved.getMeasuredLengthCm(), "仓库测量箱子长度不能为负数。");
+        assertNonNegative(resolved.getMeasuredWidthCm(), "仓库测量箱子宽度不能为负数。");
+        assertNonNegative(resolved.getMeasuredHeightCm(), "仓库测量箱子高度不能为负数。");
+        assertNonNegative(resolved.getMeasuredVolumeCbm(), "仓库测量箱子体积不能为负数。");
+        PackageRow packageRow = resolvePackage(
+                ownerUserId,
+                batchId,
+                clean(resolved.getBoxNo()),
+                clean(resolved.getExternalBoxNo()),
+                clean(resolved.getPackageTrackingNo()),
+                resolved.getPackageWeightKg(),
+                resolved.getPackageLengthCm(),
+                resolved.getPackageWidthCm(),
+                resolved.getPackageHeightCm(),
+                resolved.getPackageVolumeCbm(),
+                resolved.getPackageVolumeWeightKg(),
+                resolved.getPackageChargeableWeightKg(),
+                resolved.getMeasuredWeightKg(),
+                resolved.getMeasuredLengthCm(),
+                resolved.getMeasuredWidthCm(),
+                resolved.getMeasuredHeightCm(),
+                resolved.getMeasuredVolumeCbm(),
+                clean(resolved.getPackageStatus()),
+                clean(resolved.getLogisticsStatus()),
+                resolved.isPackageSnapshotAuthoritative(),
+                operatorUserId
+        );
 
         LineRow row = new LineRow();
         row.setId(resolved.getLineId() == null ? mapper.nextLineId() : resolved.getLineId());
@@ -191,7 +238,6 @@ public class InTransitBatchService {
         row.setUnitsPerCarton(resolved.getUnitsPerCarton());
         row.setCartonWeightKg(resolved.getCartonWeightKg());
         row.setCartonVolumeCbm(resolved.getCartonVolumeCbm());
-        row.setRemark(clean(resolved.getRemark()));
         row.setCreatedBy(operatorUserId);
         row.setUpdatedBy(operatorUserId);
 
@@ -212,9 +258,37 @@ public class InTransitBatchService {
                 firstText(row.getStoreCode(), batch.getTargetStoreCode()),
                 firstText(row.getSiteCode(), batch.getTargetSiteCode()),
                 created ? "在途商品明细已创建。" : "在途商品明细已更新。",
-                detail("sku", row.getSku(), "boxNo", row.getBoxNo(), "shippedQuantity", row.getShippedQuantity(), "receivedQuantity", row.getReceivedQuantity())
+                detail("psku", row.getPsku(), "sourceSku", row.getSku(), "boxNo", row.getBoxNo(), "shippedQuantity", row.getShippedQuantity(), "receivedQuantity", row.getReceivedQuantity())
         );
         return LineView.from(requireLine(ownerUserId, batchId, row.getId()));
+    }
+
+    public void reconcileSyncedDetails(
+            Long ownerUserId,
+            Long operatorUserId,
+            Long batchId,
+            List<String> syncedBoxNos,
+            List<String> syncedLineKeys
+    ) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        Long resolvedBatchId = requirePositiveId(batchId, "在途批次不存在。");
+        if (syncedBoxNos == null || syncedBoxNos.isEmpty() || syncedLineKeys == null || syncedLineKeys.isEmpty()) {
+            return;
+        }
+        mapper.softDeleteLinesNotInSyncedDetails(
+                resolvedOwnerUserId,
+                resolvedBatchId,
+                syncedBoxNos,
+                syncedLineKeys,
+                operatorUserId
+        );
+        mapper.softDeletePackagesNotInSyncedBoxes(
+                resolvedOwnerUserId,
+                resolvedBatchId,
+                syncedBoxNos,
+                operatorUserId
+        );
+        refreshBatchAggregate(resolvedOwnerUserId, resolvedBatchId);
     }
 
     public LineListView deleteLine(DeleteLineCommand command) {
@@ -236,7 +310,7 @@ public class InTransitBatchService {
                 firstText(line.getStoreCode(), batch.getTargetStoreCode()),
                 firstText(line.getSiteCode(), batch.getTargetSiteCode()),
                 "在途商品明细已删除。",
-                detail("sku", line.getSku())
+                detail("psku", line.getPsku(), "sourceSku", line.getSku())
         );
         return listLines(ownerUserId, batchId);
     }
@@ -292,11 +366,20 @@ public class InTransitBatchService {
 
     private ForwarderResolveView resolveForwarder(Long ownerUserId, SaveBatchCommand command) {
         if (command.getStandardForwarderId() != null && command.getStandardForwarderId() > 0) {
+            ForwarderRow row = mapper.selectForwarderById(ownerUserId, command.getStandardForwarderId());
+            if (row == null || !"ACTIVE".equals(row.getStatus())) {
+                throw new IllegalArgumentException("标准货代不存在。");
+            }
+            InTransitForwarderCatalog.CanonicalForwarder canonical =
+                    InTransitForwarderCatalog.match(row.getForwarderCode(), row.getForwarderName());
+            String standardForwarderName = canonical == null ? row.getForwarderName() : canonical.name();
             ForwarderResolveView view = new ForwarderResolveView();
             view.setQualityStatus(InTransitQualityStatus.FORWARDER_MATCHED.code());
-            view.setStandardForwarderId(command.getStandardForwarderId());
-            view.setRawForwarderName(clean(command.getRawForwarderName()));
-            view.setNormalizedRawForwarderName(clean(command.getRawForwarderName()));
+            view.setStandardForwarderId(row.getId());
+            view.setStandardForwarderCode(row.getForwarderCode());
+            view.setStandardForwarderName(standardForwarderName);
+            view.setRawForwarderName(standardForwarderName);
+            view.setNormalizedRawForwarderName(clean(firstText(command.getRawForwarderName(), standardForwarderName)));
             return view;
         }
         if (!StringUtils.hasText(command.getRawForwarderName())) {
@@ -308,7 +391,12 @@ public class InTransitBatchService {
         return forwarderService.resolveForwarder(resolveCommand);
     }
 
-    private List<String> missingFields(SaveBatchCommand command, ForwarderResolveView forwarder, String transportMode) {
+    private List<String> missingFields(
+            SaveBatchCommand command,
+            ForwarderResolveView forwarder,
+            String transportMode,
+            String destinationCode
+    ) {
         List<String> result = new ArrayList<>();
         if (forwarder == null || (!StringUtils.hasText(command.getRawForwarderName()) && forwarder.getStandardForwarderId() == null)) {
             result.add("forwarder");
@@ -316,13 +404,44 @@ public class InTransitBatchService {
         if (!StringUtils.hasText(transportMode)) {
             result.add("transportMode");
         }
-        if (!StringUtils.hasText(command.getTargetStoreCode())) {
+        if (!StringUtils.hasText(destinationCode)) {
             result.add("targetStoreCode");
         }
         if (!StringUtils.hasText(command.getTargetWarehouseName())) {
             result.add("targetWarehouseName");
         }
         return result;
+    }
+
+    private String resolveDestinationCode(SaveBatchCommand command) {
+        if (StringUtils.hasText(command.getTargetStoreCode())
+                && InTransitDestination.infer(command.getTargetStoreCode()) == null) {
+            throw new IllegalArgumentException("目的地只支持 RUH 利雅得或 DB 迪拜。");
+        }
+        InTransitDestination destination = InTransitDestination.infer(
+                command.getTargetStoreCode(),
+                command.getTargetSiteCode(),
+                command.getTargetWarehouseName(),
+                command.getBatchReferenceNo(),
+                command.getTrackingNo(),
+                command.getContainerNo()
+        );
+        if (destination != null) {
+            return destination.code();
+        }
+        return null;
+    }
+
+    private String canonicalRawForwarderName(ForwarderResolveView forwarder, SaveBatchCommand command) {
+        if (forwarder != null && StringUtils.hasText(forwarder.getRawForwarderName())) {
+            return forwarder.getRawForwarderName();
+        }
+        InTransitForwarderCatalog.CanonicalForwarder canonical =
+                InTransitForwarderCatalog.match(null, command.getRawForwarderName());
+        if (canonical != null) {
+            return canonical.name();
+        }
+        return clean(command.getRawForwarderName());
     }
 
     private String forwarderQualityStatus(ForwarderResolveView forwarder, SaveBatchCommand command) {
@@ -359,12 +478,95 @@ public class InTransitBatchService {
         return row;
     }
 
-    private PackageRow resolvePackage(Long ownerUserId, Long batchId, String boxNo, Long operatorUserId) {
+    private PackageRow resolvePackage(
+            Long ownerUserId,
+            Long batchId,
+            String boxNo,
+            String externalBoxNo,
+            String trackingNo,
+            BigDecimal weightKg,
+            BigDecimal lengthCm,
+            BigDecimal widthCm,
+            BigDecimal heightCm,
+            BigDecimal volumeCbm,
+            BigDecimal volumeWeightKg,
+            BigDecimal chargeableWeightKg,
+            BigDecimal measuredWeightKg,
+            BigDecimal measuredLengthCm,
+            BigDecimal measuredWidthCm,
+            BigDecimal measuredHeightCm,
+            BigDecimal measuredVolumeCbm,
+            String packageStatus,
+            String logisticsStatus,
+            boolean packageSnapshotAuthoritative,
+            Long operatorUserId
+    ) {
         if (!StringUtils.hasText(boxNo)) {
             return null;
         }
         PackageRow existing = mapper.selectPackageByBoxNo(ownerUserId, batchId, boxNo);
         if (existing != null) {
+            boolean hasPackageDetail = StringUtils.hasText(externalBoxNo)
+                    || StringUtils.hasText(trackingNo)
+                    || weightKg != null
+                    || lengthCm != null
+                    || widthCm != null
+                    || heightCm != null
+                    || volumeCbm != null
+                    || volumeWeightKg != null
+                    || chargeableWeightKg != null
+                    || measuredWeightKg != null
+                    || measuredLengthCm != null
+                    || measuredWidthCm != null
+                    || measuredHeightCm != null
+                    || measuredVolumeCbm != null
+                    || StringUtils.hasText(packageStatus)
+                    || StringUtils.hasText(logisticsStatus)
+                    || packageSnapshotAuthoritative;
+            if (hasPackageDetail) {
+                if (packageSnapshotAuthoritative) {
+                    existing.setExternalBoxNo(externalBoxNo);
+                    existing.setTrackingNo(trackingNo);
+                    existing.setWeightKg(firstValue(weightKg, existing.getWeightKg()));
+                    existing.setLengthCm(firstValue(lengthCm, existing.getLengthCm()));
+                    existing.setWidthCm(firstValue(widthCm, existing.getWidthCm()));
+                    existing.setHeightCm(firstValue(heightCm, existing.getHeightCm()));
+                    existing.setVolumeCbm(firstValue(volumeCbm, existing.getVolumeCbm()));
+                    existing.setVolumeWeightKg(firstValue(volumeWeightKg, existing.getVolumeWeightKg()));
+                    existing.setChargeableWeightKg(firstValue(chargeableWeightKg, existing.getChargeableWeightKg()));
+                    existing.setMeasuredWeightKg(firstValue(measuredWeightKg, existing.getMeasuredWeightKg()));
+                    existing.setMeasuredLengthCm(firstValue(measuredLengthCm, existing.getMeasuredLengthCm()));
+                    existing.setMeasuredWidthCm(firstValue(measuredWidthCm, existing.getMeasuredWidthCm()));
+                    existing.setMeasuredHeightCm(firstValue(measuredHeightCm, existing.getMeasuredHeightCm()));
+                    existing.setMeasuredVolumeCbm(firstValue(measuredVolumeCbm, existing.getMeasuredVolumeCbm()));
+                    existing.setPackageStatus(packageStatus);
+                    existing.setLogisticsStatus(logisticsStatus);
+                } else {
+                    existing.setExternalBoxNo(firstText(externalBoxNo, existing.getExternalBoxNo()));
+                    existing.setTrackingNo(firstText(trackingNo, existing.getTrackingNo()));
+                    existing.setWeightKg(firstValue(weightKg, existing.getWeightKg()));
+                    existing.setLengthCm(firstValue(lengthCm, existing.getLengthCm()));
+                    existing.setWidthCm(firstValue(widthCm, existing.getWidthCm()));
+                    existing.setHeightCm(firstValue(heightCm, existing.getHeightCm()));
+                    existing.setVolumeCbm(firstValue(volumeCbm, existing.getVolumeCbm()));
+                    existing.setVolumeWeightKg(firstValue(volumeWeightKg, existing.getVolumeWeightKg()));
+                    existing.setChargeableWeightKg(firstValue(chargeableWeightKg, existing.getChargeableWeightKg()));
+                    existing.setMeasuredWeightKg(firstValue(measuredWeightKg, existing.getMeasuredWeightKg()));
+                    existing.setMeasuredLengthCm(firstValue(measuredLengthCm, existing.getMeasuredLengthCm()));
+                    existing.setMeasuredWidthCm(firstValue(measuredWidthCm, existing.getMeasuredWidthCm()));
+                    existing.setMeasuredHeightCm(firstValue(measuredHeightCm, existing.getMeasuredHeightCm()));
+                    existing.setMeasuredVolumeCbm(firstValue(measuredVolumeCbm, existing.getMeasuredVolumeCbm()));
+                    existing.setPackageStatus(firstText(packageStatus, existing.getPackageStatus()));
+                    existing.setLogisticsStatus(firstText(logisticsStatus, existing.getLogisticsStatus()));
+                }
+                existing.setChargeableWeightKg(resolveChargeableWeight(
+                        existing.getChargeableWeightKg(),
+                        existing.getWeightKg(),
+                        existing.getVolumeWeightKg()
+                ));
+                existing.setUpdatedBy(operatorUserId);
+                mapper.updatePackage(existing);
+            }
             return existing;
         }
         PackageRow row = new PackageRow();
@@ -372,10 +574,43 @@ public class InTransitBatchService {
         row.setOwnerUserId(ownerUserId);
         row.setBatchId(batchId);
         row.setBoxNo(boxNo);
+        row.setExternalBoxNo(externalBoxNo);
+        row.setTrackingNo(trackingNo);
+        row.setWeightKg(weightKg);
+        row.setLengthCm(lengthCm);
+        row.setWidthCm(widthCm);
+        row.setHeightCm(heightCm);
+        row.setVolumeCbm(volumeCbm);
+        row.setVolumeWeightKg(volumeWeightKg);
+        row.setChargeableWeightKg(resolveChargeableWeight(chargeableWeightKg, weightKg, volumeWeightKg));
+        row.setMeasuredWeightKg(measuredWeightKg);
+        row.setMeasuredLengthCm(measuredLengthCm);
+        row.setMeasuredWidthCm(measuredWidthCm);
+        row.setMeasuredHeightCm(measuredHeightCm);
+        row.setMeasuredVolumeCbm(measuredVolumeCbm);
+        row.setPackageStatus(packageStatus);
+        row.setLogisticsStatus(logisticsStatus);
         row.setCreatedBy(operatorUserId);
         row.setUpdatedBy(operatorUserId);
         mapper.insertPackage(row);
         return row;
+    }
+
+    private BigDecimal resolveChargeableWeight(
+            BigDecimal explicitChargeableWeightKg,
+            BigDecimal weightKg,
+            BigDecimal volumeWeightKg
+    ) {
+        if (explicitChargeableWeightKg != null) {
+            return explicitChargeableWeightKg;
+        }
+        if (weightKg == null) {
+            return volumeWeightKg;
+        }
+        if (volumeWeightKg == null) {
+            return weightKg;
+        }
+        return weightKg.compareTo(volumeWeightKg) >= 0 ? weightKg : volumeWeightKg;
     }
 
     private void refreshBatchAggregate(Long ownerUserId, Long batchId) {
@@ -499,5 +734,9 @@ public class InTransitBatchService {
 
     private static String firstText(String first, String second) {
         return StringUtils.hasText(first) ? first : second;
+    }
+
+    private static <T> T firstValue(T first, T second) {
+        return first == null ? second : first;
     }
 }

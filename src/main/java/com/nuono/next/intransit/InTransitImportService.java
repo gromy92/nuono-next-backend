@@ -7,6 +7,7 @@ import com.nuono.next.intransit.InTransitBatchCommands.ConfirmImportCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.PreviewImportCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
 import com.nuono.next.intransit.InTransitBatchRecords.ImportBatchRow;
@@ -16,6 +17,7 @@ import com.nuono.next.intransit.InTransitBatchRecords.ImportPreviewIssueView;
 import com.nuono.next.intransit.InTransitBatchRecords.ImportPreviewLineView;
 import com.nuono.next.intransit.InTransitBatchRecords.ImportPreviewView;
 import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
+import com.nuono.next.intransit.InTransitBatchRecords.NodeRow;
 import com.nuono.next.intransit.InTransitForwarderCommands.ResolveForwarderCommand;
 import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderResolveView;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -55,76 +57,88 @@ public class InTransitImportService {
             "批次状态",
             "原始货代",
             "运输方式",
-            "目标店铺",
-            "目标站点",
-            "目标仓",
+            "目的地",
+            "店铺编码",
+            "站点",
+            "目的仓",
             "发货日期",
-            "ETA",
+            "预计到仓",
+            "国内收货日期",
+            "发往海外日期",
+            "完成清关日期",
+            "ET海外仓入库日期",
             "物流单号",
             "箱号",
             "柜号",
+            "PSKU",
             "SKU",
             "MSKU",
-            "PSKU",
             "商品名称",
             "发货数量",
             "已入仓数量",
             "箱数",
             "单箱数量",
             "单箱重量",
-            "单箱体积",
-            "备注"
+            "单箱体积"
     );
     private static final List<List<String>> TEMPLATE_SAMPLE_ROWS = List.of(
             List.of(
                     "TMP-INTRANSIT-SEA-001",
                     "运输中",
-                    "模板货代",
+                    "启客",
                     "海运",
+                    "DB",
                     "STR245027-NAE",
                     "AE",
                     "FBN-DXB",
                     "2026-06-01",
                     "2026-07-10",
+                    "2026-06-01",
+                    "2026-06-05",
+                    "2026-07-01",
+                    "2026-07-10",
                     "SEA-TEMPLATE-001",
                     "TMP-INTRANSIT-SEA-001-BOX-1",
                     "CONT-TEMPLATE-001",
+                    "PSKU-TEMPLATE-SEA-001",
                     "SKU-TEMPLATE-SEA-001",
                     "MSKU-TEMPLATE-SEA-001",
-                    "PSKU-TEMPLATE-SEA-001",
                     "海运模板商品",
                     "120",
                     "0",
                     "12",
                     "10",
                     "18.5",
-                    "0.42",
-                    "模板示例，正式导入前请替换为真实数据"
+                    "0.42"
             ),
             List.of(
                     "TMP-INTRANSIT-AIR-001",
                     "运输中",
-                    "模板货代",
+                    "义特",
                     "空运",
-                    "STR245027-NAE",
-                    "AE",
-                    "FBN-DXB",
+                    "RUH",
+                    "STR245027-NSA",
+                    "SA",
+                    "FBN-RUH",
                     "2026-06-05",
+                    "2026-06-15",
+                    "2026-06-05",
+                    "2026-06-06",
+                    "2026-06-12",
                     "2026-06-15",
                     "AIR-TEMPLATE-001",
                     "TMP-INTRANSIT-AIR-001-BOX-1",
                     "",
+                    "PSKU-TEMPLATE-AIR-001",
                     "SKU-TEMPLATE-AIR-001",
                     "MSKU-TEMPLATE-AIR-001",
-                    "PSKU-TEMPLATE-AIR-001",
                     "空运模板商品",
                     "40",
                     "0",
                     "4",
                     "10",
                     "6.2",
-                    "0.12",
-                    "模板示例，正式导入前请替换为真实数据"
+                    "0.12"
             )
     );
 
@@ -248,6 +262,7 @@ public class InTransitImportService {
         }
         int importedBatchCount = 0;
         int importedLineCount = 0;
+        int importedNodeCount = 0;
         for (ImportPreviewBatchView batch : preview.getBatches()) {
             requireImportBatchScope(resolved.getAccessContext(), batch);
             SaveBatchCommand batchCommand = new SaveBatchCommand();
@@ -265,13 +280,24 @@ public class InTransitImportService {
             batchCommand.setContainerNo(batch.getContainerNo());
             batchCommand.setBatchReferenceNo(batch.getBatchReferenceNo());
             batchCommand.setBatchStatus(defaultText(batch.getBatchStatus(), InTransitBatchStatus.IN_TRANSIT.code()));
-            batchCommand.setRemark(batch.getRemark());
             BatchRow existingBatch = findExistingBatch(ownerUserId, batch);
             if (existingBatch != null) {
                 batchCommand.setBatchId(existingBatch.getId());
             }
             BatchView savedBatch = batchService.saveBatch(batchCommand);
+            List<String> syncedBoxNos = syncedBoxNos(batch);
+            List<String> syncedLineKeys = syncedLineKeys(batch);
+            if (!syncedBoxNos.isEmpty() && !syncedLineKeys.isEmpty()) {
+                batchService.reconcileSyncedDetails(
+                        ownerUserId,
+                        resolved.getOperatorUserId(),
+                        savedBatch.getBatchId(),
+                        syncedBoxNos,
+                        syncedLineKeys
+                );
+            }
             importedBatchCount++;
+            importedNodeCount += saveImportedMilestoneNodes(ownerUserId, resolved.getOperatorUserId(), savedBatch.getBatchId(), batch);
             for (ImportPreviewLineView line : batch.getLines()) {
                 SaveLineCommand lineCommand = new SaveLineCommand();
                 lineCommand.setOwnerUserId(ownerUserId);
@@ -286,15 +312,14 @@ public class InTransitImportService {
                 lineCommand.setMsku(line.getMsku());
                 lineCommand.setPsku(line.getPsku());
                 lineCommand.setProductName(line.getProductName());
-                lineCommand.setStoreCode(defaultText(line.getStoreCode(), batch.getTargetStoreCode()));
-                lineCommand.setSiteCode(defaultText(line.getSiteCode(), batch.getTargetSiteCode()));
+                lineCommand.setStoreCode(line.getStoreCode());
+                lineCommand.setSiteCode(line.getSiteCode());
                 lineCommand.setShippedQuantity(line.getShippedQuantity());
                 lineCommand.setReceivedQuantity(line.getReceivedQuantity());
                 lineCommand.setCartonCount(line.getCartonCount());
                 lineCommand.setUnitsPerCarton(line.getUnitsPerCarton());
                 lineCommand.setCartonWeightKg(line.getCartonWeightKg());
                 lineCommand.setCartonVolumeCbm(line.getCartonVolumeCbm());
-                lineCommand.setRemark(line.getRemark());
                 batchService.saveLine(lineCommand);
                 importedLineCount++;
             }
@@ -305,9 +330,11 @@ public class InTransitImportService {
         view.setStatus("imported");
         view.setImportedBatchCount(importedBatchCount);
         view.setImportedLineCount(importedLineCount);
+        view.setImportedNodeCount(importedNodeCount);
         mapper.markImportBatchImported(ownerUserId, importBatchId, resolved.getOperatorUserId(), writeJson(Map.of(
                 "importedBatchCount", importedBatchCount,
-                "importedLineCount", importedLineCount
+                "importedLineCount", importedLineCount,
+                "importedNodeCount", importedNodeCount
         )));
         audit(
                 ownerUserId,
@@ -318,7 +345,7 @@ public class InTransitImportService {
                 null,
                 null,
                 "历史在途导入已确认。",
-                detail("importedBatchCount", importedBatchCount, "importedLineCount", importedLineCount)
+                detail("importedBatchCount", importedBatchCount, "importedLineCount", importedLineCount, "importedNodeCount", importedNodeCount)
         );
         return view;
     }
@@ -331,10 +358,33 @@ public class InTransitImportService {
     }
 
     private LineRow findExistingLine(Long ownerUserId, Long batchId, ImportPreviewLineView line) {
-        if (batchId == null || line == null || !StringUtils.hasText(line.getBoxNo()) || !StringUtils.hasText(line.getSku())) {
+        if (batchId == null || line == null || !StringUtils.hasText(line.getBoxNo()) || !StringUtils.hasText(line.getPsku())) {
             return null;
         }
-        return mapper.selectLineByBoxNoAndSku(ownerUserId, batchId, line.getBoxNo(), line.getSku());
+        return mapper.selectLineByBoxNoAndPsku(ownerUserId, batchId, line.getBoxNo(), line.getPsku());
+    }
+
+    private List<String> syncedBoxNos(ImportPreviewBatchView batch) {
+        LinkedHashMap<String, Boolean> values = new LinkedHashMap<>();
+        for (ImportPreviewLineView line : batch.getLines()) {
+            String boxNo = clean(line.getBoxNo());
+            if (StringUtils.hasText(boxNo)) {
+                values.put(boxNo, Boolean.TRUE);
+            }
+        }
+        return new ArrayList<>(values.keySet());
+    }
+
+    private List<String> syncedLineKeys(ImportPreviewBatchView batch) {
+        LinkedHashMap<String, Boolean> values = new LinkedHashMap<>();
+        for (ImportPreviewLineView line : batch.getLines()) {
+            String boxNo = clean(line.getBoxNo());
+            String psku = clean(line.getPsku());
+            if (StringUtils.hasText(boxNo) && StringUtils.hasText(psku)) {
+                values.put(boxNo + "\n" + psku, Boolean.TRUE);
+            }
+        }
+        return new ArrayList<>(values.keySet());
     }
 
     private ImportPreviewBatchView buildBatch(
@@ -348,14 +398,25 @@ public class InTransitImportService {
         batch.setBatchReferenceNo(clean(row.value("batchReferenceNo")));
         batch.setBatchStatus(parseBatchStatus(row.value("batchStatus")));
         batch.setRawForwarderName(clean(row.value("rawForwarderName")));
-        batch.setTargetStoreCode(clean(row.value("targetStoreCode")));
-        batch.setTargetSiteCode(clean(row.value("targetSiteCode")));
+        InTransitDestination destination = InTransitDestination.infer(
+                row.value("targetStoreCode"),
+                row.value("targetWarehouseName"),
+                row.value("batchReferenceNo"),
+                row.value("trackingNo"),
+                row.value("containerNo")
+        );
+        batch.setTargetStoreCode(destination == null ? null : destination.code());
+        batch.setTargetSiteCode(null);
         batch.setTargetWarehouseName(clean(row.value("targetWarehouseName")));
-        batch.setDepartureDate(parseDate(row.value("departureDate")));
+        LocalDate outboundAt = parseDate(row.value("outboundAt"));
+        batch.setDepartureDate(firstDate(parseDate(row.value("departureDate")), outboundAt));
         batch.setEtaDate(parseDate(row.value("etaDate")));
+        batch.setDomesticReceivedAt(parseDate(row.value("domesticReceivedAt")));
+        batch.setOutboundAt(outboundAt);
+        batch.setCustomsReleasedAt(parseDate(row.value("customsReleasedAt")));
+        batch.setEtWarehouseReceivedAt(parseDate(row.value("etWarehouseReceivedAt")));
         batch.setTrackingNo(clean(row.value("trackingNo")));
         batch.setContainerNo(clean(row.value("containerNo")));
-        batch.setRemark(clean(row.value("remark")));
 
         String transportMode = parseTransportMode(row.value("transportMode"));
         batch.setTransportMode(transportMode);
@@ -363,24 +424,81 @@ public class InTransitImportService {
         return batch;
     }
 
+    private int saveImportedMilestoneNodes(
+            Long ownerUserId,
+            Long operatorUserId,
+            Long batchId,
+            ImportPreviewBatchView batch
+    ) {
+        int imported = 0;
+        imported += saveImportedMilestoneNode(ownerUserId, operatorUserId, batchId, batch.getDomesticReceivedAt(),
+                InTransitNodeStatus.HANDED_TO_FORWARDER.code(), "国内收货");
+        imported += saveImportedMilestoneNode(ownerUserId, operatorUserId, batchId, batch.getOutboundAt(),
+                InTransitNodeStatus.DEPARTED_ORIGIN.code(), "发往海外");
+        imported += saveImportedMilestoneNode(ownerUserId, operatorUserId, batchId, batch.getCustomsReleasedAt(),
+                InTransitNodeStatus.CUSTOMS_RELEASED.code(), "完成清关");
+        imported += saveImportedMilestoneNode(ownerUserId, operatorUserId, batchId, batch.getEtWarehouseReceivedAt(),
+                InTransitNodeStatus.WAREHOUSE_RECEIVED.code(), "ET海外仓入库");
+        return imported;
+    }
+
+    private int saveImportedMilestoneNode(
+            Long ownerUserId,
+            Long operatorUserId,
+            Long batchId,
+            LocalDate date,
+            String nodeStatus,
+            String description
+    ) {
+        if (date == null) {
+            return 0;
+        }
+        NodeRow existing = mapper.selectNodeByStatusDescriptionAndHappenedAt(
+                ownerUserId,
+                batchId,
+                nodeStatus,
+                date.atStartOfDay(),
+                description
+        );
+        if (existing != null) {
+            return 0;
+        }
+        SaveNodeCommand command = new SaveNodeCommand();
+        command.setOwnerUserId(ownerUserId);
+        command.setOperatorUserId(operatorUserId);
+        command.setBatchId(batchId);
+        command.setNodeStatus(nodeStatus);
+        command.setNodeHappenedAt(date.atStartOfDay());
+        command.setDescription(description);
+        command.setOperatorName("导入");
+        batchService.saveNode(command);
+        return 1;
+    }
+
     private void addRowBatchIssues(BusinessAccessContext context, ImportRowDraft row, List<ImportPreviewIssueView> rowIssues) {
         if (parseTransportMode(row.value("transportMode")) == null) {
             rowIssues.add(issue("error", "transport_mode_invalid", "运输方式只支持海运或空运。", row.rowNumber, "transportMode"));
         }
+        if (StringUtils.hasText(row.value("targetStoreCode"))
+                && InTransitDestination.infer(row.value("targetStoreCode")) == null) {
+            rowIssues.add(issue("error", "destination_invalid", "目的地只支持 RUH 利雅得或 DB 迪拜。", row.rowNumber, "targetStoreCode"));
+        }
         if (StringUtils.hasText(row.value("batchStatus")) && parseBatchStatus(row.value("batchStatus")) == null) {
             rowIssues.add(issue("error", "batch_status_invalid", "批次状态不支持自由文本。", row.rowNumber, "batchStatus"));
         }
-        if (!StringUtils.hasText(row.value("targetSiteCode"))) {
-            rowIssues.add(issue("error", "target_site_missing", "缺少目标站点。", row.rowNumber, "targetSiteCode"));
+        String lineStoreCode = resolveLineStoreCode(row);
+        String lineSiteCode = firstText(row.value("siteCode"), row.value("targetSiteCode"));
+        if (StringUtils.hasText(lineStoreCode) && !StringUtils.hasText(lineSiteCode)) {
+            rowIssues.add(issue("error", "target_site_missing", "缺少目的站点。", row.rowNumber, "targetSiteCode"));
         }
         if (!StringUtils.hasText(row.value("targetWarehouseName"))) {
-            rowIssues.add(issue("error", "target_warehouse_missing", "缺少目标仓。", row.rowNumber, "targetWarehouseName"));
+            rowIssues.add(issue("error", "target_warehouse_missing", "缺少目的仓。", row.rowNumber, "targetWarehouseName"));
         }
-        if (context != null && StringUtils.hasText(row.value("targetStoreCode")) && StringUtils.hasText(row.value("targetSiteCode"))) {
+        if (context != null && StringUtils.hasText(lineStoreCode) && StringUtils.hasText(lineSiteCode)) {
             try {
-                accessScopeService.requireWritableStoreSite(context, row.value("targetStoreCode"), row.value("targetSiteCode"));
+                accessScopeService.requireWritableStoreSite(context, lineStoreCode, lineSiteCode);
             } catch (BusinessAccessDeniedException exception) {
-                rowIssues.add(issue("error", "store_site_forbidden", exception.getMessage(), row.rowNumber, "targetStoreCode"));
+                rowIssues.add(issue("error", "store_site_forbidden", exception.getMessage(), row.rowNumber, "storeCode"));
             }
         }
     }
@@ -393,17 +511,19 @@ public class InTransitImportService {
         line.setMsku(clean(row.value("msku")));
         line.setPsku(clean(row.value("psku")));
         line.setProductName(clean(row.value("productName")));
-        line.setStoreCode(clean(row.value("targetStoreCode")));
-        line.setSiteCode(clean(row.value("targetSiteCode")));
+        line.setStoreCode(resolveLineStoreCode(row));
+        line.setSiteCode(firstText(row.value("siteCode"), row.value("targetSiteCode")));
         line.setShippedQuantity(parseInteger(row.value("shippedQuantity")));
         line.setReceivedQuantity(parseInteger(row.value("receivedQuantity")));
         line.setCartonCount(parseInteger(row.value("cartonCount")));
         line.setUnitsPerCarton(parseInteger(row.value("unitsPerCarton")));
         line.setCartonWeightKg(parseDecimal(row.value("cartonWeightKg")));
         line.setCartonVolumeCbm(parseDecimal(row.value("cartonVolumeCbm")));
-        line.setRemark(clean(row.value("remark")));
-        if (!StringUtils.hasText(line.getSku())) {
-            rowIssues.add(issue("error", "sku_missing", "缺少 SKU。", row.rowNumber, "sku"));
+        if (!StringUtils.hasText(line.getBoxNo())) {
+            rowIssues.add(issue("error", "box_no_missing", "缺少箱号。", row.rowNumber, "boxNo"));
+        }
+        if (!StringUtils.hasText(line.getPsku())) {
+            rowIssues.add(issue("error", "psku_missing", "缺少 PSKU。", row.rowNumber, "psku"));
         }
         if (!StringUtils.hasText(row.value("shippedQuantity"))) {
             rowIssues.add(issue("error", "shipped_quantity_missing", "缺少发货数量。", row.rowNumber, "shippedQuantity"));
@@ -596,7 +716,9 @@ public class InTransitImportService {
         if (context == null || batch == null) {
             return;
         }
-        accessScopeService.requireWritableStoreSite(context, batch.getTargetStoreCode(), batch.getTargetSiteCode());
+        for (ImportPreviewLineView line : batch.getLines()) {
+            accessScopeService.requireWritableStoreSite(context, line.getStoreCode(), line.getSiteCode());
+        }
     }
 
     private void audit(
@@ -700,7 +822,27 @@ public class InTransitImportService {
         if (!StringUtils.hasText(value)) {
             return null;
         }
-        return LocalDate.parse(value.trim());
+        String normalized = value.trim().replace("/", "-");
+        int spaceIndex = normalized.indexOf(' ');
+        if (spaceIndex > 0) {
+            normalized = normalized.substring(0, spaceIndex);
+        }
+        int dateTimeIndex = normalized.indexOf('T');
+        if (dateTimeIndex > 0) {
+            normalized = normalized.substring(0, dateTimeIndex);
+        }
+        String[] parts = normalized.split("-");
+        if (parts.length == 3) {
+            try {
+                int year = Integer.parseInt(parts[0]);
+                int month = Integer.parseInt(parts[1]);
+                int day = Integer.parseInt(parts[2]);
+                return LocalDate.of(year < 100 ? 2000 + year : year, month, day);
+            } catch (RuntimeException ignored) {
+                return LocalDate.parse(normalized);
+            }
+        }
+        return LocalDate.parse(normalized);
     }
 
     private static Integer parseInteger(String value) {
@@ -740,6 +882,15 @@ public class InTransitImportService {
         return null;
     }
 
+    private static LocalDate firstDate(LocalDate... values) {
+        for (LocalDate value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
     private static String extension(String fileName) {
         if (!StringUtils.hasText(fileName) || !fileName.contains(".")) {
             return "csv";
@@ -755,6 +906,22 @@ public class InTransitImportService {
         return StringUtils.hasText(value) ? value : fallback;
     }
 
+    private static String resolveLineStoreCode(ImportRowDraft row) {
+        String explicit = firstText(row.value("storeCode"));
+        if (StringUtils.hasText(explicit)) {
+            return explicit;
+        }
+        String legacyTarget = row.value("targetStoreCode");
+        if (!StringUtils.hasText(legacyTarget)) {
+            return null;
+        }
+        String normalized = legacyTarget.trim().toUpperCase(Locale.ROOT);
+        if (normalized.startsWith("STR") || normalized.startsWith("STORE")) {
+            return legacyTarget.trim();
+        }
+        return null;
+    }
+
     private static String normalizeHeader(String value) {
         return StringUtils.hasText(value)
                 ? value.trim().toLowerCase(Locale.ROOT).replace("_", "").replace(" ", "")
@@ -767,11 +934,17 @@ public class InTransitImportService {
         alias(aliases, "batchStatus", "批次状态", "当前状态", "batchStatus");
         alias(aliases, "rawForwarderName", "原始货代", "货代", "rawForwarderName", "forwarder");
         alias(aliases, "transportMode", "运输方式", "transportMode", "mode");
-        alias(aliases, "targetStoreCode", "目标店铺", "店铺", "targetStoreCode", "storeCode");
-        alias(aliases, "targetSiteCode", "目标站点", "站点", "targetSiteCode", "siteCode");
-        alias(aliases, "targetWarehouseName", "目标仓", "仓库", "targetWarehouseName", "warehouse");
+        alias(aliases, "targetStoreCode", "目的地编码", "目的地", "目标店铺", "targetStoreCode", "destination");
+        alias(aliases, "storeCode", "店铺编码", "店铺", "storeCode", "shopCode");
+        alias(aliases, "targetSiteCode", "目的站点", "目标站点", "targetSiteCode");
+        alias(aliases, "siteCode", "站点", "店铺站点", "siteCode");
+        alias(aliases, "targetWarehouseName", "目的仓", "目标仓", "仓库", "targetWarehouseName", "warehouse");
         alias(aliases, "departureDate", "发货日期", "departureDate");
-        alias(aliases, "etaDate", "ETA", "etaDate");
+        alias(aliases, "etaDate", "预计到仓", "到仓日期", "ETA", "etaDate");
+        alias(aliases, "domesticReceivedAt", "国内收货日期", "国内收货", "domesticReceivedAt");
+        alias(aliases, "outboundAt", "发往海外日期", "发往海外", "outboundAt");
+        alias(aliases, "customsReleasedAt", "完成清关日期", "完成清关", "customsReleasedAt");
+        alias(aliases, "etWarehouseReceivedAt", "ET海外仓入库日期", "ET海外仓入库", "warehouseReceivedAt", "etWarehouseReceivedAt");
         alias(aliases, "trackingNo", "物流单号", "trackingNo");
         alias(aliases, "boxNo", "箱号", "boxNo", "packageNo", "包裹号");
         alias(aliases, "containerNo", "柜号", "containerNo");
@@ -785,7 +958,6 @@ public class InTransitImportService {
         alias(aliases, "unitsPerCarton", "单箱数量", "unitsPerCarton");
         alias(aliases, "cartonWeightKg", "单箱重量", "cartonWeightKg");
         alias(aliases, "cartonVolumeCbm", "单箱体积", "cartonVolumeCbm");
-        alias(aliases, "remark", "备注", "remark");
         return aliases;
     }
 

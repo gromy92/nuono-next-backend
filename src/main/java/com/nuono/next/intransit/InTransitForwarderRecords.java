@@ -309,6 +309,17 @@ public final class InTransitForwarderRecords {
             return view;
         }
 
+        public static ForwarderResolveView matched(ForwarderRow row, String rawForwarderName, String normalizedRawForwarderName) {
+            ForwarderResolveView view = new ForwarderResolveView();
+            view.setQualityStatus(InTransitQualityStatus.FORWARDER_MATCHED.code());
+            view.setRawForwarderName(rawForwarderName);
+            view.setNormalizedRawForwarderName(normalizedRawForwarderName);
+            view.setStandardForwarderId(row.getId());
+            view.setStandardForwarderCode(row.getForwarderCode());
+            view.setStandardForwarderName(row.getForwarderName());
+            return view;
+        }
+
         public static ForwarderResolveView unmatched(String rawForwarderName, String normalizedRawForwarderName) {
             ForwarderResolveView view = new ForwarderResolveView();
             view.setQualityStatus(InTransitQualityStatus.FORWARDER_UNMATCHED.code());

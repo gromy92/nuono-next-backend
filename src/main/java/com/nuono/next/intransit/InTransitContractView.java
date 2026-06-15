@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 public class InTransitContractView {
 
     private List<InTransitEnumOptionView> transportModes;
+    private List<InTransitEnumOptionView> destinations;
     private List<InTransitEnumOptionView> batchStatuses;
     private List<InTransitEnumOptionView> nodeStatuses;
     private List<InTransitEnumOptionView> qualityStatuses;
@@ -18,6 +19,9 @@ public class InTransitContractView {
         InTransitContractView view = new InTransitContractView();
         view.setTransportModes(Arrays.stream(InTransitTransportMode.values())
                 .map(mode -> new InTransitEnumOptionView(mode.code(), mode.label()))
+                .collect(Collectors.toList()));
+        view.setDestinations(Arrays.stream(InTransitDestination.values())
+                .map(destination -> new InTransitEnumOptionView(destination.code(), destination.label()))
                 .collect(Collectors.toList()));
         view.setBatchStatuses(Arrays.stream(InTransitBatchStatus.values())
                 .map(status -> new InTransitEnumOptionView(status.code(), status.label()))
@@ -39,12 +43,26 @@ public class InTransitContractView {
                 : transportModes.stream().map(InTransitEnumOptionView::getCode).collect(Collectors.toList());
     }
 
+    public List<String> destinationCodes() {
+        return destinations == null
+                ? Collections.emptyList()
+                : destinations.stream().map(InTransitEnumOptionView::getCode).collect(Collectors.toList());
+    }
+
     public List<InTransitEnumOptionView> getTransportModes() {
         return transportModes;
     }
 
     public void setTransportModes(List<InTransitEnumOptionView> transportModes) {
         this.transportModes = transportModes;
+    }
+
+    public List<InTransitEnumOptionView> getDestinations() {
+        return destinations;
+    }
+
+    public void setDestinations(List<InTransitEnumOptionView> destinations) {
+        this.destinations = destinations;
     }
 
     public List<InTransitEnumOptionView> getBatchStatuses() {
