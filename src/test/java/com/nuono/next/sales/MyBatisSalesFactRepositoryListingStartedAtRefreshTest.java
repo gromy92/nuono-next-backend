@@ -67,6 +67,34 @@ class MyBatisSalesFactRepositoryListingStartedAtRefreshTest {
         );
     }
 
+    @Test
+    void emptyReportMarksSiteOffersAsNotListed() throws Exception {
+        SalesDataMapper salesDataMapper = mock(SalesDataMapper.class);
+        ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
+        Constructor<MyBatisSalesFactRepository> constructor = MyBatisSalesFactRepository.class.getConstructor(
+                SalesDataMapper.class,
+                ProductManagementMapper.class
+        );
+        MyBatisSalesFactRepository repository = constructor.newInstance(salesDataMapper, productManagementMapper);
+
+        repository.markSiteOffersNotListedForEmptyReport(307L, "STR245027-NSA", "SA", 307L);
+
+        Method method = ProductManagementMapper.class.getMethod(
+                "markSiteProductOffersNotListedForEmptySalesReport",
+                Long.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        method.invoke(
+                verify(productManagementMapper),
+                eq(307L),
+                eq("STR245027-NSA"),
+                eq("SA"),
+                eq(307L)
+        );
+    }
+
     private void verifyRefreshCall(
             ProductManagementMapper productManagementMapper,
             Long ownerUserId,

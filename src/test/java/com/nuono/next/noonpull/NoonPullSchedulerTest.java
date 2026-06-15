@@ -298,6 +298,40 @@ class NoonPullSchedulerTest {
     }
 
     @Test
+    void shouldRecoverStaleQueuedTaskBeforeScanningDuePlans() {
+        NoonPullPlanRecord plan = createPlan(NoonPullType.REPORT, NoonPullDataDomain.ORDER, NoonPullTriggerMode.GAP_BACKFILL,
+                "backfill:2026-05-01..2026-05-05;maxDays=5;maxWindows=1");
+        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("orders:2026-05-01..2026-05-05")
+                .targetDateFrom(LocalDate.of(2026, 5, 1))
+                .targetDateTo(LocalDate.of(2026, 5, 5))
+                .build()).orElseThrow();
+        task.setQueuedAt(LocalDateTime.of(2026, 5, 21, 20, 0));
+        repository.updateTask(task);
+
+        NoonPullSchedulerResult result = scheduler().runDuePlans();
+
+        NoonPullTaskRecord recovered = repository.selectTask(task.getId());
+        assertEquals(NoonPullTaskStatus.FAILED, recovered.getStatus());
+        assertEquals("timeout", recovered.getFailureType());
+        assertEquals(Boolean.TRUE, recovered.getRetryable());
+        assertTrue(recovered.getDiagnosticSummary().contains("stale queued task"));
+        assertEquals(1, result.getCreatedTaskCount());
+        NoonPullTaskRecord reopened = repository.listTasks().stream()
+                .filter((candidate) -> !candidate.getId().equals(task.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(NoonPullTaskStatus.QUEUED, reopened.getStatus());
+        assertEquals("orders:2026-05-01..2026-05-05", reopened.getTargetIdentity());
+    }
+
+    @Test
     void shouldLeaveFreshRunningAndTerminalTasksUntouchedDuringStaleRecovery() {
         NoonPullPlanRecord plan = createPlan(NoonPullType.REPORT, NoonPullDataDomain.ORDER, NoonPullTriggerMode.GAP_BACKFILL,
                 "backfill:2026-05-01..2026-05-10;maxDays=5;maxWindows=2");

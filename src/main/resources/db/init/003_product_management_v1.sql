@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS `product_master` (
     `sku_parent` VARCHAR(100) NOT NULL,
     `brand_cache` VARCHAR(200) DEFAULT NULL,
     `title_cache` VARCHAR(500) DEFAULT NULL,
+    `title_cn_cache` VARCHAR(500) DEFAULT NULL,
     `product_fulltype_cache` VARCHAR(200) DEFAULT NULL,
     `cover_image_url` VARCHAR(1000) DEFAULT NULL,
     `group_ref` VARCHAR(200) DEFAULT NULL,
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS `product_master` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_product_master_store_sku_parent` (`logical_store_id`, `sku_parent`),
     KEY `idx_product_master_sync_status` (`sync_status`),
+    KEY `idx_product_master_title_cn_cache` (`title_cn_cache`(191)),
     KEY `idx_product_master_last_synced_at` (`last_synced_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

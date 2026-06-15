@@ -556,7 +556,6 @@ public class ProductProjectionPersistenceService {
         List<ProductListSummaryView> summaries = new ArrayList<>();
         for (ProductListProjectionRecord record : loadProductListProjection(ownerUserId, storeCode, warnings)) {
             ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode));
-            hydrateHistoryMeta(summary, ownerUserId, normalize(storeCode));
             summaries.add(summary);
         }
         return summaries;
@@ -1254,26 +1253,39 @@ public class ProductProjectionPersistenceService {
         }
         List<String> activeStoreCodes = new ArrayList<>();
         for (SiteSeed siteSeed : siteSeeds) {
-            if (!StringUtils.hasText(siteSeed.getStoreCode())) {
+            String storeCode = normalize(siteSeed.getStoreCode());
+            if (!StringUtils.hasText(storeCode)) {
                 continue;
             }
-            activeStoreCodes.add(normalize(siteSeed.getStoreCode()));
-            Long existingId = productManagementMapper.selectLogicalStoreSiteId(normalize(siteSeed.getStoreCode()));
+            Long ownerLogicalStoreId = productManagementMapper.selectLogicalStoreIdBySiteStoreCode(storeCode);
+            if (ownerLogicalStoreId != null && !Objects.equals(ownerLogicalStoreId, logicalStoreId)) {
+                throw new IllegalStateException(
+                        "站点编码 "
+                                + storeCode
+                                + " 已归属于其他逻辑店铺 "
+                                + ownerLogicalStoreId
+                                + "，不能写入当前逻辑店铺 "
+                                + logicalStoreId
+                                + "。"
+                );
+            }
+            activeStoreCodes.add(storeCode);
+            Long existingId = productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(logicalStoreId, storeCode);
             Long id = existingId != null ? existingId : productManagementMapper.nextLogicalStoreSiteId();
             productManagementMapper.upsertLogicalStoreSite(
                     id,
                     logicalStoreId,
-                    normalize(siteSeed.getStoreCode()),
+                    storeCode,
                     normalize(siteSeed.getSite()),
                     normalize(referenceStoreCode) != null
-                            && normalize(referenceStoreCode).equalsIgnoreCase(normalize(siteSeed.getStoreCode())),
+                            && normalize(referenceStoreCode).equalsIgnoreCase(storeCode),
                     siteSeed.isMounted(),
                     normalize(siteSeed.getSiteStatus()),
                     updatedBy
             );
-            Long siteId = productManagementMapper.selectLogicalStoreSiteId(normalize(siteSeed.getStoreCode()));
+            Long siteId = productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(logicalStoreId, storeCode);
             if (siteId != null) {
-                siteIdMap.put(normalize(siteSeed.getStoreCode()), siteId);
+                siteIdMap.put(storeCode, siteId);
             }
         }
         if (!activeStoreCodes.isEmpty()) {
@@ -1502,6 +1514,7 @@ public class ProductProjectionPersistenceService {
         view.setPskuCode(record.getPskuCode());
         view.setOfferCode(record.getOfferCode());
         view.setTitle(record.getTitle());
+        view.setTitleCn(record.getTitleCn());
         view.setBrand(record.getBrand());
         view.setImageUrl(record.getImageUrl());
         view.setBarcode(record.getBarcode());

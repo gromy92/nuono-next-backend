@@ -170,6 +170,26 @@ public interface ProductManagementMapper {
     })
     Long selectLogicalStoreSiteId(@Param("storeCode") String storeCode);
 
+    @Select({
+            "SELECT id",
+            "FROM logical_store_site",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND BINARY store_code = BINARY #{storeCode}",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreSiteIdInLogicalStore(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("storeCode") String storeCode
+    );
+
+    @Select({
+            "SELECT logical_store_id",
+            "FROM logical_store_site",
+            "WHERE BINARY store_code = BINARY #{storeCode}",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreIdBySiteStoreCode(@Param("storeCode") String storeCode);
+
     @Update({
             "<script>",
             "UPDATE logical_store_site",
@@ -824,6 +844,7 @@ public interface ProductManagementMapper {
             "    MAX(pso.offer_code)",
             "  ) AS offerCode,",
             "  pm.title_cache AS title,",
+            "  pm.title_cn_cache AS titleCn,",
             "  pm.brand_cache AS brand,",
             "  pm.cover_image_url AS imageUrl,",
             "  (",
@@ -1001,7 +1022,7 @@ public interface ProductManagementMapper {
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "ORDER BY pm.gmt_updated DESC, pm.id DESC"
@@ -1025,6 +1046,7 @@ public interface ProductManagementMapper {
             "    MAX(pso.offer_code)",
             "  ) AS offerCode,",
             "  pm.title_cache AS title,",
+            "  pm.title_cn_cache AS titleCn,",
             "  pm.brand_cache AS brand,",
             "  pm.cover_image_url AS imageUrl,",
             "  (",
@@ -1203,7 +1225,7 @@ public interface ProductManagementMapper {
             "  AND ls.is_deleted = 0",
             "  AND pm.sku_parent = #{skuParent}",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "LIMIT 1"
@@ -1266,75 +1288,6 @@ public interface ProductManagementMapper {
     );
 
     @Select({
-            "<script>",
-            "SELECT",
-            "  pm.brand_cache AS value,",
-            "  pm.brand_cache AS label,",
-            "  COUNT(*) AS usageCount",
-            "FROM logical_store ls",
-            "JOIN product_master pm",
-            "  ON pm.logical_store_id = ls.id",
-            " AND pm.is_deleted = 0",
-            "WHERE ls.is_deleted = 0",
-            "  AND pm.brand_cache IS NOT NULL",
-            "  AND pm.brand_cache != ''",
-            "  <if test='query != null and query != \"\"'>",
-            "    AND pm.brand_cache LIKE CONCAT('%', #{query}, '%')",
-            "  </if>",
-            "GROUP BY pm.brand_cache",
-            "ORDER BY usageCount DESC, pm.brand_cache",
-            "LIMIT #{limit}",
-            "</script>"
-    })
-    List<ProductClassificationOptionRecord> selectBrandProjectionClassificationOptions(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("query") String query,
-            @Param("limit") int limit
-    );
-
-    @Select({
-            "<script>",
-            "SELECT",
-            "  pm.product_fulltype_cache AS value,",
-            "  pm.product_fulltype_cache AS label,",
-            "  SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 1) AS family,",
-            "  CASE",
-            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
-            "      SUBSTRING_INDEX(SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 2), '-', -1)",
-            "    WHEN pm.product_fulltype_cache LIKE '%-%' THEN",
-            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
-            "    ELSE NULL",
-            "  END AS productType,",
-            "  CASE",
-            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
-            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
-            "    ELSE NULL",
-            "  END AS productSubtype,",
-            "  COUNT(*) AS usageCount",
-            "FROM logical_store ls",
-            "JOIN product_master pm",
-            "  ON pm.logical_store_id = ls.id",
-            " AND pm.is_deleted = 0",
-            "WHERE ls.is_deleted = 0",
-            "  AND pm.product_fulltype_cache IS NOT NULL",
-            "  AND pm.product_fulltype_cache != ''",
-            "  <if test='query != null and query != \"\"'>",
-            "    AND pm.product_fulltype_cache LIKE CONCAT('%', #{query}, '%')",
-            "  </if>",
-            "GROUP BY pm.product_fulltype_cache",
-            "ORDER BY usageCount DESC, pm.product_fulltype_cache",
-            "LIMIT #{limit}",
-            "</script>"
-    })
-    List<ProductClassificationOptionRecord> selectFulltypeProjectionClassificationOptions(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("query") String query,
-            @Param("limit") int limit
-    );
-
-    @Select({
             "SELECT",
             "  pm.sku_parent AS skuParent,",
             "  pm.brand_cache AS brand,",
@@ -1374,6 +1327,7 @@ public interface ProductManagementMapper {
             "    MAX(pso.offer_code)",
             "  ) AS offerCode,",
             "  pm.title_cache AS title,",
+            "  pm.title_cn_cache AS titleCn,",
             "  pm.brand_cache AS brand,",
             "  pm.cover_image_url AS imageUrl,",
             "  (",
@@ -1491,6 +1445,7 @@ public interface ProductManagementMapper {
             "    AND (",
             "      pm.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.title_cache LIKE CONCAT('%', #{keyword}, '%')",
+            "      OR pm.title_cn_cache LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.brand_cache LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pv.partner_sku LIKE CONCAT('%', #{keyword}, '%')",
             "    )",
@@ -1510,7 +1465,7 @@ public interface ProductManagementMapper {
             "    )",
             "  </if>",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "ORDER BY",
@@ -2334,18 +2289,16 @@ public interface ProductManagementMapper {
             "JOIN logical_store ls",
             "  ON ls.id = lss.logical_store_id",
             " AND ls.is_deleted = 0",
+            " AND pm.logical_store_id = ls.id",
             "SET pso.listing_started_at = CASE",
-            "      WHEN (",
-            "        SELECT COUNT(1)",
+            "      WHEN NOT EXISTS (",
+            "        SELECT 1",
             "        FROM daily_sales_fact dsf",
             "        WHERE dsf.owner_user_id = ls.owner_user_id",
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
-            "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "          )",
-            "      ) = 0 THEN NULL",
+            "        LIMIT 1",
+            "      ) THEN NULL",
             "      WHEN (",
             "        SELECT MIN(dsf.fact_date)",
             "        FROM daily_sales_fact dsf",
@@ -2396,17 +2349,14 @@ public interface ProductManagementMapper {
             "      ELSE NULL",
             "    END,",
             "    pso.listing_started_source = CASE",
-            "      WHEN (",
-            "        SELECT COUNT(1)",
+            "      WHEN NOT EXISTS (",
+            "        SELECT 1",
             "        FROM daily_sales_fact dsf",
             "        WHERE dsf.owner_user_id = ls.owner_user_id",
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
-            "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "          )",
-            "      ) = 0 THEN 'data_missing'",
+            "        LIMIT 1",
+            "      ) THEN 'data_missing'",
             "      WHEN (",
             "        SELECT MIN(dsf.fact_date)",
             "        FROM daily_sales_fact dsf",
@@ -2439,7 +2389,7 @@ public interface ProductManagementMapper {
             "WHERE pso.id = #{productSiteOfferId}",
             "  AND pso.is_deleted = 0",
             "  AND pso.listing_started_at IS NULL",
-            "  AND pso.listing_started_source IS NULL"
+            "  AND (pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed'))"
     })
     int backfillProductSiteOfferListingStartedAtById(
             @Param("productSiteOfferId") Long productSiteOfferId,
@@ -2461,6 +2411,18 @@ public interface ProductManagementMapper {
             "JOIN logical_store ls",
             "  ON ls.id = lss.logical_store_id",
             " AND ls.is_deleted = 0",
+            " AND pm.logical_store_id = ls.id",
+            "LEFT JOIN (",
+            "  SELECT dsf.owner_user_id, dsf.store_code, dsf.site_code, COUNT(1) AS site_fact_row_count",
+            "  FROM daily_sales_fact dsf",
+            "  WHERE dsf.owner_user_id = #{ownerUserId}",
+            "    AND dsf.store_code = #{storeCode}",
+            "    AND dsf.site_code = #{siteCode}",
+            "  GROUP BY dsf.owner_user_id, dsf.store_code, dsf.site_code",
+            ") site_fact_signal",
+            "  ON site_fact_signal.owner_user_id = ls.owner_user_id",
+            " AND site_fact_signal.store_code = lss.store_code",
+            " AND site_fact_signal.site_code = lss.site",
             "LEFT JOIN (",
             "  SELECT dsf.owner_user_id, dsf.store_code, dsf.site_code, MIN(dsf.fact_date) AS first_pv_date",
             "  FROM daily_sales_fact dsf",
@@ -2493,23 +2455,8 @@ public interface ProductManagementMapper {
             "  ON sales_signal.owner_user_id = ls.owner_user_id",
             " AND sales_signal.store_code = lss.store_code",
             " AND sales_signal.site_code = lss.site",
-            "LEFT JOIN (",
-            "  SELECT dsf.owner_user_id, dsf.store_code, dsf.site_code, COUNT(1) AS fact_row_count",
-            "  FROM daily_sales_fact dsf",
-            "  WHERE dsf.owner_user_id = #{ownerUserId}",
-            "    AND dsf.store_code = #{storeCode}",
-            "    AND dsf.site_code = #{siteCode}",
-            "    AND (",
-            "      NULLIF(dsf.partner_sku, '') IN (NULLIF(#{partnerSku}, ''), NULLIF(#{sku}, ''))",
-            "      OR NULLIF(dsf.sku, '') IN (NULLIF(#{partnerSku}, ''), NULLIF(#{sku}, ''))",
-            "    )",
-            "  GROUP BY dsf.owner_user_id, dsf.store_code, dsf.site_code",
-            ") fact_signal",
-            "  ON fact_signal.owner_user_id = ls.owner_user_id",
-            " AND fact_signal.store_code = lss.store_code",
-            " AND fact_signal.site_code = lss.site",
             "SET pso.listing_started_at = CASE",
-            "      WHEN COALESCE(fact_signal.fact_row_count, 0) = 0 THEN NULL",
+            "      WHEN COALESCE(site_fact_signal.site_fact_row_count, 0) = 0 THEN NULL",
             "      WHEN pv_signal.first_pv_date IS NOT NULL THEN CAST(pv_signal.first_pv_date AS DATETIME)",
             "      WHEN COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0) + COALESCE(pso.fbp_stock, 0) > 0 THEN",
             "        #{fallbackNow}",
@@ -2517,7 +2464,7 @@ public interface ProductManagementMapper {
             "      ELSE NULL",
             "    END,",
             "    pso.listing_started_source = CASE",
-            "      WHEN COALESCE(fact_signal.fact_row_count, 0) = 0 THEN 'data_missing'",
+            "      WHEN COALESCE(site_fact_signal.site_fact_row_count, 0) = 0 THEN 'data_missing'",
             "      WHEN pv_signal.first_pv_date IS NOT NULL THEN 'pv'",
             "      WHEN COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0) + COALESCE(pso.fbp_stock, 0) > 0 THEN 'inventory'",
             "      WHEN sales_signal.first_sales_date IS NOT NULL THEN 'sales'",
@@ -2530,7 +2477,7 @@ public interface ProductManagementMapper {
             "  AND lss.site = #{siteCode}",
             "  AND pso.is_deleted = 0",
             "  AND pso.listing_started_at IS NULL",
-            "  AND pso.listing_started_source IS NULL",
+            "  AND (pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed'))",
             "  AND (",
             "    NULLIF(#{partnerSku}, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
             "    OR NULLIF(#{sku}, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
@@ -2543,6 +2490,32 @@ public interface ProductManagementMapper {
             @Param("partnerSku") String partnerSku,
             @Param("sku") String sku,
             @Param("fallbackNow") LocalDateTime fallbackNow,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_site_offer pso",
+            "JOIN logical_store_site lss",
+            "  ON lss.id = pso.site_id",
+            " AND lss.is_deleted = 0",
+            "JOIN logical_store ls",
+            "  ON ls.id = lss.logical_store_id",
+            " AND ls.is_deleted = 0",
+            "SET pso.listing_started_at = NULL,",
+            "    pso.listing_started_source = 'not_listed',",
+            "    pso.updated_by = #{updatedBy},",
+            "    pso.gmt_updated = NOW()",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND lss.store_code = #{storeCode}",
+            "  AND lss.site = #{siteCode}",
+            "  AND pso.is_deleted = 0",
+            "  AND pso.listing_started_at IS NULL",
+            "  AND (pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed'))"
+    })
+    int markSiteProductOffersNotListedForEmptySalesReport(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
             @Param("updatedBy") Long updatedBy
     );
 

@@ -82,6 +82,24 @@ public class MyBatisSalesFactRepository implements SalesFactRepository {
         return mapper.selectSalesImportExceptions(batchId);
     }
 
+    @Override
+    public void markSiteOffersNotListedForEmptyReport(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            Long updatedBy
+    ) {
+        if (productManagementMapper == null) {
+            return;
+        }
+        productManagementMapper.markSiteProductOffersNotListedForEmptySalesReport(
+                ownerUserId,
+                storeCode,
+                siteCode,
+                updatedBy
+        );
+    }
+
     private void refreshListingStartedAt(DailySalesFact fact) {
         if (productManagementMapper == null || fact == null) {
             return;

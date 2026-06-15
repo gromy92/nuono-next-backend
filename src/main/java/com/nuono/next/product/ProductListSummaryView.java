@@ -17,6 +17,7 @@ public class ProductListSummaryView {
     private String pskuCode;
     private String offerCode;
     private String title;
+    private String titleCn;
     private String brand;
     private String imageUrl;
     private List<String> galleryImages = new ArrayList<>();
@@ -148,6 +149,14 @@ public class ProductListSummaryView {
 
     public void setTitle(String title) {
         this.title = title;
+    }
+
+    public String getTitleCn() {
+        return titleCn;
+    }
+
+    public void setTitleCn(String titleCn) {
+        this.titleCn = titleCn;
     }
 
     public String getBrand() {

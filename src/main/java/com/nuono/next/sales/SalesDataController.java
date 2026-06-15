@@ -379,7 +379,8 @@ public class SalesDataController {
                 parseDate(body.getDateFrom()),
                 parseDate(body.getDateTo()),
                 context.getSessionUserId(),
-                "manual"
+                "manual",
+                listingCoverageMode(body)
         ));
     }
 
@@ -586,6 +587,17 @@ public class SalesDataController {
             return LocalDate.parse(value);
         } catch (RuntimeException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "销量日期格式必须为 yyyy-MM-dd。", exception);
+        }
+    }
+
+    private SalesListingCoverageMode listingCoverageMode(SalesSyncTaskRequest body) {
+        if (body == null || !StringUtils.hasText(body.getListingCoverageMode())) {
+            return SalesListingCoverageMode.NONE;
+        }
+        try {
+            return SalesListingCoverageMode.valueOf(body.getListingCoverageMode().trim());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未知的销量覆盖确认模式。", exception);
         }
     }
 }

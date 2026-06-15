@@ -12,6 +12,7 @@ public class SalesSyncTaskCommand {
     private final LocalDate dateTo;
     private final Long requestedBy;
     private final String triggerType;
+    private final SalesListingCoverageMode listingCoverageMode;
 
     public SalesSyncTaskCommand(
             Long ownerUserId,
@@ -23,6 +24,30 @@ public class SalesSyncTaskCommand {
             Long requestedBy,
             String triggerType
     ) {
+        this(
+                ownerUserId,
+                logicalStoreId,
+                storeCode,
+                siteCode,
+                dateFrom,
+                dateTo,
+                requestedBy,
+                triggerType,
+                SalesListingCoverageMode.NONE
+        );
+    }
+
+    public SalesSyncTaskCommand(
+            Long ownerUserId,
+            Long logicalStoreId,
+            String storeCode,
+            String siteCode,
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            Long requestedBy,
+            String triggerType,
+            SalesListingCoverageMode listingCoverageMode
+    ) {
         this.ownerUserId = ownerUserId;
         this.logicalStoreId = logicalStoreId;
         this.storeCode = storeCode;
@@ -31,6 +56,7 @@ public class SalesSyncTaskCommand {
         this.dateTo = dateTo;
         this.requestedBy = requestedBy;
         this.triggerType = triggerType;
+        this.listingCoverageMode = listingCoverageMode == null ? SalesListingCoverageMode.NONE : listingCoverageMode;
     }
 
     public Long getOwnerUserId() {
@@ -63,5 +89,9 @@ public class SalesSyncTaskCommand {
 
     public String getTriggerType() {
         return triggerType;
+    }
+
+    public SalesListingCoverageMode getListingCoverageMode() {
+        return listingCoverageMode;
     }
 }

@@ -308,6 +308,52 @@ public class NoonPullFoundationService {
         return recovered;
     }
 
+    public int recoverStaleQueuedTasks(Duration maxQueuedAge) {
+        Duration safeMaxAge = maxQueuedAge == null || maxQueuedAge.isNegative() || maxQueuedAge.isZero()
+                ? Duration.ofMinutes(30)
+                : maxQueuedAge;
+        LocalDateTime threshold = now().minus(safeMaxAge);
+        int recovered = 0;
+        for (NoonPullTaskRecord task : repository.listTasks()) {
+            if (task.getStatus() != NoonPullTaskStatus.QUEUED || task.getQueuedAt() == null) {
+                continue;
+            }
+            if (task.getQueuedAt().isAfter(threshold)) {
+                continue;
+            }
+            markStaleQueuedFailed(task, safeMaxAge);
+            recovered++;
+        }
+        return recovered;
+    }
+
+    private void markStaleQueuedFailed(NoonPullTaskRecord task, Duration safeMaxAge) {
+        LocalDateTime now = now();
+        task.setStatus(NoonPullTaskStatus.FAILED);
+        task.setFailureType("timeout");
+        task.setRetryAction(NoonPullRetryAction.RETRY.name());
+        task.setRetryable(Boolean.TRUE);
+        task.setRequiresManualAction(Boolean.FALSE);
+        task.setDiagnosticSummary(redact("timeout: stale queued task exceeded " + safeMaxAge.toMinutes() + " minutes"));
+        task.setFinishedAt(now);
+        task.setUpdatedAt(now);
+        repository.updateTask(task);
+
+        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        plan.setLatestFailureAt(now);
+        plan.setLatestFailureType(task.getFailureType());
+        plan.setUpdatedAt(now);
+        repository.updatePlan(plan);
+    }
+
+    public boolean isTaskPlanActive(NoonPullTaskRecord task) {
+        if (task == null || task.getPlanId() == null) {
+            return false;
+        }
+        NoonPullPlanRecord plan = repository.selectPlan(task.getPlanId());
+        return plan != null && plan.isEnabled() && !plan.isPaused();
+    }
+
     public List<NoonPullPlanRecord> listPlans() {
         return repository.listPlans();
     }

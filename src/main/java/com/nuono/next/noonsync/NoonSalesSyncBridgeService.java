@@ -1,5 +1,6 @@
 package com.nuono.next.noonsync;
 
+import com.nuono.next.sales.SalesListingCoverageMode;
 import com.nuono.next.sales.SalesSyncTaskCommand;
 import com.nuono.next.sales.SalesSyncTaskRecord;
 import com.nuono.next.sales.SalesSyncTaskService;
@@ -56,7 +57,8 @@ public class NoonSalesSyncBridgeService {
                 command.getDateFrom(),
                 command.getDateTo(),
                 command.getRequestedBy(),
-                triggerTypeFor(command.getReason())
+                triggerTypeFor(command.getReason()),
+                listingCoverageModeFor(command.getReason())
         ));
         return new NoonSalesSyncRunResult(finishFoundationTask(foundationTask, salesTask), salesTask);
     }
@@ -165,6 +167,13 @@ public class NoonSalesSyncBridgeService {
             return "no_data_backfill";
         }
         return "gap_backfill";
+    }
+
+    private SalesListingCoverageMode listingCoverageModeFor(NoonSalesBackfillReason reason) {
+        if (reason == NoonSalesBackfillReason.NO_DATA_SCOPE) {
+            return SalesListingCoverageMode.CONFIRMED_EMPTY_SITE;
+        }
+        return SalesListingCoverageMode.NONE;
     }
 
     private boolean isMissingColumnFailure(String failureReason) {

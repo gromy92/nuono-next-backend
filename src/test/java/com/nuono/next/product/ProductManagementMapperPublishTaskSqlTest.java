@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -38,7 +40,7 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
-    void listingStartedInitialBackfillShouldOnlyRunForUncalculatedOffersAndMarkMissingFacts() {
+    void listingStartedInitialBackfillShouldRevisitMissingOrNotListedOffersAndUseSiteCoverageForMissingFacts() {
         Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "backfillProductSiteOfferListingStartedAtById".equals(candidate.getName()))
                 .findFirst()
@@ -47,13 +49,16 @@ class ProductManagementMapperPublishTaskSqlTest {
         String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
 
         assertTrue(sql.contains("pso.listing_started_at IS NULL"));
-        assertTrue(sql.contains("pso.listing_started_source IS NULL"));
-        assertTrue(sql.contains("'data_missing'"));
-        assertTrue(sql.contains("COUNT(1)"));
+        assertTrue(sql.contains("pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed')"));
+        assertTrue(sql.contains("pm.logical_store_id = ls.id"));
+        assertTrue(sql.contains("NOT EXISTS ( SELECT 1 FROM daily_sales_fact dsf"));
+        assertTrue(sql.contains("WHEN NOT EXISTS ( SELECT 1 FROM daily_sales_fact dsf"));
+        assertTrue(!sql.contains("COUNT(1) AS site_fact_row_count FROM daily_sales_fact dsf GROUP BY"));
+        assertTrue(sql.contains("ELSE 'not_listed'"));
     }
 
     @Test
-    void listingStartedSalesFactRefreshShouldOnlyRunForUncalculatedOffers() {
+    void listingStartedSalesFactRefreshShouldRevisitMissingOrNotListedOffers() {
         Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "refreshProductSiteOfferListingStartedAtBySalesFact".equals(candidate.getName()))
                 .findFirst()
@@ -62,7 +67,39 @@ class ProductManagementMapperPublishTaskSqlTest {
         String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
 
         assertTrue(sql.contains("pso.listing_started_at IS NULL"));
-        assertTrue(sql.contains("pso.listing_started_source IS NULL"));
-        assertTrue(sql.contains("'data_missing'"));
+        assertTrue(sql.contains("pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed')"));
+        assertTrue(sql.contains("pm.logical_store_id = ls.id"));
+        assertTrue(sql.contains("site_fact_signal"));
+        assertTrue(sql.contains("WHEN COALESCE(site_fact_signal.site_fact_row_count, 0) = 0 THEN 'data_missing'"));
+        assertTrue(sql.contains("ELSE 'not_listed'"));
+    }
+
+    @Test
+    void emptySalesReportShouldMarkMissingSiteOffersAsNotListedOnly() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "markSiteProductOffersNotListedForEmptySalesReport".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("pso.listing_started_source = 'not_listed'"));
+        assertTrue(sql.contains("pso.listing_started_at IS NULL"));
+        assertTrue(sql.contains("pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed')"));
+        assertTrue(sql.contains("ls.owner_user_id = #{ownerUserId}"));
+        assertTrue(sql.contains("lss.store_code = #{storeCode}"));
+        assertTrue(sql.contains("lss.site = #{siteCode}"));
+    }
+
+    @Test
+    void migration079ShouldRequireExplicitCoverageScopeAndAvoidGlobalSiteFactReclassification() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/079_product_site_offer_data_missing_site_coverage.sql"))
+                .replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("product_site_offer_listing_coverage_scope"));
+        assertTrue(sql.contains("JOIN product_site_offer_listing_coverage_scope scope"));
+        assertTrue(!sql.contains("FROM daily_sales_fact GROUP BY owner_user_id, store_code, site_code"));
+        assertTrue(!sql.contains("site_fact_row_count"));
+        assertTrue(sql.contains("SELECT MIN(dsf.fact_date)"));
     }
 }

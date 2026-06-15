@@ -302,6 +302,24 @@ class SalesDataControllerAccessTest {
         assertEquals(LocalDate.of(2026, 5, 4), captor.getValue().getDateTo());
         assertEquals(10003L, captor.getValue().getRequestedBy());
         assertEquals("manual", captor.getValue().getTriggerType());
+        assertEquals(SalesListingCoverageMode.NONE, captor.getValue().getListingCoverageMode());
+    }
+
+    @Test
+    void triggerNoonSalesSyncTaskAcceptsExplicitConfirmedEmptySiteCoverageMode() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-SAU"))
+                .thenReturn(salesContext());
+        when(syncTaskService.triggerAndRun(any()))
+                .thenReturn(succeededTask());
+        SalesSyncTaskRequest body = syncRequest();
+        body.setListingCoverageMode("CONFIRMED_EMPTY_SITE");
+
+        controller.triggerNoonProductViewsAndSalesDataSync(body, request);
+
+        ArgumentCaptor<SalesSyncTaskCommand> captor = ArgumentCaptor.forClass(SalesSyncTaskCommand.class);
+        verify(syncTaskService).triggerAndRun(captor.capture());
+        assertEquals(SalesListingCoverageMode.CONFIRMED_EMPTY_SITE, captor.getValue().getListingCoverageMode());
     }
 
     @Test
