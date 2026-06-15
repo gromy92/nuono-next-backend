@@ -26,6 +26,9 @@ public class NoonPullFailurePolicy {
         if (value.contains("not configured") || value.contains("provider_not_configured")) {
             return NoonPullFailureType.PROVIDER_NOT_CONFIGURED;
         }
+        if (value.contains("invalid project code") || value.contains("invalid_project_code")) {
+            return NoonPullFailureType.INVALID_PROJECT_CODE;
+        }
         if (value.contains("auth required") || value.contains("auth_required") || value.contains("401")
                 || value.contains("unauthorized")) {
             return NoonPullFailureType.AUTH_REQUIRED;
@@ -134,6 +137,16 @@ public class NoonPullFailurePolicy {
                         false,
                         null,
                         type.code() + ": non-retryable until configuration, authorization, schema or data-window issue is fixed"
+                );
+            case INVALID_PROJECT_CODE:
+                return new NoonPullFailureDecision(
+                        type,
+                        NoonPullRetryAction.MANUAL_ACTION,
+                        false,
+                        true,
+                        false,
+                        null,
+                        type.code() + ": manual diagnosis required before retrying the same target date"
                 );
             case EMPTY_REPORT:
             case PARTIAL_SUCCESS:

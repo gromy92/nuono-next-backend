@@ -27,6 +27,9 @@ class NoonPullFailurePolicyTest {
     void shouldClassifyKnownFailuresWithoutRelyingOnRawStrings() {
         assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify("HTTP 503 provider unavailable"));
         assertEquals(NoonPullFailureType.PROVIDER_NOT_CONFIGURED, policy.classify("provider is not configured"));
+        assertEquals(NoonPullFailureType.INVALID_PROJECT_CODE, policy.classify(
+                "provider unavailable: report export create failed: HTTP 400 {\"error\":\"Invalid project code\"}"
+        ));
         assertEquals(NoonPullFailureType.AUTH_REQUIRED, policy.classify("401 auth required"));
         assertEquals(NoonPullFailureType.EMPTY_REPORT, policy.classify("empty report"));
         assertEquals(NoonPullFailureType.EMPTY_REPORT_PENDING_CONFIRMATION, policy.classify("empty report pending confirmation"));
@@ -92,6 +95,17 @@ class NoonPullFailurePolicyTest {
         assertManualNonRetry(policy.decide(NoonPullFailureType.AUTH_REQUIRED, 1));
         assertManualNonRetry(policy.decide(NoonPullFailureType.MISSING_COLUMNS, 1));
         assertManualNonRetry(policy.decide(NoonPullFailureType.PROVIDER_RETENTION_LIMIT, 1));
+    }
+
+    @Test
+    void shouldRequireManualActionForInvalidProjectCodeWithoutPausingFutureSchedule() {
+        NoonPullFailureDecision decision = policy.decide(NoonPullFailureType.INVALID_PROJECT_CODE, 1);
+
+        assertEquals(NoonPullRetryAction.MANUAL_ACTION, decision.getAction());
+        assertFalse(decision.isRetryable());
+        assertTrue(decision.requiresManualAction());
+        assertFalse(decision.shouldPausePlan());
+        assertTrue(decision.getSummary().contains("invalid_project_code"));
     }
 
     private void assertPauseDecision(NoonPullFailureDecision decision) {
