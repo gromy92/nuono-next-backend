@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -16,7 +18,9 @@ import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -76,7 +80,7 @@ class CompetitorSearchRefreshRunnerTest {
         verify(adapter).search(argThat((request) ->
                 "SA".equals(request.getSiteCode())
                         && "laundry basket".equals(request.getKeyword())
-                        && Integer.valueOf(20).equals(request.getLimit())
+                        && Integer.valueOf(100).equals(request.getLimit())
         ));
         verify(mapper).insertCompetitorProduct(argThat((command) ->
                 Long.valueOf(200012L).equals(command.getId())
@@ -107,8 +111,73 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("RANKED", facts.get(1).getRankStatus());
         assertEquals(3, facts.get(1).getRankNo());
         assertEquals("COMPETITOR", facts.get(2).getTrackedProductType());
-        assertEquals("NOT_IN_TOP_20", facts.get(2).getRankStatus());
+        assertEquals("NOT_IN_SCAN_DEPTH", facts.get(2).getRankStatus());
         assertNull(facts.get(2).getRankNo());
+        assertEquals(100, facts.get(2).getScanDepth());
+    }
+
+    @Test
+    void scansTop100ForRankFactsButKeepsCandidateDiscoveryToTop20() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorKeywordRow keyword = keyword();
+        CompetitorProductRow confirmedAt21 = confirmedProduct(200021L, "NCONFIRM21");
+        CompetitorProductRow confirmedMissing = confirmedProduct(200022L, "ZMISS00001");
+        List<NoonSearchResult> results = new ArrayList<>();
+        results.add(result(1, "NSELF0001", false, "Self basket"));
+        for (int position = 2; position <= 20; position++) {
+            results.add(result(position, "ZPENDING" + String.format("%02d", position), false, "Pending " + position));
+        }
+        results.add(result(21, "NCONFIRM21", false, "Confirmed competitor after top 20"));
+        NoonSearchPage page = page(results.toArray(NoonSearchResult[]::new));
+        AtomicLong competitorProductId = new AtomicLong(200100L);
+        AtomicLong keywordProductId = new AtomicLong(210100L);
+        AtomicLong searchResultId = new AtomicLong(240100L);
+        when(adapter.search(any(NoonSearchRequest.class))).thenReturn(page);
+        when(mapper.selectCompetitorProductByCode(anyLong(), anyString())).thenAnswer(invocation ->
+                "NCONFIRM21".equals(invocation.getArgument(1)) ? confirmedAt21 : null
+        );
+        when(mapper.listConfirmedCompetitorProductsByKeywordId(190001L))
+                .thenReturn(List.of(confirmedAt21, confirmedMissing));
+        when(mapper.nextCompetitorProductId()).thenAnswer(invocation -> competitorProductId.getAndIncrement());
+        when(mapper.nextKeywordProductId()).thenAnswer(invocation -> keywordProductId.getAndIncrement());
+        when(mapper.nextSearchResultId()).thenAnswer(invocation -> searchResultId.getAndIncrement());
+        when(mapper.nextRankFactId()).thenReturn(250001L, 250002L, 250003L);
+
+        CompetitorKeywordRefreshOutcome outcome = runner.refresh(CompetitorKeywordRefreshContext.builder()
+                .searchRunId(220123L)
+                .keywordRunId(230123L)
+                .keyword(keyword)
+                .watchProduct(watchProduct)
+                .actorUserId(601L)
+                .build());
+
+        assertEquals(21, outcome.getResultCount());
+        assertEquals(19, outcome.getCandidateUpsertedCount());
+        verify(adapter).search(argThat((request) ->
+                Integer.valueOf(100).equals(request.getLimit())
+        ));
+        verify(mapper, times(21)).insertSearchResult(any());
+        verify(mapper, times(19)).upsertKeywordProductRelationFromSearch(any());
+        verify(mapper).softDeleteDiscoveredKeywordProductRelationsOutsideSet(
+                org.mockito.ArgumentMatchers.eq(190001L),
+                org.mockito.ArgumentMatchers.argThat((ids) -> ids.size() == 19),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
+
+        ArgumentCaptor<CompetitorRankFactInsertCommand> rankCaptor =
+                ArgumentCaptor.forClass(CompetitorRankFactInsertCommand.class);
+        verify(mapper, times(3)).insertRankFact(rankCaptor.capture());
+        List<CompetitorRankFactInsertCommand> facts = rankCaptor.getAllValues();
+        CompetitorRankFactInsertCommand rankedCompetitor = facts.get(1);
+        assertEquals("COMPETITOR", rankedCompetitor.getTrackedProductType());
+        assertEquals("NCONFIRM21", rankedCompetitor.getNoonProductCode());
+        assertEquals("RANKED", rankedCompetitor.getRankStatus());
+        assertEquals(21, rankedCompetitor.getRankNo());
+        assertEquals(100, rankedCompetitor.getScanDepth());
+        CompetitorRankFactInsertCommand missingCompetitor = facts.get(2);
+        assertEquals("NOT_IN_SCAN_DEPTH", missingCompetitor.getRankStatus());
+        assertNull(missingCompetitor.getRankNo());
+        assertEquals(100, missingCompetitor.getScanDepth());
     }
 
     @Test
