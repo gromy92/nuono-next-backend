@@ -108,6 +108,52 @@ class NoonPullScheduledExecutionServiceTest {
     }
 
     @Test
+    void shouldExecuteExistingQueuedTaskOutsideRecentTaskWindow() {
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("latest-day after 08:00 Asia/Shanghai")
+                .build());
+        NoonPullTaskRecord queued = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("sales:2026-05-22")
+                .targetDateFrom(LocalDate.of(2026, 5, 22))
+                .targetDateTo(LocalDate.of(2026, 5, 22))
+                .build()).orElseThrow();
+        for (int i = 0; i < 210; i++) {
+            NoonPullTaskRecord recent = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                    .ownerUserId(plan.getOwnerUserId())
+                    .storeCode(plan.getStoreCode())
+                    .siteCode(plan.getSiteCode())
+                    .pullType(plan.getPullType())
+                    .dataDomain(plan.getDataDomain())
+                    .triggerMode(plan.getTriggerMode())
+                    .targetIdentity("sales:recent:" + i)
+                    .targetDateFrom(LocalDate.of(2026, 1, 1))
+                    .targetDateTo(LocalDate.of(2026, 1, 1))
+                    .build()).orElseThrow();
+            foundationService.markSucceeded(recent.getId(), "batch-" + i, "done");
+        }
+        repository.limitListTasksToRecent(200);
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(1, result.getExecutedTaskCount());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, repository.selectTask(queued.getId()).getStatus());
+        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-05-22|PSKU-1").unitsSold);
+    }
+
+    @Test
     void shouldCreateAndExecuteStableAndLatestSalesReportAfterLatestReadyTime() {
         Clock clock = Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();

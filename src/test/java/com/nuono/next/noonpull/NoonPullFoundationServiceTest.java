@@ -7,8 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -117,6 +119,35 @@ class NoonPullFoundationServiceTest {
     }
 
     @Test
+    void shouldRecoverStaleQueuedTaskOutsideRecentTaskWindow() {
+        NoonPullPlanRecord plan = service.createPlan(productPlan());
+        NoonPullTaskRecord staleTask = service.createTaskForPlan(plan.getId(), productListTask("catalog:stale"))
+                .orElseThrow();
+        staleTask.setQueuedAt(LocalDateTime.of(2026, 5, 20, 1, 0));
+        repository.updateTask(staleTask);
+
+        for (int i = 0; i < 210; i++) {
+            NoonPullTaskRecord recent = service.createTaskForPlan(
+                    plan.getId(),
+                    productListTask("catalog:recent:" + i)
+            ).orElseThrow();
+            service.markSucceeded(recent.getId(), "batch-" + i, "done");
+        }
+        repository.limitListTasksToRecent(200);
+
+        assertFalse(repository.listTasks().stream().anyMatch((task) -> staleTask.getId().equals(task.getId())));
+
+        int recovered = service.recoverStaleQueuedTasks(Duration.ofMinutes(30));
+
+        NoonPullTaskRecord recoveredTask = repository.selectTask(staleTask.getId());
+        assertEquals(1, recovered);
+        assertEquals(NoonPullTaskStatus.FAILED, recoveredTask.getStatus());
+        assertEquals("timeout", recoveredTask.getFailureType());
+        assertEquals(NoonPullRetryAction.RETRY.name(), recoveredTask.getRetryAction());
+        assertTrue(recoveredTask.getDiagnosticSummary().contains("stale queued task exceeded 30 minutes"));
+    }
+
+    @Test
     void shouldNotCreateScheduledTaskWhenPlanIsPaused() {
         NoonPullPlanRecord plan = service.createPlan(productPlan());
 
@@ -167,6 +198,10 @@ class NoonPullFoundationServiceTest {
     }
 
     private NoonPullTaskDraft productListTask() {
+        return productListTask("catalog:list");
+    }
+
+    private NoonPullTaskDraft productListTask(String targetIdentity) {
         return NoonPullTaskDraft.builder()
                 .ownerUserId(307L)
                 .storeCode("STR245027")
@@ -174,7 +209,7 @@ class NoonPullFoundationServiceTest {
                 .pullType(NoonPullType.INTERFACE)
                 .dataDomain(NoonPullDataDomain.PRODUCT)
                 .triggerMode(NoonPullTriggerMode.ONBOARDING)
-                .targetIdentity("catalog:list")
+                .targetIdentity(targetIdentity)
                 .targetDateFrom(LocalDate.of(2026, 5, 1))
                 .targetDateTo(LocalDate.of(2026, 5, 1))
                 .build();

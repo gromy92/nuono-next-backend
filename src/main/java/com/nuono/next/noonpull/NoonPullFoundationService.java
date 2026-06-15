@@ -291,7 +291,7 @@ public class NoonPullFoundationService {
                 : maxRunningAge;
         LocalDateTime threshold = now().minus(safeMaxAge);
         int recovered = 0;
-        for (NoonPullTaskRecord task : repository.listTasks()) {
+        for (NoonPullTaskRecord task : repository.listActiveTasks()) {
             if (task.getStatus() != NoonPullTaskStatus.RUNNING || task.getStartedAt() == null) {
                 continue;
             }
@@ -314,7 +314,7 @@ public class NoonPullFoundationService {
                 : maxQueuedAge;
         LocalDateTime threshold = now().minus(safeMaxAge);
         int recovered = 0;
-        for (NoonPullTaskRecord task : repository.listTasks()) {
+        for (NoonPullTaskRecord task : repository.listActiveTasks()) {
             if (task.getStatus() != NoonPullTaskStatus.QUEUED || task.getQueuedAt() == null) {
                 continue;
             }
@@ -360,6 +360,10 @@ public class NoonPullFoundationService {
 
     public List<NoonPullTaskRecord> listTasks() {
         return repository.listTasks();
+    }
+
+    public List<NoonPullTaskRecord> listActiveTasks() {
+        return repository.listActiveTasks();
     }
 
     private NoonPullPlanRecord requirePlan(Long planId) {
