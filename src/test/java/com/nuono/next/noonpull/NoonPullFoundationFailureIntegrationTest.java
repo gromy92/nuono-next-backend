@@ -1,12 +1,15 @@
 package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +58,36 @@ class NoonPullFoundationFailureIntegrationTest {
         assertNotNull(updatedPlan.getNextRetryAt());
     }
 
+    @Test
+    void shouldStopRetryingInvalidProjectCodeTargetWithoutPausingFutureSchedule() {
+        NoonPullPlanRecord plan = service.createPlan(salesDailyPlan());
+        NoonPullTaskRecord task = service.createTaskForPlan(plan.getId(), salesDailyTask("sales:2026-05-21", 21))
+                .orElseThrow();
+
+        NoonPullTaskRecord failed = service.markFailedWithPolicy(
+                task.getId(),
+                "provider unavailable: report export create failed: HTTP 400 {\"error\":\"Invalid project code\"}",
+                1
+        );
+        NoonPullPlanRecord updatedPlan = repository.selectPlan(plan.getId());
+        Optional<NoonPullTaskRecord> sameTarget = service.createTaskForPlan(
+                plan.getId(),
+                salesDailyTask("sales:2026-05-21", 21)
+        );
+        Optional<NoonPullTaskRecord> nextTarget = service.createTaskForPlan(
+                plan.getId(),
+                salesDailyTask("sales:2026-05-22", 22)
+        );
+
+        assertEquals("invalid_project_code", failed.getFailureType());
+        assertEquals("MANUAL_ACTION", failed.getRetryAction());
+        assertFalse(failed.getRetryable());
+        assertTrue(failed.getRequiresManualAction());
+        assertFalse(updatedPlan.isPaused());
+        assertFalse(sameTarget.isPresent());
+        assertTrue(nextTarget.isPresent());
+    }
+
     private NoonPullPlanDraft productPlan() {
         return NoonPullPlanDraft.builder()
                 .ownerUserId(307L)
@@ -76,6 +109,33 @@ class NoonPullFoundationFailureIntegrationTest {
                 .dataDomain(NoonPullDataDomain.PRODUCT)
                 .triggerMode(NoonPullTriggerMode.ONBOARDING)
                 .targetIdentity("catalog:list")
+                .build();
+    }
+
+    private NoonPullPlanDraft salesDailyPlan() {
+        return NoonPullPlanDraft.builder()
+                .ownerUserId(308L)
+                .storeCode("STR353172-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily")
+                .build();
+    }
+
+    private NoonPullTaskDraft salesDailyTask(String targetIdentity, int dayOfMonth) {
+        LocalDate targetDate = LocalDate.of(2026, 5, dayOfMonth);
+        return NoonPullTaskDraft.builder()
+                .ownerUserId(308L)
+                .storeCode("STR353172-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .targetIdentity(targetIdentity)
+                .targetDateFrom(targetDate)
+                .targetDateTo(targetDate)
                 .build();
     }
 }
