@@ -82,14 +82,16 @@ public class NoonOrderReportAdapter {
                 exceptions++;
             }
         }
-        if (outsideWindowRows > 0) {
-            return NoonReportProcessResult.mappingFailed(
-                    outsideWindowRows + exceptions,
-                    outsideWindowDiagnostic(file, outsideWindowRows, actualDateFrom, actualDateTo)
-            );
-        }
-        if (factsToWrite.isEmpty() && exceptions == 0) {
-            return emptyOrNotReady();
+        if (factsToWrite.isEmpty()) {
+            if (outsideWindowRows > 0) {
+                return NoonReportProcessResult.mappingFailed(
+                        outsideWindowRows + exceptions,
+                        outsideWindowDiagnostic(file, outsideWindowRows, actualDateFrom, actualDateTo)
+                );
+            }
+            if (exceptions == 0) {
+                return emptyOrNotReady();
+            }
         }
 
         int imported = 0;
