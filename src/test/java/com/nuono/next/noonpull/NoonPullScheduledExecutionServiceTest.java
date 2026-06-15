@@ -25,7 +25,7 @@ class NoonPullScheduledExecutionServiceTest {
 
     @BeforeEach
     void setUp() {
-        Clock clock = Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI);
+        Clock clock = Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();
         foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
         writer = new InMemorySalesFactWriter();
@@ -52,7 +52,7 @@ class NoonPullScheduledExecutionServiceTest {
     }
 
     @Test
-    void shouldCreateAndExecuteStableAndLatestSalesReportAfterDailyReadyTime() {
+    void shouldCreateAndExecuteStableAndLatestSalesReportAfterLatestReadyTime() {
         foundationService.createPlan(NoonPullPlanDraft.builder()
                 .ownerUserId(10002L)
                 .storeCode("STR245027-NAE")
@@ -137,10 +137,10 @@ class NoonPullScheduledExecutionServiceTest {
         service = new NoonPullScheduledExecutionService(
                 new NoonPullScheduler(
                         foundationService,
-                        Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI),
-                        new NoonOrderReportSchedulePolicy(Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI)),
+                        Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI),
+                        new NoonOrderReportSchedulePolicy(Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI)),
                         new NoonOrderBackfillPlanner(),
-                        new NoonSalesRetentionPolicy(Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI)),
+                        new NoonSalesRetentionPolicy(Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI)),
                         (plan) -> true
                 ),
                 foundationService,
@@ -148,7 +148,7 @@ class NoonPullScheduledExecutionServiceTest {
                 new NoonInterfacePuller(foundationService),
                 new NoonSalesReportAdapter(writer),
                 new NoonOrderReportAdapter((fact) -> {
-                }, Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI)),
+                }, Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI)),
                 (Supplier<NoonReportProvider>) () -> salesProviderRecordingOrder(executionOrder),
                 (Supplier<NoonReportProvider>) () -> null,
                 (Supplier<NoonSalesPageQueryProvider>) () -> (request, pageNumber) -> {
