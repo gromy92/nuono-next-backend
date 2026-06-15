@@ -2,6 +2,9 @@ package com.nuono.next.product;
 
 import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessCapability;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -41,17 +44,20 @@ public class ProductMasterController {
     private final ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider;
     private final AuthSessionTokenService sessionTokenService;
     private final ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider;
+    private final ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider;
 
     public ProductMasterController(
             ObjectProvider<LocalDbProductMasterService> localDbProductMasterServiceProvider,
             ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider,
             AuthSessionTokenService sessionTokenService,
-            ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider
+            ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider,
+            ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider
     ) {
         this.localDbProductMasterServiceProvider = localDbProductMasterServiceProvider;
         this.productContentTranslationServiceProvider = productContentTranslationServiceProvider;
         this.sessionTokenService = sessionTokenService;
         this.productMasterAccessGuardProvider = productMasterAccessGuardProvider;
+        this.businessAccessResolverProvider = businessAccessResolverProvider;
     }
 
     @PostMapping("/snapshot")
@@ -253,7 +259,7 @@ public class ProductMasterController {
         }
 
         try {
-            productAccessGuard().applyScope(requireSession(request), command);
+            applyProductScope(command, request);
             return productMasterService.loadClassificationOptions(command);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -389,7 +395,7 @@ public class ProductMasterController {
         }
         try {
             AuthenticatedSession session = requireSession(request);
-            productAccessGuard().resolveOwnerUserId(session, session.getUserId(), null);
+            businessAccessResolver().requireBusinessContext(request, BusinessCapability.PRODUCT_MASTER);
             if (command == null) {
                 command = new ProductContentTranslateCommand();
             }
@@ -423,13 +429,13 @@ public class ProductMasterController {
         try {
             LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
             Long resolvedOwnerUserId = null;
-            if (productMasterService != null && ownerUserId != null
-                    && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
-                resolvedOwnerUserId = productAccessGuard().resolveOwnerUserId(
-                        requireSession(request),
-                        ownerUserId,
+            if (productMasterService != null && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
+                BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+                        request,
+                        BusinessCapability.PRODUCT_MASTER,
                         storeCode
                 );
+                resolvedOwnerUserId = resolveOwnerUserId(access, storeCode);
             }
             Path uploadDir = ProductImageAssetFileSupport.productImageUploadDir();
             Files.createDirectories(uploadDir);
@@ -498,7 +504,38 @@ public class ProductMasterController {
     }
 
     private void applyProductScope(ProductMasterFetchCommand command, HttpServletRequest request) {
-        productAccessGuard().applyScope(requireSession(request), command);
+        if (command == null) {
+            throw new IllegalArgumentException("缺少商品请求参数。");
+        }
+        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                command.getStoreCode()
+        );
+        command.setOwnerUserId(resolveOwnerUserId(access, command.getStoreCode()));
+    }
+
+    private void applyProductScope(ProductClassificationOptionsCommand command, HttpServletRequest request) {
+        if (command == null) {
+            throw new IllegalArgumentException("缺少商品分类候选请求参数。");
+        }
+        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                command.getStoreCode()
+        );
+        command.setOwnerUserId(resolveOwnerUserId(access, command.getStoreCode()));
+    }
+
+    private Long resolveOwnerUserId(BusinessAccessContext access, String storeCode) {
+        Long ownerUserId = access.resolveOwnerUserIdForStore(storeCode);
+        if (ownerUserId != null) {
+            return ownerUserId;
+        }
+        if (access.getBusinessOwnerUserId() != null) {
+            return access.getBusinessOwnerUserId();
+        }
+        throw new ProductMasterAccessDeniedException("当前店铺未绑定业务老板上下文。");
     }
 
     private AuthenticatedSession requireSession(HttpServletRequest request) {
@@ -511,6 +548,14 @@ public class ProductMasterController {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品访问控制暂时不可用。");
         }
         return accessGuard;
+    }
+
+    private BusinessAccessResolver businessAccessResolver() {
+        BusinessAccessResolver resolver = businessAccessResolverProvider.getIfAvailable();
+        if (resolver == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品访问控制暂时不可用。");
+        }
+        return resolver;
     }
 
     private ResponseStatusException productAccessDenied(ProductMasterAccessDeniedException exception) {

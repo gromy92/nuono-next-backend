@@ -2,47 +2,39 @@ package com.nuono.next.product;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.infrastructure.mapper.ProductLiteMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
-import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.product.noon.ProductNoonAdapter;
+import com.nuono.next.product.publish.ProductPublishCommandService;
+import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateCommand;
+import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateResult;
+import com.nuono.next.product.publish.ProductPublishTaskFenceLostException;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,81 +46,56 @@ public class LocalDbProductMasterService {
 
     private static final Logger log = LoggerFactory.getLogger(LocalDbProductMasterService.class);
 
-    private static final String WHOAMI_URL =
-            "https://toolbar.noon.partners/_svc/auth-v1/whoami";
-    private static final String PROJECT_LIST_URL =
-            "https://toolbar.noon.partners/_svc/mp-partner-platform/project/list";
-    private static final String STORE_LIST_URL =
-            "https://noon-store.noon.partners/_svc/mp-noon-store/noon/store/list";
-    private static final String ZSKU_RETRIEVE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/retrieve";
-    private static final String ZSKU_UPSERT_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
-    private static final String PRODUCT_UPDATE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/update";
-    private static final String CATPLAT_SKU_CACHE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
-    private static final String GROUP_CURRENT_URL_PREFIX =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/v2/group/";
-    private static final String GROUP_DETAIL_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/group/get";
-    private static final String GROUP_LIST_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/groups/list";
-    private static final String VARIANT_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/variants/information";
-    private static final String PRICING_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
-    private static final String STOCK_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/stock/noon";
-    private static final String OFFER_UPSERT_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/offer/upsert";
-    private static final String PRICING_METHOD_MANUAL = "manual";
-    private static final Set<String> ACTIVE_PUBLISH_TASK_STATUSES = Set.of(
-            "queued",
-            "running",
-            "submitted",
-            "verifying",
-            "pending_effective",
-            "write_unknown",
-            "verify_timeout"
-    );
-    private static final Set<String> TERMINAL_PUBLISH_TASK_STATUSES = Set.of(
-            "synced",
-            "failed",
-            "cancelled",
-            "pending_manual_check"
-    );
-    private static final Set<String> EXPLICIT_CLEARABLE_OFFER_FIELDS = Set.of(
-            "salePrice",
-            "saleStart",
-            "saleEnd"
-    );
     private static final ThreadLocal<Boolean> PUBLISH_TASK_WORKER_MODE =
             ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final DateTimeFormatter NOON_OFFER_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
-    private static final ZoneId PRODUCT_MANAGEMENT_ZONE = ZoneId.of("Asia/Shanghai");
-    private static final int DEFAULT_SALE_WINDOW_YEARS = 10;
 
     private final ProductManagementMapper productManagementMapper;
+    private final ProductLiteMapper productLiteMapper;
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final ObjectMapper objectMapper;
-    private final NoonSessionGateway noonSessionGateway;
-    private final NoonAccountTaskQueue noonAccountTaskQueue;
+    private final ProductNoonAdapter productNoonAdapter;
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
     private final LocalDbStoreInitializationService localDbStoreInitializationService;
     private final ProductAttributeTemplateService productAttributeTemplateService;
     private final ProductGroupPublishService productGroupPublishService;
-    private final ProductNoonCatalogContentService productNoonCatalogContentService;
+    private final ProductDetailBaselineBackfillService productDetailBaselineBackfillService;
+    private final ProductPublishCommandService productPublishCommandService;
+    private final ProductPublishChangedDomainComparator productPublishChangedDomainComparator;
+    private final ProductPublishUnsupportedChangesDetector productPublishUnsupportedChangesDetector;
+    private final ProductPublishSupportedSnapshotBuilder productPublishSupportedSnapshotBuilder;
+    private final ProductPublishOfferWriter productPublishOfferWriter;
+    private final ProductPublishSharedZskuWriter productPublishSharedZskuWriter;
+    private final ProductPublishPreparationService productPublishPreparationService;
+    private final ProductPublishWriteService productPublishWriteService;
+    private final ProductSnapshotHydrator productSnapshotHydrator;
+    private final ProductOperationalKeyHydrator productOperationalKeyHydrator;
+    private final ProductPublishTaskChangedDomainsResolver productPublishTaskChangedDomainsResolver;
+    private final ProductPublishTaskViewBuilder productPublishTaskViewBuilder;
+    private final ProductReadModelService productReadModelService;
     private final ProductDraftMergePolicy productDraftMergePolicy = new ProductDraftMergePolicy();
-    private final ProductPublishPlanner productPublishPlanner = new ProductPublishPlanner(productDraftMergePolicy);
-    private final ConcurrentMap<String, ProductWorkbenchRecord> workbenchRecords = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, ResolvedProjectCodeCacheEntry> resolvedProjectCodeCache = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, String> detailBaselineBackfillStates = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, String> detailBaselineBackfillMessages = new ConcurrentHashMap<>();
+    private final ProductWorkbenchViewAssembler productWorkbenchViewAssembler = new ProductWorkbenchViewAssembler();
+    private final ProductWorkbenchRecordStore productWorkbenchRecordStore;
+    private final ProductWorkbenchOpenService productWorkbenchOpenService;
+    private final ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver;
+    private final ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator;
+    private final ProductWorkbenchPublishTaskAttacher productWorkbenchPublishTaskAttacher;
+    private final ProductWorkbenchViewFinalizer productWorkbenchViewFinalizer;
+    private final ProductWorkbenchRecordRestorer productWorkbenchRecordRestorer;
+    private final ProductAttributeDictionaryHydrator productAttributeDictionaryHydrator;
+    private final ProductProjectSiteResolver productProjectSiteResolver;
+    private final ProductSiteOfferFetcher productSiteOfferFetcher;
+    private final ProductSnapshotSectionBuilder productSnapshotSectionBuilder;
+    private final ProductKeyAttributeBuilder productKeyAttributeBuilder;
+    private final ProductCatalogContentFallbackApplier productCatalogContentFallbackApplier;
+    private final ProductSnapshotGroupFetcher productSnapshotGroupFetcher;
+    private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
+    private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
+    private final ProductStoreContextBuilder productStoreContextBuilder;
+    private final ProductSnapshotMessageBuilder productSnapshotMessageBuilder = new ProductSnapshotMessageBuilder();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
     private boolean publishTaskAsyncEnabled;
@@ -139,42 +106,209 @@ public class LocalDbProductMasterService {
     @Value("${nuono.product-management.publish-task.scheduler.max-items-per-tick:2}")
     private int publishTaskSchedulerMaxItemsPerTick;
 
-    @Value("${nuono.product-management.publish-task.default-poll-after-millis:2000}")
-    private long publishTaskDefaultPollAfterMillis;
-
-    @Value("${nuono.product-management.publish-task.scheduler.stale-running-minutes:15}")
-    private int publishTaskStaleRunningMinutes;
-
     @Value("${nuono.product-management.detail-baseline-backfill.enabled:true}")
     private boolean detailBaselineBackfillEnabled;
 
-    @Value("${nuono.product-management.detail-baseline-backfill.max-enqueue-per-list:5}")
-    private int detailBaselineBackfillMaxEnqueuePerList;
-
     public LocalDbProductMasterService(
             ProductManagementMapper productManagementMapper,
+            ProductLiteMapper productLiteMapper,
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
             ObjectMapper objectMapper,
-            NoonSessionGateway noonSessionGateway,
-            NoonAccountTaskQueue noonAccountTaskQueue,
+            ProductNoonAdapter productNoonAdapter,
             ProductProjectionPersistenceService productProjectionPersistenceService,
             LocalDbStoreInitializationService localDbStoreInitializationService,
             ProductAttributeTemplateService productAttributeTemplateService,
             ProductGroupPublishService productGroupPublishService,
-            ProductNoonCatalogContentService productNoonCatalogContentService
+            ProductNoonCatalogContentService productNoonCatalogContentService,
+            ProductDetailBaselineBackfillService productDetailBaselineBackfillService,
+            ProductPublishCommandService productPublishCommandService,
+            ProductReadModelService productReadModelService,
+            ProductWorkbenchRecordStore productWorkbenchRecordStore,
+            ProductWorkbenchOpenService productWorkbenchOpenService,
+            ProductWorkbenchDirtySiteResolver productWorkbenchDirtySiteResolver,
+            ProductWorkbenchStatusHydrator productWorkbenchStatusHydrator
     ) {
         this.productManagementMapper = productManagementMapper;
+        this.productLiteMapper = productLiteMapper;
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
-        this.noonSessionGateway = noonSessionGateway;
-        this.noonAccountTaskQueue = noonAccountTaskQueue;
+        this.productSnapshotHydrator = new ProductSnapshotHydrator(objectMapper);
+        this.productSnapshotCoreFetcher = new ProductSnapshotCoreFetcher(objectMapper, productNoonAdapter);
+        this.productSnapshotSectionBuilder = new ProductSnapshotSectionBuilder(objectMapper);
+        this.productKeyAttributeBuilder = new ProductKeyAttributeBuilder(objectMapper);
+        this.productStoreContextBuilder = new ProductStoreContextBuilder();
+        this.productSnapshotGroupFetcher = new ProductSnapshotGroupFetcher(
+                objectMapper,
+                productNoonAdapter,
+                this.productSnapshotSectionBuilder
+        );
+        this.productOperationalKeyHydrator = new ProductOperationalKeyHydrator(productProjectionPersistenceService);
+        this.productNoonAdapter = productNoonAdapter;
+        this.productProjectSiteResolver = new ProductProjectSiteResolver(objectMapper, storeSyncMapper, productNoonAdapter);
+        this.productSiteOfferFetcher = new ProductSiteOfferFetcher(
+                objectMapper,
+                productNoonAdapter,
+                this.productProjectSiteResolver
+        );
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.localDbStoreInitializationService = localDbStoreInitializationService;
         this.productAttributeTemplateService = productAttributeTemplateService;
+        this.productSnapshotTemplateFetcher = new ProductSnapshotTemplateFetcher(productAttributeTemplateService);
+        this.productAttributeDictionaryHydrator = new ProductAttributeDictionaryHydrator(productAttributeTemplateService);
         this.productGroupPublishService = productGroupPublishService;
-        this.productNoonCatalogContentService = productNoonCatalogContentService;
+        this.productCatalogContentFallbackApplier = new ProductCatalogContentFallbackApplier(productNoonCatalogContentService);
+        this.productDetailBaselineBackfillService = productDetailBaselineBackfillService;
+        this.productPublishCommandService = productPublishCommandService;
+        this.productReadModelService = productReadModelService;
+        this.productWorkbenchRecordStore = productWorkbenchRecordStore == null
+                ? new ProductWorkbenchRecordStore()
+                : productWorkbenchRecordStore;
+        this.productWorkbenchOpenService = productWorkbenchOpenService == null
+                ? new ProductWorkbenchOpenService(productProjectionPersistenceService, this.productWorkbenchRecordStore)
+                : productWorkbenchOpenService;
+        this.productWorkbenchDirtySiteResolver = productWorkbenchDirtySiteResolver == null
+                ? new ProductWorkbenchDirtySiteResolver(objectMapper)
+                : productWorkbenchDirtySiteResolver;
+        this.productWorkbenchStatusHydrator = productWorkbenchStatusHydrator == null
+                ? new ProductWorkbenchStatusHydrator(productProjectionPersistenceService)
+                : productWorkbenchStatusHydrator;
+        this.productPublishChangedDomainComparator = new ProductPublishChangedDomainComparator(objectMapper);
+        this.productPublishUnsupportedChangesDetector = new ProductPublishUnsupportedChangesDetector(objectMapper);
+        this.productPublishSupportedSnapshotBuilder = new ProductPublishSupportedSnapshotBuilder(
+                objectMapper,
+                new ProductPublishPlanner(productDraftMergePolicy)
+        );
+        this.productPublishOfferWriter = new ProductPublishOfferWriter(objectMapper, productNoonAdapter);
+        this.productPublishPreparationService = new ProductPublishPreparationService(
+                objectMapper,
+                productDraftMergePolicy,
+                productPublishOfferWriter
+        );
+        this.productWorkbenchRecordRestorer = new ProductWorkbenchRecordRestorer(
+                productSnapshotHydrator,
+                productPublishPreparationService
+        );
+        this.productPublishSharedZskuWriter = new ProductPublishSharedZskuWriter(
+                objectMapper,
+                productNoonAdapter,
+                this.productPublishChangedDomainComparator
+        );
+        this.productPublishWriteService = new ProductPublishWriteService(
+                storeSyncMapper,
+                productNoonAdapter,
+                productGroupPublishService,
+                new ProductPublishWriteService.WriteOperations() {
+                    @Override
+                    public String resolveProjectCode(
+                            NoonSession session,
+                            String localProjectCode,
+                            StoreSyncStoreRecord store,
+                            List<String> warnings
+                    ) {
+                        return LocalDbProductMasterService.this.resolveProjectCode(session, localProjectCode, store, warnings);
+                    }
+
+                    @Override
+                    public NoonSession withProjectAndStore(NoonSession session, String projectCode, String storeCode) {
+                        return session.withProjectCode(projectCode).withStoreCode(storeCode);
+                    }
+
+                    @Override
+                    public NoonSession withStore(NoonSession session, String storeCode) {
+                        return session.withStoreCode(storeCode);
+                    }
+
+                    @Override
+                    public boolean sharedZskuChanged(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
+                        return productPublishPreparationService.sharedZskuChanged(draft, baseline);
+                    }
+
+                    @Override
+                    public boolean groupChanged(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
+                        return productPublishPreparationService.groupChanged(draft, baseline);
+                    }
+
+                    @Override
+                    public void publishSharedAttributes(
+                            NoonSession session,
+                            ProductMasterSnapshotView draft,
+                            ProductMasterSnapshotView baseline,
+                            ProductMasterSnapshotView liveBeforePublish,
+                            ProductPublishUnsupportedChanges unsupportedChanges,
+                            List<String> actionWarnings
+                    ) {
+                        productPublishSharedZskuWriter.publishSharedAttributes(
+                                session,
+                                draft,
+                                baseline,
+                                liveBeforePublish,
+                                unsupportedChanges,
+                                actionWarnings
+                        );
+                    }
+
+                    @Override
+                    public List<Map<String, Object>> targetOffers(ProductMasterSnapshotView draft, String currentSiteCode) {
+                        return productPublishPreparationService.targetOffers(draft, currentSiteCode);
+                    }
+
+                    @Override
+                    public Map<String, Map<String, Object>> baselineOffers(ProductMasterSnapshotView baseline) {
+                        return productPublishPreparationService.baselineOffers(baseline);
+                    }
+
+                    @Override
+                    public boolean siteOfferChanged(Map<String, Object> siteOffer, Map<String, Object> baselineOffer) {
+                        return productPublishPreparationService.siteOfferChanged(siteOffer, baselineOffer);
+                    }
+
+                    @Override
+                    public void publishOffer(
+                            NoonSession session,
+                            String pskuCode,
+                            Map<String, Object> siteOffer,
+                            List<String> actionWarnings
+                    ) {
+                        productPublishOfferWriter.publishOffer(session, pskuCode, siteOffer, actionWarnings);
+                    }
+                }
+        );
+        this.productPublishTaskChangedDomainsResolver = new ProductPublishTaskChangedDomainsResolver(
+                objectMapper,
+                this::recomputePublishTaskChangedDomains
+        );
+        this.productPublishTaskViewBuilder = new ProductPublishTaskViewBuilder(
+                productPublishCommandService,
+                this::buildTerminalPublishTaskWorkbenchView,
+                this.productPublishTaskChangedDomainsResolver
+        );
+        this.productWorkbenchPublishTaskAttacher = new ProductWorkbenchPublishTaskAttacher(
+                productManagementMapper,
+                productPublishCommandService,
+                this.productPublishTaskViewBuilder::build
+        );
+        this.productWorkbenchViewFinalizer = new ProductWorkbenchViewFinalizer(
+                productProjectionPersistenceService,
+                this.productWorkbenchDirtySiteResolver,
+                this.productWorkbenchStatusHydrator,
+                this.productWorkbenchPublishTaskAttacher
+        );
+    }
+
+    private ProductPublishCommandService requirePublishCommandService() {
+        if (productPublishCommandService == null) {
+            throw new IllegalStateException("商品发布命令服务尚未初始化。");
+        }
+        return productPublishCommandService;
+    }
+
+    private ProductReadModelService requireReadModelService() {
+        if (productReadModelService == null) {
+            throw new IllegalStateException("商品读模型服务尚未初始化。");
+        }
+        return productReadModelService;
     }
 
     public ProductMasterSnapshotView fetchSnapshot(ProductMasterFetchCommand command) {
@@ -221,7 +355,7 @@ public class LocalDbProductMasterService {
                 "当前店铺不在选中的老板名下。"
         );
         storeCode = normalize(store.getStoreCode());
-        OperationalKeys operationalKeys = resolveOperationalKeysFromProjection(
+        ProductOperationalKeyHydrator.OperationalKeys operationalKeys = resolveOperationalKeysFromProjection(
                 command.getOwnerUserId(),
                 storeCode,
                 skuParent,
@@ -231,16 +365,11 @@ public class LocalDbProductMasterService {
         partnerSku = operationalKeys.getPartnerSku();
         pskuCode = operationalKeys.getPskuCode();
 
-        List<String> missingOperationalKeys = collectMissingOperationalKeys(partnerSku, pskuCode);
-        view.setMissingOperationalKeys(missingOperationalKeys);
-        view.setDegraded(!missingOperationalKeys.isEmpty());
-        if (view.isDegraded()) {
-            view.getWarnings().add(
-                    "当前索引缺少 "
-                            + String.join(" / ", missingOperationalKeys)
-                            + "，本次会先按降级模式打开详情，站点价格或库存信息可能不完整。"
-            );
-        }
+        List<String> missingOperationalKeys = productOperationalKeyHydrator.applyMissingOperationalKeyStatus(
+                view,
+                partnerSku,
+                pskuCode
+        );
 
         StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(command.getOwnerUserId());
         if (owner == null) {
@@ -263,7 +392,7 @@ public class LocalDbProductMasterService {
         requireText(projectCode, "当前店铺缺少 Noon projectCode，无法读取真实商品主档。");
 
         long stageStartedAt = System.nanoTime();
-        NoonSession session = noonSessionGateway.login(
+        NoonSession session = productNoonAdapter.login(
                 owner.getId(),
                 noonUser,
                 noonPassword,
@@ -278,27 +407,22 @@ public class LocalDbProductMasterService {
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "resolveProjectCode", stageStartedAt);
         session = session.withProjectCode(resolvedProjectCode).withStoreCode(storeCode);
 
-        stageStartedAt = System.nanoTime();
-        JsonNode whoamiNode = safeGet(
+        ProductSnapshotCoreFetchResult coreFetchResult = productSnapshotCoreFetcher.fetch(
                 session,
-                WHOAMI_URL,
-                false,
+                skuParent,
                 view.getWarnings(),
-                "读取 whoami 失败"
+                (stageName, startedAt) -> recordFetchStage(
+                        timingEntries,
+                        timingBreakdownMs,
+                        traceLabel,
+                        reason,
+                        stageName,
+                        startedAt
+                )
         );
-        recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "whoami", stageStartedAt);
-
-        ObjectNode retrieveBody = objectMapper.createObjectNode();
-        ArrayNode skuParentsNode = retrieveBody.putArray("skuParents");
-        skuParentsNode.add(skuParent);
-        retrieveBody.putArray("attributeCodes");
-        stageStartedAt = System.nanoTime();
-        JsonNode retrieveRoot = session.postJson(ZSKU_RETRIEVE_URL, retrieveBody, true);
-        recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "zsku.retrieve", stageStartedAt);
-        JsonNode productNode = retrieveRoot.path(skuParent);
-        if (productNode.isMissingNode() || productNode.isNull()) {
-            throw new IllegalStateException("Noon 没有返回 skuParent=" + skuParent + " 的商品快照。");
-        }
+        JsonNode whoamiNode = coreFetchResult.getWhoamiNode();
+        JsonNode productNode = coreFetchResult.getProductNode();
+        JsonNode variantInfoNode = coreFetchResult.getVariantInfoNode();
 
         JsonNode commonNode = productNode.path("attributes").path("common");
         JsonNode enNode = productNode.path("attributes").path("en");
@@ -307,99 +431,47 @@ public class LocalDbProductMasterService {
         String productFulltype = text(commonNode, "product_fulltype");
         String brand = text(commonNode, "brand");
         String idPartner = text(commonNode, "id_partner");
-        String resolvedSkuGroup = null;
 
-        JsonNode fulltypeTemplateNode = MissingNode.getInstance();
-        if (StringUtils.hasText(productFulltype)) {
-            stageStartedAt = System.nanoTime();
-            fulltypeTemplateNode = productAttributeTemplateService.loadTemplate(
-                    session,
-                    resolvedProjectCode,
-                    storeCode,
-                    productFulltype,
-                    command.getOwnerUserId(),
-                    view.getWarnings()
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "fulltypeTemplate", stageStartedAt);
-        }
-
-        stageStartedAt = System.nanoTime();
-        JsonNode groupCurrentNode = safeGet(
+        JsonNode fulltypeTemplateNode = productSnapshotTemplateFetcher.fetch(
                 session,
-                GROUP_CURRENT_URL_PREFIX + skuParent,
-                true,
+                resolvedProjectCode,
+                storeCode,
+                productFulltype,
+                command.getOwnerUserId(),
                 view.getWarnings(),
-                "读取当前 group 失败"
+                (stageName, startedAt) -> recordFetchStage(
+                        timingEntries,
+                        timingBreakdownMs,
+                        traceLabel,
+                        reason,
+                        stageName,
+                        startedAt
+                )
         );
-        recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.current", stageStartedAt);
-        if (groupCurrentNode.isObject()) {
-            resolvedSkuGroup = text(groupCurrentNode, "sku_group");
-        }
 
-        JsonNode groupDetailNode = MissingNode.getInstance();
-        if (StringUtils.hasText(resolvedSkuGroup)) {
-            ObjectNode groupBody = objectMapper.createObjectNode();
-            ArrayNode groupCodes = groupBody.putArray("zskuGroup");
-            groupCodes.add(resolvedSkuGroup);
-            stageStartedAt = System.nanoTime();
-            groupDetailNode = safePost(
-                    session,
-                    GROUP_DETAIL_URL,
-                    groupBody,
-                    true,
-                    view.getWarnings(),
-                    "读取 group 详情失败"
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.detail", stageStartedAt);
-        }
-
-        JsonNode groupParentAttributesNode = MissingNode.getInstance();
-        ObjectNode groupParentAttributesBody = buildGroupParentAttributeFetchBody(groupDetailNode, resolvedSkuGroup);
-        if (groupParentAttributesBody != null) {
-            stageStartedAt = System.nanoTime();
-            groupParentAttributesNode = safePost(
-                    session,
-                    ZSKU_RETRIEVE_URL,
-                    groupParentAttributesBody,
-                    true,
-                    view.getWarnings(),
-                    "读取 group 轴属性失败"
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.parentAttributes", stageStartedAt);
-        }
-
-        JsonNode groupListNode = MissingNode.getInstance();
-        if (StringUtils.hasText(productFulltype) && StringUtils.hasText(brand)) {
-            ObjectNode groupListBody = objectMapper.createObjectNode();
-            groupListBody.put("fulltype", productFulltype);
-            groupListBody.put("brand", brand);
-            stageStartedAt = System.nanoTime();
-            groupListNode = safePost(
-                    session,
-                    GROUP_LIST_URL,
-                    groupListBody,
-                    true,
-                    view.getWarnings(),
-                    "读取候选 group 列表失败"
-            );
-            recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "group.list", stageStartedAt);
-        }
-
-        ObjectNode variantBody = objectMapper.createObjectNode();
-        variantBody.put("zskuParent", skuParent);
-        stageStartedAt = System.nanoTime();
-        JsonNode variantInfoNode = safePost(
+        ProductSnapshotGroupFetchResult groupFetchResult = productSnapshotGroupFetcher.fetch(
                 session,
-                VARIANT_INFO_URL,
-                variantBody,
-                true,
+                skuParent,
+                productFulltype,
+                brand,
                 view.getWarnings(),
-                "读取尺码与变体信息失败"
+                (stageName, startedAt) -> recordFetchStage(
+                        timingEntries,
+                        timingBreakdownMs,
+                        traceLabel,
+                        reason,
+                        stageName,
+                        startedAt
+                )
         );
-        recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "variant.info", stageStartedAt);
+        String resolvedSkuGroup = groupFetchResult.getSkuGroup();
+        JsonNode groupCurrentNode = groupFetchResult.getGroupCurrentNode();
+        JsonNode groupDetailNode = groupFetchResult.getGroupDetailNode();
+        JsonNode groupParentAttributesNode = groupFetchResult.getGroupParentAttributesNode();
+        JsonNode groupListNode = groupFetchResult.getGroupListNode();
 
         stageStartedAt = System.nanoTime();
-        List<ProjectSiteContext> projectSites = loadProjectSiteContexts(
+        List<ProductProjectSiteContext> projectSites = loadProjectSiteContexts(
                 session,
                 command.getOwnerUserId(),
                 store,
@@ -408,7 +480,7 @@ public class LocalDbProductMasterService {
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "projectSites", stageStartedAt);
 
         stageStartedAt = System.nanoTime();
-        ProjectSiteFetchResult siteFetchResult;
+        ProductSiteOfferFetchResult siteFetchResult;
         if (siteOfferReuseSeed != null) {
             siteFetchResult = reuseSiteOffersFromSnapshot(siteOfferReuseSeed, projectSites, storeCode);
             log.info(
@@ -436,7 +508,7 @@ public class LocalDbProductMasterService {
         applyFollowSellCatalogContentIfNeeded(session, identity, content, resolveReferenceSite(projectSites, storeCode), reason);
 
         view.setStoreContext(
-                buildStoreContext(
+                productStoreContextBuilder.build(
                         owner,
                         store,
                         noonUser,
@@ -458,23 +530,13 @@ public class LocalDbProductMasterService {
         view.setStock(buildStock(stockNode));
         view.setSiteOffers(siteFetchResult.getSiteOffers());
         view.setReady(true);
-        if (view.isDegraded()) {
-            view.setMessage(
-                    "已读取 "
-                            + (store.getProjectName() != null ? store.getProjectName() : storeCode)
-                            + " 的 Noon 商品详情，但当前索引还缺少 "
-                            + String.join(" / ", missingOperationalKeys)
-                            + "，站点经营数据先按降级模式展示。"
-            );
-        } else {
-            view.setMessage(
-                    "已读取 "
-                            + (store.getProjectName() != null ? store.getProjectName() : storeCode)
-                            + " 的真实 Noon 商品主档快照，并汇总 "
-                            + projectSites.size()
-                            + " 个站点经营面。"
-            );
-        }
+        view.setMessage(productSnapshotMessageBuilder.buildLoadedMessage(
+                store,
+                storeCode,
+                missingOperationalKeys,
+                view.isDegraded(),
+                projectSites.size()
+        ));
         stageStartedAt = System.nanoTime();
         productProjectionPersistenceService.persistSnapshotProjection(
                 command.getOwnerUserId(),
@@ -490,195 +552,101 @@ public class LocalDbProductMasterService {
     }
 
     public ProductMasterWorkbenchView openWorkbench(ProductMasterFetchCommand command) {
-        ProductMasterWorkbenchView cachedWorkbench = openWorkbenchFromLocalBaseline(command);
+        ProductMasterWorkbenchView cachedWorkbench =
+                productWorkbenchOpenService.openFromLocalBaseline(command, openWorkbenchSupport());
         if (cachedWorkbench != null) {
             return cachedWorkbench;
         }
 
-        ProductMasterWorkbenchView missingWorkbench = buildLocalBaselineMissingWorkbench(command);
-        applyMissingBaselineBackfillPrompt(missingWorkbench, enqueueDetailBaselineBackfill(command, "open-missing-baseline"));
+        ProductMasterWorkbenchView missingWorkbench = productWorkbenchViewAssembler.buildLocalBaselineMissingWorkbench(command);
+        productWorkbenchViewAssembler.applyMissingBaselineBackfillPrompt(
+                missingWorkbench,
+                enqueueDetailBaselineBackfill(command, "open-missing-baseline")
+        );
         return missingWorkbench;
     }
 
-    private ProductMasterWorkbenchView buildLocalBaselineMissingWorkbench(ProductMasterFetchCommand command) {
-        ProductMasterWorkbenchView view = new ProductMasterWorkbenchView();
-        view.setMode("local-db");
-        view.setReady(false);
-        view.setSyncStatus("failed");
-        view.setMessage("本地还没有这条商品的详情基线，详情编辑暂不可用。");
-        view.setNote("系统会在后台补齐详情基线；完成后刷新列表或重新打开详情即可编辑。");
-        if (command != null) {
-            if (StringUtils.hasText(command.getStoreCode())) {
-                view.getStoreContext().put("storeCode", command.getStoreCode());
-            }
-            if (StringUtils.hasText(command.getSkuParent())) {
-                view.getIdentity().put("skuParent", command.getSkuParent());
-            }
-            if (StringUtils.hasText(command.getPartnerSku())) {
-                view.getIdentity().put("partnerSku", command.getPartnerSku());
-            }
-            if (StringUtils.hasText(command.getPskuCode())) {
-                view.getIdentity().put("pskuCode", command.getPskuCode());
-            }
-        }
-        return view;
-    }
-
-    private void applyMissingBaselineBackfillPrompt(ProductMasterWorkbenchView view, String backfillStatus) {
-        if (view == null) {
-            return;
-        }
-        if ("preparing".equals(backfillStatus)) {
-            view.setSyncStatus("preparing");
-            view.setMessage("本地还没有这条商品的详情基线，系统正在后台准备。");
-            view.setNote("已启动后台补齐详情基线；补齐完成后刷新列表或重新打开详情即可编辑。");
-            view.getWarnings().add("系统正在后台从 Noon 补齐当前商品详情基线，详情打开不会等待该任务完成。");
-            return;
-        }
-        if ("failed".equals(backfillStatus)) {
-            view.setSyncStatus("failed");
-            view.setMessage("详情基线后台补齐失败，详情编辑暂不可用。");
-            view.setNote("详情基线上次后台补齐失败；请稍后重试或手动从 Noon 同步。");
-        }
-    }
-
     private String enqueueDetailBaselineBackfill(ProductMasterFetchCommand command, String reason) {
-        if (!detailBaselineBackfillEnabled || command == null || command.getOwnerUserId() == null) {
+        if (!detailBaselineBackfillEnabled || productDetailBaselineBackfillService == null) {
             return "disabled";
         }
-        String storeCode = normalize(command.getStoreCode());
-        String skuParent = normalize(command.getSkuParent());
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
-            return "skipped";
-        }
-
-        String key = detailBaselineBackfillKey(command.getOwnerUserId(), storeCode, skuParent);
-        String existingState = detailBaselineBackfillStates.putIfAbsent(key, "preparing");
-        if ("preparing".equals(existingState)) {
-            return "preparing";
-        }
-        if ("failed".equals(existingState)) {
-            detailBaselineBackfillStates.put(key, "preparing");
-        } else if (existingState != null) {
-            return existingState;
-        }
-        detailBaselineBackfillMessages.put(key, "正在后台补齐详情基线。");
-
-        ProductMasterFetchCommand backfillCommand = copyFetchCommand(command);
-        Runnable task = () -> runDetailBaselineBackfill(key, backfillCommand, reason);
-        if (noonAccountTaskQueue != null) {
-            noonAccountTaskQueue.submit(detailBaselineBackfillAccountKey(backfillCommand), task);
-        } else {
-            Thread thread = new Thread(task);
-            thread.setName("nuono-product-detail-baseline-" + thread.getId());
-            thread.setDaemon(true);
-            thread.start();
-        }
-        return "preparing";
+        return productDetailBaselineBackfillService.enqueue(command, reason, this::fetchSnapshot);
     }
 
-    private void runDetailBaselineBackfill(String key, ProductMasterFetchCommand command, String reason) {
-        try {
-            ProductMasterSnapshotView snapshot = fetchSnapshot(command, "detail-baseline-backfill." + normalizeReason(reason));
-            if (snapshot != null && snapshot.isReady()) {
-                detailBaselineBackfillStates.remove(key);
-                detailBaselineBackfillMessages.remove(key);
-                return;
+    private ProductWorkbenchOpenService.OpenSupport openWorkbenchSupport() {
+        return new ProductWorkbenchOpenService.OpenSupport() {
+            @Override
+            public void hydrateBaselineSnapshot(
+                    Long ownerUserId,
+                    String storeCode,
+                    String skuParent,
+                    ProductMasterSnapshotView baselineSnapshot,
+                    List<String> warnings
+            ) {
+                hydrateSnapshotOperationalKeys(ownerUserId, storeCode, skuParent, baselineSnapshot);
+                hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, baselineSnapshot, warnings);
+                clearResolvedOperationalWarnings(baselineSnapshot);
+                productProjectionPersistenceService.hydrateSnapshotGroupFromCurrentProjection(
+                        ownerUserId,
+                        storeCode,
+                        skuParent,
+                        baselineSnapshot,
+                        warnings
+                );
             }
-            detailBaselineBackfillStates.put(key, "failed");
-            detailBaselineBackfillMessages.put(key, firstNonBlank(
-                    snapshot == null ? null : snapshot.getMessage(),
-                    "详情基线补齐失败，请稍后重试。"
-            ));
-        } catch (RuntimeException exception) {
-            detailBaselineBackfillStates.put(key, "failed");
-            detailBaselineBackfillMessages.put(key, firstNonBlank(exception.getMessage(), "详情基线补齐失败，请稍后重试。"));
-            log.warn(
-                    "product-management detail baseline backfill failed owner={} store={} skuParent={} reason={} error={}",
-                    command == null ? null : command.getOwnerUserId(),
-                    command == null ? null : command.getStoreCode(),
-                    command == null ? null : command.getSkuParent(),
-                    reason,
-                    exception.getMessage(),
-                    exception
-            );
-        }
-    }
 
-    private void enqueueMissingDetailBaselines(
-            ProductMasterFetchCommand command,
-            List<ProductListSummaryView> summaries
-    ) {
-        if (!detailBaselineBackfillEnabled || command == null || summaries == null || summaries.isEmpty()) {
-            return;
-        }
-        int maxCount = Math.max(0, detailBaselineBackfillMaxEnqueuePerList);
-        int queuedCount = 0;
-        for (ProductListSummaryView summary : summaries) {
-            if (queuedCount >= maxCount) {
-                return;
+            @Override
+            public boolean hasActivePersistedDraft(
+                    ProductProjectionPersistenceService.PersistedWorkbenchState persistedState
+            ) {
+                return LocalDbProductMasterService.this.hasActivePersistedDraft(persistedState);
             }
-            if (summary == null || !"missing".equalsIgnoreCase(normalize(summary.getDetailBaselineStatus()))) {
-                continue;
+
+            @Override
+            public void hydrateWorkbenchRecord(
+                    Long ownerUserId,
+                    String storeCode,
+                    ProductWorkbenchRecord record,
+                    List<String> warnings
+            ) {
+                hydrateWorkbenchAttributeDictionary(ownerUserId, storeCode, record, warnings);
             }
-            ProductMasterFetchCommand backfillCommand = copyFetchCommand(command);
-            backfillCommand.setSkuParent(summary.getSkuParent());
-            backfillCommand.setPartnerSku(summary.getPartnerSku());
-            backfillCommand.setPskuCode(summary.getPskuCode());
-            if ("preparing".equals(enqueueDetailBaselineBackfill(backfillCommand, "list-missing-baseline"))) {
-                queuedCount++;
-                applyDetailBaselineBackfillState(command.getOwnerUserId(), normalize(command.getStoreCode()), summary);
+
+            @Override
+            public ProductWorkbenchRecord restorePersistedWorkbenchRecord(
+                    ProductMasterSnapshotView baselineSnapshot,
+                    ProductProjectionPersistenceService.PersistedWorkbenchState persistedState
+            ) {
+                return LocalDbProductMasterService.this.restorePersistedWorkbenchRecord(baselineSnapshot, persistedState);
             }
-        }
-    }
 
-    private void applyDetailBaselineBackfillStates(
-            Long ownerUserId,
-            String storeCode,
-            List<ProductListSummaryView> summaries
-    ) {
-        if (summaries == null || summaries.isEmpty()) {
-            return;
-        }
-        for (ProductListSummaryView summary : summaries) {
-            applyDetailBaselineBackfillState(ownerUserId, storeCode, summary);
-        }
-    }
+            @Override
+            public String extractFetchedAt(ProductMasterSnapshotView snapshot) {
+                return LocalDbProductMasterService.this.extractFetchedAt(snapshot);
+            }
 
-    private void applyDetailBaselineBackfillState(
-            Long ownerUserId,
-            String storeCode,
-            ProductListSummaryView summary
-    ) {
-        if (summary == null || ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(summary.getSkuParent())) {
-            return;
-        }
-        if ("ready".equalsIgnoreCase(summary.getDetailBaselineStatus())) {
-            detailBaselineBackfillStates.remove(detailBaselineBackfillKey(ownerUserId, storeCode, summary.getSkuParent()));
-            detailBaselineBackfillMessages.remove(detailBaselineBackfillKey(ownerUserId, storeCode, summary.getSkuParent()));
-            return;
-        }
-        String key = detailBaselineBackfillKey(ownerUserId, storeCode, summary.getSkuParent());
-        String state = detailBaselineBackfillStates.get(key);
-        if (!StringUtils.hasText(state)) {
-            return;
-        }
-        summary.setDetailBaselineStatus(state);
-        summary.setDetailBaselineMessage(firstNonBlank(
-                detailBaselineBackfillMessages.get(key),
-                "preparing".equals(state) ? "正在后台补齐详情基线。" : "详情基线补齐失败。"
-        ));
-    }
+            @Override
+            public ProductMasterWorkbenchView finalizeWorkbenchView(
+                    Long ownerUserId,
+                    ProductWorkbenchRecord record,
+                    String message,
+                    List<String> warnings
+            ) {
+                return LocalDbProductMasterService.this.finalizeWorkbenchView(
+                        ownerUserId,
+                        null,
+                        null,
+                        record,
+                        message,
+                        warnings
+                );
+            }
 
-    private String detailBaselineBackfillKey(Long ownerUserId, String storeCode, String skuParent) {
-        return ownerUserId + "::" + normalize(storeCode) + "::" + normalize(skuParent);
-    }
-
-    private String detailBaselineBackfillAccountKey(ProductMasterFetchCommand command) {
-        if (command == null) {
-            return null;
-        }
-        return command.getOwnerUserId() + "::" + normalize(command.getStoreCode());
+            @Override
+            public List<String> mergeWarnings(List<String> baseWarnings, List<String> extraWarnings) {
+                return LocalDbProductMasterService.this.mergeWarnings(baseWarnings, extraWarnings);
+            }
+        };
     }
 
     private String normalizeReason(String reason) {
@@ -687,102 +655,6 @@ public class LocalDbProductMasterService {
             return "default";
         }
         return normalized.replaceAll("[^a-zA-Z0-9_.-]", "-");
-    }
-
-    private ProductMasterFetchCommand copyFetchCommand(ProductMasterFetchCommand source) {
-        ProductMasterFetchCommand copy = new ProductMasterFetchCommand();
-        if (source == null) {
-            return copy;
-        }
-        copy.setOwnerUserId(source.getOwnerUserId());
-        copy.setStoreCode(source.getStoreCode());
-        copy.setNoonUser(source.getNoonUser());
-        copy.setNoonPassword(source.getNoonPassword());
-        copy.setSkuParent(source.getSkuParent());
-        copy.setPartnerSku(source.getPartnerSku());
-        copy.setPskuCode(source.getPskuCode());
-        return copy;
-    }
-
-    private ProductMasterWorkbenchView openWorkbenchFromLocalBaseline(ProductMasterFetchCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
-            return null;
-        }
-        String storeCode = normalize(command.getStoreCode());
-        String skuParent = normalize(command.getSkuParent());
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
-            return null;
-        }
-
-        String key = workbenchKey(command.getOwnerUserId(), storeCode, skuParent);
-        List<String> warnings = new ArrayList<>();
-        ProductMasterSnapshotView baselineSnapshot =
-                productProjectionPersistenceService.loadLatestBaselineSnapshot(
-                        command.getOwnerUserId(),
-                        storeCode,
-                        skuParent,
-                        warnings
-                );
-        if (baselineSnapshot == null || !baselineSnapshot.isReady()) {
-            return null;
-        }
-        hydrateSnapshotOperationalKeys(command.getOwnerUserId(), storeCode, skuParent, baselineSnapshot);
-        hydrateSnapshotAttributeDictionary(command.getOwnerUserId(), storeCode, baselineSnapshot, warnings);
-        clearResolvedOperationalWarnings(baselineSnapshot);
-        productProjectionPersistenceService.hydrateSnapshotGroupFromCurrentProjection(
-                command.getOwnerUserId(),
-                storeCode,
-                skuParent,
-                baselineSnapshot,
-                warnings
-        );
-
-        ProductProjectionPersistenceService.PersistedWorkbenchState persistedState =
-                productProjectionPersistenceService.loadPersistedWorkbenchState(
-                        command.getOwnerUserId(),
-                        storeCode,
-                        skuParent,
-                        warnings
-                );
-        if (!hasActivePersistedDraft(persistedState)) {
-            productProjectionPersistenceService.clearInactivePersistedDraft(
-                    command.getOwnerUserId(),
-                    storeCode,
-                    skuParent,
-                    extractFetchedAt(baselineSnapshot),
-                    warnings
-            );
-        }
-        ProductWorkbenchRecord existingRecord = workbenchRecords.get(key);
-        if (
-                existingRecord != null
-                        && !"synced".equalsIgnoreCase(existingRecord.getSyncStatus())
-                        && hasActivePersistedDraft(persistedState)
-        ) {
-            hydrateWorkbenchAttributeDictionary(command.getOwnerUserId(), storeCode, existingRecord, warnings);
-            return finalizeWorkbenchView(
-                    command.getOwnerUserId(),
-                    null,
-                    null,
-                    existingRecord,
-                    localBaselineOpenNote(existingRecord.getLastSyncedAt()),
-                    existingRecord.getDraftSnapshot() != null ? existingRecord.getDraftSnapshot().getWarnings() : new ArrayList<>()
-            );
-        }
-        ProductWorkbenchRecord record = restorePersistedWorkbenchRecord(baselineSnapshot, persistedState);
-        hydrateWorkbenchAttributeDictionary(command.getOwnerUserId(), storeCode, record, warnings);
-        if ("synced".equals(record.getSyncStatus())) {
-            record.setNote(localBaselineOpenNote(extractFetchedAt(baselineSnapshot)));
-        }
-        workbenchRecords.put(key, record);
-        return finalizeWorkbenchView(
-                command.getOwnerUserId(),
-                null,
-                null,
-                record,
-                localBaselineOpenNote(extractFetchedAt(baselineSnapshot)),
-                mergeWarnings(baselineSnapshot.getWarnings(), warnings)
-        );
     }
 
     private boolean hasActivePersistedDraft(ProductProjectionPersistenceService.PersistedWorkbenchState persistedState) {
@@ -808,47 +680,7 @@ public class LocalDbProductMasterService {
     }
 
     public ProductGroupCandidatesView loadGroupCandidates(ProductMasterFetchCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
-            throw new IllegalArgumentException("缺少老板上下文，暂时不能读取同类目候选商品。");
-        }
-        String storeCode = normalize(command.getStoreCode());
-        String skuParent = normalize(command.getSkuParent());
-        requireText(storeCode, "缺少店铺编码，暂时不能读取同类目候选商品。");
-        requireText(skuParent, "缺少 skuParent，暂时不能读取同类目候选商品。");
-        StoreSyncStoreRecord store = resolveProductOwnerStore(
-                command.getOwnerUserId(),
-                storeCode,
-                "当前店铺不在选中的老板名下。"
-        );
-        storeCode = normalize(store.getStoreCode());
-
-        List<String> warnings = new ArrayList<>();
-        List<ProductListSummaryView> summaries = productProjectionPersistenceService.loadProductGroupCandidateSummaries(
-                command.getOwnerUserId(),
-                storeCode,
-                skuParent,
-                null,
-                warnings
-        );
-        List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items = new ArrayList<>();
-        for (ProductListSummaryView summary : summaries) {
-            items.add(createListItemFromSummary(summary));
-        }
-
-        ProductGroupCandidatesView view = new ProductGroupCandidatesView();
-        view.setReady(true);
-        view.setSource("projection-primary");
-        view.setOwnerUserId(command.getOwnerUserId());
-        view.setStoreCode(storeCode);
-        view.setSkuParent(skuParent);
-        view.setItems(items);
-        view.setWarnings(warnings);
-        if (items.isEmpty()) {
-            view.setMessage("当前没有找到同品牌、同类目的可加入 SKU。");
-        } else {
-            view.setMessage("已按当前商品品牌和类目匹配可加入分组的 SKU。");
-        }
-        return view;
+        return requireReadModelService().loadGroupCandidates(command);
     }
 
     public ProductClassificationOptionsView loadClassificationOptions(ProductClassificationOptionsCommand command) {
@@ -886,7 +718,7 @@ public class LocalDbProductMasterService {
         );
         boolean usedProjectionFallback = false;
         if (brands.isEmpty() && !StringUtils.hasText(brandQuery)) {
-            brands = productManagementMapper.selectBrandProjectionClassificationOptions(
+            brands = productLiteMapper.selectBrandProjectionClassificationOptions(
                     command.getOwnerUserId(),
                     storeCode,
                     brandQuery,
@@ -895,7 +727,7 @@ public class LocalDbProductMasterService {
             usedProjectionFallback = !brands.isEmpty();
         }
         if (fulltypes.isEmpty() && !StringUtils.hasText(fulltypeQuery)) {
-            fulltypes = productManagementMapper.selectFulltypeProjectionClassificationOptions(
+            fulltypes = productLiteMapper.selectFulltypeProjectionClassificationOptions(
                     command.getOwnerUserId(),
                     storeCode,
                     fulltypeQuery,
@@ -946,85 +778,7 @@ public class LocalDbProductMasterService {
     }
 
     public ProductListDatasetView loadListDataset(ProductMasterFetchCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
-            throw new IllegalArgumentException("缺少老板上下文，暂时不能读取商品工作台。");
-        }
-        String storeCode = normalize(command.getStoreCode());
-        requireText(storeCode, "缺少店铺编码，暂时不能读取商品工作台。");
-        StoreSyncStoreRecord store = resolveProductOwnerStore(
-                command.getOwnerUserId(),
-                storeCode,
-                "当前店铺不在选中的老板名下。"
-        );
-        storeCode = normalize(store.getStoreCode());
-
-        List<String> warnings = new ArrayList<>();
-        LocalDbStoreInitializationService.StoreInitializationStatusView initializationView =
-                localDbStoreInitializationService.getStatus(command.getOwnerUserId(), storeCode);
-        List<ProductListSummaryView> summaries = productProjectionPersistenceService.loadProductListSummaries(
-                command.getOwnerUserId(),
-                storeCode,
-                warnings
-        );
-        Set<String> deletedSkuParents = new LinkedHashSet<>(
-                productManagementMapper.selectDeletedProductSkuParentsByStoreCode(command.getOwnerUserId(), storeCode)
-        );
-        applyDetailBaselineBackfillStates(command.getOwnerUserId(), storeCode, summaries);
-        enqueueMissingDetailBaselines(command, summaries);
-
-        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsBySkuParent =
-                new LinkedHashMap<>();
-        for (LocalDbStoreInitializationService.StoreInitializationProductListItemView item : initializationView.getProductItems()) {
-            if (item == null || !StringUtils.hasText(item.getSkuParent())) {
-                continue;
-            }
-            String skuParent = normalize(item.getSkuParent());
-            if (deletedSkuParents.contains(skuParent)) {
-                continue;
-            }
-            itemsBySkuParent.put(skuParent, copyListItem(item));
-        }
-        for (ProductListSummaryView summary : summaries) {
-            if (summary == null || !StringUtils.hasText(summary.getSkuParent())) {
-                continue;
-            }
-            String skuParent = normalize(summary.getSkuParent());
-            LocalDbStoreInitializationService.StoreInitializationProductListItemView current =
-                    itemsBySkuParent.getOrDefault(skuParent, createListItemFromSummary(summary));
-            itemsBySkuParent.put(skuParent, mergeListItemWithSummary(current, summary));
-        }
-
-        List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items =
-                new ArrayList<>(itemsBySkuParent.values());
-
-        ProductListDatasetView view = new ProductListDatasetView();
-        view.setOwnerUserId(initializationView.getOwnerUserId());
-        view.setProjectName(initializationView.getProjectName());
-        view.setProjectCode(initializationView.getProjectCode());
-        view.setStoreCode(initializationView.getStoreCode());
-        view.setInitializationStatus(initializationView.getStatus());
-        view.setInitializationMessage(initializationView.getMessage());
-        view.setLastInitializedAt(initializationView.getLastInitializedAt());
-        view.setItems(items);
-        applyDatasetStats(view, items);
-        view.setWarnings(mergeWarnings(initializationView.getWarnings(), warnings));
-
-        if (!summaries.isEmpty()) {
-            view.setReady(true);
-            view.setSource("projection-primary");
-            view.setMessage("商品摘要已就绪；列表展示本地商品投影，详情工作台按本地基线和草稿打开。");
-        } else if (!items.isEmpty()) {
-            view.setReady(true);
-            view.setSource("init-snapshot-fallback");
-            view.setMessage("本地商品投影仍在补齐，当前先回退到初始化摘要。");
-        } else {
-            view.setReady(false);
-            view.setSource("workspace-empty");
-            view.setMessage(initializationView.getMessage());
-        }
-
-        view.setLastDatasetSyncedAt(resolveLastDatasetSyncedAt(items, initializationView.getLastInitializedAt()));
-        return view;
+        return requireReadModelService().loadListDataset(command);
     }
 
     @Transactional
@@ -1096,8 +850,9 @@ public class LocalDbProductMasterService {
                 updatedBy
         );
 
-        detailBaselineBackfillStates.remove(detailBaselineBackfillKey(command.getOwnerUserId(), storeCode, skuParent));
-        detailBaselineBackfillMessages.remove(detailBaselineBackfillKey(command.getOwnerUserId(), storeCode, skuParent));
+        if (productDetailBaselineBackfillService != null) {
+            productDetailBaselineBackfillService.cancel(command, "商品已从本地商品目录删除。");
+        }
 
         ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
         reloadCommand.setOwnerUserId(command.getOwnerUserId());
@@ -1143,7 +898,7 @@ public class LocalDbProductMasterService {
                 record.setNote("草稿已保存。后续可以发布共享主档与当前站点经营面。");
             }
             appendRecentAction(record, "save", record.getSyncStatus(), record.getNote(), command.getCurrentSiteCode(), record.getDraftSnapshot());
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "save",
@@ -1164,7 +919,7 @@ public class LocalDbProductMasterService {
             record.setNote("已回滚本地草稿，当前工作台恢复到最近本地商品基线。");
             record.setPublishTask(null);
             appendRecentAction(record, "rollback-draft", record.getSyncStatus(), record.getNote(), command.getCurrentSiteCode(), baselineSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "rollback-draft",
@@ -1193,7 +948,7 @@ public class LocalDbProductMasterService {
             } else {
                 refreshed.setNote("已按 Noon 当前版本刷新基线，并使用 Noon 内容覆盖本地草稿。");
             }
-            workbenchRecords.put(key, refreshed);
+            productWorkbenchRecordStore.put(key, refreshed);
             appendRecentAction(refreshed, "pull", refreshed.getSyncStatus(), refreshed.getNote(), command.getCurrentSiteCode(), liveSnapshot);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
@@ -1212,12 +967,12 @@ public class LocalDbProductMasterService {
             requireText(currentSiteCode, "缺少当前站点编码，暂时不能发布当前站点。");
         }
         requestedSnapshot = prepareSnapshotForPublish(requestedSnapshot, record.getBaselineSnapshot(), currentSiteCode);
-        UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(
+        ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(
                 requestedSnapshot,
                 record.getBaselineSnapshot(),
                 currentSiteCode
         );
-        ProductMasterSnapshotView publishableSnapshot = publishableSnapshotForSupportedChanges(
+        ProductMasterSnapshotView publishableSnapshot = productPublishSupportedSnapshotBuilder.build(
                 requestedSnapshot,
                 record.getBaselineSnapshot(),
                 unsupportedChanges
@@ -1232,7 +987,7 @@ public class LocalDbProductMasterService {
             record.setSyncStatus(sameBusinessSnapshot(requestedSnapshot, record.getBaselineSnapshot()) ? "synced" : "draft");
             record.setNote("当前没有待发布改动。");
             appendRecentAction(record, "publish-current", record.getSyncStatus(), record.getNote(), currentSiteCode, requestedSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "publish-current",
@@ -1249,13 +1004,13 @@ public class LocalDbProductMasterService {
                 currentSiteCode
         );
         validationErrors.addAll(validatePublishOperationalKeys(publishableSnapshot, record.getBaselineSnapshot(), currentSiteCode));
-        validationErrors.addAll(validatePublishWriteCoverage(unsupportedChanges));
+        validationErrors.addAll(productPublishUnsupportedChangesDetector.validateWriteCoverage(unsupportedChanges));
         if (!validationErrors.isEmpty()) {
             record.setDraftSnapshot(requestedSnapshot);
             record.setSyncStatus("failed");
             record.setNote(validationErrors.get(0));
             appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "publish-current",
@@ -1317,7 +1072,7 @@ public class LocalDbProductMasterService {
 
         List<String> actionWarnings = new ArrayList<>(prePublishWarnings);
         try {
-            publishSupportedChanges(
+            productPublishWriteService.publishSupportedChanges(
                     command,
                     store,
                     publishableSnapshot,
@@ -1341,7 +1096,7 @@ public class LocalDbProductMasterService {
                 record.setSyncStatus("pending_manual_check");
                 record.setNote("Group 写回可能已部分提交到 Noon，请先从 Noon 同步后确认结果。");
                 appendRecentAction(record, "publish-current", "pending_manual_check", record.getNote(), currentSiteCode, requestedSnapshot);
-                workbenchRecords.put(key, record);
+                productWorkbenchRecordStore.put(key, record);
                 return finalizeWorkbenchView(
                         command.getOwnerUserId(),
                         "publish-current",
@@ -1359,7 +1114,7 @@ public class LocalDbProductMasterService {
                 record.setSyncStatus("failed");
                 record.setNote(shrink(exception.getMessage()));
                 appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-                workbenchRecords.put(key, record);
+                productWorkbenchRecordStore.put(key, record);
                 return finalizeWorkbenchView(
                         command.getOwnerUserId(),
                         "publish-current",
@@ -1373,7 +1128,7 @@ public class LocalDbProductMasterService {
             record.setSyncStatus("failed");
             record.setNote("Noon 发布接口暂时不可用，诺诺草稿已保留。请稍后重试或先从 Noon 同步后再发布。");
             appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-            workbenchRecords.put(key, record);
+            productWorkbenchRecordStore.put(key, record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     "publish-current",
@@ -1396,7 +1151,7 @@ public class LocalDbProductMasterService {
         );
         ProductWorkbenchRecord refreshed = createSyncedRecord(liveAfterPublish);
         refreshed.setDraftSnapshot(copySnapshot(liveAfterPublish));
-        overlayUnsupportedDraft(refreshed.getDraftSnapshot(), requestedSnapshot, unsupportedChanges);
+        productPublishSupportedSnapshotBuilder.overlayUnsupportedDraft(refreshed.getDraftSnapshot(), requestedSnapshot, unsupportedChanges);
 
         if (sameBusinessSnapshot(refreshed.getDraftSnapshot(), refreshed.getBaselineSnapshot())) {
             refreshed.setSyncStatus("synced");
@@ -1408,7 +1163,7 @@ public class LocalDbProductMasterService {
             );
         }
         appendRecentAction(refreshed, "publish-current", refreshed.getSyncStatus(), refreshed.getNote(), currentSiteCode, refreshed.getDraftSnapshot());
-        workbenchRecords.put(key, refreshed);
+        productWorkbenchRecordStore.put(key, refreshed);
 
         List<String> mergedWarnings = mergeWarnings(liveAfterPublish.getWarnings(), actionWarnings);
         ProductMasterWorkbenchView view = finalizeWorkbenchView(
@@ -1438,65 +1193,15 @@ public class LocalDbProductMasterService {
     }
 
     public ProductPublishTaskView loadPublishTask(Long taskId, Long ownerUserId) {
-        if (taskId == null) {
-            throw new IllegalArgumentException("缺少发布任务 ID。");
-        }
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord task = productManagementMapper.selectProductPublishTaskById(taskId);
-        if (task == null) {
-            throw new IllegalArgumentException("发布任务不存在或已删除。");
-        }
-        ensurePublishTaskOwner(task, ownerUserId);
-        return buildPublishTaskView(task, true);
+        return productPublishTaskViewBuilder.load(taskId, ownerUserId);
     }
 
     public ProductPublishTaskView retryPublishTask(Long taskId, Long ownerUserId) {
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord task = productManagementMapper.selectProductPublishTaskById(taskId);
-        if (task == null) {
-            throw new IllegalArgumentException("发布任务不存在或已删除。");
-        }
-        ensurePublishTaskOwner(task, ownerUserId);
-        Long activeProductMasterId = task.getProductMasterId();
-        ProductPublishTaskRecord activeTask = activeProductMasterId == null
-                ? null
-                : productManagementMapper.selectActiveProductPublishTask(activeProductMasterId);
-        if (activeTask != null && !Objects.equals(activeTask.getId(), taskId)) {
-            throw new IllegalStateException("当前商品已有发布任务正在执行，请等待完成后再重试。");
-        }
-        int updated;
-        try {
-            updated = productManagementMapper.retryProductPublishTask(taskId, task.getOwnerUserId());
-        } catch (DuplicateKeyException exception) {
-            throw new IllegalStateException("当前商品已有发布任务正在执行，请等待完成后再重试。", exception);
-        }
-        if (updated <= 0) {
-            throw new IllegalStateException("当前发布任务不能重试，可能已超过重试次数或状态已变化。");
-        }
-        return loadPublishTask(taskId, ownerUserId);
+        return productPublishTaskViewBuilder.retry(taskId, ownerUserId);
     }
 
     public ProductPublishTaskView cancelPublishTask(Long taskId, Long ownerUserId) {
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord task = productManagementMapper.selectProductPublishTaskById(taskId);
-        if (task == null) {
-            throw new IllegalArgumentException("发布任务不存在或已删除。");
-        }
-        ensurePublishTaskOwner(task, ownerUserId);
-        int updated = productManagementMapper.cancelQueuedProductPublishTask(taskId, task.getOwnerUserId());
-        if (updated <= 0) {
-            throw new IllegalStateException("只有尚未执行的发布任务可以取消。");
-        }
-        return loadPublishTask(taskId, ownerUserId);
-    }
-
-    private void ensurePublishTaskOwner(ProductPublishTaskRecord task, Long ownerUserId) {
-        if (ownerUserId == null) {
-            throw new IllegalArgumentException("缺少老板上下文，暂时不能读取发布任务。");
-        }
-        if (task == null || !Objects.equals(task.getOwnerUserId(), ownerUserId)) {
-            throw new IllegalArgumentException("当前发布任务不属于选中的老板上下文。");
-        }
+        return productPublishTaskViewBuilder.cancel(taskId, ownerUserId);
     }
 
     @Scheduled(
@@ -1522,10 +1227,9 @@ public class LocalDbProductMasterService {
         int limit = Math.max(1, publishTaskSchedulerMaxItemsPerTick);
         List<ProductPublishTaskRecord> tasks;
         try {
-            recoverStaleRunningProductPublishTasks();
-            tasks = productManagementMapper.selectRunnableProductPublishTasks(limit);
+            tasks = requirePublishCommandService().selectRunnableTasks(limit);
         } catch (RuntimeException exception) {
-            if (isMissingProductPublishTaskTable(exception)) {
+            if (requirePublishCommandService().isMissingTaskTable(exception)) {
                 log.debug("product-management publish task scheduler skipped: product_publish_task not initialized yet");
                 return;
             }
@@ -1536,25 +1240,17 @@ public class LocalDbProductMasterService {
                 continue;
             }
             String previousStatus = task.getStatus();
-            String lockedBy = buildPublishTaskLockToken(task);
-            int claimed = productManagementMapper.tryStartProductPublishTask(
-                    task.getId(),
-                    previousStatus,
-                    taskVersionNo(task),
-                    lockedBy,
-                    task.getOwnerUserId()
-            );
-            if (claimed <= 0) {
+            String lockedBy = requirePublishCommandService().buildLockToken(task);
+            if (!requirePublishCommandService().claimTask(task, previousStatus, lockedBy)) {
                 continue;
             }
-            markPublishTaskClaimed(task, lockedBy);
             try {
                 if ("queued".equalsIgnoreCase(previousStatus)) {
                     executeQueuedPublishTask(task);
                 } else {
                     executePublishTaskVerificationOnly(task, previousStatus);
                 }
-            } catch (PublishTaskFenceLostException exception) {
+            } catch (ProductPublishTaskFenceLostException exception) {
                 log.info(
                         "product-management publish task skipped after losing claim id={} targetStatus={} error={}",
                         task.getId(),
@@ -1583,46 +1279,21 @@ public class LocalDbProductMasterService {
         }
     }
 
-    private String buildPublishTaskLockToken(ProductPublishTaskRecord task) {
-        return "product-publish-task-scheduler:" + task.getId() + ":" + UUID.randomUUID();
-    }
-
-    private void markPublishTaskClaimed(ProductPublishTaskRecord task, String lockedBy) {
-        task.setStatus("running");
-        task.setLockedBy(lockedBy);
-        task.setLockedAt(LocalDateTime.now());
-        task.setVersionNo(taskVersionNo(task) + 1);
-    }
-
-    private boolean isMissingProductPublishTaskTable(Throwable exception) {
-        Throwable current = exception;
-        while (current != null) {
-            String message = current.getMessage();
-            if (message != null
-                    && message.contains("product_publish_task")
-                    && (message.contains("doesn't exist") || message.contains("does not exist"))) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
     private ProductMasterWorkbenchView queuePublishCurrentTask(
             ProductMasterActionCommand command,
             ProductWorkbenchRecord record,
             ProductMasterSnapshotView requestedSnapshot,
             String currentSiteCode,
-            UnsupportedChanges unsupportedChanges
+            ProductPublishUnsupportedChanges unsupportedChanges
     ) {
         Long productMasterId = resolveProductMasterId(command);
         ProductPublishTaskRecord activeTask = productMasterId == null
                 ? null
-                : productManagementMapper.selectActiveProductPublishTask(productMasterId);
+                : requirePublishCommandService().selectActiveTask(productMasterId);
         if (activeTask != null) {
-            record.setPublishTask(buildPublishTaskView(activeTask, false));
+            record.setPublishTask(productPublishTaskViewBuilder.build(activeTask, false));
             record.setNote("当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。");
-            workbenchRecords.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     null,
@@ -1636,47 +1307,39 @@ public class LocalDbProductMasterService {
             throw new IllegalStateException("本地商品主档还没有落库，暂时不能创建发布任务。");
         }
 
-        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
-        task.setId(productManagementMapper.nextProductPublishTaskId());
-        task.setOwnerUserId(command.getOwnerUserId());
-        task.setProductMasterId(productMasterId);
-        task.setStoreCode(normalize(command.getStoreCode()));
-        task.setProjectCode(textValue(requestedSnapshot.getStoreContext().get("projectCode")));
-        task.setSkuParent(textValue(requestedSnapshot.getIdentity().get("skuParent")));
-        task.setPartnerSku(firstNonBlank(normalize(command.getPartnerSku()), textValue(requestedSnapshot.getIdentity().get("partnerSku"))));
-        task.setPskuCode(firstNonBlank(normalize(command.getPskuCode()), textValue(requestedSnapshot.getIdentity().get("pskuCode"))));
-        task.setCurrentSiteCode(normalize(currentSiteCode));
-        task.setTaskType("publish-current");
-        task.setStatus("queued");
-        task.setActiveLockKey(productPublishActiveLockKey(productMasterId));
-        task.setDraftJson(writeJson(requestedSnapshot));
-        task.setBaselineJson(writeJson(record.getBaselineSnapshot()));
-        task.setDraftHash(sha256Hex(task.getDraftJson()));
-        task.setChangedDomainsJson(writeJson(resolvePublishChangedDomains(requestedSnapshot, record.getBaselineSnapshot(), currentSiteCode, unsupportedChanges)));
-        task.setRequestJson(writeJson(buildPublishTaskRequestPayload(command, currentSiteCode)));
-        task.setIdempotencyKey(productMasterId + ":" + task.getDraftHash() + ":" + normalize(currentSiteCode));
-        task.setRetryCount(0);
-        task.setVerifyAttemptCount(0);
-        task.setMaxRetryCount(3);
-        task.setVersionNo(1);
-        try {
-            productManagementMapper.insertProductPublishTask(task);
-        } catch (DuplicateKeyException exception) {
-            ProductPublishTaskRecord duplicateTask =
-                    productManagementMapper.selectProductPublishTaskByIdempotency(task.getIdempotencyKey());
-            if (duplicateTask == null) {
-                duplicateTask = productManagementMapper.selectActiveProductPublishTask(productMasterId);
-            }
-            if (duplicateTask == null) {
-                throw exception;
-            }
+        String draftJson = writeJson(requestedSnapshot);
+        String draftHash = sha256Hex(draftJson);
+        ProductPublishTaskCreateCommand createCommand = new ProductPublishTaskCreateCommand();
+        createCommand.setOwnerUserId(command.getOwnerUserId());
+        createCommand.setProductMasterId(productMasterId);
+        createCommand.setStoreCode(command.getStoreCode());
+        createCommand.setProjectCode(textValue(requestedSnapshot.getStoreContext().get("projectCode")));
+        createCommand.setSkuParent(textValue(requestedSnapshot.getIdentity().get("skuParent")));
+        createCommand.setPartnerSku(firstNonBlank(normalize(command.getPartnerSku()), textValue(requestedSnapshot.getIdentity().get("partnerSku"))));
+        createCommand.setPskuCode(firstNonBlank(normalize(command.getPskuCode()), textValue(requestedSnapshot.getIdentity().get("pskuCode"))));
+        createCommand.setCurrentSiteCode(currentSiteCode);
+        createCommand.setDraftJson(draftJson);
+        createCommand.setBaselineJson(writeJson(record.getBaselineSnapshot()));
+        createCommand.setDraftHash(draftHash);
+        createCommand.setChangedDomainsJson(writeJson(productPublishChangedDomainComparator.resolve(
+                requestedSnapshot,
+                record.getBaselineSnapshot(),
+                currentSiteCode,
+                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
+                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
+        )));
+        createCommand.setRequestJson(writeJson(buildPublishTaskRequestPayload(command, currentSiteCode)));
+        createCommand.setIdempotencyKey(productMasterId + ":" + draftHash + ":" + normalize(currentSiteCode));
+        ProductPublishTaskCreateResult createResult = requirePublishCommandService().createPublishCurrentTask(createCommand);
+        ProductPublishTaskRecord task = createResult.getTask();
+        if (createResult.isDuplicate()) {
             record.setDraftSnapshot(requestedSnapshot);
             record.setSyncStatus("draft");
-            record.setNote(isActivePublishTaskStatus(duplicateTask.getStatus())
+            record.setNote(isActivePublishTaskStatus(task.getStatus())
                     ? "当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。"
-                    : publishTaskMessage(duplicateTask));
-            record.setPublishTask(buildPublishTaskView(duplicateTask, false));
-            workbenchRecords.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+                    : publishTaskMessage(task));
+            record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
             return finalizeWorkbenchView(
                     command.getOwnerUserId(),
                     null,
@@ -1690,9 +1353,9 @@ public class LocalDbProductMasterService {
         record.setDraftSnapshot(requestedSnapshot);
         record.setSyncStatus("draft");
         record.setNote("发布已提交，正在后台校验 Noon 结果。");
-        record.setPublishTask(buildPublishTaskView(task, false));
+        record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
         appendRecentAction(record, "publish-current", "draft", record.getNote(), currentSiteCode, requestedSnapshot);
-        workbenchRecords.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+        productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
         return finalizeWorkbenchView(
                 command.getOwnerUserId(),
                 "publish-current",
@@ -1709,19 +1372,19 @@ public class LocalDbProductMasterService {
         ProductMasterActionCommand command = buildTaskActionCommand(task, draft);
         String currentSiteCode = normalize(task.getCurrentSiteCode());
         ProductWorkbenchRecord record = buildTaskWorkbenchRecord(baseline, draft, "draft", "发布任务正在提交 Noon。");
-        workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+        productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
 
         Map<String, Integer> requestCounts = Map.of();
-        NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
+        NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         boolean writeSubmitted = false;
         try {
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, currentSiteCode);
-            UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(preparedDraft, baseline, currentSiteCode);
-            ProductMasterSnapshotView publishableDraft = publishableSnapshotForSupportedChanges(preparedDraft, baseline, unsupportedChanges);
+            ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, currentSiteCode);
+            ProductMasterSnapshotView publishableDraft = productPublishSupportedSnapshotBuilder.build(preparedDraft, baseline, unsupportedChanges);
             if (sameScopedSnapshot(publishableDraft, baseline, currentSiteCode)) {
                 ProductWorkbenchRecord refreshed = buildTaskWorkbenchRecord(baseline, preparedDraft, "synced", "当前没有待发布改动。");
                 appendRecentAction(refreshed, "publish-current", "synced", refreshed.getNote(), currentSiteCode, preparedDraft);
-                workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
+                productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
                 updatePublishTaskStatus(
                         task,
                         "synced",
@@ -1736,7 +1399,7 @@ public class LocalDbProductMasterService {
             }
             List<String> validationErrors = validatePublishSnapshot(publishableDraft, baseline, currentSiteCode);
             validationErrors.addAll(validatePublishOperationalKeys(publishableDraft, baseline, currentSiteCode));
-            validationErrors.addAll(validatePublishWriteCoverage(unsupportedChanges));
+            validationErrors.addAll(productPublishUnsupportedChangesDetector.validateWriteCoverage(unsupportedChanges));
             if (!validationErrors.isEmpty()) {
                 failPublishTask(task, "validation_failed", validationErrors.get(0), requestCountScope.snapshot());
                 return;
@@ -1761,7 +1424,7 @@ public class LocalDbProductMasterService {
             StoreSyncStoreRecord store = requirePublishStore(task.getOwnerUserId(), task.getStoreCode());
             ensurePublishStoreAllowed(store);
             try {
-                publishSupportedChanges(
+                productPublishWriteService.publishSupportedChanges(
                         command,
                         store,
                         publishableDraft,
@@ -1798,9 +1461,9 @@ public class LocalDbProductMasterService {
                     );
                     record.setSyncStatus("failed");
                     record.setNote(partialMessage);
-                    record.setPublishTask(buildPublishTaskView(task, false));
+                    record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
                     appendRecentAction(record, "publish-current", "pending_manual_check", partialMessage, currentSiteCode, draft);
-                    workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+                    productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
                     return;
                 }
                 if (exception instanceof ProductGroupValidationException) {
@@ -1877,13 +1540,13 @@ public class LocalDbProductMasterService {
         ProductMasterSnapshotView baseline = readTaskSnapshot(task.getBaselineJson());
         ProductMasterSnapshotView draft = readTaskSnapshot(task.getDraftJson());
         ProductMasterActionCommand command = buildTaskActionCommand(task, draft);
-        NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
+        NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         int verifyAttempt = task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1;
         try {
             ProductMasterSnapshotView liveAfterPublish = fetchSnapshot(command, "publish-task.verify");
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, task.getCurrentSiteCode());
-            UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(preparedDraft, baseline, task.getCurrentSiteCode());
-            ProductMasterSnapshotView publishableDraft = publishableSnapshotForSupportedChanges(preparedDraft, baseline, unsupportedChanges);
+            ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, task.getCurrentSiteCode());
+            ProductMasterSnapshotView publishableDraft = productPublishSupportedSnapshotBuilder.build(preparedDraft, baseline, unsupportedChanges);
             completePublishTaskAfterVerification(
                     task,
                     baseline,
@@ -1926,7 +1589,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView publishableDraft,
             ProductMasterSnapshotView liveAfterPublish,
-            UnsupportedChanges unsupportedChanges,
+            ProductPublishUnsupportedChanges unsupportedChanges,
             Map<String, Integer> requestCounts,
             List<String> actionWarnings,
             int verifyAttempt
@@ -1961,7 +1624,7 @@ public class LocalDbProductMasterService {
 
         ProductWorkbenchRecord refreshed = createSyncedRecord(liveAfterPublish);
         refreshed.setDraftSnapshot(copySnapshot(liveAfterPublish));
-        overlayUnsupportedDraft(refreshed.getDraftSnapshot(), draft, unsupportedChanges);
+        productPublishSupportedSnapshotBuilder.overlayUnsupportedDraft(refreshed.getDraftSnapshot(), draft, unsupportedChanges);
         if (sameBusinessSnapshot(refreshed.getDraftSnapshot(), refreshed.getBaselineSnapshot())) {
             refreshed.setSyncStatus("synced");
             refreshed.setNote("共享主档和当前站点经营面已同步完成。");
@@ -2001,8 +1664,8 @@ public class LocalDbProductMasterService {
                 LocalDateTime.now(),
                 verifyAttempt
         );
-        refreshed.setPublishTask(buildPublishTaskView(task, false));
-        workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
+        refreshed.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+        productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), refreshed);
     }
 
     private void failPublishTask(
@@ -2025,8 +1688,8 @@ public class LocalDbProductMasterService {
         ProductMasterSnapshotView draft = readTaskSnapshot(task.getDraftJson());
         ProductWorkbenchRecord record = buildTaskWorkbenchRecord(baseline, draft, "failed", errorMessage);
         appendRecentAction(record, "publish-current", "failed", errorMessage, task.getCurrentSiteCode(), draft);
-        record.setPublishTask(buildPublishTaskView(task, false));
-        workbenchRecords.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+        record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+        productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
         finalizeWorkbenchView(
                 task.getOwnerUserId(),
                 "publish-current",
@@ -2062,27 +1725,17 @@ public class LocalDbProductMasterService {
     }
 
     private ProductWorkbenchRecord createSyncedRecord(ProductMasterSnapshotView snapshot) {
-        ProductWorkbenchRecord record = new ProductWorkbenchRecord();
-        record.setBaselineSnapshot(copySnapshot(snapshot));
-        record.setDraftSnapshot(copySnapshot(snapshot));
-        record.setSyncStatus("synced");
-        record.setLastSyncedAt(extractFetchedAt(snapshot));
-        record.setNote(
-                snapshot != null && snapshot.isDegraded()
-                        ? "已按降级模式打开详情；共享主档可继续查看和编辑，站点经营数据待索引补齐后再完整同步。"
-                        : "已读取商品详情基线，可以开始调整共享主档和站点经营面。"
-        );
-        return record;
+        return productWorkbenchRecordRestorer.createSyncedRecord(snapshot);
     }
 
     private ProductWorkbenchRecord ensureWorkbenchRecord(ProductMasterFetchCommand command, String key) {
-        ProductWorkbenchRecord existing = workbenchRecords.get(key);
+        ProductWorkbenchRecord existing = productWorkbenchRecordStore.get(key);
         if (existing != null) {
             return existing;
         }
         ProductMasterSnapshotView liveSnapshot = fetchSnapshot(command, "ensure-workbench-record");
         ProductWorkbenchRecord record = createSyncedRecord(liveSnapshot);
-        workbenchRecords.put(key, record);
+        productWorkbenchRecordStore.put(key, record);
         return record;
     }
 
@@ -2172,53 +1825,11 @@ public class LocalDbProductMasterService {
             String message,
             List<String> warnings
     ) {
-        ProductMasterWorkbenchView view = new ProductMasterWorkbenchView();
-        copySnapshotFields(view, record.getDraftSnapshot());
-        view.setBaselineSnapshot(copySnapshot(record.getBaselineSnapshot()));
-        view.setDraftSnapshot(copySnapshot(record.getDraftSnapshot()));
-        view.setSyncStatus(record.getSyncStatus());
-        view.setLastSyncedAt(record.getLastSyncedAt());
-        view.setNote(record.getNote());
-        view.setRecentActions(copyRecordList(record.getRecentActions()));
-        view.setKeyContentHistory(copyRecordList(record.getKeyContentHistory()));
-        view.setPendingKeyContentHistoryCount(record.getPendingKeyContentHistoryCount());
-        view.setPendingKeyContentHistoryVisibleAfter(record.getPendingKeyContentHistoryVisibleAfter());
-        view.setPublishTask(record.getPublishTask());
-        if (StringUtils.hasText(message)) {
-            view.setMessage(message);
-        }
-        if (warnings != null) {
-            view.setWarnings(userVisibleWarnings(warnings));
-        }
-        return view;
-    }
-
-    private ProductPublishTaskView buildPublishTaskView(ProductPublishTaskRecord task, boolean includeWorkbench) {
-        ProductPublishTaskView view = new ProductPublishTaskView();
-        if (task == null) {
-            return view;
-        }
-        view.setTaskId(task.getId());
-        view.setStatus(task.getStatus());
-        view.setMessage(publishTaskMessage(task));
-        view.setChangedDomains(resolvePublishTaskChangedDomains(task));
-        view.setRetryCount(task.getRetryCount());
-        view.setVerifyAttemptCount(task.getVerifyAttemptCount());
-        view.setNextRunAt(task.getNextRunAt());
-        view.setFinishedAt(task.getFinishedAt());
-        view.setPollAfterMillis(resolvePublishTaskPollAfterMillis(task));
-        if (includeWorkbench && isTerminalPublishTaskStatus(task.getStatus())) {
-            ProductMasterWorkbenchView workbench = buildTerminalPublishTaskWorkbenchView(task);
-            if (workbench != null) {
-                workbench.setPublishTask(buildPublishTaskView(task, false));
-                view.setWorkbench(workbench);
-            }
-        }
-        return view;
+        return productWorkbenchViewAssembler.buildWorkbenchView(record, message, warnings);
     }
 
     private ProductMasterWorkbenchView buildTerminalPublishTaskWorkbenchView(ProductPublishTaskRecord task) {
-        ProductWorkbenchRecord existingRecord = workbenchRecords.get(
+        ProductWorkbenchRecord existingRecord = productWorkbenchRecordStore.get(
                 workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent())
         );
         ProductPublishTaskView existingTask = existingRecord != null ? existingRecord.getPublishTask() : null;
@@ -2240,7 +1851,7 @@ public class LocalDbProductMasterService {
         }
 
         if ("synced".equalsIgnoreCase(normalize(task.getStatus()))) {
-            return openWorkbenchFromLocalBaseline(buildFetchCommand(task));
+            return productWorkbenchOpenService.openFromLocalBaseline(buildFetchCommand(task), openWorkbenchSupport());
         }
 
         ProductMasterSnapshotView baseline = readTaskSnapshot(task.getBaselineJson());
@@ -2274,64 +1885,15 @@ public class LocalDbProductMasterService {
     }
 
     private String publishTaskMessage(ProductPublishTaskRecord task) {
-        String status = task == null ? null : normalize(task.getStatus());
-        if ("queued".equalsIgnoreCase(status)) {
-            return "发布已排队，等待后台执行。";
-        }
-        if ("running".equalsIgnoreCase(status)) {
-            return "正在提交 Noon。";
-        }
-        if ("submitted".equalsIgnoreCase(status)) {
-            return "发布已提交，等待回读校验。";
-        }
-        if ("verifying".equalsIgnoreCase(status)) {
-            return "正在校验 Noon 结果。";
-        }
-        if ("pending_effective".equalsIgnoreCase(status)) {
-            return "Noon 可能延迟生效，系统将继续回读校验。";
-        }
-        if ("write_unknown".equalsIgnoreCase(status)) {
-            return "Noon 写入请求超时，系统只回读校验，不会自动重复写入。";
-        }
-        if ("verify_timeout".equalsIgnoreCase(status)) {
-            return "Noon 回读校验超时，系统稍后继续核对。";
-        }
-        if ("pending_manual_check".equalsIgnoreCase(status)) {
-            String changedDomainText = publishTaskChangedDomainText(task);
-            String targetText = StringUtils.hasText(changedDomainText)
-                    ? "【" + changedDomainText + "】"
-                    : "本次修改";
-            return "Noon 多轮回读仍未确认" + targetText + "已生效。诺诺草稿已保留，请在官方后台核对后选择重试发布或从 Noon 同步。";
-        }
-        if ("synced".equalsIgnoreCase(status)) {
-            return "发布已完成，本地基线已更新。";
-        }
-        if ("failed".equalsIgnoreCase(status)) {
-            if ("publish_conflict".equalsIgnoreCase(normalize(task.getErrorCode()))) {
-                return "该发布任务按旧冲突规则失败，诺诺草稿已保留。请重新点击发布当前修改，系统会按本地草稿覆盖 Noon 对应字段。";
-            }
-            return firstNonBlank(task.getErrorMessage(), "发布失败，诺诺草稿已保留。");
-        }
-        if ("cancelled".equalsIgnoreCase(status)) {
-            return "发布任务已取消。";
-        }
-        return firstNonBlank(task != null ? task.getErrorMessage() : null, "发布任务状态已更新。");
-    }
-
-    private long resolvePublishTaskPollAfterMillis(ProductPublishTaskRecord task) {
-        if (task == null || task.getNextRunAt() == null) {
-            return publishTaskDefaultPollAfterMillis;
-        }
-        long delay = java.time.Duration.between(LocalDateTime.now(), task.getNextRunAt()).toMillis();
-        return Math.max(publishTaskDefaultPollAfterMillis, Math.min(delay, 15000L));
+        return requirePublishCommandService().message(task, productPublishTaskChangedDomainsResolver);
     }
 
     private boolean isTerminalPublishTaskStatus(String status) {
-        return TERMINAL_PUBLISH_TASK_STATUSES.contains(normalize(status));
+        return requirePublishCommandService().isTerminalStatus(status);
     }
 
     private boolean isActivePublishTaskStatus(String status) {
-        return ACTIVE_PUBLISH_TASK_STATUSES.contains(normalize(status));
+        return requirePublishCommandService().isActiveStatus(status);
     }
 
     private boolean isPublishTaskWorkerMode() {
@@ -2347,10 +1909,7 @@ public class LocalDbProductMasterService {
         if (productMasterId == null) {
             return;
         }
-        ProductPublishTaskRecord activeTask = productManagementMapper.selectActiveProductPublishTask(productMasterId);
-        if (activeTask != null && isActivePublishTaskStatus(activeTask.getStatus())) {
-            throw new IllegalStateException(message);
-        }
+        requirePublishCommandService().ensureNoActiveTask(productMasterId, message);
     }
 
     private Long resolveProductMasterId(ProductMasterFetchCommand command) {
@@ -2363,10 +1922,6 @@ public class LocalDbProductMasterService {
             return null;
         }
         return productManagementMapper.selectProductMasterIdByStoreCode(command.getOwnerUserId(), storeCode, skuParent);
-    }
-
-    private String productPublishActiveLockKey(Long productMasterId) {
-        return productMasterId == null ? null : "product:" + productMasterId;
     }
 
     private ProductMasterFetchCommand buildFetchCommand(ProductPublishTaskRecord task) {
@@ -2428,63 +1983,19 @@ public class LocalDbProductMasterService {
         return payload;
     }
 
-    private List<String> resolvePublishChangedDomains(
+    private List<String> recomputePublishTaskChangedDomains(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
-            String currentSiteCode,
-            UnsupportedChanges unsupportedChanges
+            String currentSiteCode
     ) {
-        List<String> domains = new ArrayList<>();
-        if (!objectMapper.valueToTree(publishComparableContent(draft))
-                .equals(objectMapper.valueToTree(publishComparableContent(baseline)))) {
-            domains.add("content");
-        }
-        if (!objectMapper.valueToTree(publishComparableIdentity(draft))
-                .equals(objectMapper.valueToTree(publishComparableIdentity(baseline)))
-                || !objectMapper.valueToTree(publishComparableTaxonomy(draft))
-                .equals(objectMapper.valueToTree(publishComparableTaxonomy(baseline)))) {
-            domains.add("main");
-        }
-        if (!objectMapper.valueToTree(publishComparableKeyAttributes(draft))
-                .equals(objectMapper.valueToTree(publishComparableKeyAttributes(baseline)))) {
-            domains.add("attributes");
-        }
-        if (!objectMapper.valueToTree(siteOfferComparableList(draft, currentSiteCode, false))
-                .equals(objectMapper.valueToTree(siteOfferComparableList(baseline, currentSiteCode, false)))) {
-            domains.add("site_offer");
-        }
-        if (variantSizeChanged(draft, baseline)) {
-            domains.add("sizes");
-        }
-        if (!objectMapper.valueToTree(publishComparableGroup(draft))
-                .equals(objectMapper.valueToTree(publishComparableGroup(baseline)))
-                || (unsupportedChanges != null && unsupportedChanges.isGroupChanged())) {
-            domains.add("grouping");
-        }
-        if (unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged() && !domains.contains("sizes")) {
-            domains.add("sizes");
-        }
-        return domains.isEmpty() ? List.of("unknown") : domains;
-    }
-
-    private boolean variantSizeChanged(ProductMasterSnapshotView draft, ProductMasterSnapshotView baseline) {
-        Map<String, Map<String, Object>> draftVariants = variantMap(draft != null ? draft.getVariants() : null);
-        Map<String, Map<String, Object>> baselineVariants = variantMap(baseline != null ? baseline.getVariants() : null);
-        Set<String> childSkus = new LinkedHashSet<>();
-        childSkus.addAll(draftVariants.keySet());
-        childSkus.addAll(baselineVariants.keySet());
-        for (String childSku : childSkus) {
-            Map<String, Object> draftVariant = draftVariants.get(childSku);
-            Map<String, Object> baselineVariant = baselineVariants.get(childSku);
-            if (draftVariant == null || baselineVariant == null) {
-                return true;
-            }
-            if (!Objects.equals(textValue(draftVariant.get("sizeEn")), textValue(baselineVariant.get("sizeEn")))
-                    || !Objects.equals(textValue(draftVariant.get("sizeAr")), textValue(baselineVariant.get("sizeAr")))) {
-                return true;
-            }
-        }
-        return false;
+        ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(draft, baseline, currentSiteCode);
+        return productPublishChangedDomainComparator.resolve(
+                draft,
+                baseline,
+                currentSiteCode,
+                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
+                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
+        );
     }
 
     private boolean publishChangedFieldsMatch(
@@ -2493,56 +2004,11 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView noonCurrent,
             String siteCode
     ) {
-        return publishChangedFieldsMatch(
-                toPublishComparableScopedJson(baseline, siteCode),
-                toPublishComparableScopedJson(draft, siteCode),
-                toPublishComparableScopedJson(noonCurrent, siteCode)
-        );
-    }
-
-    private boolean publishChangedFieldsMatch(JsonNode baseline, JsonNode draft, JsonNode noonCurrent) {
-        JsonNode baselineNode = comparableNode(baseline);
-        JsonNode draftNode = comparableNode(draft);
-        JsonNode noonNode = comparableNode(noonCurrent);
-        if (baselineNode.equals(draftNode)) {
-            return true;
-        }
-        if (baselineNode.isObject() || draftNode.isObject() || noonNode.isObject()) {
-            Set<String> fieldNames = new LinkedHashSet<>();
-            collectFieldNames(baselineNode, fieldNames);
-            collectFieldNames(draftNode, fieldNames);
-            collectFieldNames(noonNode, fieldNames);
-            for (String fieldName : fieldNames) {
-                if (!publishChangedFieldsMatch(
-                        baselineNode.path(fieldName),
-                        draftNode.path(fieldName),
-                        noonNode.path(fieldName)
-                )) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        if (baselineNode.isArray() || draftNode.isArray() || noonNode.isArray()) {
-            int maxSize = Math.max(baselineNode.size(), Math.max(draftNode.size(), noonNode.size()));
-            for (int index = 0; index < maxSize; index++) {
-                if (!publishChangedFieldsMatch(
-                        baselineNode.path(index),
-                        draftNode.path(index),
-                        noonNode.path(index)
-                )) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        return draftNode.equals(noonNode);
+        return productPublishPreparationService.publishChangedFieldsMatch(baseline, draft, noonCurrent, siteCode);
     }
 
     private LocalDateTime nextPublishVerifyRunAt(ProductPublishTaskRecord task) {
-        int attempts = task != null && task.getVerifyAttemptCount() != null ? task.getVerifyAttemptCount() : 0;
-        int seconds = attempts <= 0 ? 10 : attempts == 1 ? 30 : 120;
-        return LocalDateTime.now().plusSeconds(seconds);
+        return requirePublishCommandService().nextVerifyRunAt(task);
     }
 
     private void updatePublishTaskStatus(
@@ -2555,60 +2021,16 @@ public class LocalDbProductMasterService {
             LocalDateTime finishedAt,
             Integer verifyAttemptCount
     ) {
-        LocalDateTime now = LocalDateTime.now();
-        String expectedStatus = task.getStatus();
-        String expectedLockedBy = task.getLockedBy();
-        int expectedVersionNo = taskVersionNo(task);
-        boolean releaseLock = shouldReleasePublishTaskLock(status);
-        LocalDateTime resolvedFinishedAt = finishedAt;
-        if (resolvedFinishedAt == null && isTerminalPublishTaskStatus(status)) {
-            resolvedFinishedAt = now;
-        }
-        int updated = productManagementMapper.updateProductPublishTaskStatus(
-                task.getId(),
-                expectedStatus,
-                expectedLockedBy,
-                expectedVersionNo,
+        requirePublishCommandService().updateStatus(
+                task,
                 status,
-                resultJson,
                 errorCode,
                 errorMessage,
+                resultJson,
                 nextRunAt,
-                "submitted".equalsIgnoreCase(status) ? now : null,
-                "verifying".equalsIgnoreCase(status) ? now : null,
-                isTerminalPublishTaskStatus(status) || "pending_effective".equalsIgnoreCase(status)
-                        || "verify_timeout".equalsIgnoreCase(status)
-                        || "pending_manual_check".equalsIgnoreCase(status) ? now : null,
-                resolvedFinishedAt,
-                verifyAttemptCount,
-                releaseLock,
-                task.getOwnerUserId()
+                finishedAt,
+                verifyAttemptCount
         );
-        if (updated <= 0) {
-            throw new PublishTaskFenceLostException(task, status);
-        }
-        task.setStatus(status);
-        task.setErrorCode(errorCode);
-        task.setErrorMessage(errorMessage);
-        task.setResultJson(resultJson);
-        task.setNextRunAt(nextRunAt);
-        task.setFinishedAt(resolvedFinishedAt);
-        task.setVersionNo(expectedVersionNo + 1);
-        if (releaseLock) {
-            task.setLockedBy(null);
-            task.setLockedAt(null);
-        }
-        if (verifyAttemptCount != null) {
-            task.setVerifyAttemptCount(verifyAttemptCount);
-        }
-    }
-
-    private int taskVersionNo(ProductPublishTaskRecord task) {
-        return task != null && task.getVersionNo() != null ? task.getVersionNo() : 0;
-    }
-
-    private boolean shouldReleasePublishTaskLock(String status) {
-        return !"submitted".equalsIgnoreCase(status) && !"verifying".equalsIgnoreCase(status);
     }
 
     private String buildTaskResultJson(
@@ -2638,81 +2060,6 @@ public class LocalDbProductMasterService {
         } catch (Exception exception) {
             throw new IllegalStateException("商品发布任务 JSON 序列化失败：" + exception.getMessage(), exception);
         }
-    }
-
-    private List<String> parseStringList(String json) {
-        if (!StringUtils.hasText(json)) {
-            return new ArrayList<>();
-        }
-        try {
-            JsonNode node = objectMapper.readTree(json);
-            List<String> values = new ArrayList<>();
-            if (node != null && node.isArray()) {
-                for (JsonNode item : node) {
-                    if (item != null && item.isTextual()) {
-                        values.add(item.asText());
-                    }
-                }
-            }
-            return values;
-        } catch (Exception exception) {
-            return new ArrayList<>();
-        }
-    }
-
-    private List<String> resolvePublishTaskChangedDomains(ProductPublishTaskRecord task) {
-        List<String> domains = parseStringList(task != null ? task.getChangedDomainsJson() : null);
-        boolean needsRecompute = domains.isEmpty()
-                || domains.stream().anyMatch((domain) -> "unknown".equalsIgnoreCase(normalize(domain)));
-        if (!needsRecompute || task == null) {
-            return domains;
-        }
-        try {
-            ProductMasterSnapshotView baseline = readTaskSnapshot(task.getBaselineJson());
-            ProductMasterSnapshotView draft = readTaskSnapshot(task.getDraftJson());
-            UnsupportedChanges unsupportedChanges = detectUnsupportedChanges(draft, baseline, task.getCurrentSiteCode());
-            List<String> recomputedDomains = resolvePublishChangedDomains(draft, baseline, task.getCurrentSiteCode(), unsupportedChanges);
-            return recomputedDomains == null || recomputedDomains.isEmpty() ? domains : recomputedDomains;
-        } catch (Exception exception) {
-            return domains;
-        }
-    }
-
-    private String publishTaskChangedDomainText(ProductPublishTaskRecord task) {
-        Set<String> labels = new LinkedHashSet<>();
-        for (String domain : resolvePublishTaskChangedDomains(task)) {
-            String label = publishTaskChangedDomainLabel(domain);
-            if (StringUtils.hasText(label)) {
-                labels.add(label);
-            }
-        }
-        return String.join("、", labels);
-    }
-
-    private String publishTaskChangedDomainLabel(String domain) {
-        String normalized = normalize(domain);
-        if ("main".equalsIgnoreCase(normalized)) {
-            return "商品主档";
-        }
-        if ("content".equalsIgnoreCase(normalized)) {
-            return "图文内容";
-        }
-        if ("attributes".equalsIgnoreCase(normalized)) {
-            return "关键属性";
-        }
-        if ("site".equalsIgnoreCase(normalized) || "site_offer".equalsIgnoreCase(normalized)) {
-            return "当前站点经营";
-        }
-        if ("grouping".equalsIgnoreCase(normalized)) {
-            return "Group 与变体";
-        }
-        if ("sizes".equalsIgnoreCase(normalized)) {
-            return "尺码";
-        }
-        if ("unknown".equalsIgnoreCase(normalized)) {
-            return "未识别字段";
-        }
-        return normalized;
     }
 
     private String sha256Hex(String value) {
@@ -2748,62 +2095,15 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView snapshot,
             ProductMasterSnapshotView fallback
     ) {
-        if (snapshot == null) {
-            return copySnapshot(fallback);
-        }
-        ProductMasterSnapshotView sanitized = copySnapshot(snapshot);
-        sanitized.setMode("local-db");
-        sanitized.setReady(true);
-        if (sanitized.getWarnings() == null) {
-            sanitized.setWarnings(new ArrayList<>());
-        }
-        sanitized.setWarnings(userVisibleWarnings(sanitized.getWarnings()));
-        if (sanitized.getMissingCoreTables() == null) {
-            sanitized.setMissingCoreTables(new ArrayList<>());
-        }
-        if (sanitized.getMissingOperationalKeys() == null) {
-            sanitized.setMissingOperationalKeys(new ArrayList<>());
-        }
-        hydrateProjectionOnlyFields(sanitized, fallback);
-        return sanitized;
-    }
-
-    private void copySnapshotFields(ProductMasterSnapshotView target, ProductMasterSnapshotView source) {
-        if (target == null || source == null) {
-            return;
-        }
-        target.setMode(source.getMode());
-        target.setReady(source.isReady());
-        target.setDegraded(source.isDegraded());
-        target.setMessage(source.getMessage());
-        target.setWarnings(userVisibleWarnings(source.getWarnings()));
-        target.setMissingCoreTables(new ArrayList<>(source.getMissingCoreTables()));
-        target.setMissingOperationalKeys(new ArrayList<>(source.getMissingOperationalKeys()));
-        target.setStoreContext(new LinkedHashMap<>(source.getStoreContext()));
-        target.setIdentity(new LinkedHashMap<>(source.getIdentity()));
-        target.setTaxonomy(new LinkedHashMap<>(source.getTaxonomy()));
-        target.setContent(new LinkedHashMap<>(source.getContent()));
-        target.setPlatformSignals(new LinkedHashMap<>(source.getPlatformSignals()));
-        target.setKeyAttributes(copyRecordList(source.getKeyAttributes()));
-        target.setGroup(new LinkedHashMap<>(source.getGroup()));
-        target.setVariants(copyRecordList(source.getVariants()));
-        target.setPricing(new LinkedHashMap<>(source.getPricing()));
-        target.setStock(new LinkedHashMap<>(source.getStock()));
-        target.setSiteOffers(copyRecordList(source.getSiteOffers()));
+        return productSnapshotHydrator.sanitizeSnapshot(snapshot, fallback);
     }
 
     private ProductMasterSnapshotView copySnapshot(ProductMasterSnapshotView source) {
-        if (source == null) {
-            return null;
-        }
-        return objectMapper.convertValue(source, ProductMasterSnapshotView.class);
+        return productSnapshotHydrator.copySnapshot(source);
     }
 
     private List<Map<String, Object>> copyRecordList(List<Map<String, Object>> source) {
-        return source == null
-                ? new ArrayList<>()
-                : objectMapper.convertValue(source, objectMapper.getTypeFactory()
-                .constructCollectionType(List.class, Map.class));
+        return productSnapshotHydrator.copyRecordList(source);
     }
 
     private String workbenchKey(Long ownerUserId, String storeCode, String skuParent) {
@@ -2837,36 +2137,19 @@ public class LocalDbProductMasterService {
                 && !sameBusinessSnapshot(record.getDraftSnapshot(), record.getBaselineSnapshot());
     }
 
-    private String localBaselineOpenNote(String lastSyncedAt) {
-        if (StringUtils.hasText(lastSyncedAt)) {
-            return "当前使用本地商品基线，最后同步时间：" + lastSyncedAt + "。需要核对 Noon 当前版本时可手动同步。";
-        }
-        return "当前使用本地商品基线。需要核对 Noon 当前版本时可手动同步。";
-    }
-
-    private OperationalKeys resolveOperationalKeysFromProjection(
+    private ProductOperationalKeyHydrator.OperationalKeys resolveOperationalKeysFromProjection(
             Long ownerUserId,
             String storeCode,
             String skuParent,
             String partnerSku,
             String pskuCode
     ) {
-        if (StringUtils.hasText(partnerSku) && StringUtils.hasText(pskuCode)) {
-            return new OperationalKeys(partnerSku, pskuCode);
-        }
-        List<String> lookupWarnings = new ArrayList<>();
-        ProductListSummaryView summary = productProjectionPersistenceService.loadProductListSummary(
+        return productOperationalKeyHydrator.resolveOperationalKeysFromProjection(
                 ownerUserId,
                 storeCode,
                 skuParent,
-                lookupWarnings
-        );
-        if (summary == null || !summary.isReady()) {
-            return new OperationalKeys(partnerSku, pskuCode);
-        }
-        return new OperationalKeys(
-                firstNonBlank(partnerSku, summary.getPartnerSku()),
-                firstNonBlank(pskuCode, summary.getPskuCode())
+                partnerSku,
+                pskuCode
         );
     }
 
@@ -2876,44 +2159,16 @@ public class LocalDbProductMasterService {
             String skuParent,
             ProductMasterSnapshotView snapshot
     ) {
-        if (snapshot == null) {
-            return;
-        }
-        OperationalKeys operationalKeys = resolveOperationalKeysFromProjection(
+        productOperationalKeyHydrator.hydrateSnapshotOperationalKeys(
                 ownerUserId,
                 storeCode,
                 skuParent,
-                textValue(snapshot.getIdentity().get("partnerSku")),
-                textValue(snapshot.getIdentity().get("pskuCode"))
+                snapshot
         );
-        putIfNotBlank(snapshot.getIdentity(), "partnerSku", operationalKeys.getPartnerSku());
-        putIfNotBlank(snapshot.getIdentity(), "pskuCode", operationalKeys.getPskuCode());
     }
 
     private void clearResolvedOperationalWarnings(ProductMasterSnapshotView snapshot) {
-        if (snapshot == null) {
-            return;
-        }
-        boolean hasPartnerSku = StringUtils.hasText(textValue(snapshot.getIdentity().get("partnerSku")));
-        boolean hasPskuCode = StringUtils.hasText(textValue(snapshot.getIdentity().get("pskuCode")));
-        if (snapshot.getMissingOperationalKeys() != null) {
-            snapshot.getMissingOperationalKeys().removeIf((key) ->
-                    (hasPartnerSku && "partnerSku".equalsIgnoreCase(String.valueOf(key)))
-                            || (hasPskuCode && "pskuCode".equalsIgnoreCase(String.valueOf(key)))
-            );
-        }
-        if (snapshot.getWarnings() != null) {
-            snapshot.getWarnings().removeIf((warning) ->
-                    (hasPartnerSku && hasPskuCode && warning.contains("当前索引缺少 partnerSku / pskuCode"))
-                            || (hasPartnerSku && warning.contains("当前索引缺少 partnerSku"))
-                            || (hasPskuCode && warning.contains("当前索引缺少 pskuCode"))
-                            || (hasPartnerSku && warning.contains("当前详情还缺少 partnerSku"))
-                            || isNonBlockingNoonRealtimeWarning(warning)
-            );
-        }
-        if (snapshot.getMissingOperationalKeys() == null || snapshot.getMissingOperationalKeys().isEmpty()) {
-            snapshot.setDegraded(false);
-        }
+        productSnapshotHydrator.clearResolvedOperationalWarnings(snapshot);
     }
 
     private void hydrateWorkbenchAttributeDictionary(
@@ -2922,11 +2177,7 @@ public class LocalDbProductMasterService {
             ProductWorkbenchRecord record,
             List<String> warnings
     ) {
-        if (record == null) {
-            return;
-        }
-        hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, record.getBaselineSnapshot(), warnings);
-        hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, record.getDraftSnapshot(), warnings);
+        productAttributeDictionaryHydrator.hydrateWorkbenchAttributeDictionary(ownerUserId, storeCode, record, warnings);
     }
 
     private void hydrateSnapshotAttributeDictionary(
@@ -2935,74 +2186,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView snapshot,
             List<String> warnings
     ) {
-        if (snapshot == null || snapshot.getKeyAttributes() == null || snapshot.getKeyAttributes().isEmpty()) {
-            return;
-        }
-        String projectCode = firstNonBlank(
-                textValue(snapshot.getStoreContext().get("projectCode")),
-                storeCode
-        );
-        String resolvedStoreCode = firstNonBlank(
-                textValue(snapshot.getStoreContext().get("storeCode")),
-                storeCode
-        );
-        String productFulltype = textValue(snapshot.getTaxonomy().get("productFulltype"));
-        if (!StringUtils.hasText(projectCode)
-                || !StringUtils.hasText(resolvedStoreCode)
-                || !StringUtils.hasText(productFulltype)) {
-            return;
-        }
-        JsonNode templateRoot = productAttributeTemplateService.loadTemplate(
-                null,
-                projectCode,
-                resolvedStoreCode,
-                productFulltype,
-                ownerUserId,
-                warnings
-        );
-        Map<String, JsonNode> dictionaryByCode = attributeDictionaryMap(templateRoot);
-        if (dictionaryByCode.isEmpty()) {
-            return;
-        }
-        for (Map<String, Object> attribute : snapshot.getKeyAttributes()) {
-            String code = textValue(attribute.get("code"));
-            JsonNode dictionaryNode = dictionaryByCode.get(normalizeAttributeCode(code));
-            if (dictionaryNode == null || dictionaryNode.isMissingNode()) {
-                continue;
-            }
-            List<Map<String, Object>> options = extractDictionaryOptions(dictionaryNode.path("options"));
-            List<Map<String, Object>> unitOptions = extractDictionaryOptions(dictionaryNode.path("unitOptions"));
-            if (!options.isEmpty() && !hasListValue(attribute.get("options"))) {
-                attribute.put("options", options);
-            }
-            if (!unitOptions.isEmpty() && !hasListValue(attribute.get("unitOptions"))) {
-                attribute.put("unitOptions", unitOptions);
-            }
-            if (StringUtils.hasText(text(dictionaryNode, "labelEn")) && !StringUtils.hasText(textValue(attribute.get("labelEn")))) {
-                attribute.put("labelEn", text(dictionaryNode, "labelEn"));
-            }
-            if (StringUtils.hasText(text(dictionaryNode, "labelAr")) && !StringUtils.hasText(textValue(attribute.get("labelAr")))) {
-                attribute.put("labelAr", text(dictionaryNode, "labelAr"));
-            }
-            if (StringUtils.hasText(text(dictionaryNode, "groupName")) && !StringUtils.hasText(textValue(attribute.get("groupName")))) {
-                attribute.put("groupName", text(dictionaryNode, "groupName"));
-            }
-            if (!options.isEmpty() || !unitOptions.isEmpty()) {
-                attribute.put("dictionarySource", firstNonBlank(text(dictionaryNode, "dictionarySource"), "official-template"));
-            }
-            String currentKind = normalize(textValue(attribute.get("kind")));
-            if (!unitOptions.isEmpty()) {
-                attribute.put("kind", "dimension");
-            } else if (!options.isEmpty()) {
-                attribute.put("kind", "select");
-            } else if (!StringUtils.hasText(currentKind) && StringUtils.hasText(text(dictionaryNode, "kind"))) {
-                attribute.put("kind", text(dictionaryNode, "kind"));
-            }
-        }
-    }
-
-    private boolean hasListValue(Object value) {
-        return value instanceof List<?> && !((List<?>) value).isEmpty();
+        productAttributeDictionaryHydrator.hydrateSnapshotAttributeDictionary(ownerUserId, storeCode, snapshot, warnings);
     }
 
     private boolean isKeepDraftSyncPolicy(String syncMergePolicy) {
@@ -3022,28 +2206,6 @@ public class LocalDbProductMasterService {
     private String extractFetchedAt(ProductMasterSnapshotView snapshot) {
         Object fetchedAt = snapshot != null ? snapshot.getStoreContext().get("fetchedAt") : null;
         return fetchedAt == null ? null : String.valueOf(fetchedAt);
-    }
-
-    private void syncProductMasterStatus(
-            ProductMasterSnapshotView snapshot,
-            String syncStatus,
-            String lastSyncedAt,
-            List<String> warnings
-    ) {
-        if (snapshot == null) {
-            return;
-        }
-        Object ownerUserId = snapshot.getStoreContext().get("ownerUserId");
-        Long resolvedOwnerUserId = ownerUserId instanceof Number ? ((Number) ownerUserId).longValue() : null;
-        productProjectionPersistenceService.updateProductMasterStatus(
-                resolvedOwnerUserId,
-                textValue(snapshot.getStoreContext().get("projectCode")),
-                textValue(snapshot.getStoreContext().get("projectName")),
-                textValue(snapshot.getIdentity().get("skuParent")),
-                syncStatus,
-                lastSyncedAt,
-                warnings
-        );
     }
 
     private ProductMasterWorkbenchView finalizeWorkbenchView(
@@ -3076,76 +2238,20 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView actionBaselineSnapshot,
             ProductMasterSnapshotView actionDraftSnapshot
     ) {
-        attachActivePublishTask(ownerUserId, record);
-        ProductMasterWorkbenchView view = buildWorkbenchView(record, message, warnings);
-        syncProductMasterStatus(view, view.getSyncStatus(), view.getLastSyncedAt(), view.getWarnings());
-        if (StringUtils.hasText(actionType)) {
-            productProjectionPersistenceService.persistWorkbenchState(
-                    ownerUserId,
-                    view,
-                    resolveDirtySiteCodes(view.getDraftSnapshot(), view.getBaselineSnapshot()),
-                    actionType,
-                    targetSiteCode,
-                    view.getWarnings(),
-                    actionBaselineSnapshot,
-                    actionDraftSnapshot
-            );
-        }
-        hydrateListSummaryState(ownerUserId, view, view.getWarnings());
-        return view;
-    }
-
-    private void attachActivePublishTask(Long ownerUserId, ProductWorkbenchRecord record) {
-        if (ownerUserId == null || record == null || record.getDraftSnapshot() == null) {
-            return;
-        }
-        String storeCode = textValue(record.getDraftSnapshot().getStoreContext().get("storeCode"));
-        String skuParent = textValue(record.getDraftSnapshot().getIdentity().get("skuParent"));
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
-            return;
-        }
-        Long productMasterId = productManagementMapper.selectProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent);
-        recoverStaleRunningProductPublishTasks();
-        ProductPublishTaskRecord activeTask = productMasterId == null
-                ? null
-                : productManagementMapper.selectActiveProductPublishTask(productMasterId);
-        record.setPublishTask(activeTask == null ? null : buildPublishTaskView(activeTask, false));
+        return productWorkbenchViewFinalizer.finalizeView(
+                ownerUserId,
+                actionType,
+                targetSiteCode,
+                record,
+                message,
+                warnings,
+                actionBaselineSnapshot,
+                actionDraftSnapshot
+        );
     }
 
     private int recoverStaleRunningProductPublishTasks() {
-        try {
-            int recovered = productManagementMapper.recoverStaleRunningProductPublishTasks(
-                    Math.max(1, publishTaskStaleRunningMinutes),
-                    0L
-            );
-            if (recovered > 0) {
-                log.warn("product-management recovered stale running publish tasks count={}", recovered);
-            }
-            return recovered;
-        } catch (RuntimeException exception) {
-            if (isMissingProductPublishTaskTable(exception)) {
-                return 0;
-            }
-            throw exception;
-        }
-    }
-
-    private void hydrateListSummaryState(
-            Long ownerUserId,
-            ProductMasterSnapshotView snapshot,
-            List<String> warnings
-    ) {
-        if (!(snapshot instanceof ProductMasterWorkbenchView) || ownerUserId == null || snapshot == null) {
-            return;
-        }
-        ProductMasterWorkbenchView workbenchView = (ProductMasterWorkbenchView) snapshot;
-        ProductListSummaryView summary = productProjectionPersistenceService.loadProductListSummary(
-                ownerUserId,
-                textValue(snapshot.getStoreContext().get("storeCode")),
-                textValue(snapshot.getIdentity().get("skuParent")),
-                warnings
-        );
-        workbenchView.setListSummary(summary);
+        return requirePublishCommandService().recoverStaleRunningTasks();
     }
 
     private void hydratePendingKeyContentHistoryState(
@@ -3176,88 +2282,11 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView liveSnapshot,
             ProductProjectionPersistenceService.PersistedWorkbenchState persistedState
     ) {
-        ProductWorkbenchRecord record = createSyncedRecord(liveSnapshot);
-        if (persistedState == null) {
-            return record;
-        }
-        if (persistedState.getRecentActions() != null && !persistedState.getRecentActions().isEmpty()) {
-            record.setRecentActions(copyRecordList(persistedState.getRecentActions()));
-        }
-        if (persistedState.getKeyContentHistory() != null && !persistedState.getKeyContentHistory().isEmpty()) {
-            record.setKeyContentHistory(copyRecordList(persistedState.getKeyContentHistory()));
-        }
-        record.setPendingKeyContentHistoryCount(persistedState.getPendingKeyContentHistoryCount());
-        record.setPendingKeyContentHistoryVisibleAfter(persistedState.getPendingKeyContentHistoryVisibleAfter());
-        ProductMasterSnapshotView persistedBaseline = persistedState.getBaselineSnapshot();
-        ProductMasterSnapshotView persistedDraft = persistedState.getDraftSnapshot();
-        if (persistedBaseline == null || persistedDraft == null) {
-            return record;
-        }
-
-        if (sameBusinessSnapshot(persistedDraft, persistedBaseline)) {
-            if (!sameBusinessSnapshot(persistedBaseline, liveSnapshot)) {
-                record.setNote("检测到 Noon 新基线，已按最新快照恢复工作台。");
-            }
-            return record;
-        }
-
-        ProductMasterSnapshotView hydratedDraft = copySnapshot(persistedDraft);
-        hydrateProjectionOnlyFields(hydratedDraft, liveSnapshot);
-        if (sameBusinessSnapshot(hydratedDraft, liveSnapshot)) {
-            if (!sameBusinessSnapshot(persistedBaseline, liveSnapshot)) {
-                record.setNote("已按最新发布结果恢复工作台。");
-            }
-            return record;
-        }
-        record.setBaselineSnapshot(copySnapshot(liveSnapshot));
-        record.setDraftSnapshot(hydratedDraft);
-        record.setLastSyncedAt(extractFetchedAt(liveSnapshot));
-        if (sameBusinessSnapshot(persistedBaseline, liveSnapshot)) {
-            record.setSyncStatus("draft");
-            record.setNote("已从本地库恢复未发布草稿。");
-            return record;
-        }
-
-        record.setSyncStatus("draft");
-        record.setNote("已从本地库恢复未发布草稿。");
-        return record;
+        return productWorkbenchRecordRestorer.restorePersistedWorkbenchRecord(liveSnapshot, persistedState);
     }
 
     private void hydrateProjectionOnlyFields(ProductMasterSnapshotView target, ProductMasterSnapshotView source) {
-        if (target == null || source == null) {
-            return;
-        }
-        Map<String, Map<String, Object>> sourceOffers = siteOfferMap(source.getSiteOffers());
-        for (Map<String, Object> targetOffer : target.getSiteOffers()) {
-            String storeCode = siteOfferCode(targetOffer);
-            Map<String, Object> sourceOffer = sourceOffers.get(storeCode);
-            if (sourceOffer == null) {
-                continue;
-            }
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "finalPrice");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "finalPriceSource");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "activePromotionCode");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "activePromotionName");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "activePromotionUrl");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "barcode");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "fbnStock");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "supermallStock");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "fbpStock");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "statusCode");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "deliveryMethod");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "isWinningBuybox");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "viewsCount");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "unitsSold");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "salesAmount");
-            copyProjectionOnlyOfferField(targetOffer, sourceOffer, "salesCurrency");
-        }
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "finalPrice");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "finalPriceSource");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "activePromotionCode");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "activePromotionName");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "activePromotionUrl");
-        copyProjectionOnlyOfferField(target.getPricing(), source.getPricing(), "barcode");
-        target.setPlatformSignals(new LinkedHashMap<>(source.getPlatformSignals()));
+        productSnapshotHydrator.hydrateProjectionOnlyFields(target, source);
     }
 
     private ProductMasterSnapshotView prepareSnapshotForPublish(
@@ -3265,203 +2294,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView baseline,
             String currentSiteCode
     ) {
-        if (requestedSnapshot == null || baseline == null) {
-            return requestedSnapshot;
-        }
-        ProductMasterSnapshotView preparedSnapshot = copySnapshot(requestedSnapshot);
-        hydrateWritableOfferFieldsForPublish(preparedSnapshot, baseline, currentSiteCode);
-        return preparedSnapshot;
-    }
-
-    private void hydrateWritableOfferFieldsForPublish(
-            ProductMasterSnapshotView target,
-            ProductMasterSnapshotView baseline,
-            String currentSiteCode
-    ) {
-        if (target == null || baseline == null || target.getSiteOffers() == null) {
-            return;
-        }
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline.getSiteOffers());
-        String normalizedCurrentSiteCode = normalize(currentSiteCode);
-        for (Map<String, Object> targetOffer : target.getSiteOffers()) {
-            if (targetOffer == null) {
-                continue;
-            }
-            String siteCode = siteOfferCode(targetOffer);
-            if (StringUtils.hasText(normalizedCurrentSiteCode)
-                    && !normalizedCurrentSiteCode.equalsIgnoreCase(siteCode)) {
-                continue;
-            }
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (baselineOffer == null) {
-                continue;
-            }
-            hydrateWritableOfferFieldsForPublish(targetOffer, baselineOffer);
-            if (isPublishOfferChanged(targetOffer, baselineOffer)) {
-                applyDefaultSaleWindowForPublish(targetOffer);
-            }
-            mirrorCurrentOfferToPricing(target, targetOffer, normalizedCurrentSiteCode);
-        }
-    }
-
-    private void hydrateWritableOfferFieldsForPublish(
-            Map<String, Object> targetOffer,
-            Map<String, Object> baselineOffer
-    ) {
-        Map<String, Object> hydrated = productDraftMergePolicy.hydrateMissingOfferFieldsForPublish(
-                targetOffer,
-                baselineOffer,
-                List.of(
-                        "site",
-                        "pskuCode",
-                        "offerCode",
-                        "currency",
-                        "price",
-                        "salePrice",
-                        "saleStart",
-                        "saleEnd",
-                        "priceMin",
-                        "priceMax",
-                        "isActive",
-                        "idWarranty"
-                )
-        );
-        targetOffer.clear();
-        targetOffer.putAll(hydrated);
-        copyBaselineOfferFieldIfMissing(targetOffer, baselineOffer, "offerNote");
-    }
-
-    private void applyDefaultSaleWindowForPublish(Map<String, Object> siteOffer) {
-        if (asBigDecimal(siteOffer.get("salePrice")) == null) {
-            return;
-        }
-        boolean missingSaleStart = !StringUtils.hasText(textValue(siteOffer.get("saleStart")));
-        boolean missingSaleEnd = !StringUtils.hasText(textValue(siteOffer.get("saleEnd")));
-        if (!missingSaleStart && !missingSaleEnd) {
-            return;
-        }
-        Map<String, String> saleWindow = saleWindowForPublish(siteOffer);
-        if (missingSaleStart && StringUtils.hasText(saleWindow.get("saleStart"))) {
-            siteOffer.put("saleStart", saleWindow.get("saleStart"));
-        }
-        if (missingSaleEnd && StringUtils.hasText(saleWindow.get("saleEnd"))) {
-            siteOffer.put("saleEnd", saleWindow.get("saleEnd"));
-        }
-    }
-
-    private boolean isPublishOfferChanged(Map<String, Object> siteOffer, Map<String, Object> baselineOffer) {
-        return !objectMapper.valueToTree(siteOfferComparable(siteOffer, false))
-                .equals(objectMapper.valueToTree(siteOfferComparable(baselineOffer, false)));
-    }
-
-    private void mirrorCurrentOfferToPricing(
-            ProductMasterSnapshotView target,
-            Map<String, Object> siteOffer,
-            String currentSiteCode
-    ) {
-        String siteCode = siteOfferCode(siteOffer);
-        Map<String, Object> storeContext = target.getStoreContext() == null ? Map.of() : target.getStoreContext();
-        String pricingSiteCode = firstNonBlank(currentSiteCode, textValue(storeContext.get("storeCode")));
-        if (!StringUtils.hasText(siteCode)
-                || !StringUtils.hasText(pricingSiteCode)
-                || !siteCode.equalsIgnoreCase(pricingSiteCode)) {
-            return;
-        }
-        if (target.getPricing() == null) {
-            target.setPricing(new LinkedHashMap<>());
-        }
-        for (String field : new String[]{
-                "price",
-                "salePrice",
-                "saleStart",
-                "saleEnd",
-                "priceMin",
-                "priceMax",
-                "isActive",
-                "idWarranty",
-                "offerNote"
-        }) {
-            if (siteOffer.containsKey(field)) {
-                target.getPricing().put(field, siteOffer.get(field));
-            }
-        }
-    }
-
-    private void copyBaselineOfferFieldIfMissingOrBlank(
-            Map<String, Object> targetOffer,
-            Map<String, Object> baselineOffer,
-            String field
-    ) {
-        if (EXPLICIT_CLEARABLE_OFFER_FIELDS.contains(field)) {
-            copyBaselineOfferFieldIfMissing(targetOffer, baselineOffer, field);
-            return;
-        }
-        if (!hasOfferFieldValue(targetOffer, field) && baselineOffer.containsKey(field)) {
-            targetOffer.put(field, baselineOffer.get(field));
-        }
-    }
-
-    private void copyBaselineOfferFieldIfMissing(
-            Map<String, Object> targetOffer,
-            Map<String, Object> baselineOffer,
-            String field
-    ) {
-        if (!targetOffer.containsKey(field) && baselineOffer.containsKey(field)) {
-            targetOffer.put(field, baselineOffer.get(field));
-        }
-    }
-
-    private boolean hasOfferFieldValue(Map<String, Object> siteOffer, String field) {
-        if (siteOffer == null || !siteOffer.containsKey(field)) {
-            return false;
-        }
-        Object value = siteOffer.get(field);
-        if (value == null) {
-            return false;
-        }
-        if (value instanceof String) {
-            return StringUtils.hasText((String) value);
-        }
-        return true;
-    }
-
-    private void copyProjectionOnlyOfferField(Map<String, Object> target, Map<String, Object> source, String fieldName) {
-        if (target == null || source == null || !source.containsKey(fieldName)) {
-            return;
-        }
-        Object value = source.get(fieldName);
-        if (value != null) {
-            target.put(fieldName, value);
-        }
-    }
-
-    private List<String> resolveDirtySiteCodes(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline
-    ) {
-        LinkedHashSet<String> dirtySiteCodes = new LinkedHashSet<>();
-        if (draft == null) {
-            return new ArrayList<>();
-        }
-        Map<String, Map<String, Object>> draftOffers = siteOfferMap(draft.getSiteOffers());
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline != null ? baseline.getSiteOffers() : null);
-        LinkedHashSet<String> siteCodes = new LinkedHashSet<>();
-        siteCodes.addAll(draftOffers.keySet());
-        siteCodes.addAll(baselineOffers.keySet());
-        for (String siteCode : siteCodes) {
-            Map<String, Object> draftOffer = draftOffers.get(siteCode);
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (!objectMapper.valueToTree(siteOfferComparable(
-                    draftOffer != null ? draftOffer : new LinkedHashMap<>(),
-                    false
-            )).equals(objectMapper.valueToTree(siteOfferComparable(
-                    baselineOffer != null ? baselineOffer : new LinkedHashMap<>(),
-                    false
-            )))) {
-                dirtySiteCodes.add(siteCode);
-            }
-        }
-        return new ArrayList<>(dirtySiteCodes);
+        return productPublishPreparationService.prepareSnapshotForPublish(requestedSnapshot, baseline, currentSiteCode);
     }
 
     private boolean shouldSkipSiteOfferLiveReadForSharedOnlyPublish(
@@ -3469,23 +2302,11 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView baseline,
             String currentSiteCode
     ) {
-        if (draft == null || baseline == null || !StringUtils.hasText(currentSiteCode)) {
-            return false;
-        }
-        boolean sharedChanged = !objectMapper.valueToTree(sharedComparableView(draft))
-                .equals(objectMapper.valueToTree(sharedComparableView(baseline)));
-        if (!sharedChanged) {
-            return false;
-        }
-        Map<String, Object> draftOffer = siteOfferMap(draft.getSiteOffers()).get(currentSiteCode);
-        Map<String, Object> baselineOffer = siteOfferMap(baseline.getSiteOffers()).get(currentSiteCode);
-        return objectMapper.valueToTree(siteOfferComparable(
-                draftOffer != null ? draftOffer : new LinkedHashMap<>(),
-                false
-        )).equals(objectMapper.valueToTree(siteOfferComparable(
-                baselineOffer != null ? baselineOffer : new LinkedHashMap<>(),
-                false
-        )));
+        return productPublishPreparationService.shouldSkipSiteOfferLiveReadForSharedOnlyPublish(
+                draft,
+                baseline,
+                currentSiteCode
+        );
     }
 
     private List<String> siteCodesFromSnapshot(ProductMasterSnapshotView snapshot) {
@@ -3509,18 +2330,11 @@ public class LocalDbProductMasterService {
     }
 
     private boolean sameBusinessSnapshot(ProductMasterSnapshotView left, ProductMasterSnapshotView right) {
-        return toComparableBusinessJson(left).equals(toComparableBusinessJson(right));
+        return productPublishPreparationService.sameBusinessSnapshot(left, right);
     }
 
     private boolean sameScopedSnapshot(ProductMasterSnapshotView left, ProductMasterSnapshotView right, String siteCode) {
-        return toComparableScopedJson(left, siteCode).equals(toComparableScopedJson(right, siteCode));
-    }
-
-    private JsonNode toPublishComparableScopedJson(ProductMasterSnapshotView snapshot, String siteCode) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.set("shared", objectMapper.valueToTree(sharedComparableView(snapshot)));
-        node.set("siteOffers", objectMapper.valueToTree(siteOfferComparableList(snapshot, siteCode, false)));
-        return node;
+        return productPublishPreparationService.sameScopedSnapshot(left, right, siteCode);
     }
 
     private List<Map<String, Object>> detectPublishConflictFields(
@@ -3529,153 +2343,12 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView noonCurrent,
             String currentSiteCode
     ) {
-        List<Map<String, Object>> conflicts = new ArrayList<>();
-        collectPublishConflictFields(
-                "",
-                toPublishComparableScopedJson(baseline, currentSiteCode),
-                toPublishComparableScopedJson(localDraft, currentSiteCode),
-                toPublishComparableScopedJson(noonCurrent, currentSiteCode),
-                conflicts
+        return productPublishPreparationService.detectPublishConflictFields(
+                baseline,
+                localDraft,
+                noonCurrent,
+                currentSiteCode
         );
-        return conflicts;
-    }
-
-    private void collectPublishConflictFields(
-            String path,
-            JsonNode baseline,
-            JsonNode localDraft,
-            JsonNode noonCurrent,
-            List<Map<String, Object>> conflicts
-    ) {
-        JsonNode baselineNode = comparableNode(baseline);
-        JsonNode localNode = comparableNode(localDraft);
-        JsonNode noonNode = comparableNode(noonCurrent);
-        if (baselineNode.isObject() || localNode.isObject() || noonNode.isObject()) {
-            Set<String> fieldNames = new LinkedHashSet<>();
-            collectFieldNames(baselineNode, fieldNames);
-            collectFieldNames(localNode, fieldNames);
-            collectFieldNames(noonNode, fieldNames);
-            for (String fieldName : fieldNames) {
-                String childPath = StringUtils.hasText(path) ? path + "." + fieldName : fieldName;
-                collectPublishConflictFields(
-                        childPath,
-                        baselineNode.path(fieldName),
-                        localNode.path(fieldName),
-                        noonNode.path(fieldName),
-                        conflicts
-                );
-            }
-            return;
-        }
-        if (baselineNode.isArray() || localNode.isArray() || noonNode.isArray()) {
-            int maxSize = Math.max(baselineNode.size(), Math.max(localNode.size(), noonNode.size()));
-            for (int index = 0; index < maxSize; index++) {
-                collectPublishConflictFields(
-                        path + "[" + index + "]",
-                        baselineNode.path(index),
-                        localNode.path(index),
-                        noonNode.path(index),
-                        conflicts
-                );
-            }
-            return;
-        }
-
-        boolean localChanged = !baselineNode.equals(localNode);
-        boolean noonChanged = !baselineNode.equals(noonNode);
-        if (!localChanged || !noonChanged || localNode.equals(noonNode)) {
-            return;
-        }
-        Map<String, Object> conflict = new LinkedHashMap<>();
-        conflict.put("path", path);
-        conflict.put("label", publishConflictFieldLabel(path));
-        conflict.put("baselineValue", jsonNodeValue(baselineNode));
-        conflict.put("localValue", jsonNodeValue(localNode));
-        conflict.put("noonValue", jsonNodeValue(noonNode));
-        conflict.put("scope", path.startsWith("siteOffers") ? "site" : "shared");
-        conflicts.add(conflict);
-    }
-
-    private void collectFieldNames(JsonNode node, Set<String> fieldNames) {
-        if (node == null || !node.isObject()) {
-            return;
-        }
-        Iterator<String> iterator = node.fieldNames();
-        while (iterator.hasNext()) {
-            fieldNames.add(iterator.next());
-        }
-    }
-
-    private JsonNode comparableNode(JsonNode node) {
-        return node == null || node.isMissingNode() ? MissingNode.getInstance() : node;
-    }
-
-    private Object jsonNodeValue(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        if (node.isTextual()) {
-            return node.asText();
-        }
-        if (node.isBoolean()) {
-            return node.asBoolean();
-        }
-        if (node.isIntegralNumber()) {
-            return node.asLong();
-        }
-        if (node.isFloatingPointNumber() || node.isBigDecimal()) {
-            return node.decimalValue();
-        }
-        return node.toString();
-    }
-
-    private String publishConflictFieldLabel(String path) {
-        if (!StringUtils.hasText(path)) {
-            return "商品字段";
-        }
-        if (path.contains("titleEn")) {
-            return "英文标题";
-        }
-        if (path.contains("descriptionEn")) {
-            return "英文长描述";
-        }
-        if (path.contains("highlightsEn")) {
-            return "英文卖点";
-        }
-        if (path.contains("images")) {
-            return "商品图片";
-        }
-        if (path.contains("priceMin")) {
-            return "最低价格";
-        }
-        if (path.contains("priceMax")) {
-            return "最高价格";
-        }
-        if (path.contains("salePrice")) {
-            return "活动价";
-        }
-        if (path.contains("saleStart")) {
-            return "活动开始时间";
-        }
-        if (path.contains("saleEnd")) {
-            return "活动结束时间";
-        }
-        if (path.contains("price")) {
-            return "价格";
-        }
-        if (path.contains("isActive")) {
-            return "在线状态";
-        }
-        if (path.contains("idWarranty")) {
-            return "质保";
-        }
-        if (path.contains("offerNote")) {
-            return "Offer 备注";
-        }
-        if (path.contains("keyAttributes")) {
-            return "商品属性";
-        }
-        return path;
     }
 
     private Map<String, Object> buildPublishConflictPayload(
@@ -3683,353 +2356,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView noonCurrent,
             String currentSiteCode
     ) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("status", "blocked");
-        payload.put("message", "Noon 当前内容与本地草稿存在同字段冲突，请选择使用哪边内容。");
-        payload.put("currentSiteCode", currentSiteCode);
-        payload.put("checkedAt", extractFetchedAt(noonCurrent));
-        payload.put("fields", fields);
-        return payload;
-    }
-
-    private JsonNode toComparableBusinessJson(ProductMasterSnapshotView snapshot) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.set("shared", objectMapper.valueToTree(sharedComparableView(snapshot)));
-        node.set("siteOffers", objectMapper.valueToTree(siteOfferComparableList(snapshot, null, true)));
-        return node;
-    }
-
-    private JsonNode toComparableScopedJson(ProductMasterSnapshotView snapshot, String siteCode) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.set("shared", objectMapper.valueToTree(sharedComparableView(snapshot)));
-        node.set("siteOffers", objectMapper.valueToTree(siteOfferComparableList(snapshot, siteCode, true)));
-        return node;
-    }
-
-    private Map<String, Object> sharedComparableView(ProductMasterSnapshotView snapshot) {
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        comparable.put("identity", publishComparableIdentity(snapshot));
-        comparable.put("taxonomy", publishComparableTaxonomy(snapshot));
-        comparable.put("content", publishComparableContent(snapshot));
-        comparable.put("keyAttributes", publishComparableKeyAttributes(snapshot));
-        comparable.put("group", publishComparableGroup(snapshot));
-        comparable.put("variants", publishComparableVariants(snapshot));
-        return comparable;
-    }
-
-    private Map<String, Object> sharedZskuComparableView(ProductMasterSnapshotView snapshot) {
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        comparable.put("identity", publishComparableIdentity(snapshot));
-        comparable.put("taxonomy", publishComparableTaxonomy(snapshot));
-        comparable.put("content", publishComparableContent(snapshot));
-        comparable.put("keyAttributes", publishComparableKeyAttributes(snapshot));
-        comparable.put("variants", publishComparableVariants(snapshot));
-        return comparable;
-    }
-
-    private Map<String, Object> publishComparableGroup(ProductMasterSnapshotView snapshot) {
-        return publishComparableGroup(snapshot != null ? snapshot.getGroup() : null);
-    }
-
-    private Map<String, Object> publishComparableGroup(Map<String, Object> group) {
-        Map<String, Object> comparable = groupStructureComparable(group);
-        comparable.put("memberAxisValues", groupMemberAxisValuesComparable(group, "en"));
-        comparable.put("memberAxisValuesAr", groupMemberAxisValuesComparable(group, "ar"));
-        return comparable;
-    }
-
-    private Map<String, Object> groupStructureComparable(Map<String, Object> group) {
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        if (group == null) {
-            return comparable;
-        }
-        comparable.put("skuGroup", textValue(group.get("skuGroup")));
-        comparable.put("groupRef", textValue(group.get("groupRef")));
-        comparable.put("groupRefCanonical", textValue(group.get("groupRefCanonical")));
-        comparable.put("conditionsBrand", textValue(group.get("conditionsBrand")));
-        comparable.put("conditionsFulltype", textValue(group.get("conditionsFulltype")));
-
-        List<Map<String, Object>> axes = new ArrayList<>();
-        for (Map<String, Object> axis : recordListValue(group.get("axes"))) {
-            String axisCode = textValue(firstNonNull(axis.get("axisCode"), axis.get("axis_code")));
-            if (!StringUtils.hasText(axisCode)) {
-                continue;
-            }
-            Map<String, Object> axisComparable = new LinkedHashMap<>();
-            axisComparable.put("axisCode", axisCode);
-            axisComparable.put("axisName", textValue(firstNonNull(axis.get("axisName"), axis.get("axis_name"))));
-            axes.add(axisComparable);
-        }
-        axes.sort((left, right) -> textValue(left.get("axisCode")).compareTo(textValue(right.get("axisCode"))));
-        comparable.put("axes", axes);
-
-        List<String> memberSkuParents = new ArrayList<>();
-        for (Map<String, Object> member : recordListValue(group.get("members"))) {
-            String skuParent = groupMemberSkuParent(member);
-            if (StringUtils.hasText(skuParent)) {
-                memberSkuParents.add(skuParent);
-            }
-        }
-        memberSkuParents.sort(String::compareTo);
-        comparable.put("memberSkuParents", memberSkuParents);
-        return comparable;
-    }
-
-    private Map<String, Object> groupDefinitionComparable(Map<String, Object> group) {
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        if (group == null) {
-            return comparable;
-        }
-        comparable.put("skuGroup", textValue(group.get("skuGroup")));
-        comparable.put("groupRef", textValue(group.get("groupRef")));
-        comparable.put("groupRefCanonical", textValue(group.get("groupRefCanonical")));
-        comparable.put("conditionsBrand", textValue(group.get("conditionsBrand")));
-        comparable.put("conditionsFulltype", textValue(group.get("conditionsFulltype")));
-
-        List<Map<String, Object>> axes = new ArrayList<>();
-        for (Map<String, Object> axis : recordListValue(group.get("axes"))) {
-            String axisCode = textValue(firstNonNull(axis.get("axisCode"), axis.get("axis_code")));
-            if (!StringUtils.hasText(axisCode)) {
-                continue;
-            }
-            Map<String, Object> axisComparable = new LinkedHashMap<>();
-            axisComparable.put("axisCode", axisCode);
-            axisComparable.put("axisName", textValue(firstNonNull(axis.get("axisName"), axis.get("axis_name"))));
-            axes.add(axisComparable);
-        }
-        axes.sort((left, right) -> textValue(left.get("axisCode")).compareTo(textValue(right.get("axisCode"))));
-        comparable.put("axes", axes);
-        return comparable;
-    }
-
-    private List<Map<String, Object>> groupMemberAxisValuesComparable(Map<String, Object> group, String lang) {
-        List<Map<String, Object>> comparable = new ArrayList<>();
-        if (group == null) {
-            return comparable;
-        }
-        List<String> axisCodes = groupAxisCodes(recordListValue(group.get("axes")));
-        if (axisCodes.isEmpty()) {
-            return comparable;
-        }
-        for (Map<String, Object> member : recordListValue(group.get("members"))) {
-            String skuParent = groupMemberSkuParent(member);
-            if (!StringUtils.hasText(skuParent)) {
-                continue;
-            }
-            Map<String, Object> values = new LinkedHashMap<>();
-            for (String axisCode : axisCodes) {
-                values.put(axisCode, groupMemberAxisValue(member, axisCode, lang));
-            }
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("skuParent", skuParent);
-            row.put("values", values);
-            comparable.add(row);
-        }
-        comparable.sort((left, right) -> textValue(left.get("skuParent")).compareTo(textValue(right.get("skuParent"))));
-        return comparable;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> recordListValue(Object value) {
-        if (!(value instanceof List<?>)) {
-            return List.of();
-        }
-        List<Map<String, Object>> records = new ArrayList<>();
-        for (Object item : (List<?>) value) {
-            if (item instanceof Map<?, ?>) {
-                records.add(new LinkedHashMap<>((Map<String, Object>) item));
-            }
-        }
-        return records;
-    }
-
-    private Object firstNonNull(Object... values) {
-        if (values == null) {
-            return null;
-        }
-        for (Object value : values) {
-            if (value != null) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private String groupMemberSkuParent(Map<String, Object> member) {
-        if (member == null) {
-            return null;
-        }
-        return firstNonBlank(
-                textValue(member.get("skuParent")),
-                textValue(member.get("parentSku")),
-                textValue(member.get("sku")),
-                textValue(member.get("childSku")),
-                textValue(member.get("partnerSku"))
-        );
-    }
-
-    @SuppressWarnings("unchecked")
-    private String groupMemberAxisValue(Map<String, Object> member, String axisCode, String lang) {
-        if (member == null || !StringUtils.hasText(axisCode)) {
-            return null;
-        }
-        String normalizedLang = normalize(lang);
-        if ("ar".equalsIgnoreCase(normalizedLang)) {
-            Map<String, Object> axisValuesAr = member.get("axisValuesAr") instanceof Map<?, ?>
-                    ? (Map<String, Object>) member.get("axisValuesAr")
-                    : Map.of();
-            String axisSpecificArValue = firstNonBlank(
-                    textValue(axisValuesAr.get(axisCode)),
-                    textValue(member.get(axisCode + "Ar"))
-            );
-            if (StringUtils.hasText(axisSpecificArValue)) {
-                return axisSpecificArValue;
-            }
-            if (!axisValuesAr.isEmpty()) {
-                return null;
-            }
-            return firstNonBlank(
-                    textValue(member.get("axisValueAr"))
-            );
-        }
-        Map<String, Object> axisValues = member.get("axisValues") instanceof Map<?, ?>
-                ? (Map<String, Object>) member.get("axisValues")
-                : Map.of();
-        String axisSpecificValue = firstNonBlank(
-                textValue(member.get(axisCode)),
-                textValue(axisValues.get(axisCode))
-        );
-        if (StringUtils.hasText(axisSpecificValue)) {
-            return axisSpecificValue;
-        }
-        if (!axisValues.isEmpty()) {
-            return null;
-        }
-        return firstNonBlank(
-                textValue(member.get("axisValue"))
-        );
-    }
-
-    private Map<String, Object> publishComparableIdentity(ProductMasterSnapshotView snapshot) {
-        Map<String, Object> identity = snapshot != null && snapshot.getIdentity() != null
-                ? snapshot.getIdentity()
-                : Map.of();
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        comparable.put("brand", textValue(identity.get("brand")));
-        return comparable;
-    }
-
-    private Map<String, Object> publishComparableTaxonomy(ProductMasterSnapshotView snapshot) {
-        Map<String, Object> taxonomy = snapshot != null && snapshot.getTaxonomy() != null
-                ? snapshot.getTaxonomy()
-                : Map.of();
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        comparable.put("family", textValue(taxonomy.get("family")));
-        comparable.put("productType", textValue(taxonomy.get("productType")));
-        comparable.put("productSubtype", textValue(taxonomy.get("productSubtype")));
-        comparable.put("productFulltype", textValue(taxonomy.get("productFulltype")));
-        comparable.put("grade", textValue(taxonomy.get("grade")));
-        comparable.put("itemCondition", textValue(taxonomy.get("itemCondition")));
-        return comparable;
-    }
-
-    private Map<String, Object> publishComparableContent(ProductMasterSnapshotView snapshot) {
-        Map<String, Object> content = snapshot != null && snapshot.getContent() != null
-                ? snapshot.getContent()
-                : Map.of();
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        comparable.put("titleEn", textValue(content.get("titleEn")));
-        comparable.put("titleAr", textValue(content.get("titleAr")));
-        comparable.put("descriptionEn", textValue(content.get("descriptionEn")));
-        comparable.put("descriptionAr", textValue(content.get("descriptionAr")));
-        comparable.put("highlightsEn", stringList(content.get("highlightsEn")));
-        comparable.put("highlightsAr", stringList(content.get("highlightsAr")));
-        comparable.put("images", stringList(content.get("images")));
-        return comparable;
-    }
-
-    private List<Map<String, Object>> publishComparableKeyAttributes(ProductMasterSnapshotView snapshot) {
-        List<Map<String, Object>> source = snapshot != null && snapshot.getKeyAttributes() != null
-                ? snapshot.getKeyAttributes()
-                : List.of();
-        List<Map<String, Object>> comparable = new ArrayList<>();
-        for (Map<String, Object> attribute : source) {
-            if (attribute == null) {
-                continue;
-            }
-            String code = normalizeAttributeCode(textValue(attribute.get("code")));
-            if (!StringUtils.hasText(code)) {
-                continue;
-            }
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("code", code);
-            row.put("commonValue", attribute.get("commonValue"));
-            row.put("enValue", attribute.get("enValue"));
-            row.put("arValue", attribute.get("arValue"));
-            row.put("unit", textValue(attribute.get("unit")));
-            comparable.add(row);
-        }
-        comparable.sort((left, right) -> textValue(left.get("code")).compareTo(textValue(right.get("code"))));
-        return comparable;
-    }
-
-    private List<Map<String, Object>> publishComparableVariants(ProductMasterSnapshotView snapshot) {
-        List<Map<String, Object>> source = snapshot != null && snapshot.getVariants() != null
-                ? snapshot.getVariants()
-                : List.of();
-        List<Map<String, Object>> comparable = new ArrayList<>();
-        for (Map<String, Object> variant : source) {
-            if (variant == null) {
-                continue;
-            }
-            String childSku = textValue(variant.get("childSku"));
-            if (!StringUtils.hasText(childSku)) {
-                continue;
-            }
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("childSku", childSku);
-            row.put("sizeEn", textValue(variant.get("sizeEn")));
-            row.put("sizeAr", textValue(variant.get("sizeAr")));
-            comparable.add(row);
-        }
-        comparable.sort((left, right) -> textValue(left.get("childSku")).compareTo(textValue(right.get("childSku"))));
-        return comparable;
-    }
-
-    private List<Map<String, Object>> siteOfferComparableList(
-            ProductMasterSnapshotView snapshot,
-            String siteCode,
-            boolean includeUnsupportedFields
-    ) {
-        List<Map<String, Object>> comparable = new ArrayList<>();
-        if (snapshot == null || snapshot.getSiteOffers() == null) {
-            return comparable;
-        }
-
-        for (Map<String, Object> siteOffer : snapshot.getSiteOffers()) {
-            String storeCode = siteOfferCode(siteOffer);
-            if (StringUtils.hasText(siteCode) && !storeCode.equalsIgnoreCase(siteCode)) {
-                continue;
-            }
-
-            Map<String, Object> row = new LinkedHashMap<>();
-            putIfNotNull(row, "storeCode", storeCode);
-            putIfNotNull(row, "site", siteOffer.get("site"));
-            putComparableDecimalIfPresent(row, "price", siteOffer.get("price"));
-            putComparableDecimalIfPresent(row, "salePrice", siteOffer.get("salePrice"));
-            putIfNotNull(row, "saleStart", normalizeOfferDateForNoon(siteOffer.get("saleStart")));
-            putIfNotNull(row, "saleEnd", normalizeOfferDateForNoon(siteOffer.get("saleEnd")));
-            putComparableDecimalIfPresent(row, "priceMin", siteOffer.get("priceMin"));
-            putComparableDecimalIfPresent(row, "priceMax", siteOffer.get("priceMax"));
-            putComparableBooleanIfPresent(row, "isActive", siteOffer.get("isActive"));
-            putComparableDecimalIfPresent(row, "idWarranty", siteOffer.get("idWarranty"));
-            putIfNotNull(row, "offerNote", siteOffer.get("offerNote"));
-            if (includeUnsupportedFields) {
-                putIfNotNull(row, "barcode", siteOffer.get("barcode"));
-            }
-            comparable.add(row);
-        }
-        return comparable;
+        return productPublishPreparationService.buildPublishConflictPayload(fields, noonCurrent, currentSiteCode);
     }
 
     private List<String> validatePublishSnapshot(
@@ -4037,58 +2364,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView baseline,
             String currentSiteCode
     ) {
-        List<String> errors = new ArrayList<>();
-        String titleEn = textValue(snapshot.getContent().get("titleEn"));
-        String brand = textValue(snapshot.getIdentity().get("brand"));
-        String productFulltype = textValue(snapshot.getTaxonomy().get("productFulltype"));
-        List<String> images = stringList(snapshot.getContent().get("images"));
-
-        if (!StringUtils.hasText(titleEn)) {
-            errors.add("共享主档缺少标题 EN。");
-        }
-        if (!StringUtils.hasText(brand)) {
-            errors.add("共享主档缺少品牌。");
-        }
-        if (!StringUtils.hasText(productFulltype)) {
-            errors.add("共享主档缺少 Fulltype。");
-        }
-        if (images.isEmpty()) {
-            errors.add("共享主档至少需要保留 1 张图片。");
-        }
-        List<String> baselineImages = baseline == null ? List.of() : stringList(baseline.getContent().get("images"));
-        if (!objectMapper.valueToTree(images).equals(objectMapper.valueToTree(baselineImages))
-                && images.stream().anyMatch(this::isLocalProductImageAssetUrl)) {
-            errors.add("本地上传图片还没有 Noon 可访问 URL，暂时不能发布；请先删除本地上传图片或等待图片外链适配。");
-        }
-
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline != null ? baseline.getSiteOffers() : null);
-        for (Map<String, Object> siteOffer : siteOfferComparableList(snapshot, currentSiteCode, false)) {
-            String siteCode = textValue(siteOffer.get("storeCode"));
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (baselineOffer != null
-                    && objectMapper.valueToTree(siteOfferComparable(siteOffer, false))
-                    .equals(objectMapper.valueToTree(siteOfferComparable(baselineOffer, false)))) {
-                continue;
-            }
-            String label = textValue(siteOffer.get("site")) + " / " + textValue(siteOffer.get("storeCode"));
-            BigDecimal price = asBigDecimal(siteOffer.get("price"));
-            BigDecimal salePrice = asBigDecimal(siteOffer.get("salePrice"));
-            BigDecimal priceMin = asBigDecimal(siteOffer.get("priceMin"));
-            BigDecimal priceMax = asBigDecimal(siteOffer.get("priceMax"));
-            if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
-                errors.add(label + " 缺少有效售价。");
-            }
-            if (salePrice != null && price != null && salePrice.compareTo(price) > 0) {
-                errors.add(label + " 的促销价不能高于原价。");
-            }
-            if (price != null && priceMin != null && price.compareTo(priceMin) < 0) {
-                errors.add(label + " 的售价低于允许范围。");
-            }
-            if (price != null && priceMax != null && price.compareTo(priceMax) > 0) {
-                errors.add(label + " 的售价高于允许范围。");
-            }
-        }
-        return errors;
+        return productPublishPreparationService.validatePublishSnapshot(snapshot, baseline, currentSiteCode);
     }
 
     private List<String> validatePublishOperationalKeys(
@@ -4096,72 +2372,7 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView baseline,
             String currentSiteCode
     ) {
-        List<String> errors = new ArrayList<>();
-        Map<String, Map<String, Object>> draftOffers = siteOfferMap(draft.getSiteOffers());
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline.getSiteOffers());
-        Set<String> relevantSiteCodes = new LinkedHashSet<>();
-        if (StringUtils.hasText(currentSiteCode)) {
-            relevantSiteCodes.add(currentSiteCode);
-        } else {
-            relevantSiteCodes.addAll(draftOffers.keySet());
-        }
-        for (String siteCode : relevantSiteCodes) {
-            Map<String, Object> siteOffer = draftOffers.get(siteCode);
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (siteOffer == null || baselineOffer == null) {
-                continue;
-            }
-            if (objectMapper.valueToTree(siteOfferComparable(siteOffer, false))
-                    .equals(objectMapper.valueToTree(siteOfferComparable(baselineOffer, false)))) {
-                continue;
-            }
-            if (!StringUtils.hasText(firstNonBlank(
-                    textValue(siteOffer.get("pskuCode")),
-                    textValue(baselineOffer.get("pskuCode"))
-            ))) {
-                errors.add(
-                        textValue(siteOffer.get("site"))
-                                + " / "
-                                + siteCode
-                                + " 缺少 pskuCode，暂时不能发布当前站点经营字段。"
-                );
-            }
-        }
-        return errors;
-    }
-
-    private List<String> validatePublishWriteCoverage(UnsupportedChanges unsupportedChanges) {
-        List<String> errors = new ArrayList<>();
-        if (unsupportedChanges == null) {
-            return errors;
-        }
-        errors.addAll(unsupportedChanges.getPublishBlockers());
-        if (unsupportedChanges.isGroupChanged()) {
-            errors.add("Group 换组或轴定义当前暂未开放 Noon 写回；本期支持已有成员 Group 轴属性值、新增未分组商品和 Unlink。");
-        }
-        if (unsupportedChanges.isVariantStructureChanged()) {
-            errors.add("尺码新增、删除或 Child SKU 变更当前没有 Noon 写回适配，请撤回这类修改后再发布。");
-        }
-        for (String code : unsupportedChanges.getUnsupportedAttributeCodes()) {
-            errors.add("关键属性 " + code + " 当前没有 Noon 写回适配，请撤回这类修改后再发布。");
-        }
-        for (Map.Entry<String, Set<String>> entry : unsupportedChanges.getUnsupportedSiteFields().entrySet()) {
-            errors.add(entry.getKey() + " 的 " + String.join("、", entry.getValue()) + " 当前没有 Noon 写回适配，或属于 Noon 只读/汇总字段。");
-        }
-        return errors;
-    }
-
-    private ProductMasterSnapshotView publishableSnapshotForSupportedChanges(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            UnsupportedChanges unsupportedChanges
-    ) {
-        ProductMasterSnapshotView publishable = copySnapshot(draft);
-        ProductPublishPlan plan = productPublishPlanner.plan(publishable, baseline, null);
-        if (!plan.isPublishable() && unsupportedChanges != null) {
-            unsupportedChanges.getPublishBlockers().addAll(plan.getBlockers());
-        }
-        return plan.getPublishableSnapshot();
+        return productPublishPreparationService.validatePublishOperationalKeys(draft, baseline, currentSiteCode);
     }
 
     private StoreSyncStoreRecord requirePublishStore(Long ownerUserId, String storeCode) {
@@ -4189,710 +2400,12 @@ public class LocalDbProductMasterService {
         throw new IllegalArgumentException("当前只开放 xingyao 测试店铺的受控发布。");
     }
 
-    private UnsupportedChanges detectUnsupportedChanges(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            String currentSiteCode
-    ) {
-        UnsupportedChanges unsupportedChanges = new UnsupportedChanges();
-
-        if (!objectMapper.valueToTree(groupDefinitionComparable(draft.getGroup()))
-                .equals(objectMapper.valueToTree(groupDefinitionComparable(baseline.getGroup())))) {
-            unsupportedChanges.setGroupChanged(true);
-        }
-        Map<String, Map<String, Object>> draftVariants = variantMap(draft.getVariants());
-        Map<String, Map<String, Object>> baselineVariants = variantMap(baseline.getVariants());
-        if (!draftVariants.keySet().equals(baselineVariants.keySet())) {
-            unsupportedChanges.setVariantStructureChanged(true);
-        }
-
-        Map<String, Map<String, Object>> draftAttributes = keyAttributeMap(draft.getKeyAttributes());
-        Map<String, Map<String, Object>> baselineAttributes = keyAttributeMap(baseline.getKeyAttributes());
-        Set<String> allAttributeCodes = new LinkedHashSet<>();
-        allAttributeCodes.addAll(draftAttributes.keySet());
-        allAttributeCodes.addAll(baselineAttributes.keySet());
-        for (String code : allAttributeCodes) {
-            Map<String, Object> draftAttribute = draftAttributes.get(code);
-            Map<String, Object> baselineAttribute = baselineAttributes.get(code);
-            if (objectMapper.valueToTree(draftAttribute).equals(objectMapper.valueToTree(baselineAttribute))) {
-                continue;
-            }
-            if (draftAttribute == null || baselineAttribute == null || isCoreAttribute(code) || isBarcodeAttribute(code)) {
-                unsupportedChanges.getUnsupportedAttributeCodes().add(code);
-                continue;
-            }
-            if (!isScalarAttributeValue(attributeValue(draftAttribute, "commonValue"))
-                    || !isScalarAttributeValue(attributeValue(draftAttribute, "enValue"))
-                    || !isScalarAttributeValue(attributeValue(draftAttribute, "arValue"))
-                    || !isScalarAttributeValue(attributeValue(baselineAttribute, "commonValue"))
-                    || !isScalarAttributeValue(attributeValue(baselineAttribute, "enValue"))
-                    || !isScalarAttributeValue(attributeValue(baselineAttribute, "arValue"))) {
-                unsupportedChanges.getUnsupportedAttributeCodes().add(code);
-            }
-        }
-
-        Map<String, Map<String, Object>> draftOffers = siteOfferMap(draft.getSiteOffers());
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline.getSiteOffers());
-        Set<String> relevantSiteCodes = new LinkedHashSet<>();
-        if (StringUtils.hasText(currentSiteCode)) {
-            relevantSiteCodes.add(currentSiteCode);
-        } else {
-            relevantSiteCodes.addAll(draftOffers.keySet());
-        }
-        for (String siteCode : relevantSiteCodes) {
-            Map<String, Object> draftOffer = draftOffers.get(siteCode);
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (draftOffer == null || baselineOffer == null) {
-                continue;
-            }
-            for (String field : new String[]{"barcode"}) {
-                if (!objectMapper.valueToTree(draftOffer.get(field)).equals(objectMapper.valueToTree(baselineOffer.get(field)))) {
-                    unsupportedChanges.markUnsupportedSiteField(siteCode, field);
-                }
-            }
-        }
-
-        return unsupportedChanges;
-    }
-
-    private void publishSupportedChanges(
-            ProductMasterActionCommand command,
-            StoreSyncStoreRecord store,
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            ProductMasterSnapshotView liveBeforePublish,
-            String currentSiteCode,
-            UnsupportedChanges unsupportedChanges,
-            List<String> actionWarnings
-    ) {
-        StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(command.getOwnerUserId());
-        if (owner == null) {
-            throw new IllegalArgumentException("老板账号不存在，无法执行商品发布。");
-        }
-
-        String noonUser = firstNonBlank(
-                normalize(command.getNoonUser()),
-                owner.getNoonPartnerProjectUser(),
-                owner.getNoonPartnerUser()
-        );
-        String noonPassword = firstNonBlank(
-                normalize(command.getNoonPassword()),
-                normalize(owner.getNoonPartnerPwd())
-        );
-        requireText(noonUser, "当前店铺缺少 Noon 账号上下文，暂时不能发布。");
-        requireText(noonPassword, "当前店铺缺少 Noon 登录密码，暂时不能发布。");
-
-        String storeCode = normalize(store.getStoreCode());
-        String projectCode = firstNonBlank(store.getProjectCode(), owner.getNoonPartnerId());
-        requireText(projectCode, "当前店铺缺少 Noon projectCode，暂时不能发布。");
-
-        NoonSession session = noonSessionGateway.login(
-                owner.getId(),
-                noonUser,
-                noonPassword,
-                owner.getNoonPartnerCookie(),
-                projectCode,
-                storeCode
-        );
-        String resolvedProjectCode = resolveProjectCode(session, projectCode, store, actionWarnings);
-        session = session.withProjectCode(resolvedProjectCode).withStoreCode(storeCode);
-
-        boolean sharedZskuChanged = !objectMapper.valueToTree(sharedZskuComparableView(draft))
-                .equals(objectMapper.valueToTree(sharedZskuComparableView(baseline)));
-        boolean groupChanged = !objectMapper.valueToTree(publishComparableGroup(draft))
-                .equals(objectMapper.valueToTree(publishComparableGroup(baseline)));
-        if (sharedZskuChanged) {
-            publishSharedAttributes(session, draft, baseline, liveBeforePublish, unsupportedChanges, actionWarnings);
-        }
-        if (groupChanged) {
-            productGroupPublishService.publishGroupChanges(session, draft, baseline, command.getOwnerUserId(), storeCode);
-        }
-
-        List<Map<String, Object>> targetOffers = siteOfferComparableList(draft, currentSiteCode, false);
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline.getSiteOffers());
-        for (Map<String, Object> siteOffer : targetOffers) {
-            String siteCode = textValue(siteOffer.get("storeCode"));
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (baselineOffer == null) {
-                continue;
-            }
-            if (objectMapper.valueToTree(siteOfferComparable(siteOffer, false))
-                    .equals(objectMapper.valueToTree(siteOfferComparable(baselineOffer, false)))) {
-                continue;
-            }
-            String resolvedPskuCode = firstNonBlank(
-                    textValue(siteOffer.get("pskuCode")),
-                    textValue(baselineOffer.get("pskuCode"))
-            );
-            publishOffer(session.withStoreCode(siteCode), resolvedPskuCode, siteOffer, actionWarnings);
-        }
-
-        if (unsupportedChanges.isGroupChanged()) {
-            actionWarnings.add("Group 换组或轴定义暂未写回 Noon，仍保留在诺诺草稿中。");
-        }
-        if (unsupportedChanges.isVariantStructureChanged()) {
-            actionWarnings.add("当前尺码结构存在新增或移除，暂未开启真实 Noon 写回。");
-        }
-        if (!unsupportedChanges.getUnsupportedAttributeCodes().isEmpty()) {
-            actionWarnings.add("有部分复杂属性值暂未写回 Noon，仍保留在诺诺草稿中。");
-        }
-        if (!unsupportedChanges.getUnsupportedSiteFields().isEmpty()) {
-            actionWarnings.add("库存汇总和状态码仍保留展示，本轮发布未写回 Noon。");
-        }
-    }
-
-    private void publishSharedAttributes(
-            NoonSession session,
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            ProductMasterSnapshotView liveBeforePublish,
-            UnsupportedChanges unsupportedChanges,
-            List<String> actionWarnings
-    ) {
-        publishVariantSizes(session, draft, baseline, liveBeforePublish, unsupportedChanges);
-
-        ObjectNode englishBody = buildZskuUpsertBody(draft, baseline, "en", unsupportedChanges);
-        if (hasZskuUpsertPayloadChanges(englishBody)) {
-            session.postWriteJson(ZSKU_UPSERT_URL, englishBody, true);
-        }
-
-        ObjectNode arabicBody = buildZskuUpsertBody(draft, baseline, "ar", unsupportedChanges);
-        if (hasZskuUpsertPayloadChanges(arabicBody)) {
-            session.postWriteJson(ZSKU_UPSERT_URL, arabicBody, true);
-        }
-    }
-
-    private void publishVariantSizes(
-            NoonSession session,
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            ProductMasterSnapshotView liveBeforePublish,
-            UnsupportedChanges unsupportedChanges
-    ) {
-        if (unsupportedChanges == null || unsupportedChanges.isVariantStructureChanged() || !variantSizeChanged(draft, baseline)) {
-            return;
-        }
-        ObjectNode body = buildProductUpdateVariantSizeBody(draft, baseline, liveBeforePublish);
-        if (body.path("productUpdate").size() == 0) {
-            return;
-        }
-        session.postWriteJson(PRODUCT_UPDATE_URL, body, true);
-
-        ObjectNode cacheBody = objectMapper.createObjectNode();
-        cacheBody.put("skuParent", textValue(draft.getIdentity().get("skuParent")));
-        session.postWriteJson(CATPLAT_SKU_CACHE_URL, cacheBody, true);
-    }
-
-    private ObjectNode buildProductUpdateVariantSizeBody(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            ProductMasterSnapshotView liveBeforePublish
-    ) {
-        ObjectNode body = objectMapper.createObjectNode();
-        ArrayNode productUpdate = body.putArray("productUpdate");
-        String skuParent = firstNonBlank(
-                textValue(draft.getIdentity().get("skuParent")),
-                textValue(draft.getIdentity().get("parentSku"))
-        );
-        if (!StringUtils.hasText(skuParent)) {
-            return body;
-        }
-
-        Map<String, Map<String, Object>> baselineVariants = variantMap(baseline.getVariants());
-        ArrayNode childrenUpdate = objectMapper.createArrayNode();
-        ArrayNode axisOptions = objectMapper.createArrayNode();
-        Set<String> seenOptions = new LinkedHashSet<>();
-        List<Map<String, Object>> draftVariants = draft.getVariants() != null ? draft.getVariants() : List.of();
-        int sortIndex = 1;
-        for (Map<String, Object> variant : draftVariants) {
-            String childSku = textValue(variant.get("childSku"));
-            String sizeEn = textValue(variant.get("sizeEn"));
-            String sizeAr = firstNonBlank(textValue(variant.get("sizeAr")), sizeEn);
-            if (StringUtils.hasText(sizeEn) && seenOptions.add(sizeEn.toLowerCase())) {
-                ObjectNode axisOption = axisOptions.addObject();
-                axisOption.put("optionName", sizeEn);
-                ObjectNode optionLocale = objectMapper.createObjectNode();
-                optionLocale.put("en", sizeEn);
-                optionLocale.put("ar", StringUtils.hasText(sizeAr) ? sizeAr : sizeEn);
-                axisOption.put("optionLocale", optionLocale.toString());
-                axisOption.put("sortOrder", parseInteger(variant.get("variantIndex"), sortIndex));
-            }
-            sortIndex++;
-
-            if (!StringUtils.hasText(childSku)) {
-                continue;
-            }
-            Map<String, Object> baselineVariant = baselineVariants.get(childSku);
-            if (baselineVariant == null || Objects.equals(sizeEn, textValue(baselineVariant.get("sizeEn")))) {
-                continue;
-            }
-            if (!StringUtils.hasText(sizeEn)) {
-                continue;
-            }
-
-            ObjectNode childUpdate = childrenUpdate.addObject();
-            childUpdate.put("sku", childSku);
-            putIfHasText(childUpdate, "partnerSku", resolveVariantPartnerSku(draft, variant));
-            putIfHasText(childUpdate, "pskuCode", resolveVariantPskuCode(draft, variant));
-            childUpdate.put("size", sizeEn);
-        }
-
-        if (childrenUpdate.size() == 0 || axisOptions.size() == 0) {
-            return body;
-        }
-
-        ObjectNode update = productUpdate.addObject();
-        ObjectNode parent = update.putObject("parent");
-        parent.put("parentGroupKey", skuParent);
-        parent.put("skuParent", skuParent);
-        ObjectNode productFulltype = parent.putObject("product_fulltype");
-        Map<String, Object> draftTaxonomy = draft.getTaxonomy() != null ? draft.getTaxonomy() : Map.of();
-        Map<String, Object> liveTaxonomy = liveBeforePublish != null && liveBeforePublish.getTaxonomy() != null
-                ? liveBeforePublish.getTaxonomy()
-                : Map.of();
-        putIfHasText(productFulltype, "family", resolveTaxonomyText(draftTaxonomy, liveTaxonomy, "familyNameEn", "family"));
-        putIfHasText(
-                productFulltype,
-                "product_type",
-                resolveTaxonomyText(draftTaxonomy, liveTaxonomy, "productTypeNameEn", "productType")
-        );
-        putIfHasText(
-                productFulltype,
-                "product_subtype",
-                resolveTaxonomyText(draftTaxonomy, liveTaxonomy, "productSubtypeNameEn", "productSubtype")
-        );
-
-        ArrayNode axesUpdate = update.putArray("axesUpdate");
-        ObjectNode sizeAxis = axesUpdate.addObject();
-        sizeAxis.put("axisName", "Size");
-        sizeAxis.put("axisCode", "size");
-        sizeAxis.set("axisOptions", axisOptions);
-        update.set("childrenUpdate", childrenUpdate);
-        return body;
-    }
-
-    private String resolveTaxonomyText(
-            Map<String, Object> draftTaxonomy,
-            Map<String, Object> liveTaxonomy,
-            String nameKey,
-            String codeKey
-    ) {
-        return firstNonBlank(
-                textValue(draftTaxonomy.get(nameKey)),
-                textValue(liveTaxonomy.get(nameKey)),
-                textValue(draftTaxonomy.get(codeKey)),
-                textValue(liveTaxonomy.get(codeKey))
-        );
-    }
-
-    private String resolveVariantPartnerSku(ProductMasterSnapshotView draft, Map<String, Object> variant) {
-        String value = firstNonBlank(
-                textValue(variant.get("partnerSku")),
-                textValue(variant.get("catalogSku")),
-                textValue(variant.get("catalog_sku")),
-                textValue(variant.get("sellerSku"))
-        );
-        if (StringUtils.hasText(value)) {
-            return value;
-        }
-        if (draft.getVariants() != null && draft.getVariants().size() == 1) {
-            return textValue(draft.getIdentity().get("partnerSku"));
-        }
-        return null;
-    }
-
-    private String resolveVariantPskuCode(ProductMasterSnapshotView draft, Map<String, Object> variant) {
-        String value = firstNonBlank(
-                textValue(variant.get("pskuCode")),
-                textValue(variant.get("psku_code"))
-        );
-        if (StringUtils.hasText(value)) {
-            return value;
-        }
-        if (draft.getVariants() != null && draft.getVariants().size() == 1) {
-            return textValue(draft.getIdentity().get("pskuCode"));
-        }
-        return null;
-    }
-
-    private boolean hasZskuUpsertPayloadChanges(ObjectNode body) {
-        return body != null
-                && (body.path("attributes").size() > 0 || body.path("variants").size() > 0);
-    }
-
-    private ObjectNode buildZskuUpsertBody(
-            ProductMasterSnapshotView draft,
-            ProductMasterSnapshotView baseline,
-            String lang,
-            UnsupportedChanges unsupportedChanges
-    ) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("skuParent", textValue(draft.getIdentity().get("skuParent")));
-        body.put("lang", lang);
-
-        ObjectNode attributes = body.putObject("attributes");
-        if ("en".equals(lang)) {
-            putIfChangedText(attributes, "brand", draft.getIdentity().get("brand"), baseline.getIdentity().get("brand"));
-            putIfChangedText(attributes, "family", draft.getTaxonomy().get("family"), baseline.getTaxonomy().get("family"));
-            putIfChangedText(attributes, "product_type", draft.getTaxonomy().get("productType"), baseline.getTaxonomy().get("productType"));
-            putIfChangedText(attributes, "product_subtype", draft.getTaxonomy().get("productSubtype"), baseline.getTaxonomy().get("productSubtype"));
-            putIfChangedText(attributes, "product_fulltype", draft.getTaxonomy().get("productFulltype"), baseline.getTaxonomy().get("productFulltype"));
-            putIfChangedText(attributes, "grade", draft.getTaxonomy().get("grade"), baseline.getTaxonomy().get("grade"));
-            putIfChangedText(attributes, "item_condition", draft.getTaxonomy().get("itemCondition"), baseline.getTaxonomy().get("itemCondition"));
-            if (attributes.has("product_fulltype")) {
-                attributes.put("update_fulltype", true);
-            }
-        }
-        putIfChangedText(
-                attributes,
-                "product_title",
-                "ar".equals(lang) ? draft.getContent().get("titleAr") : draft.getContent().get("titleEn"),
-                "ar".equals(lang) ? baseline.getContent().get("titleAr") : baseline.getContent().get("titleEn")
-        );
-        putIfChangedText(
-                attributes,
-                "long_description",
-                "ar".equals(lang) ? draft.getContent().get("descriptionAr") : draft.getContent().get("descriptionEn"),
-                "ar".equals(lang) ? baseline.getContent().get("descriptionAr") : baseline.getContent().get("descriptionEn")
-        );
-
-        List<String> highlights = "ar".equals(lang)
-                ? stringList(draft.getContent().get("highlightsAr"))
-                : stringList(draft.getContent().get("highlightsEn"));
-        List<String> baselineHighlights = "ar".equals(lang)
-                ? stringList(baseline.getContent().get("highlightsAr"))
-                : stringList(baseline.getContent().get("highlightsEn"));
-        if (!highlights.equals(baselineHighlights)) {
-            for (int index = 0; index < highlights.size(); index++) {
-                putIfHasText(attributes, "feature_bullet_" + (index + 1), highlights.get(index));
-            }
-        }
-
-        if ("en".equals(lang)) {
-            List<String> images = stringList(draft.getContent().get("images"));
-            List<String> baselineImages = stringList(baseline.getContent().get("images"));
-            if (!images.equals(baselineImages)) {
-                for (int index = 0; index < images.size(); index++) {
-                    putIfHasText(attributes, "image_url_" + (index + 1), images.get(index));
-                }
-            }
-        }
-
-        Map<String, Map<String, Object>> baselineAttributes = keyAttributeMap(baseline.getKeyAttributes());
-        for (Map<String, Object> attribute : draft.getKeyAttributes()) {
-            String code = textValue(attribute.get("code"));
-            if (!StringUtils.hasText(code)
-                    || unsupportedChanges.getUnsupportedAttributeCodes().contains(code)
-                    || isCoreAttribute(code)
-                    || isBarcodeAttribute(code)) {
-                continue;
-            }
-
-            Map<String, Object> baselineAttribute = baselineAttributes.get(code);
-            if (objectMapper.valueToTree(attribute).equals(objectMapper.valueToTree(baselineAttribute))) {
-                continue;
-            }
-            if (!hasAttributeChangeForLanguage(attribute, baselineAttribute, lang)) {
-                continue;
-            }
-
-            Object value = "ar".equals(lang)
-                    ? firstLocalizedValue(attribute.get("arValue"), attribute.get("commonValue"))
-                    : firstLocalizedValue(attribute.get("enValue"), attribute.get("commonValue"));
-            if (isScalarAttributeValue(value)) {
-                setObjectNodeValue(attributes, code, value);
-            }
-            if (StringUtils.hasText(textValue(attribute.get("unit")))) {
-                setObjectNodeValue(attributes, code + "_unit", attribute.get("unit"));
-            }
-        }
-
-        ArrayNode variantsNode = body.putArray("variants");
-        if (!unsupportedChanges.isVariantStructureChanged()) {
-            Map<String, Map<String, Object>> baselineVariants = variantMap(baseline.getVariants());
-            for (Map<String, Object> variant : draft.getVariants()) {
-                String childSku = textValue(variant.get("childSku"));
-                if (!StringUtils.hasText(childSku)) {
-                    continue;
-                }
-                Map<String, Object> baselineVariant = baselineVariants.get(childSku);
-                if (baselineVariant == null) {
-                    continue;
-                }
-
-                String sizeValue = "ar".equals(lang)
-                        ? textValue(variant.get("sizeAr"))
-                        : textValue(variant.get("sizeEn"));
-                String baselineSizeValue = "ar".equals(lang)
-                        ? textValue(baselineVariant.get("sizeAr"))
-                        : textValue(baselineVariant.get("sizeEn"));
-                if (!StringUtils.hasText(sizeValue) || sizeValue.equals(baselineSizeValue)) {
-                    continue;
-                }
-
-                ObjectNode variantNode = variantsNode.addObject();
-                variantNode.put("sku", childSku);
-                ObjectNode variantAttributes = variantNode.putObject("attributes");
-                variantAttributes.put("size", sizeValue);
-            }
-        }
-        return body;
-    }
-
-    private void publishOffer(
-            NoonSession session,
-            String pskuCode,
-            Map<String, Object> siteOffer,
-            List<String> actionWarnings
-    ) {
-        String resolvedSite = resolveOfferPublishSite(siteOffer);
-        ObjectNode body = buildOfferUpsertBodyForPublish(pskuCode, siteOffer);
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("X-Locale", "en-" + resolvedSite.toUpperCase());
-        session.postWriteJson(OFFER_UPSERT_URL, body, true, headers);
-        if (siteOffer.get("fbnStock") != null || siteOffer.get("supermallStock") != null || siteOffer.get("fbpStock") != null) {
-            actionWarnings.add("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。");
-        }
-    }
-
-    private ObjectNode buildOfferUpsertBodyForPublish(String pskuCode, Map<String, Object> siteOffer) {
-        requireText(pskuCode, textValue(siteOffer.get("site")) + " / " + siteOfferCode(siteOffer) + " 缺少 pskuCode，暂时不能发布站点经营字段。");
-        ObjectNode body = objectMapper.createObjectNode();
-        ArrayNode pskus = body.putArray("pskus");
-        ObjectNode offerNode = pskus.addObject();
-        offerNode.put("pskuCode", pskuCode);
-        offerNode.put("country", resolveOfferPublishSite(siteOffer).toLowerCase());
-        if (hasOfferFieldValue(siteOffer, "isActive")) {
-            offerNode.put("isActive", truthy(siteOffer.get("isActive")) ? 1 : 0);
-        }
-        offerNode.put("pricingMethod", PRICING_METHOD_MANUAL);
-        setDecimalNode(offerNode, "price", siteOffer.get("price"));
-        setDecimalNode(offerNode, "salePrice", siteOffer.get("salePrice"));
-        setDecimalNode(offerNode, "priceMin", siteOffer.get("priceMin"));
-        setDecimalNode(offerNode, "priceMax", siteOffer.get("priceMax"));
-        Map<String, String> saleWindow = saleWindowForPublish(siteOffer);
-        putIfHasText(offerNode, "saleStart", saleWindow.get("saleStart"));
-        putIfHasText(offerNode, "saleEnd", saleWindow.get("saleEnd"));
-        if (hasOfferFieldValue(siteOffer, "idWarranty")) {
-            offerNode.put("idWarranty", parseInteger(siteOffer.get("idWarranty"), 0));
-        }
-        putIfHasText(offerNode, "offerNote", siteOffer.get("offerNote"));
-        offerNode.putNull("pricingRule");
-        offerNode.putNull("priceEngineMin");
-        offerNode.putNull("priceEngineMax");
-        return body;
-    }
-
-    private String resolveOfferPublishSite(Map<String, Object> siteOffer) {
-        return firstNonBlank(
-                textValue(siteOffer.get("site")),
-                deriveSiteFromStoreCode(siteOfferCode(siteOffer)),
-                "AE"
-        );
-    }
-
-    private void overlayUnsupportedDraft(
-            ProductMasterSnapshotView targetDraft,
-            ProductMasterSnapshotView sourceDraft,
-            UnsupportedChanges unsupportedChanges
-    ) {
-        if (unsupportedChanges.isGroupChanged()) {
-            targetDraft.setGroup(new LinkedHashMap<>(sourceDraft.getGroup()));
-        }
-        if (unsupportedChanges.isVariantStructureChanged()) {
-            targetDraft.setVariants(copyRecordList(sourceDraft.getVariants()));
-        }
-        if (!unsupportedChanges.getUnsupportedAttributeCodes().isEmpty()) {
-            Map<String, Map<String, Object>> targetAttributes = keyAttributeMap(targetDraft.getKeyAttributes());
-            Map<String, Map<String, Object>> sourceAttributes = keyAttributeMap(sourceDraft.getKeyAttributes());
-            for (String code : unsupportedChanges.getUnsupportedAttributeCodes()) {
-                if (targetAttributes.containsKey(code) && sourceAttributes.containsKey(code)) {
-                    targetAttributes.put(code, new LinkedHashMap<>(sourceAttributes.get(code)));
-                }
-            }
-            targetDraft.setKeyAttributes(new ArrayList<>(targetAttributes.values()));
-        }
-        if (!unsupportedChanges.getUnsupportedSiteFields().isEmpty()) {
-            Map<String, Map<String, Object>> targetOffers = siteOfferMap(targetDraft.getSiteOffers());
-            Map<String, Map<String, Object>> sourceOffers = siteOfferMap(sourceDraft.getSiteOffers());
-            for (Map.Entry<String, Set<String>> entry : unsupportedChanges.getUnsupportedSiteFields().entrySet()) {
-                Map<String, Object> targetOffer = targetOffers.get(entry.getKey());
-                Map<String, Object> sourceOffer = sourceOffers.get(entry.getKey());
-                if (targetOffer == null || sourceOffer == null) {
-                    continue;
-                }
-                for (String field : entry.getValue()) {
-                    targetOffer.put(field, sourceOffer.get(field));
-                }
-            }
-            targetDraft.setSiteOffers(new ArrayList<>(targetOffers.values()));
-        }
-    }
-
-    private Map<String, Map<String, Object>> keyAttributeMap(List<Map<String, Object>> keyAttributes) {
-        Map<String, Map<String, Object>> map = new LinkedHashMap<>();
-        if (keyAttributes == null) {
-            return map;
-        }
-        for (Map<String, Object> attribute : keyAttributes) {
-            String code = textValue(attribute.get("code"));
-            if (StringUtils.hasText(code)) {
-                map.put(code, new LinkedHashMap<>(attribute));
-            }
-        }
-        return map;
-    }
-
-    private Map<String, Map<String, Object>> variantMap(List<Map<String, Object>> variants) {
-        Map<String, Map<String, Object>> map = new LinkedHashMap<>();
-        if (variants == null) {
-            return map;
-        }
-        for (Map<String, Object> variant : variants) {
-            String childSku = textValue(variant.get("childSku"));
-            if (StringUtils.hasText(childSku)) {
-                map.put(childSku, new LinkedHashMap<>(variant));
-            }
-        }
-        return map;
-    }
-
-    private Map<String, Map<String, Object>> siteOfferMap(List<Map<String, Object>> siteOffers) {
-        Map<String, Map<String, Object>> map = new LinkedHashMap<>();
-        if (siteOffers == null) {
-            return map;
-        }
-        for (Map<String, Object> siteOffer : siteOffers) {
-            map.put(siteOfferCode(siteOffer), new LinkedHashMap<>(siteOffer));
-        }
-        return map;
-    }
-
-    private Map<String, Object> siteOfferComparable(Map<String, Object> siteOffer, boolean includeUnsupportedFields) {
-        Map<String, Object> comparable = new LinkedHashMap<>();
-        putIfNotNull(comparable, "storeCode", siteOffer.get("storeCode"));
-        putIfNotNull(comparable, "site", siteOffer.get("site"));
-        putComparableDecimalIfPresent(comparable, "price", siteOffer.get("price"));
-        putComparableDecimalIfPresent(comparable, "salePrice", siteOffer.get("salePrice"));
-        putIfNotNull(comparable, "saleStart", normalizeOfferDateForNoon(siteOffer.get("saleStart")));
-        putIfNotNull(comparable, "saleEnd", normalizeOfferDateForNoon(siteOffer.get("saleEnd")));
-        putComparableDecimalIfPresent(comparable, "priceMin", siteOffer.get("priceMin"));
-        putComparableDecimalIfPresent(comparable, "priceMax", siteOffer.get("priceMax"));
-        putComparableBooleanIfPresent(comparable, "isActive", siteOffer.get("isActive"));
-        putComparableDecimalIfPresent(comparable, "idWarranty", siteOffer.get("idWarranty"));
-        putIfNotNull(comparable, "offerNote", siteOffer.get("offerNote"));
-        if (includeUnsupportedFields) {
-            putIfNotNull(comparable, "barcode", siteOffer.get("barcode"));
-        }
-        return comparable;
-    }
-
-    private boolean hasArabicSharedContent(ProductMasterSnapshotView snapshot) {
-        return StringUtils.hasText(textValue(snapshot.getContent().get("titleAr")))
-                || StringUtils.hasText(textValue(snapshot.getContent().get("descriptionAr")))
-                || !stringList(snapshot.getContent().get("highlightsAr")).isEmpty();
-    }
-
-    private boolean isCoreAttribute(String code) {
-        return "brand".equals(code)
-                || "family".equals(code)
-                || "product_type".equals(code)
-                || "product_subtype".equals(code)
-                || "product_fulltype".equals(code)
-                || "item_condition".equals(code)
-                || "grade".equals(code)
-                || "product_title".equals(code)
-                || "long_description".equals(code);
-    }
-
-    private boolean isBarcodeAttribute(String code) {
-        if (!StringUtils.hasText(code)) {
-            return false;
-        }
-        String normalized = code.trim().toLowerCase();
-        if (normalized.contains("barcode")) {
-            return true;
-        }
-        for (String token : normalized.split("[^a-z0-9]+")) {
-            if ("gtin".equals(token) || "ean".equals(token) || "upc".equals(token)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isLocalProductImageAssetUrl(String url) {
-        return StringUtils.hasText(url) && url.trim().startsWith("/api/product-master/image-assets/");
-    }
-
-    private boolean hasAttributeChangeForLanguage(
-            Map<String, Object> attribute,
-            Map<String, Object> baselineAttribute,
-            String lang
-    ) {
-        String localizedField = "ar".equals(lang) ? "arValue" : "enValue";
-        return !objectMapper.valueToTree(attributeValue(attribute, localizedField))
-                .equals(objectMapper.valueToTree(attributeValue(baselineAttribute, localizedField)))
-                || !objectMapper.valueToTree(attributeValue(attribute, "commonValue"))
-                .equals(objectMapper.valueToTree(attributeValue(baselineAttribute, "commonValue")))
-                || !objectMapper.valueToTree(attributeValue(attribute, "unit"))
-                .equals(objectMapper.valueToTree(attributeValue(baselineAttribute, "unit")));
-    }
-
-    private Object firstLocalizedValue(Object localizedValue, Object commonValue) {
-        if (isScalarAttributeValue(localizedValue) && StringUtils.hasText(textValue(localizedValue))) {
-            return localizedValue;
-        }
-        return commonValue;
-    }
-
-    private boolean isScalarAttributeValue(Object value) {
-        return value == null
-                || value instanceof String
-                || value instanceof Number
-                || value instanceof Boolean;
-    }
-
-    private Object attributeValue(Map<String, Object> attribute, String field) {
-        return attribute == null ? null : attribute.get(field);
-    }
-
     private List<String> mergeWarnings(List<String> baseWarnings, List<String> extraWarnings) {
-        LinkedHashSet<String> merged = new LinkedHashSet<>();
-        if (baseWarnings != null) {
-            merged.addAll(userVisibleWarnings(baseWarnings));
-        }
-        if (extraWarnings != null) {
-            merged.addAll(userVisibleWarnings(extraWarnings));
-        }
-        return new ArrayList<>(merged);
+        return productSnapshotHydrator.mergeWarnings(baseWarnings, extraWarnings);
     }
 
     private List<String> userVisibleWarnings(List<String> warnings) {
-        if (warnings == null || warnings.isEmpty()) {
-            return new ArrayList<>();
-        }
-        List<String> visible = new ArrayList<>();
-        for (String warning : warnings) {
-            if (!StringUtils.hasText(warning) || isNonBlockingNoonRealtimeWarning(warning)) {
-                continue;
-            }
-            visible.add(warning);
-        }
-        return visible;
-    }
-
-    private boolean isNonBlockingNoonRealtimeWarning(String warning) {
-        if (!StringUtils.hasText(warning)) {
-            return false;
-        }
-        String normalized = warning.toLowerCase(Locale.ROOT);
-        return normalized.contains("价格信息失败")
-                || normalized.contains("库存摘要失败")
-                || normalized.contains("读取 fulltype 模板失败")
-                || normalized.contains("fulltype 模板实时读取失败")
-                || normalized.contains("没有返回 product_fulltype")
-                || normalized.contains("类目模板读取已跳过");
+        return productSnapshotHydrator.userVisibleWarnings(warnings);
     }
 
     private String siteOfferCode(Map<String, Object> siteOffer) {
@@ -4922,378 +2435,45 @@ public class LocalDbProductMasterService {
         return StringUtils.hasText(text) ? text : null;
     }
 
-    private BigDecimal asBigDecimal(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof BigDecimal) {
-            return (BigDecimal) value;
-        }
-        if (value instanceof Number) {
-            return new BigDecimal(String.valueOf(value));
-        }
-        String text = textValue(value);
-        if (!StringUtils.hasText(text)) {
-            return null;
-        }
-        try {
-            return new BigDecimal(text.replace(",", ""));
-        } catch (NumberFormatException exception) {
-            return null;
-        }
-    }
-
-    private boolean truthy(Object value) {
-        if (value instanceof Boolean) {
-            return (Boolean) value;
-        }
-        String text = textValue(value);
-        return "true".equalsIgnoreCase(text) || "1".equals(text) || "active".equalsIgnoreCase(text);
-    }
-
-    private int parseInteger(Object value, int fallback) {
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
-        }
-        String text = textValue(value);
-        if (!StringUtils.hasText(text)) {
-            return fallback;
-        }
-        try {
-            return Integer.parseInt(text);
-        } catch (NumberFormatException exception) {
-            return fallback;
-        }
-    }
-
-    private void putIfHasText(ObjectNode target, String key, Object value) {
-        String text = textValue(value);
-        if (StringUtils.hasText(text)) {
-            target.put(key, text);
-        }
-    }
-
-    private void putIfChangedText(ObjectNode target, String key, Object value, Object baselineValue) {
-        String text = textValue(value);
-        String baselineText = textValue(baselineValue);
-        if (StringUtils.hasText(text) && !Objects.equals(text, baselineText)) {
-            target.put(key, text);
-        }
-    }
-
-    private String normalizeOfferDateForNoon(Object value) {
-        String text = textValue(value);
-        if (!StringUtils.hasText(text)) {
-            return null;
-        }
-        try {
-            return OffsetDateTime.parse(text).toLocalDate().format(NOON_OFFER_DATE_FORMATTER);
-        } catch (DateTimeParseException ignored) {
-            // fall through
-        }
-        try {
-            return ZonedDateTime.parse(text).toLocalDate().format(NOON_OFFER_DATE_FORMATTER);
-        } catch (DateTimeParseException ignored) {
-            // fall through
-        }
-        try {
-            return LocalDateTime.parse(text).toLocalDate().format(NOON_OFFER_DATE_FORMATTER);
-        } catch (DateTimeParseException ignored) {
-            // fall through
-        }
-        try {
-            return LocalDateTime.parse(text, FETCH_TIME_FORMATTER).toLocalDate().format(NOON_OFFER_DATE_FORMATTER);
-        } catch (DateTimeParseException ignored) {
-            // fall through
-        }
-        try {
-            return LocalDate.parse(text).format(NOON_OFFER_DATE_FORMATTER);
-        } catch (DateTimeParseException ignored) {
-            return text;
-        }
-    }
-
-    private Map<String, String> saleWindowForPublish(Map<String, Object> siteOffer) {
-        Map<String, String> saleWindow = new LinkedHashMap<>();
-        if (siteOffer == null) {
-            return saleWindow;
-        }
-
-        String saleStart = normalizeOfferDateForNoon(siteOffer.get("saleStart"));
-        String saleEnd = normalizeOfferDateForNoon(siteOffer.get("saleEnd"));
-        if (asBigDecimal(siteOffer.get("salePrice")) != null) {
-            LocalDate today = LocalDate.now(PRODUCT_MANAGEMENT_ZONE);
-            if (!StringUtils.hasText(saleStart)) {
-                saleStart = today.format(NOON_OFFER_DATE_FORMATTER);
-            }
-            if (!StringUtils.hasText(saleEnd)) {
-                saleEnd = today.plusYears(DEFAULT_SALE_WINDOW_YEARS).format(NOON_OFFER_DATE_FORMATTER);
-            }
-        }
-
-        if (StringUtils.hasText(saleStart)) {
-            saleWindow.put("saleStart", saleStart);
-        }
-        if (StringUtils.hasText(saleEnd)) {
-            saleWindow.put("saleEnd", saleEnd);
-        }
-        return saleWindow;
-    }
-
-    private void setObjectNodeValue(ObjectNode target, String key, Object value) {
-        if (value == null) {
-            return;
-        }
-        if (value instanceof Boolean) {
-            target.put(key, (Boolean) value);
-            return;
-        }
-        if (value instanceof Integer) {
-            target.put(key, (Integer) value);
-            return;
-        }
-        if (value instanceof Long) {
-            target.put(key, (Long) value);
-            return;
-        }
-        if (value instanceof Float) {
-            target.put(key, (Float) value);
-            return;
-        }
-        if (value instanceof Double) {
-            target.put(key, (Double) value);
-            return;
-        }
-        if (value instanceof BigDecimal) {
-            target.put(key, (BigDecimal) value);
-            return;
-        }
-        target.put(key, String.valueOf(value));
-    }
-
-    private void setDecimalNode(ObjectNode target, String key, Object value) {
-        BigDecimal decimal = asBigDecimal(value);
-        if (decimal == null) {
-            target.putNull(key);
-            return;
-        }
-        target.put(key, decimal);
-    }
-
-    private Map<String, Object> buildStoreContext(
-            StoreSyncOwnerContext owner,
-            StoreSyncStoreRecord store,
-            String noonUser,
-            JsonNode whoamiNode,
-            String projectCode,
-            String referenceStoreCode,
-            String referenceSite,
-            int projectSiteCount
-    ) {
-        Map<String, Object> context = new LinkedHashMap<>();
-        putIfNotNull(context, "ownerUserId", owner.getId());
-        putIfNotBlank(context, "ownerName", resolveOwnerName(owner));
-        putIfNotBlank(context, "accountNo", owner.getAccountNo());
-        putIfNotBlank(context, "projectName", store.getProjectName());
-        putIfNotBlank(context, "projectCode", projectCode);
-        putIfNotBlank(context, "storeCode", referenceStoreCode);
-        putIfNotBlank(context, "site", referenceSite);
-        putIfNotNull(context, "projectSiteCount", projectSiteCount);
-        putIfNotBlank(context, "noonUser", noonUser);
-        putIfNotBlank(context, "whoamiEmail", text(whoamiNode, "email"));
-        putIfNotBlank(context, "whoamiRole", text(whoamiNode, "idp_role"));
-        putIfNotBlank(
-                context,
-                "fetchedAt",
-                ZonedDateTime.now(ZoneId.of("Asia/Shanghai")).format(FETCH_TIME_FORMATTER)
-        );
-        return context;
-    }
-
-    private List<ProjectSiteContext> loadProjectSiteContexts(
+    private List<ProductProjectSiteContext> loadProjectSiteContexts(
             NoonSession session,
             Long ownerUserId,
             StoreSyncStoreRecord store,
             List<String> warnings
     ) {
-        Map<String, ProjectSiteContext> siteMap = new LinkedHashMap<>();
-        List<StoreSyncStoreRecord> localProjectStores = findRelatedStores(ownerUserId, store);
-        for (StoreSyncStoreRecord localStore : localProjectStores) {
-            if (!StringUtils.hasText(localStore.getStoreCode())) {
-                continue;
-            }
-            siteMap.put(
-                    localStore.getStoreCode(),
-                    new ProjectSiteContext(localStore.getStoreCode(), localStore.getSite(), null)
-            );
-        }
-
-        ObjectNode storeListBody = objectMapper.createObjectNode();
-        storeListBody.put("noonStoreCode", "");
-        long storeListStartedAt = System.nanoTime();
-        JsonNode storeListRoot = safePost(
-                session,
-                STORE_LIST_URL,
-                storeListBody,
-                true,
-                warnings,
-                "读取项目站点列表失败"
-        );
-        log.info(
-                "product-management fetchSnapshot detail stage=store.list store={} durationMs={}",
-                normalize(store.getStoreCode()),
-                nanosToMillis(storeListStartedAt)
-        );
-        JsonNode noonStoresNode = storeListRoot.path("noonStores");
-        if (noonStoresNode.isArray()) {
-            for (JsonNode siteNode : noonStoresNode) {
-                String liveStoreCode = text(siteNode, "noonStoreCode");
-                if (!StringUtils.hasText(liveStoreCode)) {
-                    continue;
-                }
-
-                String liveSite = firstNonBlank(text(siteNode, "countryCode"), deriveSiteFromStoreCode(liveStoreCode));
-                String statusCode = text(siteNode, "statusCode");
-                ProjectSiteContext existing = siteMap.get(liveStoreCode);
-                if (existing != null) {
-                    existing.setSite(firstNonBlank(liveSite, existing.getSite()));
-                    existing.setStatusCode(firstNonBlank(statusCode, existing.getStatusCode()));
-                }
-            }
-        }
-
-        if (!StringUtils.hasText(store.getStoreCode())) {
-            return new ArrayList<>(siteMap.values());
-        }
-
-        ProjectSiteContext referenceStore = siteMap.get(store.getStoreCode());
-        if (referenceStore == null) {
-            siteMap.put(
-                    store.getStoreCode(),
-                    new ProjectSiteContext(
-                            store.getStoreCode(),
-                            firstNonBlank(store.getSite(), deriveSiteFromStoreCode(store.getStoreCode())),
-                            null
-                    )
-            );
-        } else {
-            referenceStore.setSite(firstNonBlank(referenceStore.getSite(), store.getSite(), deriveSiteFromStoreCode(store.getStoreCode())));
-        }
-
-        return new ArrayList<>(siteMap.values());
+        return productProjectSiteResolver.loadProjectSiteContexts(session, ownerUserId, store, warnings);
     }
 
-    private ProjectSiteFetchResult loadSiteOffers(
+    private ProductSiteOfferFetchResult loadSiteOffers(
             NoonSession session,
-            List<ProjectSiteContext> projectSites,
+            List<ProductProjectSiteContext> projectSites,
             String referenceStoreCode,
             String idPartner,
             String partnerSku,
             String pskuCode,
             List<String> warnings
     ) {
-        List<Map<String, Object>> siteOffers = new ArrayList<>();
-        JsonNode referencePricingNode = MissingNode.getInstance();
-        JsonNode referenceStockNode = MissingNode.getInstance();
-
-        if (!StringUtils.hasText(idPartner)) {
-            warnings.add("当前商品没有返回 id_partner，价格读取已跳过。");
-        }
-        if (!StringUtils.hasText(partnerSku)) {
-            warnings.add("当前索引缺少 partnerSku，站点价格读取已跳过。");
-        }
-        if (!StringUtils.hasText(pskuCode)) {
-            warnings.add("当前索引缺少 pskuCode，站点库存摘要读取已跳过。");
-        }
-
-        for (ProjectSiteContext projectSite : projectSites) {
-            NoonSession siteSession = session.withStoreCode(projectSite.getStoreCode());
-            JsonNode pricingNode = MissingNode.getInstance();
-            String resolvedSite = firstNonBlank(projectSite.getSite(), deriveSiteFromStoreCode(projectSite.getStoreCode()), "SA");
-            if (StringUtils.hasText(idPartner) && StringUtils.hasText(partnerSku)) {
-                ObjectNode pricingBody = objectMapper.createObjectNode();
-                ArrayNode pskuList = pricingBody.putArray("psku_list");
-                ObjectNode pricingItem = pskuList.addObject();
-                pricingItem.put("psku", partnerSku);
-                pricingItem.put("country_code", resolvedSite.toUpperCase());
-                pricingItem.put("id_partner", idPartner);
-                long pricingStartedAt = System.nanoTime();
-                pricingNode = safePostOptional(
-                        siteSession,
-                        PRICING_INFO_URL,
-                        pricingBody,
-                        true,
-                        "读取站点 " + describeSite(projectSite) + " 价格信息失败"
-                );
-                log.info(
-                        "product-management fetchSnapshot detail stage=pricing.info store={} site={} durationMs={}",
-                        projectSite.getStoreCode(),
-                        resolvedSite,
-                        nanosToMillis(pricingStartedAt)
-                );
-            }
-
-            JsonNode stockNode = MissingNode.getInstance();
-            if (StringUtils.hasText(pskuCode)) {
-                ObjectNode stockBody = objectMapper.createObjectNode();
-                ArrayNode pskuCodes = stockBody.putArray("psku_codes");
-                pskuCodes.add(pskuCode);
-                stockBody.put("noon_store_code", projectSite.getStoreCode());
-                long stockStartedAt = System.nanoTime();
-                stockNode = safePostOptional(
-                        siteSession,
-                        STOCK_INFO_URL,
-                        stockBody,
-                        true,
-                        "读取站点 " + describeSite(projectSite) + " 库存摘要失败"
-                );
-                log.info(
-                        "product-management fetchSnapshot detail stage=stock.info store={} site={} durationMs={}",
-                        projectSite.getStoreCode(),
-                        resolvedSite,
-                        nanosToMillis(stockStartedAt)
-                );
-            }
-
-            siteOffers.add(buildSiteOffer(projectSite, pricingNode, stockNode, projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)));
-            if (projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)) {
-                referencePricingNode = pricingNode;
-                referenceStockNode = stockNode;
-            }
-        }
-
-        return new ProjectSiteFetchResult(siteOffers, referencePricingNode, referenceStockNode);
+        return productSiteOfferFetcher.loadSiteOffers(
+                session,
+                projectSites,
+                referenceStoreCode,
+                idPartner,
+                partnerSku,
+                pskuCode,
+                warnings
+        );
     }
 
-    private ProjectSiteFetchResult reuseSiteOffersFromSnapshot(
+    private ProductSiteOfferFetchResult reuseSiteOffersFromSnapshot(
             ProductMasterSnapshotView snapshot,
-            List<ProjectSiteContext> projectSites,
+            List<ProductProjectSiteContext> projectSites,
             String referenceStoreCode
     ) {
-        List<Map<String, Object>> siteOffers = new ArrayList<>();
-        Map<String, Map<String, Object>> baselineOffers = siteOfferMap(snapshot != null ? snapshot.getSiteOffers() : null);
-        for (ProjectSiteContext projectSite : projectSites) {
-            Map<String, Object> baselineOffer = baselineOffers.get(projectSite.getStoreCode());
-            Map<String, Object> siteOffer = baselineOffer != null
-                    ? new LinkedHashMap<>(baselineOffer)
-                    : buildSiteOffer(
-                    projectSite,
-                    MissingNode.getInstance(),
-                    MissingNode.getInstance(),
-                    projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)
-            );
-            siteOffers.add(siteOffer);
-        }
-        return new ProjectSiteFetchResult(siteOffers, MissingNode.getInstance(), MissingNode.getInstance());
+        return productSiteOfferFetcher.reuseSiteOffersFromSnapshot(snapshot, projectSites, referenceStoreCode);
     }
 
-    private String resolveReferenceSite(List<ProjectSiteContext> projectSites, String referenceStoreCode) {
-        for (ProjectSiteContext projectSite : projectSites) {
-            if (projectSite.getStoreCode().equalsIgnoreCase(referenceStoreCode)) {
-                return firstNonBlank(projectSite.getSite(), deriveSiteFromStoreCode(referenceStoreCode));
-            }
-        }
-        return deriveSiteFromStoreCode(referenceStoreCode);
+    private String resolveReferenceSite(List<ProductProjectSiteContext> projectSites, String referenceStoreCode) {
+        return productProjectSiteResolver.resolveReferenceSite(projectSites, referenceStoreCode);
     }
 
     private String resolveProjectCode(
@@ -5302,100 +2482,7 @@ public class LocalDbProductMasterService {
             StoreSyncStoreRecord store,
             List<String> warnings
     ) {
-        String cacheKey = buildResolvedProjectCodeCacheKey(store, localProjectCode);
-        ResolvedProjectCodeCacheEntry cachedEntry = resolvedProjectCodeCache.get(cacheKey);
-        if (cachedEntry != null) {
-            if (StringUtils.hasText(cachedEntry.warning()) && !warnings.contains(cachedEntry.warning())) {
-                warnings.add(cachedEntry.warning());
-            }
-            return cachedEntry.resolvedProjectCode();
-        }
-
-        ObjectNode emptyBody = objectMapper.createObjectNode();
-        JsonNode projectListRoot = safePost(
-                session,
-                PROJECT_LIST_URL,
-                emptyBody,
-                false,
-                warnings,
-                "读取 Noon 项目列表失败"
-        );
-        JsonNode projectsNode = projectListRoot.path("projects");
-        if (!projectsNode.isArray() || projectsNode.size() == 0) {
-            return localProjectCode;
-        }
-
-        String localDigits = extractDigits(localProjectCode);
-        String storeProjectName = normalize(store.getProjectName());
-
-        for (JsonNode projectNode : projectsNode) {
-            String candidateCode = text(projectNode, "projectCode");
-            if (localProjectCode != null && localProjectCode.equalsIgnoreCase(candidateCode)) {
-                return cacheResolvedProjectCode(cacheKey, candidateCode, null);
-            }
-        }
-
-        if (StringUtils.hasText(localDigits)) {
-            for (JsonNode projectNode : projectsNode) {
-                String candidateCode = text(projectNode, "projectCode");
-                if (extractDigits(candidateCode).equals(localDigits)) {
-                    return cacheResolvedProjectCode(cacheKey, candidateCode, null);
-                }
-            }
-        }
-
-        if (StringUtils.hasText(storeProjectName)) {
-            for (JsonNode projectNode : projectsNode) {
-                String candidateName = normalize(text(projectNode, "projectName"));
-                if (storeProjectName.equalsIgnoreCase(candidateName)) {
-                    return cacheResolvedProjectCode(cacheKey, text(projectNode, "projectCode"), null);
-                }
-            }
-        }
-
-        String fallbackProjectCode = text(projectsNode.get(0), "projectCode");
-        if (StringUtils.hasText(fallbackProjectCode)
-                && !fallbackProjectCode.equalsIgnoreCase(localProjectCode)) {
-            String warning = "本地店铺 projectCode="
-                    + localProjectCode
-                    + " 与 Noon 实时 projectCode="
-                    + fallbackProjectCode
-                    + " 不一致，当前已按 Noon 实时项目码读取。";
-            warnings.add(warning);
-            return cacheResolvedProjectCode(cacheKey, fallbackProjectCode, warning);
-        }
-
-        return cacheResolvedProjectCode(
-                cacheKey,
-                StringUtils.hasText(fallbackProjectCode) ? fallbackProjectCode : localProjectCode,
-                null
-        );
-    }
-
-    private String buildResolvedProjectCodeCacheKey(StoreSyncStoreRecord store, String localProjectCode) {
-        String storeCode = normalize(store.getStoreCode());
-        if (StringUtils.hasText(storeCode)) {
-            return "store:" + storeCode.toLowerCase();
-        }
-        String projectCode = normalize(localProjectCode);
-        if (StringUtils.hasText(projectCode)) {
-            return "project:" + projectCode.toLowerCase();
-        }
-        String projectName = normalize(store.getProjectName());
-        if (StringUtils.hasText(projectName)) {
-            return "project-name:" + projectName.toLowerCase();
-        }
-        return "store:unknown";
-    }
-
-    private String cacheResolvedProjectCode(String cacheKey, String resolvedProjectCode, String warning) {
-        if (StringUtils.hasText(cacheKey) && StringUtils.hasText(resolvedProjectCode)) {
-            resolvedProjectCodeCache.put(
-                    cacheKey,
-                    new ResolvedProjectCodeCacheEntry(resolvedProjectCode, warning)
-            );
-        }
-        return resolvedProjectCode;
+        return productProjectSiteResolver.resolveProjectCode(session, localProjectCode, store, warnings);
     }
 
     private Map<String, Object> buildIdentity(
@@ -5406,68 +2493,22 @@ public class LocalDbProductMasterService {
             String partnerSku,
             String pskuCode
     ) {
-        Map<String, Object> identity = new LinkedHashMap<>();
-        JsonNode pricingItem = firstDataItem(pricingRoot);
-        putIfNotBlank(identity, "skuParent", skuParent);
-        putIfNotBlank(identity, "parentSku", text(productNode, "parent_sku"));
-        putIfNotBlank(identity, "partnerSku", firstNonBlank(partnerSku, text(pricingItem, "psku")));
-        putIfNotBlank(identity, "pskuCode", pskuCode);
-        putIfNotBlank(identity, "brand", text(commonNode, "brand"));
-        putIfNotBlank(identity, "barcode", firstNonBlank(
-                text(commonNode, "barcode"),
-                text(commonNode, "gtin"),
-                text(commonNode, "ean"),
-                text(commonNode, "upc"),
-                text(pricingItem, "barcode"),
-                text(pricingItem, "gtin"),
-                text(pricingItem, "ean"),
-                text(pricingItem, "upc")
-        ));
-
-        putIfNotBlank(identity, "childSku", text(pricingItem, "sku"));
-        putIfNotBlank(identity, "offerCode", text(pricingItem, "offer_code"));
-        putIfNotBlank(identity, "productSourceType", ProductSourceTypeSupport.resolve(
-                textValue(identity.get("productSourceType")),
-                textValue(identity.get("childSku")),
-                skuParent
-        ));
-        putIfNotNull(identity, "variantCount", productNode.path("variants").size());
-        return identity;
+        return productSnapshotSectionBuilder.buildIdentity(
+                productNode,
+                commonNode,
+                pricingRoot,
+                skuParent,
+                partnerSku,
+                pskuCode
+        );
     }
 
     private Map<String, Object> buildTaxonomy(JsonNode commonNode) {
-        Map<String, Object> taxonomy = new LinkedHashMap<>();
-        putIfNotBlank(taxonomy, "family", text(commonNode, "family"));
-        putIfNotBlank(taxonomy, "familyNameEn", noonText(commonNode, "family_option_name_en"));
-        putIfNotBlank(taxonomy, "familyNameAr", noonText(commonNode, "family_option_name_ar"));
-        putIfNotBlank(taxonomy, "productType", text(commonNode, "product_type"));
-        putIfNotBlank(taxonomy, "productTypeNameEn", noonText(commonNode, "product_type_option_name_en"));
-        putIfNotBlank(taxonomy, "productTypeNameAr", noonText(commonNode, "product_type_option_name_ar"));
-        putIfNotBlank(taxonomy, "productSubtype", text(commonNode, "product_subtype"));
-        putIfNotBlank(taxonomy, "productSubtypeNameEn", noonText(commonNode, "product_subtype_option_name_en"));
-        putIfNotBlank(taxonomy, "productSubtypeNameAr", noonText(commonNode, "product_subtype_option_name_ar"));
-        putIfNotBlank(taxonomy, "productFulltype", text(commonNode, "product_fulltype"));
-        putIfNotBlank(taxonomy, "grade", text(commonNode, "grade"));
-        putIfNotBlank(taxonomy, "itemCondition", text(commonNode, "item_condition"));
-        return taxonomy;
+        return productSnapshotSectionBuilder.buildTaxonomy(commonNode);
     }
 
     private Map<String, Object> buildContent(JsonNode commonNode, JsonNode enNode, JsonNode arNode) {
-        Map<String, Object> content = new LinkedHashMap<>();
-        putIfNotBlank(content, "titleEn", text(enNode, "product_title"));
-        putIfNotBlank(content, "titleAr", text(arNode, "product_title"));
-        putIfNotBlank(content, "fullTitleEn", text(enNode, "full_product_title"));
-        putIfNotBlank(content, "fullTitleAr", text(arNode, "full_product_title"));
-        putIfNotBlank(content, "descriptionEn", text(enNode, "long_description"));
-        putIfNotBlank(content, "descriptionAr", text(arNode, "long_description"));
-        List<String> highlightsEn = collectOrderedText(enNode, "feature_bullet_", 5);
-        List<String> highlightsAr = collectOrderedText(arNode, "feature_bullet_", 5);
-        List<String> images = collectImages(commonNode);
-        putIfNotNull(content, "imageCount", images.size());
-        putIfNotEmpty(content, "images", images);
-        putIfNotEmpty(content, "highlightsEn", highlightsEn);
-        putIfNotEmpty(content, "highlightsAr", highlightsAr);
-        return content;
+        return productSnapshotSectionBuilder.buildContent(commonNode, enNode, arNode);
     }
 
     private void applyFollowSellCatalogContentIfNeeded(
@@ -5477,92 +2518,11 @@ public class LocalDbProductMasterService {
             String referenceSite,
             String reason
     ) {
-        if (!needsCatalogContentFallback(content)) {
-            return;
-        }
-        String catalogSku = textValue(identity.get("childSku"));
-        productNoonCatalogContentService.fetchFollowSellCatalogContent(
-                session,
-                catalogSku,
-                referenceSite,
-                "detail." + normalizeReason(reason)
-        ).ifPresent(catalogContent -> mergeCatalogContent(identity, content, catalogContent));
-    }
-
-    private boolean needsCatalogContentFallback(Map<String, Object> content) {
-        if (content == null) {
-            return true;
-        }
-        return !StringUtils.hasText(textValue(content.get("titleEn")))
-                || stringList(content.get("images")).isEmpty();
-    }
-
-    private void mergeCatalogContent(
-            Map<String, Object> identity,
-            Map<String, Object> content,
-            ProductNoonCatalogContentService.CatalogContent catalogContent
-    ) {
-        if (catalogContent == null) {
-            return;
-        }
-        if (!StringUtils.hasText(textValue(identity.get("brand")))) {
-            putIfNotBlank(identity, "brand", catalogContent.getBrand());
-        }
-        if (!StringUtils.hasText(textValue(identity.get("childSku")))) {
-            putIfNotBlank(identity, "childSku", catalogContent.getCatalogSku());
-        }
-        putIfNotBlank(identity, "productSourceType", ProductSourceTypeSupport.resolve(
-                textValue(identity.get("productSourceType")),
-                textValue(identity.get("childSku")),
-                textValue(identity.get("skuParent"))
-        ));
-        if (!StringUtils.hasText(textValue(content.get("titleEn")))) {
-            putIfNotBlank(content, "titleEn", catalogContent.getTitleEn());
-        }
-        if (!StringUtils.hasText(textValue(content.get("titleAr")))) {
-            putIfNotBlank(content, "titleAr", catalogContent.getTitleAr());
-        }
-        if (!StringUtils.hasText(textValue(content.get("descriptionEn")))) {
-            putIfNotBlank(content, "descriptionEn", catalogContent.getDescriptionEn());
-        }
-        if (!StringUtils.hasText(textValue(content.get("descriptionAr")))) {
-            putIfNotBlank(content, "descriptionAr", catalogContent.getDescriptionAr());
-        }
-        if (stringList(content.get("images")).isEmpty()) {
-            putIfNotEmpty(content, "images", catalogContent.getImages());
-            putIfNotNull(content, "imageCount", catalogContent.getImages().size());
-        }
-        if (stringList(content.get("highlightsEn")).isEmpty()) {
-            putIfNotEmpty(content, "highlightsEn", catalogContent.getHighlightsEn());
-        }
-        if (stringList(content.get("highlightsAr")).isEmpty()) {
-            putIfNotEmpty(content, "highlightsAr", catalogContent.getHighlightsAr());
-        }
+        productCatalogContentFallbackApplier.applyIfNeeded(session, identity, content, referenceSite, reason);
     }
 
     private Map<String, Object> buildPlatformSignals(JsonNode commonNode) {
-        Map<String, Object> platformSignals = new LinkedHashMap<>();
-        putIfNotBlank(platformSignals, "qcState", text(commonNode, "qc_state"));
-        putIfNotBlank(platformSignals, "statusQc", text(commonNode, "status_qc_localized"));
-        putIfNotBlank(platformSignals, "isActiveLocalized", text(commonNode, "is_active_localized"));
-        putIfNotBlank(platformSignals, "qcApproved", text(commonNode, "qc_approved_localized"));
-        putIfNotBlank(platformSignals, "completenessMandatory", text(commonNode, "status_completeness_mandatory"));
-        putIfNotBlank(platformSignals, "completenessLocalized", text(commonNode, "status_completeness_details_localized"));
-        putIfNotBlank(platformSignals, "qcSource", text(commonNode, "noon_qc_source_localized"));
-        putIfNotNull(platformSignals, "statusImages", numberOrText(commonNode.path("status_images")));
-        putIfNotNull(platformSignals, "imageCount", collectImages(commonNode).size());
-        putIfNotNull(platformSignals, "hiddenImageCount", countHiddenImages(commonNode));
-        putIfNotEmpty(
-                platformSignals,
-                "rejectionReasons",
-                collectNodeTextList(commonNode.path("noon_qc_rejection_reasons_localized"))
-        );
-        putIfNotEmpty(
-                platformSignals,
-                "affectingAttributes",
-                collectNodeTextList(commonNode.path("is_active_localized_affecting_attributes"))
-        );
-        return platformSignals;
+        return productSnapshotSectionBuilder.buildPlatformSignals(commonNode);
     }
 
     private List<Map<String, Object>> buildKeyAttributes(
@@ -5571,482 +2531,7 @@ public class LocalDbProductMasterService {
             JsonNode enNode,
             JsonNode arNode
     ) {
-        JsonNode templateRoot = fulltypeTemplateDataNode(fulltypeTemplateRoot);
-        Map<String, JsonNode> dictionaryByCode = attributeDictionaryMap(fulltypeTemplateRoot);
-        List<Map<String, Object>> attributes = new ArrayList<>();
-        Set<String> mandatoryCodes = new LinkedHashSet<>();
-        JsonNode mandatoryNode = templateRoot.path("fundamental").path("attribute_class").path("mandatory");
-        if (mandatoryNode.isArray()) {
-            for (JsonNode node : mandatoryNode) {
-                if (node.isTextual()) {
-                    mandatoryCodes.add(node.asText());
-                }
-            }
-        }
-
-        JsonNode attributePropertiesNode = templateRoot.path("fundamental").path("attribute_properties");
-        Set<String> candidateCodes = new LinkedHashSet<>(mandatoryCodes);
-        if (attributePropertiesNode.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> iterator = attributePropertiesNode.fields();
-            while (iterator.hasNext()) {
-                Map.Entry<String, JsonNode> entry = iterator.next();
-                JsonNode propertyNode = entry.getValue();
-                if (propertyNode.path("is_grouping").asInt(0) == 1
-                        || propertyNode.path("is_visible_seller").asInt(0) == 1) {
-                    candidateCodes.add(entry.getKey());
-                }
-            }
-        }
-        for (JsonNode dictionaryNode : dictionaryByCode.values()) {
-            String dictionaryCode = text(dictionaryNode, "code");
-            if (StringUtils.hasText(dictionaryCode)) {
-                candidateCodes.add(dictionaryCode);
-            }
-        }
-
-        if (candidateCodes.isEmpty()) {
-            candidateCodes.add("brand");
-            candidateCodes.add("model_name");
-            candidateCodes.add("model_number");
-            candidateCodes.add("colour_family");
-            candidateCodes.add("colour_name");
-            candidateCodes.add("item_condition");
-        }
-
-        for (String code : candidateCodes) {
-            JsonNode propertyNode = attributePropertiesNode.path(code);
-            JsonNode dictionaryNode = dictionaryByCode.getOrDefault(normalizeAttributeCode(code), MissingNode.getInstance());
-            List<Map<String, Object>> options = extractAttributeOptions(templateRoot, propertyNode, code);
-            List<Map<String, Object>> unitOptions = extractAttributeUnitOptions(templateRoot, propertyNode, code);
-            if (options.isEmpty()) {
-                options = extractDictionaryOptions(dictionaryNode.path("options"));
-            }
-            if (unitOptions.isEmpty()) {
-                unitOptions = extractDictionaryOptions(dictionaryNode.path("unitOptions"));
-            }
-            Object commonValue = toDisplayValue(commonNode.path(code));
-            Object enValue = toDisplayValue(enNode.path(code));
-            Object arValue = toDisplayValue(arNode.path(code));
-            String unitValue = firstNonBlank(
-                    text(commonNode, code + "_unit"),
-                    text(enNode, code + "_unit"),
-                    text(arNode, code + "_unit")
-            );
-            boolean required = mandatoryCodes.contains(code);
-            if (!required && dictionaryNode.path("required").asBoolean(false)) {
-                required = true;
-            }
-            boolean grouping = propertyNode.path("is_grouping").asInt(0) == 1
-                    || dictionaryNode.path("grouping").asBoolean(false);
-            boolean visibleSeller = propertyNode.path("is_visible_seller").asInt(0) == 1
-                    || dictionaryNode.path("visibleSeller").asBoolean(false);
-
-            if (!required && !grouping && !visibleSeller
-                    && commonValue == null && enValue == null && arValue == null) {
-                continue;
-            }
-
-            Map<String, Object> attribute = new LinkedHashMap<>();
-            attribute.put("code", code);
-            attribute.put("required", required);
-            attribute.put("grouping", grouping);
-            attribute.put("visibleSeller", visibleSeller);
-            attribute.put("kind", resolveDictionaryInputKind(dictionaryNode, code, propertyNode, options, unitOptions));
-            putIfNotBlank(attribute, "labelEn", firstNonBlank(
-                    resolveAttributeLabel(propertyNode, code, "en"),
-                    text(dictionaryNode, "labelEn")
-            ));
-            putIfNotBlank(attribute, "labelAr", firstNonBlank(
-                    resolveAttributeLabel(propertyNode, code, "ar"),
-                    text(dictionaryNode, "labelAr")
-            ));
-            putIfNotBlank(attribute, "groupName", firstNonBlank(
-                    text(propertyNode.path("attribute_group_name"), "en"),
-                    text(dictionaryNode, "groupName")
-            ));
-            putIfNotEmpty(attribute, "options", options);
-            putIfNotEmpty(attribute, "unitOptions", unitOptions);
-            if (!options.isEmpty() || !unitOptions.isEmpty()) {
-                attribute.put("dictionarySource", firstNonBlank(text(dictionaryNode, "dictionarySource"), "official-template"));
-            }
-            putIfNotNull(attribute, "commonValue", commonValue);
-            putIfNotNull(attribute, "enValue", enValue);
-            putIfNotNull(attribute, "arValue", arValue);
-            putIfNotBlank(attribute, "unit", unitValue);
-            attributes.add(attribute);
-        }
-
-        return attributes;
-    }
-
-    private JsonNode fulltypeTemplateDataNode(JsonNode root) {
-        if (root == null || root.isMissingNode() || root.isNull()) {
-            return MissingNode.getInstance();
-        }
-        if (root.path("fundamental").isObject()) {
-            return root;
-        }
-        JsonNode dataCandidate = fulltypeTemplateDataNodeFromContainer(root.path("data"));
-        if (!dataCandidate.isMissingNode()) {
-            return dataCandidate;
-        }
-        JsonNode rootCandidate = fulltypeTemplateDataNodeFromContainer(root);
-        if (!rootCandidate.isMissingNode()) {
-            return rootCandidate;
-        }
-        return root;
-    }
-
-    private JsonNode fulltypeTemplateDataNodeFromContainer(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return MissingNode.getInstance();
-        }
-        if (node.path("fundamental").isObject()) {
-            return node;
-        }
-        if (node.isArray()) {
-            for (JsonNode item : node) {
-                JsonNode candidate = fulltypeTemplateDataNodeFromContainer(item);
-                if (!candidate.isMissingNode()) {
-                    return candidate;
-                }
-            }
-            return MissingNode.getInstance();
-        }
-        if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> iterator = node.fields();
-            while (iterator.hasNext()) {
-                JsonNode candidate = fulltypeTemplateDataNodeFromContainer(iterator.next().getValue());
-                if (!candidate.isMissingNode()) {
-                    return candidate;
-                }
-            }
-        }
-        return MissingNode.getInstance();
-    }
-
-    private Map<String, JsonNode> attributeDictionaryMap(JsonNode fulltypeTemplateRoot) {
-        Map<String, JsonNode> byCode = new LinkedHashMap<>();
-        JsonNode dictionaryNode = fulltypeTemplateRoot == null
-                ? MissingNode.getInstance()
-                : fulltypeTemplateRoot.path("_nuonoAttributeDictionary");
-        if (!dictionaryNode.isArray()) {
-            return byCode;
-        }
-        for (JsonNode fieldNode : dictionaryNode) {
-            String code = text(fieldNode, "code");
-            String key = normalizeAttributeCode(code);
-            if (StringUtils.hasText(key)) {
-                byCode.putIfAbsent(key, fieldNode);
-            }
-        }
-        return byCode;
-    }
-
-    private String resolveDictionaryInputKind(
-            JsonNode dictionaryNode,
-            String code,
-            JsonNode propertyNode,
-            List<Map<String, Object>> options,
-            List<Map<String, Object>> unitOptions
-    ) {
-        String resolvedKind = resolveAttributeInputKind(code, propertyNode, options, unitOptions);
-        if (!"text".equals(resolvedKind)) {
-            return resolvedKind;
-        }
-        String dictionaryKind = text(dictionaryNode, "kind");
-        if (!StringUtils.hasText(dictionaryKind)) {
-            return resolvedKind;
-        }
-        String normalizedKind = dictionaryKind.trim().toLowerCase();
-        if ("select".equals(normalizedKind) || "dimension".equals(normalizedKind) || "textarea".equals(normalizedKind)) {
-            return normalizedKind;
-        }
-        return resolvedKind;
-    }
-
-    private List<Map<String, Object>> extractDictionaryOptions(JsonNode node) {
-        List<Map<String, Object>> options = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
-        collectOptionsFromNode(options, seen, node);
-        return options;
-    }
-
-    private String resolveAttributeInputKind(
-            String code,
-            JsonNode propertyNode,
-            List<Map<String, Object>> options,
-            List<Map<String, Object>> unitOptions
-    ) {
-        if (!unitOptions.isEmpty() || isDimensionAttribute(code)) {
-            return "dimension";
-        }
-        if (!options.isEmpty()) {
-            return "select";
-        }
-        String valueType = firstNonBlank(
-                text(propertyNode, "value_type"),
-                text(propertyNode, "data_type"),
-                text(propertyNode, "input_type"),
-                text(propertyNode, "type")
-        );
-        if (!StringUtils.hasText(valueType)) {
-            return "text";
-        }
-        String normalizedType = valueType.toLowerCase();
-        if (normalizedType.contains("select") || normalizedType.contains("enum") || normalizedType.contains("option")) {
-            return "select";
-        }
-        if (normalizedType.contains("textarea") || normalizedType.contains("rich") || normalizedType.contains("long")) {
-            return "textarea";
-        }
-        return "text";
-    }
-
-    private List<Map<String, Object>> extractAttributeOptions(JsonNode templateRoot, JsonNode propertyNode, String code) {
-        List<Map<String, Object>> options = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
-        collectOptionsFromNode(options, seen, firstExisting(
-                propertyNode,
-                "options",
-                "attribute_options",
-                "option_values",
-                "values",
-                "allowed_values",
-                "allowedValues"
-        ));
-        JsonNode specsNode = firstExisting(propertyNode, "specs", "attribute_specs", "attributeSpecs");
-        collectOptionsFromNode(options, seen, firstExisting(
-                specsNode,
-                "options",
-                "attribute_options",
-                "option_values",
-                "values",
-                "allowed_values",
-                "allowedValues"
-        ));
-        JsonNode templateSpecs = firstExisting(
-                templateRoot.path("fundamental").path("attribute_specs").path(code),
-                "options",
-                "attribute_options",
-                "option_values",
-                "values",
-                "allowed_values",
-                "allowedValues"
-        );
-        collectOptionsFromNode(options, seen, templateSpecs);
-        return options;
-    }
-
-    private List<Map<String, Object>> extractAttributeUnitOptions(JsonNode templateRoot, JsonNode propertyNode, String code) {
-        List<Map<String, Object>> unitOptions = new ArrayList<>();
-        Set<String> seen = new LinkedHashSet<>();
-        collectOptionsFromNode(unitOptions, seen, firstExisting(
-                propertyNode,
-                "unit_options",
-                "unitOptions",
-                "units",
-                "allowed_units",
-                "allowedUnits",
-                "measurement_units"
-        ));
-        JsonNode templateSpecs = templateRoot.path("fundamental").path("attribute_specs").path(code);
-        collectOptionsFromNode(unitOptions, seen, firstExisting(
-                templateSpecs,
-                "unit_options",
-                "unitOptions",
-                "units",
-                "allowed_units",
-                "allowedUnits",
-                "measurement_units"
-        ));
-        if (unitOptions.isEmpty() && isDimensionAttribute(code)) {
-            String[] fallbackUnits = code.toLowerCase().contains("weight")
-                    ? new String[]{"g", "KG", "lb", "lbs"}
-                    : new String[]{"mm", "cm", "m", "in", "ft"};
-            for (String unit : fallbackUnits) {
-                addOption(unitOptions, seen, unit, unit, null);
-            }
-        }
-        return unitOptions;
-    }
-
-    private void collectOptionsFromNode(List<Map<String, Object>> options, Set<String> seen, JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return;
-        }
-        if (node.isArray()) {
-            for (JsonNode item : node) {
-                collectSingleOption(options, seen, item);
-            }
-            return;
-        }
-        if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> iterator = node.fields();
-            while (iterator.hasNext()) {
-                Map.Entry<String, JsonNode> entry = iterator.next();
-                JsonNode item = entry.getValue();
-                if (item.isValueNode()) {
-                    addOption(options, seen, entry.getKey(), item.asText(), null);
-                } else {
-                    collectSingleOption(options, seen, item);
-                }
-            }
-            return;
-        }
-        collectSingleOption(options, seen, node);
-    }
-
-    private void collectSingleOption(List<Map<String, Object>> options, Set<String> seen, JsonNode item) {
-        if (item == null || item.isMissingNode() || item.isNull()) {
-            return;
-        }
-        if (item.isValueNode()) {
-            String value = item.asText();
-            addOption(options, seen, value, value, null);
-            return;
-        }
-        String en = firstNonBlank(
-                localizedText(item, "option_name", "en"),
-                localizedText(item, "name", "en"),
-                localizedText(item, "label", "en"),
-                text(item, "option_name_en"),
-                text(item, "name_en"),
-                text(item, "label_en"),
-                text(item, "en")
-        );
-        String ar = firstNonBlank(
-                localizedText(item, "option_name", "ar"),
-                localizedText(item, "name", "ar"),
-                localizedText(item, "label", "ar"),
-                text(item, "option_name_ar"),
-                text(item, "name_ar"),
-                text(item, "label_ar"),
-                text(item, "ar")
-        );
-        String value = firstNonBlank(
-                text(item, "value"),
-                text(item, "option_value"),
-                text(item, "code"),
-                text(item, "option_code"),
-                en
-        );
-        addOption(options, seen, value, firstNonBlank(en, value), ar);
-    }
-
-    private void addOption(List<Map<String, Object>> options, Set<String> seen, String value, String en, String ar) {
-        if (!StringUtils.hasText(value) || !StringUtils.hasText(en)) {
-            return;
-        }
-        String key = value.trim().toLowerCase();
-        if (seen.contains(key)) {
-            return;
-        }
-        seen.add(key);
-        Map<String, Object> option = new LinkedHashMap<>();
-        option.put("value", value.trim());
-        option.put("en", en.trim());
-        putIfNotBlank(option, "ar", ar);
-        options.add(option);
-    }
-
-    private String resolveAttributeLabel(JsonNode propertyNode, String code, String lang) {
-        return firstNonBlank(
-                localizedText(propertyNode, "attribute_name", lang),
-                localizedText(propertyNode, "display_name", lang),
-                localizedText(propertyNode, "name", lang),
-                localizedText(propertyNode, "label", lang),
-                text(propertyNode, "attribute_name_" + lang),
-                text(propertyNode, "display_name_" + lang),
-                text(propertyNode, "name_" + lang),
-                text(propertyNode, "label_" + lang),
-                "en".equals(lang) ? humanizeAttributeCode(code) : null
-        );
-    }
-
-    private String localizedText(JsonNode node, String field, String lang) {
-        JsonNode valueNode = node != null ? node.path(field) : MissingNode.getInstance();
-        if (valueNode.isObject()) {
-            return text(valueNode, lang);
-        }
-        if ("en".equals(lang) && valueNode.isValueNode()) {
-            return valueNode.asText();
-        }
-        return null;
-    }
-
-    private boolean isDimensionAttribute(String code) {
-        String normalizedCode = normalize(code);
-        if (!StringUtils.hasText(normalizedCode)) {
-            return false;
-        }
-        String lowerCaseCode = normalizedCode.toLowerCase();
-        return lowerCaseCode.contains("height")
-                || lowerCaseCode.contains("length")
-                || lowerCaseCode.contains("weight")
-                || lowerCaseCode.contains("width")
-                || lowerCaseCode.contains("depth");
-    }
-
-    private String humanizeAttributeCode(String code) {
-        String normalizedCode = normalize(code);
-        if (!StringUtils.hasText(normalizedCode)) {
-            return null;
-        }
-        String[] parts = normalizedCode.replace('-', '_').split("_+");
-        StringBuilder builder = new StringBuilder();
-        for (String part : parts) {
-            if (!StringUtils.hasText(part)) {
-                continue;
-            }
-            if (builder.length() > 0) {
-                builder.append(' ');
-            }
-            builder.append(part.substring(0, 1).toUpperCase()).append(part.substring(1));
-        }
-        return builder.toString();
-    }
-
-    private ObjectNode buildGroupParentAttributeFetchBody(JsonNode groupDetailRoot, String skuGroup) {
-        if (!StringUtils.hasText(skuGroup)) {
-            return null;
-        }
-        JsonNode groupDetailNode = groupDetailRoot.path(skuGroup);
-        LinkedHashSet<String> skuParents = new LinkedHashSet<>();
-        JsonNode membersNode = groupDetailNode.path("zsku_parents");
-        if (membersNode.isArray()) {
-            for (JsonNode memberNode : membersNode) {
-                String skuParent = memberNode.isTextual()
-                        ? memberNode.asText()
-                        : firstNonBlank(
-                                text(memberNode, "sku_parent"),
-                                text(memberNode, "zsku_parent"),
-                                text(memberNode, "skuParent")
-                        );
-                if (StringUtils.hasText(skuParent)) {
-                    skuParents.add(skuParent);
-                }
-            }
-        }
-        LinkedHashSet<String> axisCodes = new LinkedHashSet<>();
-        JsonNode axesNode = groupDetailNode.path("axes");
-        if (axesNode.isArray()) {
-            for (JsonNode axisNode : axesNode) {
-                String axisCode = text(axisNode, "axis_code");
-                if (StringUtils.hasText(axisCode)) {
-                    axisCodes.add(axisCode);
-                }
-            }
-        }
-        if (skuParents.isEmpty() || axisCodes.isEmpty()) {
-            return null;
-        }
-        ObjectNode body = objectMapper.createObjectNode();
-        ArrayNode skuParentsNode = body.putArray("skuParents");
-        skuParents.forEach(skuParentsNode::add);
-        ArrayNode attributeCodesNode = body.putArray("attributeCodes");
-        axisCodes.forEach(attributeCodesNode::add);
-        return body;
+        return productKeyAttributeBuilder.buildKeyAttributes(fulltypeTemplateRoot, commonNode, enNode, arNode);
     }
 
     private Map<String, Object> buildGroup(
@@ -6056,662 +2541,25 @@ public class LocalDbProductMasterService {
             String skuGroup,
             JsonNode groupParentAttributesRoot
     ) {
-        Map<String, Object> group = new LinkedHashMap<>();
-        putIfNotBlank(group, "skuGroup", skuGroup);
-        putIfNotNull(group, "candidateGroupCount", groupListNode.isArray() ? groupListNode.size() : 0);
-
-        JsonNode groupDetailNode = StringUtils.hasText(skuGroup)
-                ? groupDetailRoot.path(skuGroup)
-                : MissingNode.getInstance();
-        JsonNode groupMeta = groupDetailNode.path("group");
-        putIfNotBlank(group, "groupRef", text(groupMeta, "group_ref"));
-        putIfNotBlank(group, "groupRefCanonical", text(groupMeta, "group_ref_canonical"));
-        JsonNode conditionsNode = groupDetailNode.path("conditions");
-        putIfNotBlank(group, "conditionsBrand", text(conditionsNode, "brand"));
-        putIfNotBlank(group, "conditionsFulltype", text(conditionsNode, "fulltype"));
-
-        JsonNode axesNode = groupDetailNode.path("axes");
-        List<Map<String, Object>> axes = new ArrayList<>();
-        if (axesNode.isArray()) {
-            for (JsonNode axisNode : axesNode) {
-                Map<String, Object> axis = new LinkedHashMap<>();
-                putIfNotBlank(axis, "axisCode", text(axisNode, "axis_code"));
-                putIfNotBlank(axis, "axisName", text(axisNode, "axis_name"));
-                if (!axis.isEmpty()) {
-                    axes.add(axis);
-                }
-            }
-        }
-        putIfNotNull(group, "memberCount", groupDetailNode.path("zsku_parents").size());
-        putIfNotEmpty(group, "axes", axes);
-        putIfNotEmpty(group, "members", buildGroupMembers(groupDetailNode.path("zsku_parents"), axes, groupParentAttributesRoot));
-        putIfNotEmpty(group, "candidateGroups", buildCandidateGroups(groupListNode));
-
-        if (!StringUtils.hasText(skuGroup) && groupCurrentNode.isObject()) {
-            putIfNotBlank(group, "state", "当前商品未挂 group");
-        }
-
-        return group;
-    }
-
-    private List<Map<String, Object>> buildGroupMembers(
-            JsonNode membersNode,
-            List<Map<String, Object>> axes,
-            JsonNode groupParentAttributesRoot
-    ) {
-        List<Map<String, Object>> members = new ArrayList<>();
-        if (!membersNode.isArray()) {
-            return members;
-        }
-
-        List<String> axisCodes = groupAxisCodes(axes);
-        for (JsonNode memberNode : membersNode) {
-            Map<String, Object> member = new LinkedHashMap<>();
-            if (memberNode.isTextual()) {
-                putIfNotBlank(member, "skuParent", memberNode.asText());
-            } else {
-                putIfNotBlank(
-                        member,
-                        "skuParent",
-                        firstNonBlank(
-                                text(memberNode, "sku_parent"),
-                                text(memberNode, "zsku_parent"),
-                                text(memberNode, "skuParent")
-                        )
-                );
-                putIfNotBlank(member, "title", text(memberNode, "title"));
-                putIfNotBlank(member, "imageKey", text(memberNode, "image_key"));
-                putIfNotBlank(member, "imageUrl", text(memberNode, "image_url"));
-                putIfNotBlank(member, "groupRef", text(memberNode, "group_ref"));
-                putIfNotBlank(member, "groupRefCanonical", text(memberNode, "group_ref_canonical"));
-            }
-            enrichGroupMemberAxisValues(member, axisCodes, groupParentAttributesRoot);
-            if (!member.isEmpty()) {
-                members.add(member);
-            }
-        }
-
-        return members;
-    }
-
-    private List<String> groupAxisCodes(List<Map<String, Object>> axes) {
-        List<String> axisCodes = new ArrayList<>();
-        if (axes == null) {
-            return axisCodes;
-        }
-        for (Map<String, Object> axis : axes) {
-            String axisCode = firstNonBlank(textValue(axis.get("axisCode")), textValue(axis.get("axis_code")));
-            if (StringUtils.hasText(axisCode)) {
-                axisCodes.add(axisCode);
-            }
-        }
-        return axisCodes;
-    }
-
-    private void enrichGroupMemberAxisValues(
-            Map<String, Object> member,
-            List<String> axisCodes,
-            JsonNode groupParentAttributesRoot
-    ) {
-        if (member == null || axisCodes == null || axisCodes.isEmpty()) {
-            return;
-        }
-        String skuParent = textValue(member.get("skuParent"));
-        if (!StringUtils.hasText(skuParent)) {
-            return;
-        }
-        JsonNode attributesNode = groupParentAttributesRoot != null
-                ? groupParentAttributesRoot.path(skuParent).path("attributes")
-                : MissingNode.getInstance();
-        JsonNode commonNode = attributesNode.path("common");
-        JsonNode enNode = attributesNode.path("en");
-        JsonNode arNode = attributesNode.path("ar");
-        Map<String, Object> axisValues = new LinkedHashMap<>();
-        Map<String, Object> axisValuesAr = new LinkedHashMap<>();
-        for (String axisCode : axisCodes) {
-            String enValue = firstNonBlank(text(enNode, axisCode), text(commonNode, axisCode));
-            String arValue = text(arNode, axisCode);
-            if (StringUtils.hasText(enValue)) {
-                axisValues.put(axisCode, enValue);
-                member.put(axisCode, enValue);
-                if (!member.containsKey("axisValue")) {
-                    member.put("axisValue", enValue);
-                }
-            }
-            if (StringUtils.hasText(arValue)) {
-                axisValuesAr.put(axisCode, arValue);
-            }
-        }
-        putMapIfNotEmpty(member, "axisValues", axisValues);
-        putMapIfNotEmpty(member, "axisValuesAr", axisValuesAr);
-    }
-
-    private List<Map<String, Object>> buildCandidateGroups(JsonNode groupListNode) {
-        List<Map<String, Object>> candidateGroups = new ArrayList<>();
-        if (!groupListNode.isArray()) {
-            return candidateGroups;
-        }
-
-        for (JsonNode candidateNode : groupListNode) {
-            Map<String, Object> candidate = new LinkedHashMap<>();
-            JsonNode groupNode = candidateNode.path("group");
-            JsonNode conditionsNode = candidateNode.path("conditions");
-            putIfNotBlank(
-                    candidate,
-                    "skuGroup",
-                    firstNonBlank(
-                            text(candidateNode, "zsku_group"),
-                            text(candidateNode, "sku_group"),
-                            text(groupNode, "zsku_group")
-                    )
-            );
-            putIfNotBlank(
-                    candidate,
-                    "groupRef",
-                    firstNonBlank(
-                            text(candidateNode, "group_ref"),
-                            text(groupNode, "group_ref")
-                    )
-            );
-            putIfNotBlank(
-                    candidate,
-                    "groupRefCanonical",
-                    firstNonBlank(
-                            text(candidateNode, "group_ref_canonical"),
-                            text(groupNode, "group_ref_canonical")
-                    )
-            );
-            putIfNotBlank(candidate, "brand", firstNonBlank(text(candidateNode, "brand"), text(conditionsNode, "brand")));
-            putIfNotBlank(
-                    candidate,
-                    "fulltype",
-                    firstNonBlank(text(candidateNode, "fulltype"), text(conditionsNode, "fulltype"))
-            );
-            if (candidateNode.path("zsku_parents").isArray()) {
-                putIfNotNull(candidate, "memberCount", candidateNode.path("zsku_parents").size());
-            }
-            if (!candidate.isEmpty()) {
-                candidateGroups.add(candidate);
-            }
-        }
-
-        return candidateGroups;
+        return productSnapshotSectionBuilder.buildGroup(
+                groupCurrentNode,
+                groupDetailRoot,
+                groupListNode,
+                skuGroup,
+                groupParentAttributesRoot
+        );
     }
 
     private List<Map<String, Object>> buildVariants(JsonNode variantInfoRoot, JsonNode productNode) {
-        Map<String, Map<String, Object>> variants = new LinkedHashMap<>();
-        mergeVariantInfoRecords(variants, variantInfoRoot);
-        mergeVariantSnapshotRecords(variants, productNode != null ? productNode.path("variants") : MissingNode.getInstance());
-        return new ArrayList<>(variants.values());
-    }
-
-    private void mergeVariantInfoRecords(Map<String, Map<String, Object>> variants, JsonNode variantInfoRoot) {
-        if (variantInfoRoot == null || !variantInfoRoot.isObject()) {
-            return;
-        }
-
-        Iterator<Map.Entry<String, JsonNode>> iterator = variantInfoRoot.fields();
-        while (iterator.hasNext()) {
-            Map.Entry<String, JsonNode> entry = iterator.next();
-            mergeVariantRecord(variants, entry.getKey(), entry.getValue());
-        }
-    }
-
-    private void mergeVariantSnapshotRecords(Map<String, Map<String, Object>> variants, JsonNode variantsNode) {
-        if (variantsNode == null || variantsNode.isMissingNode() || variantsNode.isNull()) {
-            return;
-        }
-        if (variantsNode.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> iterator = variantsNode.fields();
-            while (iterator.hasNext()) {
-                Map.Entry<String, JsonNode> entry = iterator.next();
-                mergeVariantRecord(variants, entry.getKey(), entry.getValue());
-            }
-            return;
-        }
-        if (variantsNode.isArray()) {
-            for (JsonNode item : variantsNode) {
-                mergeVariantRecord(variants, null, item);
-            }
-        }
-    }
-
-    private void mergeVariantRecord(Map<String, Map<String, Object>> variants, String fallbackChildSku, JsonNode variantNode) {
-        String childSku = firstNonBlank(
-                fallbackChildSku,
-                text(variantNode, "childSku"),
-                text(variantNode, "child_sku"),
-                text(variantNode, "sku_child"),
-                text(variantNode, "sku"),
-                text(variantNode, "zsku"),
-                text(variantNode, "zsku_child")
-        );
-        if (!StringUtils.hasText(childSku)) {
-            return;
-        }
-
-        Map<String, Object> variant = variants.computeIfAbsent(childSku, (key) -> {
-            Map<String, Object> next = new LinkedHashMap<>();
-            next.put("childSku", key);
-            return next;
-        });
-        putIfAbsentNotBlank(variant, "partnerSku", firstNonBlank(
-                text(variantNode, "partnerSku"),
-                text(variantNode, "partner_sku"),
-                text(variantNode, "catalogSku"),
-                text(variantNode, "catalog_sku"),
-                text(variantNode, "sellerSku"),
-                text(variantNode, "seller_sku")
-        ));
-        putIfAbsentNotBlank(variant, "pskuCode", firstNonBlank(
-                text(variantNode, "pskuCode"),
-                text(variantNode, "psku_code")
-        ));
-        putIfAbsentNotBlank(variant, "sizeEn", extractVariantSize(variantNode, "en"));
-        putIfAbsentNotBlank(variant, "sizeAr", extractVariantSize(variantNode, "ar"));
-        putIfAbsentNumber(variant, "variantIndex", firstNonMissingNode(
-                variantNode.path("ix"),
-                variantNode.path("variantIndex"),
-                variantNode.path("variant_ix")
-        ));
-    }
-
-    private String extractVariantSize(JsonNode variantNode, String lang) {
-        String langSuffix = "en".equals(lang) ? "en" : "ar";
-        String camelSuffix = "en".equals(lang) ? "En" : "Ar";
-        return firstNonBlank(
-                localizedNodeText(variantNode.path("size"), lang),
-                localizedNodeText(variantNode.path("seller_size"), lang),
-                localizedNodeText(variantNode.path("sellerSize"), lang),
-                localizedNodeText(variantNode.path("attributes").path("size"), lang),
-                localizedNodeText(variantNode.path("attributes").path(lang).path("size"), lang),
-                localizedNodeText(variantNode.path("attributes").path("common").path("size"), lang),
-                text(variantNode, "size_" + langSuffix),
-                text(variantNode, "size" + camelSuffix),
-                text(variantNode, langSuffix + "_size"),
-                text(variantNode, "seller_size_" + langSuffix),
-                text(variantNode, "sellerSize" + camelSuffix)
-        );
-    }
-
-    private String localizedNodeText(JsonNode node, String lang) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        if (node.isValueNode()) {
-            return textValue(node.asText());
-        }
-        String value = firstNonBlank(
-                text(node, lang),
-                text(node, lang.toUpperCase()),
-                text(node, "value"),
-                text(node, "name"),
-                text(node, "label")
-        );
-        return StringUtils.hasText(value) ? value : null;
-    }
-
-    private JsonNode firstNonMissingNode(JsonNode... nodes) {
-        if (nodes == null) {
-            return MissingNode.getInstance();
-        }
-        for (JsonNode node : nodes) {
-            if (node != null && !node.isMissingNode() && !node.isNull()) {
-                return node;
-            }
-        }
-        return MissingNode.getInstance();
-    }
-
-    private void putIfAbsentNotBlank(Map<String, Object> target, String key, String value) {
-        if (!target.containsKey(key) && StringUtils.hasText(value)) {
-            target.put(key, value);
-        }
-    }
-
-    private void putIfAbsentNumber(Map<String, Object> target, String key, JsonNode valueNode) {
-        if (target.containsKey(key) || valueNode == null || valueNode.isMissingNode() || valueNode.isNull()) {
-            return;
-        }
-        if (valueNode.isInt() || valueNode.isLong()) {
-            target.put(key, valueNode.asInt());
-        }
+        return productSnapshotSectionBuilder.buildVariants(variantInfoRoot, productNode);
     }
 
     private Map<String, Object> buildPricing(JsonNode pricingRoot) {
-        Map<String, Object> pricing = new LinkedHashMap<>();
-        JsonNode pricingItem = firstDataItem(pricingRoot);
-        if (pricingItem.isMissingNode()) {
-            return pricing;
-        }
-
-        putIfNotBlank(pricing, "partnerSku", text(pricingItem, "psku"));
-        putIfNotBlank(pricing, "offerCode", text(pricingItem, "offer_code"));
-        putIfNotBlank(pricing, "currency", text(pricingItem, "currency"));
-        putIfNotBlank(pricing, "barcode", firstNonBlank(
-                text(pricingItem, "barcode"),
-                text(pricingItem, "gtin"),
-                text(pricingItem, "ean"),
-                text(pricingItem, "upc")
-        ));
-        putIfNotNull(pricing, "price", numberOrText(pricingItem.path("price")));
-        putIfNotNull(pricing, "salePrice", numberOrText(pricingItem.path("sale_price")));
-        putIfNotBlank(pricing, "saleStart", text(pricingItem, "sale_start"));
-        putIfNotBlank(pricing, "saleEnd", text(pricingItem, "sale_end"));
-        putIfNotNull(pricing, "priceMin", numberOrText(pricingItem.path("price_min")));
-        putIfNotNull(pricing, "priceMax", numberOrText(pricingItem.path("price_max")));
-        putIfNotNull(
-                pricing,
-                "finalPrice",
-                numberOrText(firstExisting(
-                        pricingItem,
-                        "final_price",
-                        "finalPrice",
-                        "final_selling_price",
-                        "finalSellingPrice",
-                        "selling_price",
-                        "sellingPrice",
-                        "current_price",
-                        "currentPrice",
-                        "promo_price",
-                        "promoPrice",
-                        "promotion_price",
-                        "promotionPrice",
-                        "deal_price",
-                        "dealPrice"
-                ))
-        );
-        putIfNotBlank(
-                pricing,
-                "finalPriceSource",
-                firstNonBlank(text(pricingItem, "final_price_source"), text(pricingItem, "price_source"))
-        );
-        putIfNotBlank(
-                pricing,
-                "activePromotionCode",
-                firstNonBlank(
-                        text(pricingItem, "active_promotion_code"),
-                        text(pricingItem, "promotion_code"),
-                        text(pricingItem, "promo_code"),
-                        text(pricingItem, "campaign_code"),
-                        text(pricingItem, "deal_code")
-                )
-        );
-        putIfNotBlank(
-                pricing,
-                "activePromotionName",
-                firstNonBlank(
-                        text(pricingItem, "active_promotion_name"),
-                        text(pricingItem, "promotion_name"),
-                        text(pricingItem, "promo_name"),
-                        text(pricingItem, "campaign_name"),
-                        text(pricingItem, "deal_name")
-                )
-        );
-        putIfNotBlank(
-                pricing,
-                "activePromotionUrl",
-                firstNonBlank(
-                        text(pricingItem, "active_promotion_url"),
-                        text(pricingItem, "promotion_url"),
-                        text(pricingItem, "promo_url"),
-                        text(pricingItem, "campaign_url"),
-                        text(pricingItem, "deal_url")
-                )
-        );
-        pricing.put("pricingMethod", PRICING_METHOD_MANUAL);
-        putIfNotBlank(pricing, "offerNote", text(pricingItem, "offer_note"));
-        if (!pricingItem.path("is_active").isMissingNode() && !pricingItem.path("is_active").isNull()) {
-            pricing.put("isActive", pricingItem.path("is_active").asBoolean());
-        }
-        putIfNotNull(pricing, "idWarranty", numberOrText(pricingItem.path("id_warranty")));
-        putIfNotBlank(pricing, "priceSource", text(pricingItem, "price_source"));
-        putIfNotNull(pricing, "liveStatus", pricingItem.path("live_status").isBoolean()
-                ? pricingItem.path("live_status").asBoolean()
-                : null);
-        return pricing;
+        return productSiteOfferFetcher.buildPricing(pricingRoot);
     }
 
     private Map<String, Object> buildStock(JsonNode stockRoot) {
-        Map<String, Object> stock = new LinkedHashMap<>();
-        JsonNode stockItem = firstDataItem(stockRoot);
-        if (stockItem.isMissingNode()) {
-            return stock;
-        }
-
-        putIfNotBlank(stock, "pskuCode", text(stockItem, "psku_code"));
-        putIfNotNull(stock, "fbnStock", numberOrText(stockItem.path("fbn_stock")));
-        putIfNotNull(stock, "supermallStock", numberOrText(firstExisting(stockItem, "supermall_stock", "supermall_fbn_stock", "fbn_supermall_stock")));
-        putIfNotNull(stock, "fbpStock", numberOrText(stockItem.path("fbp_stock")));
-        return stock;
-    }
-
-    private Map<String, Object> buildSiteOffer(
-            ProjectSiteContext projectSite,
-            JsonNode pricingRoot,
-            JsonNode stockRoot,
-            boolean reference
-    ) {
-        Map<String, Object> siteOffer = new LinkedHashMap<>();
-        putIfNotBlank(siteOffer, "storeCode", projectSite.getStoreCode());
-        putIfNotBlank(siteOffer, "site", projectSite.getSite());
-        putIfNotBlank(siteOffer, "statusCode", projectSite.getStatusCode());
-        putIfNotNull(siteOffer, "reference", reference);
-
-        Map<String, Object> pricing = buildPricing(pricingRoot);
-        Map<String, Object> stock = buildStock(stockRoot);
-        siteOffer.putAll(pricing);
-        siteOffer.putAll(stock);
-        return siteOffer;
-    }
-
-    private List<StoreSyncStoreRecord> findRelatedStores(Long ownerUserId, StoreSyncStoreRecord referenceStore) {
-        List<StoreSyncStoreRecord> ownerStores = storeSyncMapper.listOwnerStores(ownerUserId);
-        String projectKey = projectKey(referenceStore);
-        List<StoreSyncStoreRecord> relatedStores = new ArrayList<>();
-        for (StoreSyncStoreRecord ownerStore : ownerStores) {
-            if (projectKey.equals(projectKey(ownerStore))) {
-                relatedStores.add(ownerStore);
-            }
-        }
-        if (relatedStores.isEmpty()) {
-            relatedStores.add(referenceStore);
-        }
-        return relatedStores;
-    }
-
-    private String projectKey(StoreSyncStoreRecord store) {
-        String projectCode = normalize(store.getProjectCode());
-        if (StringUtils.hasText(projectCode)) {
-            return "project:" + projectCode.toLowerCase();
-        }
-        String projectName = normalize(store.getProjectName());
-        if (StringUtils.hasText(projectName)) {
-            return "project-name:" + projectName.toLowerCase();
-        }
-        return "store:" + normalize(store.getStoreCode());
-    }
-
-    private String deriveSiteFromStoreCode(String storeCode) {
-        if (!StringUtils.hasText(storeCode) || storeCode.length() < 2) {
-            return null;
-        }
-        String suffix = storeCode.substring(storeCode.length() - 2).toUpperCase();
-        if ("SA".equals(suffix) || "AE".equals(suffix)) {
-            return suffix;
-        }
-        return null;
-    }
-
-    private String describeSite(ProjectSiteContext projectSite) {
-        String storeCode = firstNonBlank(projectSite.getStoreCode(), "未知站点");
-        if (!StringUtils.hasText(projectSite.getSite())) {
-            return storeCode;
-        }
-        return projectSite.getSite() + " / " + storeCode;
-    }
-
-    private JsonNode safeGet(
-            NoonSession session,
-            String url,
-            boolean withProject,
-            List<String> warnings,
-            String warningPrefix
-    ) {
-        try {
-            return session.getJson(url, withProject);
-        } catch (IllegalStateException exception) {
-            warnings.add(warningPrefix + "：" + shrink(exception.getMessage()));
-            return MissingNode.getInstance();
-        }
-    }
-
-    private JsonNode safePost(
-            NoonSession session,
-            String url,
-            JsonNode body,
-            boolean withProject,
-            List<String> warnings,
-            String warningPrefix
-    ) {
-        try {
-            return session.postJson(url, body, withProject);
-        } catch (IllegalStateException exception) {
-            warnings.add(warningPrefix + "：" + shrink(exception.getMessage()));
-            return MissingNode.getInstance();
-        }
-    }
-
-    private JsonNode safePostOptional(
-            NoonSession session,
-            String url,
-            JsonNode body,
-            boolean withProject,
-            String warningPrefix
-    ) {
-        try {
-            return session.postJson(url, body, withProject);
-        } catch (IllegalStateException exception) {
-            log.warn("{}：{}", warningPrefix, shrink(exception.getMessage()));
-            return MissingNode.getInstance();
-        }
-    }
-
-    private JsonNode firstDataItem(JsonNode root) {
-        if (root.isObject() && root.path("data").isArray() && root.path("data").size() > 0) {
-            return root.path("data").get(0);
-        }
-        if (root.isArray() && root.size() > 0) {
-            return root.get(0);
-        }
-        return MissingNode.getInstance();
-    }
-
-    private JsonNode firstExisting(JsonNode node, String... fieldNames) {
-        if (node == null || fieldNames == null) {
-            return MissingNode.getInstance();
-        }
-        for (String fieldName : fieldNames) {
-            JsonNode candidate = node.path(fieldName);
-            if (!candidate.isMissingNode() && !candidate.isNull()) {
-                return candidate;
-            }
-        }
-        return MissingNode.getInstance();
-    }
-
-    private List<String> collectOrderedText(JsonNode node, String fieldPrefix, int maxCount) {
-        List<String> values = new ArrayList<>();
-        for (int index = 1; index <= maxCount; index++) {
-            String value = text(node, fieldPrefix + index);
-            if (StringUtils.hasText(value)) {
-                values.add(value);
-            }
-        }
-        return values;
-    }
-
-    private List<String> collectImages(JsonNode commonNode) {
-        Set<String> images = new LinkedHashSet<>();
-        for (int index = 1; index <= 10; index++) {
-            String imageUrl = text(commonNode, "image_url_" + index);
-            if (StringUtils.hasText(imageUrl)) {
-                images.add(imageUrl);
-            }
-        }
-        for (int index = 1; index <= 10; index++) {
-            String originalUrl = text(commonNode, "original_" + index);
-            if (StringUtils.hasText(originalUrl)) {
-                images.add(originalUrl);
-            }
-        }
-        return new ArrayList<>(images);
-    }
-
-    private int countHiddenImages(JsonNode commonNode) {
-        int hiddenCount = 0;
-        for (int index = 1; index <= 10; index++) {
-            JsonNode hiddenNode = commonNode.path("is_hidden_" + index);
-            if (hiddenNode.isBoolean() && hiddenNode.asBoolean()) {
-                hiddenCount++;
-                continue;
-            }
-            if (hiddenNode.isTextual()) {
-                String value = hiddenNode.asText();
-                if ("true".equalsIgnoreCase(value) || "1".equals(value)) {
-                    hiddenCount++;
-                }
-            }
-        }
-        return hiddenCount;
-    }
-
-    private List<String> collectNodeTextList(JsonNode node) {
-        List<String> values = new ArrayList<>();
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return values;
-        }
-        if (node.isArray()) {
-            for (JsonNode item : node) {
-                String value = item.isValueNode() ? item.asText() : item.toString();
-                if (StringUtils.hasText(value)) {
-                    values.add(value);
-                }
-            }
-            return values;
-        }
-
-        String value = node.isValueNode() ? node.asText() : node.toString();
-        if (StringUtils.hasText(value)) {
-            values.add(value);
-        }
-        return values;
-    }
-
-    private Object toDisplayValue(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        if (node.isValueNode()) {
-            return node.asText();
-        }
-        return objectMapper.convertValue(node, Object.class);
-    }
-
-    private Object numberOrText(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        if (node.isInt() || node.isLong()) {
-            return node.asLong();
-        }
-        if (node.isFloat() || node.isDouble() || node.isBigDecimal()) {
-            return node.decimalValue();
-        }
-        if (node.isBoolean()) {
-            return node.asBoolean();
-        }
-        return node.asText();
+        return productSiteOfferFetcher.buildStock(stockRoot);
     }
 
     private void putIfNotBlank(Map<String, Object> target, String key, String value) {
@@ -6726,25 +2574,6 @@ public class LocalDbProductMasterService {
         }
     }
 
-    private void putComparableDecimalIfPresent(Map<String, Object> target, String key, Object value) {
-        if (value == null) {
-            return;
-        }
-        BigDecimal decimal = asBigDecimal(value);
-        if (decimal == null) {
-            target.put(key, value);
-            return;
-        }
-        target.put(key, decimal.stripTrailingZeros().toPlainString());
-    }
-
-    private void putComparableBooleanIfPresent(Map<String, Object> target, String key, Object value) {
-        if (value == null) {
-            return;
-        }
-        target.put(key, truthy(value));
-    }
-
     private void putIfNotEmpty(Map<String, Object> target, String key, List<?> values) {
         if (values != null && !values.isEmpty()) {
             target.put(key, values);
@@ -6755,16 +2584,6 @@ public class LocalDbProductMasterService {
         if (values != null && !values.isEmpty()) {
             target.put(key, values);
         }
-    }
-
-    private String resolveOwnerName(StoreSyncOwnerContext owner) {
-        if (StringUtils.hasText(owner.getRealName())) {
-            return owner.getRealName();
-        }
-        if (StringUtils.hasText(owner.getAccountNo())) {
-            return owner.getAccountNo();
-        }
-        return "当前老板";
     }
 
     private String text(JsonNode node, String field) {
@@ -6782,230 +2601,6 @@ public class LocalDbProductMasterService {
     private String noonText(JsonNode node, String field) {
         String value = text(node, field);
         return "null".equalsIgnoreCase(value) ? null : value;
-    }
-
-    private void applyDatasetStats(
-            ProductListDatasetView view,
-            List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items
-    ) {
-        int syncedCount = 0;
-        int draftCount = 0;
-        int conflictCount = 0;
-        int failedCount = 0;
-        int liveCount = 0;
-        int groupedCount = 0;
-        int pendingPriceCount = 0;
-        int historyReadyCount = 0;
-        for (LocalDbStoreInitializationService.StoreInitializationProductListItemView item : items) {
-            String syncStatus = normalize(item.getSyncStatus());
-            if ("draft".equals(syncStatus)) {
-                draftCount++;
-            } else if ("conflict".equals(syncStatus)) {
-                draftCount++;
-            } else if ("failed".equals(syncStatus)) {
-                failedCount++;
-            } else {
-                syncedCount++;
-            }
-            if (isLiveStatusActive(item.getLiveStatus())
-                    || (item.getLiveStatus() == null && item.getLiveStatuses().stream().anyMatch(this::isLiveStatusActive))) {
-                liveCount++;
-            }
-            if (StringUtils.hasText(item.getGroupRef())) {
-                groupedCount++;
-            }
-            if (!StringUtils.hasText(item.getReferencePrice())) {
-                pendingPriceCount++;
-            }
-            if (Boolean.TRUE.equals(item.getHistoryMetaReady())) {
-                historyReadyCount++;
-            }
-        }
-        view.setTotalItems(items.size());
-        view.setSyncedCount(syncedCount);
-        view.setDraftCount(draftCount);
-        view.setConflictCount(conflictCount);
-        view.setFailedCount(failedCount);
-        view.setLiveCount(liveCount);
-        view.setGroupedCount(groupedCount);
-        view.setPendingPriceCount(pendingPriceCount);
-        view.setHistoryReadyCount(historyReadyCount);
-    }
-
-    private LocalDbStoreInitializationService.StoreInitializationProductListItemView copyListItem(
-            LocalDbStoreInitializationService.StoreInitializationProductListItemView source
-    ) {
-        LocalDbStoreInitializationService.StoreInitializationProductListItemView copy =
-                new LocalDbStoreInitializationService.StoreInitializationProductListItemView();
-        copy.setSkuParent(source.getSkuParent());
-        copy.setProductSourceType(source.getProductSourceType());
-        copy.setPartnerSku(source.getPartnerSku());
-        copy.setPskuCode(source.getPskuCode());
-        copy.setOfferCode(source.getOfferCode());
-        copy.setReferenceStoreCode(source.getReferenceStoreCode());
-        copy.setTitle(source.getTitle());
-        copy.setBrand(source.getBrand());
-        copy.setImageUrl(source.getImageUrl());
-        copy.setGalleryImages(new ArrayList<>(source.getGalleryImages()));
-        copy.setBarcode(source.getBarcode());
-        copy.setCurrency(source.getCurrency());
-        copy.setReferencePrice(source.getReferencePrice());
-        copy.setOriginalPrice(source.getOriginalPrice());
-        copy.setSalePrice(source.getSalePrice());
-        copy.setProductFulltype(source.getProductFulltype());
-        copy.setSkuGroup(source.getSkuGroup());
-        copy.setGroupRef(source.getGroupRef());
-        copy.setGroupRefCanonical(source.getGroupRefCanonical());
-        copy.setLiveStatus(source.getLiveStatus());
-        copy.setStatusCode(source.getStatusCode());
-        copy.setIsActive(source.getIsActive());
-        copy.setSyncStatus(source.getSyncStatus());
-        copy.setLastSyncedAt(source.getLastSyncedAt());
-        copy.setLastDraftSavedAt(source.getLastDraftSavedAt());
-        copy.setDetailBaselineStatus(source.getDetailBaselineStatus());
-        copy.setDetailBaselineMessage(source.getDetailBaselineMessage());
-        copy.setDetailBaselineSyncedAt(source.getDetailBaselineSyncedAt());
-        copy.setProductVariantSpecStatus(source.getProductVariantSpecStatus());
-        copy.setProductVariantSpecTotalCount(source.getProductVariantSpecTotalCount());
-        copy.setProductVariantSpecReadyCount(source.getProductVariantSpecReadyCount());
-        copy.setProductVariantSpecMaintainedCount(source.getProductVariantSpecMaintainedCount());
-        copy.setVariantCount(source.getVariantCount());
-        copy.setSiteOfferCount(source.getSiteOfferCount());
-        copy.setHistoryMetaReady(source.getHistoryMetaReady());
-        copy.setPendingKeyContentHistoryCount(source.getPendingKeyContentHistoryCount());
-        copy.setVisibleKeyContentHistoryCount(source.getVisibleKeyContentHistoryCount());
-        copy.setPendingKeyContentHistoryVisibleAfter(source.getPendingKeyContentHistoryVisibleAfter());
-        copy.setSiteLabels(new ArrayList<>(source.getSiteLabels()));
-        copy.setLiveStatuses(new ArrayList<>(source.getLiveStatuses()));
-        copy.setIssueTags(new ArrayList<>(source.getIssueTags()));
-        copy.setTotalFbnStock(source.getTotalFbnStock());
-        copy.setTotalSupermallStock(source.getTotalSupermallStock());
-        copy.setTotalFbpStock(source.getTotalFbpStock());
-        copy.setLastPublishTask(source.getLastPublishTask());
-        return copy;
-    }
-
-    private LocalDbStoreInitializationService.StoreInitializationProductListItemView createListItemFromSummary(
-            ProductListSummaryView summary
-    ) {
-        LocalDbStoreInitializationService.StoreInitializationProductListItemView item =
-                new LocalDbStoreInitializationService.StoreInitializationProductListItemView();
-        item.setSkuParent(summary.getSkuParent());
-        item.setProductSourceType(summary.getProductSourceType());
-        item.setReferenceStoreCode(summary.getStoreCode());
-        item.setSiteLabels(new ArrayList<>());
-        item.setLiveStatuses(new ArrayList<>());
-        item.setIssueTags(new ArrayList<>());
-        return mergeListItemWithSummary(item, summary);
-    }
-
-    private LocalDbStoreInitializationService.StoreInitializationProductListItemView mergeListItemWithSummary(
-            LocalDbStoreInitializationService.StoreInitializationProductListItemView item,
-            ProductListSummaryView summary
-    ) {
-        item.setSkuParent(firstNonBlank(summary.getSkuParent(), item.getSkuParent()));
-        item.setProductSourceType(firstNonBlank(summary.getProductSourceType(), item.getProductSourceType()));
-        item.setPartnerSku(firstNonBlank(summary.getPartnerSku(), item.getPartnerSku()));
-        item.setPskuCode(firstNonBlank(summary.getPskuCode(), item.getPskuCode()));
-        item.setOfferCode(firstNonBlank(summary.getOfferCode(), item.getOfferCode()));
-        item.setReferenceStoreCode(firstNonBlank(summary.getStoreCode(), item.getReferenceStoreCode()));
-        item.setTitle(firstNonBlank(summary.getTitle(), item.getTitle()));
-        item.setBrand(firstNonBlank(summary.getBrand(), item.getBrand()));
-        item.setImageUrl(firstNonBlank(summary.getImageUrl(), item.getImageUrl()));
-        if (!summary.getGalleryImages().isEmpty()) {
-            item.setGalleryImages(new ArrayList<>(summary.getGalleryImages()));
-        }
-        item.setBarcode(firstNonBlank(summary.getBarcode(), item.getBarcode()));
-        item.setReferencePrice(firstNonBlank(summary.getReferencePrice(), item.getReferencePrice()));
-        item.setOriginalPrice(firstNonBlank(summary.getOriginalPrice(), item.getOriginalPrice()));
-        item.setSalePrice(firstNonBlank(summary.getSalePrice(), item.getSalePrice()));
-        item.setProductFulltype(firstNonBlank(summary.getProductFulltype(), item.getProductFulltype()));
-        item.setSkuGroup(normalize(summary.getSkuGroup()));
-        item.setGroupRef(normalize(summary.getGroupRef()));
-        item.setGroupRefCanonical(normalize(summary.getGroupRefCanonical()));
-        item.setLiveStatus(firstNonBlank(summary.getLiveStatus(), item.getLiveStatus()));
-        item.setStatusCode(firstNonBlank(summary.getStatusCode(), item.getStatusCode()));
-        item.setIsActive(summary.getIsActive() != null ? summary.getIsActive() : item.getIsActive());
-        item.setSyncStatus(firstNonBlank(summary.getSyncStatus(), item.getSyncStatus()));
-        item.setLastSyncedAt(firstNonBlank(summary.getLastSyncedAt(), item.getLastSyncedAt()));
-        item.setLastDraftSavedAt(firstNonBlank(summary.getLastDraftSavedAt(), item.getLastDraftSavedAt()));
-        item.setDetailBaselineStatus(firstNonBlank(summary.getDetailBaselineStatus(), item.getDetailBaselineStatus()));
-        item.setDetailBaselineMessage(firstNonBlank(summary.getDetailBaselineMessage(), item.getDetailBaselineMessage()));
-        item.setDetailBaselineSyncedAt(firstNonBlank(summary.getDetailBaselineSyncedAt(), item.getDetailBaselineSyncedAt()));
-        item.setProductVariantSpecStatus(firstNonBlank(summary.getProductVariantSpecStatus(), item.getProductVariantSpecStatus()));
-        item.setProductVariantSpecTotalCount(summary.getProductVariantSpecTotalCount() != null
-                ? summary.getProductVariantSpecTotalCount()
-                : item.getProductVariantSpecTotalCount());
-        item.setProductVariantSpecReadyCount(summary.getProductVariantSpecReadyCount() != null
-                ? summary.getProductVariantSpecReadyCount()
-                : item.getProductVariantSpecReadyCount());
-        item.setProductVariantSpecMaintainedCount(summary.getProductVariantSpecMaintainedCount() != null
-                ? summary.getProductVariantSpecMaintainedCount()
-                : item.getProductVariantSpecMaintainedCount());
-        item.setVariantCount(summary.getVariantCount() != null ? summary.getVariantCount() : item.getVariantCount());
-        item.setSiteOfferCount(summary.getSiteOfferCount() != null ? summary.getSiteOfferCount() : item.getSiteOfferCount());
-        item.setHistoryMetaReady(summary.getHistoryMetaReady() != null ? summary.getHistoryMetaReady() : item.getHistoryMetaReady());
-        item.setPendingKeyContentHistoryCount(
-                summary.getPendingKeyContentHistoryCount() != null
-                        ? summary.getPendingKeyContentHistoryCount()
-                        : item.getPendingKeyContentHistoryCount()
-        );
-        item.setVisibleKeyContentHistoryCount(
-                summary.getVisibleKeyContentHistoryCount() != null
-                        ? summary.getVisibleKeyContentHistoryCount()
-                        : item.getVisibleKeyContentHistoryCount()
-        );
-        item.setPendingKeyContentHistoryVisibleAfter(
-                firstNonBlank(summary.getPendingKeyContentHistoryVisibleAfter(), item.getPendingKeyContentHistoryVisibleAfter())
-        );
-        if (!summary.getSiteLabels().isEmpty()) {
-            item.setSiteLabels(new ArrayList<>(summary.getSiteLabels()));
-        } else if (StringUtils.hasText(summary.getStoreCode()) && item.getSiteLabels().isEmpty()) {
-            item.setSiteLabels(new ArrayList<>(List.of(summary.getStoreCode())));
-        }
-        if (!summary.getLiveStatuses().isEmpty()) {
-            item.setLiveStatuses(new ArrayList<>(summary.getLiveStatuses()));
-        } else if (StringUtils.hasText(summary.getLiveStatus()) && item.getLiveStatuses().isEmpty()) {
-            item.setLiveStatuses(new ArrayList<>(List.of(summary.getLiveStatus())));
-        }
-        if (!summary.getIssueTags().isEmpty()) {
-            item.setIssueTags(new ArrayList<>(summary.getIssueTags()));
-        }
-        item.setTotalFbnStock(summary.getTotalFbnStock() != null ? summary.getTotalFbnStock() : item.getTotalFbnStock());
-        item.setTotalSupermallStock(summary.getTotalSupermallStock() != null ? summary.getTotalSupermallStock() : item.getTotalSupermallStock());
-        item.setTotalFbpStock(summary.getTotalFbpStock() != null ? summary.getTotalFbpStock() : item.getTotalFbpStock());
-        item.setViewsCount(summary.getViewsCount() != null ? summary.getViewsCount() : item.getViewsCount());
-        item.setUnitsSold(summary.getUnitsSold() != null ? summary.getUnitsSold() : item.getUnitsSold());
-        item.setSalesAmount(firstNonBlank(summary.getSalesAmount(), item.getSalesAmount()));
-        item.setSalesCurrency(firstNonBlank(summary.getSalesCurrency(), item.getSalesCurrency()));
-        item.setLastPublishTask(summary.getLastPublishTask() != null ? summary.getLastPublishTask() : item.getLastPublishTask());
-        return item;
-    }
-
-    private String resolveLastDatasetSyncedAt(
-            List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items,
-            String fallbackTime
-    ) {
-        String latest = null;
-        for (LocalDbStoreInitializationService.StoreInitializationProductListItemView item : items) {
-            String candidate = normalize(item.getLastSyncedAt());
-            if (!StringUtils.hasText(candidate)) {
-                continue;
-            }
-            if (!StringUtils.hasText(latest) || candidate.compareTo(latest) > 0) {
-                latest = candidate;
-            }
-        }
-        return StringUtils.hasText(latest) ? latest : fallbackTime;
-    }
-
-    private boolean isLiveStatusActive(String status) {
-        String normalized = normalize(status);
-        if (!StringUtils.hasText(normalized)) {
-            return false;
-        }
-        String lowerCaseValue = normalized.toLowerCase();
-        return "true".equals(lowerCaseValue) || "1".equals(lowerCaseValue) || "live".equals(lowerCaseValue);
     }
 
     private String firstNonBlank(String... values) {
@@ -7029,43 +2624,6 @@ public class LocalDbProductMasterService {
             return "";
         }
         return value.trim().toLowerCase().replaceAll("[\\s-]+", "_");
-    }
-
-    private static final class ResolvedProjectCodeCacheEntry {
-
-        private final String resolvedProjectCode;
-        private final String warning;
-
-        private ResolvedProjectCodeCacheEntry(String resolvedProjectCode, String warning) {
-            this.resolvedProjectCode = resolvedProjectCode;
-            this.warning = warning;
-        }
-
-        private String resolvedProjectCode() {
-            return resolvedProjectCode;
-        }
-
-        private String warning() {
-            return warning;
-        }
-    }
-
-    private List<String> collectMissingOperationalKeys(String partnerSku, String pskuCode) {
-        List<String> missing = new ArrayList<>();
-        if (!StringUtils.hasText(partnerSku)) {
-            missing.add("partnerSku");
-        }
-        if (!StringUtils.hasText(pskuCode)) {
-            missing.add("pskuCode");
-        }
-        return missing;
-    }
-
-    private String extractDigits(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        return value.replaceAll("\\D+", "");
     }
 
     private void requireText(String value, String message) {
@@ -7110,260 +2668,6 @@ public class LocalDbProductMasterService {
         }
         String normalized = value.replaceAll("\\s+", " ").trim();
         return normalized.length() > 160 ? normalized.substring(0, 160) + "..." : normalized;
-    }
-
-    private static class ProductWorkbenchRecord {
-
-        private ProductMasterSnapshotView baselineSnapshot;
-
-        private ProductMasterSnapshotView draftSnapshot;
-
-        private String syncStatus;
-
-        private String lastSyncedAt;
-
-        private String note;
-
-        private List<Map<String, Object>> recentActions = new ArrayList<>();
-
-        private List<Map<String, Object>> keyContentHistory = new ArrayList<>();
-
-        private Integer pendingKeyContentHistoryCount;
-
-        private String pendingKeyContentHistoryVisibleAfter;
-
-        private ProductPublishTaskView publishTask;
-
-        private ProductMasterSnapshotView getBaselineSnapshot() {
-            return baselineSnapshot;
-        }
-
-        private void setBaselineSnapshot(ProductMasterSnapshotView baselineSnapshot) {
-            this.baselineSnapshot = baselineSnapshot;
-        }
-
-        private ProductMasterSnapshotView getDraftSnapshot() {
-            return draftSnapshot;
-        }
-
-        private void setDraftSnapshot(ProductMasterSnapshotView draftSnapshot) {
-            this.draftSnapshot = draftSnapshot;
-        }
-
-        private String getSyncStatus() {
-            return syncStatus;
-        }
-
-        private void setSyncStatus(String syncStatus) {
-            this.syncStatus = syncStatus;
-        }
-
-        private String getLastSyncedAt() {
-            return lastSyncedAt;
-        }
-
-        private void setLastSyncedAt(String lastSyncedAt) {
-            this.lastSyncedAt = lastSyncedAt;
-        }
-
-        private String getNote() {
-            return note;
-        }
-
-        private void setNote(String note) {
-            this.note = note;
-        }
-
-        private List<Map<String, Object>> getRecentActions() {
-            return recentActions;
-        }
-
-        private void setRecentActions(List<Map<String, Object>> recentActions) {
-            this.recentActions = recentActions;
-        }
-
-        private List<Map<String, Object>> getKeyContentHistory() {
-            return keyContentHistory;
-        }
-
-        private void setKeyContentHistory(List<Map<String, Object>> keyContentHistory) {
-            this.keyContentHistory = keyContentHistory;
-        }
-
-        private Integer getPendingKeyContentHistoryCount() {
-            return pendingKeyContentHistoryCount;
-        }
-
-        private void setPendingKeyContentHistoryCount(Integer pendingKeyContentHistoryCount) {
-            this.pendingKeyContentHistoryCount = pendingKeyContentHistoryCount;
-        }
-
-        private String getPendingKeyContentHistoryVisibleAfter() {
-            return pendingKeyContentHistoryVisibleAfter;
-        }
-
-        private void setPendingKeyContentHistoryVisibleAfter(String pendingKeyContentHistoryVisibleAfter) {
-            this.pendingKeyContentHistoryVisibleAfter = pendingKeyContentHistoryVisibleAfter;
-        }
-
-        private ProductPublishTaskView getPublishTask() {
-            return publishTask;
-        }
-
-        private void setPublishTask(ProductPublishTaskView publishTask) {
-            this.publishTask = publishTask;
-        }
-    }
-
-    private static class UnsupportedChanges {
-
-        private boolean groupChanged;
-
-        private boolean variantStructureChanged;
-
-        private final Set<String> unsupportedAttributeCodes = new LinkedHashSet<>();
-
-        private final Map<String, Set<String>> unsupportedSiteFields = new LinkedHashMap<>();
-
-        private final List<String> publishBlockers = new ArrayList<>();
-
-        private boolean isGroupChanged() {
-            return groupChanged;
-        }
-
-        private void setGroupChanged(boolean groupChanged) {
-            this.groupChanged = groupChanged;
-        }
-
-        private boolean isVariantStructureChanged() {
-            return variantStructureChanged;
-        }
-
-        private void setVariantStructureChanged(boolean variantStructureChanged) {
-            this.variantStructureChanged = variantStructureChanged;
-        }
-
-        private Set<String> getUnsupportedAttributeCodes() {
-            return unsupportedAttributeCodes;
-        }
-
-        private Map<String, Set<String>> getUnsupportedSiteFields() {
-            return unsupportedSiteFields;
-        }
-
-        private List<String> getPublishBlockers() {
-            return publishBlockers;
-        }
-
-        private void markUnsupportedSiteField(String siteCode, String field) {
-            if (!StringUtils.hasText(siteCode) || !StringUtils.hasText(field)) {
-                return;
-            }
-            unsupportedSiteFields.computeIfAbsent(siteCode, ignored -> new LinkedHashSet<>()).add(field);
-        }
-    }
-
-    private static class PublishTaskFenceLostException extends IllegalStateException {
-
-        private final String targetStatus;
-
-        private PublishTaskFenceLostException(ProductPublishTaskRecord task, String targetStatus) {
-            super("发布任务锁已失效，跳过旧 worker 写回。taskId="
-                    + (task == null ? null : task.getId())
-                    + ", currentStatus=" + (task == null ? null : task.getStatus())
-                    + ", targetStatus=" + targetStatus);
-            this.targetStatus = targetStatus;
-        }
-
-        private String getTargetStatus() {
-            return targetStatus;
-        }
-    }
-
-    private static class OperationalKeys {
-
-        private final String partnerSku;
-
-        private final String pskuCode;
-
-        private OperationalKeys(String partnerSku, String pskuCode) {
-            this.partnerSku = partnerSku;
-            this.pskuCode = pskuCode;
-        }
-
-        private String getPartnerSku() {
-            return partnerSku;
-        }
-
-        private String getPskuCode() {
-            return pskuCode;
-        }
-    }
-
-    private static class ProjectSiteContext {
-
-        private final String storeCode;
-
-        private String site;
-
-        private String statusCode;
-
-        private ProjectSiteContext(String storeCode, String site, String statusCode) {
-            this.storeCode = storeCode;
-            this.site = site;
-            this.statusCode = statusCode;
-        }
-
-        private String getStoreCode() {
-            return storeCode;
-        }
-
-        private String getSite() {
-            return site;
-        }
-
-        private void setSite(String site) {
-            this.site = site;
-        }
-
-        private String getStatusCode() {
-            return statusCode;
-        }
-
-        private void setStatusCode(String statusCode) {
-            this.statusCode = statusCode;
-        }
-    }
-
-    private static class ProjectSiteFetchResult {
-
-        private final List<Map<String, Object>> siteOffers;
-
-        private final JsonNode referencePricingNode;
-
-        private final JsonNode referenceStockNode;
-
-        private ProjectSiteFetchResult(
-                List<Map<String, Object>> siteOffers,
-                JsonNode referencePricingNode,
-                JsonNode referenceStockNode
-        ) {
-            this.siteOffers = siteOffers;
-            this.referencePricingNode = referencePricingNode;
-            this.referenceStockNode = referenceStockNode;
-        }
-
-        private List<Map<String, Object>> getSiteOffers() {
-            return siteOffers;
-        }
-
-        private JsonNode getReferencePricingNode() {
-            return referencePricingNode;
-        }
-
-        private JsonNode getReferenceStockNode() {
-            return referenceStockNode;
-        }
     }
 
 }

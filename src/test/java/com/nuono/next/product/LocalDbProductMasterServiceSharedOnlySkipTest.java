@@ -4,9 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -24,7 +22,14 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
             null,
             null,
             null,
+            null,
             objectMapper,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
             null,
             null,
             null,
@@ -257,19 +262,6 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
     }
 
     @Test
-    void shouldOmitWarrantyFromOfferPayloadWhenWarrantyWasNotRead() throws Exception {
-        Map<String, Object> siteOffer = new LinkedHashMap<>();
-        siteOffer.put("storeCode", "STR245027-NAE");
-        siteOffer.put("site", "AE");
-        siteOffer.put("price", "48.00");
-
-        ObjectNode body = invokeOfferUpsertBodyForPublish("PSKU-001", siteOffer);
-        JsonNode offer = body.path("pskus").get(0);
-
-        assertFalse(offer.has("idWarranty"));
-    }
-
-    @Test
     void shouldDefaultSaleWindowInPublishSnapshotOnlyForDirtyOffer() throws Exception {
         ProductMasterSnapshotView baseline = snapshot("Same title", "STR245027-NAE", "48.00", "39.20", 33, 0, "LIVE");
         baseline.getSiteOffers().get(0).put("priceMin", "10.00");
@@ -333,44 +325,29 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         return (boolean) method.invoke(service, left, right, currentSiteCode);
     }
 
-    private Object invokeDetectUnsupportedChanges(
+    private ProductPublishUnsupportedChanges invokeDetectUnsupportedChanges(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             String currentSiteCode
-    ) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "detectUnsupportedChanges",
-                ProductMasterSnapshotView.class,
-                ProductMasterSnapshotView.class,
-                String.class
-        );
-        method.setAccessible(true);
-        return method.invoke(service, draft, baseline, currentSiteCode);
+    ) {
+        return new ProductPublishUnsupportedChangesDetector(objectMapper).detect(draft, baseline, currentSiteCode);
     }
 
-    private void invokePublishableSnapshotForSupportedChanges(
+    private ProductMasterSnapshotView invokePublishableSnapshotForSupportedChanges(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
             Object unsupportedChanges
-    ) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "publishableSnapshotForSupportedChanges",
-                ProductMasterSnapshotView.class,
-                ProductMasterSnapshotView.class,
-                unsupportedChanges.getClass()
-        );
-        method.setAccessible(true);
-        method.invoke(service, draft, baseline, unsupportedChanges);
+    ) {
+        return new ProductPublishSupportedSnapshotBuilder(
+                objectMapper,
+                new ProductPublishPlanner(new ProductDraftMergePolicy())
+        ).build(draft, baseline, (ProductPublishUnsupportedChanges) unsupportedChanges);
     }
 
     @SuppressWarnings("unchecked")
-    private List<String> invokeValidatePublishWriteCoverage(Object unsupportedChanges) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "validatePublishWriteCoverage",
-                unsupportedChanges.getClass()
-        );
-        method.setAccessible(true);
-        return (List<String>) method.invoke(service, unsupportedChanges);
+    private List<String> invokeValidatePublishWriteCoverage(Object unsupportedChanges) {
+        return new ProductPublishUnsupportedChangesDetector(objectMapper)
+                .validateWriteCoverage((ProductPublishUnsupportedChanges) unsupportedChanges);
     }
 
     @SuppressWarnings("unchecked")
@@ -389,21 +366,8 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         return (List<String>) method.invoke(service, draft, baseline, currentSiteCode);
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, String> invokeSaleWindowForPublish(Map<String, Object> siteOffer) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod("saleWindowForPublish", Map.class);
-        method.setAccessible(true);
-        return (Map<String, String>) method.invoke(service, siteOffer);
-    }
-
-    private ObjectNode invokeOfferUpsertBodyForPublish(String pskuCode, Map<String, Object> siteOffer) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "buildOfferUpsertBodyForPublish",
-                String.class,
-                Map.class
-        );
-        method.setAccessible(true);
-        return (ObjectNode) method.invoke(service, pskuCode, siteOffer);
+    private Map<String, String> invokeSaleWindowForPublish(Map<String, Object> siteOffer) {
+        return new ProductPublishOfferWriter(objectMapper, null).saleWindowForPublish(siteOffer);
     }
 
     private ProductMasterSnapshotView copySnapshot(ProductMasterSnapshotView source) {

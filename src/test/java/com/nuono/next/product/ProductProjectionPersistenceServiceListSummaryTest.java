@@ -2,9 +2,13 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,6 +60,7 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         record.setPskuCode("PSKU-001");
         record.setOfferCode("OFFER-001");
         record.setTitle("Amber Burner");
+        record.setTitleCn("星耀琥珀香薰炉");
         record.setBrand("xingyao");
         record.setImageUrl("https://img.example.com/a.jpg");
         record.setReferencePrice("139.00");
@@ -108,6 +113,7 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("LIVE", summary.getLiveStatus());
         assertEquals("2026-05-10 00:00:00", summary.getListingStartedAt());
         assertEquals("pv", summary.getListingStartedSource());
+        assertEquals("星耀琥珀香薰炉", summary.getTitleCn());
         assertEquals(List.of("AE"), summary.getSiteLabels());
         assertEquals(List.of("LIVE"), summary.getLiveStatuses());
     }
@@ -127,6 +133,32 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertFalse(summary.isReady());
         assertEquals("missing", summary.getSource());
         assertEquals("ZMISS001", summary.getSkuParent());
+    }
+
+    @Test
+    void listSummariesShouldNotHydrateHistoryMetadataPerRow() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setTitle("Amber Burner");
+        record.setDetailBaselineStatus("missing");
+        record.setSyncStatus("synced");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        assertEquals("ZTEST001", summaries.get(0).getSkuParent());
+        assertNull(summaries.get(0).getHistoryMetaReady());
+        verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("ZTEST001")
+        );
     }
 
     @Test
@@ -319,6 +351,47 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("55", preservedOffer.get("priceMax"));
         assertEquals("89.50", current.getPricing().get("price"));
         assertEquals("39.90", current.getPricing().get("salePrice"));
+    }
+
+    @Test
+    void shouldRejectProjectionSiteSeedWhenStoreCodeBelongsToAnotherLogicalStore() {
+        ProductProjectionPersistenceService.ProductMasterSeed productSeed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        productSeed.setSkuParent("ZCROSS001");
+
+        ProductProjectionPersistenceService.SiteSeed siteSeed =
+                new ProductProjectionPersistenceService.SiteSeed("STR108065-NAE", "AE", "ACTIVE", true);
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ69486"))
+                .thenReturn(50003L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR108065-NAE"))
+                .thenReturn(50005L);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.persistInitializationProjection(
+                        307L,
+                        "PRJ69486",
+                        "songguoguo",
+                        "STR108065-NAE",
+                        List.of(siteSeed),
+                        List.of(productSeed),
+                        new ArrayList<>()
+                )
+        );
+
+        assertTrue(exception.getMessage().contains("STR108065-NAE"));
+        assertTrue(exception.getMessage().contains("其他逻辑店铺"));
+        verify(productManagementMapper, never()).upsertLogicalStoreSite(
+                eq(51004L),
+                eq(50003L),
+                eq("STR108065-NAE"),
+                eq("AE"),
+                eq(true),
+                eq(true),
+                eq("ACTIVE"),
+                eq(307L)
+        );
     }
 
     @SuppressWarnings("unchecked")

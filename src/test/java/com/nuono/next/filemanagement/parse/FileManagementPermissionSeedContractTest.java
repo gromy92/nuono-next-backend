@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 class FileManagementPermissionSeedContractTest {
@@ -32,12 +33,17 @@ class FileManagementPermissionSeedContractTest {
 
     @Test
     void releasePermissionCleanupPreservesFileManagementForBossAndOpsManager() throws IOException {
-        String releaseSql = Files.readString(Path.of(
+        Path releasePath = Path.of(
                 "..",
                 "release",
                 "20260511_permission_data_integrity_cleanup.sql"
-        ));
+        );
+        Assumptions.assumeTrue(
+                Files.exists(releasePath),
+                "release SQL is outside the backend repository and is not available in standalone CI"
+        );
 
+        String releaseSql = Files.readString(releasePath);
         assertFileManagementRoleMatrix(releaseSql, "20260511_permission_data_integrity_cleanup.sql");
     }
 
