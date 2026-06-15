@@ -6,6 +6,7 @@ public class CompetitorKeywordRefreshOutcome {
     private boolean success;
     private String providerStatus;
     private Integer resultCount;
+    private Integer requestedResultLimit;
     private Integer candidateUpsertedCount;
     private Integer rankFactWrittenCount;
     private String sourceUrl;
@@ -44,6 +45,8 @@ public class CompetitorKeywordRefreshOutcome {
     public void setProviderStatus(String providerStatus) { this.providerStatus = providerStatus; }
     public Integer getResultCount() { return resultCount; }
     public void setResultCount(Integer resultCount) { this.resultCount = resultCount; }
+    public Integer getRequestedResultLimit() { return requestedResultLimit; }
+    public void setRequestedResultLimit(Integer requestedResultLimit) { this.requestedResultLimit = requestedResultLimit; }
     public Integer getCandidateUpsertedCount() { return candidateUpsertedCount; }
     public void setCandidateUpsertedCount(Integer candidateUpsertedCount) { this.candidateUpsertedCount = candidateUpsertedCount; }
     public Integer getRankFactWrittenCount() { return rankFactWrittenCount; }

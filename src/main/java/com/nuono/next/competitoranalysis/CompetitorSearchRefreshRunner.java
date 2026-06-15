@@ -66,6 +66,7 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         CompetitorKeywordRefreshOutcome outcome = CompetitorKeywordRefreshOutcome.success(resultCount);
         outcome.setCandidateUpsertedCount(candidateCount);
         outcome.setRankFactWrittenCount(rankFactCount);
+        outcome.setRequestedResultLimit(RANK_SCAN_DEPTH);
         outcome.setSourceUrl(page.getSourceUrl());
         outcome.setParserVersion(page.getParserVersion());
         outcome.setProviderHttpStatus(page.getProviderHttpStatus());

@@ -1239,12 +1239,12 @@ public interface CompetitorAnalysisMapper {
     @Insert({
             "INSERT INTO operations_competitor_keyword_run (",
             "  id, search_run_id, keyword_id, keyword_snapshot, locale_snapshot, provider_status,",
-            "  result_count, source_url, parser_version, provider_http_status, response_hash,",
+            "  result_count, requested_result_limit, source_url, parser_version, provider_http_status, response_hash,",
             "  captured_at, error_code, error_message, started_at, finished_at, is_deleted, created_by, updated_by,",
             "  gmt_create, gmt_updated",
             ") VALUES (",
             "  #{id}, #{searchRunId}, #{keywordId}, #{keywordSnapshot}, #{localeSnapshot}, #{providerStatus},",
-            "  #{resultCount}, #{sourceUrl}, #{parserVersion}, #{providerHttpStatus}, #{responseHash},",
+            "  #{resultCount}, #{requestedResultLimit}, #{sourceUrl}, #{parserVersion}, #{providerHttpStatus}, #{responseHash},",
             "  #{capturedAt}, #{errorCode}, #{errorMessage}, NOW(), NOW(), b'0', #{actorUserId}, #{actorUserId},",
             "  NOW(), NOW()",
             ")"

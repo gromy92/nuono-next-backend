@@ -109,6 +109,7 @@ public class CompetitorKeywordRefreshTransactionRunner {
         command.setLocaleSnapshot(keyword.getLocale());
         command.setProviderStatus(truncate(firstNonBlank(outcome.getProviderStatus(), "FAILED"), MAX_PROVIDER_STATUS_LENGTH));
         command.setResultCount(nullToZero(outcome.getResultCount()));
+        command.setRequestedResultLimit(outcome.getRequestedResultLimit());
         command.setSourceUrl(truncate(outcome.getSourceUrl(), MAX_SOURCE_URL_LENGTH));
         command.setParserVersion(truncate(outcome.getParserVersion(), MAX_PARSER_VERSION_LENGTH));
         command.setProviderHttpStatus(outcome.getProviderHttpStatus());
