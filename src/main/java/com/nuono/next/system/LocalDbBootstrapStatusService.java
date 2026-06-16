@@ -108,7 +108,11 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/101_operations_competitor_watch_product_remove_confirmation.sql",
                 "classpath:db/init/102_operations_competitor_keyword_product_ignore_cleanup.sql",
                 "classpath:db/init/103_operations_competitor_product_snapshot_change.sql",
-                "classpath:db/init/104_operations_competitor_rank_fact_channel_scan_depth.sql"
+                "classpath:db/init/104_operations_competitor_rank_fact_channel_scan_depth.sql",
+                "classpath:db/init/118_procurement_ali1688_order_sku_allocation.sql",
+                "classpath:db/init/119_procurement_purchase_order.sql",
+                "classpath:db/init/122_procurement_purchase_order_logistics_plan.sql",
+                "classpath:db/init/123_procurement_purchase_order_transport_mode.sql"
             ));
         return payload;
     }
