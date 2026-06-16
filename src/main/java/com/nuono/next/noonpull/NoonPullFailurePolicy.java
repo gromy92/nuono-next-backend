@@ -141,12 +141,12 @@ public class NoonPullFailurePolicy {
             case INVALID_PROJECT_CODE:
                 return new NoonPullFailureDecision(
                         type,
-                        NoonPullRetryAction.MANUAL_ACTION,
-                        false,
+                        NoonPullRetryAction.DELAY,
                         true,
                         false,
-                        null,
-                        type.code() + ": manual diagnosis required before retrying the same target date"
+                        false,
+                        now.plusMinutes(transientBackoffMinutes(safeAttempt)),
+                        type.code() + ": retry with cooldown; Noon may return this transiently for valid report scopes"
                 );
             case EMPTY_REPORT:
             case PARTIAL_SUCCESS:

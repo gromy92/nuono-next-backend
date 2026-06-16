@@ -59,7 +59,7 @@ class NoonPullFoundationFailureIntegrationTest {
     }
 
     @Test
-    void shouldStopRetryingInvalidProjectCodeTargetWithoutPausingFutureSchedule() {
+    void shouldDelayInvalidProjectCodeTargetWithoutPausingFutureSchedule() {
         NoonPullPlanRecord plan = service.createPlan(salesDailyPlan());
         NoonPullTaskRecord task = service.createTaskForPlan(plan.getId(), salesDailyTask("sales:2026-05-21", 21))
                 .orElseThrow();
@@ -80,11 +80,12 @@ class NoonPullFoundationFailureIntegrationTest {
         );
 
         assertEquals("invalid_project_code", failed.getFailureType());
-        assertEquals("MANUAL_ACTION", failed.getRetryAction());
-        assertFalse(failed.getRetryable());
-        assertTrue(failed.getRequiresManualAction());
+        assertEquals("DELAY", failed.getRetryAction());
+        assertTrue(failed.getRetryable());
+        assertFalse(failed.getRequiresManualAction());
         assertFalse(updatedPlan.isPaused());
-        assertFalse(sameTarget.isPresent());
+        assertNotNull(updatedPlan.getNextRetryAt());
+        assertTrue(sameTarget.isPresent());
         assertTrue(nextTarget.isPresent());
     }
 
