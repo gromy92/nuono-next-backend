@@ -191,9 +191,11 @@ class CompetitorAnalysisServiceTest {
         row.setSelfNoonProductCode("Z6122BASKETSA");
         row.setTitleSnapshot("Foldable Laundry Basket With Bamboo Handles");
         row.setActiveKeywordCount(2);
-        row.setActiveKeywordSummary("laundry basket||foldable hamper");
-        row.setPendingCandidateCount(0);
-        row.setConfirmedCompetitorCount(0);
+        row.setActiveKeywordSummary("laundry basket\t2||foldable hamper\t0");
+        row.setPendingCandidateCount(3);
+        row.setConfirmedCompetitorCount(2);
+        row.setRecent7dChangedCompetitorCount(4);
+        row.setRecent7dCompetitorChangeCount(9);
         when(mapper.countProductBaselines(501L, "STR108065-NSA", "SA", query)).thenReturn(409L);
         when(mapper.listProductBaselines(501L, "STR108065-NSA", "SA", query)).thenReturn(List.of(row));
 
@@ -201,9 +203,19 @@ class CompetitorAnalysisServiceTest {
 
         assertEquals(409L, view.getPagination().getTotal());
         assertEquals(1, view.getItems().size());
-        assertEquals(91001L, view.getItems().get(0).getProductSiteOfferId());
-        assertEquals(2, view.getItems().get(0).getActiveKeywordCount());
-        assertEquals(List.of("laundry basket", "foldable hamper"), view.getItems().get(0).getActiveKeywords());
+        CompetitorWatchProductListItemView item = view.getItems().get(0);
+        assertEquals(91001L, item.getProductSiteOfferId());
+        assertEquals(2, item.getActiveKeywordCount());
+        assertEquals(List.of("laundry basket", "foldable hamper"), item.getActiveKeywords());
+        assertEquals(2, item.getActiveKeywordStats().size());
+        assertEquals("laundry basket", item.getActiveKeywordStats().get(0).getKeyword());
+        assertEquals(2, item.getActiveKeywordStats().get(0).getMonitoredCount());
+        assertEquals("foldable hamper", item.getActiveKeywordStats().get(1).getKeyword());
+        assertEquals(0, item.getActiveKeywordStats().get(1).getMonitoredCount());
+        assertEquals(3, item.getPendingCandidateCount());
+        assertEquals(2, item.getConfirmedCompetitorCount());
+        assertEquals(4, item.getRecent7dChangedCompetitorCount());
+        assertEquals(9, item.getRecent7dCompetitorChangeCount());
         verify(mapper).listProductBaselines(501L, "STR108065-NSA", "SA", query);
     }
 
