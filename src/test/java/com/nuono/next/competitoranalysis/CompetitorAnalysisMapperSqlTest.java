@@ -36,6 +36,36 @@ class CompetitorAnalysisMapperSqlTest {
     }
 
     @Test
+    void productListsSupportExplicitSortOptions() throws NoSuchMethodException {
+        String productBaselinesSql = selectSql(
+                "listProductBaselines",
+                Long.class,
+                String.class,
+                String.class,
+                CompetitorWatchProductQuery.class
+        );
+        String watchProductsSql = selectSql(
+                "listWatchProducts",
+                Long.class,
+                java.util.List.class,
+                CompetitorWatchProductQuery.class
+        );
+
+        for (String sql : java.util.List.of(productBaselinesSql, watchProductsSql)) {
+            assertThat(sql)
+                    .contains("query.sortby == \"candidate_count_asc\"")
+                    .contains("query.sortby == \"monitored_count_desc\"")
+                    .contains("query.sortby == \"monitored_count_asc\"")
+                    .contains("query.sortby == \"recent_7d_change_count_desc\"")
+                    .contains("query.sortby == \"recent_7d_change_count_asc\"")
+                    .contains("order by confirmedcompetitorcount desc")
+                    .contains("order by confirmedcompetitorcount asc")
+                    .contains("order by recent7dcompetitorchangecount desc")
+                    .contains("order by recent7dcompetitorchangecount asc");
+        }
+    }
+
+    @Test
     void productListsCanFilterZeroPendingAndZeroConfirmedCounts() throws NoSuchMethodException {
         String productBaselinesSql = selectSql(
                 "listProductBaselines",
@@ -93,6 +123,34 @@ class CompetitorAnalysisMapperSqlTest {
                 .contains("$.content.titlecn")
                 .contains("as titlesnapshot")
                 .contains("as titlecnsnapshot");
+    }
+
+    @Test
+    void productListsExposeRecentSevenDayCompetitorChangeCount() throws NoSuchMethodException {
+        String productBaselinesSql = selectSql(
+                "listProductBaselines",
+                Long.class,
+                String.class,
+                String.class,
+                CompetitorWatchProductQuery.class
+        );
+        String watchProductsSql = selectSql(
+                "listWatchProducts",
+                Long.class,
+                java.util.List.class,
+                CompetitorWatchProductQuery.class
+        );
+
+        for (String sql : java.util.List.of(productBaselinesSql, watchProductsSql)) {
+            assertThat(sql)
+                    .contains("count(distinct ce.noon_product_code")
+                    .contains("recent7dchangedcompetitorcount")
+                    .contains("recent7dcompetitorchangecount")
+                    .contains("operations_competitor_product_change_event ce")
+                    .contains("ce.subject_type = 'competitor'")
+                    .contains("ce.fact_date >= date_sub(current_date, interval 6 day)")
+                    .contains("ce.is_deleted = b'0'");
+        }
     }
 
     private static String selectSql(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {

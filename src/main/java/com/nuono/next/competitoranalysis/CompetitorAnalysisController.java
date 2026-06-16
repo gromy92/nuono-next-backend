@@ -57,6 +57,7 @@ public class CompetitorAnalysisController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean confirmedCompetitorCountZero,
             @RequestParam(required = false) Boolean pendingCandidateCountZero,
+            @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize,
             HttpServletRequest request
@@ -70,6 +71,7 @@ public class CompetitorAnalysisController {
                 status,
                 confirmedCompetitorCountZero,
                 pendingCandidateCountZero,
+                sortBy,
                 page,
                 pageSize
         );
@@ -96,6 +98,7 @@ public class CompetitorAnalysisController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Boolean confirmedCompetitorCountZero,
             @RequestParam(required = false) Boolean pendingCandidateCountZero,
+            @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize,
             HttpServletRequest request
@@ -111,6 +114,7 @@ public class CompetitorAnalysisController {
                 status,
                 confirmedCompetitorCountZero,
                 pendingCandidateCountZero,
+                sortBy,
                 page,
                 pageSize
         );

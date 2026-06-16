@@ -114,6 +114,7 @@ class CompetitorAnalysisControllerAccessTest {
                 " active ",
                 true,
                 true,
+                "recent7dChangeCountAsc",
                 2,
                 15,
                 request
@@ -132,6 +133,7 @@ class CompetitorAnalysisControllerAccessTest {
         assertEquals("ACTIVE", query.getStatus());
         assertEquals(true, query.isConfirmedCompetitorCountZero());
         assertEquals(true, query.isPendingCandidateCountZero());
+        assertEquals("RECENT_7D_CHANGE_COUNT_ASC", query.getSortBy());
         assertEquals(2, query.getPage());
         assertEquals(15, query.getPageSize());
     }
