@@ -1,0 +1,61 @@
+CREATE TABLE IF NOT EXISTS `product_public_detail_id_sequence` (
+    `sequence_name` VARCHAR(80) NOT NULL,
+    `next_id` BIGINT NOT NULL,
+    `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`sequence_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `product_public_detail_snapshot` (
+    `id` BIGINT NOT NULL,
+    `owner_user_id` BIGINT NOT NULL,
+    `logical_store_id` BIGINT NOT NULL,
+    `store_code` VARCHAR(100) NOT NULL,
+    `site_code` VARCHAR(20) NOT NULL,
+    `product_master_id` BIGINT NOT NULL,
+    `product_variant_id` BIGINT NOT NULL,
+    `product_site_offer_id` BIGINT NOT NULL,
+    `partner_sku` VARCHAR(100) DEFAULT NULL,
+    `sku_parent` VARCHAR(100) DEFAULT NULL,
+    `noon_product_code` VARCHAR(100) NOT NULL,
+    `code_type` VARCHAR(30) DEFAULT NULL,
+    `source_platform` VARCHAR(30) NOT NULL DEFAULT 'NOON',
+    `title_en` VARCHAR(1000) DEFAULT NULL,
+    `title_ar` VARCHAR(1000) DEFAULT NULL,
+    `brand` VARCHAR(255) DEFAULT NULL,
+    `category_path` VARCHAR(1000) DEFAULT NULL,
+    `price_amount` DECIMAL(14,2) DEFAULT NULL,
+    `currency_code` VARCHAR(10) DEFAULT NULL,
+    `rating` DECIMAL(6,3) DEFAULT NULL,
+    `review_count` INT DEFAULT NULL,
+    `availability_text` VARCHAR(255) DEFAULT NULL,
+    `main_image_url` VARCHAR(1000) DEFAULT NULL,
+    `detail_url` VARCHAR(1000) DEFAULT NULL,
+    `raw_payload_json` LONGTEXT DEFAULT NULL,
+    `snapshot_hash` VARCHAR(128) DEFAULT NULL,
+    `provider_http_status` INT DEFAULT NULL,
+    `provider_source_url` VARCHAR(1000) DEFAULT NULL,
+    `provider_response_hash` VARCHAR(128) DEFAULT NULL,
+    `provider_parser_version` VARCHAR(100) DEFAULT NULL,
+    `sync_status` VARCHAR(30) NOT NULL,
+    `failure_code` VARCHAR(100) DEFAULT NULL,
+    `failure_message` VARCHAR(1000) DEFAULT NULL,
+    `fact_date` DATE NOT NULL,
+    `fetched_at` DATETIME NOT NULL,
+    `is_latest` BIT(1) NOT NULL DEFAULT b'0',
+    `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+    `created_by` BIGINT DEFAULT NULL,
+    `updated_by` BIGINT DEFAULT NULL,
+    `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_product_public_detail_daily` (`product_master_id`, `product_variant_id`, `site_code`, `source_platform`, `fact_date`),
+    KEY `idx_owner_store_site_latest` (`owner_user_id`, `store_code`, `site_code`, `is_latest`, `sync_status`),
+    KEY `idx_product_public_detail_product_latest` (`product_master_id`, `product_variant_id`, `site_code`, `source_platform`, `is_latest`),
+    KEY `idx_product_public_detail_status` (`sync_status`, `fetched_at`),
+    KEY `idx_product_public_detail_code` (`noon_product_code`, `site_code`, `source_platform`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO `product_public_detail_id_sequence` (`sequence_name`, `next_id`, `gmt_create`, `gmt_updated`)
+VALUES ('product_public_detail_snapshot', 300000, NOW(), NOW())
+ON DUPLICATE KEY UPDATE `next_id` = GREATEST(`next_id`, VALUES(`next_id`));
