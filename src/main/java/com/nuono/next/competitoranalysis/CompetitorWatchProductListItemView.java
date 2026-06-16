@@ -10,6 +10,8 @@ public class CompetitorWatchProductListItemView extends CompetitorWatchProductVi
     private List<CompetitorKeywordCountView> activeKeywordStats = List.of();
     private int pendingCandidateCount;
     private int confirmedCompetitorCount;
+    private int recent7dChangedCompetitorCount;
+    private int recent7dCompetitorChangeCount;
 
     public static CompetitorWatchProductListItemView fromRow(CompetitorWatchProductListRow row) {
         CompetitorWatchProductListItemView view = new CompetitorWatchProductListItemView();
@@ -37,6 +39,8 @@ public class CompetitorWatchProductListItemView extends CompetitorWatchProductVi
         view.setActiveKeywordStats(splitActiveKeywordStats(row.getActiveKeywordSummary()));
         view.setPendingCandidateCount(row.getPendingCandidateCount());
         view.setConfirmedCompetitorCount(row.getConfirmedCompetitorCount());
+        view.setRecent7dChangedCompetitorCount(row.getRecent7dChangedCompetitorCount());
+        view.setRecent7dCompetitorChangeCount(row.getRecent7dCompetitorChangeCount());
         return view;
     }
 
@@ -95,4 +99,12 @@ public class CompetitorWatchProductListItemView extends CompetitorWatchProductVi
     public void setPendingCandidateCount(int pendingCandidateCount) { this.pendingCandidateCount = pendingCandidateCount; }
     public int getConfirmedCompetitorCount() { return confirmedCompetitorCount; }
     public void setConfirmedCompetitorCount(int confirmedCompetitorCount) { this.confirmedCompetitorCount = confirmedCompetitorCount; }
+    public int getRecent7dChangedCompetitorCount() { return recent7dChangedCompetitorCount; }
+    public void setRecent7dChangedCompetitorCount(int recent7dChangedCompetitorCount) {
+        this.recent7dChangedCompetitorCount = recent7dChangedCompetitorCount;
+    }
+    public int getRecent7dCompetitorChangeCount() { return recent7dCompetitorChangeCount; }
+    public void setRecent7dCompetitorChangeCount(int recent7dCompetitorChangeCount) {
+        this.recent7dCompetitorChangeCount = recent7dCompetitorChangeCount;
+    }
 }

@@ -37,4 +37,16 @@ class CompetitorWatchProductListItemViewTest {
                         org.assertj.core.groups.Tuple.tuple("HB pencils", 0)
                 );
     }
+
+    @Test
+    void exposesRecentSevenDayCompetitorChangeCount() {
+        CompetitorWatchProductListRow row = new CompetitorWatchProductListRow();
+        row.setRecent7dChangedCompetitorCount(2);
+        row.setRecent7dCompetitorChangeCount(7);
+
+        CompetitorWatchProductListItemView view = CompetitorWatchProductListItemView.fromRow(row);
+
+        assertThat(view.getRecent7dChangedCompetitorCount()).isEqualTo(2);
+        assertThat(view.getRecent7dCompetitorChangeCount()).isEqualTo(7);
+    }
 }
