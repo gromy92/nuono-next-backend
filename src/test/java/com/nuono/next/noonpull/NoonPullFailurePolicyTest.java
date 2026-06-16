@@ -98,14 +98,15 @@ class NoonPullFailurePolicyTest {
     }
 
     @Test
-    void shouldRequireManualActionForInvalidProjectCodeWithoutPausingFutureSchedule() {
+    void shouldDelayInvalidProjectCodeBecauseNoonMayReturnItTransiently() {
         NoonPullFailureDecision decision = policy.decide(NoonPullFailureType.INVALID_PROJECT_CODE, 1);
 
-        assertEquals(NoonPullRetryAction.MANUAL_ACTION, decision.getAction());
-        assertFalse(decision.isRetryable());
-        assertTrue(decision.requiresManualAction());
+        assertEquals(NoonPullRetryAction.DELAY, decision.getAction());
+        assertTrue(decision.isRetryable());
+        assertFalse(decision.requiresManualAction());
         assertFalse(decision.shouldPausePlan());
         assertTrue(decision.getSummary().contains("invalid_project_code"));
+        assertTrue(Duration.between(now(), decision.getNextRetryAt()).toMinutes() >= 5);
     }
 
     private void assertPauseDecision(NoonPullFailureDecision decision) {
