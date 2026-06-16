@@ -7,6 +7,12 @@ public class CompetitorWatchProductQuery {
     private static final int DEFAULT_PAGE = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 100;
+    public static final String SORT_BY_CANDIDATE_COUNT_DESC = "CANDIDATE_COUNT_DESC";
+    public static final String SORT_BY_CANDIDATE_COUNT_ASC = "CANDIDATE_COUNT_ASC";
+    public static final String SORT_BY_MONITORED_COUNT_DESC = "MONITORED_COUNT_DESC";
+    public static final String SORT_BY_MONITORED_COUNT_ASC = "MONITORED_COUNT_ASC";
+    public static final String SORT_BY_RECENT_7D_CHANGE_COUNT_DESC = "RECENT_7D_CHANGE_COUNT_DESC";
+    public static final String SORT_BY_RECENT_7D_CHANGE_COUNT_ASC = "RECENT_7D_CHANGE_COUNT_ASC";
 
     private String storeCode;
     private String siteCode;
@@ -14,6 +20,7 @@ public class CompetitorWatchProductQuery {
     private String keywordSearch;
     private String competitorSearch;
     private String status;
+    private String sortBy;
     private boolean confirmedCompetitorCountZero;
     private boolean pendingCandidateCountZero;
     private int page;
@@ -38,6 +45,7 @@ public class CompetitorWatchProductQuery {
                 status,
                 null,
                 null,
+                null,
                 page,
                 pageSize
         );
@@ -55,6 +63,34 @@ public class CompetitorWatchProductQuery {
             Integer page,
             Integer pageSize
     ) {
+        return fromRequest(
+                storeCode,
+                siteCode,
+                productSearch,
+                keywordSearch,
+                competitorSearch,
+                status,
+                confirmedCompetitorCountZero,
+                pendingCandidateCountZero,
+                null,
+                page,
+                pageSize
+        );
+    }
+
+    public static CompetitorWatchProductQuery fromRequest(
+            String storeCode,
+            String siteCode,
+            String productSearch,
+            String keywordSearch,
+            String competitorSearch,
+            String status,
+            Boolean confirmedCompetitorCountZero,
+            Boolean pendingCandidateCountZero,
+            String sortBy,
+            Integer page,
+            Integer pageSize
+    ) {
         CompetitorWatchProductQuery query = new CompetitorWatchProductQuery();
         query.setStoreCode(upperBlankToNull(storeCode));
         query.setSiteCode(upperBlankToNull(siteCode));
@@ -62,6 +98,7 @@ public class CompetitorWatchProductQuery {
         query.setKeywordSearch(blankToNull(keywordSearch));
         query.setCompetitorSearch(blankToNull(competitorSearch));
         query.setStatus(upperBlankToNull(status));
+        query.setSortBy(normalizeSortBy(sortBy));
         query.setConfirmedCompetitorCountZero(Boolean.TRUE.equals(confirmedCompetitorCountZero));
         query.setPendingCandidateCountZero(Boolean.TRUE.equals(pendingCandidateCountZero));
         query.setPage(page == null || page < 1 ? DEFAULT_PAGE : page);
@@ -92,6 +129,45 @@ public class CompetitorWatchProductQuery {
         return value.trim();
     }
 
+    private static String normalizeSortBy(String value) {
+        String normalized = blankToNull(value);
+        if (normalized == null) {
+            return SORT_BY_CANDIDATE_COUNT_DESC;
+        }
+        String compact = normalized
+                .trim()
+                .replace("-", "")
+                .replace("_", "")
+                .toUpperCase(Locale.ROOT);
+        switch (compact) {
+            case "CANDIDATECOUNTASC":
+            case "PENDINGCANDIDATECOUNTASC":
+                return SORT_BY_CANDIDATE_COUNT_ASC;
+            case "MONITOREDCOUNT":
+            case "MONITOREDCOUNTDESC":
+            case "CONFIRMEDCOMPETITORCOUNT":
+            case "CONFIRMEDCOMPETITORCOUNTDESC":
+                return SORT_BY_MONITORED_COUNT_DESC;
+            case "MONITOREDCOUNTASC":
+            case "CONFIRMEDCOMPETITORCOUNTASC":
+                return SORT_BY_MONITORED_COUNT_ASC;
+            case "RECENT7DCHANGECOUNT":
+            case "RECENT7DCHANGECOUNTDESC":
+            case "RECENT7DCOMPETITORCHANGECOUNT":
+            case "RECENT7DCOMPETITORCHANGECOUNTDESC":
+                return SORT_BY_RECENT_7D_CHANGE_COUNT_DESC;
+            case "RECENT7DCHANGECOUNTASC":
+            case "RECENT7DCOMPETITORCHANGECOUNTASC":
+                return SORT_BY_RECENT_7D_CHANGE_COUNT_ASC;
+            case "CANDIDATECOUNT":
+            case "CANDIDATECOUNTDESC":
+            case "PENDINGCANDIDATECOUNT":
+            case "PENDINGCANDIDATECOUNTDESC":
+            default:
+                return SORT_BY_CANDIDATE_COUNT_DESC;
+        }
+    }
+
     public String getStoreCode() { return storeCode; }
     public void setStoreCode(String storeCode) { this.storeCode = storeCode; }
     public String getSiteCode() { return siteCode; }
@@ -104,6 +180,8 @@ public class CompetitorWatchProductQuery {
     public void setCompetitorSearch(String competitorSearch) { this.competitorSearch = competitorSearch; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getSortBy() { return sortBy; }
+    public void setSortBy(String sortBy) { this.sortBy = sortBy; }
     public boolean isConfirmedCompetitorCountZero() { return confirmedCompetitorCountZero; }
     public void setConfirmedCompetitorCountZero(boolean confirmedCompetitorCountZero) {
         this.confirmedCompetitorCountZero = confirmedCompetitorCountZero;
