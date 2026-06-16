@@ -330,7 +330,7 @@ public class NoonSessionGateway {
                         projectCode,
                         storeCode
                 );
-                persistCookie(ownerUserId, state.exportAuthCookieHeader());
+                persistCookie(ownerUserId, projectCode, state.exportAuthCookieHeader());
                 return state;
             } catch (IllegalStateException exception) {
                 partnerIdentityFailure = exception;
@@ -347,7 +347,7 @@ public class NoonSessionGateway {
                         projectCode,
                         storeCode
                 );
-                persistCookie(ownerUserId, state.exportAuthCookieHeader());
+                persistCookie(ownerUserId, projectCode, state.exportAuthCookieHeader());
                 return state;
             } catch (IllegalStateException exception) {
                 AuthSessionState fallbackState = createChromeFallbackState(
@@ -358,7 +358,7 @@ public class NoonSessionGateway {
                         exception
                 );
                 if (fallbackState != null) {
-                    persistCookie(ownerUserId, fallbackState.exportAuthCookieHeader());
+                    persistCookie(ownerUserId, projectCode, fallbackState.exportAuthCookieHeader());
                     return fallbackState;
                 }
                 signinFailure = exception;
@@ -746,11 +746,11 @@ public class NoonSessionGateway {
         return normalized.length() > 220 ? normalized.substring(0, 220) + "..." : normalized;
     }
 
-    private void persistCookie(Long ownerUserId, String cookieHeader) {
-        if (ownerUserId == null || !StringUtils.hasText(cookieHeader)) {
+    void persistCookie(Long ownerUserId, String projectCode, String cookieHeader) {
+        if (ownerUserId == null || !StringUtils.hasText(projectCode) || !StringUtils.hasText(cookieHeader)) {
             return;
         }
-        storeSyncMapper.updateOwnerSessionCookie(ownerUserId, cookieHeader, ownerUserId);
+        storeSyncMapper.updateProjectSessionCookie(ownerUserId, projectCode, cookieHeader, ownerUserId);
     }
 
     private HttpClient newHttpClient(CookieManager cookieManager) {

@@ -448,11 +448,13 @@ public interface StoreSyncMapper {
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE user_id = #{ownerUserId}",
+            "  AND project_code = #{projectCode}",
             "  AND is_deleted = 0",
             "  AND bind_status = 1"
     })
-    int updateOwnerSessionCookie(
+    int updateProjectSessionCookie(
             @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode,
             @Param("cookie") String cookie,
             @Param("updatedBy") Long updatedBy
     );

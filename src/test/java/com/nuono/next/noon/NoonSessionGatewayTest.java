@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -106,10 +108,34 @@ class NoonSessionGatewayTest {
         }
     }
 
+    @Test
+    void shouldPersistSessionCookieForRequestedProjectOnly() {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        NoonSessionGateway gateway = gateway(mapper, "");
+
+        gateway.persistCookie(308L, "PRJ100085", "sid=project-session");
+
+        verify(mapper).updateProjectSessionCookie(308L, "PRJ100085", "sid=project-session", 308L);
+    }
+
+    @Test
+    void shouldSkipPersistingCookieWhenProjectCodeIsMissing() {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        NoonSessionGateway gateway = gateway(mapper, "");
+
+        gateway.persistCookie(308L, null, "sid=project-session");
+
+        verifyNoInteractions(mapper);
+    }
+
     private NoonSessionGateway gateway(String proxyProviderUrl) {
+        return gateway(mock(StoreSyncMapper.class), proxyProviderUrl);
+    }
+
+    private NoonSessionGateway gateway(StoreSyncMapper storeSyncMapper, String proxyProviderUrl) {
         return new NoonSessionGateway(
                 objectMapper,
-                mock(StoreSyncMapper.class),
+                storeSyncMapper,
                 false,
                 0L,
                 true,

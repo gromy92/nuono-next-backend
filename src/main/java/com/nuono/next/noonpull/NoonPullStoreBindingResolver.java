@@ -61,10 +61,7 @@ public class NoonPullStoreBindingResolver {
                 store.getNoonPartnerPwd(),
                 owner == null ? null : owner.getNoonPartnerPwd()
         );
-        String persistedCookie = firstNonBlank(
-                store.getNoonPartnerCookie(),
-                owner == null ? null : owner.getNoonPartnerCookie()
-        );
+        String persistedCookie = firstNonBlank(store.getNoonPartnerCookie());
 
         requireText(projectCode, "missing Noon projectCode");
         requireText(storeCode, "missing Noon storeCode");
