@@ -13,6 +13,9 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface ProductPublicDetailMapper {
+    String SYNCABLE_SITE_STATUS_CONDITION =
+            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')";
+
     @Insert({
             "INSERT INTO product_public_detail_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -41,7 +44,7 @@ public interface ProductPublicDetailMapper {
             "  AND ls.is_deleted = b'0'",
             "  AND lss.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "LIMIT 1"
     })
@@ -76,7 +79,7 @@ public interface ProductPublicDetailMapper {
             "  AND pv.is_deleted = b'0'",
             "  AND pso.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
@@ -136,7 +139,7 @@ public interface ProductPublicDetailMapper {
             "  AND pv.is_deleted = b'0'",
             "  AND pso.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
@@ -183,7 +186,7 @@ public interface ProductPublicDetailMapper {
             "  AND pv.is_deleted = b'0'",
             "  AND pso.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL"
