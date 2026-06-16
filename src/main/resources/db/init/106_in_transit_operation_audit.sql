@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS `in_transit_operation_audit` (
+    `id` BIGINT NOT NULL,
+    `owner_user_id` BIGINT NOT NULL,
+    `operator_user_id` BIGINT DEFAULT NULL,
+    `operation_type` VARCHAR(80) NOT NULL,
+    `target_type` VARCHAR(80) NOT NULL,
+    `target_id` BIGINT DEFAULT NULL,
+    `batch_id` BIGINT DEFAULT NULL,
+    `store_code` VARCHAR(80) DEFAULT NULL,
+    `site_code` VARCHAR(40) DEFAULT NULL,
+    `summary` VARCHAR(500) DEFAULT NULL,
+    `detail_json` LONGTEXT DEFAULT NULL,
+    `created_by` BIGINT DEFAULT NULL,
+    `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_in_transit_operation_audit_owner_type` (`owner_user_id`, `operation_type`),
+    KEY `idx_in_transit_operation_audit_batch` (`owner_user_id`, `batch_id`),
+    KEY `idx_in_transit_operation_audit_target` (`target_type`, `target_id`),
+    KEY `idx_in_transit_operation_audit_operator` (`operator_user_id`, `gmt_create`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
