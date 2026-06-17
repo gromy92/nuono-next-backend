@@ -142,7 +142,7 @@ class InTransitBatchSchemaContractTest {
     }
 
     @Test
-    void batchMapperSqlSupportsCreatedAtDefaultSorting() throws NoSuchMethodException {
+    void batchMapperSqlSupportsSourceCreatedAtDefaultSorting() throws NoSuchMethodException {
         Method listBatches = InTransitGoodsMapper.class.getMethod(
                 "listBatches",
                 InTransitBatchCommands.InTransitBatchQuery.class
@@ -151,7 +151,7 @@ class InTransitBatchSchemaContractTest {
                 .reduce("", (left, right) -> left + " " + right);
 
         assertTrue(listSql.contains("query.sortField == \"createdAt\""));
-        assertTrue(listSql.contains("ORDER BY batch.gmt_create ${query.sortDirectionSql}, batch.id DESC"));
+        assertTrue(listSql.contains("ORDER BY COALESCE(batch.source_created_at, batch.gmt_create) ${query.sortDirectionSql}, batch.id DESC"));
     }
 
     @Test

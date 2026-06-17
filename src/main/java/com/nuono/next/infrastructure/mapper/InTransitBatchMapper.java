@@ -36,7 +36,7 @@ public interface InTransitBatchMapper extends InTransitGoodsSequenceMapper {
             "ORDER BY batch.gmt_updated ${query.sortDirectionSql}, batch.id DESC",
             "</when>",
             "<when test='query.sortField == \"createdAt\"'>",
-            "ORDER BY batch.gmt_create ${query.sortDirectionSql}, batch.id DESC",
+            "ORDER BY COALESCE(batch.source_created_at, batch.gmt_create) ${query.sortDirectionSql}, batch.id DESC",
             "</when>",
             "<otherwise>",
             "ORDER BY FIELD(batch.batch_status, 'exception', 'in_transit', 'customs_clearance', 'delivering', 'shipped', 'pending_shipment', 'draft', 'warehouse_received', 'completed', 'cancelled'),",
