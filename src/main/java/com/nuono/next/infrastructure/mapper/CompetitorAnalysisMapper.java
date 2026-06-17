@@ -17,6 +17,7 @@ import com.nuono.next.competitoranalysis.CompetitorRankFactInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchRunInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchRunRow;
 import com.nuono.next.competitoranalysis.CompetitorSearchResultInsertCommand;
+import com.nuono.next.competitoranalysis.CompetitorTransientKeywordFailureRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductListRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductQuery;
@@ -709,6 +710,19 @@ public interface CompetitorAnalysisMapper {
             @Param("keywordNorm") String keywordNorm
     );
 
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, keyword, keyword_norm AS keywordNorm, locale,",
+            "  status, display_order AS displayOrder, last_provider_status AS lastProviderStatus,",
+            "  last_succeeded_at AS lastSucceededAt, last_error_code AS lastErrorCode,",
+            "  last_error_message AS lastErrorMessage",
+            "FROM operations_competitor_keyword",
+            "WHERE id = #{keywordId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorKeywordRow selectKeywordById(@Param("keywordId") Long keywordId);
+
     @Insert({
             "INSERT INTO operations_competitor_keyword (",
             "  id, watch_product_id, keyword, keyword_norm, locale, status, display_order,",
@@ -1359,6 +1373,54 @@ public interface CompetitorAnalysisMapper {
             "LIMIT 1"
     })
     CompetitorKeywordRunRow selectLatestSucceededKeywordRunByKeywordId(@Param("keywordId") Long keywordId);
+
+    @Select({
+            "SELECT",
+            "  kr.search_run_id AS searchRunId,",
+            "  sr.watch_product_id AS watchProductId,",
+            "  kr.keyword_id AS keywordId",
+            "FROM operations_competitor_keyword_run kr",
+            "JOIN operations_competitor_search_run sr",
+            "  ON sr.id = kr.search_run_id",
+            " AND sr.is_deleted = b'0'",
+            "JOIN operations_competitor_keyword kw",
+            "  ON kw.id = kr.keyword_id",
+            " AND kw.status = 'ACTIVE'",
+            " AND kw.is_deleted = b'0'",
+            "JOIN operations_competitor_watch_product wp",
+            "  ON wp.id = sr.watch_product_id",
+            " AND wp.status = 'ACTIVE'",
+            " AND wp.is_deleted = b'0'",
+            "WHERE sr.trigger_mode = 'SCHEDULED_RANK_MONITOR'",
+            "  AND sr.status = 'PARTIAL_FAILED'",
+            "  AND sr.started_at >= #{sinceTime}",
+            "  AND kr.provider_status = 'FAILED'",
+            "  AND kr.error_code = 'PROVIDER_UNAVAILABLE'",
+            "  AND kr.is_deleted = b'0'",
+            "  AND NOT EXISTS (",
+            "    SELECT 1",
+            "    FROM operations_competitor_keyword_run newer",
+            "    WHERE newer.search_run_id = kr.search_run_id",
+            "      AND newer.keyword_id = kr.keyword_id",
+            "      AND newer.id > kr.id",
+            "      AND newer.is_deleted = b'0'",
+            "  )",
+            "  AND (",
+            "    SELECT COUNT(*)",
+            "    FROM operations_competitor_keyword_run attempts",
+            "    WHERE attempts.search_run_id = kr.search_run_id",
+            "      AND attempts.keyword_id = kr.keyword_id",
+            "      AND attempts.provider_status = 'FAILED'",
+            "      AND attempts.error_code = 'PROVIDER_UNAVAILABLE'",
+            "      AND attempts.is_deleted = b'0'",
+            "  ) = 1",
+            "ORDER BY kr.id ASC",
+            "LIMIT #{limit}"
+    })
+    List<CompetitorTransientKeywordFailureRow> listRetryableTransientRankKeywordFailures(
+            @Param("sinceTime") LocalDateTime sinceTime,
+            @Param("limit") int limit
+    );
 
     @Select({
             "SELECT",
