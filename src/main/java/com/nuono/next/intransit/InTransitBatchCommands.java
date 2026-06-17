@@ -26,6 +26,11 @@ public final class InTransitBatchCommands {
         private LocalDate etaFrom;
         private LocalDate etaTo;
         private Integer limit;
+        private Integer offset;
+        private Integer page;
+        private Integer pageSize;
+        private String sortField;
+        private String sortDirection;
         private boolean accessScopeRestricted;
         private List<InTransitStoreSiteScope> allowedStoreSites = Collections.emptyList();
 
@@ -131,6 +136,50 @@ public final class InTransitBatchCommands {
 
         public void setLimit(Integer limit) {
             this.limit = limit;
+        }
+
+        public Integer getOffset() {
+            return offset;
+        }
+
+        public void setOffset(Integer offset) {
+            this.offset = offset;
+        }
+
+        public Integer getPage() {
+            return page;
+        }
+
+        public void setPage(Integer page) {
+            this.page = page;
+        }
+
+        public Integer getPageSize() {
+            return pageSize;
+        }
+
+        public void setPageSize(Integer pageSize) {
+            this.pageSize = pageSize;
+        }
+
+        public String getSortField() {
+            return sortField;
+        }
+
+        public void setSortField(String sortField) {
+            this.sortField = sortField;
+        }
+
+        public String getSortDirection() {
+            return sortDirection;
+        }
+
+        public void setSortDirection(String sortDirection) {
+            this.sortDirection = sortDirection;
+        }
+
+        public String getSortDirectionSql() {
+            return "desc".equalsIgnoreCase(sortDirection) ? "DESC" : "ASC";
         }
 
         public boolean isAccessScopeRestricted() {
@@ -359,6 +408,22 @@ public final class InTransitBatchCommands {
 
         public Long getLineId() { return lineId; }
         public void setLineId(Long lineId) { this.lineId = lineId; }
+        public Long getBatchId() { return batchId; }
+        public void setBatchId(Long batchId) { this.batchId = batchId; }
+        public Long getOwnerUserId() { return ownerUserId; }
+        public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
+        public Long getOperatorUserId() { return operatorUserId; }
+        public void setOperatorUserId(Long operatorUserId) { this.operatorUserId = operatorUserId; }
+    }
+
+    public static class DeleteNodeCommand {
+        private Long nodeId;
+        private Long batchId;
+        private Long ownerUserId;
+        private Long operatorUserId;
+
+        public Long getNodeId() { return nodeId; }
+        public void setNodeId(Long nodeId) { this.nodeId = nodeId; }
         public Long getBatchId() { return batchId; }
         public void setBatchId(Long batchId) { this.batchId = batchId; }
         public Long getOwnerUserId() { return ownerUserId; }

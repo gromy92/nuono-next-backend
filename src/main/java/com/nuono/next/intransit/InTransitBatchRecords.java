@@ -32,6 +32,7 @@ public final class InTransitBatchRecords {
         private String targetWarehouseName;
         private LocalDate departureDate;
         private LocalDate etaDate;
+        private LocalDateTime createdAt;
         private LocalDateTime domesticReceivedAt;
         private String trackingNo;
         private String containerNo;
@@ -86,6 +87,8 @@ public final class InTransitBatchRecords {
         public void setDepartureDate(LocalDate departureDate) { this.departureDate = departureDate; }
         public LocalDate getEtaDate() { return etaDate; }
         public void setEtaDate(LocalDate etaDate) { this.etaDate = etaDate; }
+        public LocalDateTime getCreatedAt() { return createdAt; }
+        public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
         public LocalDateTime getDomesticReceivedAt() { return domesticReceivedAt; }
         public void setDomesticReceivedAt(LocalDateTime domesticReceivedAt) { this.domesticReceivedAt = domesticReceivedAt; }
         public String getTrackingNo() { return trackingNo; }
@@ -149,6 +152,7 @@ public final class InTransitBatchRecords {
         private String targetWarehouseName;
         private LocalDate departureDate;
         private LocalDate etaDate;
+        private LocalDateTime createdAt;
         private LocalDateTime domesticReceivedAt;
         private String trackingNo;
         private String containerNo;
@@ -187,6 +191,7 @@ public final class InTransitBatchRecords {
             view.setTargetWarehouseName(row.getTargetWarehouseName());
             view.setDepartureDate(row.getDepartureDate());
             view.setEtaDate(row.getEtaDate());
+            view.setCreatedAt(row.getCreatedAt());
             view.setDomesticReceivedAt(row.getDomesticReceivedAt());
             view.setTrackingNo(row.getTrackingNo());
             view.setContainerNo(row.getContainerNo());
@@ -251,6 +256,8 @@ public final class InTransitBatchRecords {
         public void setDepartureDate(LocalDate departureDate) { this.departureDate = departureDate; }
         public LocalDate getEtaDate() { return etaDate; }
         public void setEtaDate(LocalDate etaDate) { this.etaDate = etaDate; }
+        public LocalDateTime getCreatedAt() { return createdAt; }
+        public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
         public LocalDateTime getDomesticReceivedAt() { return domesticReceivedAt; }
         public void setDomesticReceivedAt(LocalDateTime domesticReceivedAt) { this.domesticReceivedAt = domesticReceivedAt; }
         public String getTrackingNo() { return trackingNo; }
@@ -298,12 +305,21 @@ public final class InTransitBatchRecords {
     public static class BatchListView {
         private String mode = "local-db";
         private boolean ready = true;
+        private Integer totalCount;
+        private Integer page;
+        private Integer pageSize;
         private List<BatchView> items = Collections.emptyList();
 
         public String getMode() { return mode; }
         public void setMode(String mode) { this.mode = mode; }
         public boolean isReady() { return ready; }
         public void setReady(boolean ready) { this.ready = ready; }
+        public Integer getTotalCount() { return totalCount; }
+        public void setTotalCount(Integer totalCount) { this.totalCount = totalCount; }
+        public Integer getPage() { return page; }
+        public void setPage(Integer page) { this.page = page; }
+        public Integer getPageSize() { return pageSize; }
+        public void setPageSize(Integer pageSize) { this.pageSize = pageSize; }
         public List<BatchView> getItems() { return items; }
         public void setItems(List<BatchView> items) { this.items = items; }
     }

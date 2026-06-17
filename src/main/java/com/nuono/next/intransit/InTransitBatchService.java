@@ -2,6 +2,7 @@ package com.nuono.next.intransit;
 
 import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import com.nuono.next.intransit.InTransitBatchCommands.DeleteLineCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.DeleteNodeCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
@@ -35,6 +36,9 @@ import org.springframework.util.StringUtils;
 @Service
 public class InTransitBatchService {
 
+    private static final int DEFAULT_BATCH_LIST_PAGE_SIZE = 20;
+    private static final int MAX_BATCH_LIST_PAGE_SIZE = 100;
+
     private final InTransitGoodsMapper mapper;
     private final InTransitForwarderService forwarderService;
     private final InTransitOperationAuditService auditService;
@@ -61,10 +65,13 @@ public class InTransitBatchService {
         if (StringUtils.hasText(resolved.getTargetStoreCode())) {
             resolved.setTargetStoreCode(InTransitDestination.require(resolved.getTargetStoreCode()).code());
         }
-        if (resolved.getLimit() == null || resolved.getLimit() <= 0 || resolved.getLimit() > 200) {
-            resolved.setLimit(100);
-        }
+        normalizeBatchListPage(resolved);
+        normalizeBatchListSort(resolved);
+        int totalCount = mapper.countBatches(resolved);
         BatchListView view = new BatchListView();
+        view.setTotalCount(totalCount);
+        view.setPage(resolved.getPage());
+        view.setPageSize(resolved.getPageSize());
         view.setItems(mapper.listBatches(resolved).stream()
                 .map(BatchView::from)
                 .collect(Collectors.toList()));
@@ -397,6 +404,35 @@ public class InTransitBatchService {
                 ? LocalDateTime.now()
                 : resolved.getNodeHappenedAt();
 
+        if (resolved.getNodeId() != null) {
+            requireNode(ownerUserId, batchId, resolved.getNodeId());
+            NodeRow row = new NodeRow();
+            row.setId(resolved.getNodeId());
+            row.setOwnerUserId(ownerUserId);
+            row.setBatchId(batchId);
+            row.setNodeStatus(nodeStatus);
+            row.setNodeHappenedAt(nodeHappenedAt);
+            row.setDescription(clean(resolved.getDescription()));
+            row.setOperatorName(clean(resolved.getOperatorName()));
+            row.setUpdatedBy(operatorUserId);
+
+            mapper.updateNode(row);
+            refreshBatchLatestNode(ownerUserId, batchId);
+            audit(
+                    ownerUserId,
+                    operatorUserId,
+                    "logistics_node_updated",
+                    "logistics_node",
+                    row.getId(),
+                    batchId,
+                    batch.getTargetStoreCode(),
+                    batch.getTargetSiteCode(),
+                    "物流节点已更新。",
+                    detail("nodeStatus", row.getNodeStatus(), "nodeHappenedAt", row.getNodeHappenedAt())
+            );
+            return NodeView.from(requireNode(ownerUserId, batchId, row.getId()));
+        }
+
         NodeRow row = new NodeRow();
         row.setId(mapper.nextNodeId());
         row.setOwnerUserId(ownerUserId);
@@ -423,6 +459,31 @@ public class InTransitBatchService {
                 detail("nodeStatus", row.getNodeStatus(), "nodeHappenedAt", row.getNodeHappenedAt())
         );
         return NodeView.from(requireNode(ownerUserId, batchId, row.getId()));
+    }
+
+    public NodeListView deleteNode(DeleteNodeCommand command) {
+        DeleteNodeCommand resolved = command == null ? new DeleteNodeCommand() : command;
+        Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
+        Long batchId = requirePositiveId(resolved.getBatchId(), "在途批次不存在。");
+        Long nodeId = requirePositiveId(resolved.getNodeId(), "物流节点不存在。");
+        BatchRow batch = requireBatch(ownerUserId, batchId);
+        requireNode(ownerUserId, batchId, nodeId);
+
+        mapper.deleteNode(ownerUserId, batchId, nodeId, resolved.getOperatorUserId());
+        refreshBatchLatestNode(ownerUserId, batchId);
+        audit(
+                ownerUserId,
+                resolved.getOperatorUserId(),
+                "logistics_node_deleted",
+                "logistics_node",
+                nodeId,
+                batchId,
+                batch.getTargetStoreCode(),
+                batch.getTargetSiteCode(),
+                "物流节点已删除。",
+                null
+        );
+        return listNodes(ownerUserId, batchId);
     }
 
     private ForwarderResolveView resolveForwarder(Long ownerUserId, SaveBatchCommand command) {
@@ -519,6 +580,41 @@ public class InTransitBatchService {
             throw new IllegalArgumentException("缺少老板账号范围。");
         }
         return ownerUserId;
+    }
+
+    private static void normalizeBatchListPage(InTransitBatchQuery query) {
+        int page = query.getPage() == null || query.getPage() <= 0 ? 1 : query.getPage();
+        int pageSize = query.getPageSize() == null || query.getPageSize() <= 0
+                ? firstPositive(query.getLimit(), DEFAULT_BATCH_LIST_PAGE_SIZE)
+                : query.getPageSize();
+        pageSize = Math.min(pageSize, MAX_BATCH_LIST_PAGE_SIZE);
+        query.setPage(page);
+        query.setPageSize(pageSize);
+        query.setLimit(pageSize);
+        query.setOffset((page - 1) * pageSize);
+    }
+
+    private static int firstPositive(Integer value, int fallback) {
+        return value == null || value <= 0 ? fallback : value;
+    }
+
+    private static void normalizeBatchListSort(InTransitBatchQuery query) {
+        String sortField = clean(query.getSortField());
+        if (!"etaDate".equals(sortField)
+                && !"latestNodeHappenedAt".equals(sortField)
+                && !"gmtUpdated".equals(sortField)
+                && !"createdAt".equals(sortField)) {
+            query.setSortField("createdAt");
+            query.setSortDirection("desc");
+        } else {
+            query.setSortField(sortField);
+            String sortDirection = clean(query.getSortDirection());
+            if (!StringUtils.hasText(sortDirection) && "createdAt".equals(sortField)) {
+                query.setSortDirection("desc");
+            } else {
+                query.setSortDirection("desc".equalsIgnoreCase(sortDirection) ? "desc" : "asc");
+            }
+        }
     }
 
     private BatchRow requireBatch(Long ownerUserId, Long batchId) {
@@ -800,11 +896,11 @@ public class InTransitBatchService {
         return StringUtils.hasText(first) ? first : second;
     }
 
-    private static boolean sameIdentifier(String left, String right) {
-        return StringUtils.hasText(left) && StringUtils.hasText(right) && left.trim().equalsIgnoreCase(right.trim());
-    }
-
     private static <T> T firstValue(T first, T second) {
         return first == null ? second : first;
+    }
+
+    private static boolean sameIdentifier(String left, String right) {
+        return StringUtils.hasText(left) && StringUtils.hasText(right) && left.trim().equalsIgnoreCase(right.trim());
     }
 }

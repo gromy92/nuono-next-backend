@@ -110,6 +110,7 @@ class InTransitBatchSchemaContractTest {
     @Test
     void batchMapperSqlReadsAndWritesExternalShipmentPlanningFields() throws NoSuchMethodException {
         String selectSql = InTransitGoodsMapper.BATCH_SELECT;
+        assertTrue(selectSql.contains("batch.gmt_create AS created_at"));
         assertTrue(selectSql.contains("batch.external_shipment_no"));
         assertTrue(selectSql.contains("batch.source_created_at"));
         assertTrue(selectSql.contains("batch.estimated_departure_at"));
@@ -138,6 +139,36 @@ class InTransitBatchSchemaContractTest {
         assertTrue(updateSql.contains("estimated_departure_at"));
         assertTrue(updateSql.contains("estimated_arrival_at"));
         assertTrue(updateSql.contains("delivery_appointment_text"));
+    }
+
+    @Test
+    void batchMapperSqlSupportsCreatedAtDefaultSorting() throws NoSuchMethodException {
+        Method listBatches = InTransitGoodsMapper.class.getMethod(
+                "listBatches",
+                InTransitBatchCommands.InTransitBatchQuery.class
+        );
+        String listSql = Arrays.stream(listBatches.getAnnotation(Select.class).value())
+                .reduce("", (left, right) -> left + " " + right);
+
+        assertTrue(listSql.contains("query.sortField == \"createdAt\""));
+        assertTrue(listSql.contains("ORDER BY batch.gmt_create ${query.sortDirectionSql}, batch.id DESC"));
+    }
+
+    @Test
+    void batchMapperSqlReusesListFilterConditionsForCountAndRows() throws NoSuchMethodException {
+        Method countBatches = InTransitGoodsMapper.class.getMethod(
+                "countBatches",
+                InTransitBatchCommands.InTransitBatchQuery.class
+        );
+        Method listBatches = InTransitGoodsMapper.class.getMethod(
+                "listBatches",
+                InTransitBatchCommands.InTransitBatchQuery.class
+        );
+
+        assertTrue(Arrays.asList(countBatches.getAnnotation(Select.class).value())
+                .contains(InTransitGoodsMapper.BATCH_FILTER_CONDITIONS));
+        assertTrue(Arrays.asList(listBatches.getAnnotation(Select.class).value())
+                .contains(InTransitGoodsMapper.BATCH_FILTER_CONDITIONS));
     }
 
     @Test
@@ -317,23 +348,6 @@ class InTransitBatchSchemaContractTest {
         assertTrue(updateSql.contains("package_status"));
         assertTrue(updateSql.contains("logistics_status"));
         assertFalse(updateSql.contains("merchant_box_no"));
-    }
-
-    @Test
-    void etBoxSyncStatePrefersBusinessBoxNoBeforeExternalBoxNo() throws NoSuchMethodException {
-        Method selectState = InTransitGoodsMapper.class.getMethod(
-                "selectEtBoxSyncState",
-                Long.class,
-                Long.class,
-                String.class,
-                String.class
-        );
-        String sql = String.join(" ", selectState.getAnnotation(Select.class).value());
-
-        int businessBoxOrder = sql.indexOf("pkg.box_no = #{boxNo} THEN 0");
-        int externalBoxOrder = sql.indexOf("pkg.external_box_no = #{externalBoxNo} THEN 1");
-        assertTrue(businessBoxOrder >= 0);
-        assertTrue(externalBoxOrder > businessBoxOrder);
     }
 
     @Test

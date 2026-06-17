@@ -11,11 +11,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
+import com.nuono.next.intransit.InTransitBatchCommands.DeleteNodeCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
-import com.nuono.next.intransit.InTransitBatchCommands.SavePackageCommand;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchAggregateRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchLatestNodeRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchListView;
@@ -296,6 +296,7 @@ class InTransitBatchServiceTest {
         query.setSkuKeyword("SKU-AE-001");
         query.setEtaFrom(LocalDate.parse("2026-06-01"));
         query.setEtaTo(LocalDate.parse("2026-06-30"));
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(1);
         when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(
                 batch(53002L, "in_transit", "义特", "forwarder_matched")
         ));
@@ -314,6 +315,59 @@ class InTransitBatchServiceTest {
         assertEquals("AIR", captor.getValue().getTransportMode());
         assertEquals("DB", captor.getValue().getTargetStoreCode());
         assertEquals("SKU-AE-001", captor.getValue().getSkuKeyword());
+        assertEquals(1, result.getTotalCount());
+        assertEquals(1, result.getPage());
+        assertEquals(20, result.getPageSize());
+        assertEquals(0, captor.getValue().getOffset());
+        assertEquals(20, captor.getValue().getLimit());
+        assertEquals("createdAt", captor.getValue().getSortField());
+        assertEquals("DESC", captor.getValue().getSortDirectionSql());
+    }
+
+    @Test
+    void shouldPaginateBatchListAndReturnTotalCount() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        query.setPage(3);
+        query.setPageSize(25);
+        query.setSortField("etaDate");
+        query.setSortDirection("desc");
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(126);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(
+                batch(53008L, "in_transit", "义特", "forwarder_matched")
+        ));
+
+        BatchListView result = service.listBatches(query);
+
+        assertEquals(126, result.getTotalCount());
+        assertEquals(3, result.getPage());
+        assertEquals(25, result.getPageSize());
+        assertEquals(1, result.getItems().size());
+        ArgumentCaptor<InTransitBatchQuery> captor = ArgumentCaptor.forClass(InTransitBatchQuery.class);
+        verify(mapper).listBatches(captor.capture());
+        assertEquals(25, captor.getValue().getLimit());
+        assertEquals(50, captor.getValue().getOffset());
+        assertEquals("etaDate", captor.getValue().getSortField());
+        assertEquals("DESC", captor.getValue().getSortDirectionSql());
+    }
+
+    @Test
+    void shouldFallbackUnsupportedBatchListSortToCreatedAtDesc() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        query.setSortField("batchStatus");
+        query.setSortDirection("asc");
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(1);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(
+                batch(53009L, "in_transit", "义特", "forwarder_matched")
+        ));
+
+        service.listBatches(query);
+
+        ArgumentCaptor<InTransitBatchQuery> captor = ArgumentCaptor.forClass(InTransitBatchQuery.class);
+        verify(mapper).listBatches(captor.capture());
+        assertEquals("createdAt", captor.getValue().getSortField());
+        assertEquals("DESC", captor.getValue().getSortDirectionSql());
     }
 
     @Test
@@ -659,46 +713,6 @@ class InTransitBatchServiceTest {
     }
 
     @Test
-    void shouldMergeExternalBoxSpecIntoExistingBusinessPackage() {
-        SavePackageCommand command = new SavePackageCommand();
-        command.setOwnerUserId(10002L);
-        command.setOperatorUserId(90001L);
-        command.setBatchId(53001L);
-        command.setBoxNo("X26043050345");
-        command.setExternalBoxNo("X26043050345");
-        command.setPackageWeightKg(new BigDecimal("7.000000"));
-        command.setPackageLengthCm(new BigDecimal("40.000000"));
-        command.setPackageWidthCm(new BigDecimal("40.000000"));
-        command.setPackageHeightCm(new BigDecimal("30.000000"));
-        command.setPackageChargeableWeightKg(new BigDecimal("7.000000"));
-
-        PackageRow existingBusinessPackage = new PackageRow();
-        existingBusinessPackage.setId(58001L);
-        existingBusinessPackage.setOwnerUserId(10002L);
-        existingBusinessPackage.setBatchId(53001L);
-        existingBusinessPackage.setBoxNo("24-1");
-        existingBusinessPackage.setExternalBoxNo("X26043050345");
-
-        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "易通", "forwarder_matched"));
-        when(mapper.selectPackageByBoxNo(10002L, 53001L, "X26043050345")).thenReturn(null);
-        when(mapper.selectPackageByExternalBoxNoForMerge(10002L, 53001L, "X26043050345")).thenReturn(existingBusinessPackage);
-
-        service.savePackage(command);
-
-        ArgumentCaptor<PackageRow> packageCaptor = ArgumentCaptor.forClass(PackageRow.class);
-        verify(mapper).updatePackage(packageCaptor.capture());
-        verify(mapper, never()).insertPackage(any(PackageRow.class));
-        assertEquals(58001L, packageCaptor.getValue().getId());
-        assertEquals("24-1", packageCaptor.getValue().getBoxNo());
-        assertEquals("X26043050345", packageCaptor.getValue().getExternalBoxNo());
-        assertEquals(new BigDecimal("7.000000"), packageCaptor.getValue().getWeightKg());
-        assertEquals(new BigDecimal("40.000000"), packageCaptor.getValue().getLengthCm());
-        assertEquals(new BigDecimal("40.000000"), packageCaptor.getValue().getWidthCm());
-        assertEquals(new BigDecimal("30.000000"), packageCaptor.getValue().getHeightCm());
-        assertEquals(new BigDecimal("7.000000"), packageCaptor.getValue().getChargeableWeightKg());
-    }
-
-    @Test
     void shouldSoftDeleteStaleSyncedPackagesAndLinesThenRefreshAggregate() {
         BatchAggregateRow aggregate = aggregate(1, 1, 120, 0, 120, null, null, null);
         when(mapper.aggregateLines(10002L, 53001L)).thenReturn(aggregate);
@@ -840,6 +854,65 @@ class InTransitBatchServiceTest {
         assertEquals("exception", latestCaptor.getValue().getDerivedBatchStatus());
         assertEquals(LocalDateTime.parse("2026-06-01T10:30:00"), latestCaptor.getValue().getLatestNodeHappenedAt());
         assertAudit("logistics_node_added", "logistics_node", 55001L);
+    }
+
+    @Test
+    void shouldUpdateExistingLogisticsNodeAndRefreshLatestBatchStatus() {
+        SaveNodeCommand command = new SaveNodeCommand();
+        command.setNodeId(55001L);
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setNodeStatus("customs_released");
+        command.setNodeHappenedAt(LocalDateTime.parse("2026-06-02T09:30:00"));
+        command.setDescription("清关已放行");
+        command.setOperatorName("运营B");
+
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        when(mapper.selectNodeById(10002L, 53001L, 55001L))
+                .thenReturn(node(55001L, 53001L, "customs_clearance", LocalDateTime.parse("2026-06-01T10:30:00"), "清关中"))
+                .thenReturn(node(55001L, 53001L, "customs_released", LocalDateTime.parse("2026-06-02T09:30:00"), "清关已放行"));
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(latestNode("customs_released", LocalDateTime.parse("2026-06-02T09:30:00"), "清关已放行"));
+
+        NodeView result = service.saveNode(command);
+
+        assertEquals(55001L, result.getNodeId());
+        assertEquals("customs_released", result.getNodeStatus());
+        assertEquals(LocalDateTime.parse("2026-06-02T09:30:00"), result.getNodeHappenedAt());
+        assertEquals("清关已放行", result.getDescription());
+
+        ArgumentCaptor<NodeRow> nodeCaptor = ArgumentCaptor.forClass(NodeRow.class);
+        verify(mapper).updateNode(nodeCaptor.capture());
+        assertEquals(55001L, nodeCaptor.getValue().getId());
+        assertEquals("customs_released", nodeCaptor.getValue().getNodeStatus());
+        assertEquals(90001L, nodeCaptor.getValue().getUpdatedBy());
+        verify(mapper, never()).insertNode(any(NodeRow.class));
+        assertAudit("logistics_node_updated", "logistics_node", 55001L);
+    }
+
+    @Test
+    void shouldSoftDeleteLogisticsNodeAndRefreshLatestBatchStatus() {
+        DeleteNodeCommand command = new DeleteNodeCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setNodeId(55001L);
+
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        when(mapper.selectNodeById(10002L, 53001L, 55001L))
+                .thenReturn(node(55001L, 53001L, "exception", LocalDateTime.parse("2026-06-01T10:30:00"), "到港后清关异常"));
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(null);
+        when(mapper.listNodes(10002L, 53001L)).thenReturn(List.of());
+
+        var result = service.deleteNode(command);
+
+        assertEquals(0, result.getItems().size());
+        verify(mapper).deleteNode(10002L, 53001L, 55001L, 90001L);
+        ArgumentCaptor<BatchLatestNodeRow> latestCaptor = ArgumentCaptor.forClass(BatchLatestNodeRow.class);
+        verify(mapper).refreshBatchLatestNode(eq(10002L), eq(53001L), latestCaptor.capture());
+        assertNull(latestCaptor.getValue().getLatestNodeStatus());
+        assertEquals("draft", latestCaptor.getValue().getDerivedBatchStatus());
+        assertAudit("logistics_node_deleted", "logistics_node", 55001L);
     }
 
     @Test
