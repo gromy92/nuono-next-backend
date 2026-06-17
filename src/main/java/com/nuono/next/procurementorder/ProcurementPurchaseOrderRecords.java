@@ -296,6 +296,8 @@ public final class ProcurementPurchaseOrderRecords {
         public String imageUrlCache;
         public String productFulltypeCache;
         public String sourceType;
+        public String fulfillmentType;
+        public String fulfillmentSourceName;
         public Long manualSelectionSourceCollectionId;
         public String sourcingSpecText;
         public String sourcingSizeText;

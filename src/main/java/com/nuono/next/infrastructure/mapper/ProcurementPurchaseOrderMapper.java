@@ -41,6 +41,7 @@ public interface ProcurementPurchaseOrderMapper {
             + "SELECT item.id, item.purchase_order_id, item.owner_user_id, item.logical_store_id, "
             + "item.product_master_id, item.product_variant_id, item.sku_parent, item.partner_sku, item.child_sku, "
             + "item.title_cache, item.image_url_cache, item.source_type, item.manual_selection_source_collection_id, "
+            + "item.fulfillment_type, item.fulfillment_source_name, "
             + "pm.product_fulltype_cache AS productFulltypeCache, "
             + "item.sourcing_spec_text, item.sourcing_size_text, item.sourcing_color_text, "
             + "item.total_quantity, item.site_count, item.collection_status, item.progress_percent, "
@@ -649,15 +650,30 @@ public interface ProcurementPurchaseOrderMapper {
     @Insert({
             "INSERT INTO procurement_purchase_order_item (",
             "id, purchase_order_id, owner_user_id, logical_store_id, product_master_id, product_variant_id,",
-            "sku_parent, partner_sku, child_sku, title_cache, image_url_cache, source_type, total_quantity, site_count,",
+            "sku_parent, partner_sku, child_sku, title_cache, image_url_cache, source_type, fulfillment_type, fulfillment_source_name, total_quantity, site_count,",
             "collection_status, progress_percent, candidate_count, recommended_count, is_deleted, created_by, updated_by,",
             "gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.purchaseOrderId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.productMasterId}, #{row.productVariantId},",
-            "#{row.skuParent}, #{row.partnerSku}, #{row.childSku}, #{row.titleCache}, #{row.imageUrlCache}, #{row.sourceType}, 0, 0,",
+            "#{row.skuParent}, #{row.partnerSku}, #{row.childSku}, #{row.titleCache}, #{row.imageUrlCache}, #{row.sourceType}, #{row.fulfillmentType}, #{row.fulfillmentSourceName}, 0, 0,",
             "'NOT_STARTED', 0, 0, 0, b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertItem(@Param("row") PurchaseOrderItemRecord row);
+
+    @Update({
+            "UPDATE procurement_purchase_order_item",
+            "SET fulfillment_type = #{fulfillmentType},",
+            "    fulfillment_source_name = #{fulfillmentSourceName},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{itemId} AND is_deleted = b'0'"
+    })
+    int updateItemFulfillment(
+            @Param("itemId") Long itemId,
+            @Param("fulfillmentType") String fulfillmentType,
+            @Param("fulfillmentSourceName") String fulfillmentSourceName,
+            @Param("updatedBy") Long updatedBy
+    );
 
     @Insert({
             "INSERT INTO procurement_purchase_order_item_site (",

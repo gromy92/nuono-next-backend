@@ -1,6 +1,7 @@
 package com.nuono.next.procurementorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -14,6 +15,7 @@ import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.AddItemsCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.CreateOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.ItemCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.SiteQuantityCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateItemCommand;
@@ -31,6 +33,7 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductOf
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.StoreScopeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.StoreSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderAli1688HistoryView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsPlanView;
@@ -174,6 +177,87 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         verify(mapper).updateOrderSiteCodes(200001L, "[\"SA\",\"AE\"]", 307L);
         verify(mapper).recalculateItemAggregates(210002L, 307L);
         verify(mapper).recalculateOrderAggregates(200001L, 307L);
+    }
+
+    @Test
+    void addItemsRejectsSameProductSameSiteAlreadyInOrder() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderItemRecord existingItem = item();
+        existingItem.productVariantId = 320002L;
+        existingItem.partnerSku = "SGGRB116";
+
+        AddItemsCommand command = new AddItemsCommand();
+        ItemCommand itemCommand = new ItemCommand();
+        itemCommand.psku = "SGGRB116";
+        itemCommand.site = "AE";
+        itemCommand.transportMode = "SEA";
+        itemCommand.quantity = 5;
+        command.items = List.of(itemCommand);
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow(210001L, "SGGRB116", "AE", "AIR", 20)));
+        when(mapper.listStoreSites(301L)).thenReturn(List.of(storeSite(30002L, "AE", "STR69486-NAE")));
+        when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
+        when(mapper.selectItemByVariant(200001L, 320002L)).thenReturn(existingItem);
+
+        assertThatThrownBy(() -> service.addItems(access(), "200001", command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不能重复添加相同商品相同站点");
+    }
+
+    @Test
+    void createOrderPersistsAndReturnsFactoryDirectFulfillment() {
+        CreateOrderCommand command = new CreateOrderCommand();
+        command.storeCode = "STR69486-NSA";
+        command.title = "SGGR-货代直发";
+        ItemCommand itemCommand = new ItemCommand();
+        itemCommand.psku = "SGGRB116";
+        itemCommand.site = "AE";
+        itemCommand.transportMode = "AIR";
+        itemCommand.quantity = 20;
+        itemCommand.fulfillmentType = "FACTORY_DIRECT";
+        itemCommand.fulfillmentSourceName = "义乌厂家";
+        command.items = List.of(itemCommand);
+
+        StoreScopeRecord scope = storeScope();
+        PurchaseOrderRecord savedOrder = order("SGGR-货代直发", null);
+        savedOrder.id = 200002L;
+        savedOrder.orderNo = "PO-200002";
+        savedOrder.status = "DRAFT";
+        savedOrder.siteCodesJson = "[\"AE\"]";
+        PurchaseOrderItemRecord savedItem = item();
+        savedItem.id = 210002L;
+        savedItem.purchaseOrderId = 200002L;
+        savedItem.productMasterId = 310002L;
+        savedItem.productVariantId = 320002L;
+        savedItem.partnerSku = "SGGRB116";
+        savedItem.fulfillmentType = "FACTORY_DIRECT";
+        savedItem.fulfillmentSourceName = "义乌厂家";
+        PurchaseOrderItemSiteRecord savedSite = siteRow(210002L, "SGGRB116", "AE", "AIR", 20);
+        savedSite.purchaseOrderId = 200002L;
+
+        when(mapper.selectStoreScope(307L, "STR69486-NSA")).thenReturn(scope);
+        when(mapper.listStoreSites(301L)).thenReturn(List.of(storeSite(30002L, "AE", "STR69486-NAE")));
+        when(mapper.nextOrderId()).thenReturn(200002L);
+        when(mapper.selectOrderById(200002L)).thenReturn(savedOrder, savedOrder);
+        when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
+        when(mapper.selectItemByVariant(200002L, 320002L)).thenReturn(null);
+        when(mapper.nextItemId()).thenReturn(210002L);
+        when(mapper.selectProductOffer(301L, 320002L, "AE")).thenReturn(offer());
+        when(mapper.nextItemSiteId()).thenReturn(220002L);
+        when(mapper.listItemSitesByOrder(200002L)).thenReturn(List.of(savedSite));
+        when(mapper.listItemsByOrder(200002L)).thenReturn(List.of(savedItem));
+
+        PurchaseOrderView view = service.createOrder(access(), command);
+
+        ArgumentCaptor<PurchaseOrderItemRecord> itemCaptor = ArgumentCaptor.forClass(PurchaseOrderItemRecord.class);
+        verify(mapper).insertItem(itemCaptor.capture());
+        assertThat(itemCaptor.getValue().fulfillmentType).isEqualTo("FACTORY_DIRECT");
+        assertThat(itemCaptor.getValue().fulfillmentSourceName).isEqualTo("义乌厂家");
+        assertThat(view.items).hasSize(1);
+        assertThat(view.items.get(0).fulfillmentType).isEqualTo("FACTORY_DIRECT");
+        assertThat(view.items.get(0).fulfillmentTypeLabel).isEqualTo("货到货代");
+        assertThat(view.items.get(0).fulfillmentSourceName).isEqualTo("义乌厂家");
     }
 
     @Test
@@ -647,6 +731,17 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 .storeCodes(Set.of("STR69486-NSA"))
                 .storeOwnerUserIds(Map.of("STR69486-NSA", 307L))
                 .build();
+    }
+
+    private StoreScopeRecord storeScope() {
+        StoreScopeRecord record = new StoreScopeRecord();
+        record.ownerUserId = 307L;
+        record.logicalStoreId = 301L;
+        record.projectCode = "PRJ69486";
+        record.projectName = "SGGR";
+        record.anchorStoreCode = "STR69486-NSA";
+        record.anchorSite = "SA";
+        return record;
     }
 
     private PurchaseOrderRecord order(String title, String remark) {

@@ -3,7 +3,9 @@ package com.nuono.next.procurementorder;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import java.lang.reflect.Method;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,22 @@ class ProcurementPurchaseOrderMapperSqlTest {
 
         assertThat(sql).contains("ORDER BY po.gmt_create DESC, po.id DESC");
         assertThat(sql).doesNotContain("ORDER BY po.gmt_updated DESC");
+    }
+
+    @Test
+    void insertItemPersistsPurchaseOrderFulfillmentFields() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "insertItem",
+                PurchaseOrderItemRecord.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Insert.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("fulfillment_type");
+        assertThat(sql).contains("fulfillment_source_name");
+        assertThat(sql).contains("#{row.fulfillmentType}");
+        assertThat(sql).contains("#{row.fulfillmentSourceName}");
     }
 
     @Test

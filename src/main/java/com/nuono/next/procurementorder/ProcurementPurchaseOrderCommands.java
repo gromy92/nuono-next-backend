@@ -39,6 +39,8 @@ public final class ProcurementPurchaseOrderCommands {
         public String site;
         public String transportMode;
         public Integer quantity;
+        public String fulfillmentType;
+        public String fulfillmentSourceName;
         public List<SiteQuantityCommand> siteQuantities = new ArrayList<>();
     }
 

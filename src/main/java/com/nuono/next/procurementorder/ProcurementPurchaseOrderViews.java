@@ -204,6 +204,9 @@ public final class ProcurementPurchaseOrderViews {
         public String sourcingSpec;
         public String sourcingSize;
         public String sourcingColor;
+        public String fulfillmentType;
+        public String fulfillmentTypeLabel;
+        public String fulfillmentSourceName;
         public Integer totalQuantity;
         public List<SiteAllocationView> allocations = new ArrayList<>();
         public String collectionStatus;

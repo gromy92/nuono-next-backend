@@ -75,6 +75,8 @@ public class LocalDbProcurementPurchaseOrderService {
     private static final String TRANSPORT_EXPRESS = "EXPRESS";
     private static final String TRANSPORT_SEA = "SEA";
     private static final String TRANSPORT_UNSPECIFIED = "UNSPECIFIED";
+    private static final String FULFILLMENT_WAREHOUSE_RECEIPT = "WAREHOUSE_RECEIPT";
+    private static final String FULFILLMENT_FACTORY_DIRECT = "FACTORY_DIRECT";
     private static final BigDecimal CUBIC_CM_PER_CBM = new BigDecimal("1000000");
     private static final BigDecimal GRAMS_PER_KG = new BigDecimal("1000");
     private static final BigDecimal DEFAULT_AIR_VOLUME_DIVISOR = new BigDecimal("6000");
@@ -228,6 +230,18 @@ public class LocalDbProcurementPurchaseOrderService {
         LinkedHashSet<String> nextOrderSiteCodes = new LinkedHashSet<>(readStringList(order.siteCodesJson));
         Long operatorUserId = access.getSessionUserId();
         String beforeStatus = dbStatus(item);
+        String requestedFulfillmentType = normalizeOptionalFulfillmentType(command.fulfillmentType);
+        if (requestedFulfillmentType != null || command.fulfillmentSourceName != null) {
+            String nextFulfillmentType = requestedFulfillmentType == null
+                    ? normalizeFulfillmentType(item.fulfillmentType)
+                    : requestedFulfillmentType;
+            String nextFulfillmentSourceName = command.fulfillmentSourceName == null
+                    ? trimToNull(item.fulfillmentSourceName)
+                    : trimToNull(command.fulfillmentSourceName);
+            mapper.updateItemFulfillment(item.id, nextFulfillmentType, nextFulfillmentSourceName, operatorUserId);
+            item.fulfillmentType = nextFulfillmentType;
+            item.fulfillmentSourceName = nextFulfillmentSourceName;
+        }
         mapper.softDeleteItemSitesByItem(parsedItemId, operatorUserId);
         for (SiteTransportQuantity allocation : allocations) {
             String siteCode = normalizeSiteCode(allocation.siteCode);
@@ -946,16 +960,22 @@ public class LocalDbProcurementPurchaseOrderService {
             return;
         }
         Map<String, StoreSiteRecord> availableStoreSites = storeSitesByCode(order.logicalStoreId);
+        Map<Long, Set<String>> existingSitesByItemId = existingSitesByItemId(order.id);
+        Map<Long, Set<String>> pendingSitesByVariantId = new LinkedHashMap<>();
         LinkedHashSet<String> nextOrderSiteCodes = new LinkedHashSet<>(readStringList(order.siteCodesJson));
         for (ItemCommand itemCommand : itemCommands) {
             String psku = requiredText(itemCommand == null ? null : itemCommand.psku, "请选择 PSKU。");
+            String requestedFulfillmentType = normalizeOptionalFulfillmentType(itemCommand == null ? null : itemCommand.fulfillmentType);
+            String fulfillmentSourceName = trimToNull(itemCommand == null ? null : itemCommand.fulfillmentSourceName);
             ProductArchiveRecord product = resolveProduct(order.logicalStoreId, psku);
             List<SiteTransportQuantity> allocations = normalizeSiteTransportQuantities(itemCommand);
             if (allocations.isEmpty()) {
                 throw new IllegalArgumentException("请填写 " + psku + " 的站点和数量。");
             }
+            ensureNoDuplicateSitesInAllocations(psku, allocations);
 
             PurchaseOrderItemRecord item = mapper.selectItemByVariant(order.id, product.productVariantId);
+            boolean itemAlreadyExisted = item != null;
             if (item == null) {
                 item = new PurchaseOrderItemRecord();
                 item.id = mapper.nextItemId();
@@ -970,15 +990,37 @@ public class LocalDbProcurementPurchaseOrderService {
                 item.titleCache = defaultText(product.title, product.partnerSku);
                 item.imageUrlCache = NoonImageUrlNormalizer.normalize(product.imageUrl);
                 item.sourceType = "STORE_ARCHIVE";
+                item.fulfillmentType = requestedFulfillmentType == null
+                        ? FULFILLMENT_WAREHOUSE_RECEIPT
+                        : requestedFulfillmentType;
+                item.fulfillmentSourceName = fulfillmentSourceName;
                 item.createdBy = operatorUserId;
                 item.updatedBy = operatorUserId;
                 mapper.insertItem(item);
+            } else if (
+                    requestedFulfillmentType != null
+                            && !normalizeFulfillmentType(item.fulfillmentType).equals(requestedFulfillmentType)
+            ) {
+                throw new IllegalArgumentException(psku + " 已在采购单中选择 "
+                        + fulfillmentTypeLabel(item.fulfillmentType)
+                        + "，同一采购单商品只能选择一种到货方式。");
             }
 
+            Set<String> existingSites = itemAlreadyExisted
+                    ? existingSitesByItemId.getOrDefault(item.id, Collections.emptySet())
+                    : Collections.emptySet();
+            Set<String> pendingSites = pendingSitesByVariantId.computeIfAbsent(
+                    product.productVariantId,
+                    ignored -> new LinkedHashSet<>()
+            );
             for (SiteTransportQuantity allocation : allocations) {
                 String siteCode = normalizeSiteCode(allocation.siteCode);
                 if (!availableStoreSites.containsKey(siteCode)) {
                     throw new IllegalArgumentException("站点 " + siteCode + " 不属于当前店铺。");
+                }
+                if (existingSites.contains(siteCode) || pendingSites.contains(siteCode)) {
+                    throw new IllegalArgumentException(psku + " 已在站点 " + siteCode
+                            + " 加入采购单，不能重复添加相同商品相同站点。");
                 }
                 nextOrderSiteCodes.add(siteCode);
                 ProductOfferRecord offer = mapper.selectProductOffer(order.logicalStoreId, product.productVariantId, siteCode);
@@ -1001,11 +1043,45 @@ public class LocalDbProcurementPurchaseOrderService {
                 site.createdBy = operatorUserId;
                 site.updatedBy = operatorUserId;
                 mapper.upsertItemSite(site);
+                pendingSites.add(siteCode);
             }
             mapper.recalculateItemAggregates(item.id, operatorUserId);
             log(order.id, item.id, "UPSERT_ITEM", operatorUserId, null, null, psku);
         }
         persistOrderSiteCodesIfChanged(order, nextOrderSiteCodes, operatorUserId);
+    }
+
+    private Map<Long, Set<String>> existingSitesByItemId(Long orderId) {
+        List<PurchaseOrderItemSiteRecord> sites = mapper.listItemSitesByOrder(orderId);
+        if (sites == null || sites.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Long, Set<String>> result = new LinkedHashMap<>();
+        for (PurchaseOrderItemSiteRecord site : sites) {
+            if (site == null || site.purchaseOrderItemId == null) {
+                continue;
+            }
+            String siteCode = normalizeSiteCode(site.siteCode);
+            if (!StringUtils.hasText(siteCode)) {
+                continue;
+            }
+            result.computeIfAbsent(site.purchaseOrderItemId, ignored -> new LinkedHashSet<>()).add(siteCode);
+        }
+        return result;
+    }
+
+    private void ensureNoDuplicateSitesInAllocations(String psku, List<SiteTransportQuantity> allocations) {
+        Set<String> seenSites = new LinkedHashSet<>();
+        for (SiteTransportQuantity allocation : allocations) {
+            String siteCode = normalizeSiteCode(allocation == null ? null : allocation.siteCode);
+            if (!StringUtils.hasText(siteCode)) {
+                continue;
+            }
+            if (!seenSites.add(siteCode)) {
+                throw new IllegalArgumentException(psku + " 在站点 " + siteCode
+                        + " 重复填写，不能重复添加相同商品相同站点。");
+            }
+        }
     }
 
     private void collectItemInternal(
@@ -1147,6 +1223,9 @@ public class LocalDbProcurementPurchaseOrderService {
         view.sourcingSpec = item.sourcingSpecText;
         view.sourcingSize = item.sourcingSizeText;
         view.sourcingColor = item.sourcingColorText;
+        view.fulfillmentType = normalizeFulfillmentType(item.fulfillmentType);
+        view.fulfillmentTypeLabel = fulfillmentTypeLabel(view.fulfillmentType);
+        view.fulfillmentSourceName = trimToNull(item.fulfillmentSourceName);
         view.totalQuantity = nonNull(item.totalQuantity);
         view.collectionStatus = toViewItemStatus(dbStatus(item));
         view.progress = nonNull(firstNonNull(item.aliProgressPercent, item.progressPercent));
@@ -2159,6 +2238,48 @@ public class LocalDbProcurementPurchaseOrderService {
 
     private String normalizeSiteCode(String value) {
         return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";
+    }
+
+    private String normalizeOptionalFulfillmentType(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        return normalizeFulfillmentType(value);
+    }
+
+    private String normalizeFulfillmentType(String value) {
+        String text = trim(value);
+        if (!StringUtils.hasText(text)) {
+            return FULFILLMENT_WAREHOUSE_RECEIPT;
+        }
+        String upper = text.toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        if (FULFILLMENT_WAREHOUSE_RECEIPT.equals(upper)
+                || "WAREHOUSE".equals(upper)
+                || "WAREHOUSE_RECEIVING".equals(upper)
+                || "货到仓库".equals(text)
+                || "到仓".equals(text)
+                || "仓库".equals(text)
+                || "入仓".equals(text)) {
+            return FULFILLMENT_WAREHOUSE_RECEIPT;
+        }
+        if (FULFILLMENT_FACTORY_DIRECT.equals(upper)
+                || "FACTORY".equals(upper)
+                || "FORWARDER".equals(upper)
+                || "FORWARDER_RECEIPT".equals(upper)
+                || "货到货代".equals(text)
+                || "货代".equals(text)
+                || "厂家".equals(text)
+                || "厂家直发".equals(text)
+                || "直发货代".equals(text)) {
+            return FULFILLMENT_FACTORY_DIRECT;
+        }
+        throw new IllegalArgumentException("不支持的到货方式：" + text);
+    }
+
+    private String fulfillmentTypeLabel(String fulfillmentType) {
+        return FULFILLMENT_FACTORY_DIRECT.equals(normalizeFulfillmentType(fulfillmentType))
+                ? "货到货代"
+                : "货到仓库";
     }
 
     private String requiredText(String value, String message) {
