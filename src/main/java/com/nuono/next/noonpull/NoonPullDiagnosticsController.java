@@ -110,7 +110,43 @@ public class NoonPullDiagnosticsController {
         view.setLatestFailureAt(record.getLatestFailureAt());
         view.setLatestFailureType(record.getLatestFailureType());
         view.setNextRetryAt(record.getNextRetryAt());
+        boolean retryPending = retryPending(record);
+        view.setRetryPending(retryPending);
+        view.setEffectiveNextRetryAt(retryPending ? record.getNextRetryAt() : null);
+        view.setOperationalState(operationalState(record, retryPending));
         return view;
+    }
+
+    private boolean retryPending(NoonPullPlanRecord record) {
+        return record.getNextRetryAt() != null
+                && record.isEnabled()
+                && !record.isPaused()
+                && !hasRecoveredAfterFailure(record);
+    }
+
+    private String operationalState(NoonPullPlanRecord record, boolean retryPending) {
+        if (!record.isEnabled()) {
+            return "DISABLED";
+        }
+        if (record.isPaused()) {
+            return "PAUSED";
+        }
+        if (retryPending) {
+            return "WAITING_RETRY";
+        }
+        if (record.getLatestSuccessAt() != null) {
+            return "HEALTHY";
+        }
+        if (record.getLatestFailureAt() != null) {
+            return "NEEDS_ATTENTION";
+        }
+        return "ACTIVE";
+    }
+
+    private boolean hasRecoveredAfterFailure(NoonPullPlanRecord record) {
+        return record.getLatestSuccessAt() != null
+                && record.getLatestFailureAt() != null
+                && !record.getLatestSuccessAt().isBefore(record.getLatestFailureAt());
     }
 
     private NoonPullDiagnosticsView.TaskView taskView(NoonPullTaskRecord record) {

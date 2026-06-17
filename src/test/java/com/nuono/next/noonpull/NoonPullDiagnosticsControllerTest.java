@@ -67,6 +67,27 @@ class NoonPullDiagnosticsControllerTest {
     }
 
     @Test
+    void shouldClassifyRecoveredPlanAsHealthyEvenWhenOldRetryTimestampRemains() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        NoonPullPlanRecord recovered = plan();
+        recovered.setLatestFailureAt(LocalDateTime.of(2026, 5, 22, 12, 0));
+        recovered.setLatestFailureType("timeout");
+        recovered.setNextRetryAt(LocalDateTime.of(2026, 5, 22, 18, 0));
+        recovered.setLatestSuccessAt(LocalDateTime.of(2026, 5, 22, 13, 0));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(10001L, 1L, 0));
+        when(service.listPlans()).thenReturn(List.of(recovered));
+        when(service.listTasks()).thenReturn(List.of());
+
+        NoonPullDiagnosticsView view = controller.overview(request);
+
+        NoonPullDiagnosticsView.PlanView planView = view.getPlans().get(0);
+        assertEquals("HEALTHY", planView.getOperationalState());
+        assertEquals(false, planView.isRetryPending());
+        assertNull(planView.getEffectiveNextRetryAt());
+    }
+
+    @Test
     void shouldExposeRecentSmokeRunsForSystemAdmin() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(serviceProvider.getIfAvailable()).thenReturn(service);

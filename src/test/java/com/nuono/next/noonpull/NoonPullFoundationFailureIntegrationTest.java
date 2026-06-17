@@ -3,6 +3,7 @@ package com.nuono.next.noonpull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
@@ -87,6 +88,25 @@ class NoonPullFoundationFailureIntegrationTest {
         assertNotNull(updatedPlan.getNextRetryAt());
         assertTrue(sameTarget.isPresent());
         assertTrue(nextTarget.isPresent());
+    }
+
+    @Test
+    void shouldClearRetryScheduleWhenLaterTaskSucceeds() {
+        NoonPullPlanRecord plan = service.createPlan(salesDailyPlan());
+        NoonPullTaskRecord task = service.createTaskForPlan(plan.getId(), salesDailyTask("sales:2026-05-21", 21))
+                .orElseThrow();
+        service.markFailedWithPolicy(task.getId(), "report not ready", 1);
+        assertNotNull(repository.selectPlan(plan.getId()).getNextRetryAt());
+
+        NoonPullTaskRecord retry = service.createTaskForPlan(plan.getId(), salesDailyTask("sales:2026-05-21", 21))
+                .orElseThrow();
+        service.markSucceeded(retry.getId(), "batch-sales-2026-05-21", "imported=12");
+
+        NoonPullPlanRecord updatedPlan = repository.selectPlan(plan.getId());
+        assertNotNull(updatedPlan.getLatestFailureAt());
+        assertEquals("report_not_ready", updatedPlan.getLatestFailureType());
+        assertNotNull(updatedPlan.getLatestSuccessAt());
+        assertNull(updatedPlan.getNextRetryAt());
     }
 
     private NoonPullPlanDraft productPlan() {

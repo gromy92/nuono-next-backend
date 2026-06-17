@@ -186,6 +186,9 @@ public class NoonPullDiagnosticsView {
         private LocalDateTime latestFailureAt;
         private String latestFailureType;
         private LocalDateTime nextRetryAt;
+        private LocalDateTime effectiveNextRetryAt;
+        private boolean retryPending;
+        private String operationalState;
 
         public Long getId() {
             return id;
@@ -297,6 +300,30 @@ public class NoonPullDiagnosticsView {
 
         public void setNextRetryAt(LocalDateTime nextRetryAt) {
             this.nextRetryAt = nextRetryAt;
+        }
+
+        public LocalDateTime getEffectiveNextRetryAt() {
+            return effectiveNextRetryAt;
+        }
+
+        public void setEffectiveNextRetryAt(LocalDateTime effectiveNextRetryAt) {
+            this.effectiveNextRetryAt = effectiveNextRetryAt;
+        }
+
+        public boolean isRetryPending() {
+            return retryPending;
+        }
+
+        public void setRetryPending(boolean retryPending) {
+            this.retryPending = retryPending;
+        }
+
+        public String getOperationalState() {
+            return operationalState;
+        }
+
+        public void setOperationalState(String operationalState) {
+            this.operationalState = operationalState;
         }
     }
 

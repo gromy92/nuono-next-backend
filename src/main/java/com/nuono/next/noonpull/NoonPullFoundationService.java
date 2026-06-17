@@ -147,6 +147,7 @@ public class NoonPullFoundationService {
 
         NoonPullPlanRecord plan = requirePlan(task.getPlanId());
         plan.setLatestSuccessAt(now);
+        plan.setNextRetryAt(null);
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
         return task.copy();
