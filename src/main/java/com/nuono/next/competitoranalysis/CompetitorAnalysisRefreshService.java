@@ -9,6 +9,7 @@ import com.nuono.next.system.task.OperationalTaskService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.slf4j.Logger;
@@ -40,6 +41,7 @@ public class CompetitorAnalysisRefreshService {
     private static final int STORE_MONITOR_PRODUCT_LIMIT = 500;
     private static final int STALE_RECOVERY_LIMIT = 1000;
     private static final int MAX_ERROR_MESSAGE_LENGTH = 1024;
+    private static final String PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
@@ -428,6 +430,9 @@ public class CompetitorAnalysisRefreshService {
                     ? mapper.listActiveKeywordsByWatchProductId(watchProductId)
                     : List.of();
             int total = keywords.size();
+            List<KeywordRetryCandidate> retryCandidates = new ArrayList<>();
+            int keywordRetried = 0;
+            int keywordRetryRecovered = 0;
             for (CompetitorKeywordRow keyword : keywords) {
                 CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(runId, watchProduct, keyword, actorUserId);
                 if (result.isSuccess()) {
@@ -436,10 +441,40 @@ public class CompetitorAnalysisRefreshService {
                     rankFactWrittenCount += result.getRankFactWrittenCount();
                 } else {
                     failed++;
-                    firstErrorCode = firstNonBlank(firstErrorCode, result.getErrorCode());
-                    firstErrorMessage = firstNonBlank(firstErrorMessage, result.getErrorMessage());
+                    if (shouldRetryTransientKeywordFailure(safeMode, result)) {
+                        retryCandidates.add(new KeywordRetryCandidate(keyword, result));
+                    } else {
+                        firstErrorCode = firstNonBlank(firstErrorCode, result.getErrorCode());
+                        firstErrorMessage = firstNonBlank(firstErrorMessage, result.getErrorMessage());
+                    }
                 }
                 updateProgress(taskId, total, success + failed);
+            }
+
+            for (KeywordRetryCandidate retryCandidate : retryCandidates) {
+                keywordRetried++;
+                CompetitorKeywordRefreshResult retryResult = keywordRefreshRunner.runKeyword(
+                        runId,
+                        watchProduct,
+                        retryCandidate.keyword,
+                        actorUserId
+                );
+                if (retryResult.isSuccess()) {
+                    failed--;
+                    success++;
+                    keywordRetryRecovered++;
+                    candidateUpsertedCount += retryResult.getCandidateUpsertedCount();
+                    rankFactWrittenCount += retryResult.getRankFactWrittenCount();
+                    continue;
+                }
+                firstErrorCode = firstNonBlank(
+                        firstErrorCode,
+                        firstNonBlank(retryResult.getErrorCode(), retryCandidate.firstFailure.getErrorCode())
+                );
+                firstErrorMessage = firstNonBlank(
+                        firstErrorMessage,
+                        firstNonBlank(retryResult.getErrorMessage(), retryCandidate.firstFailure.getErrorMessage())
+                );
             }
 
             String status = resolveRunStatus(success, failed);
@@ -459,7 +494,11 @@ public class CompetitorAnalysisRefreshService {
             if ("FAILED".equals(status)) {
                 operationalTaskService.fail(taskId, firstNonBlank(firstErrorCode, "REFRESH_FAILED"), message);
             } else {
-                operationalTaskService.complete(taskId, resultJson(safeMode, status, success, failed), message);
+                operationalTaskService.complete(
+                        taskId,
+                        resultJson(safeMode, status, success, failed, keywordRetried, keywordRetryRecovered),
+                        message
+                );
             }
         } catch (RuntimeException exception) {
             String message = truncateMessage(firstNonBlank(exception.getMessage(), FAILED_MESSAGE));
@@ -652,7 +691,14 @@ public class CompetitorAnalysisRefreshService {
                 + "}";
     }
 
-    private String resultJson(RefreshExecutionMode executionMode, String status, int success, int failed) {
+    private String resultJson(
+            RefreshExecutionMode executionMode,
+            String status,
+            int success,
+            int failed,
+            int keywordRetried,
+            int keywordRetryRecovered
+    ) {
         RefreshExecutionMode safeMode = executionMode == null ? RefreshExecutionMode.FULL_MANUAL : executionMode;
         return "{"
                 + "\"status\":\"" + status + "\""
@@ -662,6 +708,8 @@ public class CompetitorAnalysisRefreshService {
                 + ",\"detailRefresh\":" + safeMode.runsDetail()
                 + ",\"keywordSuccess\":" + success
                 + ",\"keywordFailed\":" + failed
+                + ",\"keywordRetried\":" + keywordRetried
+                + ",\"keywordRetryRecovered\":" + keywordRetryRecovered
                 + "}";
     }
 
@@ -776,6 +824,17 @@ public class CompetitorAnalysisRefreshService {
         return value.trim().toUpperCase(Locale.ROOT);
     }
 
+    private boolean shouldRetryTransientKeywordFailure(
+            RefreshExecutionMode executionMode,
+            CompetitorKeywordRefreshResult result
+    ) {
+        RefreshExecutionMode safeMode = executionMode == null ? RefreshExecutionMode.FULL_MANUAL : executionMode;
+        if (!safeMode.runsRank() || result == null || result.isSuccess()) {
+            return false;
+        }
+        return PROVIDER_UNAVAILABLE.equals(normalize(result.getErrorCode()));
+    }
+
     private ResponseStatusException badRequest(String reason) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, reason);
     }
@@ -787,6 +846,19 @@ public class CompetitorAnalysisRefreshService {
     @FunctionalInterface
     interface TaskSubmitter {
         void submit(String accountKey, Runnable task);
+    }
+
+    private static final class KeywordRetryCandidate {
+        private final CompetitorKeywordRow keyword;
+        private final CompetitorKeywordRefreshResult firstFailure;
+
+        private KeywordRetryCandidate(
+                CompetitorKeywordRow keyword,
+                CompetitorKeywordRefreshResult firstFailure
+        ) {
+            this.keyword = keyword;
+            this.firstFailure = firstFailure;
+        }
     }
 
     private enum RefreshExecutionMode {
