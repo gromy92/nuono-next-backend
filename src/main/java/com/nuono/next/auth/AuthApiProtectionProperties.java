@@ -13,6 +13,8 @@ public class AuthApiProtectionProperties {
             "/api/auth/login",
             "/api/auth/logout",
             "/api/auth/sample-accounts",
+            "/api/plugin/auth/login",
+            "/api/plugin/auth/logout",
             "/api/system/bootstrap",
             "/api/procurement/ali1688-orders/authorizations/open-api/callback"
     ));
