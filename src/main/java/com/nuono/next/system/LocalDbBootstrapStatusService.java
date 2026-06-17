@@ -125,7 +125,14 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/131_product_logistics_profile_split_sensitive_attributes.sql",
                 "classpath:db/init/135_warehouse_shipping_recommendation_options.sql",
                 "classpath:db/init/136_warehouse_shipping_evaluation_snapshot.sql",
-                "classpath:db/init/137_forwarder_quote_et_ae_route_templates.sql"
+                "classpath:db/init/137_forwarder_quote_et_ae_route_templates.sql",
+                "classpath:db/init/138_warehouse_dispatch_balance_new_product_flag.sql",
+                "classpath:db/init/133_product_variant_spec_source_storage_type_code.sql",
+                "classpath:db/init/134_official_warehouse_asn.sql",
+                "classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql",
+                "classpath:db/init/136_official_warehouse_appointment.sql",
+                "classpath:db/init/137_official_warehouse_asn_noon_updated_at.sql",
+                "classpath:db/init/138_official_warehouse_appointment_gate_docks.sql"
             ));
         return payload;
     }

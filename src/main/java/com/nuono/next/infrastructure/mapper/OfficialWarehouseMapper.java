@@ -1,0 +1,755 @@
+package com.nuono.next.infrastructure.mapper;
+
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ProductCandidateRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.StoreSiteRecord;
+import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.IdSequenceCommand;
+import java.util.Collection;
+import java.util.List;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectKey;
+import org.apache.ibatis.annotations.Update;
+
+public interface OfficialWarehouseMapper {
+
+    @Insert({
+            "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
+            "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
+            "ON DUPLICATE KEY UPDATE next_id = LAST_INSERT_ID(next_id + 1), gmt_updated = NOW()"
+    })
+    @SelectKey(statement = "SELECT LAST_INSERT_ID()", keyProperty = "allocatedId", before = false, resultType = Long.class)
+    int allocateId(IdSequenceCommand command);
+
+    @Select("SELECT COALESCE(MAX(id), 0) FROM official_warehouse_asn")
+    Long selectMaxAsnId();
+
+    @Select("SELECT COALESCE(MAX(id), 0) FROM official_warehouse_asn_line")
+    Long selectMaxAsnLineId();
+
+    @Select("SELECT COALESCE(MAX(id), 0) FROM official_warehouse_appointment")
+    Long selectMaxAppointmentId();
+
+    @Insert({
+            "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
+            "VALUES (#{sequenceName}, #{minAllocatedId}, NOW(), NOW())",
+            "ON DUPLICATE KEY UPDATE next_id = GREATEST(next_id, VALUES(next_id)),",
+            "                        gmt_updated = NOW()"
+    })
+    int ensureSequenceAtLeast(
+            @Param("sequenceName") String sequenceName,
+            @Param("minAllocatedId") Long minAllocatedId
+    );
+
+    default Long nextAsnId() {
+        return nextIdAfterTableMax("official_warehouse_asn", 500000L, selectMaxAsnId());
+    }
+
+    default Long nextAsnLineId() {
+        return nextIdAfterTableMax("official_warehouse_asn_line", 510000L, selectMaxAsnLineId());
+    }
+
+    default Long nextAppointmentId() {
+        return nextIdAfterTableMax("official_warehouse_appointment", 610000L, selectMaxAppointmentId());
+    }
+
+    default Long nextIdAfterTableMax(String sequenceName, long initialValue, Long tableMaxId) {
+        if (tableMaxId != null && tableMaxId > initialValue) {
+            ensureSequenceAtLeast(sequenceName, tableMaxId);
+        }
+        IdSequenceCommand command = new IdSequenceCommand(sequenceName, initialValue);
+        allocateId(command);
+        if (command.getAllocatedId() == null || command.getAllocatedId() <= 0) {
+            throw new IllegalStateException("官方仓 ID 序列分配失败：" + sequenceName);
+        }
+        return command.getAllocatedId();
+    }
+
+    @Select({
+            "<script>",
+            "SELECT ls.owner_user_id AS ownerUserId, ls.id AS logicalStoreId, lss.id AS logicalStoreSiteId,",
+            "       lss.store_code AS storeCode, COALESCE(ls.project_name, ls.project_code) AS storeName,",
+            "       lss.site AS siteCode, ls.project_code AS projectCode",
+            "FROM logical_store_site lss",
+            "JOIN logical_store ls ON ls.id = lss.logical_store_id AND ls.is_deleted = b'0'",
+            "WHERE lss.is_deleted = b'0'",
+            "  AND ls.owner_user_id = #{ownerUserId}",
+            "  AND UPPER(lss.store_code) = UPPER(#{storeCode})",
+            "<if test='siteCode != null and siteCode != \"\"'>",
+            "  AND UPPER(lss.site) = UPPER(#{siteCode})",
+            "</if>",
+            "ORDER BY lss.is_reference_site DESC, lss.id ASC",
+            "LIMIT 1",
+            "</script>"
+    })
+    StoreSiteRecord selectStoreSite(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode
+    );
+
+    @Select({
+            "<script>",
+            "SELECT ls.owner_user_id AS ownerUserId, ls.id AS logicalStoreId, lss.id AS logicalStoreSiteId,",
+            "       lss.store_code AS storeCode, COALESCE(ls.project_name, ls.project_code) AS storeName, lss.site AS siteCode,",
+            "       pm.id AS productMasterId, pv.id AS productVariantId, pso.id AS productSiteOfferId,",
+            "       pm.sku_parent AS skuParent, pv.partner_sku AS partnerSku, pv.child_sku AS childSku,",
+            "       official.noon_partner_psku_code AS pskuCode, COALESCE(NULLIF(pv.child_sku, ''), pm.sku_parent) AS noonSku,",
+            "       COALESCE(pm.title_cn_cache, pm.title_cache, pv.partner_sku, pm.sku_parent) AS titleCache,",
+            "       pm.title_cache AS titleEn, pm.brand_cache AS brandCache,",
+            "       pm.cover_image_url AS imageUrlCache,",
+            "       COALESCE(official.product_length_cm, effective.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
+            "       COALESCE(official.product_width_cm, effective.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
+            "       COALESCE(official.product_height_cm, effective.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
+            "       COALESCE(official.product_weight_g, effective.product_weight_g, pvs.product_weight_g) AS productWeightG,",
+            "       COALESCE(official.carton_length_cm, effective.carton_length_cm, pvs.carton_length_cm) AS cartonLengthCm,",
+            "       COALESCE(official.carton_width_cm, effective.carton_width_cm, pvs.carton_width_cm) AS cartonWidthCm,",
+            "       COALESCE(official.carton_height_cm, effective.carton_height_cm, pvs.carton_height_cm) AS cartonHeightCm,",
+            "       COALESCE(official.carton_weight_kg, effective.carton_weight_kg, pvs.carton_weight_kg) AS cartonWeightKg,",
+            "       COALESCE(official.carton_quantity, effective.carton_quantity, pvs.carton_quantity) AS cartonQuantity,",
+            "       COALESCE(NULLIF(official.storage_type_code, ''), 'standard') AS storageTypeCode,",
+            "       COALESCE(pvlp.profile_status, 'needs_review') AS logisticsProfileStatus,",
+            "       COALESCE(pvlp.battery_electric_type, 'unknown') AS batteryElectricType,",
+            "       COALESCE(pvlp.magnetic_type, 'unknown') AS magneticType,",
+            "       COALESCE(pvlp.liquid_type, 'unknown') AS liquidType,",
+            "       COALESCE(pvlp.powder_type, 'unknown') AS powderType,",
+            "       COALESCE(pvlp.wooden_material_type, 'unknown') AS woodenMaterialType,",
+            "       COALESCE(pvlp.blade_weapon_type, 'unknown') AS bladeWeaponType,",
+            "       CASE WHEN pvlp.manual_confirm_required IS NULL THEN 1",
+            "            WHEN pvlp.manual_confirm_required = b'1' THEN 1 ELSE 0 END AS manualConfirmRequired",
+            "FROM logical_store_site lss",
+            "JOIN logical_store ls ON ls.id = lss.logical_store_id AND ls.is_deleted = b'0'",
+            "JOIN product_master pm ON pm.logical_store_id = ls.id AND pm.is_deleted = b'0'",
+            "JOIN product_variant pv ON pv.product_master_id = pm.id AND pv.is_deleted = b'0'",
+            "JOIN product_site_offer pso ON pso.variant_id = pv.id AND pso.site_id = lss.id AND pso.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec pvs ON pvs.variant_id = pv.id AND pvs.is_deleted = b'0'",
+            "LEFT JOIN product_variant_logistics_profile pvlp ON pvlp.variant_id = pv.id AND pvlp.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source effective",
+            "  ON effective.id = pvs.effective_source_id AND effective.variant_id = pv.id AND effective.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source official",
+            "  ON official.variant_id = pv.id AND official.source_type = 'noon_official' AND official.is_deleted = b'0'",
+            "WHERE lss.is_deleted = b'0'",
+            "  AND ls.owner_user_id = #{ownerUserId}",
+            "  AND UPPER(lss.store_code) = UPPER(#{storeCode})",
+            "  AND UPPER(lss.site) = UPPER(#{siteCode})",
+            "  AND COALESCE(NULLIF(pv.child_sku, ''), pm.sku_parent) IS NOT NULL",
+            "<if test='keywordLike != null and keywordLike != \"\"'>",
+            "  AND (pm.sku_parent LIKE #{keywordLike}",
+            "       OR pv.partner_sku LIKE #{keywordLike}",
+            "       OR pv.child_sku LIKE #{keywordLike}",
+            "       OR pso.psku_code LIKE #{keywordLike}",
+            "       OR official.noon_partner_psku_code LIKE #{keywordLike}",
+            "       OR pm.title_cache LIKE #{keywordLike}",
+            "       OR pm.title_cn_cache LIKE #{keywordLike})",
+            "</if>",
+            "<if test='variantIds != null and variantIds.size() > 0'>",
+            "  AND pv.id IN",
+            "  <foreach item='variantId' collection='variantIds' open='(' separator=',' close=')'>",
+            "    #{variantId}",
+            "  </foreach>",
+            "</if>",
+            "ORDER BY pm.gmt_updated DESC, pv.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductCandidateRecord> listProductCandidates(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("keywordLike") String keywordLike,
+            @Param("variantIds") Collection<Long> variantIds,
+            @Param("limit") int limit
+    );
+
+    @Insert({
+            "INSERT INTO official_warehouse_asn (",
+            "id, owner_user_id, logical_store_id, store_code, store_name, site_code, project_code, partner_id,",
+            "local_asn_no, source_type, status, product_count, total_quantity, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.storeCode}, #{row.storeName}, #{row.siteCode},",
+            "#{row.projectCode}, #{row.partnerId}, #{row.localAsnNo}, #{row.sourceType}, #{row.status},",
+            "#{row.productCount}, #{row.totalQuantity}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
+    })
+    int insertAsn(@Param("row") AsnInsertRecord row);
+
+    @Insert({
+            "INSERT INTO official_warehouse_asn_line (",
+            "id, asn_id, owner_user_id, store_code, site_code, product_master_id, product_variant_id, product_site_offer_id,",
+            "sku_parent, partner_sku, child_sku, psku_code, noon_sku, title_cache, image_url_cache, qty,",
+            "product_length_cm, product_width_cm, product_height_cm, product_weight_g, cubic_feet, storage_type_code,",
+            "line_status, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.asnId}, #{row.ownerUserId}, #{row.storeCode}, #{row.siteCode}, #{row.productMasterId},",
+            "#{row.productVariantId}, #{row.productSiteOfferId}, #{row.skuParent}, #{row.partnerSku}, #{row.childSku},",
+            "#{row.pskuCode}, #{row.noonSku}, #{row.titleCache}, #{row.imageUrlCache}, #{row.quantity},",
+            "#{row.productLengthCm}, #{row.productWidthCm}, #{row.productHeightCm}, #{row.productWeightG},",
+            "#{row.cubicFeet}, #{row.storageTypeCode}, #{row.lineStatus}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
+    })
+    int insertAsnLine(@Param("row") AsnLineInsertRecord row);
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET project_code = #{projectCode}, partner_id = #{partnerId},",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAsnBinding(
+            @Param("asnId") Long asnId,
+            @Param("projectCode") String projectCode,
+            @Param("partnerId") String partnerId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET status = 'ASN_CREATED', noon_asn_nr = #{asnNr}, noon_partner_asn_id = #{partnerAsnId},",
+            "    noon_total_qty = #{totalQty}, noon_asn_status = #{noonAsnStatus}, submitted_at = NOW(),",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markAsnCreated(
+            @Param("asnId") Long asnId,
+            @Param("asnNr") String asnNr,
+            @Param("partnerAsnId") Long partnerAsnId,
+            @Param("totalQty") Integer totalQty,
+            @Param("noonAsnStatus") String noonAsnStatus,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET status = 'ROUTED', routing_response_json = #{routingResponseJson}, routing_is_transfer = #{routingIsTransfer},",
+            "    selected_warehouse_partner_code = #{selectedWarehousePartnerCode}, selected_warehouse_code = #{selectedWarehouseCode},",
+            "    selected_warehouse_name = #{selectedWarehouseName}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markRouted(
+            @Param("asnId") Long asnId,
+            @Param("routingResponseJson") String routingResponseJson,
+            @Param("routingIsTransfer") Boolean routingIsTransfer,
+            @Param("selectedWarehousePartnerCode") String selectedWarehousePartnerCode,
+            @Param("selectedWarehouseCode") String selectedWarehouseCode,
+            @Param("selectedWarehouseName") String selectedWarehouseName,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET status = 'LINES_CREATED', finished_at = NOW(), error_stage = NULL, failure_type = NULL, error_message = NULL,",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markLinesCreated(
+            @Param("asnId") Long asnId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET noon_asn_status = #{noonAsnStatus}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAsnNoonStatus(
+            @Param("asnId") Long asnId,
+            @Param("noonAsnStatus") String noonAsnStatus,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn_line",
+            "SET line_status = 'CREATED', updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE asn_id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markAllLinesCreated(
+            @Param("asnId") Long asnId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn_line",
+            "SET noon_partner_asn_line_id = #{partnerAsnLineId}, noon_id_cluster = #{idCluster},",
+            "    noon_id_storage_type = #{idStorageType}, noon_cluster_code = #{clusterCode}, noon_asn_status = #{asnStatus},",
+            "    noon_country_code = #{countryCode}, is_labeled = #{labeled}, is_repl_tool_asn = #{replToolAsn},",
+            "    line_status = 'CREATED', updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE asn_id = #{asnId}",
+            "  AND psku_code = #{pskuCode}",
+            "  AND noon_sku = #{noonSku}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateLineFromNoon(
+            @Param("asnId") Long asnId,
+            @Param("pskuCode") String pskuCode,
+            @Param("noonSku") String noonSku,
+            @Param("partnerAsnLineId") Long partnerAsnLineId,
+            @Param("idCluster") Integer idCluster,
+            @Param("idStorageType") Integer idStorageType,
+            @Param("clusterCode") String clusterCode,
+            @Param("asnStatus") String asnStatus,
+            @Param("countryCode") String countryCode,
+            @Param("labeled") Boolean labeled,
+            @Param("replToolAsn") Boolean replToolAsn,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET status = 'FAILED', error_stage = #{errorStage}, failure_type = #{failureType}, error_message = #{errorMessage},",
+            "    finished_at = NOW(), updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markAsnFailed(
+            @Param("asnId") Long asnId,
+            @Param("errorStage") String errorStage,
+            @Param("failureType") String failureType,
+            @Param("errorMessage") String errorMessage,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn_line",
+            "SET line_status = 'FAILED', error_message = #{errorMessage}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE asn_id = #{asnId}",
+            "  AND is_deleted = b'0'",
+            "  AND line_status != 'CREATED'"
+    })
+    int markPendingLinesFailed(
+            @Param("asnId") Long asnId,
+            @Param("errorMessage") String errorMessage,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "<script>",
+            "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, store_code AS storeCode,",
+            "       store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
+            "       local_asn_no AS localAsnNo, source_type AS sourceType, status, noon_asn_nr AS noonAsnNr,",
+            "       noon_partner_asn_id AS noonPartnerAsnId, noon_total_qty AS noonTotalQty, noon_asn_status AS noonAsnStatus, noon_updated_at AS noonUpdatedAt,",
+            "       routing_response_json AS routingResponseJson, routing_is_transfer AS routingIsTransfer,",
+            "       selected_warehouse_partner_code AS selectedWarehousePartnerCode, selected_warehouse_code AS selectedWarehouseCode,",
+            "       selected_warehouse_name AS selectedWarehouseName, product_count AS productCount, total_quantity AS totalQuantity,",
+            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
+            "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submittedAt,",
+            "       DATE_FORMAT(finished_at, '%Y-%m-%d %H:%i:%s') AS finishedAt,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
+            "       DATE_FORMAT(COALESCE(noon_updated_at, gmt_updated), '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM official_warehouse_asn",
+            "WHERE is_deleted = b'0'",
+            "  AND owner_user_id = #{ownerUserId}",
+            "<if test='storeCodes != null and storeCodes.size() > 0'>",
+            "  AND UPPER(store_code) IN",
+            "  <foreach item='storeCode' collection='storeCodes' open='(' separator=',' close=')'>",
+            "    UPPER(#{storeCode})",
+            "  </foreach>",
+            "</if>",
+            "<if test='storeCode != null and storeCode != \"\"'>",
+            "  AND UPPER(store_code) = UPPER(#{storeCode})",
+            "</if>",
+            "<if test='siteCode != null and siteCode != \"\"'>",
+            "  AND UPPER(site_code) = UPPER(#{siteCode})",
+            "</if>",
+            "<if test='keywordLike != null and keywordLike != \"\"'>",
+            "  AND (local_asn_no LIKE #{keywordLike} OR noon_asn_nr LIKE #{keywordLike} OR store_code LIKE #{keywordLike})",
+            "</if>",
+            "ORDER BY COALESCE(noon_updated_at, gmt_updated) DESC, id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<AsnRecord> listAsns(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCodes") Collection<String> storeCodes,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("keywordLike") String keywordLike,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, store_code AS storeCode,",
+            "       store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
+            "       local_asn_no AS localAsnNo, source_type AS sourceType, status, noon_asn_nr AS noonAsnNr,",
+            "       noon_partner_asn_id AS noonPartnerAsnId, noon_total_qty AS noonTotalQty, noon_asn_status AS noonAsnStatus, noon_updated_at AS noonUpdatedAt,",
+            "       routing_response_json AS routingResponseJson, routing_is_transfer AS routingIsTransfer,",
+            "       selected_warehouse_partner_code AS selectedWarehousePartnerCode, selected_warehouse_code AS selectedWarehouseCode,",
+            "       selected_warehouse_name AS selectedWarehouseName, product_count AS productCount, total_quantity AS totalQuantity,",
+            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
+            "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submittedAt,",
+            "       DATE_FORMAT(finished_at, '%Y-%m-%d %H:%i:%s') AS finishedAt,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
+            "       DATE_FORMAT(COALESCE(noon_updated_at, gmt_updated), '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM official_warehouse_asn",
+            "WHERE id = #{asnId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    AsnRecord selectAsn(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("asnId") Long asnId
+    );
+
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, store_code AS storeCode,",
+            "       store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
+            "       local_asn_no AS localAsnNo, source_type AS sourceType, status, noon_asn_nr AS noonAsnNr,",
+            "       noon_partner_asn_id AS noonPartnerAsnId, noon_total_qty AS noonTotalQty, noon_asn_status AS noonAsnStatus, noon_updated_at AS noonUpdatedAt,",
+            "       routing_response_json AS routingResponseJson, routing_is_transfer AS routingIsTransfer,",
+            "       selected_warehouse_partner_code AS selectedWarehousePartnerCode, selected_warehouse_code AS selectedWarehouseCode,",
+            "       selected_warehouse_name AS selectedWarehouseName, product_count AS productCount, total_quantity AS totalQuantity,",
+            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
+            "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submittedAt,",
+            "       DATE_FORMAT(finished_at, '%Y-%m-%d %H:%i:%s') AS finishedAt,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
+            "       DATE_FORMAT(COALESCE(noon_updated_at, gmt_updated), '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM official_warehouse_asn",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND UPPER(store_code) = UPPER(#{storeCode})",
+            "  AND UPPER(site_code) = UPPER(#{siteCode})",
+            "  AND noon_asn_nr = #{noonAsnNr}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    AsnRecord selectAsnByNoonAsnNr(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("noonAsnNr") String noonAsnNr
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET project_code = COALESCE(NULLIF(#{row.projectCode}, ''), project_code),",
+            "    partner_id = COALESCE(NULLIF(#{row.partnerId}, ''), partner_id),",
+            "    status = #{row.status},",
+            "    noon_asn_nr = #{row.noonAsnNr},",
+            "    noon_partner_asn_id = CASE WHEN #{row.noonPartnerAsnId} IS NULL THEN noon_partner_asn_id ELSE #{row.noonPartnerAsnId} END,",
+            "    noon_total_qty = CASE WHEN #{row.noonTotalQty} IS NULL THEN noon_total_qty ELSE #{row.noonTotalQty} END,",
+            "    noon_asn_status = #{row.noonAsnStatus},",
+            "    noon_updated_at = CASE WHEN #{row.noonUpdatedAt} IS NULL THEN noon_updated_at ELSE #{row.noonUpdatedAt} END,",
+            "    selected_warehouse_partner_code = COALESCE(NULLIF(#{row.warehouseToPartnerCode}, ''), selected_warehouse_partner_code),",
+            "    selected_warehouse_code = COALESCE(NULLIF(#{row.warehouseToCode}, ''), selected_warehouse_code),",
+            "    selected_warehouse_name = COALESCE(NULLIF(#{row.warehouseName}, ''), selected_warehouse_name),",
+            "    total_quantity = CASE WHEN #{row.noonTotalQty} IS NULL THEN total_quantity ELSE #{row.noonTotalQty} END,",
+            "    submitted_at = COALESCE(submitted_at, NOW()),",
+            "    finished_at = CASE WHEN #{row.status} IN ('LINES_CREATED', 'FAILED') THEN COALESCE(finished_at, NOW()) ELSE finished_at END,",
+            "    error_stage = CASE WHEN #{row.status} = 'FAILED' THEN 'NOON_ASN_LIST_SYNC' ELSE NULL END,",
+            "    failure_type = CASE WHEN #{row.status} = 'FAILED' THEN #{row.failureType} ELSE NULL END,",
+            "    error_message = CASE WHEN #{row.status} = 'FAILED' THEN #{row.errorMessage} ELSE NULL END,",
+            "    updated_by = #{row.operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{row.id}",
+            "  AND owner_user_id = #{row.ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int syncAsnFromNoonList(@Param("row") AsnNoonListSyncRecord row);
+
+    @Select({
+            "SELECT awl.id, awl.asn_id AS asnId, awl.owner_user_id AS ownerUserId, awl.store_code AS storeCode, awl.site_code AS siteCode,",
+            "       awl.product_master_id AS productMasterId, awl.product_variant_id AS productVariantId, awl.product_site_offer_id AS productSiteOfferId,",
+            "       awl.sku_parent AS skuParent, awl.partner_sku AS partnerSku, awl.child_sku AS childSku, awl.psku_code AS pskuCode,",
+            "       awl.noon_sku AS noonSku, awl.title_cache AS titleCache, COALESCE(NULLIF(pm.title_cache, ''), awl.title_cache) AS titleEn,",
+            "       pm.brand_cache AS brandCache, awl.image_url_cache AS imageUrlCache, awl.qty,",
+            "       awl.product_length_cm AS productLengthCm, awl.product_width_cm AS productWidthCm, awl.product_height_cm AS productHeightCm,",
+            "       awl.product_weight_g AS productWeightG, awl.cubic_feet AS cubicFeet, awl.storage_type_code AS storageTypeCode,",
+            "       awl.noon_partner_asn_line_id AS noonPartnerAsnLineId, awl.noon_id_cluster AS noonIdCluster,",
+            "       awl.noon_id_storage_type AS noonIdStorageType, awl.noon_cluster_code AS noonClusterCode, awl.noon_asn_status AS noonAsnStatus,",
+            "       awl.noon_country_code AS noonCountryCode, awl.is_labeled AS labeled, awl.is_repl_tool_asn AS replToolAsn,",
+            "       awl.line_status AS lineStatus, awl.error_message AS errorMessage",
+            "FROM official_warehouse_asn_line awl",
+            "LEFT JOIN product_master pm ON pm.id = awl.product_master_id AND pm.is_deleted = b'0'",
+            "WHERE awl.asn_id = #{asnId}",
+            "  AND awl.is_deleted = b'0'",
+            "ORDER BY awl.id ASC"
+    })
+    List<AsnLineRecord> listAsnLines(@Param("asnId") Long asnId);
+
+    @Insert({
+            "INSERT INTO official_warehouse_appointment (",
+            "id, asn_id, owner_user_id, logical_store_id, store_code, store_name, site_code, project_code, partner_id,",
+            "local_asn_no, noon_asn_nr, total_units, warehouse_from, warehouse_to_partner_code, warehouse_to_code,",
+            "ap_start_date, ap_end_date, ap_time_range, is_available_today, status, gate, docks, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.asnId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.storeCode}, #{row.storeName}, #{row.siteCode},",
+            "#{row.projectCode}, #{row.partnerId}, #{row.localAsnNo}, #{row.noonAsnNr}, #{row.totalUnits},",
+            "#{row.warehouseFrom}, #{row.warehouseToPartnerCode}, #{row.warehouseToCode},",
+            "#{row.apStartDate}, #{row.apEndDate}, #{row.apTimeRange}, #{row.availableToday}, #{row.status}, #{row.gate}, #{row.docks},",
+            "b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
+    })
+    int insertAppointment(@Param("row") AppointmentInsertRecord row);
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET warehouse_from = #{row.warehouseFrom}, warehouse_to_partner_code = #{row.warehouseToPartnerCode},",
+            "    warehouse_to_code = #{row.warehouseToCode}, ap_start_date = #{row.apStartDate}, ap_end_date = #{row.apEndDate},",
+            "    ap_time_range = #{row.apTimeRange}, is_available_today = #{row.availableToday}, status = #{row.status},",
+            "    appointment_date = NULL, appointment_slot_id = NULL, appointment_time = NULL, gate = NULL, docks = NULL,",
+            "    next_attempt_at = NULL, ap_success_time = NULL, error_stage = NULL, failure_type = NULL, error_message = NULL,",
+            "    updated_by = #{row.operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{row.id}",
+            "  AND owner_user_id = #{row.ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAppointmentRequest(@Param("row") AppointmentInsertRecord row);
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET warehouse_from = #{warehouseFrom}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAppointmentWarehouseFrom(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("appointmentId") Long appointmentId,
+            @Param("warehouseFrom") String warehouseFrom,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET gate = COALESCE(NULLIF(#{gate}, ''), gate),",
+            "    docks = COALESCE(NULLIF(#{docks}, ''), docks),",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAppointmentGateDocks(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("appointmentId") Long appointmentId,
+            @Param("gate") String gate,
+            @Param("docks") String docks,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'RUNNING', attempt_count = attempt_count + 1, last_attempt_at = NOW(), next_attempt_at = NULL,",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND is_deleted = b'0'",
+            "  AND status IN ('PENDING', 'FAILED', 'RUNNING')"
+    })
+    int markAppointmentRunning(
+            @Param("appointmentId") Long appointmentId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'SCHEDULED', appointment_date = #{appointmentDate}, appointment_slot_id = #{slotId},",
+            "    appointment_time = #{appointmentTime}, ap_success_time = NOW(), next_attempt_at = NULL,",
+            "    error_stage = NULL, failure_type = NULL, error_message = NULL, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markAppointmentScheduled(
+            @Param("appointmentId") Long appointmentId,
+            @Param("appointmentDate") java.time.LocalDate appointmentDate,
+            @Param("slotId") Integer slotId,
+            @Param("appointmentTime") String appointmentTime,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'PENDING', next_attempt_at = DATE_ADD(NOW(), INTERVAL #{retryMinutes} MINUTE),",
+            "    error_stage = #{errorStage}, failure_type = #{failureType}, error_message = #{errorMessage},",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markAppointmentPendingRetry(
+            @Param("appointmentId") Long appointmentId,
+            @Param("retryMinutes") int retryMinutes,
+            @Param("errorStage") String errorStage,
+            @Param("failureType") String failureType,
+            @Param("errorMessage") String errorMessage,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'FAILED', next_attempt_at = NULL, error_stage = #{errorStage}, failure_type = #{failureType},",
+            "    error_message = #{errorMessage}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markAppointmentFailed(
+            @Param("appointmentId") Long appointmentId,
+            @Param("errorStage") String errorStage,
+            @Param("failureType") String failureType,
+            @Param("errorMessage") String errorMessage,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = #{status}, appointment_date = #{appointmentDate}, appointment_slot_id = #{slotId},",
+            "    appointment_time = #{appointmentTime},",
+            "    ap_success_time = CASE WHEN #{status} = 'SCHEDULED' THEN NOW() ELSE NULL END,",
+            "    next_attempt_at = NULL, error_stage = #{errorStage}, failure_type = #{failureType},",
+            "    error_message = #{errorMessage}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int correctAppointment(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("appointmentId") Long appointmentId,
+            @Param("status") String status,
+            @Param("appointmentDate") java.time.LocalDate appointmentDate,
+            @Param("slotId") Integer slotId,
+            @Param("appointmentTime") String appointmentTime,
+            @Param("failureType") String failureType,
+            @Param("errorStage") String errorStage,
+            @Param("errorMessage") String errorMessage,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'CANCELED', next_attempt_at = NULL, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int cancelAppointment(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("appointmentId") Long appointmentId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
+            "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
+            "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
+            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
+            "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
+            "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
+            "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
+            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
+            "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
+            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM official_warehouse_appointment",
+            "WHERE id = #{appointmentId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    AppointmentRecord selectAppointment(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("appointmentId") Long appointmentId
+    );
+
+    @Select({
+            "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
+            "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
+            "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
+            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
+            "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
+            "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
+            "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
+            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
+            "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
+            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM official_warehouse_appointment",
+            "WHERE asn_id = #{asnId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    AppointmentRecord selectLatestAppointmentByAsn(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("asnId") Long asnId
+    );
+
+    @Select({
+            "<script>",
+            "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
+            "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
+            "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
+            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
+            "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
+            "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
+            "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
+            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
+            "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
+            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM official_warehouse_appointment",
+            "WHERE is_deleted = b'0'",
+            "  AND owner_user_id = #{ownerUserId}",
+            "<if test='storeCodes != null and storeCodes.size() > 0'>",
+            "  AND UPPER(store_code) IN",
+            "  <foreach item='storeCode' collection='storeCodes' open='(' separator=',' close=')'>",
+            "    UPPER(#{storeCode})",
+            "  </foreach>",
+            "</if>",
+            "<if test='storeCode != null and storeCode != \"\"'>",
+            "  AND UPPER(store_code) = UPPER(#{storeCode})",
+            "</if>",
+            "<if test='siteCode != null and siteCode != \"\"'>",
+            "  AND UPPER(site_code) = UPPER(#{siteCode})",
+            "</if>",
+            "<if test='status != null and status != \"\"'>",
+            "  AND status = #{status}",
+            "</if>",
+            "<if test='keywordLike != null and keywordLike != \"\"'>",
+            "  AND (local_asn_no LIKE #{keywordLike} OR noon_asn_nr LIKE #{keywordLike} OR warehouse_to_partner_code LIKE #{keywordLike})",
+            "</if>",
+            "ORDER BY gmt_updated DESC, id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<AppointmentRecord> listAppointments(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCodes") Collection<String> storeCodes,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("status") String status,
+            @Param("keywordLike") String keywordLike,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
+            "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
+            "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
+            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
+            "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
+            "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
+            "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
+            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
+            "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
+            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "FROM official_warehouse_appointment",
+            "WHERE is_deleted = b'0'",
+            "  AND status IN ('PENDING', 'RUNNING', 'FAILED')",
+            "  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())",
+            "ORDER BY COALESCE(next_attempt_at, gmt_updated) ASC, id ASC",
+            "LIMIT #{limit}"
+    })
+    List<AppointmentRecord> listDueAppointments(@Param("limit") int limit);
+}

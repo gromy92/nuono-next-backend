@@ -21,6 +21,7 @@ public enum BusinessCapability {
     FILE_MANAGEMENT_BUSINESS(List.of("/system/file-management", "/system/ai-file-parse")),
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),
     WAREHOUSE_DISPATCH(List.of("/warehouse/dispatch", "/api/warehouse/dispatch")),
+    OFFICIAL_WAREHOUSE(List.of("/warehouse/official-warehouse", "/api/warehouse/official-warehouse")),
     IN_TRANSIT_GOODS(List.of("/purchase/in-transit-goods", "/api/in-transit-goods")),
     PROFIT(List.of("/api/sku/cost"));
 

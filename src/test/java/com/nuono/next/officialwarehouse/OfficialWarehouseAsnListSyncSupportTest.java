@@ -1,0 +1,86 @@
+package com.nuono.next.officialwarehouse;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import org.junit.jupiter.api.Test;
+
+class OfficialWarehouseAsnListSyncSupportTest {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void buildsNoonPartnerAsnListRequestPayload() {
+        ObjectNode body = OfficialWarehouseAsnListSyncSupport.buildListRequest(
+                objectMapper,
+                "108065",
+                2,
+                50,
+                36
+        );
+
+        assertThat(body.path("idPartnerSource").asLong()).isEqualTo(108065L);
+        assertThat(body.path("asnNr").asText()).isEmpty();
+        assertThat(body.path("pagination").path("page").asInt()).isEqualTo(2);
+        assertThat(body.path("pagination").path("perPage").asInt()).isEqualTo(50);
+        assertThat(body.path("pagination").path("totalPages").asInt()).isEqualTo(36);
+        assertThat(body.path("filters").path("status_list").isArray()).isTrue();
+        assertThat(body.path("filters").path("status_list")).isEmpty();
+        assertThat(body.path("orderBy").asText()).isEqualTo("DESC");
+    }
+
+    @Test
+    void parsesScheduledNoonListRow() throws Exception {
+        JsonNode row = objectMapper.readTree("{"
+                + "\"id_partner_asn\":5508658,"
+                + "\"asn_nr\":\"A05508658PN\","
+                + "\"total_qty\":308,"
+                + "\"status\":\"grn_completed\","
+                + "\"warehouse_from\":\"HANK\","
+                + "\"warehouse_code_from\":\"W00752151SA\","
+                + "\"warehouse_to\":\"RUH01S\","
+                + "\"warehouse_code_to\":\"W00105371A\","
+                + "\"updated_at\":\"2026-06-13T13:58:39\","
+                + "\"schedule_date\":\"2026-06-11\","
+                + "\"schedule_slot\":\"6pm-8pm\""
+                + "}");
+
+        OfficialWarehouseAsnListSyncSupport.NoonAsnListRow parsed =
+                OfficialWarehouseAsnListSyncSupport.parseRow(row);
+
+        assertThat(parsed.asnNr).isEqualTo("A05508658PN");
+        assertThat(parsed.partnerAsnId).isEqualTo(5508658L);
+        assertThat(parsed.totalQty).isEqualTo(308);
+        assertThat(parsed.remoteStatus).isEqualTo("grn_completed");
+        assertThat(parsed.localAsnStatus).isEqualTo("LINES_CREATED");
+        assertThat(parsed.hasConfirmedAppointment()).isTrue();
+        assertThat(parsed.appointmentDate).isEqualTo(LocalDate.parse("2026-06-11"));
+        assertThat(parsed.appointmentTime).isEqualTo("6pm-8pm");
+        assertThat(parsed.noonUpdatedAt).isEqualTo(LocalDateTime.parse("2026-06-13T13:58:39"));
+        assertThat(parsed.warehouseToPartnerCode).isEqualTo("RUH01S");
+        assertThat(parsed.warehouseToCode).isEqualTo("W00105371A");
+        assertThat(parsed.warehouseFrom).isEqualTo("HANK");
+    }
+
+    @Test
+    void mapsExpiredNoonStatusToFailedLocalAsn() throws Exception {
+        JsonNode row = objectMapper.readTree("{"
+                + "\"id_partner_asn\":5417078,"
+                + "\"asn_nr\":\"A05417078PN\","
+                + "\"total_qty\":15,"
+                + "\"status\":\"expired\","
+                + "\"schedule_date\":\"2026-05-27\","
+                + "\"schedule_slot\":\"9am-11am\""
+                + "}");
+
+        OfficialWarehouseAsnListSyncSupport.NoonAsnListRow parsed =
+                OfficialWarehouseAsnListSyncSupport.parseRow(row);
+
+        assertThat(parsed.localAsnStatus).isEqualTo("FAILED");
+        assertThat(parsed.hasConfirmedAppointment()).isTrue();
+    }
+}
