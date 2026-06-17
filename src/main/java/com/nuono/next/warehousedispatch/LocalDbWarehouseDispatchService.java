@@ -1113,6 +1113,8 @@ public class LocalDbWarehouseDispatchService {
         view.orderId = String.valueOf(row.orderId);
         view.orderNo = row.orderNo;
         view.storeName = row.storeName;
+        view.storeCode = row.sourceStoreCode;
+        view.productVariantId = row.productVariantId == null ? null : String.valueOf(row.productVariantId);
         view.psku = row.partnerSku;
         view.title = defaultText(row.titleCache, row.partnerSku);
         view.imageUrl = row.imageUrlCache;

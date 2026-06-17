@@ -79,6 +79,8 @@ public final class WarehouseDispatchViews {
         public String orderId;
         public String orderNo;
         public String storeName;
+        public String storeCode;
+        public String productVariantId;
         public String psku;
         public String title;
         public String imageUrl;
