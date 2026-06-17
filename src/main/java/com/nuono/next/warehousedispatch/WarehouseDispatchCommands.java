@@ -1,0 +1,85 @@
+package com.nuono.next.warehousedispatch;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public final class WarehouseDispatchCommands {
+
+    private WarehouseDispatchCommands() {
+    }
+
+    public static class UpdateFulfillmentCommand {
+        public String fulfillmentType;
+        public String sourceName;
+    }
+
+    public static class ConfirmationCommand {
+        public String purchaseOrderId;
+        public String confirmationType;
+        public String sourcePartyName;
+        public String remark;
+        public List<ConfirmationLineCommand> lines = new ArrayList<>();
+    }
+
+    public static class ConfirmationLineCommand {
+        public String purchaseOrderItemId;
+        public Integer confirmedQuantity;
+        public Integer abnormalQuantity;
+        public String exceptionReason;
+    }
+
+    public static class CreateDispatchPlanCommand {
+        public String remark;
+        public List<DispatchPlanSourceCommand> sources = new ArrayList<>();
+    }
+
+    public static class DispatchPlanSourceCommand {
+        public Long fulfillmentBalanceId;
+        public Integer quantity;
+        public String actualTransportMode;
+    }
+
+    public static class CreateShippingBatchCommand {
+        public String remark;
+        public List<ShippingBatchSourceCommand> sources = new ArrayList<>();
+    }
+
+    public static class ShippingBatchSourceCommand {
+        public Long fulfillmentBalanceId;
+        public Integer quantity;
+    }
+
+    public static class CreateShippingTargetOptionCommand {
+        public String optionName;
+        public String airForwarderCode;
+        public String seaForwarderCode;
+    }
+
+    public static class CreatePackingListCommand {
+        public String remark;
+    }
+
+    public static class ReplacePackingBoxesCommand {
+        public String remark;
+        public List<PackingBoxCommand> boxes = new ArrayList<>();
+    }
+
+    public static class PackingBoxCommand {
+        public String boxNo;
+        public String lengthCm;
+        public String widthCm;
+        public String heightCm;
+        public String grossWeightKg;
+        public List<PackingBoxItemCommand> items = new ArrayList<>();
+    }
+
+    public static class PackingBoxItemCommand {
+        public Long outboundOrderLineId;
+        public Integer quantity;
+    }
+
+    public static class HandoffFailureCommand {
+        public String handoffRequestNo;
+        public String errorMessage;
+    }
+}

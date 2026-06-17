@@ -111,8 +111,21 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/104_operations_competitor_rank_fact_channel_scan_depth.sql",
                 "classpath:db/init/118_procurement_ali1688_order_sku_allocation.sql",
                 "classpath:db/init/119_procurement_purchase_order.sql",
+                "classpath:db/init/120_product_psku_lifecycle_archive.sql",
+                "classpath:db/init/121_procurement_archived_purchase_history.sql",
                 "classpath:db/init/122_procurement_purchase_order_logistics_plan.sql",
-                "classpath:db/init/123_procurement_purchase_order_transport_mode.sql"
+                "classpath:db/init/123_procurement_purchase_order_transport_mode.sql",
+                "classpath:db/init/124_forwarder_quote_data_quality.sql",
+                "classpath:db/init/125_forwarder_quote_et_20260604.sql",
+                "classpath:db/init/126_product_variant_logistics_profile.sql",
+                "classpath:db/init/127_procurement_ali1688_history_read_model.sql",
+                "classpath:db/init/128_procurement_logistics_route_cost_components.sql",
+                "classpath:db/init/129_warehouse_dispatch_procurement_flow.sql",
+                "classpath:db/init/130_warehouse_dispatch_menu_permission.sql",
+                "classpath:db/init/131_product_logistics_profile_split_sensitive_attributes.sql",
+                "classpath:db/init/135_warehouse_shipping_recommendation_options.sql",
+                "classpath:db/init/136_warehouse_shipping_evaluation_snapshot.sql",
+                "classpath:db/init/137_forwarder_quote_et_ae_route_templates.sql"
             ));
         return payload;
     }

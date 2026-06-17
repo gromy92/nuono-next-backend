@@ -1,0 +1,43 @@
+package com.nuono.next.product;
+
+public class ProductVariantLogisticsProfileView {
+    public Long profileId;
+    public String storeCode;
+    public String skuParent;
+    public String title;
+    public String imageUrl;
+    public Long variantId;
+    public String partnerSku;
+    public String childSku;
+    public String sizeEn;
+    public String sizeAr;
+    public String profileStatus = "needs_review";
+    public String batteryElectricType = "unknown";
+    public String batteryType = "unknown";
+    public String magneticType = "unknown";
+    public String liquidType = "unknown";
+    public String powderType = "unknown";
+    public String liquidPowderType = "unknown";
+    public String electricType = "unknown";
+    public String plugType = "unknown";
+    public String voltageCompatibleType = "unknown";
+    public String madeInChinaLabelStatus = "unknown";
+    public String msdsStatus = "unknown";
+    public String seaTransportReportStatus = "unknown";
+    public String brandRiskType = "unknown";
+    public String foodContactType = "unknown";
+    public String medicalType = "unknown";
+    public String cosmeticType = "unknown";
+    public String wirelessCameraGpsType = "unknown";
+    public String laserType = "unknown";
+    public String bladeWeaponType = "unknown";
+    public String culturalRestrictionType = "unknown";
+    public String woodenMaterialType = "unknown";
+    public String sensitiveTagsJson;
+    public String prohibitedTagsJson;
+    public Boolean manualConfirmRequired = true;
+    public String confirmedAt;
+    public Long confirmedBy;
+    public String notes;
+    public String gmtUpdated;
+}

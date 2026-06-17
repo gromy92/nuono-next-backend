@@ -32,6 +32,7 @@ public class ProductVariantSpecView {
     private String completenessStatus = "not_found";
     private List<String> missingFields = new ArrayList<>();
     private List<ProductVariantSpecSourceView> sources = new ArrayList<>();
+    private ProductVariantLogisticsProfileView logisticsProfile;
     private LocalDateTime confirmedAt;
     private Long confirmedBy;
 
@@ -241,6 +242,14 @@ public class ProductVariantSpecView {
 
     public void setSources(List<ProductVariantSpecSourceView> sources) {
         this.sources = sources;
+    }
+
+    public ProductVariantLogisticsProfileView getLogisticsProfile() {
+        return logisticsProfile;
+    }
+
+    public void setLogisticsProfile(ProductVariantLogisticsProfileView logisticsProfile) {
+        this.logisticsProfile = logisticsProfile;
     }
 
     public LocalDateTime getConfirmedAt() {

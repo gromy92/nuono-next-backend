@@ -20,10 +20,9 @@ public final class NoonImageUrlNormalizer {
             value = value.substring(0, splitIndex);
         }
 
-        value = replacePrefix(value, "https://f.nooncdn.com/pzsku/", "https://f.nooncdn.com/p/pzsku/");
-        value = replacePrefix(value, "http://f.nooncdn.com/pzsku/", "http://f.nooncdn.com/p/pzsku/");
+        value = normalizeNoonCdnPath(value);
 
-        if (isNoonPskuImage(value) && !hasImageExtension(value)) {
+        if (isNoonProductImage(value) && !hasImageExtension(value)) {
             value = value + ".jpg";
         }
         return value + suffix;
@@ -41,14 +40,52 @@ public final class NoonImageUrlNormalizer {
         return Math.min(queryIndex, hashIndex);
     }
 
-    private static String replacePrefix(String value, String oldPrefix, String newPrefix) {
-        return value.startsWith(oldPrefix) ? newPrefix + value.substring(oldPrefix.length()) : value;
+    private static String normalizeNoonCdnPath(String value) {
+        String normalized = normalizeNoonCdnPath(value, "https://f.nooncdn.com/");
+        if (!normalized.equals(value)) {
+            return normalized;
+        }
+        normalized = normalizeNoonCdnPath(value, "http://f.nooncdn.com/");
+        if (!normalized.equals(value)) {
+            return normalized;
+        }
+        return isNoonProductImagePath(value) ? "https://f.nooncdn.com/p/" + stripLeadingSlash(value) : value;
     }
 
-    private static boolean isNoonPskuImage(String value) {
+    private static String normalizeNoonCdnPath(String value, String cdnPrefix) {
+        if (!value.toLowerCase(Locale.ROOT).startsWith(cdnPrefix)) {
+            return value;
+        }
+        String path = value.substring(cdnPrefix.length());
+        if (path.toLowerCase(Locale.ROOT).startsWith("p/")) {
+            return value;
+        }
+        return isNoonProductImagePath(path) ? cdnPrefix + "p/" + stripLeadingSlash(path) : value;
+    }
+
+    private static String stripLeadingSlash(String value) {
+        return value.replaceFirst("^/+", "");
+    }
+
+    private static boolean isNoonProductImage(String value) {
         String lower = value.toLowerCase(Locale.ROOT);
-        return lower.startsWith("https://f.nooncdn.com/p/pzsku/")
-                || lower.startsWith("http://f.nooncdn.com/p/pzsku/");
+        if (lower.startsWith("https://f.nooncdn.com/p/")) {
+            return isNoonProductImagePath(value.substring("https://f.nooncdn.com/p/".length()));
+        }
+        if (lower.startsWith("http://f.nooncdn.com/p/")) {
+            return isNoonProductImagePath(value.substring("http://f.nooncdn.com/p/".length()));
+        }
+        return false;
+    }
+
+    private static boolean isNoonProductImagePath(String value) {
+        String lower = stripLeadingSlash(value).toLowerCase(Locale.ROOT);
+        return lower.startsWith("pzsku/")
+                || lower.startsWith("pnsku/")
+                || lower.contains("|pzsku/")
+                || lower.contains("|pnsku/")
+                || lower.contains("%7cpzsku/")
+                || lower.contains("%7cpnsku/");
     }
 
     private static boolean hasImageExtension(String value) {
