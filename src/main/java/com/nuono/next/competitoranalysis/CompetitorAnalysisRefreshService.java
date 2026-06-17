@@ -191,6 +191,69 @@ public class CompetitorAnalysisRefreshService {
         return recovered;
     }
 
+    public int retryRecentTransientRankKeywordFailures(Duration lookback, int limit) {
+        Duration safeLookback = lookback == null || lookback.isNegative() || lookback.isZero()
+                ? Duration.ofHours(24)
+                : lookback;
+        int safeLimit = Math.max(1, limit);
+        LocalDateTime sinceTime = LocalDateTime.now(clock).minus(safeLookback);
+        List<CompetitorTransientKeywordFailureRow> failures = mapper.listRetryableTransientRankKeywordFailures(
+                sinceTime,
+                safeLimit
+        );
+        int recovered = 0;
+        for (CompetitorTransientKeywordFailureRow failure : failures) {
+            if (retryTransientRankKeywordFailure(failure)) {
+                recovered++;
+            }
+        }
+        return recovered;
+    }
+
+    private boolean retryTransientRankKeywordFailure(CompetitorTransientKeywordFailureRow failure) {
+        if (failure == null || failure.getSearchRunId() == null || failure.getWatchProductId() == null || failure.getKeywordId() == null) {
+            return false;
+        }
+        CompetitorSearchRunRow run = mapper.selectSearchRunById(failure.getSearchRunId());
+        if (run == null || !"PARTIAL_FAILED".equals(run.getStatus())) {
+            return false;
+        }
+        CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(failure.getWatchProductId());
+        CompetitorKeywordRow keyword = mapper.selectKeywordById(failure.getKeywordId());
+        if (watchProduct == null || keyword == null || !"ACTIVE".equals(keyword.getStatus())) {
+            return false;
+        }
+        CompetitorKeywordRefreshResult retryResult = keywordRefreshRunner.runKeyword(
+                run.getId(),
+                watchProduct,
+                keyword,
+                run.getRequestedBy()
+        );
+        if (!retryResult.isSuccess()) {
+            return false;
+        }
+        int success = nullToZero(run.getKeywordSuccess()) + 1;
+        int failed = Math.max(0, nullToZero(run.getKeywordFailed()) - 1);
+        int candidateUpsertedCount = nullToZero(run.getCandidateUpsertedCount())
+                + retryResult.getCandidateUpsertedCount();
+        int rankFactWrittenCount = nullToZero(run.getRankFactWrittenCount())
+                + retryResult.getRankFactWrittenCount();
+        String status = resolveRunStatus(success, failed);
+        mapper.completeSearchRun(
+                run.getId(),
+                status,
+                success,
+                failed,
+                candidateUpsertedCount,
+                rankFactWrittenCount,
+                failed > 0 ? run.getErrorCode() : null,
+                failed > 0 ? truncateMessage(run.getErrorMessage()) : null,
+                run.getRequestedBy()
+        );
+        mapper.updateWatchProductLatestRun(watchProduct.getId(), run.getId(), status, run.getRequestedBy());
+        return true;
+    }
+
     private int recoverStaleTasks(String taskType) {
         int recovered = 0;
         for (OperationalTask task : operationalTaskService.listActive(taskType, STALE_RECOVERY_LIMIT)) {
@@ -804,6 +867,10 @@ public class CompetitorAnalysisRefreshService {
 
     private String firstNonBlank(String first, String second) {
         return StringUtils.hasText(first) ? first : second;
+    }
+
+    private int nullToZero(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private String truncateMessage(String value) {

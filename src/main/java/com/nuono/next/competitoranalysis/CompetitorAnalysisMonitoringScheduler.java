@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -17,12 +18,19 @@ public class CompetitorAnalysisMonitoringScheduler {
     private final CompetitorAnalysisRefreshService refreshService;
     private final AtomicBoolean rankRunning = new AtomicBoolean(false);
     private final AtomicBoolean detailRunning = new AtomicBoolean(false);
+    private final AtomicBoolean compensationRunning = new AtomicBoolean(false);
 
     @Value("${nuono.competitor-analysis.monitor.scheduler.enabled:false}")
     private boolean enabled;
 
     @Value("${nuono.competitor-analysis.monitor.scheduler.max-scopes-per-tick:100}")
     private int maxScopesPerTick;
+
+    @Value("${nuono.competitor-analysis.monitor.scheduler.max-compensation-keywords-per-tick:50}")
+    private int maxCompensationKeywordsPerTick;
+
+    @Value("${nuono.competitor-analysis.monitor.scheduler.compensation-lookback-hours:24}")
+    private int compensationLookbackHours;
 
     public CompetitorAnalysisMonitoringScheduler(
             CompetitorAnalysisMapper mapper,
@@ -62,6 +70,21 @@ public class CompetitorAnalysisMonitoringScheduler {
         }
     }
 
+    @Scheduled(
+            fixedDelayString = "${nuono.competitor-analysis.monitor.scheduler.compensation-fixed-delay-ms:600000}",
+            initialDelayString = "${nuono.competitor-analysis.monitor.scheduler.compensation-initial-delay-ms:60000}"
+    )
+    public void runScheduledRankFailureCompensation() {
+        if (!enabled || !compensationRunning.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            runRankFailureCompensationOnce();
+        } finally {
+            compensationRunning.set(false);
+        }
+    }
+
     public int runOnce() {
         return runRankOnce();
     }
@@ -72,6 +95,16 @@ public class CompetitorAnalysisMonitoringScheduler {
 
     public int runDetailOnce() {
         return runOnce("detail", this::submitDetailMonitoring);
+    }
+
+    public int runRankFailureCompensationOnce() {
+        if (!enabled) {
+            return 0;
+        }
+        return refreshService.retryRecentTransientRankKeywordFailures(
+                Duration.ofHours(Math.max(1, compensationLookbackHours)),
+                Math.max(1, maxCompensationKeywordsPerTick)
+        );
     }
 
     private int runOnce(String executionMode, ScopeSubmitter submitter) {
