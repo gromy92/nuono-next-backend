@@ -154,6 +154,55 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
+    void shouldDowngradeIncompleteNewPluginBatchToDraftInsteadOfTracking() {
+        PluginSyncCommand command = sampleEtCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setTransportMode(null);
+        batch.setTargetWarehouseName(null);
+        batch.setDestination("RUH");
+        batch.setBatchStatus("in_transit");
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("draft", batchCaptor.getValue().getBatchStatus());
+        assertNull(batchCaptor.getValue().getTransportMode());
+        assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
+        assertNull(batchCaptor.getValue().getTargetWarehouseName());
+    }
+
+    @Test
+    void shouldKeepExistingTrackingFieldsWhenPluginPayloadOmitsThem() {
+        PluginSyncCommand command = sampleEtCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setTransportMode(null);
+        batch.setTargetWarehouseName(null);
+        batch.setBatchStatus("in_transit");
+        BatchRow existingBatch = batch(53010L);
+        existingBatch.setBatchReferenceNo("F2604304851631");
+        existingBatch.setTransportMode("SEA");
+        existingBatch.setTargetStoreCode("RUH");
+        existingBatch.setTargetWarehouseName("ETRUH01整箱仓");
+        when(mapper.selectBatchByReferenceNo(10002L, "F2604304851631")).thenReturn(existingBatch);
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
+        assertEquals("SEA", batchCaptor.getValue().getTransportMode());
+        assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
+        assertEquals("ETRUH01整箱仓", batchCaptor.getValue().getTargetWarehouseName());
+    }
+
+    @Test
     void shouldReconcileExistingBatchBoxesAndLinesBeforeSavingPluginDetails() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncSourceBatchExpectation expectation = new PluginSyncSourceBatchExpectation();

@@ -94,9 +94,15 @@ public class InTransitBatchService {
         SaveBatchCommand resolved = command == null ? new SaveBatchCommand() : command;
         Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
         Long operatorUserId = resolved.getOperatorUserId();
+        BatchRow existingBatch = resolved.getBatchId() == null ? null : requireBatch(ownerUserId, resolved.getBatchId());
         String batchStatus = StringUtils.hasText(resolved.getBatchStatus())
                 ? InTransitBatchStatus.require(resolved.getBatchStatus()).code()
-                : InTransitBatchStatus.DRAFT.code();
+                : existingBatch == null
+                ? InTransitBatchStatus.DRAFT.code()
+                : firstText(existingBatch.getBatchStatus(), InTransitBatchStatus.DRAFT.code());
+        if (existingBatch != null && !InTransitBatchStatus.DRAFT.code().equals(batchStatus)) {
+            mergeExistingBatchFieldsForTracking(resolved, existingBatch);
+        }
         String transportMode = StringUtils.hasText(resolved.getTransportMode())
                 ? InTransitTransportMode.require(resolved.getTransportMode()).code()
                 : null;
@@ -120,7 +126,7 @@ public class InTransitBatchService {
         row.setTransportMode(transportMode);
         row.setBatchStatus(batchStatus);
         row.setTargetStoreCode(destinationCode);
-        row.setTargetSiteCode(null);
+        row.setTargetSiteCode(clean(resolved.getTargetSiteCode()));
         row.setTargetWarehouseName(clean(resolved.getTargetWarehouseName()));
         row.setDepartureDate(resolved.getDepartureDate());
         row.setEtaDate(resolved.getEtaDate());
@@ -154,6 +160,55 @@ public class InTransitBatchService {
                 detail("batchStatus", row.getBatchStatus(), "transportMode", row.getTransportMode())
         );
         return getBatch(ownerUserId, row.getId());
+    }
+
+    private void mergeExistingBatchFieldsForTracking(SaveBatchCommand command, BatchRow existing) {
+        if (command.getStandardForwarderId() == null && !StringUtils.hasText(command.getRawForwarderName())) {
+            command.setStandardForwarderId(existing.getStandardForwarderId());
+            command.setRawForwarderName(existing.getRawForwarderName());
+        }
+        if (!StringUtils.hasText(command.getTransportMode())) {
+            command.setTransportMode(existing.getTransportMode());
+        }
+        if (!StringUtils.hasText(command.getTargetStoreCode())) {
+            command.setTargetStoreCode(existing.getTargetStoreCode());
+        }
+        if (!StringUtils.hasText(command.getTargetSiteCode())) {
+            command.setTargetSiteCode(existing.getTargetSiteCode());
+        }
+        if (!StringUtils.hasText(command.getTargetWarehouseName())) {
+            command.setTargetWarehouseName(existing.getTargetWarehouseName());
+        }
+        if (command.getDepartureDate() == null) {
+            command.setDepartureDate(existing.getDepartureDate());
+        }
+        if (command.getEtaDate() == null) {
+            command.setEtaDate(existing.getEtaDate());
+        }
+        if (!StringUtils.hasText(command.getTrackingNo())) {
+            command.setTrackingNo(existing.getTrackingNo());
+        }
+        if (!StringUtils.hasText(command.getContainerNo())) {
+            command.setContainerNo(existing.getContainerNo());
+        }
+        if (!StringUtils.hasText(command.getBatchReferenceNo())) {
+            command.setBatchReferenceNo(existing.getBatchReferenceNo());
+        }
+        if (!StringUtils.hasText(command.getExternalShipmentNo())) {
+            command.setExternalShipmentNo(existing.getExternalShipmentNo());
+        }
+        if (command.getSourceCreatedAt() == null) {
+            command.setSourceCreatedAt(existing.getSourceCreatedAt());
+        }
+        if (command.getEstimatedDepartureAt() == null) {
+            command.setEstimatedDepartureAt(existing.getEstimatedDepartureAt());
+        }
+        if (command.getEstimatedArrivalAt() == null) {
+            command.setEstimatedArrivalAt(existing.getEstimatedArrivalAt());
+        }
+        if (!StringUtils.hasText(command.getDeliveryAppointmentText())) {
+            command.setDeliveryAppointmentText(existing.getDeliveryAppointmentText());
+        }
     }
 
     public LineListView listLines(Long ownerUserId, Long batchId) {

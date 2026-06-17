@@ -119,6 +119,39 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldPreserveExistingTrackingFieldsWhenUpdatingNonDraftBatchWithPartialCommand() {
+        SaveBatchCommand command = new SaveBatchCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setRawForwarderName("义特物流");
+        command.setTargetStoreCode("DB");
+        command.setBatchStatus("in_transit");
+
+        ForwarderResolveView matched = new ForwarderResolveView();
+        matched.setStandardForwarderId(51001L);
+        matched.setStandardForwarderCode("YITE");
+        matched.setStandardForwarderName("义特");
+        matched.setRawForwarderName("义特");
+        matched.setNormalizedRawForwarderName("义特物流");
+        matched.setQualityStatus("forwarder_matched");
+        when(mapper.selectBatchById(10002L, 53001L))
+                .thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matched);
+
+        service.saveBatch(command);
+
+        ArgumentCaptor<BatchRow> rowCaptor = ArgumentCaptor.forClass(BatchRow.class);
+        verify(mapper).updateBatch(rowCaptor.capture());
+        assertEquals("AIR", rowCaptor.getValue().getTransportMode());
+        assertEquals("DB", rowCaptor.getValue().getTargetStoreCode());
+        assertEquals("AE", rowCaptor.getValue().getTargetSiteCode());
+        assertEquals("FBN-DXB", rowCaptor.getValue().getTargetWarehouseName());
+        assertEquals("TRK-001", rowCaptor.getValue().getTrackingNo());
+        assertEquals("CONT-001", rowCaptor.getValue().getContainerNo());
+    }
+
+    @Test
     void shouldNormalizeDestinationToRuhOrDbWhenSavingBatch() {
         SaveBatchCommand command = new SaveBatchCommand();
         command.setOwnerUserId(10002L);

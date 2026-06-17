@@ -620,8 +620,26 @@ public class InTransitPluginSyncService {
         result.setEstimatedDepartureAt(firstDateTime(batch.getEstimatedDepartureAt(), existingBatch == null ? null : existingBatch.getEstimatedDepartureAt()));
         result.setEstimatedArrivalAt(firstDateTime(batch.getEstimatedArrivalAt(), existingBatch == null ? null : existingBatch.getEstimatedArrivalAt()));
         result.setDeliveryAppointmentText(firstText(batch.getDeliveryAppointmentText(), existingBatch == null ? null : existingBatch.getDeliveryAppointmentText()));
-        result.setBatchStatus(firstText(resolveBatchStatus(sourceBatchStatusText(batch)), existingBatch == null ? InTransitBatchStatus.DRAFT.code() : existingBatch.getBatchStatus()));
+        String batchStatus = firstText(
+                resolveBatchStatus(sourceBatchStatusText(batch)),
+                existingBatch == null ? InTransitBatchStatus.DRAFT.code() : existingBatch.getBatchStatus()
+        );
+        result.setBatchStatus(resolveBatchStatusForSave(result, batchStatus));
         return result;
+    }
+
+    private String resolveBatchStatusForSave(SaveBatchCommand command, String batchStatus) {
+        String resolvedStatus = firstText(batchStatus, InTransitBatchStatus.DRAFT.code());
+        if (InTransitBatchStatus.DRAFT.code().equals(resolvedStatus)) {
+            return resolvedStatus;
+        }
+        if (!StringUtils.hasText(command.getRawForwarderName())
+                || !StringUtils.hasText(command.getTransportMode())
+                || !StringUtils.hasText(command.getTargetStoreCode())
+                || !StringUtils.hasText(command.getTargetWarehouseName())) {
+            return InTransitBatchStatus.DRAFT.code();
+        }
+        return resolvedStatus;
     }
 
     private SaveLineCommand toLineCommand(
