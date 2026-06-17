@@ -134,6 +134,25 @@ public interface InTransitGoodsLineMapper extends InTransitGoodsSequenceMapper {
     })
     int updatePackage(@Param("row") PackageRow row);
 
+    @Select({
+            "SELECT COUNT(DISTINCT pkg.id)",
+            "FROM in_transit_package pkg",
+            "JOIN in_transit_goods_line line",
+            "ON line.owner_user_id = pkg.owner_user_id",
+            "AND line.batch_id = pkg.batch_id",
+            "AND (line.package_id = pkg.id OR (line.package_id IS NULL AND line.box_no = pkg.box_no))",
+            "AND line.is_deleted = b'0'",
+            "AND NULLIF(TRIM(line.psku), '') IS NOT NULL",
+            "WHERE pkg.owner_user_id = #{ownerUserId}",
+            "AND pkg.batch_id = #{batchId}",
+            "AND pkg.is_deleted = b'0'",
+            "AND pkg.chargeable_weight_kg IS NULL"
+    })
+    int countPackagesWithGoodsLinesMissingChargeable(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchId") Long batchId
+    );
+
     @Update({
             "<script>",
             "UPDATE in_transit_goods_line",

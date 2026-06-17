@@ -176,12 +176,95 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
+    void shouldApplyYiteRouteFallbackBeforePreviewAndCommitValidation() {
+        PluginSyncCommand command = sampleYiteCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchNo("YT2606133690");
+        batch.setTransportMode(null);
+        batch.setDestination(null);
+        batch.setTargetWarehouseName(null);
+        PluginSyncPackage itemPackage = batch.getPackages().get(0);
+        itemPackage.setWeightKg(new BigDecimal("12.650000"));
+        itemPackage.setLengthCm(new BigDecimal("60.000000"));
+        itemPackage.setWidthCm(new BigDecimal("40.000000"));
+        itemPackage.setHeightCm(new BigDecimal("35.000000"));
+        itemPackage.setVolumeCbm(new BigDecimal("0.084000"));
+        itemPackage.setVolumeWeightKg(new BigDecimal("14.000000"));
+        itemPackage.setChargeableWeightKg(new BigDecimal("14.000000"));
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertEquals(true, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().noneMatch(issue -> "error".equals(issue.getLevel())));
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53030L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
+        assertEquals("SEA", batchCaptor.getValue().getTransportMode());
+        assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
+        assertEquals("FBN-RUH", batchCaptor.getValue().getTargetWarehouseName());
+    }
+
+    @Test
+    void shouldKeepChicBatchDraftWhenPackagesWithGoodsLinesMissChargeableWeight() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchNo("XGGEKSA04078");
+        batch.setTransportMode(null);
+        batch.setDestination(null);
+        batch.setTargetWarehouseName(null);
+        batch.setBatchStatus("in_transit");
+        PluginSyncPackage itemPackage = batch.getPackages().get(0);
+        itemPackage.setWeightKg(null);
+        itemPackage.setLengthCm(null);
+        itemPackage.setWidthCm(null);
+        itemPackage.setHeightCm(null);
+        itemPackage.setVolumeCbm(null);
+        itemPackage.setVolumeWeightKg(null);
+        itemPackage.setChargeableWeightKg(null);
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertEquals(true, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "package.chargeableWeightKg".equals(issue.getField())
+                        && "warning".equals(issue.getLevel())
+                        && "XGGEKSA04078".equals(issue.getBatchNo())
+        ));
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53078L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        PluginSyncCommitView result = service.commit(command);
+
+        assertTrue(result.getIssues().stream().anyMatch(issue ->
+                "package.chargeableWeightKg".equals(issue.getField())
+                        && "warning".equals(issue.getLevel())
+                        && "XGGEKSA04078".equals(issue.getBatchNo())
+        ));
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("draft", batchCaptor.getValue().getBatchStatus());
+        assertEquals("AIR", batchCaptor.getValue().getTransportMode());
+        assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
+        assertEquals("FBN-RUH", batchCaptor.getValue().getTargetWarehouseName());
+    }
+
+    @Test
     void shouldKeepExistingTrackingFieldsWhenPluginPayloadOmitsThem() {
         PluginSyncCommand command = sampleEtCommand();
         PluginSyncBatch batch = command.getBatches().get(0);
         batch.setTransportMode(null);
         batch.setTargetWarehouseName(null);
         batch.setBatchStatus("in_transit");
+        batch.getPackages().get(0).setChargeableWeightKg(new BigDecimal("9.500000"));
         BatchRow existingBatch = batch(53010L);
         existingBatch.setBatchReferenceNo("F2604304851631");
         existingBatch.setTransportMode("SEA");
@@ -519,7 +602,7 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldAcceptEtPayloadWithoutPackageSpecsOrLogisticsNodes() {
+    void shouldSaveEtPayloadWithoutPackageSpecsOrLogisticsNodesAsDraft() {
         PluginSyncCommand command = sampleEtCommand();
 
         PluginSyncPreviewView preview = service.preview(command);
@@ -531,7 +614,10 @@ class InTransitPluginSyncServiceTest {
         assertEquals(1, preview.getPackageCount());
         assertEquals(1, preview.getLineCount());
         assertEquals(0, preview.getNodeCount());
-        assertTrue(preview.getIssues().isEmpty());
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "package.chargeableWeightKg".equals(issue.getField())
+                        && "warning".equals(issue.getLevel())
+        ));
 
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53020L);
@@ -544,7 +630,7 @@ class InTransitPluginSyncServiceTest {
         verify(batchService).saveBatch(batchCaptor.capture());
         assertEquals("易通", batchCaptor.getValue().getRawForwarderName());
         assertEquals("F2604304851631", batchCaptor.getValue().getBatchReferenceNo());
-        assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
+        assertEquals("draft", batchCaptor.getValue().getBatchStatus());
         assertEquals("SEA", batchCaptor.getValue().getTransportMode());
         assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
         assertEquals("ETRUH01整箱仓", batchCaptor.getValue().getTargetWarehouseName());
@@ -779,6 +865,13 @@ class InTransitPluginSyncServiceTest {
         PluginSyncPackage itemPackage = new PluginSyncPackage();
         itemPackage.setBoxNo("YT2605306913U001");
         itemPackage.setExternalBoxNo("6a1979aa3a8e5260c465758c");
+        itemPackage.setWeightKg(new BigDecimal("12.650000"));
+        itemPackage.setLengthCm(new BigDecimal("60.000000"));
+        itemPackage.setWidthCm(new BigDecimal("40.000000"));
+        itemPackage.setHeightCm(new BigDecimal("35.000000"));
+        itemPackage.setVolumeCbm(new BigDecimal("0.084000"));
+        itemPackage.setVolumeWeightKg(new BigDecimal("14.000000"));
+        itemPackage.setChargeableWeightKg(new BigDecimal("14.000000"));
         itemPackage.setPackageStatus("转运中");
         itemPackage.setLogisticsStatus("转运中");
         itemPackage.setLines(List.of(line));

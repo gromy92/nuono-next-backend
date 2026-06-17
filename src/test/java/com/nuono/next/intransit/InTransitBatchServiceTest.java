@@ -890,6 +890,81 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldKeepBatchDraftWhenLatestNodeWouldPromoteIncompleteTrackingBatch() {
+        SaveNodeCommand command = new SaveNodeCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setNodeStatus("in_transit");
+        command.setNodeHappenedAt(LocalDateTime.parse("2026-06-17T13:54:17"));
+        command.setDescription("运输中");
+
+        BatchRow incompleteDraft = batch(53001L, "draft", "启客", "forwarder_matched");
+        incompleteDraft.setTransportMode(null);
+        incompleteDraft.setTargetStoreCode("RUH");
+        incompleteDraft.setTargetWarehouseName(null);
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(incompleteDraft);
+        when(mapper.nextNodeId()).thenReturn(55003L);
+        when(mapper.selectNodeById(10002L, 53001L, 55003L)).thenReturn(node(
+                55003L,
+                53001L,
+                "in_transit",
+                LocalDateTime.parse("2026-06-17T13:54:17"),
+                "运输中"
+        ));
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(latestNode(
+                "in_transit",
+                LocalDateTime.parse("2026-06-17T13:54:17"),
+                "运输中"
+        ));
+
+        service.saveNode(command);
+
+        ArgumentCaptor<BatchLatestNodeRow> latestCaptor = ArgumentCaptor.forClass(BatchLatestNodeRow.class);
+        verify(mapper).refreshBatchLatestNode(eq(10002L), eq(53001L), latestCaptor.capture());
+        assertEquals("in_transit", latestCaptor.getValue().getLatestNodeStatus());
+        assertEquals("draft", latestCaptor.getValue().getDerivedBatchStatus());
+    }
+
+    @Test
+    void shouldKeepBatchDraftWhenLatestNodeWouldPromoteBatchWithMissingPackageChargeableWeight() {
+        SaveNodeCommand command = new SaveNodeCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setNodeStatus("in_transit");
+        command.setNodeHappenedAt(LocalDateTime.parse("2026-06-17T13:54:17"));
+        command.setDescription("运输中");
+
+        BatchRow readyExceptPackageChargeable = batch(53001L, "draft", "启客", "forwarder_matched");
+        readyExceptPackageChargeable.setTransportMode("AIR");
+        readyExceptPackageChargeable.setTargetStoreCode("RUH");
+        readyExceptPackageChargeable.setTargetWarehouseName("FBN-RUH");
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(readyExceptPackageChargeable);
+        when(mapper.countPackagesWithGoodsLinesMissingChargeable(10002L, 53001L)).thenReturn(16);
+        when(mapper.nextNodeId()).thenReturn(55004L);
+        when(mapper.selectNodeById(10002L, 53001L, 55004L)).thenReturn(node(
+                55004L,
+                53001L,
+                "in_transit",
+                LocalDateTime.parse("2026-06-17T13:54:17"),
+                "运输中"
+        ));
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(latestNode(
+                "in_transit",
+                LocalDateTime.parse("2026-06-17T13:54:17"),
+                "运输中"
+        ));
+
+        service.saveNode(command);
+
+        ArgumentCaptor<BatchLatestNodeRow> latestCaptor = ArgumentCaptor.forClass(BatchLatestNodeRow.class);
+        verify(mapper).refreshBatchLatestNode(eq(10002L), eq(53001L), latestCaptor.capture());
+        assertEquals("in_transit", latestCaptor.getValue().getLatestNodeStatus());
+        assertEquals("draft", latestCaptor.getValue().getDerivedBatchStatus());
+    }
+
+    @Test
     void shouldUpdateExistingLogisticsNodeAndRefreshLatestBatchStatus() {
         SaveNodeCommand command = new SaveNodeCommand();
         command.setNodeId(55001L);

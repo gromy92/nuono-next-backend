@@ -843,14 +843,35 @@ public class InTransitBatchService {
     }
 
     private void refreshBatchLatestNode(Long ownerUserId, Long batchId) {
+        BatchRow batch = requireBatch(ownerUserId, batchId);
         BatchLatestNodeRow latestNode = mapper.selectLatestNode(ownerUserId, batchId);
         if (latestNode == null) {
             latestNode = new BatchLatestNodeRow();
             latestNode.setDerivedBatchStatus(InTransitBatchStatus.DRAFT.code());
         } else {
-            latestNode.setDerivedBatchStatus(deriveBatchStatusFromNode(latestNode.getLatestNodeStatus()));
+            String derivedBatchStatus = deriveBatchStatusFromNode(latestNode.getLatestNodeStatus());
+            if (!InTransitBatchStatus.DRAFT.code().equals(derivedBatchStatus)
+                    && !isReadyForTracking(batch)) {
+                derivedBatchStatus = InTransitBatchStatus.DRAFT.code();
+            }
+            latestNode.setDerivedBatchStatus(derivedBatchStatus);
         }
         mapper.refreshBatchLatestNode(ownerUserId, batchId, latestNode);
+    }
+
+    private boolean isReadyForTracking(BatchRow batch) {
+        if (batch == null) {
+            return false;
+        }
+        boolean hasForwarder = batch.getStandardForwarderId() != null
+                || StringUtils.hasText(batch.getRawForwarderName());
+        if (!hasForwarder
+                || !StringUtils.hasText(batch.getTransportMode())
+                || !StringUtils.hasText(batch.getTargetStoreCode())
+                || !StringUtils.hasText(batch.getTargetWarehouseName())) {
+            return false;
+        }
+        return mapper.countPackagesWithGoodsLinesMissingChargeable(batch.getOwnerUserId(), batch.getId()) == 0;
     }
 
     private static String deriveBatchStatusFromNode(String nodeStatus) {

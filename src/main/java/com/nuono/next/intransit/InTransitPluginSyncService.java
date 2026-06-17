@@ -9,6 +9,7 @@ import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
 import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
 import com.nuono.next.intransit.InTransitBatchRecords.NodeRow;
+import com.nuono.next.intransit.InTransitBatchRecords.PackageRow;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncBatch;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.EtBoxSyncPlanCommand;
@@ -295,7 +296,7 @@ public class InTransitPluginSyncService {
             } else {
                 updateBatchCount += 1;
             }
-            validateBatch(batch, issues);
+            validateBatch(resolved, batch, existingBatch, issues);
             PluginSyncBatchPreviewView batchView = new PluginSyncBatchPreviewView();
             batchView.setBatchNo(batchNo);
             batchView.setBatchId(existingBatch == null ? null : existingBatch.getId());
@@ -303,6 +304,7 @@ public class InTransitPluginSyncService {
             batchView.setPackageCount(batch.getPackages().size());
             packageCount += batch.getPackages().size();
             warnWhenPackageDetailsAreMissing(batchNo, batch, issues);
+            warnWhenPackageChargeableWeightIsMissing(ownerUserId, batchNo, batch, existingBatch, issues);
 
             int batchShippedQuantity = 0;
             Set<String> boxKeys = new LinkedHashSet<>();
@@ -592,6 +594,130 @@ public class InTransitPluginSyncService {
         }
     }
 
+    private void warnWhenPackageChargeableWeightIsMissing(
+            Long ownerUserId,
+            String batchNo,
+            PluginSyncBatch batch,
+            BatchRow existingBatch,
+            List<PluginSyncIssueView> issues
+    ) {
+        if (!hasPackageWithGoodsLinesMissingChargeable(ownerUserId, batch, existingBatch)) {
+            return;
+        }
+        issues.add(PluginSyncIssueView.warning(
+                batchNo,
+                null,
+                null,
+                "package.chargeableWeightKg",
+                "本次采集到 SKU 明细，但箱子缺计费重；提交后该批次只能保存为草稿，请补齐箱规/计费重后再进入跟踪。"
+        ));
+    }
+
+    private boolean hasPackageWithGoodsLinesMissingChargeable(
+            Long ownerUserId,
+            PluginSyncBatch batch,
+            BatchRow existingBatch
+    ) {
+        if (batch == null) {
+            return false;
+        }
+        for (PluginSyncPackage itemPackage : batch.getPackages()) {
+            if (itemPackage.getLines().isEmpty()) {
+                continue;
+            }
+            if (resolveChargeableWeight(itemPackage) != null) {
+                continue;
+            }
+            if (existingBatch != null && existingPackageHasChargeableWeight(ownerUserId, existingBatch, itemPackage)) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean existingPackageHasChargeableWeight(
+            Long ownerUserId,
+            BatchRow existingBatch,
+            PluginSyncPackage itemPackage
+    ) {
+        String boxNo = clean(itemPackage.getBoxNo());
+        String externalBoxNo = clean(itemPackage.getExternalBoxNo());
+        PackageRow existingPackage = null;
+        if (StringUtils.hasText(boxNo)) {
+            existingPackage = mapper.selectPackageByBoxNo(ownerUserId, existingBatch.getId(), boxNo);
+        }
+        if (existingPackage == null && StringUtils.hasText(externalBoxNo)) {
+            existingPackage = mapper.selectPackageByExternalBoxNoForMerge(ownerUserId, existingBatch.getId(), externalBoxNo);
+        }
+        return existingPackage != null
+                && resolveChargeableWeight(
+                        existingPackage.getChargeableWeightKg(),
+                        existingPackage.getWeightKg(),
+                        existingPackage.getVolumeWeightKg()
+                ) != null;
+    }
+
+    private RouteDefaults routeDefaults(PluginSyncCommand command, PluginSyncBatch batch) {
+        String sourceSystem = normalizeCode(command.getSourceSystem());
+        String batchNo = normalizeCode(batch == null ? null : batch.getBatchNo());
+        if ("CHIC".equals(sourceSystem) && batchNo != null && batchNo.startsWith("XGGEKSA")) {
+            return new RouteDefaults(InTransitTransportMode.AIR.code(), InTransitDestination.RUH.code(), "FBN-RUH");
+        }
+        if ("CHIC".equals(sourceSystem) && batchNo != null && batchNo.startsWith("XGGEUAE")) {
+            return new RouteDefaults(InTransitTransportMode.AIR.code(), InTransitDestination.DB.code(), "FBN-DXB");
+        }
+        if ("YITE".equals(sourceSystem) && batchNo != null && batchNo.startsWith("YT")) {
+            return new RouteDefaults(InTransitTransportMode.SEA.code(), InTransitDestination.RUH.code(), "FBN-RUH");
+        }
+        return RouteDefaults.empty();
+    }
+
+    private String resolveTransportModeForSave(
+            PluginSyncBatch batch,
+            BatchRow existingBatch,
+            RouteDefaults routeDefaults
+    ) {
+        String resolved = firstText(
+                StringUtils.hasText(batch.getTransportMode()) ? resolveTransportMode(batch.getTransportMode()) : null,
+                existingBatch == null ? null : existingBatch.getTransportMode()
+        );
+        if (!StringUtils.hasText(batch.getTransportMode())) {
+            resolved = firstText(resolved, routeDefaults.transportMode);
+        }
+        return resolved;
+    }
+
+    private String resolveDestinationForSave(
+            PluginSyncBatch batch,
+            BatchRow existingBatch,
+            RouteDefaults routeDefaults
+    ) {
+        String resolved = firstText(
+                resolveDestination(batch.getBatchNo(), batch.getDestination(), batch.getTargetWarehouseName()),
+                existingBatch == null ? null : existingBatch.getTargetStoreCode()
+        );
+        if (!StringUtils.hasText(batch.getDestination()) && !StringUtils.hasText(batch.getTargetWarehouseName())) {
+            resolved = firstText(resolved, routeDefaults.targetStoreCode);
+        }
+        return resolved;
+    }
+
+    private String resolveWarehouseForSave(
+            PluginSyncBatch batch,
+            BatchRow existingBatch,
+            RouteDefaults routeDefaults
+    ) {
+        String resolved = firstText(
+                batch.getTargetWarehouseName(),
+                existingBatch == null ? null : existingBatch.getTargetWarehouseName()
+        );
+        if (!StringUtils.hasText(batch.getTargetWarehouseName())) {
+            resolved = firstText(resolved, routeDefaults.targetWarehouseName);
+        }
+        return resolved;
+    }
+
     private SaveBatchCommand toBatchCommand(
             PluginSyncCommand command,
             PluginSyncBatch batch,
@@ -603,13 +729,11 @@ public class InTransitPluginSyncService {
         result.setOperatorUserId(command.getOperatorUserId());
         result.setBatchId(existingBatch == null ? null : existingBatch.getId());
         result.setRawForwarderName(forwarder.name());
-        result.setTransportMode(firstText(resolveTransportMode(batch.getTransportMode()), existingBatch == null ? null : existingBatch.getTransportMode()));
-        result.setTargetStoreCode(firstText(
-                resolveDestination(batch.getBatchNo(), batch.getDestination(), batch.getTargetWarehouseName()),
-                existingBatch == null ? null : existingBatch.getTargetStoreCode()
-        ));
+        RouteDefaults routeDefaults = routeDefaults(command, batch);
+        result.setTransportMode(resolveTransportModeForSave(batch, existingBatch, routeDefaults));
+        result.setTargetStoreCode(resolveDestinationForSave(batch, existingBatch, routeDefaults));
         result.setTargetSiteCode(existingBatch == null ? null : existingBatch.getTargetSiteCode());
-        result.setTargetWarehouseName(firstText(batch.getTargetWarehouseName(), existingBatch == null ? null : existingBatch.getTargetWarehouseName()));
+        result.setTargetWarehouseName(resolveWarehouseForSave(batch, existingBatch, routeDefaults));
         result.setDepartureDate(batch.getDepartureDate() == null && existingBatch != null ? existingBatch.getDepartureDate() : batch.getDepartureDate());
         result.setEtaDate(batch.getOfficialEtaDate() == null && existingBatch != null ? existingBatch.getEtaDate() : batch.getOfficialEtaDate());
         result.setTrackingNo(firstText(batch.getTrackingNo(), existingBatch == null ? null : existingBatch.getTrackingNo()));
@@ -624,14 +748,26 @@ public class InTransitPluginSyncService {
                 resolveBatchStatus(sourceBatchStatusText(batch)),
                 existingBatch == null ? InTransitBatchStatus.DRAFT.code() : existingBatch.getBatchStatus()
         );
-        result.setBatchStatus(resolveBatchStatusForSave(result, batchStatus));
+        boolean missingPackageChargeableWeight = hasPackageWithGoodsLinesMissingChargeable(
+                command.getOwnerUserId(),
+                batch,
+                existingBatch
+        );
+        result.setBatchStatus(resolveBatchStatusForSave(result, batchStatus, missingPackageChargeableWeight));
         return result;
     }
 
-    private String resolveBatchStatusForSave(SaveBatchCommand command, String batchStatus) {
+    private String resolveBatchStatusForSave(
+            SaveBatchCommand command,
+            String batchStatus,
+            boolean missingPackageChargeableWeight
+    ) {
         String resolvedStatus = firstText(batchStatus, InTransitBatchStatus.DRAFT.code());
         if (InTransitBatchStatus.DRAFT.code().equals(resolvedStatus)) {
             return resolvedStatus;
+        }
+        if (missingPackageChargeableWeight) {
+            return InTransitBatchStatus.DRAFT.code();
         }
         if (!StringUtils.hasText(command.getRawForwarderName())
                 || !StringUtils.hasText(command.getTransportMode())
@@ -717,8 +853,17 @@ public class InTransitPluginSyncService {
         return result;
     }
 
-    private void validateBatch(PluginSyncBatch batch, List<PluginSyncIssueView> issues) {
+    private void validateBatch(
+            PluginSyncCommand command,
+            PluginSyncBatch batch,
+            BatchRow existingBatch,
+            List<PluginSyncIssueView> issues
+    ) {
         String batchNo = clean(batch.getBatchNo());
+        RouteDefaults routeDefaults = routeDefaults(command, batch);
+        String resolvedTransportMode = resolveTransportModeForSave(batch, existingBatch, routeDefaults);
+        String resolvedDestination = resolveDestinationForSave(batch, existingBatch, routeDefaults);
+        String resolvedWarehouse = resolveWarehouseForSave(batch, existingBatch, routeDefaults);
         if (StringUtils.hasText(batch.getTransportMode())) {
             if (!StringUtils.hasText(resolveTransportMode(batch.getTransportMode()))) {
                 issues.add(PluginSyncIssueView.warning(
@@ -729,7 +874,7 @@ public class InTransitPluginSyncService {
                         "运输方式无法识别，提交时将按缺失运输方式保存。原始值：" + clean(batch.getTransportMode())
                 ));
             }
-        } else {
+        } else if (!StringUtils.hasText(resolvedTransportMode)) {
             issues.add(PluginSyncIssueView.warning(batchNo, null, null, "transportMode", "运输方式为空，将按草稿批次保存。"));
         }
         if (StringUtils.hasText(batch.getDestination())) {
@@ -742,8 +887,11 @@ public class InTransitPluginSyncService {
                         "目的地无法识别，提交时将按缺失目的地保存。原始值：" + clean(batch.getDestination())
                 ));
             }
-        } else if (InTransitDestination.infer(batchNo, batch.getTargetWarehouseName()) == null) {
+        } else if (!StringUtils.hasText(resolvedDestination)) {
             issues.add(PluginSyncIssueView.warning(batchNo, null, null, "destination", "目的地为空，后端会尝试从批次号或仓库推断。"));
+        }
+        if (!StringUtils.hasText(resolvedWarehouse)) {
+            issues.add(PluginSyncIssueView.warning(batchNo, null, null, "targetWarehouseName", "目的仓为空，将按草稿批次保存。"));
         }
         String sourceBatchStatus = sourceBatchStatusText(batch);
         if (StringUtils.hasText(sourceBatchStatus) && !StringUtils.hasText(resolveBatchStatus(sourceBatchStatus))) {
@@ -1052,11 +1200,21 @@ public class InTransitPluginSyncService {
     }
 
     private BigDecimal resolveChargeableWeight(PluginSyncPackage itemPackage) {
-        if (itemPackage.getChargeableWeightKg() != null) {
-            return itemPackage.getChargeableWeightKg();
+        return resolveChargeableWeight(
+                itemPackage.getChargeableWeightKg(),
+                itemPackage.getWeightKg(),
+                itemPackage.getVolumeWeightKg()
+        );
+    }
+
+    private BigDecimal resolveChargeableWeight(
+            BigDecimal explicitChargeableWeightKg,
+            BigDecimal weightKg,
+            BigDecimal volumeWeightKg
+    ) {
+        if (explicitChargeableWeightKg != null) {
+            return explicitChargeableWeightKg;
         }
-        BigDecimal weightKg = itemPackage.getWeightKg();
-        BigDecimal volumeWeightKg = itemPackage.getVolumeWeightKg();
         if (weightKg == null) {
             return volumeWeightKg;
         }
@@ -1064,6 +1222,24 @@ public class InTransitPluginSyncService {
             return weightKg;
         }
         return weightKg.compareTo(volumeWeightKg) >= 0 ? weightKg : volumeWeightKg;
+    }
+
+    private static final class RouteDefaults {
+        private static final RouteDefaults EMPTY = new RouteDefaults(null, null, null);
+
+        private final String transportMode;
+        private final String targetStoreCode;
+        private final String targetWarehouseName;
+
+        private RouteDefaults(String transportMode, String targetStoreCode, String targetWarehouseName) {
+            this.transportMode = transportMode;
+            this.targetStoreCode = targetStoreCode;
+            this.targetWarehouseName = targetWarehouseName;
+        }
+
+        private static RouteDefaults empty() {
+            return EMPTY;
+        }
     }
 
     private boolean isCancelledBatch(PluginSyncBatch batch) {
