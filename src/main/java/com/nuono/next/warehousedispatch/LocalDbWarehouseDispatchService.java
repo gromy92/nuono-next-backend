@@ -1117,6 +1117,7 @@ public class LocalDbWarehouseDispatchService {
         view.productVariantId = row.productVariantId == null ? null : String.valueOf(row.productVariantId);
         view.psku = row.partnerSku;
         view.title = defaultText(row.titleCache, row.partnerSku);
+        view.titleCn = row.titleCn;
         view.imageUrl = row.imageUrlCache;
         view.siteCode = defaultText(row.siteCode, "SA");
         view.transportMode = normalizeTransportMode(row.transportMode);

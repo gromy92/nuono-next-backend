@@ -83,6 +83,7 @@ public final class WarehouseDispatchViews {
         public String productVariantId;
         public String psku;
         public String title;
+        public String titleCn;
         public String imageUrl;
         public String siteCode;
         public String transportMode;

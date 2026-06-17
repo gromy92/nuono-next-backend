@@ -44,7 +44,8 @@ class LocalDbWarehouseDispatchServiceTest {
         row.productVariantId = 70001L;
         row.partnerSku = "PAPERSAYSB024";
         row.skuParent = "PAPERSAYS024";
-        row.titleCache = "白卡标签贴";
+        row.titleCache = "English title should not be shown in mobile";
+        row.titleCn = "白卡标签贴";
         row.siteCode = "SA";
         row.transportMode = "AIR";
         row.expectedQuantity = 10;
@@ -63,5 +64,6 @@ class LocalDbWarehouseDispatchServiceTest {
         PurchaseReceiptItemView item = orders.get(0).items.get(0);
         assertThat(item.storeCode).isEqualTo("STR69486-NSA");
         assertThat(item.productVariantId).isEqualTo("70001");
+        assertThat(item.titleCn).isEqualTo("白卡标签贴");
     }
 }

@@ -127,6 +127,7 @@ public final class WarehouseDispatchRecords {
         public String partnerSku;
         public String skuParent;
         public String titleCache;
+        public String titleCn;
         public String imageUrlCache;
         public String siteCode;
         public String transportMode;
