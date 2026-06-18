@@ -32,6 +32,7 @@ public class LocalDbAli1688HistoricalOrderService {
     static final String EXCEL_UPLOAD_SCOPE = "用户上传 1688 历史订单 Excel，只写只读历史订单事实。";
     static final String ASSIGNMENT_TARGET_STORE_SITE = "STORE_SITE";
     static final String ASSIGNMENT_TARGET_CONSUMABLE = "CONSUMABLE";
+    static final String ASSIGNMENT_TARGET_DISCONTINUED = "DISCONTINUED";
     static final long MAX_EXCEL_IMPORT_FILE_SIZE_BYTES = 20L * 1024L * 1024L;
 
     private final Ali1688HistoricalOrderMapper mapper;
@@ -962,9 +963,9 @@ public class LocalDbAli1688HistoricalOrderService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要分配的货品行。");
         }
         String targetType = normalizeAssignmentTargetType(request.getTargetType());
-        boolean consumableAssignment = ASSIGNMENT_TARGET_CONSUMABLE.equals(targetType);
+        boolean fullLineAssignment = isStorelessFullLineAssignmentTarget(targetType);
         Ali1688HistoricalOrderQuery targetScope = null;
-        if (!consumableAssignment) {
+        if (!fullLineAssignment) {
             targetScope = Ali1688HistoricalOrderQuery.fromRequest(
                     null,
                     null,
@@ -991,10 +992,10 @@ public class LocalDbAli1688HistoricalOrderService {
             if (line == null || line.getItemId() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "货品行不能为空。");
             }
-            if (!consumableAssignment && (line.getQuantity() == null || line.getQuantity() <= 0)) {
+            if (!fullLineAssignment && (line.getQuantity() == null || line.getQuantity() <= 0)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "分配数量必须大于 0。");
             }
-            requestedQuantityByItemId.merge(line.getItemId(), consumableAssignment ? 0 : line.getQuantity(), Integer::sum);
+            requestedQuantityByItemId.merge(line.getItemId(), fullLineAssignment ? 0 : line.getQuantity(), Integer::sum);
         }
 
         Long ownerUserId = ownerUserId(context);
@@ -1021,16 +1022,25 @@ public class LocalDbAli1688HistoricalOrderService {
                     ? defaultInt(assignedByItemId.get(itemId).getAssignedQuantity())
                     : 0;
             Ali1688HistoricalOrderItemAssignmentSummaryRow assignmentSummary = assignedByItemId.get(itemId);
-            if (!consumableAssignment && assignmentSummary != null
+            if (!fullLineAssignment && assignmentSummary != null
                     && defaultInt(assignmentSummary.getConsumableAssignmentCount()) > 0) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "货品行已标记为耗材，请先撤回耗材分配。");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "货品行已标记为整行分类，请先撤回原分配。");
             }
-            if (consumableAssignment && assignmentSummary != null
+            if (ASSIGNMENT_TARGET_STORE_SITE.equals(targetType) && assignmentSummary != null
+                    && defaultInt(assignmentSummary.getDiscontinuedAssignmentCount()) > 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "货品行已标记为已下架，请先撤回原分配。");
+            }
+            if (ASSIGNMENT_TARGET_DISCONTINUED.equals(targetType) && assignmentSummary != null
                     && defaultInt(assignmentSummary.getStoreSiteAssignmentCount()) > 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "货品行已分配到店铺，请先撤回店铺分配。");
             }
+            if (fullLineAssignment && assignmentSummary != null
+                    && (defaultInt(assignmentSummary.getStoreSiteAssignmentCount()) > 0
+                    || defaultInt(assignmentSummary.getDiscontinuedAssignmentCount()) > 0)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "货品行已分配到店铺，请先撤回店铺分配。");
+            }
             int remainingQuantity = item.getQuantity() - alreadyAssigned;
-            int requestedQuantity = consumableAssignment ? item.getQuantity() : requestedQuantityByItemId.get(itemId);
+            int requestedQuantity = fullLineAssignment ? item.getQuantity() : requestedQuantityByItemId.get(itemId);
             if (requestedQuantity > remainingQuantity) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "分配数量不能超过剩余数量。");
             }
@@ -1048,11 +1058,11 @@ public class LocalDbAli1688HistoricalOrderService {
             assignment.setOrderId(item.getOrderId());
             assignment.setItemId(item.getId());
             assignment.setTargetType(targetType);
-            assignment.setTargetStoreCode(consumableAssignment ? null : targetScope.getStoreCode());
-            assignment.setTargetSiteCode(consumableAssignment ? null : hasText(targetScope.getSiteCode()) ? targetScope.getSiteCode() : "*");
+            assignment.setTargetStoreCode(fullLineAssignment ? null : targetScope.getStoreCode());
+            assignment.setTargetSiteCode(fullLineAssignment ? null : hasText(targetScope.getSiteCode()) ? targetScope.getSiteCode() : "*");
             assignment.setAssignedQuantity(entry.getValue());
             assignment.setStatus("active");
-            assignment.setRemark(consumableAssignment ? "1688 历史订单货品行标记为耗材。" : "1688 历史订单货品行分配。");
+            assignment.setRemark(assignmentRemark(targetType));
             assignment.setCreatedBy(operatorUserId(context));
             assignment.setUpdatedBy(operatorUserId(context));
             mapper.insertOrderItemAssignment(assignment);
@@ -1123,8 +1133,9 @@ public class LocalDbAli1688HistoricalOrderService {
         Ali1688HistoricalOrderItemAssignmentRow assignment =
                 mapper.selectOrderItemAssignmentById(ownerUserId, assignmentId);
         validateMutableAssignment(context, assignment);
-        if (isConsumableAssignment(assignment)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材使用整条货品行数量，请撤回后重新分配。");
+        if (isStorelessFullLineAssignment(assignment)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, assignmentTargetLabel(assignment.getTargetType())
+                    + "使用整条货品行数量，请撤回后重新分配。");
         }
         Ali1688HistoricalOrderItemRow item = mapper.selectOrderItemForAssignment(ownerUserId, assignment.getItemId());
         if (item == null) {
@@ -1186,8 +1197,9 @@ public class LocalDbAli1688HistoricalOrderService {
         Ali1688HistoricalOrderItemAssignmentRow assignment =
                 mapper.selectOrderItemAssignmentById(ownerUserId, request.getAssignmentId());
         validateMutableAssignment(context, assignment);
-        if (isConsumableAssignment(assignment)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材分配不能关联店铺商品。");
+        if (isProductLinkBlockedAssignment(assignment)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, assignmentTargetLabel(assignment.getTargetType())
+                    + "分配不能关联店铺商品。");
         }
         if (!hasText(assignment.getTargetStoreCode())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先把货品行分配到店铺后再关联商品。");
@@ -1335,7 +1347,7 @@ public class LocalDbAli1688HistoricalOrderService {
         Ali1688HistoricalOrderItemAssignmentRow assignment =
                 mapper.selectOrderItemAssignmentById(ownerUserId, assignmentId);
         validateMutableAssignment(context, assignment);
-        if (isConsumableAssignment(assignment) || !hasText(assignment.getTargetStoreCode())) {
+        if (isProductLinkBlockedAssignment(assignment) || !hasText(assignment.getTargetStoreCode())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先把货品行分配到店铺后再关联商品。");
         }
         String resolvedLinkStatus = normalizeProductLinkCandidateStatus(linkStatus);
@@ -1453,6 +1465,117 @@ public class LocalDbAli1688HistoricalOrderService {
         );
         view.setUnlinkedAssignedLineCount(unlinkedAssignedLineCount);
         return view;
+    }
+
+    public Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult previewSkuPurchaseBatchSourceMatch(
+            BusinessAccessContext context,
+            Ali1688SkuPurchaseBatchView.SourceMatchPreviewRequest request
+    ) {
+        requireSkuPurchaseBatchWriteAccess(context);
+        if (request == null || request.getBatchId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要匹配来源的采购批次。");
+        }
+        Long batchId = request.getBatchId();
+        String orderNo = trimToNull(request.getOrderNo());
+        String offerId = trimToNull(request.getOfferId());
+        String skuId = trimToNull(request.getSkuId());
+        if (!hasText(orderNo) || !hasText(offerId) || !hasText(skuId)) {
+            return Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult.rejected(batchId, "unsafe_match_key");
+        }
+        Long ownerUserId = ownerUserId(context);
+        Ali1688SkuPurchaseBatchRow batch = mapper.selectSkuPurchaseBatchById(ownerUserId, batchId);
+        if (batch == null) {
+            return Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult.rejected(batchId, "batch_not_found");
+        }
+        validateRequestedStore(context, Ali1688HistoricalOrderQuery.fromRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                batch.getStoreCode(),
+                batch.getSiteCode(),
+                null,
+                null
+        ));
+        List<Ali1688SkuPurchaseBatchView.SourceMatchCandidate> candidates =
+                emptyList(mapper.listSkuPurchaseBatchSourceMatchCandidates(
+                        ownerUserId,
+                        batchId,
+                        orderNo,
+                        offerId,
+                        skuId
+                ));
+        if (candidates.isEmpty()) {
+            return Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult.rejected(batchId, "no_match");
+        }
+        if (candidates.size() > 1) {
+            return Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult.rejected(batchId, "ambiguous_match");
+        }
+        return Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult.matched(batchId, candidates);
+    }
+
+    @Transactional
+    public Ali1688SkuPurchaseBatchView.SourceMatchSaveResult saveSkuPurchaseBatchSourceMatch(
+            BusinessAccessContext context,
+            Ali1688SkuPurchaseBatchView.SourceMatchSaveRequest request
+    ) {
+        requireSkuPurchaseBatchWriteAccess(context);
+        if (request == null || request.getBatchId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要保存来源的采购批次。");
+        }
+        List<Ali1688SkuPurchaseBatchView.SourceRequest> sources =
+                request.getSources() == null ? List.of() : request.getSources();
+        if (sources.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源不能为空。");
+        }
+        Long ownerUserId = ownerUserId(context);
+        Long operatorUserId = operatorUserId(context);
+        Ali1688SkuPurchaseBatchRow batch = mapper.selectSkuPurchaseBatchById(ownerUserId, request.getBatchId());
+        if (batch == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "采购批次不存在。");
+        }
+        String storeCode = trimToNull(batch.getStoreCode());
+        String siteCode = normalizeSiteCode(batch.getSiteCode());
+        String skuParent = trimToNull(batch.getSkuParent());
+        validateRequestedStore(context, Ali1688HistoricalOrderQuery.fromRequest(
+                null,
+                null,
+                null,
+                null,
+                null,
+                storeCode,
+                siteCode,
+                null,
+                null
+        ));
+        for (Ali1688SkuPurchaseBatchView.SourceRequest source : sources) {
+            validateSkuPurchaseBatchSource(ownerUserId, storeCode, siteCode, skuParent, source);
+        }
+        int replacedSourceCount = mapper.replaceSkuPurchaseBatchSources(ownerUserId, batch.getId(), operatorUserId);
+        int savedSourceCount = 0;
+        for (Ali1688SkuPurchaseBatchView.SourceRequest source : sources) {
+            Ali1688SkuPurchaseBatchSourceRow sourceRow = new Ali1688SkuPurchaseBatchSourceRow();
+            sourceRow.setId(mapper.nextSkuPurchaseBatchSourceId());
+            sourceRow.setBatchId(batch.getId());
+            sourceRow.setOwnerUserId(ownerUserId);
+            sourceRow.setOrderId(source.getOrderId());
+            sourceRow.setItemId(source.getItemId());
+            sourceRow.setAssignmentId(source.getAssignmentId());
+            sourceRow.setSourceOrderNo(trimToNull(source.getOrderNo()));
+            sourceRow.setSourceOrderTime(trimToNull(source.getOrderTime()));
+            sourceRow.setSupplierName(trimToNull(source.getSupplierName()));
+            sourceRow.setStatus("active");
+            sourceRow.setCreatedBy(operatorUserId);
+            sourceRow.setUpdatedBy(operatorUserId);
+            mapper.insertSkuPurchaseBatchSource(sourceRow);
+            savedSourceCount++;
+        }
+        return Ali1688SkuPurchaseBatchView.SourceMatchSaveResult.saved(
+                batch.getId(),
+                savedSourceCount,
+                replacedSourceCount
+        );
     }
 
     @Transactional
@@ -2127,12 +2250,21 @@ public class LocalDbAli1688HistoricalOrderService {
             Ali1688HistoricalOrderItemAssignmentRow assignment,
             int quantity
     ) {
-        if (assignment == null || ASSIGNMENT_TARGET_CONSUMABLE.equals(assignment.getTargetType())) {
+        if (assignment == null) {
             return "耗材 " + quantity;
+        }
+        if (ASSIGNMENT_TARGET_CONSUMABLE.equals(assignment.getTargetType())) {
+            return assignmentTargetLabel(assignment.getTargetType()) + " " + quantity;
         }
         String storeCode = hasText(assignment.getTargetStoreCode())
                 ? assignment.getTargetStoreCode().trim()
                 : "未指定店铺";
+        if (ASSIGNMENT_TARGET_DISCONTINUED.equals(assignment.getTargetType())) {
+            if (!hasText(assignment.getTargetSiteCode()) || "*".equals(assignment.getTargetSiteCode())) {
+                return storeCode + " 已下架 " + quantity;
+            }
+            return storeCode + " " + assignment.getTargetSiteCode().trim() + " 已下架 " + quantity;
+        }
         if (!hasText(assignment.getTargetSiteCode()) || "*".equals(assignment.getTargetSiteCode())) {
             return storeCode + " " + quantity;
         }
@@ -2332,8 +2464,9 @@ public class LocalDbAli1688HistoricalOrderService {
         if (!"active".equals(assignment.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源只能使用有效分配记录。");
         }
-        if (isConsumableAssignment(assignment)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材分配不能计入店铺 SKU 采购批次。");
+        if (isProductLinkBlockedAssignment(assignment)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, assignmentTargetLabel(assignment.getTargetType())
+                    + "分配不能计入店铺 SKU 采购批次。");
         }
         if (!storeCode.equals(assignment.getTargetStoreCode())
                 || !siteCode.equals(normalizeSiteCode(assignment.getTargetSiteCode()))) {
@@ -2787,8 +2920,9 @@ public class LocalDbAli1688HistoricalOrderService {
             return ASSIGNMENT_TARGET_STORE_SITE;
         }
         String normalized = targetType.trim().toUpperCase();
-        if (ASSIGNMENT_TARGET_CONSUMABLE.equals(normalized)) {
-            return ASSIGNMENT_TARGET_CONSUMABLE;
+        if (ASSIGNMENT_TARGET_CONSUMABLE.equals(normalized)
+                || ASSIGNMENT_TARGET_DISCONTINUED.equals(normalized)) {
+            return normalized;
         }
         return ASSIGNMENT_TARGET_STORE_SITE;
     }
@@ -2804,8 +2938,34 @@ public class LocalDbAli1688HistoricalOrderService {
         return null;
     }
 
-    private boolean isConsumableAssignment(Ali1688HistoricalOrderItemAssignmentRow assignment) {
-        return assignment != null && ASSIGNMENT_TARGET_CONSUMABLE.equals(assignment.getTargetType());
+    private boolean isStorelessFullLineAssignment(Ali1688HistoricalOrderItemAssignmentRow assignment) {
+        return assignment != null && isStorelessFullLineAssignmentTarget(assignment.getTargetType());
+    }
+
+    private boolean isProductLinkBlockedAssignment(Ali1688HistoricalOrderItemAssignmentRow assignment) {
+        return isStorelessFullLineAssignment(assignment)
+                || (assignment != null && ASSIGNMENT_TARGET_DISCONTINUED.equals(assignment.getTargetType()));
+    }
+
+    private boolean isStorelessFullLineAssignmentTarget(String targetType) {
+        return ASSIGNMENT_TARGET_CONSUMABLE.equals(targetType);
+    }
+
+    private String assignmentRemark(String targetType) {
+        if (ASSIGNMENT_TARGET_CONSUMABLE.equals(targetType)) {
+            return "1688 历史订单货品行标记为耗材。";
+        }
+        if (ASSIGNMENT_TARGET_DISCONTINUED.equals(targetType)) {
+            return "1688 历史订单货品行标记为已下架。";
+        }
+        return "1688 历史订单货品行分配。";
+    }
+
+    private String assignmentTargetLabel(String targetType) {
+        if (ASSIGNMENT_TARGET_DISCONTINUED.equals(targetType)) {
+            return "已下架";
+        }
+        return "耗材";
     }
 
     private void requireAssignmentWriteAccess(BusinessAccessContext context) {

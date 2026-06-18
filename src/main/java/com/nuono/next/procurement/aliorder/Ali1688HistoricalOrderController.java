@@ -246,6 +246,24 @@ public class Ali1688HistoricalOrderController {
         return historicalOrderService().saveSkuPurchaseBatches(context, body);
     }
 
+    @PostMapping("/sku-purchase-history/batches/source-match/preview")
+    public Ali1688SkuPurchaseBatchView.SourceMatchPreviewResult previewSkuPurchaseBatchSourceMatch(
+            @RequestBody Ali1688SkuPurchaseBatchView.SourceMatchPreviewRequest body,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = authorizedContext(request);
+        return historicalOrderService().previewSkuPurchaseBatchSourceMatch(context, body);
+    }
+
+    @PostMapping("/sku-purchase-history/batches/source-match")
+    public Ali1688SkuPurchaseBatchView.SourceMatchSaveResult saveSkuPurchaseBatchSourceMatch(
+            @RequestBody Ali1688SkuPurchaseBatchView.SourceMatchSaveRequest body,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = authorizedContext(request);
+        return historicalOrderService().saveSkuPurchaseBatchSourceMatch(context, body);
+    }
+
     @PostMapping("/assignments")
     public Ali1688HistoricalOrderAssignmentView.AssignResult assignProductLines(
             @RequestBody Ali1688HistoricalOrderAssignmentView.AssignRequest body,
