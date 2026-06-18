@@ -2,6 +2,10 @@ package com.nuono.next.infrastructure.mapper;
 
 public interface InTransitGoodsSql {
 
+    String LINE_LEGACY_PSKU_ALIAS = "CASE WHEN line.psku REGEXP '^[A-Za-z]+B[0-9]+$' "
+            + "THEN CONCAT(REGEXP_REPLACE(line.psku, 'B[0-9]+$', '', 1, 1, 'c'), "
+            + "REGEXP_SUBSTR(line.psku, '[0-9]+$')) ELSE line.psku END";
+
     String FORWARDER_SELECT = ""
             + "SELECT id, owner_user_id, forwarder_code, forwarder_name, status, created_by, updated_by "
             + "FROM in_transit_forwarder ";
@@ -110,9 +114,11 @@ public interface InTransitGoodsSql {
             + "JOIN product_master fallback_pm ON fallback_pm.logical_store_id = fallback_ls.id "
             + "AND fallback_pm.is_deleted = b'0' "
             + "JOIN product_variant fallback_pv ON fallback_pv.product_master_id = fallback_pm.id "
-            + "AND fallback_pv.partner_sku = line.psku AND fallback_pv.is_deleted = b'0' "
+            + "AND fallback_pv.partner_sku IN (line.psku, " + LINE_LEGACY_PSKU_ALIAS + ") "
+            + "AND fallback_pv.is_deleted = b'0' "
             + "WHERE fallback_ls.owner_user_id = line.owner_user_id AND fallback_ls.is_deleted = b'0' "
-            + "ORDER BY fallback_pm.cover_image_url IS NULL ASC, fallback_pm.gmt_updated DESC, fallback_pm.id DESC "
+            + "ORDER BY CASE WHEN fallback_pv.partner_sku = line.psku THEN 0 ELSE 1 END, "
+            + "fallback_pm.cover_image_url IS NULL ASC, fallback_pm.gmt_updated DESC, fallback_pm.id DESC "
             + "LIMIT 1)) "
             + "AND pm.is_deleted = b'0' ";
 

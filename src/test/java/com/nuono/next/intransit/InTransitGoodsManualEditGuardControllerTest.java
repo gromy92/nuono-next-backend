@@ -38,6 +38,9 @@ class InTransitGoodsManualEditGuardControllerTest {
     private InTransitFreightCostService freightCostService;
 
     @Mock
+    private InTransitSuperSearchService superSearchService;
+
+    @Mock
     private BusinessAccessResolver businessAccessResolver;
 
     @Mock
@@ -54,6 +57,7 @@ class InTransitGoodsManualEditGuardControllerTest {
                 batchService,
                 pluginSyncService,
                 freightCostService,
+                superSearchService,
                 businessAccessResolver,
                 accessScopeService
         );

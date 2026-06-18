@@ -18,6 +18,8 @@ import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightSyncCo
 import com.nuono.next.intransit.InTransitFreightCostRecords.ActualFreightSyncView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncCommitView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncPreviewView;
+import com.nuono.next.intransit.InTransitSuperSearchCommands.InTransitSuperSearchQuery;
+import com.nuono.next.intransit.InTransitSuperSearchRecords.SuperSearchView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
@@ -46,6 +48,7 @@ public class InTransitGoodsController {
     private final InTransitBatchService batchService;
     private final InTransitPluginSyncService pluginSyncService;
     private final InTransitFreightCostService freightCostService;
+    private final InTransitSuperSearchService superSearchService;
     private final BusinessAccessResolver businessAccessResolver;
     private final InTransitGoodsAccessScopeService accessScopeService;
     private final InTransitManualEditGuard manualEditGuard = new InTransitManualEditGuard();
@@ -54,12 +57,14 @@ public class InTransitGoodsController {
             InTransitBatchService batchService,
             InTransitPluginSyncService pluginSyncService,
             InTransitFreightCostService freightCostService,
+            InTransitSuperSearchService superSearchService,
             BusinessAccessResolver businessAccessResolver,
             InTransitGoodsAccessScopeService accessScopeService
     ) {
         this.batchService = batchService;
         this.pluginSyncService = pluginSyncService;
         this.freightCostService = freightCostService;
+        this.superSearchService = superSearchService;
         this.businessAccessResolver = businessAccessResolver;
         this.accessScopeService = accessScopeService;
     }
@@ -75,6 +80,24 @@ public class InTransitGoodsController {
         try {
             accessScopeService.applyReadableBatchScope(context, resolved);
             return batchService.listBatches(resolved);
+        } catch (BusinessAccessDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
+    @GetMapping("/super-search")
+    public SuperSearchView superSearch(
+            InTransitSuperSearchQuery query,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = requireContext(request);
+        InTransitSuperSearchQuery resolved = query == null ? new InTransitSuperSearchQuery() : query;
+        resolved.setOwnerUserId(context.getBusinessOwnerUserId());
+        try {
+            accessScopeService.applyReadableSuperSearchScope(context, resolved);
+            return superSearchService.search(resolved);
         } catch (BusinessAccessDeniedException exception) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
         } catch (IllegalArgumentException exception) {

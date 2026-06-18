@@ -23,6 +23,8 @@ import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightSyncCo
 import com.nuono.next.intransit.InTransitFreightCostRecords.ActualFreightSyncView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncCommitView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncPreviewView;
+import com.nuono.next.intransit.InTransitSuperSearchCommands.InTransitSuperSearchQuery;
+import com.nuono.next.intransit.InTransitSuperSearchRecords.SuperSearchView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessAccountType;
@@ -44,19 +46,16 @@ class InTransitGoodsControllerTest {
 
     @Mock
     private InTransitBatchService batchService;
-
     @Mock
     private InTransitPluginSyncService pluginSyncService;
-
     @Mock
     private InTransitFreightCostService freightCostService;
-
+    @Mock
+    private InTransitSuperSearchService superSearchService;
     @Mock
     private BusinessAccessResolver businessAccessResolver;
-
     @Mock
     private InTransitGoodsAccessScopeService accessScopeService;
-
     @Mock
     private HttpServletRequest request;
 
@@ -68,6 +67,7 @@ class InTransitGoodsControllerTest {
                 batchService,
                 pluginSyncService,
                 freightCostService,
+                superSearchService,
                 businessAccessResolver,
                 accessScopeService
         );
@@ -92,6 +92,30 @@ class InTransitGoodsControllerTest {
         assertEquals(10002L, captor.getValue().getOwnerUserId());
         assertEquals("SEA", captor.getValue().getTransportMode());
         verify(accessScopeService).applyReadableBatchScope(eq(context), same(captor.getValue()));
+    }
+
+    @Test
+    void shouldRunSuperSearchUsingBackendOwnerContext() {
+        BusinessAccessContext context = context();
+        InTransitSuperSearchQuery query = new InTransitSuperSearchQuery();
+        query.setOwnerUserId(1L);
+        query.setKeyword("PHOMEMO");
+        query.setIncludeHistory(true);
+        SuperSearchView view = new SuperSearchView();
+        view.setKeyword("PHOMEMO");
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        ArgumentCaptor<InTransitSuperSearchQuery> captor = ArgumentCaptor.forClass(InTransitSuperSearchQuery.class);
+        when(superSearchService.search(captor.capture())).thenReturn(view);
+
+        SuperSearchView result = controller.superSearch(query, request);
+
+        assertEquals("PHOMEMO", result.getKeyword());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals("PHOMEMO", captor.getValue().getKeyword());
+        assertEquals(true, captor.getValue().isIncludeHistory());
+        verify(accessScopeService).applyReadableSuperSearchScope(eq(context), same(captor.getValue()));
     }
 
     @Test

@@ -4,6 +4,7 @@ import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
+import com.nuono.next.intransit.InTransitSuperSearchCommands.InTransitSuperSearchQuery;
 import com.nuono.next.operationsconfig.OperationConfigScopeRepository;
 import com.nuono.next.operationsconfig.OperationConfigStoreScope;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -29,6 +30,12 @@ public class InTransitGoodsAccessScopeService {
             resolved.setTargetStoreCode(InTransitDestination.require(resolved.getTargetStoreCode()).code());
         }
         resolved.setTargetSiteCode(cleanUpper(resolved.getTargetSiteCode()));
+        resolved.setAllowedStoreSites(List.of());
+        resolved.setAccessScopeRestricted(false);
+    }
+
+    public void applyReadableSuperSearchScope(BusinessAccessContext context, InTransitSuperSearchQuery query) {
+        InTransitSuperSearchQuery resolved = query == null ? new InTransitSuperSearchQuery() : query;
         resolved.setAllowedStoreSites(List.of());
         resolved.setAccessScopeRestricted(false);
     }

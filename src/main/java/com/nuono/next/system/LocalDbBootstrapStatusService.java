@@ -132,7 +132,8 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql",
                 "classpath:db/init/136_official_warehouse_appointment.sql",
                 "classpath:db/init/137_official_warehouse_asn_noon_updated_at.sql",
-                "classpath:db/init/138_official_warehouse_appointment_gate_docks.sql"
+                "classpath:db/init/138_official_warehouse_appointment_gate_docks.sql",
+                "classpath:db/init/140_in_transit_super_search_indexes.sql"
             ));
         return payload;
     }
