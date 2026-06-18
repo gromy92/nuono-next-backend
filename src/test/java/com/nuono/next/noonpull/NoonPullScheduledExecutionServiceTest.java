@@ -320,6 +320,30 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals("REPORT:2026-05-22", executionOrder.get(1));
     }
 
+    @Test
+    void shouldLimitSalesReportExecutionsPerTickToAvoidBurstingNoonAtLatestWindow() {
+        for (int i = 0; i < 6; i++) {
+            foundationService.createPlan(NoonPullPlanDraft.builder()
+                    .ownerUserId(10002L)
+                    .storeCode("STR-SALES-" + i)
+                    .siteCode(i % 2 == 0 ? "AE" : "SA")
+                    .pullType(NoonPullType.REPORT)
+                    .dataDomain(NoonPullDataDomain.SALES)
+                    .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                    .scheduleExpression("latest-day after 08:00 Asia/Shanghai")
+                    .build());
+        }
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(6, result.getCreatedTaskCount());
+        assertEquals(4, result.getExecutedTaskCount());
+        long queued = repository.listTasks().stream()
+                .filter((task) -> task.getStatus() == NoonPullTaskStatus.QUEUED)
+                .count();
+        assertEquals(2L, queued);
+    }
+
     private NoonReportProvider salesProvider(String csv) {
         return new NoonReportProvider() {
             @Override

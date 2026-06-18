@@ -138,9 +138,14 @@ public class NoonPullFoundationService {
         LocalDateTime now = now();
         task.setStatus(NoonPullTaskStatus.SUCCEEDED);
         task.setSourceBatchId(sourceBatchId);
+        task.setFailureType(null);
+        task.setRetryAction(null);
+        task.setRetryable(null);
+        task.setRequiresManualAction(null);
         task.setDiagnosticSummary(redact(diagnosticSummary));
         task.setNextResumePosition(null);
         task.setReadinessState("ready");
+        task.setReportNextPollAt(null);
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
         repository.updateTask(task);
@@ -199,6 +204,154 @@ public class NoonPullFoundationService {
         task.setUpdatedAt(now());
         repository.updateTask(task);
         return task.copy();
+    }
+
+    public NoonPullTaskRecord recordReportExportCreated(Long taskId, String exportId, String diagnosticSummary) {
+        return updateReportExportTask(
+                taskId,
+                NoonPullTaskStatus.RUNNING,
+                exportId,
+                "CREATED",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                diagnosticSummary,
+                "export_created",
+                false
+        );
+    }
+
+    public NoonPullTaskRecord recordReportExportPollResult(
+            Long taskId,
+            String exportId,
+            NoonReportExportStatus exportStatus,
+            int pollAttempts,
+            Duration nextPollDelay,
+            String diagnosticSummary
+    ) {
+        NoonReportExportStatus safeStatus = exportStatus == null ? NoonReportExportStatus.pending() : exportStatus;
+        return updateReportExportTask(
+                taskId,
+                NoonPullTaskStatus.RUNNING,
+                exportId,
+                safeStatus.getStatus(),
+                safeStatus.getDownloadUrl(),
+                safeStatus.getTotalRows(),
+                now(),
+                nextPollAt(nextPollDelay),
+                pollAttempts,
+                null,
+                null,
+                null,
+                null,
+                diagnosticSummary,
+                safeStatus.isReady() ? "export_ready" : "export_pending",
+                false
+        );
+    }
+
+    public NoonPullTaskRecord recordReportExportTransientFailure(
+            Long taskId,
+            String exportId,
+            String exportStatus,
+            int pollAttempts,
+            String rawFailure
+    ) {
+        NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
+        NoonPullFailureDecision decision = failurePolicy.decide(failureType, Math.max(1, pollAttempts));
+        LocalDateTime nextPollAt = decision.getNextRetryAt() == null ? now().plusMinutes(30) : decision.getNextRetryAt();
+        NoonPullTaskRecord task = updateReportExportTask(
+                taskId,
+                NoonPullTaskStatus.RUNNING,
+                exportId,
+                StringUtils.hasText(exportStatus) ? exportStatus : "POLL_ERROR",
+                null,
+                null,
+                now(),
+                nextPollAt,
+                pollAttempts,
+                failureType.code(),
+                decision.getAction().name(),
+                decision.isRetryable(),
+                decision.requiresManualAction(),
+                rawFailure + " | " + decision.getSummary(),
+                "export_retry_wait",
+                false
+        );
+
+        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        plan.setLatestFailureAt(now());
+        plan.setLatestFailureType(failureType.code());
+        plan.setNextRetryAt(nextPollAt);
+        plan.setUpdatedAt(now());
+        repository.updatePlan(plan);
+        return task;
+    }
+
+    public NoonPullTaskRecord markReportExportPendingConfirmation(
+            Long taskId,
+            String sourceBatchId,
+            String diagnosticSummary,
+            Duration nextPollDelay
+    ) {
+        return updateReportExportTask(
+                taskId,
+                NoonPullTaskStatus.RUNNING,
+                null,
+                null,
+                null,
+                null,
+                null,
+                nextPollAt(nextPollDelay == null ? Duration.ofHours(6) : nextPollDelay),
+                null,
+                NoonPullFailureType.EMPTY_REPORT_PENDING_CONFIRMATION.code(),
+                NoonPullRetryAction.DELAY.name(),
+                Boolean.TRUE,
+                Boolean.FALSE,
+                diagnosticSummary,
+                "pending_confirmation",
+                false,
+                sourceBatchId
+        );
+    }
+
+    public NoonPullTaskRecord markReportExportConfirmedEmpty(
+            Long taskId,
+            String sourceBatchId,
+            String diagnosticSummary
+    ) {
+        NoonPullTaskRecord task = updateReportExportTask(
+                taskId,
+                NoonPullTaskStatus.FAILED,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                NoonPullFailureType.CONFIRMED_EMPTY.code(),
+                NoonPullRetryAction.NONE.name(),
+                Boolean.FALSE,
+                Boolean.FALSE,
+                diagnosticSummary,
+                "confirmed_empty",
+                true,
+                sourceBatchId
+        );
+
+        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        plan.setLatestFailureAt(now());
+        plan.setLatestFailureType(NoonPullFailureType.CONFIRMED_EMPTY.code());
+        plan.setUpdatedAt(now());
+        repository.updatePlan(plan);
+        return task;
     }
 
     public NoonPullTaskRecord markFailed(Long taskId, String failureType, String diagnosticSummary) {
@@ -295,6 +448,9 @@ public class NoonPullFoundationService {
             if (task.getStatus() != NoonPullTaskStatus.RUNNING || task.getStartedAt() == null) {
                 continue;
             }
+            if (StringUtils.hasText(task.getReportExportId())) {
+                continue;
+            }
             if (task.getStartedAt().isAfter(threshold)) {
                 continue;
             }
@@ -380,6 +536,108 @@ public class NoonPullFoundationService {
             throw new IllegalArgumentException("Noon pull task not found: " + taskId);
         }
         return task;
+    }
+
+    private NoonPullTaskRecord updateReportExportTask(
+            Long taskId,
+            NoonPullTaskStatus status,
+            String exportId,
+            String exportStatus,
+            String downloadUrl,
+            Integer totalRows,
+            LocalDateTime lastPollAt,
+            LocalDateTime nextPollAt,
+            Integer pollAttempts,
+            String failureType,
+            String retryAction,
+            Boolean retryable,
+            Boolean requiresManualAction,
+            String diagnosticSummary,
+            String readinessState,
+            boolean finished
+    ) {
+        return updateReportExportTask(
+                taskId,
+                status,
+                exportId,
+                exportStatus,
+                downloadUrl,
+                totalRows,
+                lastPollAt,
+                nextPollAt,
+                pollAttempts,
+                failureType,
+                retryAction,
+                retryable,
+                requiresManualAction,
+                diagnosticSummary,
+                readinessState,
+                finished,
+                null
+        );
+    }
+
+    private NoonPullTaskRecord updateReportExportTask(
+            Long taskId,
+            NoonPullTaskStatus status,
+            String exportId,
+            String exportStatus,
+            String downloadUrl,
+            Integer totalRows,
+            LocalDateTime lastPollAt,
+            LocalDateTime nextPollAt,
+            Integer pollAttempts,
+            String failureType,
+            String retryAction,
+            Boolean retryable,
+            Boolean requiresManualAction,
+            String diagnosticSummary,
+            String readinessState,
+            boolean finished,
+            String sourceBatchId
+    ) {
+        NoonPullTaskRecord task = requireTask(taskId);
+        LocalDateTime now = now();
+        task.setStatus(status == null ? task.getStatus() : status);
+        if (StringUtils.hasText(sourceBatchId)) {
+            task.setSourceBatchId(sourceBatchId);
+        }
+        if (StringUtils.hasText(exportId)) {
+            task.setReportExportId(exportId.trim());
+        }
+        if (StringUtils.hasText(exportStatus)) {
+            task.setReportExportStatus(exportStatus.trim().toUpperCase(Locale.ROOT));
+        }
+        if (StringUtils.hasText(downloadUrl)) {
+            task.setReportDownloadUrl(downloadUrl.trim());
+        }
+        if (totalRows != null) {
+            task.setReportTotalRows(Math.max(0, totalRows));
+        }
+        if (lastPollAt != null) {
+            task.setReportLastPollAt(lastPollAt);
+        }
+        task.setReportNextPollAt(nextPollAt);
+        if (pollAttempts != null) {
+            task.setReportPollAttempts(Math.max(0, pollAttempts));
+        }
+        task.setFailureType(normalize(failureType));
+        task.setRetryAction(retryAction);
+        task.setRetryable(retryable);
+        task.setRequiresManualAction(requiresManualAction);
+        task.setDiagnosticSummary(redact(diagnosticSummary));
+        task.setReadinessState(readinessState);
+        task.setFinishedAt(finished ? now : null);
+        task.setUpdatedAt(now);
+        repository.updateTask(task);
+        return task.copy();
+    }
+
+    private LocalDateTime nextPollAt(Duration delay) {
+        Duration safeDelay = delay == null || delay.isNegative() || delay.isZero()
+                ? Duration.ofMinutes(15)
+                : delay;
+        return now().plus(safeDelay);
     }
 
     private void requirePlanDraft(NoonPullPlanDraft draft) {

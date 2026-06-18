@@ -148,6 +148,24 @@ class NoonPullFoundationServiceTest {
     }
 
     @Test
+    void shouldNotRecoverRunningReportExportAsStaleBecauseItUsesNextPollState() {
+        NoonPullPlanRecord plan = service.createPlan(orderBackfillPlan());
+        NoonPullTaskRecord task = service.createTaskForPlan(plan.getId(), orderBackfillTask()).orElseThrow();
+        NoonPullTaskRecord running = service.markRunning(task.getId(), "worker-1");
+        running.setStartedAt(LocalDateTime.of(2026, 5, 20, 1, 0));
+        running.setReportExportId("EXP-1");
+        running.setReportExportStatus("PENDING");
+        repository.updateTask(running);
+
+        int recovered = service.recoverStaleRunningTasks(Duration.ofMinutes(30));
+
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+        assertEquals(0, recovered);
+        assertEquals(NoonPullTaskStatus.RUNNING, persisted.getStatus());
+        assertEquals("EXP-1", persisted.getReportExportId());
+    }
+
+    @Test
     void shouldNotCreateScheduledTaskWhenPlanIsPaused() {
         NoonPullPlanRecord plan = service.createPlan(productPlan());
 

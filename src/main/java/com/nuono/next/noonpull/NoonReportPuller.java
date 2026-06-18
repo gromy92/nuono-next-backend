@@ -2,12 +2,16 @@ package com.nuono.next.noonpull;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.Locale;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class NoonReportPuller {
+    private static final Duration EXPORT_PENDING_POLL_DELAY = Duration.ofMinutes(20);
+    private static final Duration EMPTY_CONFIRMATION_POLL_DELAY = Duration.ofHours(6);
+
     private final NoonPullFoundationService foundationService;
 
     public NoonReportPuller(NoonPullFoundationService foundationService) {
@@ -20,65 +24,162 @@ public class NoonReportPuller {
             NoonReportProvider provider,
             NoonReportDownloadedFileHandler handler
     ) {
-        foundationService.markRunning(taskId, "noon-report-puller");
+        NoonPullTaskRecord task = foundationService.markRunning(taskId, "noon-report-puller");
         NoonReportPullResult result = new NoonReportPullResult();
+        String exportId = task.getReportExportId();
+        int pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
         try {
-            String exportId = provider.createExport(request);
-            NoonReportExportStatus status = pollUntilReady(request, provider, exportId);
-            if (!StringUtils.hasText(status.getDownloadUrl())) {
-                throw new NoonInterfacePullException("mapping failed: missing download url");
+            if (!StringUtils.hasText(exportId)) {
+                exportId = provider.createExport(request);
+                task = foundationService.recordReportExportCreated(
+                        taskId,
+                        exportId,
+                        request.descriptor() + "; exportCreated=true; exportId=" + exportId
+                );
+                pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
             }
-            byte[] content = provider.download(request, status.getDownloadUrl());
+
+            pollAttempts++;
+            NoonReportExportStatus status;
+            try {
+                status = provider.pollExport(request, exportId);
+            } catch (RuntimeException exception) {
+                NoonPullTaskRecord retrying = foundationService.recordReportExportTransientFailure(
+                        taskId,
+                        exportId,
+                        task.getReportExportStatus(),
+                        pollAttempts,
+                        safeMessage(exception)
+                );
+                result.setStatus(retrying.getStatus());
+                return result;
+            }
+            status = status == null ? NoonReportExportStatus.pending() : status;
+            foundationService.recordReportExportPollResult(
+                    taskId,
+                    exportId,
+                    status,
+                    pollAttempts,
+                    status.isReady() || status.isFailed() ? null : jitteredDelay(taskId, exportId, EXPORT_PENDING_POLL_DELAY),
+                    exportPollSummary(request, status, pollAttempts)
+            );
+
+            if (status.isFailed()) {
+                NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
+                        taskId,
+                        "provider unavailable: report export failed " + status.getMessage(),
+                        pollAttempts
+                );
+                result.setStatus(failed.getStatus());
+                return result;
+            }
+            if (!status.isReady()) {
+                NoonPullTaskRecord pending = foundationService.recordReportExportPollResult(
+                        taskId,
+                        exportId,
+                        status,
+                        pollAttempts,
+                        jitteredDelay(taskId, exportId, EXPORT_PENDING_POLL_DELAY),
+                        exportPollSummary(request, status, pollAttempts)
+                );
+                result.setStatus(pending.getStatus());
+                return result;
+            }
+            if (!StringUtils.hasText(status.getDownloadUrl())) {
+                NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
+                        taskId,
+                        "mapping failed: missing download url",
+                        pollAttempts
+                );
+                result.setStatus(failed.getStatus());
+                return result;
+            }
+            byte[] content;
+            try {
+                content = provider.download(request, status.getDownloadUrl());
+            } catch (RuntimeException exception) {
+                NoonPullTaskRecord retrying = foundationService.recordReportExportTransientFailure(
+                        taskId,
+                        exportId,
+                        "READY",
+                        pollAttempts,
+                        safeMessage(exception)
+                );
+                result.setStatus(retrying.getStatus());
+                return result;
+            }
             String digest = sha256(content);
             String sourceBatchId = sourceBatchId(request, taskId, digest);
             NoonReportDownloadedFile file = new NoonReportDownloadedFile(request, exportId, sourceBatchId, digest, content);
             NoonReportProcessResult processResult = handler.handle(file);
+            int totalRows = totalRows(status, processResult);
+            foundationService.recordReportExportPollResult(
+                    taskId,
+                    exportId,
+                    NoonReportExportStatus.ready(status.getDownloadUrl(), totalRows),
+                    pollAttempts,
+                    null,
+                    exportDownloadSummary(request, status, digest, processResult, totalRows)
+            );
             result.setSourceBatchId(sourceBatchId);
             result.setFileDigestSha256(digest);
             result.setImportedCount(processResult.getImportedCount());
             result.setExceptionCount(processResult.getExceptionCount());
             if (processResult.getCode() == NoonReportProcessResult.Code.SUCCEEDED) {
-                NoonPullTaskRecord task = foundationService.markSucceeded(
+                NoonPullTaskRecord succeeded = foundationService.markSucceeded(
                         taskId,
                         sourceBatchId,
                         summary(request, digest, processResult)
                 );
-                result.setStatus(task.getStatus());
+                result.setStatus(succeeded.getStatus());
+                return result;
+            }
+            if (processResult.getCode() == NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION) {
+                NoonPullTaskRecord pending = foundationService.markReportExportPendingConfirmation(
+                        taskId,
+                        sourceBatchId,
+                        emptyReportSummary(request, status, digest, processResult, totalRows),
+                        jitteredDelay(taskId, exportId, EMPTY_CONFIRMATION_POLL_DELAY)
+                );
+                result.setStatus(pending.getStatus());
+                return result;
+            }
+            if (processResult.getCode() == NoonReportProcessResult.Code.EMPTY_REPORT) {
+                NoonPullTaskRecord confirmedEmpty = foundationService.markReportExportConfirmedEmpty(
+                        taskId,
+                        sourceBatchId,
+                        emptyReportSummary(request, status, digest, processResult, totalRows) + "; confirmed_empty"
+                );
+                result.setStatus(confirmedEmpty.getStatus());
                 return result;
             }
             NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
                     taskId,
                     failureMessage(processResult),
-                    1
+                    pollAttempts
             );
             result.setStatus(failed.getStatus());
             return result;
         } catch (RuntimeException exception) {
-            NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
-                    taskId,
-                    StringUtils.hasText(exception.getMessage()) ? exception.getMessage() : exception.getClass().getSimpleName(),
-                    1
-            );
-            result.setStatus(failed.getStatus());
+            if (StringUtils.hasText(exportId)) {
+                NoonPullTaskRecord retrying = foundationService.recordReportExportTransientFailure(
+                        taskId,
+                        exportId,
+                        null,
+                        Math.max(1, pollAttempts),
+                        safeMessage(exception)
+                );
+                result.setStatus(retrying.getStatus());
+            } else {
+                NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
+                        taskId,
+                        safeMessage(exception),
+                        1
+                );
+                result.setStatus(failed.getStatus());
+            }
             return result;
         }
-    }
-
-    private NoonReportExportStatus pollUntilReady(
-            NoonReportPullRequest request,
-            NoonReportProvider provider,
-            String exportId
-    ) {
-        for (int attempt = 1; attempt <= request.getMaxPollAttempts(); attempt++) {
-            NoonReportExportStatus status = provider.pollExport(request, exportId);
-            if (status != null && status.isReady()) {
-                return status;
-            }
-            if (status != null && status.isFailed()) {
-                throw new NoonInterfacePullException("provider unavailable: report export failed " + status.getMessage());
-            }
-        }
-        throw new NoonInterfacePullException("timeout: export polling deadline exceeded");
     }
 
     private String sourceBatchId(NoonReportPullRequest request, Long taskId, String digest) {
@@ -93,6 +194,74 @@ public class NoonReportPuller {
                 + "; digest=" + digest
                 + "; imported=" + result.getImportedCount()
                 + "; exceptions=" + result.getExceptionCount();
+    }
+
+    private String exportPollSummary(NoonReportPullRequest request, NoonReportExportStatus status, int pollAttempts) {
+        return request.descriptor()
+                + "; exportStatus=" + status.getStatus()
+                + "; download=" + StringUtils.hasText(status.getDownloadUrl())
+                + "; totalRows=" + (status.getTotalRows() == null ? "unknown" : status.getTotalRows())
+                + "; pollAttempts=" + pollAttempts;
+    }
+
+    private String exportDownloadSummary(
+            NoonReportPullRequest request,
+            NoonReportExportStatus status,
+            String digest,
+            NoonReportProcessResult result,
+            int totalRows
+    ) {
+        return request.descriptor()
+                + "; exportStatus=" + status.getStatus()
+                + "; download=true"
+                + "; totalRows=" + totalRows
+                + "; digest=" + digest
+                + "; importedRows=" + result.getImportedCount()
+                + "; exceptions=" + result.getExceptionCount()
+                + diagnosticSuffix(result);
+    }
+
+    private String emptyReportSummary(
+            NoonReportPullRequest request,
+            NoonReportExportStatus status,
+            String digest,
+            NoonReportProcessResult result,
+            int totalRows
+    ) {
+        return exportDownloadSummary(request, status, digest, result, totalRows);
+    }
+
+    private String diagnosticSuffix(NoonReportProcessResult result) {
+        return result != null && StringUtils.hasText(result.getDiagnosticMessage())
+                ? "; " + result.getDiagnosticMessage()
+                : "";
+    }
+
+    private int totalRows(NoonReportExportStatus status, NoonReportProcessResult result) {
+        if (status != null && status.getTotalRows() != null) {
+            return status.getTotalRows();
+        }
+        if (result == null) {
+            return 0;
+        }
+        return Math.max(0, result.getImportedCount() + result.getExceptionCount());
+    }
+
+    private Duration jitteredDelay(Long taskId, String exportId, Duration baseDelay) {
+        Duration safeDelay = baseDelay == null ? Duration.ofMinutes(15) : baseDelay;
+        int seed = String.valueOf(taskId).hashCode();
+        if (StringUtils.hasText(exportId)) {
+            seed = 31 * seed + exportId.hashCode();
+        }
+        int jitterSeconds = Math.floorMod(seed, 240);
+        return safeDelay.plusSeconds(jitterSeconds);
+    }
+
+    private String safeMessage(RuntimeException exception) {
+        if (exception == null) {
+            return "unknown failure";
+        }
+        return StringUtils.hasText(exception.getMessage()) ? exception.getMessage() : exception.getClass().getSimpleName();
     }
 
     private String failureMessage(NoonReportProcessResult result) {

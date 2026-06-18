@@ -35,8 +35,16 @@ public class NoonReportProcessResult {
         return new NoonReportProcessResult(Code.EMPTY_REPORT, 0, 0);
     }
 
+    public static NoonReportProcessResult emptyReport(String diagnosticMessage) {
+        return new NoonReportProcessResult(Code.EMPTY_REPORT, 0, 0, diagnosticMessage);
+    }
+
     public static NoonReportProcessResult emptyReportPendingConfirmation() {
         return new NoonReportProcessResult(Code.EMPTY_REPORT_PENDING_CONFIRMATION, 0, 0);
+    }
+
+    public static NoonReportProcessResult emptyReportPendingConfirmation(String diagnosticMessage) {
+        return new NoonReportProcessResult(Code.EMPTY_REPORT_PENDING_CONFIRMATION, 0, 0, diagnosticMessage);
     }
 
     public static NoonReportProcessResult reportNotReady() {
