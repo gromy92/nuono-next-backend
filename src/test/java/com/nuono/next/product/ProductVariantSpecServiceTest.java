@@ -209,6 +209,41 @@ class ProductVariantSpecServiceTest {
     }
 
     @Test
+    void detailShouldIncludeSplitLogisticsProfile() {
+        ProductVariantSpecRecord scopedVariant = scopeRecord();
+        ProductVariantSpecSourceRecord source = sourceRecord(validSourceCommand(ProductVariantSpecSourceType.WAREHOUSE));
+        source.setBatteryMagneticType("battery_and_magnetic");
+        source.setLiquidPowderType("liquid_and_powder");
+        ProductVariantLogisticsProfileView profile = new ProductVariantLogisticsProfileView();
+        profile.variantId = 53001L;
+        profile.batteryType = "battery_equipment";
+        profile.electricType = "electric_equipment_review";
+        profile.magneticType = "magnetic";
+        profile.liquidType = "liquid";
+        profile.powderType = "powder";
+        profile.woodenMaterialType = "wooden_material_review";
+        profile.bladeWeaponType = "blade_tool_review";
+
+        when(mapper.selectProductVariantForSpecByVariantId(10002L, "STR245027-NAE", 53001L))
+                .thenReturn(scopedVariant);
+        when(mapper.selectProductVariantSpecSources(10002L, "STR245027-NAE", 53001L))
+                .thenReturn(List.of(source));
+        when(mapper.selectProductVariantLogisticsProfile(10002L, "STR245027-NAE", 53001L))
+                .thenReturn(profile);
+
+        ProductVariantSpecDetailView detail = service.detail(10002L, "STR245027-NAE", 53001L);
+
+        assertNotNull(detail.getLogisticsProfile());
+        assertEquals("battery_equipment", detail.getLogisticsProfile().batteryType);
+        assertEquals("electric_equipment_review", detail.getLogisticsProfile().electricType);
+        assertEquals("magnetic", detail.getLogisticsProfile().magneticType);
+        assertEquals("liquid", detail.getLogisticsProfile().liquidType);
+        assertEquals("powder", detail.getLogisticsProfile().powderType);
+        assertEquals("wooden_material_review", detail.getLogisticsProfile().woodenMaterialType);
+        assertEquals("blade_tool_review", detail.getLogisticsProfile().bladeWeaponType);
+    }
+
+    @Test
     void saveSourceShouldDeriveSingleUnitCartonForWarehouseWhenCartonIsMissing() {
         ProductVariantSpecSourceCommand command = validSourceCommand(ProductVariantSpecSourceType.WAREHOUSE);
         when(mapper.selectProductVariantForSpecByVariantId(10002L, "STR245027-NAE", 53001L))

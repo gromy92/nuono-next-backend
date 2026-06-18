@@ -16,6 +16,7 @@ public class ProductVariantSpecDetailView {
     private Long effectiveSourceId;
     private String effectiveSourceType;
     private ProductVariantSpecView effectiveSpec;
+    private ProductVariantLogisticsProfileView logisticsProfile;
     private List<ProductVariantSpecSourceView> sources = new ArrayList<>();
     private List<String> warnings = new ArrayList<>();
 
@@ -113,6 +114,14 @@ public class ProductVariantSpecDetailView {
 
     public void setEffectiveSpec(ProductVariantSpecView effectiveSpec) {
         this.effectiveSpec = effectiveSpec;
+    }
+
+    public ProductVariantLogisticsProfileView getLogisticsProfile() {
+        return logisticsProfile;
+    }
+
+    public void setLogisticsProfile(ProductVariantLogisticsProfileView logisticsProfile) {
+        this.logisticsProfile = logisticsProfile;
     }
 
     public List<ProductVariantSpecSourceView> getSources() {

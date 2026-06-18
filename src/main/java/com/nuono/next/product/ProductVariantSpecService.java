@@ -99,11 +99,23 @@ public class ProductVariantSpecService {
         view.setEffectiveSourceId(scopedVariant.getEffectiveSourceId());
         view.setEffectiveSourceType(scopedVariant.getEffectiveSourceType());
         view.setSources(sourceRecords.stream().map(this::toSourceView).collect(Collectors.toList()));
+        ProductVariantLogisticsProfileView selectedLogisticsProfile = mapper.selectProductVariantLogisticsProfile(
+                ownerUserId,
+                storeCode,
+                variantId
+        );
+        ProductVariantLogisticsProfileView logisticsProfile = selectedLogisticsProfile == null
+                ? defaultLogisticsProfile(scopedVariant)
+                : selectedLogisticsProfile;
+        view.setLogisticsProfile(logisticsProfile);
         sourceRecords.stream()
                 .filter(source -> source.getSourceId() != null && source.getSourceId().equals(scopedVariant.getEffectiveSourceId()))
                 .findFirst()
                 .map(source -> toEffectiveView(scopedVariant, source))
-                .ifPresent(view::setEffectiveSpec);
+                .ifPresent(effectiveSpec -> {
+                    effectiveSpec.setLogisticsProfile(logisticsProfile);
+                    view.setEffectiveSpec(effectiveSpec);
+                });
         return view;
     }
 
@@ -448,6 +460,10 @@ public class ProductVariantSpecService {
         if (view.getProductWeightG() == null) {
             missing.add("weight");
         }
+        if (isUnknownLogisticsAttribute(view.getBatteryMagneticType())
+                || isUnknownLogisticsAttribute(view.getLiquidPowderType())) {
+            missing.add("logistics_attribute");
+        }
         view.setMissingFields(missing);
         if (missing.isEmpty()) {
             view.setCompletenessStatus("ready");
@@ -455,12 +471,32 @@ public class ProductVariantSpecService {
             view.setCompletenessStatus("missing_dimensions");
         } else if (missing.contains("weight")) {
             view.setCompletenessStatus("missing_weight");
+        } else if (missing.contains("logistics_attribute")) {
+            view.setCompletenessStatus("logistics_attribute_unknown");
         } else {
             view.setCompletenessStatus("missing_dimensions");
         }
     }
 
+    private boolean isUnknownLogisticsAttribute(String value) {
+        return value == null || ProductVariantSpecLogisticsType.UNKNOWN.equals(value);
+    }
+
     private ProductVariantLogisticsProfileView defaultLogisticsProfile(ProductVariantSpecView item) {
+        ProductVariantLogisticsProfileView profile = new ProductVariantLogisticsProfileView();
+        profile.storeCode = item.getStoreCode();
+        profile.skuParent = item.getSkuParent();
+        profile.title = item.getTitle();
+        profile.imageUrl = item.getImageUrl();
+        profile.variantId = item.getVariantId();
+        profile.partnerSku = item.getPartnerSku();
+        profile.childSku = item.getChildSku();
+        profile.sizeEn = item.getSizeEn();
+        profile.sizeAr = item.getSizeAr();
+        return profile;
+    }
+
+    private ProductVariantLogisticsProfileView defaultLogisticsProfile(ProductVariantSpecRecord item) {
         ProductVariantLogisticsProfileView profile = new ProductVariantLogisticsProfileView();
         profile.storeCode = item.getStoreCode();
         profile.skuParent = item.getSkuParent();
