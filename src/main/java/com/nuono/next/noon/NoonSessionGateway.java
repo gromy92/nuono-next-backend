@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.CookieManager;
@@ -881,6 +882,30 @@ public class NoonSessionGateway {
             );
         }
 
+        public JsonNode postMultipartFile(
+                String url,
+                String fieldName,
+                String fileName,
+                String contentType,
+                byte[] content,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            return executeWithRefresh(
+                    () -> state.postMultipartFile(
+                            projectCode,
+                            storeCode,
+                            url,
+                            fieldName,
+                            fileName,
+                            contentType,
+                            content,
+                            withProject,
+                            extraHeaders
+                    )
+            );
+        }
+
         public String exportAuthCookieHeader() {
             return state.exportAuthCookieHeader();
         }
@@ -1181,6 +1206,67 @@ public class NoonSessionGateway {
                     throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
                 }
             }
+        }
+
+        private JsonNode postMultipartFile(
+                String projectCode,
+                String storeCode,
+                String url,
+                String fieldName,
+                String fileName,
+                String contentType,
+                byte[] content,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            synchronized (requestMutex) {
+                applyContextCookies(projectCode, storeCode);
+                throttleIfNeeded();
+                URI uri = buildUri(url, withProject, projectCode);
+                String boundary = "nuono-" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong(), 16);
+                byte[] requestBody = multipartFileBody(boundary, fieldName, fileName, contentType, content);
+                HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(requestBody))
+                        .timeout(REQUEST_TIMEOUT)
+                        .setHeader("Content-Type", "multipart/form-data; boundary=" + boundary)
+                        .setHeader("Accept", "application/json");
+                if (withProject && StringUtils.hasText(projectCode)) {
+                    builder.setHeader("X-Project", projectCode);
+                }
+                applyDefaultHeaders(builder, uri);
+                applyHeaders(builder, extraHeaders);
+                return send(builder.build(), false);
+            }
+        }
+
+        private byte[] multipartFileBody(
+                String boundary,
+                String fieldName,
+                String fileName,
+                String contentType,
+                byte[] content
+        ) {
+            String safeFieldName = sanitizeMultipartToken(fieldName, "file");
+            String safeFileName = sanitizeMultipartToken(fileName, "image");
+            String safeContentType = StringUtils.hasText(contentType) ? contentType.trim() : "application/octet-stream";
+            byte[] fileContent = content == null ? new byte[0] : content;
+            try {
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                output.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+                output.write(("Content-Disposition: form-data; name=\"" + safeFieldName + "\"; filename=\""
+                        + safeFileName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+                output.write(("Content-Type: " + safeContentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+                output.write(fileContent);
+                output.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+                return output.toByteArray();
+            } catch (IOException exception) {
+                throw new IllegalStateException("构造 Noon 文件上传请求失败：" + exception.getMessage(), exception);
+            }
+        }
+
+        private String sanitizeMultipartToken(String value, String fallback) {
+            String normalized = StringUtils.hasText(value) ? value.trim() : fallback;
+            return normalized.replace('"', '_').replace('\r', '_').replace('\n', '_');
         }
 
         private void applyHeaders(HttpRequest.Builder builder, Map<String, String> extraHeaders) {

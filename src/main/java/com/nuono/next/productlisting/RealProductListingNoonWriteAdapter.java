@@ -10,9 +10,19 @@ import com.nuono.next.noonpull.NoonPullGatewaySession;
 import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
 import com.nuono.next.noonpull.NoonPullStoreBinding;
 import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Primary;
@@ -24,22 +34,39 @@ import org.springframework.util.StringUtils;
 @ConditionalOnBean(NoonPullGatewaySessionFactory.class)
 @ConditionalOnProperty(prefix = "nuono.product-listing.real-write", name = "enabled", havingValue = "true")
 public class RealProductListingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
+    private static final Duration IMAGE_DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
+    private static final int MAX_IMAGE_UPLOADS = 15;
 
     private final ObjectMapper objectMapper;
     private final NoonPullStoreBindingResolver bindingResolver;
     private final NoonPullGatewaySessionFactory sessionFactory;
     private final ProductListingRealWriteProperties properties;
+    private final ProductListingImageDownloader imageDownloader;
 
+    @Autowired
     public RealProductListingNoonWriteAdapter(
             ObjectMapper objectMapper,
             NoonPullStoreBindingResolver bindingResolver,
             NoonPullGatewaySessionFactory sessionFactory,
             ProductListingRealWriteProperties properties
     ) {
+        this(objectMapper, bindingResolver, sessionFactory, properties, new HttpClientProductListingImageDownloader());
+    }
+
+    RealProductListingNoonWriteAdapter(
+            ObjectMapper objectMapper,
+            NoonPullStoreBindingResolver bindingResolver,
+            NoonPullGatewaySessionFactory sessionFactory,
+            ProductListingRealWriteProperties properties,
+            ProductListingImageDownloader imageDownloader
+    ) {
         this.objectMapper = objectMapper;
         this.bindingResolver = bindingResolver;
         this.sessionFactory = sessionFactory;
         this.properties = properties == null ? new ProductListingRealWriteProperties() : properties;
+        this.imageDownloader = imageDownloader == null
+                ? new HttpClientProductListingImageDownloader()
+                : imageDownloader;
     }
 
     @Override
@@ -51,6 +78,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             NoonPullGatewaySession session = sessionFactory.login(binding);
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             ProductListingRealWriteProperties.Endpoints endpoints = properties.getEndpoints();
+            ProductFullTypeLabels fullTypeLabels = resolveProductFullTypeLabels(session, endpoints, draft, headers);
 
             JsonNode createProduct = postStep(
                     steps,
@@ -65,9 +93,17 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             setLastStepExternalReference(steps, externalReference(skuParent, pskuCode));
 
             postStep(steps, "sku_cache", session, endpoints.getSkuCacheUrl(), skuCacheBody(skuParent), headers);
-            postStep(steps, "upsert_zsku_base", session, endpoints.getUpsertZskuUrl(), upsertZskuBaseBody(draft, skuParent), headers);
-            postZskuContentStep(steps, "upsert_zsku_content_en", session, endpoints, draft, skuParent, "en", headers);
-            postZskuContentStep(steps, "upsert_zsku_content_ar", session, endpoints, draft, skuParent, "ar", headers);
+            postStep(
+                    steps,
+                    "upsert_zsku_base",
+                    session,
+                    endpoints.getUpsertZskuUrl(),
+                    upsertZskuBaseBody(draft, fullTypeLabels, skuParent),
+                    headers
+            );
+            List<String> uploadedImagePaths = uploadImages(steps, session, endpoints, draft, headers);
+            postZskuContentStep(steps, "upsert_zsku_content_en", session, endpoints, draft, uploadedImagePaths, skuParent, "en", headers);
+            postZskuContentStep(steps, "upsert_zsku_content_ar", session, endpoints, draft, uploadedImagePaths, skuParent, "ar", headers);
             postStep(steps, "upsert_price", session, endpoints.getUpsertPriceUrl(), upsertPriceBody(request, draft, binding, pskuCode), headers);
             setLastStepExternalReference(steps, externalReference(skuParent, pskuCode));
             if (properties.isOfferUpsertEnabled()) {
@@ -91,6 +127,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                     session,
                     endpoints,
                     draft,
+                    uploadedImagePaths,
                     skuParent,
                     pskuCode,
                     headers
@@ -132,42 +169,71 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             NoonPullGatewaySession session,
             ProductListingRealWriteProperties.Endpoints endpoints,
             ProductListingDraftCommand draft,
+            List<String> expectedImageValues,
             String skuParent,
             String pskuCode,
             Map<String, String> headers
     ) {
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey("verify_noon_readback");
-        step.setExternalReference(externalReference(skuParent, pskuCode));
-        try {
-            JsonNode root = session.postJson(endpoints.getRetrieveZskuUrl(), retrieveZskuBody(skuParent), true, headers);
-            JsonNode product = root.path(skuParent);
-            JsonNode attributes = product.path("attributes");
-            JsonNode common = attributes.path("common");
-            JsonNode en = attributes.path("en");
-            JsonNode ar = attributes.path("ar");
-            List<String> mismatchedFields = mismatchedReadBackFields(draft, common, en, ar);
-            if (!mismatchedFields.isEmpty()) {
-                step.setStatus("failed");
-                step.setFailureCode("noon_listing_readback_incomplete");
-                step.setFailureMessage("Noon listing read-back missing or mismatched fields: "
-                        + String.join(", ", mismatchedFields));
-                return step;
+        int maxAttempts = Math.max(1, properties.getReadBackMaxAttempts());
+        long retryDelayMillis = Math.max(0L, properties.getReadBackRetryDelayMillis());
+        RuntimeException lastException = null;
+        List<String> lastMismatchedFields = List.of();
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            step.setExternalReference(externalReference(skuParent, pskuCode) + ";readBackAttempts=" + attempt);
+            try {
+                JsonNode root = session.postJson(endpoints.getRetrieveZskuUrl(), retrieveZskuBody(skuParent), true, headers);
+                JsonNode product = root.path(skuParent);
+                JsonNode attributes = product.path("attributes");
+                JsonNode common = attributes.path("common");
+                JsonNode en = attributes.path("en");
+                JsonNode ar = attributes.path("ar");
+                List<String> mismatchedFields = mismatchedReadBackFields(draft, expectedImageValues, common, en, ar);
+                if (mismatchedFields.isEmpty()) {
+                    step.setStatus("succeeded");
+                    return step;
+                }
+                lastMismatchedFields = mismatchedFields;
+                lastException = null;
+            } catch (RuntimeException exception) {
+                lastException = exception;
+                lastMismatchedFields = List.of();
             }
-            step.setStatus("succeeded");
-            return step;
-        } catch (RuntimeException exception) {
+            if (attempt < maxAttempts) {
+                sleepBeforeReadBackRetry(retryDelayMillis);
+            }
+        }
+        if (!lastMismatchedFields.isEmpty()) {
             step.setStatus("failed");
-            step.setFailureCode("noon_listing_readback_failed");
-            step.setFailureMessage(StringUtils.hasText(exception.getMessage())
-                    ? exception.getMessage()
-                    : "Noon listing read-back failed.");
+            step.setFailureCode("noon_listing_readback_incomplete");
+            step.setFailureMessage("Noon listing read-back missing or mismatched fields: "
+                    + String.join(", ", lastMismatchedFields));
             return step;
+        }
+        step.setStatus("failed");
+        step.setFailureCode("noon_listing_readback_failed");
+        step.setFailureMessage(lastException != null && StringUtils.hasText(lastException.getMessage())
+                ? lastException.getMessage()
+                : "Noon listing read-back failed.");
+        return step;
+    }
+
+    private void sleepBeforeReadBackRetry(long retryDelayMillis) {
+        if (retryDelayMillis <= 0L) {
+            return;
+        }
+        try {
+            Thread.sleep(retryDelayMillis);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Noon listing read-back retry interrupted: " + exception.getMessage(), exception);
         }
     }
 
     private List<String> mismatchedReadBackFields(
             ProductListingDraftCommand draft,
+            List<String> expectedImageValues,
             JsonNode common,
             JsonNode en,
             JsonNode ar
@@ -201,7 +267,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 text(ar, "product_title"),
                 false
         );
-        List<String> expectedImages = draft.getImageUrls() == null ? List.of() : draft.getImageUrls();
+        List<String> expectedImages = expectedImageValues == null ? List.of() : expectedImageValues;
         int expectedIndex = 1;
         for (String expectedImage : expectedImages) {
             if (!StringUtils.hasText(expectedImage)) {
@@ -279,15 +345,88 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     ) {
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey(stepKey);
+        boolean stepRecorded = false;
         try {
             JsonNode response = session.postWriteJson(url, body, true, headers);
+            String failureMessage = noonWriteFailureMessage(response);
+            if (StringUtils.hasText(failureMessage)) {
+                step.setStatus("failed");
+                step.setFailureCode("noon_write_failed");
+                step.setFailureMessage(failureMessage);
+                steps.add(step);
+                stepRecorded = true;
+                throw new IllegalStateException(failureMessage);
+            }
             step.setStatus("succeeded");
             steps.add(step);
+            stepRecorded = true;
             return response == null ? objectMapper.createObjectNode() : response;
         } catch (RuntimeException exception) {
+            if (!stepRecorded) {
+                step.setStatus("failed");
+                step.setFailureCode("noon_write_failed");
+                step.setFailureMessage(exception.getMessage());
+                steps.add(step);
+            }
+            throw exception;
+        }
+    }
+
+    private List<String> uploadImages(
+            List<ProductListingNoonWriteStepResult> steps,
+            NoonPullGatewaySession session,
+            ProductListingRealWriteProperties.Endpoints endpoints,
+            ProductListingDraftCommand draft,
+            Map<String, String> headers
+    ) {
+        List<String> sourceImages = draft.getImageUrls() == null ? List.of() : draft.getImageUrls();
+        List<String> uploadedPaths = new ArrayList<>();
+        ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
+        step.setStepKey("upload_images");
+        try {
+            for (String sourceImage : sourceImages) {
+                if (!StringUtils.hasText(sourceImage)) {
+                    continue;
+                }
+                if (uploadedPaths.size() >= MAX_IMAGE_UPLOADS) {
+                    break;
+                }
+                ProductListingImageDownload download = imageDownloader.download(sourceImage.trim());
+                JsonNode response = session.postMultipartFile(
+                        endpoints.getUploadImageUrl(),
+                        "file",
+                        download.fileName,
+                        download.contentType,
+                        download.content,
+                        true,
+                        headers
+                );
+                String failureMessage = noonWriteFailureMessage(response);
+                if (StringUtils.hasText(failureMessage)) {
+                    throw new IllegalStateException(failureMessage);
+                }
+                String uploadPath = firstNonBlank(
+                        text(response, "upload_path"),
+                        text(response, "uploadPath"),
+                        text(response, "path"),
+                        text(response, "url")
+                );
+                if (!StringUtils.hasText(uploadPath)) {
+                    throw new IllegalStateException("Noon image upload response missing upload_path.");
+                }
+                uploadedPaths.add(uploadPath);
+            }
+            step.setStatus("succeeded");
+            step.setExternalReference("uploadedImages=" + uploadedPaths.size());
+            steps.add(step);
+            return uploadedPaths;
+        } catch (RuntimeException exception) {
             step.setStatus("failed");
-            step.setFailureCode("noon_write_failed");
-            step.setFailureMessage(exception.getMessage());
+            step.setFailureCode("noon_image_upload_failed");
+            step.setFailureMessage(StringUtils.hasText(exception.getMessage())
+                    ? exception.getMessage()
+                    : "Noon image upload failed.");
+            step.setExternalReference("uploadedImages=" + uploadedPaths.size());
             steps.add(step);
             throw exception;
         }
@@ -316,20 +455,22 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return root;
     }
 
-    private ObjectNode upsertZskuBaseBody(ProductListingDraftCommand draft, String skuParent) {
-        ProductFullTypeParts parts = productFullTypeParts(draft);
+    private ObjectNode upsertZskuBaseBody(
+            ProductListingDraftCommand draft,
+            ProductFullTypeLabels fullTypeLabels,
+            String skuParent
+    ) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("skuParent", skuParent);
         root.putArray("variants");
         root.put("lang", "en");
         ObjectNode attributes = root.putObject("attributes");
         putIfHasText(attributes, "brand", firstNonBlank(draft.getProductBrand(), draft.getProductBrandCode(), "Generic"));
-        putIfHasText(attributes, "family", parts.family);
-        putIfHasText(attributes, "product_type", parts.productType);
-        putIfHasText(attributes, "product_subtype", parts.productSubType);
-        putIfHasText(attributes, "product_fulltype", draft.getProductFullType());
+        putIfHasText(attributes, "family", fullTypeLabels.family);
+        putIfHasText(attributes, "product_type", fullTypeLabels.productType);
+        putIfHasText(attributes, "product_subtype", fullTypeLabels.productSubType);
         attributes.put("item_condition", "new");
-        attributes.put("update_fulltype", true);
+        attributes.put("update_fulltype", "True");
         return root;
     }
 
@@ -339,18 +480,24 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             NoonPullGatewaySession session,
             ProductListingRealWriteProperties.Endpoints endpoints,
             ProductListingDraftCommand draft,
+            List<String> imageAttributeValues,
             String skuParent,
             String lang,
             Map<String, String> headers
     ) {
-        ObjectNode body = upsertZskuContentBody(draft, skuParent, lang);
+        ObjectNode body = upsertZskuContentBody(draft, imageAttributeValues, skuParent, lang);
         if (body.path("attributes").size() == 0) {
             return;
         }
         postStep(steps, stepKey, session, endpoints.getUpsertZskuUrl(), body, headers);
     }
 
-    private ObjectNode upsertZskuContentBody(ProductListingDraftCommand draft, String skuParent, String lang) {
+    private ObjectNode upsertZskuContentBody(
+            ProductListingDraftCommand draft,
+            List<String> imageAttributeValues,
+            String skuParent,
+            String lang
+    ) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("skuParent", skuParent);
         root.putArray("variants");
@@ -363,15 +510,15 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
 
         attributes.put("grade", "new");
         putIfHasText(attributes, "product_title", draft.getProductTitleEn());
-        if (draft.getImageUrls() != null) {
+        if (imageAttributeValues != null) {
             int index = 1;
-            for (String imageUrl : draft.getImageUrls()) {
+            for (String imageUrl : imageAttributeValues) {
                 if (!StringUtils.hasText(imageUrl)) {
                     continue;
                 }
                 putIfHasText(attributes, "image_url_" + index, imageUrl);
                 index++;
-                if (index > 15) {
+                if (index > MAX_IMAGE_UPLOADS) {
                     break;
                 }
             }
@@ -431,6 +578,203 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return new ProductFullTypeParts(family, productType, productSubType);
     }
 
+    private ProductFullTypeLabels resolveProductFullTypeLabels(
+            NoonPullGatewaySession session,
+            ProductListingRealWriteProperties.Endpoints endpoints,
+            ProductListingDraftCommand draft,
+            Map<String, String> headers
+    ) {
+        ProductFullTypeParts parts = productFullTypeParts(draft);
+        if (parts.looksLikeLabels()) {
+            return new ProductFullTypeLabels(parts.family, parts.productType, parts.productSubType);
+        }
+        ProductFullTypeLabels labels = fetchProductFullTypeLabels(session, endpoints, draft, headers);
+        if (labels.complete()) {
+            return labels;
+        }
+        throw new IllegalStateException("Noon product fulltype taxonomy labels missing for "
+                + normalize(draft.getProductFullType()) + ".");
+    }
+
+    private ProductFullTypeLabels fetchProductFullTypeLabels(
+            NoonPullGatewaySession session,
+            ProductListingRealWriteProperties.Endpoints endpoints,
+            ProductListingDraftCommand draft,
+            Map<String, String> headers
+    ) {
+        List<String> urls = productFullTypeLookupUrls(endpoints, draft);
+        ProductFullTypeLabels bestPartial = ProductFullTypeLabels.empty();
+        for (String url : urls) {
+            try {
+                byte[] bytes = session.getBytes(url, false, taxonomyHeaders(headers));
+                JsonNode root = objectMapper.readTree(bytes);
+                ProductFullTypeLabels labels = labelsFromTaxonomy(root, draft);
+                if (labels.complete()) {
+                    return labels;
+                }
+                if (!bestPartial.hasAny() && labels.hasAny()) {
+                    bestPartial = labels;
+                }
+            } catch (Exception ignored) {
+                // Try the next taxonomy endpoint before failing the real write.
+            }
+        }
+        return bestPartial;
+    }
+
+    private List<String> productFullTypeLookupUrls(
+            ProductListingRealWriteProperties.Endpoints endpoints,
+            ProductListingDraftCommand draft
+    ) {
+        List<String> urls = new ArrayList<>();
+        String suggestUrl = normalize(endpoints.getProductFulltypeSuggestUrl());
+        if (StringUtils.hasText(suggestUrl)) {
+            if (draft.getIdProductFullType() != null) {
+                addUrl(urls, appendQuery(suggestUrl, "id_product_fulltype", String.valueOf(draft.getIdProductFullType())));
+            }
+            if (StringUtils.hasText(draft.getProductFullType())) {
+                addUrl(urls, appendQuery(suggestUrl, "query", draft.getProductFullType()));
+                ProductFullTypeParts parts = productFullTypeParts(draft);
+                addSuggestQuery(urls, suggestUrl, humanizeCode(parts.productSubType));
+                addSuggestQuery(urls, suggestUrl, humanizeCode(parts.productType));
+                addSuggestQuery(urls, suggestUrl, humanizeCode(parts.family));
+            }
+        }
+        String taxonomyUrl = normalize(endpoints.getProductFulltypeTaxonomyUrl());
+        if (StringUtils.hasText(taxonomyUrl)) {
+            urls.add(taxonomyUrl);
+        }
+        return urls;
+    }
+
+    private void addSuggestQuery(List<String> urls, String suggestUrl, String query) {
+        if (StringUtils.hasText(query)) {
+            addUrl(urls, appendQuery(suggestUrl, "query", query));
+        }
+    }
+
+    private void addUrl(List<String> urls, String url) {
+        if (StringUtils.hasText(url) && !urls.contains(url)) {
+            urls.add(url);
+        }
+    }
+
+    private String humanizeCode(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        return value.trim().replace('_', ' ');
+    }
+
+    private String appendQuery(String baseUrl, String key, String value) {
+        String separator = baseUrl.contains("?")
+                ? baseUrl.endsWith("?") || baseUrl.endsWith("&") ? "" : "&"
+                : "?";
+        return baseUrl + separator + key + "=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private Map<String, String> taxonomyHeaders(Map<String, String> headers) {
+        return headers == null
+                ? Map.of("Accept", "application/json")
+                : Map.of(
+                "Accept", "application/json",
+                "x-project", firstNonBlank(headers.get("x-project"), headers.get("X-Project")),
+                "x-locale", firstNonBlank(headers.get("x-locale"), headers.get("X-Locale")),
+                "Country-Code", firstNonBlank(headers.get("Country-Code"), headers.get("country-code")),
+                "Id-Partner", firstNonBlank(headers.get("Id-Partner"), headers.get("id-partner"))
+        );
+    }
+
+    private ProductFullTypeLabels labelsFromTaxonomy(JsonNode root, ProductListingDraftCommand draft) {
+        List<JsonNode> candidates = new ArrayList<>();
+        collectTaxonomyCandidates(root, candidates);
+        for (JsonNode candidate : candidates) {
+            if (!matchesProductFullType(candidate, draft)) {
+                continue;
+            }
+            return new ProductFullTypeLabels(
+                    firstNonBlank(text(candidate, "family_name_en"), text(candidate, "familyNameEn")),
+                    firstNonBlank(text(candidate, "product_type_name_en"), text(candidate, "productTypeNameEn")),
+                    firstNonBlank(text(candidate, "product_subtype_name_en"), text(candidate, "productSubtypeNameEn"))
+            );
+        }
+        return ProductFullTypeLabels.empty();
+    }
+
+    private String noonWriteFailureMessage(JsonNode response) {
+        if (response == null || response.isNull() || response.isMissingNode()) {
+            return "";
+        }
+        int invalid = response.path("invalid").asInt(0);
+        JsonNode error = response.path("error");
+        if (invalid > 0 || hasNonEmptyError(error)) {
+            return "Noon write response contains business error: " + (hasNonEmptyError(error)
+                    ? error.toString()
+                    : response.toString());
+        }
+        return "";
+    }
+
+    private boolean hasNonEmptyError(JsonNode error) {
+        if (error == null || error.isMissingNode() || error.isNull()) {
+            return false;
+        }
+        if (error.isObject() || error.isArray()) {
+            return error.size() > 0;
+        }
+        return StringUtils.hasText(error.asText(""));
+    }
+
+    private void collectTaxonomyCandidates(JsonNode node, List<JsonNode> candidates) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return;
+        }
+        if (node.isObject()) {
+            if (hasTaxonomyIdentity(node)) {
+                candidates.add(node);
+            }
+            node.fields().forEachRemaining(entry -> collectTaxonomyCandidates(entry.getValue(), candidates));
+            return;
+        }
+        if (node.isArray()) {
+            node.forEach(child -> collectTaxonomyCandidates(child, candidates));
+        }
+    }
+
+    private boolean hasTaxonomyIdentity(JsonNode node) {
+        return StringUtils.hasText(firstNonBlank(
+                text(node, "product_fulltype_code"),
+                text(node, "productFulltypeCode"),
+                text(node, "id_product_fulltype"),
+                text(node, "idProductFulltype")
+        ));
+    }
+
+    private boolean matchesProductFullType(JsonNode candidate, ProductListingDraftCommand draft) {
+        String expectedFullType = normalize(draft.getProductFullType());
+        if (StringUtils.hasText(expectedFullType)) {
+            String actualFullType = firstNonBlank(
+                    text(candidate, "product_fulltype_code"),
+                    text(candidate, "productFulltypeCode"),
+                    text(candidate, "product_fulltype"),
+                    text(candidate, "productFulltype")
+            );
+            if (sameText(expectedFullType, actualFullType, false)) {
+                return true;
+            }
+        }
+        if (draft.getIdProductFullType() == null) {
+            return false;
+        }
+        String expectedId = String.valueOf(draft.getIdProductFullType());
+        String actualId = firstNonBlank(
+                text(candidate, "id_product_fulltype"),
+                text(candidate, "idProductFulltype"),
+                text(candidate, "idProductFullType")
+        );
+        return expectedId.equals(actualId);
+    }
+
     private String requiredText(JsonNode node, String pointer, String label) {
         String value = node == null ? null : node.at(pointer).asText(null);
         if (!StringUtils.hasText(value)) {
@@ -487,6 +831,101 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return ProductListingNoonHeaders.upper(value);
     }
 
+    interface ProductListingImageDownloader {
+        ProductListingImageDownload download(String imageUrl);
+    }
+
+    private static class HttpClientProductListingImageDownloader implements ProductListingImageDownloader {
+        private static final String IMAGE_DOWNLOAD_USER_AGENT =
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        + "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
+
+        private final HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+
+        @Override
+        public ProductListingImageDownload download(String imageUrl) {
+            try {
+                URI uri = URI.create(imageUrl);
+                if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
+                    throw new IllegalArgumentException("Unsupported image URL scheme.");
+                }
+                HttpRequest request = HttpRequest.newBuilder(uri)
+                        .GET()
+                        .timeout(IMAGE_DOWNLOAD_TIMEOUT)
+                        .setHeader("User-Agent", IMAGE_DOWNLOAD_USER_AGENT)
+                        .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+                        .build();
+                HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    throw new IllegalStateException("HTTP " + response.statusCode());
+                }
+                byte[] body = response.body();
+                if (body == null || body.length == 0) {
+                    throw new IllegalStateException("empty image response");
+                }
+                String contentType = response.headers().firstValue("content-type").orElse("application/octet-stream");
+                return new ProductListingImageDownload(
+                        fileName(uri, contentType),
+                        contentType,
+                        body
+                );
+            } catch (IOException exception) {
+                throw new IllegalStateException("Download product listing image failed: " + exception.getMessage(), exception);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Download product listing image interrupted: " + exception.getMessage(), exception);
+            } catch (RuntimeException exception) {
+                throw new IllegalStateException("Download product listing image failed: " + exception.getMessage(), exception);
+            }
+        }
+
+        private String fileName(URI uri, String contentType) {
+            String path = uri == null ? "" : uri.getPath();
+            String name = StringUtils.hasText(path) && path.contains("/")
+                    ? path.substring(path.lastIndexOf('/') + 1)
+                    : path;
+            if (!StringUtils.hasText(name)) {
+                name = "image";
+            }
+            if (!name.contains(".")) {
+                name += extension(contentType);
+            }
+            return name;
+        }
+
+        private String extension(String contentType) {
+            if (!StringUtils.hasText(contentType)) {
+                return ".jpg";
+            }
+            String normalized = contentType.toLowerCase(Locale.ROOT);
+            if (normalized.contains("png")) {
+                return ".png";
+            }
+            if (normalized.contains("webp")) {
+                return ".webp";
+            }
+            if (normalized.contains("gif")) {
+                return ".gif";
+            }
+            return ".jpg";
+        }
+    }
+
+    static class ProductListingImageDownload {
+        private final String fileName;
+        private final String contentType;
+        private final byte[] content;
+
+        ProductListingImageDownload(String fileName, String contentType, byte[] content) {
+            this.fileName = StringUtils.hasText(fileName) ? fileName : "image.jpg";
+            this.contentType = StringUtils.hasText(contentType) ? contentType : "application/octet-stream";
+            this.content = content == null ? new byte[0] : content;
+        }
+    }
+
     private static class ProductFullTypeParts {
         private final String family;
         private final String productType;
@@ -496,6 +935,42 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             this.family = family;
             this.productType = productType;
             this.productSubType = productSubType;
+        }
+
+        private boolean looksLikeLabels() {
+            return looksLikeLabel(family) && looksLikeLabel(productType) && looksLikeLabel(productSubType);
+        }
+
+        private static boolean looksLikeLabel(String value) {
+            return StringUtils.hasText(value) && !value.contains("_");
+        }
+    }
+
+    private static class ProductFullTypeLabels {
+        private final String family;
+        private final String productType;
+        private final String productSubType;
+
+        private ProductFullTypeLabels(String family, String productType, String productSubType) {
+            this.family = family;
+            this.productType = productType;
+            this.productSubType = productSubType;
+        }
+
+        private static ProductFullTypeLabels empty() {
+            return new ProductFullTypeLabels("", "", "");
+        }
+
+        private boolean complete() {
+            return StringUtils.hasText(family)
+                    && StringUtils.hasText(productType)
+                    && StringUtils.hasText(productSubType);
+        }
+
+        private boolean hasAny() {
+            return StringUtils.hasText(family)
+                    || StringUtils.hasText(productType)
+                    || StringUtils.hasText(productSubType);
         }
     }
 }

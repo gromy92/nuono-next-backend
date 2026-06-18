@@ -19,15 +19,14 @@ class ProductListingValidatorTest {
     }
 
     @Test
-    void blocksMissingCostAndSupplyEvidence() {
+    void doesNotRequireCostAndSupplyEvidence() {
         ProductListingDraftCommand command = validCommand();
         command.setPurchasePrice(null);
         command.setSupplyEvidenceType(null);
 
         List<ProductListingValidationIssue> issues = validator.validate(command);
 
-        assertIssue(issues, "purchasePrice", "required");
-        assertIssue(issues, "supplyEvidenceType", "required");
+        assertTrue(issues.isEmpty());
     }
 
     @Test
@@ -38,7 +37,7 @@ class ProductListingValidatorTest {
 
         assertIssue(issues, "storeCode", "required");
         assertIssue(issues, "psku", "required");
-        assertIssue(issues, "idProductFullType", "required");
+        assertIssue(issues, "productFullType", "required");
         assertIssue(issues, "productTitleEn", "required");
         assertIssue(issues, "imageUrls", "required");
         assertIssue(issues, "price", "required");
@@ -54,7 +53,6 @@ class ProductListingValidatorTest {
         List<ProductListingValidationIssue> issues = validator.validate(command);
 
         assertIssue(issues, "price", "invalid_number");
-        assertIssue(issues, "purchasePrice", "invalid_number");
         assertIssue(issues, "quantity", "invalid_number");
     }
 
@@ -63,6 +61,7 @@ class ProductListingValidatorTest {
         command.setStoreCode("STR240053-NSA");
         command.setPsku("NN-TEST-PSKU");
         command.setIdProductFullType(3066L);
+        command.setProductFullType("electronic_accessories-headphones-wired_headphones");
         command.setProductTitleEn("Wired headphones with microphone");
         command.setImageUrls(List.of("https://example.test/images/sku-main.jpg"));
         command.setPrice(new BigDecimal("49.90"));
