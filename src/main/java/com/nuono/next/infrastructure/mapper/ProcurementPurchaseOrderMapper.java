@@ -143,7 +143,7 @@ public interface ProcurementPurchaseOrderMapper {
     @Select({
             "<script>",
             "SELECT pm.id AS product_master_id, pv.id AS product_variant_id, pm.sku_parent, pv.partner_sku, pv.child_sku,",
-            "       pv.size_en, pv.size_ar, pm.title_cache AS title, pm.cover_image_url AS image_url,",
+            "       pv.size_en, pv.size_ar, COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS title, pm.cover_image_url AS image_url,",
             "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS product_length_cm,",
             "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS product_width_cm,",
             "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS product_height_cm,",
@@ -168,10 +168,11 @@ public interface ProcurementPurchaseOrderMapper {
             "       OR pv.partner_sku LIKE CONCAT('%', #{keyword}, '%')",
             "       OR pv.child_sku LIKE CONCAT('%', #{keyword}, '%')",
             "       OR pso.psku_code LIKE CONCAT('%', #{keyword}, '%')",
-            "       OR pm.title_cache LIKE CONCAT('%', #{keyword}, '%'))",
+            "       OR pm.title_cache LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR pm.title_cn_cache LIKE CONCAT('%', #{keyword}, '%'))",
             "</if>",
             "GROUP BY pm.id, pv.id, pm.sku_parent, pv.partner_sku, pv.child_sku, pv.size_en, pv.size_ar,",
-            "         pm.title_cache, pm.cover_image_url,",
+            "         pm.title_cn_cache, pm.title_cache, pm.cover_image_url,",
             "         COALESCE(pvss.product_length_cm, pvs.product_length_cm),",
             "         COALESCE(pvss.product_width_cm, pvs.product_width_cm),",
             "         COALESCE(pvss.product_height_cm, pvs.product_height_cm),",
@@ -194,7 +195,7 @@ public interface ProcurementPurchaseOrderMapper {
 
     @Select({
             "SELECT pm.id AS product_master_id, pv.id AS product_variant_id, pm.sku_parent, pv.partner_sku, pv.child_sku,",
-            "       pv.size_en, pv.size_ar, pm.title_cache AS title, pm.cover_image_url AS image_url,",
+            "       pv.size_en, pv.size_ar, COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS title, pm.cover_image_url AS image_url,",
             "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS product_length_cm,",
             "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS product_width_cm,",
             "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS product_height_cm,",
@@ -216,7 +217,7 @@ public interface ProcurementPurchaseOrderMapper {
             "  AND pm.is_deleted = b'0'",
             "  AND (pv.partner_sku = #{psku} OR pso.psku_code = #{psku})",
             "GROUP BY pm.id, pv.id, pm.sku_parent, pv.partner_sku, pv.child_sku, pv.size_en, pv.size_ar,",
-            "         pm.title_cache, pm.cover_image_url,",
+            "         pm.title_cn_cache, pm.title_cache, pm.cover_image_url,",
             "         COALESCE(pvss.product_length_cm, pvs.product_length_cm),",
             "         COALESCE(pvss.product_width_cm, pvs.product_width_cm),",
             "         COALESCE(pvss.product_height_cm, pvs.product_height_cm),",
@@ -237,7 +238,7 @@ public interface ProcurementPurchaseOrderMapper {
 
     @Select({
             "SELECT pm.id AS product_master_id, pv.id AS product_variant_id, pm.sku_parent, pv.partner_sku, pv.child_sku,",
-            "       pv.size_en, pv.size_ar, pm.title_cache AS title, pm.cover_image_url AS image_url,",
+            "       pv.size_en, pv.size_ar, COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS title, pm.cover_image_url AS image_url,",
             "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS product_length_cm,",
             "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS product_width_cm,",
             "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS product_height_cm,",

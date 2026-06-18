@@ -1304,6 +1304,7 @@ public class ProductProjectionPersistenceService {
                 ProductSourceTypeSupport.resolve(seed.getProductSourceType(), seed.getChildSku(), seed.getSkuParent()),
                 normalize(seed.getBrandCache()),
                 normalize(seed.getTitleCache()),
+                normalize(seed.getTitleCnCache()),
                 normalize(seed.getProductFulltypeCache()),
                 normalize(seed.getCoverImageUrl()),
                 normalize(seed.getSkuGroup()),
@@ -3514,6 +3515,7 @@ public class ProductProjectionPersistenceService {
         private String productSourceType;
         private String brandCache;
         private String titleCache;
+        private String titleCnCache;
         private String productFulltypeCache;
         private String coverImageUrl;
         private String skuGroup;
@@ -3564,6 +3566,10 @@ public class ProductProjectionPersistenceService {
             ));
             seed.setBrandCache(stringValue(snapshot.getIdentity().get("brand")));
             seed.setTitleCache(stringValue(snapshot.getContent().get("titleEn")));
+            seed.setTitleCnCache(ProductDisplayNameSupport.firstNonBlank(
+                    stringValue(snapshot.getContent().get("titleCn")),
+                    stringValue(snapshot.getContent().get("titleZh"))
+            ));
             seed.setProductFulltypeCache(stringValue(snapshot.getTaxonomy().get("productFulltype")));
             seed.setCoverImageUrl(firstString(snapshot.getContent().get("images")));
             seed.setSkuGroup(stringValue(snapshot.getGroup().get("skuGroup")));
@@ -3660,6 +3666,14 @@ public class ProductProjectionPersistenceService {
 
         public void setTitleCache(String titleCache) {
             this.titleCache = titleCache;
+        }
+
+        public String getTitleCnCache() {
+            return titleCnCache;
+        }
+
+        public void setTitleCnCache(String titleCnCache) {
+            this.titleCnCache = titleCnCache;
         }
 
         public String getProductFulltypeCache() {
