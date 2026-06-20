@@ -18,6 +18,7 @@ public class ProductListingTaskView {
     private String failureCategory;
     private String failureCode;
     private String failureMessage;
+    private ProductListingNoonWriteResult noonResult;
     private LocalDateTime submittedAt;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
@@ -116,6 +117,14 @@ public class ProductListingTaskView {
 
     public void setFailureMessage(String failureMessage) {
         this.failureMessage = failureMessage;
+    }
+
+    public ProductListingNoonWriteResult getNoonResult() {
+        return noonResult;
+    }
+
+    public void setNoonResult(ProductListingNoonWriteResult noonResult) {
+        this.noonResult = noonResult;
     }
 
     public LocalDateTime getSubmittedAt() {

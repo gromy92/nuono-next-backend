@@ -473,6 +473,7 @@ public class ProductListingService {
         view.setFailureCategory(record.getFailureCategory());
         view.setFailureCode(record.getFailureCode());
         view.setFailureMessage(record.getFailureMessage());
+        view.setNoonResult(readNoonResult(record.getNoonResultJson()));
         view.setSubmittedAt(record.getSubmittedAt());
         view.setStartedAt(record.getStartedAt());
         view.setCompletedAt(record.getCompletedAt());
@@ -575,6 +576,17 @@ public class ProductListingService {
             });
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to parse product listing validation payload.", exception);
+        }
+    }
+
+    private ProductListingNoonWriteResult readNoonResult(String json) {
+        if (!StringUtils.hasText(json)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, ProductListingNoonWriteResult.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to parse product listing Noon result payload.", exception);
         }
     }
 }

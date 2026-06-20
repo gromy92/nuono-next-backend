@@ -41,6 +41,20 @@ class ProductListingNoonWriteAdapterContractTest {
         assertNotNull(mapper.insertedTask().getStartedAt());
         assertNotNull(mapper.updatedTask().getCompletedAt());
         assertTrue(mapper.updatedTask().getNoonResultJson().contains("create_product"));
+        assertNotNull(realRun.getNoonResult());
+        assertEquals(2, realRun.getNoonResult().getSteps().size());
+        assertEquals("create_product", realRun.getNoonResult().getSteps().get(0).getStepKey());
+        assertEquals(
+                "skuParent=ZPARENT;pskuCode=PSKU_CODE_1",
+                realRun.getNoonResult().getSteps().get(0).getExternalReference()
+        );
+
+        ProductListingTaskView loaded = service.loadTask(context, realRun.getTaskId());
+        assertNotNull(loaded.getNoonResult());
+        assertEquals(
+                "skuParent=ZPARENT;pskuCode=PSKU_CODE_1;readBackAttempts=2",
+                loaded.getNoonResult().getSteps().get(1).getExternalReference()
+        );
     }
 
     @Test
@@ -106,8 +120,12 @@ class ProductListingNoonWriteAdapterContractTest {
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey("create_product");
         step.setStatus("succeeded");
-        step.setExternalReference("NPRD123");
-        return ProductListingNoonWriteResult.succeeded(List.of(step));
+        step.setExternalReference("skuParent=ZPARENT;pskuCode=PSKU_CODE_1");
+        ProductListingNoonWriteStepResult readBack = new ProductListingNoonWriteStepResult();
+        readBack.setStepKey("verify_noon_readback");
+        readBack.setStatus("succeeded");
+        readBack.setExternalReference("skuParent=ZPARENT;pskuCode=PSKU_CODE_1;readBackAttempts=2");
+        return ProductListingNoonWriteResult.succeeded(List.of(step, readBack));
     }
 
     private ProductListingNoonWriteResult failureResult() {
