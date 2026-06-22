@@ -14,12 +14,10 @@ public class ProductListingValidator {
 
         requireText(issues, "storeCode", safeCommand.getStoreCode());
         requireText(issues, "psku", safeCommand.getPsku());
-        requireLong(issues, "idProductFullType", safeCommand.getIdProductFullType());
+        requireText(issues, "productFullType", safeCommand.getProductFullType());
         requireText(issues, "productTitleEn", safeCommand.getProductTitleEn());
         requireImages(issues, safeCommand.getImageUrls());
         requireAmount(issues, "price", safeCommand.getPrice());
-        requireAmount(issues, "purchasePrice", safeCommand.getPurchasePrice());
-        requireText(issues, "supplyEvidenceType", safeCommand.getSupplyEvidenceType());
         requirePositive(issues, "quantity", safeCommand.getQuantity());
 
         return issues;
@@ -41,12 +39,6 @@ public class ProductListingValidator {
 
     private void requireText(List<ProductListingValidationIssue> issues, String fieldKey, String value) {
         if (value == null || value.trim().isEmpty()) {
-            issues.add(required(fieldKey));
-        }
-    }
-
-    private void requireLong(List<ProductListingValidationIssue> issues, String fieldKey, Long value) {
-        if (value == null) {
             issues.add(required(fieldKey));
         }
     }

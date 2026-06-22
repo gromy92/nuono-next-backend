@@ -6,9 +6,13 @@ import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
+import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
+import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.stereotype.Component;
@@ -41,12 +45,63 @@ class ProductListingSpringWiringContractTest {
                 });
     }
 
+    @Test
+    void productListingComponentScanProvidesDefaultNoonWriteAdapter() {
+        new ApplicationContextRunner()
+                .withBean(ProductListingMapper.class, () -> mock(ProductListingMapper.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(BusinessAccessResolver.class, () -> mock(BusinessAccessResolver.class))
+                .withUserConfiguration(ProductListingComponentScanConfig.class)
+                .run(context -> {
+                    assertTrue(
+                            context.getStartupFailure() == null,
+                            () -> String.valueOf(context.getStartupFailure())
+                    );
+                    assertTrue(context.getBean(ProductListingNoonWriteAdapter.class)
+                            instanceof UnavailableProductListingNoonWriteAdapter);
+                    assertTrue(context.getBean(ProductListingWarehouseProvider.class)
+                            instanceof UnavailableProductListingWarehouseProvider);
+                    assertNotNull(context.getBean(ProductListingService.class));
+                });
+    }
+
+    @Test
+    void productListingComponentScanProvidesRealNoonProvidersWhenEnabledAndGatewayAvailable() {
+        new ApplicationContextRunner()
+                .withPropertyValues("nuono.product-listing.real-write.enabled=true")
+                .withBean(ProductListingMapper.class, () -> mock(ProductListingMapper.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(BusinessAccessResolver.class, () -> mock(BusinessAccessResolver.class))
+                .withBean(NoonPullStoreBindingResolver.class, () -> mock(NoonPullStoreBindingResolver.class))
+                .withBean(NoonPullGatewaySessionFactory.class, () -> mock(NoonPullGatewaySessionFactory.class))
+                .withUserConfiguration(ProductListingComponentScanConfig.class)
+                .run(context -> {
+                    assertTrue(
+                            context.getStartupFailure() == null,
+                            () -> String.valueOf(context.getStartupFailure())
+                    );
+                    assertTrue(context.getBean(ProductListingNoonWriteAdapter.class)
+                            instanceof RealProductListingNoonWriteAdapter);
+                    assertTrue(context.getBean(ProductListingWarehouseProvider.class)
+                            instanceof RealProductListingNoonWarehouseProvider);
+                });
+    }
+
     @Configuration
+    @EnableConfigurationProperties(ProductListingRealWriteProperties.class)
     @Import({
             ProductListingValidator.class,
+            UnavailableProductListingNoonWriteAdapter.class,
+            UnavailableProductListingWarehouseProvider.class,
             ProductListingService.class,
             ProductListingController.class
     })
     static class ProductListingWiringConfig {
+    }
+
+    @Configuration
+    @EnableConfigurationProperties(ProductListingRealWriteProperties.class)
+    @ComponentScan(basePackageClasses = ProductListingService.class)
+    static class ProductListingComponentScanConfig {
     }
 }

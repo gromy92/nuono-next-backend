@@ -27,7 +27,7 @@ class ProductListingServiceTest {
     @BeforeEach
     void setUp() {
         mapper = new FakeProductListingMapper();
-        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator());
+        useRealWrite(false);
     }
 
     @Test
@@ -61,7 +61,7 @@ class ProductListingServiceTest {
     void dryRunTaskFailsWhenHardIssuesExist() {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand invalid = validCommand();
-        invalid.setPurchasePrice(null);
+        invalid.setPrice(null);
         ProductListingDraftView draft = service.saveDraft(context, invalid);
         ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
         command.setDraftId(draft.getDraftId());
@@ -71,7 +71,46 @@ class ProductListingServiceTest {
 
         assertEquals("validation_failed", task.getStatus());
         assertTrue(task.getValidationIssues().stream()
-                .anyMatch(issue -> "purchasePrice".equals(issue.getFieldKey())));
+                .anyMatch(issue -> "price".equals(issue.getFieldKey())));
+    }
+
+    @Test
+    void dryRunTaskAllowsListingWithoutProcurementOnlyFields() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setIdProductFullType(null);
+        command.setPurchasePrice(null);
+        command.setSupplyEvidenceType(null);
+        command.setSupplyEvidenceRefId(null);
+        command.setOptionalPurchaseOrderId(null);
+        command.setQuantity(null);
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand submit = new ProductListingDryRunSubmitCommand();
+        submit.setDraftId(draft.getDraftId());
+        submit.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, submit);
+
+        assertEquals("validated", task.getStatus());
+        assertTrue(task.getValidationIssues().isEmpty());
+    }
+
+    @Test
+    void dryRunTaskRequiresProductFullTypeTextFromDetail() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setIdProductFullType(3066L);
+        command.setProductFullType(null);
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand submit = new ProductListingDryRunSubmitCommand();
+        submit.setDraftId(draft.getDraftId());
+        submit.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, submit);
+
+        assertEquals("validation_failed", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .anyMatch(issue -> "productFullType".equals(issue.getFieldKey())));
     }
 
     @Test
@@ -145,6 +184,122 @@ class ProductListingServiceTest {
         );
     }
 
+    @Test
+    void confirmRealRunPersistsRejectedTaskWithoutConfirmation() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingTaskView dryRun = validatedDryRun(context);
+        mapper.resetInsertedTask();
+
+        ProductListingTaskView realRun = service.confirmRealRun(
+                context,
+                dryRun.getTaskId(),
+                new ProductListingRealRunCommand()
+        );
+
+        assertEquals("REAL_RUN", realRun.getMode());
+        assertEquals("rejected", realRun.getStatus());
+        assertEquals(dryRun.getTaskId(), realRun.getSourceTaskId());
+        assertEquals("guard", realRun.getFailureCategory());
+        assertEquals("confirmation_required", realRun.getFailureCode());
+        assertEquals("REAL_RUN", mapper.insertedTask().getMode());
+        assertEquals("rejected", mapper.insertedTask().getStatus());
+        assertEquals(dryRun.getTaskId(), mapper.insertedTask().getSourceTaskId());
+        assertTrue(mapper.insertedTask().getConfirmationJson().contains("confirmRealNoonWrite"));
+    }
+
+    @Test
+    void confirmRealRunPersistsRejectedTaskWhenKillSwitchIsDisabled() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingTaskView dryRun = validatedDryRun(context);
+        mapper.resetInsertedTask();
+
+        ProductListingTaskView realRun = service.confirmRealRun(context, dryRun.getTaskId(), confirmedCommand());
+
+        assertEquals("rejected", realRun.getStatus());
+        assertEquals("guard", realRun.getFailureCategory());
+        assertEquals("real_write_disabled", realRun.getFailureCode());
+        assertEquals("real_write_disabled", mapper.insertedTask().getFailureCode());
+    }
+
+    @Test
+    void confirmRealRunRejectsNonValidatedDryRunTask() {
+        useRealWrite(true);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand invalid = validCommand();
+        invalid.setProductFullType(null);
+        ProductListingDraftView draft = service.saveDraft(context, invalid);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        ProductListingTaskView dryRun = service.submitDryRun(context, dryRunCommand);
+        mapper.resetInsertedTask();
+
+        ProductListingTaskView realRun = service.confirmRealRun(context, dryRun.getTaskId(), confirmedCommand());
+
+        assertEquals("rejected", realRun.getStatus());
+        assertEquals("validation", realRun.getFailureCategory());
+        assertEquals("dry_run_not_validated", realRun.getFailureCode());
+        assertEquals(dryRun.getTaskId(), mapper.insertedTask().getSourceTaskId());
+    }
+
+    @Test
+    void confirmRealRunRejectsDuplicateActiveRealRunTask() {
+        useRealWrite(true);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingTaskView dryRun = validatedDryRun(context);
+        mapper.addActiveRealRun(dryRun);
+        mapper.resetInsertedTask();
+
+        ProductListingTaskView realRun = service.confirmRealRun(context, dryRun.getTaskId(), confirmedCommand());
+
+        assertEquals("rejected", realRun.getStatus());
+        assertEquals("guard", realRun.getFailureCategory());
+        assertEquals("real_run_already_active", realRun.getFailureCode());
+        assertEquals(dryRun.getTaskId(), mapper.insertedTask().getSourceTaskId());
+    }
+
+    @Test
+    void confirmRealRunRejectsStoreOutsideSessionScopeBeforeAuditing() {
+        useRealWrite(true);
+        BusinessAccessContext storeAeContext = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingTaskView dryRun = validatedDryRun(storeAeContext);
+        BusinessAccessContext storeSaContext = businessContext(10002L, 90002L, "STR245027-NSA");
+        mapper.resetInsertedTask();
+
+        assertThrows(
+                BusinessAccessDeniedException.class,
+                () -> service.confirmRealRun(storeSaContext, dryRun.getTaskId(), confirmedCommand())
+        );
+
+        assertEquals(null, mapper.insertedTask());
+    }
+
+    private void useRealWrite(boolean enabled) {
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setEnabled(enabled);
+        service = new ProductListingService(
+                mapper,
+                new ObjectMapper(),
+                new ProductListingValidator(),
+                properties
+        );
+    }
+
+    private ProductListingTaskView validatedDryRun(BusinessAccessContext context) {
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+        return service.submitDryRun(context, command);
+    }
+
+    private ProductListingRealRunCommand confirmedCommand() {
+        ProductListingRealRunCommand command = new ProductListingRealRunCommand();
+        command.setConfirmRealNoonWrite(true);
+        command.setConfirmationNote("I understand this will write to Noon.");
+        return command;
+    }
+
     private ProductListingDraftCommand validCommand() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
         command.setStoreCode("STR245027-NAE");
@@ -162,7 +317,8 @@ class ProductListingServiceTest {
         command.setSupplyEvidenceRefId(43101L);
         command.setOptionalPurchaseOrderId(70001L);
         command.setFbp(true);
-        command.setWarehouseId("W00752151SA");
+        command.setWarehouseId("73001");
+        command.setWarehouseCode("W00752151SA");
         command.setQuantity(100);
         command.setIdWarranty(24);
         command.setBarcode("6290000000001");
@@ -271,12 +427,51 @@ class ProductListingServiceTest {
             return result;
         }
 
+        @Override
+        public ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(Long ownerUserId, Long sourceTaskId) {
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (ownerUserId.equals(task.getOwnerUserId())
+                        && sourceTaskId.equals(task.getSourceTaskId())
+                        && "REAL_RUN".equals(task.getMode())
+                        && ("running".equals(task.getStatus())
+                        || "submitted".equals(task.getStatus())
+                        || "succeeded".equals(task.getStatus())
+                        || "failed".equals(task.getStatus()))) {
+                    return task;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public int updateTaskResult(ProductListingTaskRecord task) {
+            tasks.put(task.getId(), task);
+            return 1;
+        }
+
         private ProductListingDraftRecord insertedDraft() {
             return insertedDraft;
         }
 
         private ProductListingTaskRecord insertedTask() {
             return insertedTask;
+        }
+
+        private void resetInsertedTask() {
+            insertedTask = null;
+        }
+
+        private void addActiveRealRun(ProductListingTaskView dryRun) {
+            ProductListingTaskRecord task = new ProductListingTaskRecord();
+            task.setId(nextTaskId++);
+            task.setDraftId(dryRun.getDraftId());
+            task.setOwnerUserId(dryRun.getOwnerUserId());
+            task.setStoreCode(dryRun.getStoreCode());
+            task.setTaskNo("PLT-" + task.getId());
+            task.setMode("REAL_RUN");
+            task.setStatus("running");
+            task.setSourceTaskId(dryRun.getTaskId());
+            tasks.put(task.getId(), task);
         }
 
         private void resetUpdateCount() {

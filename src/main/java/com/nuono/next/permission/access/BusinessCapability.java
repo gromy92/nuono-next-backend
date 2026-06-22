@@ -21,6 +21,7 @@ public enum BusinessCapability {
     FILE_MANAGEMENT_BUSINESS(List.of("/system/file-management", "/system/ai-file-parse")),
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),
     IN_TRANSIT_GOODS(List.of("/purchase/in-transit-goods", "/api/in-transit-goods")),
+    PRE_ORDER_PROFIT(List.of("/purchase/pre-order-profit", "/api/pre-order-profit")),
     PROFIT(List.of("/api/sku/cost"));
 
     private final List<String> menuPathPrefixes;

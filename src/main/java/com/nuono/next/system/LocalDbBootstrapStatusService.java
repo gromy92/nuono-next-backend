@@ -104,7 +104,8 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/097_procurement_ali1688_order_assignment_active_guards.sql",
                 "classpath:db/init/098_operational_task_foundation.sql",
                 "classpath:db/init/099_operations_competitor_analysis.sql",
-                "classpath:db/init/100_operations_competitor_analysis_menu_permission.sql"
+                "classpath:db/init/100_operations_competitor_analysis_menu_permission.sql",
+                "classpath:db/init/114_product_listing_real_run.sql"
             ));
         return payload;
     }
