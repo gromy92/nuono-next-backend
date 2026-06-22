@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
+import com.nuono.next.product.noon.ProductNoonAdapter;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -24,6 +25,12 @@ public class ProductNoonCatalogContentService {
     private static final int MAX_IMAGES = 20;
     private static final int MAX_FEATURES = 12;
 
+    private final ProductNoonAdapter productNoonAdapter;
+
+    public ProductNoonCatalogContentService(ProductNoonAdapter productNoonAdapter) {
+        this.productNoonAdapter = productNoonAdapter;
+    }
+
     public Optional<CatalogContent> fetchFollowSellCatalogContent(
             NoonSession session,
             String catalogSku,
@@ -38,14 +45,14 @@ public class ProductNoonCatalogContentService {
         String country = countryCode(site);
         String url = CATALOG_DETAIL_URL_PREFIX + normalizedSku + "/p";
         try {
-            JsonNode enRoot = session.getJson(url, false, localeHeaders("en", country));
+            JsonNode enRoot = getJson(session, url, localeHeaders("en", country));
             CatalogContent content = parseCatalogContent(enRoot, "en");
             if (!content.hasUsableContent()) {
                 return Optional.empty();
             }
 
             try {
-                JsonNode arRoot = session.getJson(url, false, localeHeaders("ar", country));
+                JsonNode arRoot = getJson(session, url, localeHeaders("ar", country));
                 content.mergeMissing(parseCatalogContent(arRoot, "ar"));
             } catch (RuntimeException exception) {
                 log.debug(
@@ -65,6 +72,13 @@ public class ProductNoonCatalogContentService {
             );
             return Optional.empty();
         }
+    }
+
+    private JsonNode getJson(NoonSession session, String url, Map<String, String> headers) {
+        if (productNoonAdapter == null) {
+            return session.getJson(url, false, headers);
+        }
+        return productNoonAdapter.getJson(session, url, false, headers);
     }
 
     public CatalogContent parseCatalogContent(JsonNode root, String language) {

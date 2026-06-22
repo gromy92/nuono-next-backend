@@ -2,6 +2,9 @@ package com.nuono.next.product;
 
 import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessCapability;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
@@ -21,16 +24,16 @@ public class ProductSpecManagementController {
 
     private final ObjectProvider<ProductVariantSpecService> serviceProvider;
     private final AuthSessionTokenService sessionTokenService;
-    private final ObjectProvider<ProductMasterAccessGuard> accessGuardProvider;
+    private final ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider;
 
     public ProductSpecManagementController(
             ObjectProvider<ProductVariantSpecService> serviceProvider,
             AuthSessionTokenService sessionTokenService,
-            ObjectProvider<ProductMasterAccessGuard> accessGuardProvider
+            ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider
     ) {
         this.serviceProvider = serviceProvider;
         this.sessionTokenService = sessionTokenService;
-        this.accessGuardProvider = accessGuardProvider;
+        this.businessAccessResolverProvider = businessAccessResolverProvider;
     }
 
     @GetMapping
@@ -42,8 +45,7 @@ public class ProductSpecManagementController {
     ) {
         ProductVariantSpecService service = requireService();
         try {
-            AuthenticatedSession session = sessionTokenService.requireSession(request);
-            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
             ProductVariantSpecOverviewCommand command = new ProductVariantSpecOverviewCommand();
             command.setOwnerUserId(resolvedOwnerUserId);
             command.setStoreCode(storeCode);
@@ -65,8 +67,7 @@ public class ProductSpecManagementController {
     ) {
         ProductVariantSpecService service = requireService();
         try {
-            AuthenticatedSession session = sessionTokenService.requireSession(request);
-            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
             return service.detail(resolvedOwnerUserId, storeCode, variantId);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -86,11 +87,7 @@ public class ProductSpecManagementController {
         try {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
             ProductVariantSpecSourceCommand effectiveCommand = command == null ? new ProductVariantSpecSourceCommand() : command;
-            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(
-                    session,
-                    effectiveCommand.getOwnerUserId(),
-                    effectiveCommand.getStoreCode()
-            );
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, effectiveCommand.getStoreCode());
             effectiveCommand.setOwnerUserId(resolvedOwnerUserId);
             effectiveCommand.setVariantId(variantId);
             effectiveCommand.setSourceType(sourceType);
@@ -114,11 +111,7 @@ public class ProductSpecManagementController {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
             ProductVariantSpecEffectiveSourceCommand effectiveCommand =
                     command == null ? new ProductVariantSpecEffectiveSourceCommand() : command;
-            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(
-                    session,
-                    effectiveCommand.getOwnerUserId(),
-                    effectiveCommand.getStoreCode()
-            );
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, effectiveCommand.getStoreCode());
             return service.selectEffectiveSource(
                     resolvedOwnerUserId,
                     effectiveCommand.getStoreCode(),
@@ -141,12 +134,28 @@ public class ProductSpecManagementController {
         return service;
     }
 
-    private ProductMasterAccessGuard accessGuard() {
-        ProductMasterAccessGuard accessGuard = accessGuardProvider.getIfAvailable();
-        if (accessGuard == null) {
+    private Long resolveOwnerUserId(HttpServletRequest request, String storeCode) {
+        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                storeCode
+        );
+        Long ownerUserId = access.resolveOwnerUserIdForStore(storeCode);
+        if (ownerUserId != null) {
+            return ownerUserId;
+        }
+        if (access.getBusinessOwnerUserId() != null) {
+            return access.getBusinessOwnerUserId();
+        }
+        throw new ProductMasterAccessDeniedException("当前店铺未绑定业务老板上下文。");
+    }
+
+    private BusinessAccessResolver businessAccessResolver() {
+        BusinessAccessResolver resolver = businessAccessResolverProvider.getIfAvailable();
+        if (resolver == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品访问控制暂时不可用。");
         }
-        return accessGuard;
+        return resolver;
     }
 
     private ResponseStatusException productAccessDenied(ProductMasterAccessDeniedException exception) {

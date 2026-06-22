@@ -38,16 +38,57 @@ class NoonPullSchedulerTest {
 
         NoonPullSchedulerResult result = scheduler().runDuePlans();
 
-        assertEquals(3, result.getCreatedTaskCount());
+        assertEquals(2, result.getCreatedTaskCount());
         List<NoonPullTaskRecord> tasks = repository.listTasks();
         assertTrue(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.SALES
                 && "sales:2026-05-20".equals(task.getTargetIdentity())));
-        assertTrue(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.SALES
+        assertFalse(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.SALES
                 && "sales:2026-05-21".equals(task.getTargetIdentity())));
         assertTrue(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.ORDER
                 && "orders:2026-05-21..2026-05-21".equals(task.getTargetIdentity())));
         assertFalse(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.PRODUCT
                 && task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY));
+    }
+
+    @Test
+    void shouldNotRecreateCompletedSalesDailyTargetsOnRepeatedTicks() {
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.SALES, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
+        NoonPullScheduler scheduler = scheduler();
+
+        NoonPullSchedulerResult firstRun = scheduler.runDuePlans();
+        for (NoonPullTaskRecord task : repository.listTasks()) {
+            foundationService.markSucceeded(task.getId(), "batch-" + task.getTargetIdentity(), "ready");
+        }
+        NoonPullSchedulerResult secondRun = scheduler.runDuePlans();
+
+        assertEquals(1, firstRun.getCreatedTaskCount());
+        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-20".equals(task.getTargetIdentity())));
+        assertFalse(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-21".equals(task.getTargetIdentity())));
+        assertEquals(0, secondRun.getCreatedTaskCount());
+        assertEquals(1, repository.listTasks().size());
+    }
+
+    @Test
+    void shouldCreateLatestSalesReportTaskOnlyAfterLateReadyTime() {
+        Clock afterLatestReady = Clock.fixed(Instant.parse("2026-05-22T12:01:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, afterLatestReady, new NoonPullFailurePolicy(afterLatestReady));
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.SALES, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                afterLatestReady,
+                new NoonOrderReportSchedulePolicy(afterLatestReady),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(afterLatestReady),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(2, result.getCreatedTaskCount());
+        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-20".equals(task.getTargetIdentity())));
+        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-21".equals(task.getTargetIdentity())));
     }
 
     @Test

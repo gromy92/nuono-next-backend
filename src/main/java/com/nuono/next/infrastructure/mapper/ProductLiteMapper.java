@@ -1,0 +1,170 @@
+package com.nuono.next.infrastructure.mapper;
+
+import com.nuono.next.product.ProductLiteRecord;
+import com.nuono.next.product.ProductClassificationOptionRecord;
+import java.util.List;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+@Mapper
+public interface ProductLiteMapper {
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.id AS productMasterId,",
+            "  lss.store_code AS storeCode,",
+            "  lss.site AS siteCode,",
+            "  COALESCE(",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleEn')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleEn')), ''),",
+            "    NULLIF(pm.title_cache, '')",
+            "  ) AS title,",
+            "  COALESCE(",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleCn')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleZh')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleCn')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleZh')), '')",
+            "  ) AS titleCn,",
+            "  COALESCE(",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleEn')), ''),",
+            "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleEn')), ''),",
+            "    NULLIF(pm.title_cache, '')",
+            "  ) AS titleEn,",
+            "  pm.brand_cache AS brand,",
+            "  pm.cover_image_url AS imageUrl,",
+            "  pm.product_fulltype_cache AS productFulltype,",
+            "  pm.product_source_type AS sourceType",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.id = (",
+            "    SELECT MIN(lss_scope.id)",
+            "    FROM logical_store_site lss_scope",
+            "    WHERE lss_scope.logical_store_id = ls.id",
+            "      AND lss_scope.is_deleted = b'0'",
+            "      AND (lss_scope.store_code = #{storeCode} OR ls.project_code = #{storeCode})",
+            "      <if test='siteCode != null and siteCode != \"\"'>",
+            "        AND UPPER(lss_scope.site) = UPPER(#{siteCode})",
+            "      </if>",
+            "  )",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_master_draft pmd",
+            "  ON pmd.product_master_id = pm.id",
+            " AND pmd.is_deleted = b'0'",
+            "LEFT JOIN product_master_snapshot pms",
+            "  ON pms.id = (",
+            "    SELECT pms_latest.id",
+            "    FROM product_master_snapshot pms_latest",
+            "    WHERE pms_latest.product_master_id = pm.id",
+            "      AND pms_latest.snapshot_type = 'baseline'",
+            "      AND pms_latest.is_deleted = b'0'",
+            "    ORDER BY pms_latest.fetched_at DESC, pms_latest.id DESC",
+            "    LIMIT 1",
+            "  )",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  <if test='titleKeyword != null and titleKeyword != \"\"'>",
+            "    AND (",
+            "      LOWER(COALESCE(pm.title_cache, '')) LIKE CONCAT('%', LOWER(#{titleKeyword}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleEn')), '')) LIKE CONCAT('%', LOWER(#{titleKeyword}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleEn')), '')) LIKE CONCAT('%', LOWER(#{titleKeyword}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleCn')), '')) LIKE CONCAT('%', LOWER(#{titleKeyword}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleZh')), '')) LIKE CONCAT('%', LOWER(#{titleKeyword}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleCn')), '')) LIKE CONCAT('%', LOWER(#{titleKeyword}), '%')",
+            "      OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleZh')), '')) LIKE CONCAT('%', LOWER(#{titleKeyword}), '%')",
+            "    )",
+            "  </if>",
+            "ORDER BY pm.gmt_updated DESC, pm.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductLiteRecord> search(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("titleKeyword") String titleKeyword,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.brand_cache AS value,",
+            "  pm.brand_cache AS label,",
+            "  COUNT(*) AS usageCount",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.is_deleted = b'0'",
+            " AND (ls.project_code = #{storeCode} OR lss.store_code = #{storeCode})",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  AND pm.brand_cache IS NOT NULL",
+            "  AND pm.brand_cache != ''",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND pm.brand_cache LIKE CONCAT('%', #{query}, '%')",
+            "  </if>",
+            "GROUP BY pm.brand_cache",
+            "ORDER BY usageCount DESC, pm.brand_cache",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectBrandProjectionClassificationOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  pm.product_fulltype_cache AS value,",
+            "  pm.product_fulltype_cache AS label,",
+            "  SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 1) AS family,",
+            "  CASE",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
+            "      SUBSTRING_INDEX(SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 2), '-', -1)",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%' THEN",
+            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
+            "    ELSE NULL",
+            "  END AS productType,",
+            "  CASE",
+            "    WHEN pm.product_fulltype_cache LIKE '%-%-%' THEN",
+            "      SUBSTRING_INDEX(pm.product_fulltype_cache, '-', -1)",
+            "    ELSE NULL",
+            "  END AS productSubtype,",
+            "  COUNT(*) AS usageCount",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.is_deleted = b'0'",
+            " AND (ls.project_code = #{storeCode} OR lss.store_code = #{storeCode})",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "  AND pm.product_fulltype_cache IS NOT NULL",
+            "  AND pm.product_fulltype_cache != ''",
+            "  <if test='query != null and query != \"\"'>",
+            "    AND pm.product_fulltype_cache LIKE CONCAT('%', #{query}, '%')",
+            "  </if>",
+            "GROUP BY pm.product_fulltype_cache",
+            "ORDER BY usageCount DESC, pm.product_fulltype_cache",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ProductClassificationOptionRecord> selectFulltypeProjectionClassificationOptions(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("query") String query,
+            @Param("limit") int limit
+    );
+}

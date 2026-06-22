@@ -12,8 +12,11 @@ public class AuthApiProtectionProperties {
     private List<String> publicPaths = new ArrayList<>(List.of(
             "/api/auth/login",
             "/api/auth/logout",
+            "/api/plugin/auth/login",
+            "/api/plugin/auth/logout",
             "/api/auth/sample-accounts",
-            "/api/system/bootstrap"
+            "/api/system/bootstrap",
+            "/api/procurement/ali1688-orders/authorizations/open-api/callback"
     ));
 
     private List<String> publicPrefixes = new ArrayList<>(List.of(
