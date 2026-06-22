@@ -17,7 +17,11 @@ class SchemaContractTest {
             "CREATE TABLE IF NOT EXISTS product_variant_spec",
             "CREATE TABLE IF NOT EXISTS noon_finance_transaction_fact",
             "CREATE TABLE IF NOT EXISTS operational_task",
-            "CREATE TABLE IF NOT EXISTS daily_sales_fact"
+            "CREATE TABLE IF NOT EXISTS daily_sales_fact",
+            "CREATE TABLE IF NOT EXISTS pre_order_profit_candidate",
+            "CREATE TABLE IF NOT EXISTS pre_order_profit_competitor",
+            "CREATE TABLE IF NOT EXISTS pre_order_profit_purchase_order",
+            "CREATE TABLE IF NOT EXISTS pre_order_profit_purchase_order_item"
     );
 
     @Test
