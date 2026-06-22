@@ -23,6 +23,7 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
             null,
             null,
             null,
+            null,
             objectMapper,
             null,
             null,
