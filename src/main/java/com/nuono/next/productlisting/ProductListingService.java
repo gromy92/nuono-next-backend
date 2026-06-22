@@ -466,6 +466,7 @@ public class ProductListingService {
         view.setDraftId(record.getDraftId());
         view.setOwnerUserId(record.getOwnerUserId());
         view.setStoreCode(record.getStoreCode());
+        view.setPartnerSku(readPartnerSku(record.getInputSnapshotJson()));
         view.setMode(record.getMode());
         view.setStatus(record.getStatus());
         view.setSourceTaskId(record.getSourceTaskId());
@@ -565,6 +566,14 @@ public class ProductListingService {
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("Failed to parse product listing draft payload.", exception);
         }
+    }
+
+    private String readPartnerSku(String json) {
+        if (!StringUtils.hasText(json)) {
+            return null;
+        }
+        ProductListingDraftCommand draft = readDraft(json);
+        return StringUtils.hasText(draft.getPsku()) ? draft.getPsku().trim() : null;
     }
 
     private List<ProductListingValidationIssue> readIssues(String json) {

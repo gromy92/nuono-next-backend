@@ -37,6 +37,7 @@ class ProductListingNoonWriteAdapterContractTest {
         assertEquals(realRun.getTaskId(), adapter.lastRequest().getRealRunTaskId());
         assertEquals("STR245027-NAE", adapter.lastRequest().getStoreCode());
         assertEquals("NN-TEST-PSKU", adapter.lastRequest().getDraft().getPsku());
+        assertEquals("NN-TEST-PSKU", realRun.getPartnerSku());
         assertEquals("succeeded", mapper.updatedTask().getStatus());
         assertNotNull(mapper.insertedTask().getStartedAt());
         assertNotNull(mapper.updatedTask().getCompletedAt());
@@ -50,6 +51,7 @@ class ProductListingNoonWriteAdapterContractTest {
         );
 
         ProductListingTaskView loaded = service.loadTask(context, realRun.getTaskId());
+        assertEquals("NN-TEST-PSKU", loaded.getPartnerSku());
         assertNotNull(loaded.getNoonResult());
         assertEquals(
                 "skuParent=ZPARENT;pskuCode=PSKU_CODE_1;readBackAttempts=2",

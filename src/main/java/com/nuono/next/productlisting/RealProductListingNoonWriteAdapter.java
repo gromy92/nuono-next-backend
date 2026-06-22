@@ -10,17 +10,10 @@ import com.nuono.next.noonpull.NoonPullGatewaySession;
 import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
 import com.nuono.next.noonpull.NoonPullStoreBinding;
 import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
-import java.io.IOException;
-import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -34,7 +27,6 @@ import org.springframework.util.StringUtils;
 @ConditionalOnBean(NoonPullGatewaySessionFactory.class)
 @ConditionalOnProperty(prefix = "nuono.product-listing.real-write", name = "enabled", havingValue = "true")
 public class RealProductListingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
-    private static final Duration IMAGE_DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_IMAGE_UPLOADS = 15;
 
     private final ObjectMapper objectMapper;
@@ -829,101 +821,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
 
     private String upper(String value) {
         return ProductListingNoonHeaders.upper(value);
-    }
-
-    interface ProductListingImageDownloader {
-        ProductListingImageDownload download(String imageUrl);
-    }
-
-    private static class HttpClientProductListingImageDownloader implements ProductListingImageDownloader {
-        private static final String IMAGE_DOWNLOAD_USER_AGENT =
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        + "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
-
-        private final HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
-
-        @Override
-        public ProductListingImageDownload download(String imageUrl) {
-            try {
-                URI uri = URI.create(imageUrl);
-                if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
-                    throw new IllegalArgumentException("Unsupported image URL scheme.");
-                }
-                HttpRequest request = HttpRequest.newBuilder(uri)
-                        .GET()
-                        .timeout(IMAGE_DOWNLOAD_TIMEOUT)
-                        .setHeader("User-Agent", IMAGE_DOWNLOAD_USER_AGENT)
-                        .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-                        .build();
-                HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-                if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                    throw new IllegalStateException("HTTP " + response.statusCode());
-                }
-                byte[] body = response.body();
-                if (body == null || body.length == 0) {
-                    throw new IllegalStateException("empty image response");
-                }
-                String contentType = response.headers().firstValue("content-type").orElse("application/octet-stream");
-                return new ProductListingImageDownload(
-                        fileName(uri, contentType),
-                        contentType,
-                        body
-                );
-            } catch (IOException exception) {
-                throw new IllegalStateException("Download product listing image failed: " + exception.getMessage(), exception);
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Download product listing image interrupted: " + exception.getMessage(), exception);
-            } catch (RuntimeException exception) {
-                throw new IllegalStateException("Download product listing image failed: " + exception.getMessage(), exception);
-            }
-        }
-
-        private String fileName(URI uri, String contentType) {
-            String path = uri == null ? "" : uri.getPath();
-            String name = StringUtils.hasText(path) && path.contains("/")
-                    ? path.substring(path.lastIndexOf('/') + 1)
-                    : path;
-            if (!StringUtils.hasText(name)) {
-                name = "image";
-            }
-            if (!name.contains(".")) {
-                name += extension(contentType);
-            }
-            return name;
-        }
-
-        private String extension(String contentType) {
-            if (!StringUtils.hasText(contentType)) {
-                return ".jpg";
-            }
-            String normalized = contentType.toLowerCase(Locale.ROOT);
-            if (normalized.contains("png")) {
-                return ".png";
-            }
-            if (normalized.contains("webp")) {
-                return ".webp";
-            }
-            if (normalized.contains("gif")) {
-                return ".gif";
-            }
-            return ".jpg";
-        }
-    }
-
-    static class ProductListingImageDownload {
-        private final String fileName;
-        private final String contentType;
-        private final byte[] content;
-
-        ProductListingImageDownload(String fileName, String contentType, byte[] content) {
-            this.fileName = StringUtils.hasText(fileName) ? fileName : "image.jpg";
-            this.contentType = StringUtils.hasText(contentType) ? contentType : "application/octet-stream";
-            this.content = content == null ? new byte[0] : content;
-        }
     }
 
     private static class ProductFullTypeParts {

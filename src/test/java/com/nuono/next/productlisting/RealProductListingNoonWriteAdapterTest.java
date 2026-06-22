@@ -518,10 +518,10 @@ class RealProductListingNoonWriteAdapterTest {
         }
     }
 
-    private static class FakeImageDownloader implements RealProductListingNoonWriteAdapter.ProductListingImageDownloader {
+    private static class FakeImageDownloader implements ProductListingImageDownloader {
         @Override
-        public RealProductListingNoonWriteAdapter.ProductListingImageDownload download(String imageUrl) {
-            return new RealProductListingNoonWriteAdapter.ProductListingImageDownload(
+        public ProductListingImageDownload download(String imageUrl) {
+            return new ProductListingImageDownload(
                     "sku-main.jpg",
                     "image/jpeg",
                     new byte[] {1, 2, 3}
