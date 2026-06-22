@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.nuono.next.infrastructure.mapper.ProductLiteMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
+import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
@@ -13,6 +14,7 @@ import com.nuono.next.product.publish.ProductPublishCommandService;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateCommand;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateResult;
 import com.nuono.next.product.publish.ProductPublishTaskFenceLostException;
+import com.nuono.next.productpublicdetail.ProductPublicDetailSnapshot;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -54,6 +56,7 @@ public class LocalDbProductMasterService {
 
     private final ProductManagementMapper productManagementMapper;
     private final ProductLiteMapper productLiteMapper;
+    private final ProductPublicDetailMapper productPublicDetailMapper;
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final ObjectMapper objectMapper;
@@ -95,6 +98,9 @@ public class LocalDbProductMasterService {
     private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
     private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
     private final ProductStoreContextBuilder productStoreContextBuilder;
+    private final ProductNoonCredentialResolver productNoonCredentialResolver = new ProductNoonCredentialResolver();
+    private final ProductPublicDetailReadonlyWorkbenchFactory productPublicDetailReadonlyWorkbenchFactory =
+            new ProductPublicDetailReadonlyWorkbenchFactory();
     private final ProductSnapshotMessageBuilder productSnapshotMessageBuilder = new ProductSnapshotMessageBuilder();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
@@ -112,6 +118,7 @@ public class LocalDbProductMasterService {
     public LocalDbProductMasterService(
             ProductManagementMapper productManagementMapper,
             ProductLiteMapper productLiteMapper,
+            ProductPublicDetailMapper productPublicDetailMapper,
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
             ObjectMapper objectMapper,
@@ -131,6 +138,7 @@ public class LocalDbProductMasterService {
     ) {
         this.productManagementMapper = productManagementMapper;
         this.productLiteMapper = productLiteMapper;
+        this.productPublicDetailMapper = productPublicDetailMapper;
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
@@ -376,34 +384,24 @@ public class LocalDbProductMasterService {
             throw new IllegalArgumentException("老板账号不存在，无法读取商品主档快照。");
         }
 
-        String noonUser = firstNonBlank(
-                normalize(command.getNoonUser()),
-                owner.getNoonPartnerProjectUser(),
-                owner.getNoonPartnerUser()
-        );
-        requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先绑定店铺账号或手动填写 Noon 登录账号。");
-        String noonPassword = firstNonBlank(
-                normalize(command.getNoonPassword()),
-                normalize(owner.getNoonPartnerPwd())
-        );
-        requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
-
-        String projectCode = firstNonBlank(store.getProjectCode(), owner.getNoonPartnerId());
-        requireText(projectCode, "当前店铺缺少 Noon projectCode，无法读取真实商品主档。");
+        ProductNoonCredential credential = productNoonCredentialResolver.resolve(command, store, owner);
+        requireText(credential.getNoonUser(), "当前店铺还没有 Noon 账号上下文，请先绑定店铺账号或手动填写 Noon 登录账号。");
+        requireText(credential.getNoonPassword(), "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
+        requireText(credential.getProjectCode(), "当前店铺缺少 Noon projectCode，无法读取真实商品主档。");
 
         long stageStartedAt = System.nanoTime();
         NoonSession session = productNoonAdapter.login(
                 owner.getId(),
-                noonUser,
-                noonPassword,
-                owner.getNoonPartnerCookie(),
-                projectCode,
+                credential.getNoonUser(),
+                credential.getNoonPassword(),
+                credential.getNoonCookie(),
+                credential.getProjectCode(),
                 storeCode
         );
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "login", stageStartedAt);
 
         stageStartedAt = System.nanoTime();
-        String resolvedProjectCode = resolveProjectCode(session, projectCode, store, view.getWarnings());
+        String resolvedProjectCode = resolveProjectCode(session, credential.getProjectCode(), store, view.getWarnings());
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "resolveProjectCode", stageStartedAt);
         session = session.withProjectCode(resolvedProjectCode).withStoreCode(storeCode);
 
@@ -511,7 +509,7 @@ public class LocalDbProductMasterService {
                 productStoreContextBuilder.build(
                         owner,
                         store,
-                        noonUser,
+                        credential.getNoonUser(),
                         whoamiNode,
                         resolvedProjectCode,
                         storeCode,
@@ -558,12 +556,78 @@ public class LocalDbProductMasterService {
             return cachedWorkbench;
         }
 
+        ProductMasterWorkbenchView publicDetailWorkbench = openPublicDetailReadonlyWorkbench(command);
+        if (publicDetailWorkbench != null) {
+            return publicDetailWorkbench;
+        }
+
         ProductMasterWorkbenchView missingWorkbench = productWorkbenchViewAssembler.buildLocalBaselineMissingWorkbench(command);
         productWorkbenchViewAssembler.applyMissingBaselineBackfillPrompt(
                 missingWorkbench,
                 enqueueDetailBaselineBackfill(command, "open-missing-baseline")
         );
         return missingWorkbench;
+    }
+
+    private ProductMasterWorkbenchView openPublicDetailReadonlyWorkbench(ProductMasterFetchCommand command) {
+        if (command == null
+                || command.getOwnerUserId() == null
+                || productPublicDetailMapper == null
+                || productManagementMapper == null) {
+            return null;
+        }
+        String requestedStoreCode = normalize(command.getStoreCode());
+        String skuParent = normalize(command.getSkuParent());
+        if (!StringUtils.hasText(requestedStoreCode) || !StringUtils.hasText(skuParent)) {
+            return null;
+        }
+        StoreSyncStoreRecord store = resolveProductOwnerStore(
+                command.getOwnerUserId(),
+                requestedStoreCode,
+                "当前店铺不在选中的老板名下。"
+        );
+        String storeCode = normalize(store.getStoreCode());
+        ProductListProjectionRecord projection = productManagementMapper.selectProductListProjectionBySkuParent(
+                command.getOwnerUserId(),
+                storeCode,
+                skuParent
+        );
+        ProductPublicDetailSnapshot publicDetail = productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(
+                command.getOwnerUserId(),
+                storeCode,
+                skuParent
+        );
+        ProductMasterSnapshotView baseline = productPublicDetailReadonlyWorkbenchFactory.buildBaseline(
+                command,
+                store,
+                projection,
+                publicDetail
+        );
+        if (baseline == null) {
+            return null;
+        }
+
+        ProductWorkbenchRecord record = createSyncedRecord(baseline);
+        record.setSyncStatus("failed");
+        record.setNote("已使用 Noon 前台公开详情打开只读视图；当前尚未拿到可写的 catalog 详情基线。");
+        String backfillStatus = enqueueDetailBaselineBackfill(command, "open-public-detail-readonly");
+        if ("preparing".equals(backfillStatus)) {
+            baseline.getWarnings().add("系统正在后台继续尝试补齐可写的 Noon catalog 详情基线，补齐后重新打开详情即可编辑。");
+            record.getBaselineSnapshot().setWarnings(baseline.getWarnings());
+            record.getDraftSnapshot().setWarnings(baseline.getWarnings());
+        }
+        productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), requestedStoreCode, skuParent), record);
+        if (!Objects.equals(requestedStoreCode, storeCode)) {
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), storeCode, skuParent), record);
+        }
+
+        ProductMasterWorkbenchView view = productWorkbenchViewAssembler.buildWorkbenchView(
+                record,
+                record.getNote(),
+                baseline.getWarnings()
+        );
+        productWorkbenchStatusHydrator.hydrateListSummaryState(command.getOwnerUserId(), view, view.getWarnings());
+        return view;
     }
 
     private String enqueueDetailBaselineBackfill(ProductMasterFetchCommand command, String reason) {
@@ -888,6 +952,9 @@ public class LocalDbProductMasterService {
         if ("SAVE_DRAFT".equals(resolvedAction)) {
             ensureNoActivePublishTaskForCommand(command, "当前商品已有发布任务正在执行，请等待完成后再保存草稿。");
             ProductWorkbenchRecord record = ensureWorkbenchRecord(command, key);
+            if (isPublicDetailReadonlyRecord(record)) {
+                return rejectPublicDetailReadonlyAction(command, key, record, "保存草稿");
+            }
             ProductMasterSnapshotView draftSnapshot = sanitizeSnapshot(command.getSnapshot(), record.getBaselineSnapshot());
             record.setDraftSnapshot(draftSnapshot);
             if (sameBusinessSnapshot(record.getDraftSnapshot(), record.getBaselineSnapshot())) {
@@ -913,6 +980,9 @@ public class LocalDbProductMasterService {
 
         if ("ROLLBACK_DRAFT".equals(resolvedAction)) {
             ensureNoActivePublishTaskForCommand(command, "当前商品已有发布任务正在执行，请等待完成后再回滚草稿。");
+            if (isPublicDetailReadonlyRecord(record)) {
+                return rejectPublicDetailReadonlyAction(command, key, record, "回滚草稿");
+            }
             ProductMasterSnapshotView baselineSnapshot = copySnapshot(record.getBaselineSnapshot());
             record.setDraftSnapshot(baselineSnapshot);
             record.setSyncStatus("synced");
@@ -963,6 +1033,9 @@ public class LocalDbProductMasterService {
         ProductMasterSnapshotView requestedSnapshot = sanitizeSnapshot(command.getSnapshot(), record.getDraftSnapshot());
         hydrateProjectionOnlyFields(requestedSnapshot, record.getBaselineSnapshot());
         String currentSiteCode = normalize(command.getCurrentSiteCode());
+        if (isPublicDetailReadonlyRecord(record)) {
+            return rejectPublicDetailReadonlyAction(command, key, record, "发布当前修改");
+        }
         if ("PUBLISH_CURRENT_SITE".equals(resolvedAction)) {
             requireText(currentSiteCode, "缺少当前站点编码，暂时不能发布当前站点。");
         }
@@ -1737,6 +1810,29 @@ public class LocalDbProductMasterService {
         ProductWorkbenchRecord record = createSyncedRecord(liveSnapshot);
         productWorkbenchRecordStore.put(key, record);
         return record;
+    }
+
+    private boolean isPublicDetailReadonlyRecord(ProductWorkbenchRecord record) {
+        return record != null && (
+                productPublicDetailReadonlyWorkbenchFactory.isReadonlySnapshot(record.getBaselineSnapshot())
+                        || productPublicDetailReadonlyWorkbenchFactory.isReadonlySnapshot(record.getDraftSnapshot())
+        );
+    }
+
+    private ProductMasterWorkbenchView rejectPublicDetailReadonlyAction(
+            ProductMasterActionCommand command,
+            String key,
+            ProductWorkbenchRecord record,
+            String actionLabel
+    ) {
+        String message = "当前只是 Noon 前台公开详情只读视图，" + actionLabel + "已禁用；请先从 Noon 同步拿到 catalog 详情基线。";
+        record.setSyncStatus("failed");
+        record.setNote(message);
+        productWorkbenchRecordStore.put(key, record);
+        List<String> warnings = record.getDraftSnapshot() == null
+                ? List.of(message)
+                : mergeWarnings(record.getDraftSnapshot().getWarnings(), List.of(message));
+        return productWorkbenchViewAssembler.buildWorkbenchView(record, message, warnings);
     }
 
     private void logFetchSnapshotTimings(String traceLabel, List<String> timingEntries, long fetchStartedAt) {

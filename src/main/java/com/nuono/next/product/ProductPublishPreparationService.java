@@ -159,6 +159,10 @@ class ProductPublishPreparationService {
             String currentSiteCode
     ) {
         List<String> errors = new ArrayList<>();
+        if (isPublicDetailReadonlySnapshot(snapshot) || isPublicDetailReadonlySnapshot(baseline)) {
+            errors.add("当前商品只拿到 Noon 前台公开详情，尚未拿到可写的 Noon catalog 详情基线，暂时不能保存发布。");
+            return errors;
+        }
         String titleEn = textValue(snapshot.getContent().get("titleEn"));
         String brand = textValue(snapshot.getIdentity().get("brand"));
         String productFulltype = textValue(snapshot.getTaxonomy().get("productFulltype"));
@@ -210,6 +214,11 @@ class ProductPublishPreparationService {
             }
         }
         return errors;
+    }
+
+    private boolean isPublicDetailReadonlySnapshot(ProductMasterSnapshotView snapshot) {
+        return snapshot != null
+                && ProductPublicDetailReadonlyWorkbenchFactory.MODE.equalsIgnoreCase(textValue(snapshot.getMode()));
     }
 
     List<String> validatePublishOperationalKeys(
