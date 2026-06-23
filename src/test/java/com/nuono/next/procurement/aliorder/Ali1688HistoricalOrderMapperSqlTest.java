@@ -240,6 +240,65 @@ class Ali1688HistoricalOrderMapperSqlTest {
     }
 
     @Test
+    void orderDeleteCascadeSqlDeactivatesActiveDependentRowsByOrder() throws Exception {
+        Method batchMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "deactivateActiveSkuPurchaseBatchesForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        Method sourceMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "deactivateActiveSkuPurchaseBatchSourcesForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        Method linkMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "deactivateActiveProductLinksForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        Method assignmentMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "revokeActiveOrderAssignmentsForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+
+        String batchSql = annotationSql(batchMethod.getAnnotation(Update.class).value());
+        String sourceSql = annotationSql(sourceMethod.getAnnotation(Update.class).value());
+        String linkSql = annotationSql(linkMethod.getAnnotation(Update.class).value());
+        String assignmentSql = annotationSql(assignmentMethod.getAnnotation(Update.class).value());
+
+        assertThat(batchSql)
+                .contains("UPDATE procurement_ali1688_sku_purchase_batch batch")
+                .contains("batch.status = 'replaced'")
+                .contains("procurement_ali1688_sku_purchase_batch_source source")
+                .contains("source.order_id = #{orderId}")
+                .contains("source.status = 'active'")
+                .contains("source.is_deleted = b'0'");
+        assertThat(sourceSql)
+                .contains("UPDATE procurement_ali1688_sku_purchase_batch_source")
+                .contains("status = 'replaced'")
+                .contains("order_id = #{orderId}")
+                .contains("status = 'active'")
+                .contains("is_deleted = b'0'");
+        assertThat(linkSql)
+                .contains("UPDATE procurement_ali1688_order_item_product_link")
+                .contains("status = 'replaced'")
+                .contains("order_id = #{orderId}")
+                .contains("status = 'active'")
+                .contains("is_deleted = b'0'");
+        assertThat(assignmentSql)
+                .contains("UPDATE procurement_ali1688_order_item_assignment")
+                .contains("status = 'revoked'")
+                .contains("order_id = #{orderId}")
+                .contains("status = 'active'")
+                .contains("is_deleted = b'0'");
+    }
+
+    @Test
     void assignmentWriteSqlLocksItemRowsBeforeCheckingRemainingQuantity() throws Exception {
         Method method = Ali1688HistoricalOrderMapper.class.getMethod(
                 "selectOrderItemForAssignment",

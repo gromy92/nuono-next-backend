@@ -3,6 +3,7 @@ package com.nuono.next.procurement.aliorder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -2062,11 +2064,14 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         when(mapper.selectCurrentAuthorization(307L)).thenReturn(authorizationRow(91001L));
         when(mapper.listVisibleAuthorizationIds(307L, "PRJ108065", "AE")).thenReturn(List.of(91001L));
         when(mapper.selectOrderById(307L, List.of(91001L), 93001L)).thenReturn(order);
-        when(mapper.countActiveOrderAssignments(307L, 93001L)).thenReturn(0);
 
         Ali1688HistoricalOrderCleanupView.DeleteOrderResult result =
                 service.deleteHistoricalOrder(context, 93001L, request);
 
+        verify(mapper).deactivateActiveSkuPurchaseBatchesForOrder(307L, 93001L, 307L);
+        verify(mapper).deactivateActiveSkuPurchaseBatchSourcesForOrder(307L, 93001L, 307L);
+        verify(mapper).deactivateActiveProductLinksForOrder(307L, 93001L, 307L);
+        verify(mapper).revokeActiveOrderAssignmentsForOrder(307L, 93001L, 307L);
         verify(mapper).softDeleteOrderHeader(93001L, 307L, 307L, "不属于任何店铺");
         verify(mapper).softDeleteOrderItems(93001L);
         verify(mapper).softDeleteOrderLogistics(93001L);
@@ -2076,26 +2081,29 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
-    void deleteHistoricalOrderRejectsOrderWithActiveAssignments() {
+    void deleteHistoricalOrderRevokesActiveOrderStateBeforeSoftDeletingFacts() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
 
         when(mapper.selectCurrentAuthorization(307L)).thenReturn(authorizationRow(91001L));
         when(mapper.listVisibleAuthorizationIds(307L, "PRJ108065", "AE")).thenReturn(List.of(91001L));
         when(mapper.selectOrderById(307L, List.of(91001L), 93001L)).thenReturn(orderRow(93001L, 91001L));
-        when(mapper.countActiveOrderAssignments(307L, 93001L)).thenReturn(1);
 
-        assertThatThrownBy(() -> service.deleteHistoricalOrder(
+        Ali1688HistoricalOrderCleanupView.DeleteOrderResult result = service.deleteHistoricalOrder(
                 context,
                 93001L,
                 deleteOrderRequest("PRJ108065", "AE", "不属于任何店铺")
-        ))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting("status")
-                .isEqualTo(HttpStatus.BAD_REQUEST);
-        verify(mapper, never()).softDeleteOrderHeader(any(), any(), any(), any());
-        verify(mapper, never()).softDeleteOrderItems(any());
-        verify(mapper, never()).softDeleteOrderLogistics(any());
+        );
+
+        InOrder ordered = inOrder(mapper);
+        ordered.verify(mapper).deactivateActiveSkuPurchaseBatchesForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).deactivateActiveSkuPurchaseBatchSourcesForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).deactivateActiveProductLinksForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).revokeActiveOrderAssignmentsForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).softDeleteOrderHeader(93001L, 307L, 307L, "不属于任何店铺");
+        ordered.verify(mapper).softDeleteOrderItems(93001L);
+        ordered.verify(mapper).softDeleteOrderLogistics(93001L);
+        assertThat(result.getStatus()).isEqualTo("deleted");
     }
 
     @Test

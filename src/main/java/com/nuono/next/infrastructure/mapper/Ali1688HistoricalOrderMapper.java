@@ -1907,6 +1907,78 @@ public interface Ali1688HistoricalOrderMapper {
     );
 
     @Update({
+            "UPDATE procurement_ali1688_sku_purchase_batch batch",
+            "SET batch.status = 'replaced',",
+            "    batch.updated_by = #{operatorUserId},",
+            "    batch.gmt_updated = NOW()",
+            "WHERE batch.owner_user_id = #{ownerUserId}",
+            "  AND batch.status = 'active'",
+            "  AND batch.is_deleted = b'0'",
+            "  AND EXISTS (",
+            "    SELECT 1",
+            "    FROM procurement_ali1688_sku_purchase_batch_source source",
+            "    WHERE source.batch_id = batch.id",
+            "      AND source.owner_user_id = #{ownerUserId}",
+            "      AND source.order_id = #{orderId}",
+            "      AND source.status = 'active'",
+            "      AND source.is_deleted = b'0'",
+            "  )"
+    })
+    int deactivateActiveSkuPurchaseBatchesForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_sku_purchase_batch_source",
+            "SET status = 'replaced',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND order_id = #{orderId}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'"
+    })
+    int deactivateActiveSkuPurchaseBatchSourcesForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_order_item_product_link",
+            "SET status = 'replaced',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND order_id = #{orderId}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'"
+    })
+    int deactivateActiveProductLinksForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_order_item_assignment",
+            "SET status = 'revoked',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND order_id = #{orderId}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'"
+    })
+    int revokeActiveOrderAssignmentsForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
             "UPDATE procurement_ali1688_order_header",
             "SET is_deleted = b'1',",
             "    deleted_by = #{operatorUserId},",

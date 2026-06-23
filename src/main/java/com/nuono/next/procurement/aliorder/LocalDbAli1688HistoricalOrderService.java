@@ -1621,13 +1621,15 @@ public class LocalDbAli1688HistoricalOrderService {
         if (order == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "1688 历史订单不存在。");
         }
-        if (mapper.countActiveOrderAssignments(ownerUserId, orderId) > 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "订单已有有效分配记录，请先撤回分配。");
-        }
         String deleteReason = hasText(resolvedRequest.getReason())
                 ? resolvedRequest.getReason().trim()
                 : "不属于任何店铺";
-        mapper.softDeleteOrderHeader(orderId, ownerUserId, operatorUserId(context), deleteReason);
+        Long operatorUserId = operatorUserId(context);
+        mapper.deactivateActiveSkuPurchaseBatchesForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.deactivateActiveSkuPurchaseBatchSourcesForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.deactivateActiveProductLinksForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.revokeActiveOrderAssignmentsForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.softDeleteOrderHeader(orderId, ownerUserId, operatorUserId, deleteReason);
         mapper.softDeleteOrderItems(orderId);
         mapper.softDeleteOrderLogistics(orderId);
         return Ali1688HistoricalOrderCleanupView.DeleteOrderResult.deleted(orderId, deleteReason);
