@@ -678,7 +678,6 @@ public interface Ali1688HistoricalOrderMapper {
             "  source_batch_no = VALUES(source_batch_no),",
             "  downstream_order_no = VALUES(downstream_order_no),",
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
-            "  is_deleted = b'0',",
             "  gmt_updated = NOW()"
     })
     int upsertOrder(Ali1688HistoricalOrderRow row);
@@ -706,7 +705,6 @@ public interface Ali1688HistoricalOrderMapper {
             "  amount_text = VALUES(amount_text),",
             "  image_url = VALUES(image_url),",
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
-            "  is_deleted = b'0',",
             "  gmt_updated = NOW()"
     })
     int upsertOrderItem(Ali1688HistoricalOrderItemRow row);
@@ -722,7 +720,6 @@ public interface Ali1688HistoricalOrderMapper {
             "  logistics_company = VALUES(logistics_company),",
             "  tracking_no = VALUES(tracking_no),",
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
-            "  is_deleted = b'0',",
             "  gmt_updated = NOW()"
     })
     int upsertOrderLogistics(Ali1688HistoricalOrderLogisticsRow row);

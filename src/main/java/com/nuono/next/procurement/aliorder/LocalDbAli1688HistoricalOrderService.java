@@ -811,6 +811,9 @@ public class LocalDbAli1688HistoricalOrderService {
             Ali1688HistoricalOrderProvider.Page page = provider.fetchPage(authorization, cursor);
             for (Ali1688HistoricalOrderProvider.OrderSnapshot orderSnapshot : page.getOrders()) {
                 processedCount++;
+                if (shouldSkipProviderOrder(orderSnapshot)) {
+                    continue;
+                }
                 Long orderId = mapper.nextOrderId();
                 Ali1688HistoricalOrderRow order = toOrderRow(ownerUserId, authorization, orderId, orderSnapshot);
                 mapper.upsertOrder(order);
@@ -891,6 +894,26 @@ public class LocalDbAli1688HistoricalOrderService {
             );
             cursor = page.getNextCursor();
         }
+    }
+
+    private boolean shouldSkipProviderOrder(Ali1688HistoricalOrderProvider.OrderSnapshot orderSnapshot) {
+        if (orderSnapshot == null || !hasText(orderSnapshot.getProviderOrderNo())) {
+            return true;
+        }
+        String status = normalizeProviderOrderStatus(orderSnapshot.getOrderStatus());
+        return status.contains("取消")
+                || status.contains("删除")
+                || status.contains("交易关闭")
+                || status.contains("已关闭")
+                || status.contains("作废")
+                || status.contains("cancel")
+                || status.contains("closed")
+                || status.contains("deleted")
+                || status.contains("removed");
+    }
+
+    private String normalizeProviderOrderStatus(String value) {
+        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     public Ali1688HistoricalOrderWorkbenchView revokeAuthorization(

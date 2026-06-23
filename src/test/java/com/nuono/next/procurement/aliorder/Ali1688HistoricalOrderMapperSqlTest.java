@@ -70,6 +70,21 @@ class Ali1688HistoricalOrderMapperSqlTest {
     }
 
     @Test
+    void providerUpsertsDoNotRestoreSoftDeletedHistoricalOrderFacts() throws Exception {
+        Method upsertOrderMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrder", Ali1688HistoricalOrderRow.class);
+        Method upsertItemMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrderItem", Ali1688HistoricalOrderItemRow.class);
+        Method upsertLogisticsMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrderLogistics", Ali1688HistoricalOrderLogisticsRow.class);
+
+        String upsertOrderSql = annotationSql(upsertOrderMethod.getAnnotation(Insert.class).value());
+        String upsertItemSql = annotationSql(upsertItemMethod.getAnnotation(Insert.class).value());
+        String upsertLogisticsSql = annotationSql(upsertLogisticsMethod.getAnnotation(Insert.class).value());
+
+        assertThat(upsertOrderSql).doesNotContain("is_deleted = b'0'");
+        assertThat(upsertItemSql).doesNotContain("is_deleted = b'0'");
+        assertThat(upsertLogisticsSql).doesNotContain("is_deleted = b'0'");
+    }
+
+    @Test
     void listOrdersAndCountOrdersSupportAssignmentFilters() throws Exception {
         Method listOrdersMethod = Ali1688HistoricalOrderMapper.class.getMethod(
                 "listOrders",
