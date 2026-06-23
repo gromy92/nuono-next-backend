@@ -530,6 +530,35 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
+    void assignProductLinesPersistsDiscontinuedAsDiscontinuedStoreFact() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688HistoricalOrderAssignmentView.AssignRequest request =
+                discontinuedAssignmentRequest("PRJ108065", "AE", 94011L, 4);
+        Ali1688HistoricalOrderItemRow item = itemRow(94011L, 93001L, "下架商品货品", 10);
+        item.setAuthorizationId(91008L);
+        ArgumentCaptor<Ali1688HistoricalOrderItemAssignmentRow> assignmentCaptor =
+                ArgumentCaptor.forClass(Ali1688HistoricalOrderItemAssignmentRow.class);
+
+        when(mapper.selectOrderItemForAssignment(307L, 94011L)).thenReturn(item);
+        when(mapper.listOrderItemAssignmentSummaries(307L, List.of(94011L))).thenReturn(List.of());
+        when(mapper.nextOrderItemAssignmentId()).thenReturn(99003L);
+
+        Ali1688HistoricalOrderAssignmentView.AssignResult result =
+                service.assignProductLines(context, request);
+
+        verify(mapper).insertOrderItemAssignment(assignmentCaptor.capture());
+        Ali1688HistoricalOrderItemAssignmentRow inserted = assignmentCaptor.getValue();
+        assertThat(inserted.getTargetType()).isEqualTo("DISCONTINUED");
+        assertThat(inserted.getTargetStoreCode()).isEqualTo("PRJ108065");
+        assertThat(inserted.getTargetSiteCode()).isEqualTo("AE");
+        assertThat(inserted.getAssignedQuantity()).isEqualTo(4);
+        assertThat(inserted.getRemark()).contains("下架");
+        assertThat(result.getAssignedLineCount()).isEqualTo(1);
+        assertThat(result.getAssignedQuantity()).isEqualTo(4);
+    }
+
+    @Test
     void assignProductLinesRejectsQuantityAboveRemaining() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
@@ -1017,6 +1046,23 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
+    void productLinkCandidatesRejectDiscontinuedAssignment() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688HistoricalOrderItemAssignmentRow assignment =
+                assignmentRow(99001L, 94011L, "PRJ108065", "AE", 4);
+        assignment.setTargetType("DISCONTINUED");
+
+        when(mapper.selectOrderItemAssignmentById(307L, 99001L)).thenReturn(assignment);
+
+        assertThatThrownBy(() -> service.listProductLinkCandidates(context, 99001L, null, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(mapper, never()).listOrderItemProductLinkCandidates(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void productLinkCandidatesNormalizeLegacyNoonCoverImageUrls() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
@@ -1044,6 +1090,33 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
+    void productLinkCandidatesNormalizeHashedNoonCoverImageUrls() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ69486");
+        Ali1688HistoricalOrderItemAssignmentRow assignment =
+                assignmentRow(99001L, 94011L, "PRJ69486", "SA", 4);
+        Ali1688HistoricalOrderProductLinkCandidateRow candidate = productLinkCandidateRow(
+                "Z72E210340BAE3D7BC083Z",
+                "SGGRB316",
+                "a6a791ff61ac2ab2ddd6a059f17bd82a",
+                "30cm玫瑰小熊玩偶",
+                "unlinked"
+        );
+        candidate.setProductImageUrl("https://f.nooncdn.com/eff639f2df2651369082d90705ccc7ca|pzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201");
+
+        when(mapper.selectOrderItemAssignmentById(307L, 99001L)).thenReturn(assignment);
+        when(mapper.listOrderItemProductLinkCandidates(307L, "PRJ69486", "SA", null, null))
+                .thenReturn(List.of(candidate));
+
+        List<Ali1688HistoricalOrderProductLinkView.CandidateView> candidates =
+                service.listProductLinkCandidates(context, 99001L, null, null);
+
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates.get(0).getProductImageUrl())
+                .isEqualTo("https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca|pzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201.jpg");
+    }
+
+    @Test
     void linkProductLineRejectsUnassignedLineBecauseAssignmentIsRequired() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
@@ -1068,6 +1141,24 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         when(mapper.selectOrderItemAssignmentById(307L, 99002L)).thenReturn(assignment);
 
         assertThatThrownBy(() -> service.linkProductLine(context, productLinkRequest(99002L)))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(mapper, never()).countProductSkuInAssignmentTarget(any(), any(), any(), any());
+        verify(mapper, never()).insertOrderItemProductLink(any(Ali1688HistoricalOrderProductLinkRow.class));
+    }
+
+    @Test
+    void linkProductLineRejectsDiscontinuedAssignment() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688HistoricalOrderItemAssignmentRow assignment =
+                assignmentRow(99001L, 94011L, "PRJ108065", "AE", 4);
+        assignment.setTargetType("DISCONTINUED");
+
+        when(mapper.selectOrderItemAssignmentById(307L, 99001L)).thenReturn(assignment);
+
+        assertThatThrownBy(() -> service.linkProductLine(context, productLinkRequest(99001L)))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting("status")
                 .isEqualTo(HttpStatus.BAD_REQUEST);
@@ -2648,6 +2739,18 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 new Ali1688HistoricalOrderAssignmentView.AssignLineRequest();
         line.setItemId(itemId);
         request.setLines(List.of(line));
+        return request;
+    }
+
+    private Ali1688HistoricalOrderAssignmentView.AssignRequest discontinuedAssignmentRequest(
+            String targetStoreCode,
+            String targetSiteCode,
+            Long itemId,
+            Integer quantity
+    ) {
+        Ali1688HistoricalOrderAssignmentView.AssignRequest request =
+                assignmentRequest(targetStoreCode, targetSiteCode, itemId, quantity);
+        request.setTargetType("DISCONTINUED");
         return request;
     }
 

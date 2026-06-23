@@ -64,6 +64,7 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("assignment_breakdown_text")
                 .contains("target_type")
                 .contains("WHEN target_type = 'CONSUMABLE' THEN '耗材'")
+                .contains("WHEN target_type = 'DISCONTINUED' THEN CONCAT_WS(' ', target_store_code, NULLIF(target_site_code, '*'), '已下架')")
                 .contains("target_site_code")
                 .contains("GROUP BY item_id, target_type, target_store_code, target_site_code")
                 .contains("GROUP BY grouped.item_id");
