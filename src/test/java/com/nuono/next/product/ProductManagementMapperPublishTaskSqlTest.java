@@ -85,6 +85,7 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("COALESCE(candidate.retry_count, 0) < COALESCE(candidate.max_retry_count, 3)"));
         assertTrue(sql.contains("candidate.finished_at, candidate.gmt_updated, candidate.gmt_create"));
         assertTrue(sql.contains("DATE_SUB(NOW(), INTERVAL #{lookbackHours} HOUR)"));
+        assertTrue(sql.contains("candidate.id = ( SELECT MAX(latest.id)"));
         assertTrue(sql.contains("NOT EXISTS"));
         assertTrue(sql.contains("active.status IN ('queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')"));
         assertTrue(sql.contains("SET t.status = 'write_retry_scheduled'"));
