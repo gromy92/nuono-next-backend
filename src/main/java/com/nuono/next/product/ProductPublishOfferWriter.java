@@ -17,13 +17,30 @@ import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.util.StringUtils;
 
 class ProductPublishOfferWriter {
 
     private static final String OFFER_UPSERT_URL =
             NoonProductGateway.OFFER_UPSERT_URL;
+    private static final String OFFER_MGMT_PRICE_UPSERT_URL =
+            NoonProductGateway.OFFER_MGMT_PRICE_UPSERT_URL;
+    private static final String OFFER_MGMT_ID_WARRANTY_UPSERT_URL =
+            NoonProductGateway.OFFER_MGMT_ID_WARRANTY_UPSERT_URL;
+    private static final String OFFER_MGMT_OFFER_NOTE_UPSERT_URL =
+            NoonProductGateway.OFFER_MGMT_OFFER_NOTE_UPSERT_URL;
+    private static final String OFFER_MGMT_IS_ACTIVE_UPSERT_URL =
+            NoonProductGateway.OFFER_MGMT_IS_ACTIVE_UPSERT_URL;
     private static final String PRICING_METHOD_MANUAL = "manual";
+    private static final List<String> PRICE_FIELDS = List.of(
+            "price",
+            "salePrice",
+            "priceMin",
+            "priceMax",
+            "saleStart",
+            "saleEnd"
+    );
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter NOON_OFFER_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
@@ -45,19 +62,88 @@ class ProductPublishOfferWriter {
             NoonSession session,
             String pskuCode,
             Map<String, Object> siteOffer,
+            Map<String, Object> baselineOffer,
             List<String> actionWarnings
     ) {
         String resolvedSite = resolveOfferPublishSite(siteOffer);
-        ObjectNode body = buildOfferUpsertBody(pskuCode, siteOffer);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("X-Locale", "en-" + resolvedSite.toLowerCase());
         if (session != null && StringUtils.hasText(session.getProjectCode())) {
             headers.put("X-Project", session.getProjectCode());
         }
-        productNoonAdapter.postWriteJson(session, OFFER_UPSERT_URL, body, false, headers);
+        String partnerSku = firstNonBlank(textValue(siteOffer.get("partnerSku")), textValue(fieldValue(baselineOffer, "partnerSku")));
+        if (priceChanged(siteOffer, baselineOffer)) {
+            productNoonAdapter.postWriteJson(
+                    session,
+                    OFFER_MGMT_PRICE_UPSERT_URL,
+                    buildOfferPriceBody(pskuCode, partnerSku, siteOffer),
+                    false,
+                    headers
+            );
+        }
+        if (integerFieldChanged(siteOffer, baselineOffer, "idWarranty")) {
+            productNoonAdapter.postWriteJson(
+                    session,
+                    OFFER_MGMT_ID_WARRANTY_UPSERT_URL,
+                    buildOfferIdWarrantyBody(pskuCode, partnerSku, siteOffer),
+                    false,
+                    headers
+            );
+        }
+        if (textFieldChanged(siteOffer, baselineOffer, "offerNote")) {
+            productNoonAdapter.postWriteJson(
+                    session,
+                    OFFER_MGMT_OFFER_NOTE_UPSERT_URL,
+                    buildOfferNoteBody(pskuCode, partnerSku, siteOffer),
+                    false,
+                    headers
+            );
+        }
+        if (booleanFieldChanged(siteOffer, baselineOffer, "isActive")) {
+            productNoonAdapter.postWriteJson(
+                    session,
+                    OFFER_MGMT_IS_ACTIVE_UPSERT_URL,
+                    buildOfferActivationBody(pskuCode, partnerSku, siteOffer),
+                    false,
+                    headers
+            );
+        }
         if (siteOffer.get("fbnStock") != null || siteOffer.get("supermallStock") != null || siteOffer.get("fbpStock") != null) {
             actionWarnings.add("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。");
         }
+    }
+
+    ObjectNode buildOfferPriceBody(String pskuCode, String partnerSku, Map<String, Object> siteOffer) {
+        requireText(pskuCode, textValue(siteOffer.get("site")) + " / " + siteOfferCode(siteOffer) + " 缺少 pskuCode，暂时不能发布站点经营字段。");
+        ObjectNode body = buildOfferMgmtIdentityBody(pskuCode, partnerSku, siteOffer);
+        body.put("pricingMethod", PRICING_METHOD_MANUAL);
+        setDecimalNode(body, "price", siteOffer.get("price"));
+        setDecimalNode(body, "salePrice", siteOffer.get("salePrice"));
+        setDecimalNode(body, "priceMin", siteOffer.get("priceMin"));
+        setDecimalNode(body, "priceMax", siteOffer.get("priceMax"));
+        Map<String, String> saleWindow = saleWindowForPublish(siteOffer);
+        putTextOrNull(body, "saleStart", saleWindow.get("saleStart"));
+        putTextOrNull(body, "saleEnd", saleWindow.get("saleEnd"));
+        return body;
+    }
+
+    ObjectNode buildOfferIdWarrantyBody(String pskuCode, String partnerSku, Map<String, Object> siteOffer) {
+        ObjectNode body = buildOfferMgmtIdentityBody(pskuCode, partnerSku, siteOffer);
+        body.put("idWarranty", parseInteger(siteOffer.get("idWarranty"), 0));
+        return body;
+    }
+
+    ObjectNode buildOfferNoteBody(String pskuCode, String partnerSku, Map<String, Object> siteOffer) {
+        ObjectNode body = buildOfferMgmtIdentityBody(pskuCode, partnerSku, siteOffer);
+        String offerNote = textValue(siteOffer.get("offerNote"));
+        body.put("offerNote", offerNote != null ? offerNote : "");
+        return body;
+    }
+
+    ObjectNode buildOfferActivationBody(String pskuCode, String partnerSku, Map<String, Object> siteOffer) {
+        ObjectNode body = buildOfferMgmtIdentityBody(pskuCode, partnerSku, siteOffer);
+        body.put("isActive", truthy(siteOffer.get("isActive")));
+        return body;
     }
 
     ObjectNode buildOfferUpsertBody(String pskuCode, Map<String, Object> siteOffer) {
@@ -167,6 +253,58 @@ class ProductPublishOfferWriter {
         }
     }
 
+    private ObjectNode buildOfferMgmtIdentityBody(String pskuCode, String partnerSku, Map<String, Object> siteOffer) {
+        requireText(pskuCode, textValue(siteOffer.get("site")) + " / " + siteOfferCode(siteOffer) + " 缺少 pskuCode，暂时不能发布站点经营字段。");
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("pskuCode", pskuCode);
+        putIfHasText(body, "partnerSku", partnerSku);
+        body.put("countryCode", resolveOfferPublishSite(siteOffer).toUpperCase());
+        return body;
+    }
+
+    private boolean priceChanged(Map<String, Object> siteOffer, Map<String, Object> baselineOffer) {
+        for (String field : PRICE_FIELDS) {
+            if ("saleStart".equals(field) || "saleEnd".equals(field)) {
+                if (!Objects.equals(
+                        saleWindowForPublish(siteOffer).get(field),
+                        saleWindowForPublish(baselineOffer).get(field)
+                )) {
+                    return true;
+                }
+                continue;
+            }
+            if (!decimalEquals(siteOffer.get(field), fieldValue(baselineOffer, field))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean decimalEquals(Object left, Object right) {
+        BigDecimal leftDecimal = asBigDecimal(left);
+        BigDecimal rightDecimal = asBigDecimal(right);
+        if (leftDecimal == null || rightDecimal == null) {
+            return leftDecimal == null && rightDecimal == null;
+        }
+        return leftDecimal.compareTo(rightDecimal) == 0;
+    }
+
+    private boolean integerFieldChanged(Map<String, Object> siteOffer, Map<String, Object> baselineOffer, String field) {
+        return parseInteger(siteOffer.get(field), 0) != parseInteger(fieldValue(baselineOffer, field), 0);
+    }
+
+    private boolean textFieldChanged(Map<String, Object> siteOffer, Map<String, Object> baselineOffer, String field) {
+        return !Objects.equals(firstNonBlank(textValue(siteOffer.get(field)), ""), firstNonBlank(textValue(fieldValue(baselineOffer, field)), ""));
+    }
+
+    private boolean booleanFieldChanged(Map<String, Object> siteOffer, Map<String, Object> baselineOffer, String field) {
+        return truthy(siteOffer.get(field)) != truthy(fieldValue(baselineOffer, field));
+    }
+
+    private Object fieldValue(Map<String, Object> source, String field) {
+        return source != null ? source.get(field) : null;
+    }
+
     private BigDecimal asBigDecimal(Object value) {
         if (value == null) {
             return null;
@@ -224,6 +362,14 @@ class ProductPublishOfferWriter {
         String text = textValue(value);
         if (StringUtils.hasText(text)) {
             target.put(key, text);
+        }
+    }
+
+    private void putTextOrNull(ObjectNode target, String key, String value) {
+        if (StringUtils.hasText(value)) {
+            target.put(key, value);
+        } else {
+            target.putNull(key);
         }
     }
 

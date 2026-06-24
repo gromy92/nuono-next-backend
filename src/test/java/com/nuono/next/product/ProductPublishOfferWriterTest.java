@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -78,25 +80,84 @@ class ProductPublishOfferWriterTest {
     void shouldPublishOfferWithLocaleHeaderAndStockWarning() {
         Map<String, Object> siteOffer = new LinkedHashMap<>();
         siteOffer.put("storeCode", "STR245027-KSA");
+        siteOffer.put("site", "SA");
+        siteOffer.put("partnerSku", "PARTNER-001");
         siteOffer.put("price", "48.00");
         siteOffer.put("salePrice", "39.20");
         siteOffer.put("fbnStock", 12);
+        Map<String, Object> baselineOffer = new LinkedHashMap<>();
+        baselineOffer.put("storeCode", "STR245027-KSA");
+        baselineOffer.put("site", "SA");
+        baselineOffer.put("partnerSku", "PARTNER-001");
+        baselineOffer.put("price", "47.00");
+        baselineOffer.put("salePrice", "39.20");
         List<String> warnings = new ArrayList<>();
 
-        writer.publishOffer(null, "PSKU-001", siteOffer, warnings);
+        writer.publishOffer(null, "PSKU-001", siteOffer, baselineOffer, warnings);
 
         ArgumentCaptor<ObjectNode> bodyCaptor = ArgumentCaptor.forClass(ObjectNode.class);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> headersCaptor = ArgumentCaptor.forClass(Map.class);
         verify(productNoonAdapter).postWriteJson(
                 nullable(NoonSession.class),
-                eq(NoonProductGateway.OFFER_UPSERT_URL),
+                eq(NoonProductGateway.OFFER_MGMT_PRICE_UPSERT_URL),
                 bodyCaptor.capture(),
                 eq(false),
                 headersCaptor.capture()
         );
-        assertEquals("sa", bodyCaptor.getValue().path("pskus").get(0).path("country").asText());
+        assertEquals("PSKU-001", bodyCaptor.getValue().path("pskuCode").asText());
+        assertEquals("PARTNER-001", bodyCaptor.getValue().path("partnerSku").asText());
+        assertEquals("SA", bodyCaptor.getValue().path("countryCode").asText());
+        assertEquals(48.0, bodyCaptor.getValue().path("price").asDouble());
         assertEquals("en-sa", headersCaptor.getValue().get("X-Locale"));
         assertTrue(warnings.contains("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。"));
+        verifyNoMoreInteractions(productNoonAdapter);
+    }
+
+    @Test
+    void shouldPublishChangedOfferFieldsThroughOfficialSplitEndpoints() {
+        Map<String, Object> siteOffer = new LinkedHashMap<>();
+        siteOffer.put("storeCode", "STR353172-NSA");
+        siteOffer.put("site", "SA");
+        siteOffer.put("partnerSku", "INSULAR112");
+        siteOffer.put("price", "37.15");
+        siteOffer.put("salePrice", "29.70");
+        siteOffer.put("idWarranty", 3);
+        siteOffer.put("offerNote", "new note");
+        siteOffer.put("isActive", false);
+
+        Map<String, Object> baselineOffer = new LinkedHashMap<>();
+        baselineOffer.put("storeCode", "STR353172-NSA");
+        baselineOffer.put("site", "SA");
+        baselineOffer.put("partnerSku", "INSULAR112");
+        baselineOffer.put("price", "37.13");
+        baselineOffer.put("salePrice", "29.70");
+        baselineOffer.put("idWarranty", 0);
+        baselineOffer.put("offerNote", "");
+        baselineOffer.put("isActive", true);
+
+        writer.publishOffer(null, "aa8d9459587d37a19dd20edab394ec8a", siteOffer, baselineOffer, new ArrayList<>());
+
+        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<ObjectNode> bodyCaptor = ArgumentCaptor.forClass(ObjectNode.class);
+        verify(productNoonAdapter, times(4)).postWriteJson(
+                nullable(NoonSession.class),
+                urlCaptor.capture(),
+                bodyCaptor.capture(),
+                eq(false),
+                nullable(Map.class)
+        );
+
+        assertEquals(NoonProductGateway.OFFER_MGMT_PRICE_UPSERT_URL, urlCaptor.getAllValues().get(0));
+        assertEquals(NoonProductGateway.OFFER_MGMT_ID_WARRANTY_UPSERT_URL, urlCaptor.getAllValues().get(1));
+        assertEquals(NoonProductGateway.OFFER_MGMT_OFFER_NOTE_UPSERT_URL, urlCaptor.getAllValues().get(2));
+        assertEquals(NoonProductGateway.OFFER_MGMT_IS_ACTIVE_UPSERT_URL, urlCaptor.getAllValues().get(3));
+        assertEquals("aa8d9459587d37a19dd20edab394ec8a", bodyCaptor.getAllValues().get(0).path("pskuCode").asText());
+        assertEquals("INSULAR112", bodyCaptor.getAllValues().get(0).path("partnerSku").asText());
+        assertEquals("SA", bodyCaptor.getAllValues().get(0).path("countryCode").asText());
+        assertEquals(37.15, bodyCaptor.getAllValues().get(0).path("price").asDouble());
+        assertEquals(3, bodyCaptor.getAllValues().get(1).path("idWarranty").asInt());
+        assertEquals("new note", bodyCaptor.getAllValues().get(2).path("offerNote").asText());
+        assertEquals(false, bodyCaptor.getAllValues().get(3).path("isActive").asBoolean());
     }
 }

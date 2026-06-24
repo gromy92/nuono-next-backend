@@ -287,9 +287,10 @@ public class LocalDbProductMasterService {
                             NoonSession session,
                             String pskuCode,
                             Map<String, Object> siteOffer,
+                            Map<String, Object> baselineOffer,
                             List<String> actionWarnings
                     ) {
-                        productPublishOfferWriter.publishOffer(session, pskuCode, siteOffer, actionWarnings);
+                        productPublishOfferWriter.publishOffer(session, pskuCode, siteOffer, baselineOffer, actionWarnings);
                     }
                 }
         );

@@ -251,6 +251,7 @@ class ProductPublishWriteServiceTest {
                 NoonSession session,
                 String pskuCode,
                 Map<String, Object> siteOffer,
+                Map<String, Object> baselineOffer,
                 List<String> actionWarnings
         ) {
             calls.add("publish-offer:" + pskuCode);

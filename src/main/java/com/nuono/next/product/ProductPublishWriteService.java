@@ -92,7 +92,7 @@ class ProductPublishWriteService {
                     textValue(siteOffer.get("pskuCode")),
                     textValue(baselineOffer.get("pskuCode"))
             );
-            writeOperations.publishOffer(writeOperations.withStore(session, siteCode), resolvedPskuCode, siteOffer, actionWarnings);
+            writeOperations.publishOffer(writeOperations.withStore(session, siteCode), resolvedPskuCode, siteOffer, baselineOffer, actionWarnings);
         }
 
         appendUnsupportedWarnings(unsupportedChanges, actionWarnings);
@@ -204,6 +204,7 @@ class ProductPublishWriteService {
                 NoonSession session,
                 String pskuCode,
                 Map<String, Object> siteOffer,
+                Map<String, Object> baselineOffer,
                 List<String> actionWarnings
         );
     }
