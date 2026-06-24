@@ -186,7 +186,34 @@ class ProductPublishCommandServiceTest {
     }
 
     @Test
-    void shouldMoveRetryableWriteFailureToManualCheckWhenRetryBudgetIsExhausted() {
+    void shouldKeepRetryableWriteFailureScheduledBeyondTaskDefaultBudget() {
+        ProductPublishTaskRecord task = runningTask();
+        task.setRetryCount(3);
+        task.setMaxRetryCount(3);
+        when(productManagementMapper.updateProductPublishTaskStatus(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), anyBoolean(), any()
+        )).thenReturn(1);
+
+        boolean scheduled = service.scheduleNoonWriteRetryOrManualCheck(
+                task,
+                "noon_write_failed",
+                "Noon 发布返回错误：HTTP 500",
+                "{\"status\":\"write_retry_scheduled\"}"
+        );
+
+        assertTrue(scheduled);
+        assertEquals("write_retry_scheduled", task.getStatus());
+        assertEquals("noon_write_failed", task.getErrorCode());
+        assertEquals(Integer.valueOf(4), task.getRetryCount());
+        assertNotNull(task.getNextRunAt());
+        assertNull(task.getFinishedAt());
+        assertNull(task.getLockedBy());
+    }
+
+    @Test
+    void shouldMoveRetryableWriteFailureToManualCheckWhenConfiguredTransientBudgetIsExhausted() {
+        ReflectionTestUtils.setField(service, "transientAutomaticMaxRetryCount", 3);
         ProductPublishTaskRecord task = runningTask();
         task.setRetryCount(3);
         task.setMaxRetryCount(3);

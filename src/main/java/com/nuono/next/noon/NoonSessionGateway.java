@@ -810,7 +810,7 @@ public class NoonSessionGateway {
         if (StringUtils.hasText(proxyHost) && proxyPort > 0) {
             return new Proxy(resolvedProxyType, new InetSocketAddress(proxyHost, proxyPort));
         }
-        return null;
+        throw new IllegalStateException("Noon 代理已启用但未配置 provider-url 或 host/port；请检查生产 .env 是否被正确加载。");
     }
 
     private Proxy loadProxyFromProvider(Proxy.Type proxyType) {

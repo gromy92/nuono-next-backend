@@ -109,6 +109,25 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldRejectNoonRequestWhenProxyEnabledWithoutEndpoint() {
+        NoonSessionGateway gateway = gatewayWithSignin("");
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> gateway.login(
+                        10001L,
+                        "merchant@example.com",
+                        "password",
+                        "sid=existing",
+                        "PRJ1",
+                        "STORE1"
+                )
+        );
+
+        assertTrue(exception.getMessage().contains("Noon 代理已启用但未配置"));
+    }
+
+    @Test
     void shouldPersistSessionCookieForRequestedProjectOnly() {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         NoonSessionGateway gateway = gateway(mapper, "");
@@ -146,6 +165,34 @@ class NoonSessionGatewayTest {
                 false,
                 false,
                 "",
+                "http://noon.test/whoami",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true,
+                "HTTP",
+                "",
+                0,
+                proxyProviderUrl
+        );
+    }
+
+    private NoonSessionGateway gatewayWithSignin(String proxyProviderUrl) {
+        return new NoonSessionGateway(
+                objectMapper,
+                mock(StoreSyncMapper.class),
+                false,
+                0L,
+                true,
+                "",
+                "",
+                "",
+                "",
+                false,
+                true,
+                "http://noon.test/signin",
                 "http://noon.test/whoami",
                 "",
                 "",

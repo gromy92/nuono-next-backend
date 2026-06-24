@@ -67,6 +67,9 @@ public class ProductPublishCommandService {
     @Value("${nuono.product-management.publish-task.scheduler.legacy-retryable-failed-recovery-hours:24}")
     private int legacyRetryableFailedRecoveryHours;
 
+    @Value("${nuono.product-management.publish-task.transient-automatic-max-retry-count:48}")
+    private int transientAutomaticMaxRetryCount = 48;
+
     public ProductPublishCommandService(ProductManagementMapper productManagementMapper) {
         this.productManagementMapper = productManagementMapper;
     }
@@ -544,7 +547,7 @@ public class ProductPublishCommandService {
     }
 
     public boolean hasRemainingAutomaticWriteRetries(ProductPublishTaskRecord task) {
-        return retryCount(task) < maxRetryCount(task);
+        return retryCount(task) < effectiveTransientMaxRetryCount(task);
     }
 
     private int retryCount(ProductPublishTaskRecord task) {
@@ -553,6 +556,10 @@ public class ProductPublishCommandService {
 
     private int maxRetryCount(ProductPublishTaskRecord task) {
         return task != null && task.getMaxRetryCount() != null ? Math.max(0, task.getMaxRetryCount()) : 3;
+    }
+
+    private int effectiveTransientMaxRetryCount(ProductPublishTaskRecord task) {
+        return Math.max(maxRetryCount(task), Math.max(0, transientAutomaticMaxRetryCount));
     }
 
     private LocalDateTime nextAutomaticWriteRetryRunAt(ProductPublishTaskRecord task) {
