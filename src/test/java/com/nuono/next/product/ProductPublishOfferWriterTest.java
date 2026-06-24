@@ -1,7 +1,6 @@
 package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
@@ -42,7 +41,7 @@ class ProductPublishOfferWriterTest {
     }
 
     @Test
-    void shouldBuildOfferPayloadWithoutWarrantyWhenWarrantyWasNotRead() {
+    void shouldDefaultOfferPayloadToNoWarrantyWhenWarrantyWasNotRead() {
         Map<String, Object> siteOffer = new LinkedHashMap<>();
         siteOffer.put("storeCode", "STR245027-NAE");
         siteOffer.put("site", "AE");
@@ -55,7 +54,7 @@ class ProductPublishOfferWriterTest {
         assertEquals("ae", offer.path("country").asText());
         assertEquals("manual", offer.path("pricingMethod").asText());
         assertEquals(48.0, offer.path("price").asDouble());
-        assertFalse(offer.has("idWarranty"));
+        assertEquals(0, offer.path("idWarranty").asInt());
         assertTrue(offer.path("pricingRule").isNull());
         assertTrue(offer.path("priceEngineMin").isNull());
         assertTrue(offer.path("priceEngineMax").isNull());

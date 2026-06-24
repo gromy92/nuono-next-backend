@@ -75,9 +75,7 @@ class ProductPublishOfferWriter {
         Map<String, String> saleWindow = saleWindowForPublish(siteOffer);
         putIfHasText(offerNode, "saleStart", saleWindow.get("saleStart"));
         putIfHasText(offerNode, "saleEnd", saleWindow.get("saleEnd"));
-        if (hasOfferFieldValue(siteOffer, "idWarranty")) {
-            offerNode.put("idWarranty", parseInteger(siteOffer.get("idWarranty"), 0));
-        }
+        offerNode.put("idWarranty", parseInteger(siteOffer.get("idWarranty"), 0));
         putIfHasText(offerNode, "offerNote", siteOffer.get("offerNote"));
         offerNode.putNull("pricingRule");
         offerNode.putNull("priceEngineMin");
