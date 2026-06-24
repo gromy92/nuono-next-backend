@@ -50,7 +50,7 @@ class ProductPublishOfferWriter {
         String resolvedSite = resolveOfferPublishSite(siteOffer);
         ObjectNode body = buildOfferUpsertBody(pskuCode, siteOffer);
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("X-Locale", "en-" + resolvedSite.toUpperCase());
+        headers.put("X-Locale", "en-" + resolvedSite.toLowerCase());
         if (session != null && StringUtils.hasText(session.getProjectCode())) {
             headers.put("X-Project", session.getProjectCode());
         }

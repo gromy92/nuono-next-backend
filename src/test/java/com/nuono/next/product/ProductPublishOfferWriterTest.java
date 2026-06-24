@@ -96,7 +96,7 @@ class ProductPublishOfferWriterTest {
                 headersCaptor.capture()
         );
         assertEquals("sa", bodyCaptor.getValue().path("pskus").get(0).path("country").asText());
-        assertEquals("en-SA", headersCaptor.getValue().get("X-Locale"));
+        assertEquals("en-sa", headersCaptor.getValue().get("X-Locale"));
         assertTrue(warnings.contains("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。"));
     }
 }
