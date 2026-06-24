@@ -51,7 +51,10 @@ class ProductPublishOfferWriter {
         ObjectNode body = buildOfferUpsertBody(pskuCode, siteOffer);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("X-Locale", "en-" + resolvedSite.toUpperCase());
-        productNoonAdapter.postWriteJson(session, OFFER_UPSERT_URL, body, true, headers);
+        if (session != null && StringUtils.hasText(session.getProjectCode())) {
+            headers.put("X-Project", session.getProjectCode());
+        }
+        productNoonAdapter.postWriteJson(session, OFFER_UPSERT_URL, body, false, headers);
         if (siteOffer.get("fbnStock") != null || siteOffer.get("supermallStock") != null || siteOffer.get("fbpStock") != null) {
             actionWarnings.add("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。");
         }

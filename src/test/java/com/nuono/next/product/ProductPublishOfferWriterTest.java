@@ -92,7 +92,7 @@ class ProductPublishOfferWriterTest {
                 nullable(NoonSession.class),
                 eq(NoonProductGateway.OFFER_UPSERT_URL),
                 bodyCaptor.capture(),
-                eq(true),
+                eq(false),
                 headersCaptor.capture()
         );
         assertEquals("sa", bodyCaptor.getValue().path("pskus").get(0).path("country").asText());

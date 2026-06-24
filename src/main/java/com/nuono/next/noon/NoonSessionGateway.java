@@ -875,6 +875,10 @@ public class NoonSessionGateway {
             return new NoonSession(noonUser, noonPassword, state, projectCode, normalize(nextStoreCode));
         }
 
+        public String getProjectCode() {
+            return projectCode;
+        }
+
         public JsonNode getJson(String url, boolean withProject) {
             return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, null));
         }
