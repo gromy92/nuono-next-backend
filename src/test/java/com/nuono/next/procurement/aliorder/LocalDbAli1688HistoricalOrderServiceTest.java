@@ -2423,7 +2423,7 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         when(mapper.selectAuthorizationById(307L, 91008L)).thenReturn(source);
         when(mapper.listVisibleAuthorizationIds(307L, "PRJ108065", "AE")).thenReturn(List.of(91008L));
         when(mapper.listExcelImportRows(307L, 97001L)).thenReturn(List.of(
-                excelImportRow(1, "ALI-SAFE-20260525-001", false, "脱敏仿真花束 6 支装", "ZTO000000001"),
+                excelImportRow(1, "ALI-SAFE-20260525-001", false, "脱敏星空灯 灯光颜色: 黑色 电源功率: 5w", "ZTO000000001"),
                 excelImportRow(2, "ALI-SAFE-20260525-001", true, "脱敏复古锁心本", null),
                 excelImportRow(3, "ALI-SAFE-20260525-002", false, "脱敏标签贴纸", "YTO000000002")
         ));
@@ -2448,7 +2448,9 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         assertThat(orderCaptor.getAllValues().get(0).getAdjustmentText()).isNull();
         assertThat(orderCaptor.getAllValues().get(0).getDownstreamOrderNo()).isEqualTo("DOWNSTREAM-SAFE-001");
         assertThat(itemCaptor.getAllValues()).extracting(Ali1688HistoricalOrderItemRow::getTitle)
-                .containsExactly("脱敏仿真花束 6 支装", "脱敏复古锁心本", "脱敏标签贴纸");
+                .containsExactly("脱敏星空灯 灯光颜色: 黑色 电源功率: 5w", "脱敏复古锁心本", "脱敏标签贴纸");
+        assertThat(itemCaptor.getAllValues()).extracting(Ali1688HistoricalOrderItemRow::getSkuText)
+                .containsExactly("灯光颜色: 黑色 电源功率: 5w", null, null);
         assertThat(logisticsCaptor.getAllValues()).extracting(Ali1688HistoricalOrderLogisticsRow::getTrackingNo)
                 .containsExactly("ZTO000000001", "YTO000000002");
         verify(mapper, never()).insertSyncTask(any(Ali1688HistoricalOrderSyncTaskRow.class));

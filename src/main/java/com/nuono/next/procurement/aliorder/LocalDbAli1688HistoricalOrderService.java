@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,9 @@ public class LocalDbAli1688HistoricalOrderService {
     static final String ASSIGNMENT_TARGET_CONSUMABLE = "CONSUMABLE";
     static final String ASSIGNMENT_TARGET_DISCONTINUED = "DISCONTINUED";
     static final long MAX_EXCEL_IMPORT_FILE_SIZE_BYTES = 20L * 1024L * 1024L;
+    private static final Pattern TITLE_SPEC_LABEL_PATTERN = Pattern.compile(
+            "(灯光颜色|电源功率|规格型号|商品规格|产品规格|颜色|尺寸|尺码|规格|型号|款式)\\s*[:：]"
+    );
 
     private final Ali1688HistoricalOrderMapper mapper;
     private final Ali1688HistoricalOrderProvider provider;
@@ -565,6 +570,7 @@ public class LocalDbAli1688HistoricalOrderService {
         item.setOfferId(row.getOfferId());
         item.setSkuId(row.getSkuId());
         item.setTitle(row.getTitle());
+        item.setSkuText(extractSpecFromTitle(row.getTitle()));
         item.setModelText(row.getModelText());
         item.setProductCode(row.getProductCode());
         item.setSingleProductCode(row.getSingleProductCode());
@@ -573,6 +579,22 @@ public class LocalDbAli1688HistoricalOrderService {
         item.setUnitPriceText(row.getUnitPriceText());
         item.setRawSnapshotJson(row.getRawSnapshotJson());
         return item;
+    }
+
+    private String extractSpecFromTitle(String title) {
+        String normalized = normalizeText(title);
+        if (!hasText(normalized)) {
+            return null;
+        }
+        Matcher matcher = TITLE_SPEC_LABEL_PATTERN.matcher(normalized);
+        if (!matcher.find()) {
+            return null;
+        }
+        return normalized.substring(matcher.start()).trim();
+    }
+
+    private String normalizeText(String value) {
+        return value == null ? null : value.replaceAll("\\s+", " ").trim();
     }
 
     private Ali1688HistoricalOrderLogisticsRow toLogisticsFact(
