@@ -76,9 +76,9 @@ class ProductPublishWriteServiceTest {
 
         verify(productNoonAdapter).login(
                 307L,
-                "project-user",
-                "pwd",
-                "cookie",
+                "store-project-user",
+                "store-pwd",
+                "store-cookie",
                 "PRJ-LOCAL",
                 "STR245027-NAE"
         );
@@ -143,6 +143,10 @@ class ProductPublishWriteServiceTest {
         StoreSyncStoreRecord store = new StoreSyncStoreRecord();
         store.setProjectCode("PRJ-LOCAL");
         store.setStoreCode("STR245027-NAE");
+        store.setNoonPartnerUser("store-main-user");
+        store.setNoonPartnerProjectUser("store-project-user");
+        store.setNoonPartnerPwd("store-pwd");
+        store.setNoonPartnerCookie("store-cookie");
         return store;
     }
 

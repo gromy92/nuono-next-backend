@@ -45,25 +45,28 @@ class ProductPublishWriteService {
 
         String noonUser = firstNonBlank(
                 normalize(command.getNoonUser()),
+                normalize(store.getNoonPartnerProjectUser()),
+                normalize(store.getNoonPartnerUser()),
                 owner.getNoonPartnerProjectUser(),
                 owner.getNoonPartnerUser()
         );
         String noonPassword = firstNonBlank(
                 normalize(command.getNoonPassword()),
+                normalize(store.getNoonPartnerPwd()),
                 normalize(owner.getNoonPartnerPwd())
         );
         requireText(noonUser, "当前店铺缺少 Noon 账号上下文，暂时不能发布。");
         requireText(noonPassword, "当前店铺缺少 Noon 登录密码，暂时不能发布。");
 
         String storeCode = normalize(store.getStoreCode());
-        String projectCode = firstNonBlank(store.getProjectCode(), owner.getNoonPartnerId());
+        String projectCode = firstNonBlank(store.getProjectCode(), store.getNoonPartnerId(), owner.getNoonPartnerId());
         requireText(projectCode, "当前店铺缺少 Noon projectCode，暂时不能发布。");
 
         NoonSession session = productNoonAdapter.login(
                 owner.getId(),
                 noonUser,
                 noonPassword,
-                owner.getNoonPartnerCookie(),
+                firstNonBlank(store.getNoonPartnerCookie(), owner.getNoonPartnerCookie()),
                 projectCode,
                 storeCode
         );
