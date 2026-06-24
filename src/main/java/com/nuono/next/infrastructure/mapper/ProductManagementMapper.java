@@ -281,6 +281,12 @@ public interface ProductManagementMapper {
             "FROM product_publish_task",
             "WHERE product_master_id = #{productMasterId}",
             "  AND is_deleted = 0",
+            "  AND id = (",
+            "    SELECT MAX(latest.id)",
+            "    FROM product_publish_task latest",
+            "    WHERE latest.product_master_id = #{productMasterId}",
+            "      AND latest.is_deleted = 0",
+            "  )",
             "  AND status IN (",
             "    'queued', 'running', 'submitted', 'verifying',",
             "    'pending_effective', 'write_unknown', 'verify_timeout',",
@@ -309,6 +315,12 @@ public interface ProductManagementMapper {
             "  AND status IN ('queued', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')",
             "  AND locked_at IS NULL",
             "  AND (next_run_at IS NULL OR next_run_at &lt;= NOW())",
+            "  AND id = (",
+            "    SELECT MAX(latest.id)",
+            "    FROM product_publish_task latest",
+            "    WHERE latest.product_master_id = product_publish_task.product_master_id",
+            "      AND latest.is_deleted = 0",
+            "  )",
             "ORDER BY COALESCE(next_run_at, gmt_create), id",
             "LIMIT #{limit}",
             "</script>"
@@ -329,6 +341,12 @@ public interface ProductManagementMapper {
             "WHERE status IN ('running', 'submitted', 'verifying')",
             "  AND locked_at IS NOT NULL",
             "  AND locked_at < DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)",
+            "  AND id = (",
+            "    SELECT MAX(latest.id)",
+            "    FROM product_publish_task latest",
+            "    WHERE latest.product_master_id = product_publish_task.product_master_id",
+            "      AND latest.is_deleted = 0",
+            "  )",
             "  AND is_deleted = 0"
     })
     int recoverStaleRunningProductPublishTasks(

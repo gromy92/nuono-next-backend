@@ -54,6 +54,23 @@ class ProductManagementMapperPublishTaskSqlTest {
 
         assertTrue(activeSql.contains("'write_retry_scheduled'"));
         assertTrue(runnableSql.contains("'write_retry_scheduled'"));
+        assertTrue(activeSql.contains("id = ( SELECT MAX(latest.id)"));
+        assertTrue(runnableSql.contains("id = ( SELECT MAX(latest.id)"));
+        assertTrue(runnableSql.contains("latest.product_master_id = product_publish_task.product_master_id"));
+    }
+
+    @Test
+    void staleRunningRecoveryShouldOnlyTouchLatestTaskPerProduct() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "recoverStaleRunningProductPublishTasks".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("status IN ('running', 'submitted', 'verifying')"));
+        assertTrue(sql.contains("id = ( SELECT MAX(latest.id)"));
+        assertTrue(sql.contains("latest.product_master_id = product_publish_task.product_master_id"));
     }
 
     @Test
