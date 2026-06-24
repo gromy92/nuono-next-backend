@@ -40,6 +40,36 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
+    void publishTaskQueriesShouldTreatWriteRetryScheduledAsActiveAndRunnable() {
+        Method activeMethod = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectActiveProductPublishTask".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Method runnableMethod = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectRunnableProductPublishTasks".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        String activeSql = String.join(" ", activeMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        String runnableSql = String.join(" ", runnableMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+
+        assertTrue(activeSql.contains("'write_retry_scheduled'"));
+        assertTrue(runnableSql.contains("'write_retry_scheduled'"));
+    }
+
+    @Test
+    void updatePublishTaskStatusShouldIncrementRetryCountWhenWriteRetryIsScheduled() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "updateProductPublishTaskStatus".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("retry_count = CASE"));
+        assertTrue(sql.contains("WHEN #{status} = 'write_retry_scheduled' THEN COALESCE(retry_count, 0) + 1"));
+    }
+
+    @Test
     void listingStartedInitialBackfillShouldRevisitMissingOrNotListedOffersAndUseSiteCoverageForMissingFacts() {
         Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "backfillProductSiteOfferListingStartedAtById".equals(candidate.getName()))
