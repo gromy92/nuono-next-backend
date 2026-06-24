@@ -32,7 +32,7 @@ class ProductManagementMapperPublishTaskSqlTest {
                 .findFirst()
                 .orElseThrow();
         Update update = method.getAnnotation(Update.class);
-        String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
 
         assertTrue(sql.contains("status = #{expectedStatus}"));
         assertTrue(sql.contains("locked_by = #{expectedLockedBy}"));
@@ -63,10 +63,32 @@ class ProductManagementMapperPublishTaskSqlTest {
                 .findFirst()
                 .orElseThrow();
         Update update = method.getAnnotation(Update.class);
-        String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
 
         assertTrue(sql.contains("retry_count = CASE"));
         assertTrue(sql.contains("WHEN #{status} = 'write_retry_scheduled' THEN COALESCE(retry_count, 0) + 1"));
+    }
+
+    @Test
+    void legacyRetryableNoonWriteFailuresShouldRecoverOnlyLatestPerProduct() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "recoverRetryableFailedNoonWriteProductPublishTasks".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("MAX(candidate.id) AS id"));
+        assertTrue(sql.contains("candidate.status = 'failed'"));
+        assertTrue(sql.contains("candidate.error_code = 'noon_write_failed'"));
+        assertTrue(sql.contains("candidate.error_message REGEXP 'HTTP[[:space:]]+(408|429|500|502|503|504)'"));
+        assertTrue(sql.contains("COALESCE(candidate.retry_count, 0) < COALESCE(candidate.max_retry_count, 3)"));
+        assertTrue(sql.contains("candidate.finished_at, candidate.gmt_updated, candidate.gmt_create"));
+        assertTrue(sql.contains("DATE_SUB(NOW(), INTERVAL #{lookbackHours} HOUR)"));
+        assertTrue(sql.contains("NOT EXISTS"));
+        assertTrue(sql.contains("active.status IN ('queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')"));
+        assertTrue(sql.contains("SET t.status = 'write_retry_scheduled'"));
+        assertTrue(sql.contains("t.active_lock_key = CONCAT('product:', t.product_master_id)"));
     }
 
     @Test

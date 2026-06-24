@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
@@ -21,6 +22,7 @@ import com.nuono.next.product.noon.NoonProductException;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class ProductPublishCommandServiceTest {
 
@@ -188,6 +190,17 @@ class ProductPublishCommandServiceTest {
         assertEquals("noon_write_retry_exhausted", task.getErrorCode());
         assertNotNull(task.getFinishedAt());
         assertNull(task.getLockedBy());
+    }
+
+    @Test
+    void shouldRecoverStaleAndLegacyRetryableFailedWriteTasksTogether() {
+        ReflectionTestUtils.setField(service, "staleRunningMinutes", 15);
+        ReflectionTestUtils.setField(service, "legacyRetryableFailedRecoveryHours", 24);
+        when(productManagementMapper.recoverStaleRunningProductPublishTasks(15, 0L)).thenReturn(1);
+        when(productManagementMapper.recoverRetryableFailedNoonWriteProductPublishTasks(24, 0L)).thenReturn(2);
+
+        assertEquals(3, service.recoverStaleRunningTasks());
+        verify(productManagementMapper).recoverRetryableFailedNoonWriteProductPublishTasks(24, 0L);
     }
 
     private ProductPublishTaskRecord runningTask() {

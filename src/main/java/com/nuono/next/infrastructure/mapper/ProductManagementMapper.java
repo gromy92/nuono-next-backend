@@ -337,6 +337,46 @@ public interface ProductManagementMapper {
     );
 
     @Update({
+            "<script>",
+            "UPDATE product_publish_task t",
+            "JOIN (",
+            "  SELECT MAX(candidate.id) AS id",
+            "  FROM product_publish_task candidate",
+            "  WHERE candidate.is_deleted = 0",
+            "    AND candidate.status = 'failed'",
+            "    AND candidate.error_code = 'noon_write_failed'",
+            "    AND candidate.locked_at IS NULL",
+            "    AND COALESCE(candidate.retry_count, 0) &lt; COALESCE(candidate.max_retry_count, 3)",
+            "    AND COALESCE(candidate.finished_at, candidate.gmt_updated, candidate.gmt_create) &gt;= DATE_SUB(NOW(), INTERVAL #{lookbackHours} HOUR)",
+            "    AND candidate.error_message REGEXP 'HTTP[[:space:]]+(408|429|500|502|503|504)'",
+            "    AND NOT EXISTS (",
+            "      SELECT 1",
+            "      FROM product_publish_task active",
+            "      WHERE active.product_master_id = candidate.product_master_id",
+            "        AND active.is_deleted = 0",
+            "        AND active.status IN ('queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')",
+            "    )",
+            "  GROUP BY candidate.product_master_id",
+            ") recoverable ON recoverable.id = t.id",
+            "SET t.status = 'write_retry_scheduled',",
+            "    t.error_message = 'Noon 发布接口暂时不可用，系统将后台自动核对并重试。',",
+            "    t.next_run_at = NOW(),",
+            "    t.finished_at = NULL,",
+            "    t.retry_count = COALESCE(t.retry_count, 0) + 1,",
+            "    t.active_lock_key = CONCAT('product:', t.product_master_id),",
+            "    t.locked_by = NULL,",
+            "    t.locked_at = NULL,",
+            "    t.version_no = t.version_no + 1,",
+            "    t.updated_by = #{updatedBy},",
+            "    t.gmt_updated = NOW()",
+            "</script>"
+    })
+    int recoverRetryableFailedNoonWriteProductPublishTasks(
+            @Param("lookbackHours") int lookbackHours,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
             "UPDATE product_publish_task",
             "SET status = 'running',",
             "    locked_by = #{lockedBy},",

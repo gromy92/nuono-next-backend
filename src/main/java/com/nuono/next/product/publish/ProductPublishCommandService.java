@@ -56,6 +56,9 @@ public class ProductPublishCommandService {
     @Value("${nuono.product-management.publish-task.scheduler.stale-running-minutes:15}")
     private int staleRunningMinutes;
 
+    @Value("${nuono.product-management.publish-task.scheduler.legacy-retryable-failed-recovery-hours:24}")
+    private int legacyRetryableFailedRecoveryHours;
+
     public ProductPublishCommandService(ProductManagementMapper productManagementMapper) {
         this.productManagementMapper = productManagementMapper;
     }
@@ -188,7 +191,17 @@ public class ProductPublishCommandService {
             if (recovered > 0) {
                 log.warn("product-management recovered stale running publish tasks count={}", recovered);
             }
-            return recovered;
+            int recoveredRetryableFailed = productManagementMapper.recoverRetryableFailedNoonWriteProductPublishTasks(
+                    Math.max(1, legacyRetryableFailedRecoveryHours),
+                    0L
+            );
+            if (recoveredRetryableFailed > 0) {
+                log.warn(
+                        "product-management recovered retryable failed noon write publish tasks count={}",
+                        recoveredRetryableFailed
+                );
+            }
+            return recovered + recoveredRetryableFailed;
         } catch (RuntimeException exception) {
             if (isMissingTaskTable(exception)) {
                 return 0;
