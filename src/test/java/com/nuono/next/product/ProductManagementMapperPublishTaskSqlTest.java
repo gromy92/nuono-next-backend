@@ -68,9 +68,10 @@ class ProductManagementMapperPublishTaskSqlTest {
         Update update = method.getAnnotation(Update.class);
         String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
 
-        assertTrue(sql.contains("status IN ('running', 'submitted', 'verifying')"));
-        assertTrue(sql.contains("id = ( SELECT MAX(latest.id)"));
-        assertTrue(sql.contains("latest.product_master_id = product_publish_task.product_master_id"));
+        assertTrue(sql.contains("UPDATE product_publish_task t"));
+        assertTrue(sql.contains("JOIN ( SELECT product_master_id, MAX(id) AS latest_id FROM product_publish_task"));
+        assertTrue(sql.contains("latest.latest_id = t.id"));
+        assertTrue(sql.contains("t.status IN ('running', 'submitted', 'verifying')"));
     }
 
     @Test
