@@ -98,8 +98,11 @@ class ProductManagementMapperPublishTaskSqlTest {
 
         assertTrue(sql.contains("MAX(candidate.id) AS id"));
         assertTrue(sql.contains("candidate.status = 'failed'"));
-        assertTrue(sql.contains("candidate.error_code = 'noon_write_failed'"));
+        assertTrue(sql.contains("candidate.error_code IN ('noon_write_failed', 'publish_task_failed', 'noon_request_failed')"));
         assertTrue(sql.contains("candidate.error_message REGEXP 'HTTP[[:space:]]+(408|429|500|502|503|504)'"));
+        assertTrue(sql.contains("LOWER(candidate.error_message) LIKE '%http 403%'"));
+        assertTrue(sql.contains("LOWER(candidate.error_message) LIKE '%access denied%'"));
+        assertTrue(sql.contains("LOWER(candidate.error_message) LIKE '%you don''t have permission to access%'"));
         assertTrue(sql.contains("COALESCE(candidate.retry_count, 0) < COALESCE(candidate.max_retry_count, 3)"));
         assertTrue(sql.contains("candidate.finished_at, candidate.gmt_updated, candidate.gmt_create"));
         assertTrue(sql.contains("DATE_SUB(NOW(), INTERVAL #{lookbackHours} HOUR)"));
@@ -107,6 +110,7 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("NOT EXISTS"));
         assertTrue(sql.contains("active.status IN ('queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')"));
         assertTrue(sql.contains("SET t.status = 'write_retry_scheduled'"));
+        assertTrue(sql.contains("WHEN t.error_code IN ('publish_task_failed', 'noon_request_failed') THEN 'noon_request_failed'"));
         assertTrue(sql.contains("t.active_lock_key = CONCAT('product:', t.product_master_id)"));
     }
 

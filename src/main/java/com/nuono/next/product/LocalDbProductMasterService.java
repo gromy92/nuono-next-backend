@@ -1630,6 +1630,51 @@ public class LocalDbProductMasterService {
                     productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
                     return;
                 }
+                if (requirePublishCommandService().isRetryableNoonRequestFailure(exception)) {
+                    requestCounts = requestCountScope.snapshot();
+                    boolean hasRetryBudget = requirePublishCommandService().hasRemainingAutomaticWriteRetries(task);
+                    String retryMessage = hasRetryBudget
+                            ? "Noon 请求暂时不可用，系统将后台自动核对并重试。"
+                            : "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。";
+                    boolean scheduled = requirePublishCommandService().scheduleNoonRetryOrManualCheck(
+                            task,
+                            "noon_request_failed",
+                            retryMessage,
+                            "noon_request_retry_exhausted",
+                            "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。",
+                            buildTaskResultJson(
+                                    hasRetryBudget ? "write_retry_scheduled" : "pending_manual_check",
+                                    requestCounts,
+                                    mergeWarnings(actionWarnings, List.of(shrink(exception.getMessage())))
+                            )
+                    );
+                    log.warn(
+                            "product-management publish task noon request retryable failure id={} owner={} store={} skuParent={} site={} scheduled={} retryCount={} maxRetryCount={} error={}",
+                            task.getId(),
+                            task.getOwnerUserId(),
+                            task.getStoreCode(),
+                            task.getSkuParent(),
+                            currentSiteCode,
+                            scheduled,
+                            task.getRetryCount(),
+                            task.getMaxRetryCount(),
+                            shrink(exception.getMessage())
+                    );
+                    record.setDraftSnapshot(draft);
+                    record.setSyncStatus(scheduled ? "draft" : "failed");
+                    record.setNote(scheduled ? "发布正在后台处理，系统会自动核对 Noon 结果。" : task.getErrorMessage());
+                    record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+                    appendRecentAction(
+                            record,
+                            "publish-current",
+                            task.getStatus(),
+                            record.getNote(),
+                            currentSiteCode,
+                            draft
+                    );
+                    productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+                    return;
+                }
                 failPublishTask(
                         task,
                         "noon_write_failed",
@@ -1665,6 +1710,63 @@ public class LocalDbProductMasterService {
                         null,
                         task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1
                 );
+                return;
+            }
+            if (requirePublishCommandService().isRetryableNoonRequestFailure(exception)) {
+                if (writeSubmitted) {
+                    updatePublishTaskStatus(
+                            task,
+                            "verify_timeout",
+                            "noon_verify_transient",
+                            "Noon 回读暂时不可用，系统稍后继续核对官方结果。",
+                            buildTaskResultJson("verify_timeout", requestCounts, List.of(shrink(exception.getMessage()))),
+                            nextPublishVerifyRunAt(task),
+                            null,
+                            task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1
+                    );
+                    return;
+                }
+                boolean hasRetryBudget = requirePublishCommandService().hasRemainingAutomaticWriteRetries(task);
+                String retryMessage = hasRetryBudget
+                        ? "Noon 请求暂时不可用，系统将后台自动核对并重试。"
+                        : "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。";
+                boolean scheduled = requirePublishCommandService().scheduleNoonRetryOrManualCheck(
+                        task,
+                        "noon_request_failed",
+                        retryMessage,
+                        "noon_request_retry_exhausted",
+                        "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。",
+                        buildTaskResultJson(
+                                hasRetryBudget ? "write_retry_scheduled" : "pending_manual_check",
+                                requestCounts,
+                                List.of(shrink(exception.getMessage()))
+                        )
+                );
+                log.warn(
+                        "product-management publish task noon pre-write retryable failure id={} owner={} store={} skuParent={} site={} scheduled={} retryCount={} maxRetryCount={} error={}",
+                        task.getId(),
+                        task.getOwnerUserId(),
+                        task.getStoreCode(),
+                        task.getSkuParent(),
+                        currentSiteCode,
+                        scheduled,
+                        task.getRetryCount(),
+                        task.getMaxRetryCount(),
+                        shrink(exception.getMessage())
+                );
+                record.setDraftSnapshot(draft);
+                record.setSyncStatus(scheduled ? "draft" : "failed");
+                record.setNote(scheduled ? "发布正在后台处理，系统会自动核对 Noon 结果。" : task.getErrorMessage());
+                record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+                appendRecentAction(
+                        record,
+                        "publish-current",
+                        task.getStatus(),
+                        record.getNote(),
+                        currentSiteCode,
+                        draft
+                );
+                productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
                 return;
             }
             failPublishTask(

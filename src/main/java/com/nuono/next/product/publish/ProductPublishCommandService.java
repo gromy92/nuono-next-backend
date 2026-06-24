@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -47,6 +48,13 @@ public class ProductPublishCommandService {
     );
     private static final Set<Integer> RETRYABLE_NOON_WRITE_HTTP_STATUSES = Set.of(408, 429, 500, 502, 503, 504);
     private static final Pattern HTTP_STATUS_PATTERN = Pattern.compile("\\bHTTP\\s+(\\d{3})\\b", Pattern.CASE_INSENSITIVE);
+    private static final Set<String> NON_RETRYABLE_NOON_AUTH_MARKERS = Set.of(
+            "invalid username or password",
+            "password validate",
+            "invalid password",
+            "bad credentials",
+            "账号或密码错误"
+    );
 
     private final ProductManagementMapper productManagementMapper;
 
@@ -400,10 +408,59 @@ public class ProductPublishCommandService {
         return false;
     }
 
+    public boolean isRetryableNoonRequestFailure(Throwable throwable) {
+        if (isNonRetryableNoonAuthFailure(throwable)) {
+            return false;
+        }
+        if (isRetryableNoonWriteFailure(throwable)) {
+            return true;
+        }
+        return isNoonAccessDeniedTransientFailure(throwable);
+    }
+
+    private boolean isNonRetryableNoonAuthFailure(Throwable throwable) {
+        String details = throwableDetails(throwable).toLowerCase(Locale.ROOT);
+        for (String marker : NON_RETRYABLE_NOON_AUTH_MARKERS) {
+            if (details.contains(marker.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isNoonAccessDeniedTransientFailure(Throwable throwable) {
+        String details = throwableDetails(throwable).toLowerCase(Locale.ROOT);
+        return details.contains("http 403")
+                && details.contains("access denied")
+                && details.contains("you don't have permission to access")
+                && (details.contains("login")
+                || details.contains("noon.partners")
+                || details.contains("http&#58;")
+                || details.contains("&#47;&#47;login"));
+    }
+
     public boolean scheduleNoonWriteRetryOrManualCheck(
             ProductPublishTaskRecord task,
             String errorCode,
             String errorMessage,
+            String resultJson
+    ) {
+        return scheduleNoonRetryOrManualCheck(
+                task,
+                errorCode,
+                errorMessage,
+                "noon_write_retry_exhausted",
+                "Noon 多次返回系统错误，系统已停止自动重试，诺诺草稿已保留。",
+                resultJson
+        );
+    }
+
+    public boolean scheduleNoonRetryOrManualCheck(
+            ProductPublishTaskRecord task,
+            String errorCode,
+            String scheduledMessage,
+            String exhaustedErrorCode,
+            String exhaustedMessage,
             String resultJson
     ) {
         if (hasRemainingAutomaticWriteRetries(task)) {
@@ -411,7 +468,7 @@ public class ProductPublishCommandService {
                     task,
                     "write_retry_scheduled",
                     errorCode,
-                    errorMessage,
+                    scheduledMessage,
                     resultJson,
                     nextAutomaticWriteRetryRunAt(task),
                     null,
@@ -423,8 +480,8 @@ public class ProductPublishCommandService {
         updateStatus(
                 task,
                 "pending_manual_check",
-                "noon_write_retry_exhausted",
-                "Noon 多次返回系统错误，系统已停止自动重试，诺诺草稿已保留。",
+                exhaustedErrorCode,
+                exhaustedMessage,
                 resultJson,
                 null,
                 LocalDateTime.now(),

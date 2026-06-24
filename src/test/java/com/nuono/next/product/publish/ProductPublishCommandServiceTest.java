@@ -142,6 +142,23 @@ class ProductPublishCommandServiceTest {
     }
 
     @Test
+    void shouldTreatNoonLoginAccessDeniedAsRetryableRequestFailure() {
+        assertTrue(service.isRetryableNoonRequestFailure(
+                new IllegalStateException(
+                        "请求 Noon 失败：HTTP 403 <HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>"
+                                + "You don't have permission to access \"http&#58;&#47;&#47;login.noon.partners\""
+                )
+        ));
+    }
+
+    @Test
+    void shouldNotRetryNoonInvalidPasswordAsRequestFailure() {
+        assertFalse(service.isRetryableNoonRequestFailure(
+                new IllegalStateException("Noon password validate 失败：invalid username or password")
+        ));
+    }
+
+    @Test
     void shouldScheduleTransparentWriteRetryWhenRetryBudgetRemains() {
         ProductPublishTaskRecord task = runningTask();
         task.setRetryCount(0);
