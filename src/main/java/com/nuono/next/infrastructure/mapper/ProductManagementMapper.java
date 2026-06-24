@@ -485,6 +485,43 @@ public interface ProductManagementMapper {
 
     @Update({
             "UPDATE product_publish_task",
+            "SET draft_json = #{draftJson},",
+            "    baseline_json = #{baselineJson},",
+            "    request_json = #{requestJson},",
+            "    changed_domains_json = #{changedDomainsJson},",
+            "    draft_hash = #{draftHash},",
+            "    result_json = NULL,",
+            "    error_code = #{errorCode},",
+            "    error_message = #{errorMessage},",
+            "    retry_count = 0,",
+            "    next_run_at = NOW(),",
+            "    finished_at = NULL,",
+            "    locked_by = NULL,",
+            "    locked_at = NULL,",
+            "    version_no = version_no + 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND status = 'write_retry_scheduled'",
+            "  AND locked_at IS NULL",
+            "  AND version_no = #{expectedVersionNo}",
+            "  AND is_deleted = 0"
+    })
+    int refreshRetryScheduledProductPublishTaskDraft(
+            @Param("id") Long id,
+            @Param("expectedVersionNo") Integer expectedVersionNo,
+            @Param("draftJson") String draftJson,
+            @Param("baselineJson") String baselineJson,
+            @Param("requestJson") String requestJson,
+            @Param("changedDomainsJson") String changedDomainsJson,
+            @Param("draftHash") String draftHash,
+            @Param("errorCode") String errorCode,
+            @Param("errorMessage") String errorMessage,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_publish_task",
             "SET status = 'queued',",
             "    retry_count = retry_count + 1,",
             "    next_run_at = NOW(),",

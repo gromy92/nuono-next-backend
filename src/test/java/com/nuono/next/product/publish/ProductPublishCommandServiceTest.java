@@ -1,6 +1,7 @@
 package com.nuono.next.product.publish;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -183,6 +184,64 @@ class ProductPublishCommandServiceTest {
         assertNull(task.getFinishedAt());
         assertNull(task.getLockedBy());
         assertNull(task.getLockedAt());
+    }
+
+    @Test
+    void shouldNotBlockForegroundActionsForScheduledBackgroundWriteRetry() {
+        ProductPublishTaskRecord task = runningTask();
+        task.setStatus("write_retry_scheduled");
+        task.setLockedBy(null);
+        task.setLockedAt(null);
+        when(productManagementMapper.selectActiveProductPublishTask(20002L)).thenReturn(task);
+
+        assertDoesNotThrow(() -> service.ensureNoForegroundBlockingActiveTask(20002L, "blocked"));
+    }
+
+    @Test
+    void shouldBlockForegroundActionsForRunningPublishTask() {
+        ProductPublishTaskRecord task = runningTask();
+        when(productManagementMapper.selectActiveProductPublishTask(20002L)).thenReturn(task);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.ensureNoForegroundBlockingActiveTask(20002L, "blocked")
+        );
+
+        assertEquals("blocked", exception.getMessage());
+    }
+
+    @Test
+    void shouldRefreshScheduledBackgroundRetryWithLatestDraft() {
+        ProductPublishTaskRecord task = runningTask();
+        task.setStatus("write_retry_scheduled");
+        task.setLockedBy(null);
+        task.setLockedAt(null);
+        task.setRetryCount(3);
+        when(productManagementMapper.refreshRetryScheduledProductPublishTaskDraft(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        )).thenReturn(1);
+
+        boolean refreshed = service.refreshRetryScheduledTaskDraft(
+                task,
+                "{\"draft\":true}",
+                "{\"baseline\":true}",
+                "{\"request\":true}",
+                "[\"offer\"]",
+                "draft-hash-2",
+                "noon_write_failed",
+                "Noon 发布接口暂时不可用，系统将后台自动核对并重试。"
+        );
+
+        assertTrue(refreshed);
+        assertEquals("{\"draft\":true}", task.getDraftJson());
+        assertEquals("{\"baseline\":true}", task.getBaselineJson());
+        assertEquals("{\"request\":true}", task.getRequestJson());
+        assertEquals("[\"offer\"]", task.getChangedDomainsJson());
+        assertEquals("draft-hash-2", task.getDraftHash());
+        assertEquals("noon_write_failed", task.getErrorCode());
+        assertEquals(Integer.valueOf(0), task.getRetryCount());
+        assertNotNull(task.getNextRunAt());
+        assertNull(task.getFinishedAt());
     }
 
     @Test

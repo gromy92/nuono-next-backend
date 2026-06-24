@@ -153,6 +153,65 @@ public class ProductPublishCommandService {
         }
     }
 
+    public void ensureNoForegroundBlockingActiveTask(Long productMasterId, String message) {
+        recoverStaleRunningTasks();
+        ProductPublishTaskRecord activeTask = selectActiveTask(productMasterId);
+        if (isForegroundBlockingActiveTask(activeTask)) {
+            throw new IllegalStateException(message);
+        }
+    }
+
+    public boolean isForegroundBlockingActiveTask(ProductPublishTaskRecord task) {
+        return task != null
+                && isActiveStatus(task.getStatus())
+                && !isWriteRetryScheduledStatus(task.getStatus());
+    }
+
+    public boolean refreshRetryScheduledTaskDraft(
+            ProductPublishTaskRecord task,
+            String draftJson,
+            String baselineJson,
+            String requestJson,
+            String changedDomainsJson,
+            String draftHash,
+            String errorCode,
+            String errorMessage
+    ) {
+        if (task == null || !isWriteRetryScheduledStatus(task.getStatus()) || task.getLockedAt() != null) {
+            return false;
+        }
+        int updated = productManagementMapper.refreshRetryScheduledProductPublishTaskDraft(
+                task.getId(),
+                versionNo(task),
+                draftJson,
+                baselineJson,
+                requestJson,
+                changedDomainsJson,
+                draftHash,
+                errorCode,
+                errorMessage,
+                task.getOwnerUserId()
+        );
+        if (updated <= 0) {
+            return false;
+        }
+        task.setDraftJson(draftJson);
+        task.setBaselineJson(baselineJson);
+        task.setRequestJson(requestJson);
+        task.setChangedDomainsJson(changedDomainsJson);
+        task.setDraftHash(draftHash);
+        task.setResultJson(null);
+        task.setErrorCode(errorCode);
+        task.setErrorMessage(errorMessage);
+        task.setRetryCount(0);
+        task.setNextRunAt(LocalDateTime.now());
+        task.setFinishedAt(null);
+        task.setLockedBy(null);
+        task.setLockedAt(null);
+        task.setVersionNo(versionNo(task) + 1);
+        return true;
+    }
+
     public ProductPublishTaskCreateResult createPublishCurrentTask(ProductPublishTaskCreateCommand command) {
         ProductPublishTaskRecord task = new ProductPublishTaskRecord();
         task.setId(productManagementMapper.nextProductPublishTaskId());

@@ -960,7 +960,7 @@ public class LocalDbProductMasterService {
         String key = workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent());
 
         if ("SAVE_DRAFT".equals(resolvedAction)) {
-            ensureNoActivePublishTaskForCommand(command, "当前商品已有发布任务正在执行，请等待完成后再保存草稿。");
+            ensureNoForegroundBlockingPublishTaskForCommand(command, "当前商品已有发布任务正在执行，请等待完成后再保存草稿。");
             ProductWorkbenchRecord record = ensureWorkbenchRecord(command, key);
             if (isPublicDetailReadonlyRecord(record)) {
                 return rejectPublicDetailReadonlyAction(command, key, record, "保存草稿");
@@ -1374,7 +1374,44 @@ public class LocalDbProductMasterService {
         ProductPublishTaskRecord activeTask = productMasterId == null
                 ? null
                 : requirePublishCommandService().selectActiveTask(productMasterId);
-        if (activeTask != null) {
+        String draftJson = writeJson(requestedSnapshot);
+        String draftHash = sha256Hex(draftJson);
+        String baselineJson = writeJson(record.getBaselineSnapshot());
+        String changedDomainsJson = writeJson(productPublishChangedDomainComparator.resolve(
+                requestedSnapshot,
+                record.getBaselineSnapshot(),
+                currentSiteCode,
+                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
+                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
+        ));
+        String requestJson = writeJson(buildPublishTaskRequestPayload(command, currentSiteCode));
+        if (activeTask != null && requirePublishCommandService().isWriteRetryScheduledStatus(activeTask.getStatus())) {
+            boolean refreshed = requirePublishCommandService().refreshRetryScheduledTaskDraft(
+                    activeTask,
+                    draftJson,
+                    baselineJson,
+                    requestJson,
+                    changedDomainsJson,
+                    draftHash,
+                    "noon_write_failed",
+                    "Noon 发布接口暂时不可用，系统将后台自动核对并重试。"
+            );
+            record.setDraftSnapshot(requestedSnapshot);
+            record.setSyncStatus("draft");
+            record.setNote("发布正在后台处理，系统会自动发布最新草稿。");
+            record.setPublishTask(productPublishTaskViewBuilder.build(activeTask, false));
+            appendRecentAction(record, "publish-current", activeTask.getStatus(), record.getNote(), currentSiteCode, requestedSnapshot);
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+            return finalizeWorkbenchView(
+                    command.getOwnerUserId(),
+                    refreshed ? "publish-current" : null,
+                    currentSiteCode,
+                    record,
+                    null,
+                    requestedSnapshot.getWarnings()
+            );
+        }
+        if (activeTask != null && requirePublishCommandService().isForegroundBlockingActiveTask(activeTask)) {
             record.setPublishTask(productPublishTaskViewBuilder.build(activeTask, false));
             record.setNote("当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。");
             productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
@@ -1391,8 +1428,6 @@ public class LocalDbProductMasterService {
             throw new IllegalStateException("本地商品主档还没有落库，暂时不能创建发布任务。");
         }
 
-        String draftJson = writeJson(requestedSnapshot);
-        String draftHash = sha256Hex(draftJson);
         ProductPublishTaskCreateCommand createCommand = new ProductPublishTaskCreateCommand();
         createCommand.setOwnerUserId(command.getOwnerUserId());
         createCommand.setProductMasterId(productMasterId);
@@ -1403,16 +1438,10 @@ public class LocalDbProductMasterService {
         createCommand.setPskuCode(firstNonBlank(normalize(command.getPskuCode()), textValue(requestedSnapshot.getIdentity().get("pskuCode"))));
         createCommand.setCurrentSiteCode(currentSiteCode);
         createCommand.setDraftJson(draftJson);
-        createCommand.setBaselineJson(writeJson(record.getBaselineSnapshot()));
+        createCommand.setBaselineJson(baselineJson);
         createCommand.setDraftHash(draftHash);
-        createCommand.setChangedDomainsJson(writeJson(productPublishChangedDomainComparator.resolve(
-                requestedSnapshot,
-                record.getBaselineSnapshot(),
-                currentSiteCode,
-                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
-                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
-        )));
-        createCommand.setRequestJson(writeJson(buildPublishTaskRequestPayload(command, currentSiteCode)));
+        createCommand.setChangedDomainsJson(changedDomainsJson);
+        createCommand.setRequestJson(requestJson);
         createCommand.setIdempotencyKey(productMasterId + ":" + draftHash + ":" + normalize(currentSiteCode));
         ProductPublishTaskCreateResult createResult = requirePublishCommandService().createPublishCurrentTask(createCommand);
         ProductPublishTaskRecord task = createResult.getTask();
@@ -2177,6 +2206,18 @@ public class LocalDbProductMasterService {
             return;
         }
         requirePublishCommandService().ensureNoActiveTask(productMasterId, message);
+    }
+
+    private void ensureNoForegroundBlockingPublishTaskForCommand(ProductMasterFetchCommand command, String message) {
+        if (isPublishTaskWorkerMode()) {
+            return;
+        }
+        recoverStaleRunningProductPublishTasks();
+        Long productMasterId = resolveProductMasterId(command);
+        if (productMasterId == null) {
+            return;
+        }
+        requirePublishCommandService().ensureNoForegroundBlockingActiveTask(productMasterId, message);
     }
 
     private Long resolveProductMasterId(ProductMasterFetchCommand command) {

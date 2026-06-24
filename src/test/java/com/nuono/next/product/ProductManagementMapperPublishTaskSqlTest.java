@@ -88,6 +88,25 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
+    void refreshRetryScheduledTaskDraftShouldOnlyTouchUnlockedBackgroundRetry() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "refreshRetryScheduledProductPublishTaskDraft".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("draft_json = #{draftJson}"));
+        assertTrue(sql.contains("request_json = #{requestJson}"));
+        assertTrue(sql.contains("changed_domains_json = #{changedDomainsJson}"));
+        assertTrue(sql.contains("retry_count = 0"));
+        assertTrue(sql.contains("next_run_at = NOW()"));
+        assertTrue(sql.contains("status = 'write_retry_scheduled'"));
+        assertTrue(sql.contains("locked_at IS NULL"));
+        assertTrue(sql.contains("version_no = #{expectedVersionNo}"));
+    }
+
+    @Test
     void legacyRetryableNoonWriteFailuresShouldRecoverOnlyLatestPerProduct() {
         Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "recoverRetryableFailedNoonWriteProductPublishTasks".equals(candidate.getName()))
