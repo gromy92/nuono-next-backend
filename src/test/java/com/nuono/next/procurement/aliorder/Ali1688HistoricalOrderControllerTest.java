@@ -632,6 +632,9 @@ class Ali1688HistoricalOrderControllerTest {
                                 && "linked".equals(argument.getLinkStatus())
                                 && "2026-05-01".equals(argument.getPurchaseTimeFrom())
                                 && "2026-05-28".equals(argument.getPurchaseTimeTo())
+                                && Integer.valueOf(0).equals(argument.getPurchaseCountMin())
+                                && Integer.valueOf(10).equals(argument.getPurchaseCountMax())
+                                && argument.isPriceAnomalyOnly()
                                 && argument.getPage() == 1
                                 && argument.getPageSize() == 20
                 )
@@ -645,6 +648,9 @@ class Ali1688HistoricalOrderControllerTest {
                         "linked",
                         "2026-05-01",
                         "2026-05-28",
+                        0,
+                        10,
+                        true,
                         1,
                         20,
                         request

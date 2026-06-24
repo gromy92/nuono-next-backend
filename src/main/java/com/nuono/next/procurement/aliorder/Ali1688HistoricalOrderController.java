@@ -217,6 +217,9 @@ public class Ali1688HistoricalOrderController {
             @RequestParam(value = "linkStatus", required = false) String linkStatus,
             @RequestParam(value = "purchaseTimeFrom", required = false) String purchaseTimeFrom,
             @RequestParam(value = "purchaseTimeTo", required = false) String purchaseTimeTo,
+            @RequestParam(value = "purchaseCountMin", required = false) Integer purchaseCountMin,
+            @RequestParam(value = "purchaseCountMax", required = false) Integer purchaseCountMax,
+            @RequestParam(value = "priceAnomalyOnly", required = false) Boolean priceAnomalyOnly,
             @RequestParam(value = "page", required = false) Integer page,
             @RequestParam(value = "pageSize", required = false) Integer pageSize,
             HttpServletRequest request
@@ -231,6 +234,9 @@ public class Ali1688HistoricalOrderController {
                         linkStatus,
                         purchaseTimeFrom,
                         purchaseTimeTo,
+                        purchaseCountMin,
+                        purchaseCountMax,
+                        priceAnomalyOnly,
                         page,
                         pageSize
                 )

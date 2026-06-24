@@ -78,6 +78,8 @@ public class Ali1688SkuPurchaseHistoryView {
         private String recentPurchaseTime;
         private BigDecimal lowestUnitPrice;
         private BigDecimal highestUnitPrice;
+        private int priceAnomalyCount;
+        private BigDecimal stableAverageUnitPrice;
         private String amountBasis;
         private List<String> dataQualityFlags = new ArrayList<>();
         private List<HistoryView> history = new ArrayList<>();
@@ -297,6 +299,22 @@ public class Ali1688SkuPurchaseHistoryView {
 
         public void setHighestUnitPrice(BigDecimal highestUnitPrice) {
             this.highestUnitPrice = highestUnitPrice;
+        }
+
+        public int getPriceAnomalyCount() {
+            return priceAnomalyCount;
+        }
+
+        public void setPriceAnomalyCount(int priceAnomalyCount) {
+            this.priceAnomalyCount = priceAnomalyCount;
+        }
+
+        public BigDecimal getStableAverageUnitPrice() {
+            return stableAverageUnitPrice;
+        }
+
+        public void setStableAverageUnitPrice(BigDecimal stableAverageUnitPrice) {
+            this.stableAverageUnitPrice = stableAverageUnitPrice;
         }
 
         public String getAmountBasis() {

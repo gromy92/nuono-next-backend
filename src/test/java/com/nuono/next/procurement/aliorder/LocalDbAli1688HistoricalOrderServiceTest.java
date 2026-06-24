@@ -1298,6 +1298,294 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
+    void listSkuPurchaseHistoryFiltersByAggregatedPurchaseCount() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery repeatPurchaseQuery =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+        repeatPurchaseQuery.setPurchaseCountMin(2);
+        Ali1688SkuPurchaseHistoryQuery noPurchaseQuery =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+        noPurchaseQuery.setPurchaseCountMax(0);
+
+        when(mapper.listSkuPurchaseHistoryProducts(307L, "PRJ108065", "AE", null))
+                .thenReturn(List.of(
+                        skuPurchaseProductRow("CANMAN-AE-SKU-001", "CM-AE-PARTNER-001", "PSKU-CM-AE-001", "复购商品"),
+                        skuPurchaseProductRow("CANMAN-AE-SKU-002", "CM-AE-PARTNER-002", "PSKU-CM-AE-002", "单次采购商品"),
+                        skuPurchaseProductRow("CANMAN-AE-SKU-003", "CM-AE-PARTNER-003", "PSKU-CM-AE-003", "未采购商品")
+                ));
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                4,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                5,
+                                5,
+                                "¥200.00",
+                                "¥200.00",
+                                "¥200.00"
+                        ),
+                        purchaseHistoryRow(
+                                99003L,
+                                "ALI-003",
+                                "2026-05-25 10:00:00",
+                                "CANMAN-AE-SKU-002",
+                                2,
+                                2,
+                                "¥40.00",
+                                "¥40.00",
+                                "¥40.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView repeatPurchaseView =
+                service.listSkuPurchaseHistory(context, repeatPurchaseQuery);
+        Ali1688SkuPurchaseHistoryView noPurchaseView =
+                service.listSkuPurchaseHistory(context, noPurchaseQuery);
+
+        assertThat(repeatPurchaseView.getItems())
+                .extracting(Ali1688SkuPurchaseHistoryView.ItemView::getSkuParent)
+                .containsExactly("CANMAN-AE-SKU-001");
+        assertThat(noPurchaseView.getItems())
+                .extracting(Ali1688SkuPurchaseHistoryView.ItemView::getSkuParent)
+                .containsExactly("CANMAN-AE-SKU-003");
+    }
+
+    @Test
+    void listSkuPurchaseHistoryFiltersByPriceAnomalyBeforePagination() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+        query.setPriceAnomalyOnly(true);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99011L,
+                                "ALI-NORMAL-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-NORMAL",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99012L,
+                                "ALI-NORMAL-002",
+                                "2026-05-02 10:00:00",
+                                "CANMAN-AE-SKU-NORMAL",
+                                10,
+                                10,
+                                "¥110.00",
+                                "¥110.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99013L,
+                                "ALI-NORMAL-003",
+                                "2026-05-03 10:00:00",
+                                "CANMAN-AE-SKU-NORMAL",
+                                10,
+                                10,
+                                "¥105.00",
+                                "¥105.00",
+                                "¥105.00"
+                        ),
+                        purchaseHistoryRow(
+                                99021L,
+                                "ALI-ANOMALY-001",
+                                "2026-05-04 10:00:00",
+                                "CANMAN-AE-SKU-ANOMALY",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99022L,
+                                "ALI-ANOMALY-002",
+                                "2026-05-05 10:00:00",
+                                "CANMAN-AE-SKU-ANOMALY",
+                                10,
+                                10,
+                                "¥110.00",
+                                "¥110.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99023L,
+                                "ALI-ANOMALY-003",
+                                "2026-05-06 10:00:00",
+                                "CANMAN-AE-SKU-ANOMALY",
+                                10,
+                                10,
+                                "¥300.00",
+                                "¥300.00",
+                                "¥300.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView view = service.listSkuPurchaseHistory(context, query);
+
+        assertThat(view.getPagination().getTotal()).isEqualTo(1);
+        assertThat(view.getItems())
+                .extracting(Ali1688SkuPurchaseHistoryView.ItemView::getSkuParent)
+                .containsExactly("CANMAN-AE-SKU-ANOMALY");
+        assertThat(view.getItems().get(0).getPriceAnomalyCount()).isEqualTo(1);
+    }
+
+    @Test
+    void listSkuPurchaseHistoryMarksPriceAnomaliesAndExcludesThemFromStableAverage() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥110.00",
+                                "¥110.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99003L,
+                                "ALI-003",
+                                "2026-05-25 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥123.00",
+                                "¥123.00",
+                                "¥123.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView.ItemView item =
+                service.listSkuPurchaseHistory(context, query).getItems().get(0);
+
+        assertThat(item.getPurchaseCount()).isEqualTo(3);
+        assertThat(item.getPriceAnomalyCount()).isEqualTo(1);
+        assertThat(item.getStableAverageUnitPrice()).isEqualByComparingTo(new BigDecimal("10.50"));
+    }
+
+    @Test
+    void listSkuPurchaseHistoryDoesNotMarkTwoOrdersAnomalousWhenPricesStayWithinTenPercent() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.10",
+                                "¥100.10",
+                                "¥100.10"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView.ItemView item =
+                service.listSkuPurchaseHistory(context, query).getItems().get(0);
+
+        assertThat(item.getPurchaseCount()).isEqualTo(2);
+        assertThat(item.getPriceAnomalyCount()).isZero();
+        assertThat(item.getStableAverageUnitPrice()).isEqualByComparingTo(new BigDecimal("10.01"));
+    }
+
+    @Test
+    void listSkuPurchaseHistoryMarksBothOrdersAnomalousWhenOnlyTwoPricesDeviateByMoreThanTenPercent() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥120.00",
+                                "¥120.00",
+                                "¥120.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView.ItemView item =
+                service.listSkuPurchaseHistory(context, query).getItems().get(0);
+
+        assertThat(item.getPurchaseCount()).isEqualTo(2);
+        assertThat(item.getPriceAnomalyCount()).isEqualTo(2);
+        assertThat(item.getStableAverageUnitPrice()).isNull();
+    }
+
+    @Test
     void saveSkuPurchaseBatchesReplacesExistingManualBatchesForOneSku() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");

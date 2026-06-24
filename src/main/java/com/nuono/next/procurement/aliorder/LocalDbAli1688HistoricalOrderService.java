@@ -34,6 +34,7 @@ public class LocalDbAli1688HistoricalOrderService {
     static final String ASSIGNMENT_TARGET_CONSUMABLE = "CONSUMABLE";
     static final String ASSIGNMENT_TARGET_DISCONTINUED = "DISCONTINUED";
     static final long MAX_EXCEL_IMPORT_FILE_SIZE_BYTES = 20L * 1024L * 1024L;
+    private static final BigDecimal PURCHASE_PRICE_ANOMALY_THRESHOLD_RATIO = new BigDecimal("0.10");
 
     private final Ali1688HistoricalOrderMapper mapper;
     private final Ali1688HistoricalOrderProvider provider;
@@ -1466,6 +1467,8 @@ public class LocalDbAli1688HistoricalOrderService {
                 .map(SkuPurchaseHistoryAccumulator::toView)
                 .filter(item -> !linkedOnly || "linked".equalsIgnoreCase(item.getLinkStatus()))
                 .filter(item -> !unlinkedOnly || "unlinked".equalsIgnoreCase(item.getLinkStatus()))
+                .filter(item -> matchesPurchaseCountRange(item, resolvedQuery))
+                .filter(item -> matchesPriceAnomalyFilter(item, resolvedQuery))
                 .collect(Collectors.toList());
         items.sort((left, right) -> nullToEmpty(right.getRecentPurchaseTime())
                 .compareTo(nullToEmpty(left.getRecentPurchaseTime())));
@@ -1482,6 +1485,135 @@ public class LocalDbAli1688HistoricalOrderService {
         );
         view.setUnlinkedAssignedLineCount(unlinkedAssignedLineCount);
         return view;
+    }
+
+    private boolean matchesPurchaseCountRange(
+            Ali1688SkuPurchaseHistoryView.ItemView item,
+            Ali1688SkuPurchaseHistoryQuery query
+    ) {
+        if (item == null || query == null) {
+            return true;
+        }
+        Integer min = query.getPurchaseCountMin();
+        Integer max = query.getPurchaseCountMax();
+        int purchaseCount = item.getPurchaseCount();
+        return (min == null || purchaseCount >= min)
+                && (max == null || purchaseCount <= max);
+    }
+
+    private boolean matchesPriceAnomalyFilter(
+            Ali1688SkuPurchaseHistoryView.ItemView item,
+            Ali1688SkuPurchaseHistoryQuery query
+    ) {
+        return query == null
+                || !query.isPriceAnomalyOnly()
+                || (item != null && item.getPriceAnomalyCount() > 0);
+    }
+
+    private static PriceAnomalyMetrics calculatePriceAnomalyMetrics(List<BigDecimal> unitPrices) {
+        List<BigDecimal> prices = unitPrices == null
+                ? List.of()
+                : unitPrices.stream()
+                        .filter(value -> value != null && value.compareTo(BigDecimal.ZERO) > 0)
+                        .collect(Collectors.toList());
+        if (prices.isEmpty()) {
+            return new PriceAnomalyMetrics(0, null);
+        }
+        if (prices.size() < 2) {
+            return new PriceAnomalyMetrics(0, averagePrice(prices));
+        }
+        if (prices.size() == 2) {
+            return exceedsPairPriceDeviation(prices)
+                    ? new PriceAnomalyMetrics(2, null)
+                    : new PriceAnomalyMetrics(0, averagePrice(prices));
+        }
+
+        BigDecimal baseline = medianPrice(prices);
+        List<BigDecimal> normalPrices = prices.stream()
+                .filter(price -> !exceedsPriceDeviation(price, baseline))
+                .collect(Collectors.toList());
+        if (normalPrices.isEmpty()) {
+            return new PriceAnomalyMetrics(0, averagePrice(prices));
+        }
+
+        int iterations = 0;
+        while (iterations++ < prices.size()) {
+            BigDecimal average = averagePrice(normalPrices);
+            List<BigDecimal> nextNormalPrices = prices.stream()
+                    .filter(price -> !exceedsPriceDeviation(price, average))
+                    .collect(Collectors.toList());
+            if (nextNormalPrices.isEmpty() || samePrices(normalPrices, nextNormalPrices)) {
+                break;
+            }
+            normalPrices = nextNormalPrices;
+        }
+        return new PriceAnomalyMetrics(prices.size() - normalPrices.size(), averagePrice(normalPrices));
+    }
+
+    private static boolean samePrices(List<BigDecimal> left, List<BigDecimal> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            if (left.get(i).compareTo(right.get(i)) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static BigDecimal medianPrice(List<BigDecimal> prices) {
+        List<BigDecimal> sorted = prices.stream()
+                .sorted(BigDecimal::compareTo)
+                .collect(Collectors.toList());
+        int middle = sorted.size() / 2;
+        if (sorted.size() % 2 == 1) {
+            return sorted.get(middle);
+        }
+        return sorted.get(middle - 1)
+                .add(sorted.get(middle))
+                .divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal averagePrice(List<BigDecimal> prices) {
+        if (prices == null || prices.isEmpty()) {
+            return null;
+        }
+        BigDecimal total = prices.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return total.divide(BigDecimal.valueOf(prices.size()), 8, RoundingMode.HALF_UP);
+    }
+
+    private static boolean exceedsPriceDeviation(BigDecimal unitPrice, BigDecimal baseline) {
+        if (unitPrice == null || baseline == null || baseline.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+        BigDecimal deviationRatio = unitPrice.subtract(baseline).abs()
+                .divide(baseline, 8, RoundingMode.HALF_UP);
+        return deviationRatio.compareTo(PURCHASE_PRICE_ANOMALY_THRESHOLD_RATIO) > 0;
+    }
+
+    private static boolean exceedsPairPriceDeviation(List<BigDecimal> prices) {
+        if (prices == null || prices.size() != 2) {
+            return false;
+        }
+        BigDecimal lower = prices.get(0).min(prices.get(1));
+        BigDecimal higher = prices.get(0).max(prices.get(1));
+        if (lower.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+        BigDecimal deviationRatio = higher.subtract(lower)
+                .divide(lower, 8, RoundingMode.HALF_UP);
+        return deviationRatio.compareTo(PURCHASE_PRICE_ANOMALY_THRESHOLD_RATIO) > 0;
+    }
+
+    private static class PriceAnomalyMetrics {
+        private final int anomalyCount;
+        private final BigDecimal stableAverageUnitPrice;
+
+        private PriceAnomalyMetrics(int anomalyCount, BigDecimal stableAverageUnitPrice) {
+            this.anomalyCount = anomalyCount;
+            this.stableAverageUnitPrice = stableAverageUnitPrice;
+        }
     }
 
     @Transactional
@@ -2534,6 +2666,7 @@ public class LocalDbAli1688HistoricalOrderService {
             recentPurchaseTime = null;
             amountBasisSet.clear();
             qualityFlagSet.clear();
+            List<BigDecimal> pricedUnitPrices = new ArrayList<>();
 
             if (hasManualBatches) {
                 purchaseCount = manualPurchaseBatches.size();
@@ -2547,6 +2680,7 @@ public class LocalDbAli1688HistoricalOrderService {
                     if (allocatedCost != null && unitPrice != null && quantity != null && quantity > 0) {
                         totalCost = totalCost.add(allocatedCost);
                         pricedQuantity += quantity;
+                        pricedUnitPrices.add(unitPrice);
                         if (lowestUnitPrice == null || unitPrice.compareTo(lowestUnitPrice) < 0) {
                             lowestUnitPrice = unitPrice;
                         }
@@ -2572,6 +2706,7 @@ public class LocalDbAli1688HistoricalOrderService {
                     if (allocatedCost != null && unitPrice != null && quantity != null && quantity > 0) {
                         totalCost = totalCost.add(allocatedCost);
                         pricedQuantity += quantity;
+                        pricedUnitPrices.add(unitPrice);
                         if (lowestUnitPrice == null || unitPrice.compareTo(lowestUnitPrice) < 0) {
                             lowestUnitPrice = unitPrice;
                         }
@@ -2588,6 +2723,7 @@ public class LocalDbAli1688HistoricalOrderService {
                     }
                 }
             }
+            PriceAnomalyMetrics priceAnomalyMetrics = calculatePriceAnomalyMetrics(pricedUnitPrices);
             Ali1688SkuPurchaseHistoryView.ItemView view = new Ali1688SkuPurchaseHistoryView.ItemView();
             view.setStoreCode(storeCode);
             view.setSiteCode(siteCode);
@@ -2618,6 +2754,8 @@ public class LocalDbAli1688HistoricalOrderService {
             view.setRecentPurchaseTime(recentPurchaseTime);
             view.setLowestUnitPrice(lowestUnitPrice);
             view.setHighestUnitPrice(highestUnitPrice);
+            view.setPriceAnomalyCount(priceAnomalyMetrics.anomalyCount);
+            view.setStableAverageUnitPrice(money(priceAnomalyMetrics.stableAverageUnitPrice));
             view.setAmountBasis(resolveAmountBasis(amountBasisSet));
             view.setDataQualityFlags(new ArrayList<>(qualityFlagSet.keySet()));
             view.setHistory(history);
