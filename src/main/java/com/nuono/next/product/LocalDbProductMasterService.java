@@ -54,11 +54,14 @@ public class LocalDbProductMasterService {
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private static final List<String> XINGYAO_CONTROLLED_PUBLISH_CODES = List.of(
+    private static final List<String> CONTROLLED_PUBLISH_CODES = List.of(
             "PRJ245027",
             "P245027",
             "STR245027-NAE",
-            "STR245027-NSA"
+            "STR245027-NSA",
+            "PRJ353172",
+            "STR353172-NAE",
+            "STR353172-NSA"
     );
 
     private final ProductManagementMapper productManagementMapper;
@@ -2499,18 +2502,18 @@ public class LocalDbProductMasterService {
         String storeCode = normalize(store.getStoreCode());
         String projectCode = normalize(store.getProjectCode());
         if ("xingyao".equalsIgnoreCase(projectName)
-                || isXingyaoControlledPublishCode(projectCode)
-                || isXingyaoControlledPublishCode(storeCode)) {
+                || isControlledPublishCode(projectCode)
+                || isControlledPublishCode(storeCode)) {
             return;
         }
-        throw new IllegalArgumentException("当前只开放 xingyao 测试店铺的受控发布。");
+        throw new IllegalArgumentException("当前只开放受控测试店铺的受控发布。");
     }
 
-    private boolean isXingyaoControlledPublishCode(String code) {
+    private boolean isControlledPublishCode(String code) {
         if (!StringUtils.hasText(code)) {
             return false;
         }
-        return XINGYAO_CONTROLLED_PUBLISH_CODES.stream()
+        return CONTROLLED_PUBLISH_CODES.stream()
                 .anyMatch(allowedCode -> allowedCode.equalsIgnoreCase(code));
     }
 

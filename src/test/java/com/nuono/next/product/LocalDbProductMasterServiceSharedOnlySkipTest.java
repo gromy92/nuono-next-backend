@@ -293,7 +293,18 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
                 IllegalArgumentException.class,
                 () -> invokeEnsurePublishStoreAllowed(store(null, "STR108065-NSA", "PRJ108065"))
         );
-        assertEquals("当前只开放 xingyao 测试店铺的受控发布。", exception.getMessage());
+        assertEquals("当前只开放受控测试店铺的受控发布。", exception.getMessage());
+    }
+
+    @Test
+    void shouldAllowInsularScreenshotSaSiteInControlledPublishGate() throws Exception {
+        assertDoesNotThrow(() -> invokeEnsurePublishStoreAllowed(store(null, "STR353172-NSA", "PRJ353172")));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> invokeEnsurePublishStoreAllowed(store(null, "STR108065-NSA", "PRJ108065"))
+        );
+        assertEquals("当前只开放受控测试店铺的受控发布。", exception.getMessage());
     }
 
     private boolean invokeShouldSkip(
