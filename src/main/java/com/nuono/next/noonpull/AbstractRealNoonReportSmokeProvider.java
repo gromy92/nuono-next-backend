@@ -63,7 +63,7 @@ abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider
             body.put("exportCategoryCode", exportCategoryCode(request));
             body.put("params", writeParams(buildParams(binding, request)));
 
-            JsonNode root = sessionFactory.login(binding).postJson(createUrl, body, false, reportHeaders(binding));
+            JsonNode root = sessionFactory.login(binding).postJson(createUrl, body, true, reportHeaders(binding));
             String providerError = providerError(root);
             if (StringUtils.hasText(providerError)) {
                 throw NoonPullProviderFailureMapper.explicit(
@@ -89,7 +89,7 @@ abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider
             body.put("exportCode", exportId);
             body.put("log", false);
 
-            JsonNode root = sessionFactory.login(binding).postJson(statusUrl, body, false, reportHeaders(binding));
+            JsonNode root = sessionFactory.login(binding).postJson(statusUrl, body, true, reportHeaders(binding));
             String providerError = providerError(root);
             if (StringUtils.hasText(providerError)) {
                 throw NoonPullProviderFailureMapper.explicit("report export status", providerError);

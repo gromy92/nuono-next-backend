@@ -109,7 +109,7 @@ class NoonRealProviderBehaviorTest {
         assertEquals("https://download.test/sales.csv", status.getDownloadUrl());
         assertSame(session.downloadBytes, downloaded);
         assertEquals(EXPORT_CREATE_URL, session.posts.get(0).url);
-        assertFalse(session.posts.get(0).withProject);
+        assertTrue(session.posts.get(0).withProject);
         assertEquals("PRJ245027", session.posts.get(0).extraHeaders.get("X-Project"));
         assertEquals("en-ae", session.posts.get(0).extraHeaders.get("X-Locale"));
         assertEquals("en", session.posts.get(0).extraHeaders.get("X-Lang"));
@@ -120,7 +120,7 @@ class NoonRealProviderBehaviorTest {
         assertEquals("2026-05-21", params.get("from_date").asText());
         assertEquals("2026-05-21", params.get("to_date").asText());
         assertEquals(EXPORT_STATUS_URL, session.posts.get(1).url);
-        assertFalse(session.posts.get(1).withProject);
+        assertTrue(session.posts.get(1).withProject);
         assertEquals("PRJ245027", session.posts.get(1).extraHeaders.get("X-Project"));
         assertEquals("en-ae", session.posts.get(1).extraHeaders.get("X-Locale"));
         assertEquals("EXP-1", session.posts.get(1).body.get("exportCode").asText());
