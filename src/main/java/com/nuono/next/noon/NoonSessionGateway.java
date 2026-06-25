@@ -997,6 +997,7 @@ public class NoonSessionGateway {
                 || message.contains("read timed out")
                 || message.contains("unexpected end")
                 || message.contains("closed")
+                || message.contains("tunnel failed")
                 || message.contains("http 407")
                 || message.contains("http 408")
                 || message.contains("http 502")

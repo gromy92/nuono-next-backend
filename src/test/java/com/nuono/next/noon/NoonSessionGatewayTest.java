@@ -13,6 +13,7 @@ import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -106,6 +107,19 @@ class NoonSessionGatewayTest {
             assertTrue(staleProxy.requestCount() >= 2);
             assertTrue(refreshedProxy.awaitRequests(2));
         }
+    }
+
+    @Test
+    void shouldRefreshProxySessionForTunnelFailureStatus() throws Exception {
+        NoonSessionGateway gateway = gateway("http://127.0.0.1:1/proxy");
+        Method method = NoonSessionGateway.class.getDeclaredMethod(
+                "shouldRefreshAfterTransientTransportFailure",
+                IllegalStateException.class
+        );
+        method.setAccessible(true);
+
+        assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 435")));
+        assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 436")));
     }
 
     @Test
