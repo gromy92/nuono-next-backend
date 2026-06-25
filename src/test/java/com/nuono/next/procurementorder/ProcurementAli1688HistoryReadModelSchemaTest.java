@@ -16,7 +16,8 @@ class ProcurementAli1688HistoryReadModelSchemaTest {
                 .contains("classpath:db/init/118_procurement_ali1688_order_sku_allocation.sql")
                 .contains("classpath:db/init/119_procurement_purchase_order.sql")
                 .contains("classpath:db/init/122_procurement_purchase_order_logistics_plan.sql")
-                .contains("classpath:db/init/123_procurement_purchase_order_transport_mode.sql");
+                .contains("classpath:db/init/123_procurement_purchase_order_transport_mode.sql")
+                .contains("classpath:db/init/141_procurement_ali1688_sku_purchase_batch_combo_support.sql");
     }
 
     @Test
@@ -34,6 +35,12 @@ class ProcurementAli1688HistoryReadModelSchemaTest {
                 .contains("CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_item_product_link`")
                 .contains("CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_sku_allocation`")
                 .contains("CREATE TABLE IF NOT EXISTS `procurement_ali1688_sku_purchase_batch`")
-                .contains("CREATE TABLE IF NOT EXISTS `procurement_ali1688_sku_purchase_batch_source`");
+                .contains("CREATE TABLE IF NOT EXISTS `procurement_ali1688_sku_purchase_batch_source`")
+                .contains("`batch_type`")
+                .contains("`counted_quantity_unit`")
+                .contains("`component_count`")
+                .contains("`expected_component_count`")
+                .contains("`component_sequence`")
+                .contains("`source_quantity_per_counted_unit`");
     }
 }

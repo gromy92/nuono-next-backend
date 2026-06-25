@@ -1435,7 +1435,9 @@ public interface Ali1688HistoricalOrderMapper {
             "  id, owner_user_id AS ownerUserId, target_store_code AS storeCode, target_site_code AS siteCode,",
             "  sku_parent AS skuParent, partner_sku AS partnerSku, psku_code AS pskuCode,",
             "  batch_label AS batchLabel, batch_sequence AS batchSequence, counted_quantity AS countedQuantity,",
-            "  counted_cost AS countedCost, note, status, created_by AS createdBy, updated_by AS updatedBy,",
+            "  batch_type AS batchType, counted_quantity_unit AS countedQuantityUnit,",
+            "  counted_cost AS countedCost, component_count AS componentCount,",
+            "  expected_component_count AS expectedComponentCount, note, status, created_by AS createdBy, updated_by AS updatedBy,",
             "  DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
             "  DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "FROM procurement_ali1688_sku_purchase_batch batch",
@@ -1499,9 +1501,14 @@ public interface Ali1688HistoricalOrderMapper {
             "<script>",
             "SELECT",
             "  id, batch_id AS batchId, owner_user_id AS ownerUserId, order_id AS orderId, item_id AS itemId,",
-            "  assignment_id AS assignmentId, source_order_no AS sourceOrderNo,",
+            "  assignment_id AS assignmentId, component_sequence AS componentSequence, component_role AS componentRole,",
+            "  source_order_no AS sourceOrderNo,",
             "  DATE_FORMAT(source_order_time, '%Y-%m-%d %H:%i:%s') AS sourceOrderTime,",
-            "  supplier_name AS supplierName, status, created_by AS createdBy, updated_by AS updatedBy,",
+            "  supplier_name AS supplierName, source_offer_id AS sourceOfferId, source_sku_id AS sourceSkuId,",
+            "  source_title AS sourceTitle, source_spec AS sourceSpec, source_quantity AS sourceQuantity,",
+            "  source_unit AS sourceUnit, source_unit_price AS sourceUnitPrice, source_amount AS sourceAmount,",
+            "  source_quantity_per_counted_unit AS sourceQuantityPerCountedUnit,",
+            "  status, created_by AS createdBy, updated_by AS updatedBy,",
             "  DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
             "  DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "FROM procurement_ali1688_sku_purchase_batch_source",
@@ -1510,7 +1517,7 @@ public interface Ali1688HistoricalOrderMapper {
             "  AND is_deleted = b'0'",
             "  AND batch_id IN",
             "  <foreach collection='batchIds' item='batchId' open='(' separator=',' close=')'>#{batchId}</foreach>",
-            "ORDER BY batch_id ASC, id ASC",
+            "ORDER BY batch_id ASC, component_sequence IS NULL ASC, component_sequence ASC, id ASC",
             "</script>"
     })
     List<Ali1688SkuPurchaseBatchSourceRow> listSkuPurchaseBatchSources(
@@ -1541,21 +1548,27 @@ public interface Ali1688HistoricalOrderMapper {
     @Insert({
             "INSERT INTO procurement_ali1688_sku_purchase_batch (",
             "  id, owner_user_id, target_store_code, target_site_code, sku_parent, partner_sku, psku_code,",
-            "  batch_label, batch_sequence, counted_quantity, counted_cost, note, status, created_by, updated_by",
+            "  batch_label, batch_sequence, batch_type, counted_quantity, counted_quantity_unit, counted_cost,",
+            "  component_count, expected_component_count, note, status, created_by, updated_by",
             ") VALUES (",
             "  #{id}, #{ownerUserId}, #{storeCode}, #{siteCode}, #{skuParent}, #{partnerSku}, #{pskuCode},",
-            "  #{batchLabel}, #{batchSequence}, #{countedQuantity}, #{countedCost}, #{note}, #{status}, #{createdBy}, #{updatedBy}",
+            "  #{batchLabel}, #{batchSequence}, #{batchType}, #{countedQuantity}, #{countedQuantityUnit}, #{countedCost},",
+            "  #{componentCount}, #{expectedComponentCount}, #{note}, #{status}, #{createdBy}, #{updatedBy}",
             ")"
     })
     int insertSkuPurchaseBatch(Ali1688SkuPurchaseBatchRow row);
 
     @Insert({
             "INSERT INTO procurement_ali1688_sku_purchase_batch_source (",
-            "  id, batch_id, owner_user_id, order_id, item_id, assignment_id, source_order_no, source_order_time,",
-            "  supplier_name, status, created_by, updated_by",
+            "  id, batch_id, owner_user_id, order_id, item_id, assignment_id, component_sequence, component_role,",
+            "  source_order_no, source_order_time, supplier_name, source_offer_id, source_sku_id, source_title,",
+            "  source_spec, source_quantity, source_unit, source_unit_price, source_amount,",
+            "  source_quantity_per_counted_unit, status, created_by, updated_by",
             ") VALUES (",
-            "  #{id}, #{batchId}, #{ownerUserId}, #{orderId}, #{itemId}, #{assignmentId}, #{sourceOrderNo}, #{sourceOrderTime},",
-            "  #{supplierName}, #{status}, #{createdBy}, #{updatedBy}",
+            "  #{id}, #{batchId}, #{ownerUserId}, #{orderId}, #{itemId}, #{assignmentId}, #{componentSequence}, #{componentRole},",
+            "  #{sourceOrderNo}, #{sourceOrderTime}, #{supplierName}, #{sourceOfferId}, #{sourceSkuId}, #{sourceTitle},",
+            "  #{sourceSpec}, #{sourceQuantity}, #{sourceUnit}, #{sourceUnitPrice}, #{sourceAmount},",
+            "  #{sourceQuantityPerCountedUnit}, #{status}, #{createdBy}, #{updatedBy}",
             ")"
     })
     int insertSkuPurchaseBatchSource(Ali1688SkuPurchaseBatchSourceRow row);

@@ -1265,20 +1265,42 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                                 "¥200.00"
                         )
                 ));
+        Ali1688SkuPurchaseBatchRow persistedBatch = skuPurchaseBatchRow(
+                102001L,
+                "PRJ108065",
+                "AE",
+                "CANMAN-AE-SKU-001",
+                "批次 1",
+                3,
+                "120.00",
+                "3个/套换6个/套"
+        );
+        persistedBatch.setBatchType("combo_set");
+        persistedBatch.setCountedQuantityUnit("套");
+        persistedBatch.setComponentCount(10);
+        persistedBatch.setExpectedComponentCount(10);
+        Ali1688SkuPurchaseBatchSourceRow persistedSource = skuPurchaseBatchSourceRow(
+                102001L,
+                99001L,
+                "ALI-001",
+                "2026-05-01 10:00:00"
+        );
+        persistedSource.setComponentSequence(1);
+        persistedSource.setComponentRole("笔芯颜色: 粉色");
+        persistedSource.setSourceOfferId("1121281863");
+        persistedSource.setSourceSkuId("SKU-PINK");
+        persistedSource.setSourceTitle("台笔圆珠笔");
+        persistedSource.setSourceSpec("笔芯颜色: 粉色; 笔头: 子弹型1.0");
+        persistedSource.setSourceQuantity(new BigDecimal("30.0000"));
+        persistedSource.setSourceUnit("支");
+        persistedSource.setSourceUnitPrice(new BigDecimal("1.450000"));
+        persistedSource.setSourceAmount(new BigDecimal("43.5000"));
+        persistedSource.setSourceQuantityPerCountedUnit(new BigDecimal("1.000000"));
         when(mapper.listSkuPurchaseBatches(307L, "PRJ108065", "AE", null, null, null))
-                .thenReturn(List.of(skuPurchaseBatchRow(
-                        102001L,
-                        "PRJ108065",
-                        "AE",
-                        "CANMAN-AE-SKU-001",
-                        "批次 1",
-                        3,
-                        "120.00",
-                        "3个/套换6个/套"
-                )));
+                .thenReturn(List.of(persistedBatch));
         when(mapper.listSkuPurchaseBatchSources(307L, List.of(102001L)))
                 .thenReturn(List.of(
-                        skuPurchaseBatchSourceRow(102001L, 99001L, "ALI-001", "2026-05-01 10:00:00"),
+                        persistedSource,
                         skuPurchaseBatchSourceRow(102001L, 99002L, "ALI-002", "2026-05-20 10:00:00")
                 ));
 
@@ -1292,9 +1314,17 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         assertThat(item.getRecentUnitPrice()).isEqualByComparingTo(new BigDecimal("40.00"));
         assertThat(item.getAmountBasis()).isEqualTo("manual_batch_adjusted");
         assertThat(item.getPurchaseBatches()).hasSize(1);
+        assertThat(item.getPurchaseBatches().get(0).getBatchType()).isEqualTo("combo_set");
+        assertThat(item.getPurchaseBatches().get(0).getCountedQuantityUnit()).isEqualTo("套");
+        assertThat(item.getPurchaseBatches().get(0).getComponentCount()).isEqualTo(10);
+        assertThat(item.getPurchaseBatches().get(0).getExpectedComponentCount()).isEqualTo(10);
         assertThat(item.getPurchaseBatches().get(0).getSources())
                 .extracting(Ali1688SkuPurchaseHistoryView.PurchaseBatchSourceView::getAssignmentId)
                 .containsExactly(99001L, 99002L);
+        assertThat(item.getPurchaseBatches().get(0).getSources().get(0).getSourceSpec())
+                .contains("笔芯颜色: 粉色");
+        assertThat(item.getPurchaseBatches().get(0).getSources().get(0).getSourceUnitPrice())
+                .isEqualByComparingTo(new BigDecimal("1.450000"));
     }
 
     @Test
@@ -1597,16 +1627,31 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         request.setPskuCode("PSKU-CM-AE-001");
         Ali1688SkuPurchaseBatchView.BatchRequest batch = new Ali1688SkuPurchaseBatchView.BatchRequest();
         batch.setLabel("批次 1");
+        batch.setBatchType("combo_set");
         batch.setCountedQuantity(3);
+        batch.setCountedQuantityUnit("套");
         batch.setCountedCost(new BigDecimal("120.00"));
+        batch.setComponentCount(10);
+        batch.setExpectedComponentCount(10);
         batch.setNote("3个/套换6个/套");
         Ali1688SkuPurchaseBatchView.SourceRequest firstSource = new Ali1688SkuPurchaseBatchView.SourceRequest();
         firstSource.setAssignmentId(99001L);
         firstSource.setOrderId(93001L);
         firstSource.setItemId(94001L);
+        firstSource.setComponentSequence(1);
+        firstSource.setComponentRole("粉色型号");
         firstSource.setOrderNo("ALI-001");
         firstSource.setOrderTime("2026-05-01 10:00:00");
         firstSource.setSupplierName("义乌诚信通源头工厂");
+        firstSource.setSourceOfferId("1121281863");
+        firstSource.setSourceSkuId("SKU-PINK");
+        firstSource.setSourceTitle("台笔圆珠笔");
+        firstSource.setSourceSpec("笔芯颜色: 粉色; 笔头: 子弹型1.0");
+        firstSource.setSourceQuantity(new BigDecimal("30"));
+        firstSource.setSourceUnit("支");
+        firstSource.setSourceUnitPrice(new BigDecimal("1.45"));
+        firstSource.setSourceAmount(new BigDecimal("43.50"));
+        firstSource.setSourceQuantityPerCountedUnit(new BigDecimal("1"));
         Ali1688SkuPurchaseBatchView.SourceRequest secondSource = new Ali1688SkuPurchaseBatchView.SourceRequest();
         secondSource.setAssignmentId(99002L);
         secondSource.setOrderId(93002L);
@@ -1644,14 +1689,24 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 ArgumentCaptor.forClass(Ali1688SkuPurchaseBatchRow.class);
         verify(mapper).insertSkuPurchaseBatch(batchCaptor.capture());
         assertThat(batchCaptor.getValue().getId()).isEqualTo(102001L);
+        assertThat(batchCaptor.getValue().getBatchType()).isEqualTo("combo_set");
         assertThat(batchCaptor.getValue().getCountedQuantity()).isEqualTo(3);
+        assertThat(batchCaptor.getValue().getCountedQuantityUnit()).isEqualTo("套");
         assertThat(batchCaptor.getValue().getCountedCost()).isEqualByComparingTo(new BigDecimal("120.00"));
+        assertThat(batchCaptor.getValue().getComponentCount()).isEqualTo(10);
+        assertThat(batchCaptor.getValue().getExpectedComponentCount()).isEqualTo(10);
         ArgumentCaptor<Ali1688SkuPurchaseBatchSourceRow> sourceCaptor =
                 ArgumentCaptor.forClass(Ali1688SkuPurchaseBatchSourceRow.class);
         verify(mapper, times(2)).insertSkuPurchaseBatchSource(sourceCaptor.capture());
         assertThat(sourceCaptor.getAllValues())
                 .extracting(Ali1688SkuPurchaseBatchSourceRow::getAssignmentId)
                 .containsExactly(99001L, 99002L);
+        assertThat(sourceCaptor.getAllValues().get(0).getComponentSequence()).isEqualTo(1);
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceSpec()).contains("笔芯颜色: 粉色");
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceQuantity()).isEqualByComparingTo(new BigDecimal("30.0000"));
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceUnitPrice()).isEqualByComparingTo(new BigDecimal("1.450000"));
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceQuantityPerCountedUnit())
+                .isEqualByComparingTo(new BigDecimal("1.000000"));
     }
 
     @Test

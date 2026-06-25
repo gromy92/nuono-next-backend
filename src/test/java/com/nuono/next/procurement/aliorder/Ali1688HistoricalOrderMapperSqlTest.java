@@ -347,14 +347,27 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 String.class,
                 Long.class
         );
+        Method insertBatchMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "insertSkuPurchaseBatch",
+                Ali1688SkuPurchaseBatchRow.class
+        );
+        Method insertSourceMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "insertSkuPurchaseBatchSource",
+                Ali1688SkuPurchaseBatchSourceRow.class
+        );
         String listSql = annotationSql(listBatchesMethod.getAnnotation(Select.class).value());
         String softDeleteSql = annotationSql(softDeleteMethod.getAnnotation(Update.class).value());
+        String insertBatchSql = annotationSql(insertBatchMethod.getAnnotation(Insert.class).value());
+        String insertSourceSql = annotationSql(insertSourceMethod.getAnnotation(Insert.class).value());
 
         assertThat(listSql)
                 .contains("FROM procurement_ali1688_sku_purchase_batch batch")
                 .contains("target_store_code = #{storeCode}")
                 .contains("target_site_code = #{siteCode}")
                 .contains("sku_parent")
+                .contains("batch_type AS batchType")
+                .contains("counted_quantity_unit AS countedQuantityUnit")
+                .contains("component_count AS componentCount")
                 .contains("purchaseTimeFrom")
                 .contains("procurement_ali1688_sku_purchase_batch_source");
         assertThat(softDeleteSql)
@@ -362,6 +375,16 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("status = 'replaced'")
                 .contains("owner_user_id = #{ownerUserId}")
                 .contains("sku_parent = #{skuParent}");
+        assertThat(insertBatchSql)
+                .contains("batch_type")
+                .contains("counted_quantity_unit")
+                .contains("component_count")
+                .contains("expected_component_count");
+        assertThat(insertSourceSql)
+                .contains("component_sequence")
+                .contains("component_role")
+                .contains("source_offer_id")
+                .contains("source_quantity_per_counted_unit");
     }
 
     @Test
