@@ -1683,8 +1683,12 @@ public class LocalDbAli1688HistoricalOrderService {
             row.setPskuCode(trimToNull(request.getPskuCode()));
             row.setBatchLabel(hasText(batchRequest.getLabel()) ? batchRequest.getLabel().trim() : "批次 " + sequence);
             row.setBatchSequence(sequence);
+            row.setBatchType(defaultIfBlank(batchRequest.getBatchType(), "manual"));
             row.setCountedQuantity(batchRequest.getCountedQuantity());
+            row.setCountedQuantityUnit(trimToNull(batchRequest.getCountedQuantityUnit()));
             row.setCountedCost(batchRequest.getCountedCost().setScale(4, RoundingMode.HALF_UP));
+            row.setComponentCount(batchRequest.getComponentCount());
+            row.setExpectedComponentCount(batchRequest.getExpectedComponentCount());
             row.setNote(trimToNull(batchRequest.getNote()));
             row.setStatus("active");
             row.setCreatedBy(operatorUserId);
@@ -1700,9 +1704,20 @@ public class LocalDbAli1688HistoricalOrderService {
                 sourceRow.setOrderId(source.getOrderId());
                 sourceRow.setItemId(source.getItemId());
                 sourceRow.setAssignmentId(source.getAssignmentId());
+                sourceRow.setComponentSequence(source.getComponentSequence());
+                sourceRow.setComponentRole(trimToNull(source.getComponentRole()));
                 sourceRow.setSourceOrderNo(trimToNull(source.getOrderNo()));
                 sourceRow.setSourceOrderTime(trimToNull(source.getOrderTime()));
                 sourceRow.setSupplierName(trimToNull(source.getSupplierName()));
+                sourceRow.setSourceOfferId(trimToNull(source.getSourceOfferId()));
+                sourceRow.setSourceSkuId(trimToNull(source.getSourceSkuId()));
+                sourceRow.setSourceTitle(trimToNull(source.getSourceTitle()));
+                sourceRow.setSourceSpec(trimToNull(source.getSourceSpec()));
+                sourceRow.setSourceQuantity(scaleDecimal(source.getSourceQuantity(), 4));
+                sourceRow.setSourceUnit(trimToNull(source.getSourceUnit()));
+                sourceRow.setSourceUnitPrice(scaleDecimal(source.getSourceUnitPrice(), 6));
+                sourceRow.setSourceAmount(scaleDecimal(source.getSourceAmount(), 4));
+                sourceRow.setSourceQuantityPerCountedUnit(scaleDecimal(source.getSourceQuantityPerCountedUnit(), 6));
                 sourceRow.setStatus("active");
                 sourceRow.setCreatedBy(operatorUserId);
                 sourceRow.setUpdatedBy(operatorUserId);
@@ -2452,8 +2467,12 @@ public class LocalDbAli1688HistoricalOrderService {
         view.setId(batch.getId());
         view.setLabel(batch.getBatchLabel());
         view.setBatchSequence(batch.getBatchSequence());
+        view.setBatchType(batch.getBatchType());
         view.setCountedQuantity(batch.getCountedQuantity());
+        view.setCountedQuantityUnit(batch.getCountedQuantityUnit());
         view.setCountedCost(money(batch.getCountedCost()));
+        view.setComponentCount(batch.getComponentCount());
+        view.setExpectedComponentCount(batch.getExpectedComponentCount());
         view.setUnitPrice(batchUnitPrice(batch.getCountedCost(), batch.getCountedQuantity()));
         view.setNote(batch.getNote());
         view.setSources(emptyList(sourceRows).stream()
@@ -2470,9 +2489,20 @@ public class LocalDbAli1688HistoricalOrderService {
         view.setOrderId(source.getOrderId());
         view.setItemId(source.getItemId());
         view.setAssignmentId(source.getAssignmentId());
+        view.setComponentSequence(source.getComponentSequence());
+        view.setComponentRole(source.getComponentRole());
         view.setOrderNo(source.getSourceOrderNo());
         view.setOrderTime(source.getSourceOrderTime());
         view.setSupplierName(source.getSupplierName());
+        view.setSourceOfferId(source.getSourceOfferId());
+        view.setSourceSkuId(source.getSourceSkuId());
+        view.setSourceTitle(source.getSourceTitle());
+        view.setSourceSpec(source.getSourceSpec());
+        view.setSourceQuantity(source.getSourceQuantity());
+        view.setSourceUnit(source.getSourceUnit());
+        view.setSourceUnitPrice(source.getSourceUnitPrice());
+        view.setSourceAmount(source.getSourceAmount());
+        view.setSourceQuantityPerCountedUnit(source.getSourceQuantityPerCountedUnit());
         return view;
     }
 
@@ -2920,6 +2950,15 @@ public class LocalDbAli1688HistoricalOrderService {
 
     private BigDecimal money(BigDecimal amount) {
         return amount == null ? null : amount.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal scaleDecimal(BigDecimal amount, int scale) {
+        return amount == null ? null : amount.setScale(scale, RoundingMode.HALF_UP);
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        String normalized = trimToNull(value);
+        return normalized == null ? fallback : normalized;
     }
 
     private String nullToEmpty(String value) {

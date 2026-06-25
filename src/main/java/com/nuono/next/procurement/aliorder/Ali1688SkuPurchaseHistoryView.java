@@ -486,8 +486,12 @@ public class Ali1688SkuPurchaseHistoryView {
         private Long id;
         private String label;
         private Integer batchSequence;
+        private String batchType;
         private Integer countedQuantity;
+        private String countedQuantityUnit;
         private BigDecimal countedCost;
+        private Integer componentCount;
+        private Integer expectedComponentCount;
         private BigDecimal unitPrice;
         private String note;
         private List<PurchaseBatchSourceView> sources = new ArrayList<>();
@@ -516,6 +520,14 @@ public class Ali1688SkuPurchaseHistoryView {
             this.batchSequence = batchSequence;
         }
 
+        public String getBatchType() {
+            return batchType;
+        }
+
+        public void setBatchType(String batchType) {
+            this.batchType = batchType;
+        }
+
         public Integer getCountedQuantity() {
             return countedQuantity;
         }
@@ -524,12 +536,36 @@ public class Ali1688SkuPurchaseHistoryView {
             this.countedQuantity = countedQuantity;
         }
 
+        public String getCountedQuantityUnit() {
+            return countedQuantityUnit;
+        }
+
+        public void setCountedQuantityUnit(String countedQuantityUnit) {
+            this.countedQuantityUnit = countedQuantityUnit;
+        }
+
         public BigDecimal getCountedCost() {
             return countedCost;
         }
 
         public void setCountedCost(BigDecimal countedCost) {
             this.countedCost = countedCost;
+        }
+
+        public Integer getComponentCount() {
+            return componentCount;
+        }
+
+        public void setComponentCount(Integer componentCount) {
+            this.componentCount = componentCount;
+        }
+
+        public Integer getExpectedComponentCount() {
+            return expectedComponentCount;
+        }
+
+        public void setExpectedComponentCount(Integer expectedComponentCount) {
+            this.expectedComponentCount = expectedComponentCount;
         }
 
         public BigDecimal getUnitPrice() {
@@ -561,9 +597,20 @@ public class Ali1688SkuPurchaseHistoryView {
         private Long orderId;
         private Long itemId;
         private Long assignmentId;
+        private Integer componentSequence;
+        private String componentRole;
         private String orderNo;
         private String orderTime;
         private String supplierName;
+        private String sourceOfferId;
+        private String sourceSkuId;
+        private String sourceTitle;
+        private String sourceSpec;
+        private BigDecimal sourceQuantity;
+        private String sourceUnit;
+        private BigDecimal sourceUnitPrice;
+        private BigDecimal sourceAmount;
+        private BigDecimal sourceQuantityPerCountedUnit;
 
         public Long getOrderId() {
             return orderId;
@@ -589,6 +636,22 @@ public class Ali1688SkuPurchaseHistoryView {
             this.assignmentId = assignmentId;
         }
 
+        public Integer getComponentSequence() {
+            return componentSequence;
+        }
+
+        public void setComponentSequence(Integer componentSequence) {
+            this.componentSequence = componentSequence;
+        }
+
+        public String getComponentRole() {
+            return componentRole;
+        }
+
+        public void setComponentRole(String componentRole) {
+            this.componentRole = componentRole;
+        }
+
         public String getOrderNo() {
             return orderNo;
         }
@@ -611,6 +674,78 @@ public class Ali1688SkuPurchaseHistoryView {
 
         public void setSupplierName(String supplierName) {
             this.supplierName = supplierName;
+        }
+
+        public String getSourceOfferId() {
+            return sourceOfferId;
+        }
+
+        public void setSourceOfferId(String sourceOfferId) {
+            this.sourceOfferId = sourceOfferId;
+        }
+
+        public String getSourceSkuId() {
+            return sourceSkuId;
+        }
+
+        public void setSourceSkuId(String sourceSkuId) {
+            this.sourceSkuId = sourceSkuId;
+        }
+
+        public String getSourceTitle() {
+            return sourceTitle;
+        }
+
+        public void setSourceTitle(String sourceTitle) {
+            this.sourceTitle = sourceTitle;
+        }
+
+        public String getSourceSpec() {
+            return sourceSpec;
+        }
+
+        public void setSourceSpec(String sourceSpec) {
+            this.sourceSpec = sourceSpec;
+        }
+
+        public BigDecimal getSourceQuantity() {
+            return sourceQuantity;
+        }
+
+        public void setSourceQuantity(BigDecimal sourceQuantity) {
+            this.sourceQuantity = sourceQuantity;
+        }
+
+        public String getSourceUnit() {
+            return sourceUnit;
+        }
+
+        public void setSourceUnit(String sourceUnit) {
+            this.sourceUnit = sourceUnit;
+        }
+
+        public BigDecimal getSourceUnitPrice() {
+            return sourceUnitPrice;
+        }
+
+        public void setSourceUnitPrice(BigDecimal sourceUnitPrice) {
+            this.sourceUnitPrice = sourceUnitPrice;
+        }
+
+        public BigDecimal getSourceAmount() {
+            return sourceAmount;
+        }
+
+        public void setSourceAmount(BigDecimal sourceAmount) {
+            this.sourceAmount = sourceAmount;
+        }
+
+        public BigDecimal getSourceQuantityPerCountedUnit() {
+            return sourceQuantityPerCountedUnit;
+        }
+
+        public void setSourceQuantityPerCountedUnit(BigDecimal sourceQuantityPerCountedUnit) {
+            this.sourceQuantityPerCountedUnit = sourceQuantityPerCountedUnit;
         }
     }
 }

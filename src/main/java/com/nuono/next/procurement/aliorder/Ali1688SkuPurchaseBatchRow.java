@@ -13,8 +13,12 @@ public class Ali1688SkuPurchaseBatchRow {
     private String pskuCode;
     private String batchLabel;
     private Integer batchSequence;
+    private String batchType;
     private Integer countedQuantity;
+    private String countedQuantityUnit;
     private BigDecimal countedCost;
+    private Integer componentCount;
+    private Integer expectedComponentCount;
     private String note;
     private String status;
     private Long createdBy;
@@ -94,6 +98,14 @@ public class Ali1688SkuPurchaseBatchRow {
         this.batchSequence = batchSequence;
     }
 
+    public String getBatchType() {
+        return batchType;
+    }
+
+    public void setBatchType(String batchType) {
+        this.batchType = batchType;
+    }
+
     public Integer getCountedQuantity() {
         return countedQuantity;
     }
@@ -102,12 +114,36 @@ public class Ali1688SkuPurchaseBatchRow {
         this.countedQuantity = countedQuantity;
     }
 
+    public String getCountedQuantityUnit() {
+        return countedQuantityUnit;
+    }
+
+    public void setCountedQuantityUnit(String countedQuantityUnit) {
+        this.countedQuantityUnit = countedQuantityUnit;
+    }
+
     public BigDecimal getCountedCost() {
         return countedCost;
     }
 
     public void setCountedCost(BigDecimal countedCost) {
         this.countedCost = countedCost;
+    }
+
+    public Integer getComponentCount() {
+        return componentCount;
+    }
+
+    public void setComponentCount(Integer componentCount) {
+        this.componentCount = componentCount;
+    }
+
+    public Integer getExpectedComponentCount() {
+        return expectedComponentCount;
+    }
+
+    public void setExpectedComponentCount(Integer expectedComponentCount) {
+        this.expectedComponentCount = expectedComponentCount;
     }
 
     public String getNote() {
