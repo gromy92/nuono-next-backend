@@ -184,7 +184,7 @@ public class InTransitPluginSyncService {
             }
 
             for (PluginSyncNode node : batch.getNodes()) {
-                ParsedNode parsedNode = parseNode(batchNo, node);
+                ParsedNode parsedNode = parseNode(resolved.getSourceSystem(), batchNo, node);
                 if (parsedNode == null) {
                     continue;
                 }
@@ -357,7 +357,7 @@ public class InTransitPluginSyncService {
             for (PluginSyncNode node : batch.getNodes()) {
                 nodeCount += 1;
                 batchView.setNodeCount(batchView.getNodeCount() + 1);
-                ParsedNode parsed = parseNode(batchNo, node, issues);
+                ParsedNode parsed = parseNode(resolved.getSourceSystem(), batchNo, node, issues);
                 if (parsed == null) {
                     continue;
                 }
@@ -745,7 +745,7 @@ public class InTransitPluginSyncService {
         result.setEstimatedArrivalAt(firstDateTime(batch.getEstimatedArrivalAt(), existingBatch == null ? null : existingBatch.getEstimatedArrivalAt()));
         result.setDeliveryAppointmentText(firstText(batch.getDeliveryAppointmentText(), existingBatch == null ? null : existingBatch.getDeliveryAppointmentText()));
         String batchStatus = firstText(
-                resolveBatchStatus(sourceBatchStatusText(batch)),
+                resolveBatchStatus(command.getSourceSystem(), batch),
                 existingBatch == null ? InTransitBatchStatus.DRAFT.code() : existingBatch.getBatchStatus()
         );
         boolean missingPackageChargeableWeight = hasPackageWithGoodsLinesMissingChargeable(
@@ -894,7 +894,7 @@ public class InTransitPluginSyncService {
             issues.add(PluginSyncIssueView.warning(batchNo, null, null, "targetWarehouseName", "目的仓为空，将按草稿批次保存。"));
         }
         String sourceBatchStatus = sourceBatchStatusText(batch);
-        if (StringUtils.hasText(sourceBatchStatus) && !StringUtils.hasText(resolveBatchStatus(sourceBatchStatus))) {
+        if (StringUtils.hasText(sourceBatchStatus) && !StringUtils.hasText(resolveBatchStatus(command.getSourceSystem(), batch))) {
             issues.add(PluginSyncIssueView.warning(
                     batchNo,
                     null,
@@ -926,18 +926,18 @@ public class InTransitPluginSyncService {
         }
     }
 
-    private ParsedNode parseNode(String batchNo, PluginSyncNode node) {
-        return parseNode(batchNo, node, null);
+    private ParsedNode parseNode(String sourceSystem, String batchNo, PluginSyncNode node) {
+        return parseNode(sourceSystem, batchNo, node, null);
     }
 
-    private ParsedNode parseNode(String batchNo, PluginSyncNode node, List<PluginSyncIssueView> issues) {
+    private ParsedNode parseNode(String sourceSystem, String batchNo, PluginSyncNode node, List<PluginSyncIssueView> issues) {
         if (node == null) {
             return null;
         }
         if (isPlaceholderDateTime(node.getNodeTime())) {
             return null;
         }
-        String nodeStatus = resolveNodeStatus(node.getNodeStatus());
+        String nodeStatus = resolveNodeStatus(sourceSystem, node.getNodeStatus(), node.getDescription());
         if (!StringUtils.hasText(nodeStatus)) {
             if (issues != null) {
                 issues.add(PluginSyncIssueView.warning(
@@ -1159,9 +1159,12 @@ public class InTransitPluginSyncService {
         return inferred == null ? null : inferred.code();
     }
 
-    private String resolveBatchStatus(String value) {
+    private String resolveBatchStatus(String sourceSystem, String value) {
         if (!StringUtils.hasText(value)) {
             return null;
+        }
+        if (isForwarderWarehouseActiveTrackingStatus(sourceSystem, value)) {
+            return InTransitBatchStatus.IN_TRANSIT.code();
         }
         try {
             return InTransitBatchStatus.require(value).code();
@@ -1196,7 +1199,36 @@ public class InTransitPluginSyncService {
     }
 
     private String sourceBatchStatusText(PluginSyncBatch batch) {
-        return firstText(firstText(batch.getBatchStatus(), batch.getSourceStatus()), firstText(batch.getRawStatus(), batch.getStatus()));
+        return firstText(firstText(batch.getSourceStatus(), batch.getRawStatus()), firstText(batch.getStatus(), batch.getBatchStatus()));
+    }
+
+    private String resolveBatchStatus(String sourceSystem, PluginSyncBatch batch) {
+        if (batch == null) {
+            return null;
+        }
+        for (String value : batchStatusCandidates(batch)) {
+            String resolved = resolveBatchStatus(sourceSystem, value);
+            if (StringUtils.hasText(resolved)) {
+                return resolved;
+            }
+        }
+        return null;
+    }
+
+    private List<String> batchStatusCandidates(PluginSyncBatch batch) {
+        List<String> result = new ArrayList<>();
+        addTextCandidate(result, batch.getSourceStatus());
+        addTextCandidate(result, batch.getRawStatus());
+        addTextCandidate(result, batch.getStatus());
+        addTextCandidate(result, batch.getBatchStatus());
+        return result;
+    }
+
+    private void addTextCandidate(List<String> result, String value) {
+        String text = clean(value);
+        if (StringUtils.hasText(text) && !result.contains(text)) {
+            result.add(text);
+        }
     }
 
     private BigDecimal resolveChargeableWeight(PluginSyncPackage itemPackage) {
@@ -1265,9 +1297,12 @@ public class InTransitPluginSyncService {
                 || text.contains("取消");
     }
 
-    private String resolveNodeStatus(String value) {
+    private String resolveNodeStatus(String sourceSystem, String value, String description) {
         if (!StringUtils.hasText(value)) {
             return null;
+        }
+        if (isForwarderWarehouseActiveTrackingStatus(sourceSystem, value, description)) {
+            return InTransitNodeStatus.IN_TRANSIT.code();
         }
         try {
             return InTransitNodeStatus.require(value).code();
@@ -1308,6 +1343,56 @@ public class InTransitPluginSyncService {
             }
             return null;
         }
+    }
+
+    private boolean isForwarderWarehouseActiveTrackingStatus(String sourceSystem, String... values) {
+        String normalizedSourceSystem = normalizeCode(sourceSystem);
+        boolean etWarehouseCodeMeansForwarderWarehouse =
+                "ET".equals(normalizedSourceSystem) || "YITONG".equals(normalizedSourceSystem);
+        for (String value : values) {
+            if (etWarehouseCodeMeansForwarderWarehouse && isWarehouseReceivedCode(value)) {
+                return true;
+            }
+            if (isForwarderOverseasWarehouseText(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isWarehouseReceivedCode(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        String text = value.trim().toUpperCase(Locale.ROOT);
+        return InTransitBatchStatus.WAREHOUSE_RECEIVED.code().equals(text.toLowerCase(Locale.ROOT))
+                || InTransitNodeStatus.WAREHOUSE_RECEIVED.code().equals(text.toLowerCase(Locale.ROOT));
+    }
+
+    private boolean isForwarderOverseasWarehouseText(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        String text = value.trim().toUpperCase(Locale.ROOT);
+        boolean forwarderWarehouse = text.contains("海外仓") || text.contains("ET仓") || text.contains("ETRUH");
+        if (!forwarderWarehouse) {
+            return false;
+        }
+        return text.contains("入仓")
+                || text.contains("入库")
+                || text.contains("入海外仓")
+                || text.contains("到达")
+                || text.contains("抵达")
+                || text.contains("到仓")
+                || text.contains("签收")
+                || text.contains("提回")
+                || text.contains("待拆柜")
+                || text.contains("待派送")
+                || text.contains("可约仓")
+                || text.contains("WAREHOUSE")
+                || text.contains("RECEIVED")
+                || text.contains("DELIVERED")
+                || text.contains("ARRIVED");
     }
 
     private static String clean(String value) {

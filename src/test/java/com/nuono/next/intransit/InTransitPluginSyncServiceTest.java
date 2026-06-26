@@ -286,6 +286,114 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
+    void shouldKeepEtForwarderWarehouseReceiptAsInTransit() {
+        PluginSyncCommand command = sampleEtCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchStatus("ET海外仓入库");
+        batch.getPackages().get(0).setChargeableWeightKg(new BigDecimal("9.500000"));
+
+        PluginSyncNode node = new PluginSyncNode();
+        node.setNodeStatus("ET海外仓入库");
+        node.setNodeTime("2026-06-23 09:18:00");
+        node.setDescription("已到达海外仓");
+        batch.setNodes(List.of(node));
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53020L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
+
+        ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
+        verify(batchService).saveNode(nodeCaptor.capture());
+        assertEquals("in_transit", nodeCaptor.getValue().getNodeStatus());
+        assertEquals(LocalDateTime.parse("2026-06-23T09:18:00"), nodeCaptor.getValue().getNodeHappenedAt());
+        assertEquals("已到达海外仓", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
+    void shouldKeepChicForwarderOverseasWarehouseArrivalAsInTransit() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchStatus("warehouse_received");
+        batch.setSourceStatus("海外仓到仓");
+        batch.getNodes().get(0).setNodeStatus("海外仓到仓");
+        batch.getNodes().get(0).setDescription("海外仓到仓");
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
+
+        ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
+        verify(batchService).saveNode(nodeCaptor.capture());
+        assertEquals("in_transit", nodeCaptor.getValue().getNodeStatus());
+        assertEquals("海外仓到仓", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
+    void shouldKeepYiteForwarderOverseasWarehouseBeforeDeliveryAsInTransit() {
+        PluginSyncCommand command = sampleYiteCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchStatus("warehouse_received");
+        batch.setSourceStatus("已提回海外仓，待拆柜派送");
+
+        PluginSyncNode node = new PluginSyncNode();
+        node.setNodeStatus("warehouse_received");
+        node.setNodeTime("2026-06-20 10:00:00");
+        node.setDescription("已提回海外仓，待拆柜派送");
+        batch.setNodes(List.of(node));
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53030L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
+
+        ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
+        verify(batchService).saveNode(nodeCaptor.capture());
+        assertEquals("in_transit", nodeCaptor.getValue().getNodeStatus());
+        assertEquals("已提回海外仓，待拆柜派送", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
+    void shouldStillCloseChicWarehouseReceiptAsReceived() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchStatus("已入仓");
+        batch.getNodes().get(0).setNodeStatus("已入仓");
+        batch.getNodes().get(0).setDescription("最终仓已入仓");
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("warehouse_received", batchCaptor.getValue().getBatchStatus());
+
+        ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
+        verify(batchService).saveNode(nodeCaptor.capture());
+        assertEquals("warehouse_received", nodeCaptor.getValue().getNodeStatus());
+        assertEquals("最终仓已入仓", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
     void shouldReconcileExistingBatchBoxesAndLinesBeforeSavingPluginDetails() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncSourceBatchExpectation expectation = new PluginSyncSourceBatchExpectation();
