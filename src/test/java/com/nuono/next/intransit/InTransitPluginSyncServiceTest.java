@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -62,6 +65,7 @@ class InTransitPluginSyncServiceTest {
     @BeforeEach
     void setUp() {
         service = new InTransitPluginSyncService(mapper, batchService, accessScopeService);
+        lenient().when(mapper.acquirePluginSyncBatchLock(anyString(), anyInt())).thenReturn(1);
     }
 
     @Test
@@ -151,6 +155,42 @@ class InTransitPluginSyncServiceTest {
         assertEquals("departed_origin", nodeCaptor.getValue().getNodeStatus());
         assertEquals(LocalDateTime.parse("2026-06-02T12:00:00"), nodeCaptor.getValue().getNodeHappenedAt());
         assertEquals("发往海外", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
+    void shouldRereadExistingBatchAfterAcquiringBatchReferenceLock() {
+        PluginSyncCommand command = sampleCommand();
+        BatchRow existingBatch = batch(53099L);
+        existingBatch.setBatchReferenceNo("XGGEKSA04075");
+        when(mapper.selectBatchByReferenceNo(10002L, "XGGEKSA04075"))
+                .thenReturn(null, existingBatch);
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53099L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<String> lockCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mapper).acquirePluginSyncBatchLock(lockCaptor.capture(), eq(10));
+        assertTrue(lockCaptor.getValue().startsWith("itps:"));
+        assertTrue(lockCaptor.getValue().length() <= 64);
+        verify(mapper).releasePluginSyncBatchLock(lockCaptor.getValue());
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals(53099L, batchCaptor.getValue().getBatchId());
+    }
+
+    @Test
+    void shouldRejectCommitWhenBatchReferenceLockIsBusy() {
+        PluginSyncCommand command = sampleCommand();
+        when(mapper.acquirePluginSyncBatchLock(anyString(), eq(10))).thenReturn(0);
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, () -> service.commit(command));
+
+        assertEquals("批次正在同步中，请稍后重试：XGGEKSA04075", exception.getMessage());
+        verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
+        verify(mapper, never()).releasePluginSyncBatchLock(anyString());
     }
 
     @Test

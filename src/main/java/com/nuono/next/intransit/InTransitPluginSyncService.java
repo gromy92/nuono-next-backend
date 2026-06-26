@@ -27,6 +27,9 @@ import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncCommitView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncIssueView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncPreviewView;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -39,12 +42,15 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 @Service
 public class InTransitPluginSyncService {
 
     private static final Set<String> SUPPORTED_SOURCE_SYSTEMS = Set.of("CHIC", "ET", "YITONG", "YITE");
+    private static final int PLUGIN_SYNC_BATCH_LOCK_TIMEOUT_SECONDS = 10;
 
     private final InTransitGoodsMapper mapper;
     private final InTransitBatchService batchService;
@@ -130,86 +136,159 @@ public class InTransitPluginSyncService {
             if (!StringUtils.hasText(batchNo)) {
                 continue;
             }
-            BatchRow existingBatch = mapper.selectBatchByReferenceNo(ownerUserId, batchNo);
-            SaveBatchCommand batchCommand = toBatchCommand(resolved, batch, existingBatch, forwarder);
-            accessScopeService.requireWritableBatchScope(resolved.getAccessContext(), batchCommand);
-            BatchView savedBatch = batchService.saveBatch(batchCommand);
-            List<String> syncedBoxNos = syncedBoxNos(batch);
-            List<String> syncedLineKeys = syncedLineKeys(batch);
-            if (shouldReconcileSyncedDetails(
-                    batch,
-                    sourceExpectationMap.get(normalizeCode(batchNo)),
-                    syncedBoxNos,
-                    syncedLineKeys
-            )) {
-                batchService.reconcileSyncedDetails(
-                        ownerUserId,
-                        operatorUserId,
-                        savedBatch.getBatchId(),
-                        syncedBoxNos,
-                        syncedLineKeys
-                );
-            }
-
-            for (PluginSyncPackage itemPackage : batch.getPackages()) {
-                String boxNo = clean(itemPackage.getBoxNo());
-                if (!StringUtils.hasText(boxNo)) {
-                    continue;
-                }
-                SavePackageCommand packageCommand = toPackageCommand(resolved, savedBatch.getBatchId(), itemPackage);
-                batchService.savePackage(packageCommand);
-            }
-
-            for (PluginSyncPackage itemPackage : batch.getPackages()) {
-                String boxNo = clean(itemPackage.getBoxNo());
-                if (!StringUtils.hasText(boxNo)) {
-                    continue;
-                }
-                for (PluginSyncLine line : itemPackage.getLines()) {
-                    String psku = clean(line.getPsku());
-                    if (!StringUtils.hasText(psku)) {
-                        continue;
-                    }
-                    LineRow existingLine = mapper.selectLineByBoxNoAndPsku(ownerUserId, savedBatch.getBatchId(), boxNo, psku);
-                    SaveLineCommand lineCommand = toLineCommand(
-                            resolved,
-                            savedBatch.getBatchId(),
-                            itemPackage,
-                            line,
-                            existingLine
-                    );
-                    accessScopeService.requireWritableLineScope(resolved.getAccessContext(), lineCommand);
-                    batchService.saveLine(lineCommand);
-                }
-            }
-
-            for (PluginSyncNode node : batch.getNodes()) {
-                ParsedNode parsedNode = parseNode(resolved.getSourceSystem(), batchNo, node);
-                if (parsedNode == null) {
-                    continue;
-                }
-                NodeRow existingNode = mapper.selectNodeByStatusDescriptionAndHappenedAt(
-                        ownerUserId,
-                        savedBatch.getBatchId(),
-                        parsedNode.nodeStatus,
-                        parsedNode.nodeHappenedAt,
-                        parsedNode.description
-                );
-                if (existingNode != null) {
-                    continue;
-                }
-                SaveNodeCommand nodeCommand = new SaveNodeCommand();
-                nodeCommand.setOwnerUserId(ownerUserId);
-                nodeCommand.setOperatorUserId(operatorUserId);
-                nodeCommand.setBatchId(savedBatch.getBatchId());
-                nodeCommand.setNodeStatus(parsedNode.nodeStatus);
-                nodeCommand.setNodeHappenedAt(parsedNode.nodeHappenedAt);
-                nodeCommand.setDescription(parsedNode.description);
-                nodeCommand.setOperatorName(clean(node.getOperatorName()));
-                batchService.saveNode(nodeCommand);
-            }
+            commitBatchWithLock(resolved, forwarder, sourceExpectationMap, ownerUserId, operatorUserId, batch, batchNo);
         }
         return InTransitPluginSyncRecords.committedFrom(preview);
+    }
+
+    private void commitBatchWithLock(
+            PluginSyncCommand resolved,
+            InTransitForwarderCatalog.CanonicalForwarder forwarder,
+            Map<String, PluginSyncSourceBatchExpectation> sourceExpectationMap,
+            Long ownerUserId,
+            Long operatorUserId,
+            PluginSyncBatch batch,
+            String batchNo
+    ) {
+        String lockName = pluginSyncBatchLockName(ownerUserId, batchNo);
+        Integer acquired = mapper.acquirePluginSyncBatchLock(lockName, PLUGIN_SYNC_BATCH_LOCK_TIMEOUT_SECONDS);
+        if (!Integer.valueOf(1).equals(acquired)) {
+            throw new IllegalStateException("批次正在同步中，请稍后重试：" + batchNo);
+        }
+        boolean releaseAfterTransaction = registerPluginSyncBatchLockRelease(lockName);
+        try {
+            commitBatch(resolved, forwarder, sourceExpectationMap, ownerUserId, operatorUserId, batch, batchNo);
+        } finally {
+            if (!releaseAfterTransaction) {
+                releasePluginSyncBatchLock(lockName);
+            }
+        }
+    }
+
+    private void commitBatch(
+            PluginSyncCommand resolved,
+            InTransitForwarderCatalog.CanonicalForwarder forwarder,
+            Map<String, PluginSyncSourceBatchExpectation> sourceExpectationMap,
+            Long ownerUserId,
+            Long operatorUserId,
+            PluginSyncBatch batch,
+            String batchNo
+    ) {
+        BatchRow existingBatch = mapper.selectBatchByReferenceNo(ownerUserId, batchNo);
+        SaveBatchCommand batchCommand = toBatchCommand(resolved, batch, existingBatch, forwarder);
+        accessScopeService.requireWritableBatchScope(resolved.getAccessContext(), batchCommand);
+        BatchView savedBatch = batchService.saveBatch(batchCommand);
+        List<String> syncedBoxNos = syncedBoxNos(batch);
+        List<String> syncedLineKeys = syncedLineKeys(batch);
+        if (shouldReconcileSyncedDetails(
+                batch,
+                sourceExpectationMap.get(normalizeCode(batchNo)),
+                syncedBoxNos,
+                syncedLineKeys
+        )) {
+            batchService.reconcileSyncedDetails(
+                    ownerUserId,
+                    operatorUserId,
+                    savedBatch.getBatchId(),
+                    syncedBoxNos,
+                    syncedLineKeys
+            );
+        }
+
+        for (PluginSyncPackage itemPackage : batch.getPackages()) {
+            String boxNo = clean(itemPackage.getBoxNo());
+            if (!StringUtils.hasText(boxNo)) {
+                continue;
+            }
+            SavePackageCommand packageCommand = toPackageCommand(resolved, savedBatch.getBatchId(), itemPackage);
+            batchService.savePackage(packageCommand);
+        }
+
+        for (PluginSyncPackage itemPackage : batch.getPackages()) {
+            String boxNo = clean(itemPackage.getBoxNo());
+            if (!StringUtils.hasText(boxNo)) {
+                continue;
+            }
+            for (PluginSyncLine line : itemPackage.getLines()) {
+                String psku = clean(line.getPsku());
+                if (!StringUtils.hasText(psku)) {
+                    continue;
+                }
+                LineRow existingLine = mapper.selectLineByBoxNoAndPsku(ownerUserId, savedBatch.getBatchId(), boxNo, psku);
+                SaveLineCommand lineCommand = toLineCommand(
+                        resolved,
+                        savedBatch.getBatchId(),
+                        itemPackage,
+                        line,
+                        existingLine
+                );
+                accessScopeService.requireWritableLineScope(resolved.getAccessContext(), lineCommand);
+                batchService.saveLine(lineCommand);
+            }
+        }
+
+        for (PluginSyncNode node : batch.getNodes()) {
+            ParsedNode parsedNode = parseNode(resolved.getSourceSystem(), batchNo, node);
+            if (parsedNode == null) {
+                continue;
+            }
+            NodeRow existingNode = mapper.selectNodeByStatusDescriptionAndHappenedAt(
+                    ownerUserId,
+                    savedBatch.getBatchId(),
+                    parsedNode.nodeStatus,
+                    parsedNode.nodeHappenedAt,
+                    parsedNode.description
+            );
+            if (existingNode != null) {
+                continue;
+            }
+            SaveNodeCommand nodeCommand = new SaveNodeCommand();
+            nodeCommand.setOwnerUserId(ownerUserId);
+            nodeCommand.setOperatorUserId(operatorUserId);
+            nodeCommand.setBatchId(savedBatch.getBatchId());
+            nodeCommand.setNodeStatus(parsedNode.nodeStatus);
+            nodeCommand.setNodeHappenedAt(parsedNode.nodeHappenedAt);
+            nodeCommand.setDescription(parsedNode.description);
+            nodeCommand.setOperatorName(clean(node.getOperatorName()));
+            batchService.saveNode(nodeCommand);
+        }
+    }
+
+    private boolean registerPluginSyncBatchLockRelease(String lockName) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return false;
+        }
+        // MySQL user locks must stay held until the enclosing transaction has committed or rolled back.
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            private boolean released;
+
+            @Override
+            public void afterCommit() {
+                releaseOnce();
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                releaseOnce();
+            }
+
+            private void releaseOnce() {
+                if (released) {
+                    return;
+                }
+                releasePluginSyncBatchLock(lockName);
+                released = true;
+            }
+        });
+        return true;
+    }
+
+    private void releasePluginSyncBatchLock(String lockName) {
+        try {
+            mapper.releasePluginSyncBatchLock(lockName);
+        } catch (RuntimeException ignored) {
+            // Losing the connection also releases MySQL user locks; do not mask the real sync result.
+        }
     }
 
     private PluginSyncCommand activeCommand(PluginSyncCommand command) {
@@ -1110,6 +1189,29 @@ public class InTransitPluginSyncService {
             throw new IllegalArgumentException("缺少老板账号范围。");
         }
         return ownerUserId;
+    }
+
+    private String pluginSyncBatchLockName(Long ownerUserId, String batchNo) {
+        String lockKey = ownerUserId + ":" + normalizeCode(batchNo);
+        return "itps:" + sha256Hex(lockKey).substring(0, 40);
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(bytes.length * 2);
+            for (byte item : bytes) {
+                int unsigned = item & 0xff;
+                if (unsigned < 16) {
+                    result.append('0');
+                }
+                result.append(Integer.toHexString(unsigned));
+            }
+            return result.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 不可用。", exception);
+        }
     }
 
     private String normalizeCode(String value) {
