@@ -1,0 +1,193 @@
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_header` (
+  `id` BIGINT NOT NULL,
+  `owner_user_id` BIGINT NOT NULL,
+  `authorization_id` BIGINT NOT NULL,
+  `order_natural_key` VARCHAR(220) NOT NULL,
+  `provider_order_no` VARCHAR(120) NOT NULL,
+  `order_time` DATETIME DEFAULT NULL,
+  `paid_at` VARCHAR(40) DEFAULT NULL,
+  `buyer_company_name` VARCHAR(300) DEFAULT NULL,
+  `buyer_member_name` VARCHAR(160) DEFAULT NULL,
+  `supplier_name` VARCHAR(300) DEFAULT NULL,
+  `seller_member_name` VARCHAR(160) DEFAULT NULL,
+  `goods_total_text` VARCHAR(80) DEFAULT NULL,
+  `freight_text` VARCHAR(80) DEFAULT NULL,
+  `adjustment_text` VARCHAR(80) DEFAULT NULL,
+  `paid_amount_text` VARCHAR(80) DEFAULT NULL,
+  `amount_text` VARCHAR(80) DEFAULT NULL,
+  `amount_value` DECIMAL(18, 4) DEFAULT NULL,
+  `currency` VARCHAR(20) DEFAULT NULL,
+  `order_status` VARCHAR(80) DEFAULT NULL,
+  `logistics_status` VARCHAR(80) DEFAULT NULL,
+  `shipper_name` VARCHAR(160) DEFAULT NULL,
+  `original_url` VARCHAR(800) DEFAULT NULL,
+  `receiver_name` VARCHAR(120) DEFAULT NULL,
+  `receiver_postal_code` VARCHAR(40) DEFAULT NULL,
+  `receiver_telephone` VARCHAR(120) DEFAULT NULL,
+  `receiver_mobile` VARCHAR(120) DEFAULT NULL,
+  `receiver_phone` VARCHAR(120) DEFAULT NULL,
+  `receiver_address` VARCHAR(1000) DEFAULT NULL,
+  `buyer_remark` VARCHAR(1000) DEFAULT NULL,
+  `supplier_contact` VARCHAR(500) DEFAULT NULL,
+  `initiator_login_name` VARCHAR(160) DEFAULT NULL,
+  `source_batch_no` VARCHAR(120) DEFAULT NULL,
+  `downstream_order_no` VARCHAR(120) DEFAULT NULL,
+  `raw_snapshot_json` LONGTEXT DEFAULT NULL,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_proc_ali1688_order_natural_key` (`order_natural_key`),
+  KEY `idx_proc_ali1688_order_owner` (`owner_user_id`, `authorization_id`, `is_deleted`, `gmt_updated`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单头';
+
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_item` (
+  `id` BIGINT NOT NULL,
+  `order_id` BIGINT NOT NULL,
+  `item_natural_key` VARCHAR(360) NOT NULL,
+  `offer_id` VARCHAR(80) DEFAULT NULL,
+  `sku_id` VARCHAR(120) DEFAULT NULL,
+  `title` VARCHAR(500) DEFAULT NULL,
+  `sku_text` VARCHAR(300) DEFAULT NULL,
+  `model_text` VARCHAR(300) DEFAULT NULL,
+  `product_code` VARCHAR(160) DEFAULT NULL,
+  `single_product_code` VARCHAR(160) DEFAULT NULL,
+  `quantity` INT DEFAULT NULL,
+  `unit` VARCHAR(60) DEFAULT NULL,
+  `unit_price_text` VARCHAR(80) DEFAULT NULL,
+  `amount_text` VARCHAR(80) DEFAULT NULL,
+  `image_url` VARCHAR(800) DEFAULT NULL,
+  `raw_snapshot_json` LONGTEXT DEFAULT NULL,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_proc_ali1688_order_item_key` (`item_natural_key`),
+  KEY `idx_proc_ali1688_order_item_order` (`order_id`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单商品行';
+
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_item_assignment` (
+  `id` BIGINT NOT NULL,
+  `owner_user_id` BIGINT NOT NULL,
+  `authorization_id` BIGINT NOT NULL,
+  `order_id` BIGINT NOT NULL,
+  `item_id` BIGINT NOT NULL,
+  `target_type` VARCHAR(30) NOT NULL DEFAULT 'STORE_SITE',
+  `target_store_code` VARCHAR(120) DEFAULT NULL,
+  `target_site_code` VARCHAR(40) DEFAULT NULL,
+  `assigned_quantity` INT NOT NULL,
+  `status` VARCHAR(30) NOT NULL DEFAULT 'active',
+  `remark` VARCHAR(500) DEFAULT NULL,
+  `created_by` BIGINT DEFAULT NULL,
+  `updated_by` BIGINT DEFAULT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  KEY `idx_ali1688_item_assignment_owner_item` (`owner_user_id`, `item_id`, `status`, `is_deleted`),
+  KEY `idx_ali1688_item_assignment_owner_target` (`owner_user_id`, `target_type`, `target_store_code`, `target_site_code`, `status`, `is_deleted`),
+  KEY `idx_ali1688_item_assignment_order` (`order_id`, `item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单货品行分配事实';
+
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_order_item_product_link` (
+  `id` BIGINT NOT NULL,
+  `owner_user_id` BIGINT NOT NULL,
+  `authorization_id` BIGINT NOT NULL,
+  `order_id` BIGINT NOT NULL,
+  `item_id` BIGINT NOT NULL,
+  `assignment_id` BIGINT NOT NULL,
+  `target_store_code` VARCHAR(120) NOT NULL,
+  `target_site_code` VARCHAR(40) DEFAULT NULL,
+  `sku_parent` VARCHAR(160) NOT NULL,
+  `partner_sku` VARCHAR(160) DEFAULT NULL,
+  `psku_code` VARCHAR(160) DEFAULT NULL,
+  `product_title` VARCHAR(1000) DEFAULT NULL,
+  `product_image_url` VARCHAR(1000) DEFAULT NULL,
+  `status` VARCHAR(30) NOT NULL DEFAULT 'active',
+  `created_by` BIGINT DEFAULT NULL,
+  `updated_by` BIGINT DEFAULT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  KEY `idx_ali1688_item_product_link_owner_assignment` (`owner_user_id`, `assignment_id`, `status`, `is_deleted`),
+  KEY `idx_ali1688_item_product_link_owner_sku` (`owner_user_id`, `target_store_code`, `target_site_code`, `sku_parent`, `status`, `is_deleted`),
+  KEY `idx_ali1688_item_product_link_order_item` (`order_id`, `item_id`, `assignment_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单分配行商品关联事实';
+
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_sku_purchase_batch` (
+  `id` BIGINT NOT NULL,
+  `owner_user_id` BIGINT NOT NULL,
+  `target_store_code` VARCHAR(120) NOT NULL,
+  `target_site_code` VARCHAR(40) NOT NULL DEFAULT '*',
+  `sku_parent` VARCHAR(160) NOT NULL,
+  `partner_sku` VARCHAR(160) DEFAULT NULL,
+  `psku_code` VARCHAR(160) DEFAULT NULL,
+  `batch_label` VARCHAR(120) NOT NULL,
+  `batch_sequence` INT NOT NULL,
+  `batch_type` VARCHAR(40) NOT NULL DEFAULT 'manual',
+  `counted_quantity` INT NOT NULL,
+  `counted_quantity_unit` VARCHAR(40) DEFAULT NULL,
+  `counted_cost` DECIMAL(18, 4) NOT NULL,
+  `component_count` INT DEFAULT NULL,
+  `expected_component_count` INT DEFAULT NULL,
+  `note` VARCHAR(500) DEFAULT NULL,
+  `status` VARCHAR(30) NOT NULL DEFAULT 'active',
+  `created_by` BIGINT DEFAULT NULL,
+  `updated_by` BIGINT DEFAULT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  KEY `idx_ali1688_sku_batch_owner_sku` (`owner_user_id`, `target_store_code`, `target_site_code`, `sku_parent`, `status`, `is_deleted`),
+  KEY `idx_ali1688_sku_batch_updated` (`owner_user_id`, `gmt_updated`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单SKU采购批次人工调整';
+
+INSERT INTO `product_management_id_sequence` (`sequence_name`, `next_id`, `gmt_create`, `gmt_updated`)
+SELECT 'procurement_ali1688_sku_purchase_batch', GREATEST(COALESCE(MAX(`id`), 102000), 102000), NOW(), NOW()
+FROM `procurement_ali1688_sku_purchase_batch`
+ON DUPLICATE KEY UPDATE
+  `next_id` = GREATEST(`next_id`, VALUES(`next_id`)),
+  `gmt_updated` = NOW();
+
+CREATE TABLE IF NOT EXISTS `procurement_ali1688_sku_purchase_batch_source` (
+  `id` BIGINT NOT NULL,
+  `batch_id` BIGINT NOT NULL,
+  `owner_user_id` BIGINT NOT NULL,
+  `order_id` BIGINT NOT NULL,
+  `item_id` BIGINT NOT NULL,
+  `assignment_id` BIGINT NOT NULL,
+  `component_sequence` INT DEFAULT NULL,
+  `component_role` VARCHAR(120) DEFAULT NULL,
+  `source_order_no` VARCHAR(120) DEFAULT NULL,
+  `source_order_time` DATETIME DEFAULT NULL,
+  `supplier_name` VARCHAR(300) DEFAULT NULL,
+  `source_offer_id` VARCHAR(80) DEFAULT NULL,
+  `source_sku_id` VARCHAR(120) DEFAULT NULL,
+  `source_title` VARCHAR(500) DEFAULT NULL,
+  `source_spec` VARCHAR(500) DEFAULT NULL,
+  `source_quantity` DECIMAL(18, 4) DEFAULT NULL,
+  `source_unit` VARCHAR(60) DEFAULT NULL,
+  `source_unit_price` DECIMAL(18, 6) DEFAULT NULL,
+  `source_amount` DECIMAL(18, 4) DEFAULT NULL,
+  `source_quantity_per_counted_unit` DECIMAL(18, 6) DEFAULT NULL,
+  `status` VARCHAR(30) NOT NULL DEFAULT 'active',
+  `created_by` BIGINT DEFAULT NULL,
+  `updated_by` BIGINT DEFAULT NULL,
+  `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  PRIMARY KEY (`id`),
+  KEY `idx_ali1688_sku_batch_source_batch` (`owner_user_id`, `batch_id`, `status`, `is_deleted`),
+  KEY `idx_ali1688_sku_batch_source_assignment` (`owner_user_id`, `assignment_id`, `status`, `is_deleted`),
+  KEY `idx_ali1688_sku_batch_source_order` (`owner_user_id`, `order_id`, `item_id`, `status`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='1688历史订单SKU采购批次来源行';
+
+INSERT INTO `product_management_id_sequence` (`sequence_name`, `next_id`, `gmt_create`, `gmt_updated`)
+SELECT 'procurement_ali1688_sku_purchase_batch_source', GREATEST(COALESCE(MAX(`id`), 103000), 103000), NOW(), NOW()
+FROM `procurement_ali1688_sku_purchase_batch_source`
+ON DUPLICATE KEY UPDATE
+  `next_id` = GREATEST(`next_id`, VALUES(`next_id`)),
+  `gmt_updated` = NOW();

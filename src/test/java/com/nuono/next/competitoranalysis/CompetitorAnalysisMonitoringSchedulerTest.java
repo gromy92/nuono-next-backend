@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.lang.reflect.Method;
+import java.time.Duration;
 import java.util.List;
 import org.mockito.InOrder;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,9 +94,23 @@ class CompetitorAnalysisMonitoringSchedulerTest {
     }
 
     @Test
+    void enabledCompensationRetriesRecentTransientRankKeywordFailures() {
+        ReflectionTestUtils.setField(scheduler, "enabled", true);
+        ReflectionTestUtils.setField(scheduler, "compensationLookbackHours", 24);
+        ReflectionTestUtils.setField(scheduler, "maxCompensationKeywordsPerTick", 50);
+        when(refreshService.retryRecentTransientRankKeywordFailures(Duration.ofHours(24), 50)).thenReturn(10);
+
+        assertEquals(10, scheduler.runRankFailureCompensationOnce());
+
+        verify(refreshService).retryRecentTransientRankKeywordFailures(Duration.ofHours(24), 50);
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
     void scheduledAnnotationsUseDailyRankAndTwoHourDetailDefaults() throws Exception {
         Method rankMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledRankMonitoring");
         Method detailMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledDetailMonitoring");
+        Method compensationMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledRankFailureCompensation");
 
         assertEquals(
                 "${nuono.competitor-analysis.monitor.scheduler.rank-cron:0 0 8 * * *}",
@@ -104,6 +119,10 @@ class CompetitorAnalysisMonitoringSchedulerTest {
         assertEquals(
                 "${nuono.competitor-analysis.monitor.scheduler.detail-cron:0 0 0/2 * * *}",
                 detailMethod.getAnnotation(Scheduled.class).cron()
+        );
+        assertEquals(
+                "${nuono.competitor-analysis.monitor.scheduler.compensation-fixed-delay-ms:600000}",
+                compensationMethod.getAnnotation(Scheduled.class).fixedDelayString()
         );
     }
 

@@ -1,5 +1,7 @@
 package com.nuono.next.procurement.aliorder;
 
+import java.math.BigDecimal;
+
 public class Ali1688SkuPurchaseBatchSourceRow {
 
     private Long id;
@@ -8,9 +10,20 @@ public class Ali1688SkuPurchaseBatchSourceRow {
     private Long orderId;
     private Long itemId;
     private Long assignmentId;
+    private Integer componentSequence;
+    private String componentRole;
     private String sourceOrderNo;
     private String sourceOrderTime;
     private String supplierName;
+    private String sourceOfferId;
+    private String sourceSkuId;
+    private String sourceTitle;
+    private String sourceSpec;
+    private BigDecimal sourceQuantity;
+    private String sourceUnit;
+    private BigDecimal sourceUnitPrice;
+    private BigDecimal sourceAmount;
+    private BigDecimal sourceQuantityPerCountedUnit;
     private String status;
     private Long createdBy;
     private Long updatedBy;
@@ -65,6 +78,22 @@ public class Ali1688SkuPurchaseBatchSourceRow {
         this.assignmentId = assignmentId;
     }
 
+    public Integer getComponentSequence() {
+        return componentSequence;
+    }
+
+    public void setComponentSequence(Integer componentSequence) {
+        this.componentSequence = componentSequence;
+    }
+
+    public String getComponentRole() {
+        return componentRole;
+    }
+
+    public void setComponentRole(String componentRole) {
+        this.componentRole = componentRole;
+    }
+
     public String getSourceOrderNo() {
         return sourceOrderNo;
     }
@@ -87,6 +116,78 @@ public class Ali1688SkuPurchaseBatchSourceRow {
 
     public void setSupplierName(String supplierName) {
         this.supplierName = supplierName;
+    }
+
+    public String getSourceOfferId() {
+        return sourceOfferId;
+    }
+
+    public void setSourceOfferId(String sourceOfferId) {
+        this.sourceOfferId = sourceOfferId;
+    }
+
+    public String getSourceSkuId() {
+        return sourceSkuId;
+    }
+
+    public void setSourceSkuId(String sourceSkuId) {
+        this.sourceSkuId = sourceSkuId;
+    }
+
+    public String getSourceTitle() {
+        return sourceTitle;
+    }
+
+    public void setSourceTitle(String sourceTitle) {
+        this.sourceTitle = sourceTitle;
+    }
+
+    public String getSourceSpec() {
+        return sourceSpec;
+    }
+
+    public void setSourceSpec(String sourceSpec) {
+        this.sourceSpec = sourceSpec;
+    }
+
+    public BigDecimal getSourceQuantity() {
+        return sourceQuantity;
+    }
+
+    public void setSourceQuantity(BigDecimal sourceQuantity) {
+        this.sourceQuantity = sourceQuantity;
+    }
+
+    public String getSourceUnit() {
+        return sourceUnit;
+    }
+
+    public void setSourceUnit(String sourceUnit) {
+        this.sourceUnit = sourceUnit;
+    }
+
+    public BigDecimal getSourceUnitPrice() {
+        return sourceUnitPrice;
+    }
+
+    public void setSourceUnitPrice(BigDecimal sourceUnitPrice) {
+        this.sourceUnitPrice = sourceUnitPrice;
+    }
+
+    public BigDecimal getSourceAmount() {
+        return sourceAmount;
+    }
+
+    public void setSourceAmount(BigDecimal sourceAmount) {
+        this.sourceAmount = sourceAmount;
+    }
+
+    public BigDecimal getSourceQuantityPerCountedUnit() {
+        return sourceQuantityPerCountedUnit;
+    }
+
+    public void setSourceQuantityPerCountedUnit(BigDecimal sourceQuantityPerCountedUnit) {
+        this.sourceQuantityPerCountedUnit = sourceQuantityPerCountedUnit;
     }
 
     public String getStatus() {

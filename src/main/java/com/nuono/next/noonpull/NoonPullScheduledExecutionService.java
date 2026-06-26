@@ -4,6 +4,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class NoonPullScheduledExecutionService {
     private static final int REPORT_MAX_POLL_ATTEMPTS = 18;
+    private static final int DEFAULT_SALES_REPORT_EXECUTIONS_PER_TICK = 4;
 
     private final NoonPullScheduler scheduler;
     private final NoonPullFoundationService foundationService;
@@ -26,6 +29,7 @@ public class NoonPullScheduledExecutionService {
     private final Supplier<? extends NoonReportProvider> orderProvider;
     private final Supplier<? extends NoonSalesPageQueryProvider> salesPageQueryProvider;
     private final boolean enabled;
+    private final int salesReportExecutionsPerTick;
 
     @Autowired
     public NoonPullScheduledExecutionService(
@@ -38,7 +42,8 @@ public class NoonPullScheduledExecutionService {
             ObjectProvider<NoonSalesReportSmokeProvider> salesProvider,
             ObjectProvider<NoonOrderReportSmokeProvider> orderProvider,
             ObjectProvider<NoonSalesPageQueryProvider> salesPageQueryProvider,
-            @Value("${nuono.noon.pull.scheduler.enabled:false}") boolean enabled
+            @Value("${nuono.noon.pull.scheduler.enabled:false}") boolean enabled,
+            @Value("${nuono.noon.pull.scheduler.sales-report-executions-per-tick:4}") int salesReportExecutionsPerTick
     ) {
         this(
                 scheduler,
@@ -50,7 +55,8 @@ public class NoonPullScheduledExecutionService {
                 () -> salesProvider == null ? null : salesProvider.getIfAvailable(),
                 () -> orderProvider == null ? null : orderProvider.getIfAvailable(),
                 () -> salesPageQueryProvider == null ? null : salesPageQueryProvider.getIfAvailable(),
-                enabled
+                enabled,
+                salesReportExecutionsPerTick
         );
     }
 
@@ -66,6 +72,34 @@ public class NoonPullScheduledExecutionService {
             Supplier<? extends NoonSalesPageQueryProvider> salesPageQueryProvider,
             boolean enabled
     ) {
+        this(
+                scheduler,
+                foundationService,
+                reportPuller,
+                interfacePuller,
+                salesReportAdapter,
+                orderReportAdapter,
+                salesProvider,
+                orderProvider,
+                salesPageQueryProvider,
+                enabled,
+                DEFAULT_SALES_REPORT_EXECUTIONS_PER_TICK
+        );
+    }
+
+    NoonPullScheduledExecutionService(
+            NoonPullScheduler scheduler,
+            NoonPullFoundationService foundationService,
+            NoonReportPuller reportPuller,
+            NoonInterfacePuller interfacePuller,
+            NoonSalesReportAdapter salesReportAdapter,
+            NoonOrderReportAdapter orderReportAdapter,
+            Supplier<? extends NoonReportProvider> salesProvider,
+            Supplier<? extends NoonReportProvider> orderProvider,
+            Supplier<? extends NoonSalesPageQueryProvider> salesPageQueryProvider,
+            boolean enabled,
+            int salesReportExecutionsPerTick
+    ) {
         this.scheduler = scheduler;
         this.foundationService = foundationService;
         this.reportPuller = reportPuller;
@@ -76,6 +110,7 @@ public class NoonPullScheduledExecutionService {
         this.orderProvider = orderProvider;
         this.salesPageQueryProvider = salesPageQueryProvider;
         this.enabled = enabled;
+        this.salesReportExecutionsPerTick = Math.max(1, salesReportExecutionsPerTick);
     }
 
     @Scheduled(
@@ -96,7 +131,15 @@ public class NoonPullScheduledExecutionService {
         }
         NoonPullSchedulerResult schedulerResult = scheduler.runDuePlans();
         result.created(schedulerResult.getCreatedTaskCount());
+        int salesReportExecutions = 0;
         for (NoonPullTaskRecord task : executableQueuedTasks(schedulerResult)) {
+            if (isSalesReportTask(task)) {
+                if (salesReportExecutions >= salesReportExecutionsPerTick) {
+                    result.skipped();
+                    continue;
+                }
+                salesReportExecutions++;
+            }
             executeTask(task, result);
         }
         return result;
@@ -119,13 +162,30 @@ public class NoonPullScheduledExecutionService {
     }
 
     private void addExecutableQueuedTask(Map<Long, NoonPullTaskRecord> tasksById, NoonPullTaskRecord task) {
-        if (task == null || task.getId() == null || task.getStatus() != NoonPullTaskStatus.QUEUED) {
+        if (task == null || task.getId() == null || !isExecutableTaskStatus(task)) {
             return;
         }
         if (!foundationService.isTaskPlanActive(task) || !isExecutableByScheduledWorker(task)) {
             return;
         }
+        if (task.getStatus() == NoonPullTaskStatus.RUNNING && !isReportPollDue(task)) {
+            return;
+        }
         tasksById.putIfAbsent(task.getId(), task);
+    }
+
+    private boolean isExecutableTaskStatus(NoonPullTaskRecord task) {
+        if (task.getStatus() == NoonPullTaskStatus.QUEUED) {
+            return true;
+        }
+        return task.getStatus() == NoonPullTaskStatus.RUNNING
+                && task.getPullType() == NoonPullType.REPORT
+                && task.getReportExportId() != null;
+    }
+
+    private boolean isReportPollDue(NoonPullTaskRecord task) {
+        return task.getReportNextPollAt() == null
+                || !task.getReportNextPollAt().isAfter(LocalDateTime.now(ZoneOffset.UTC));
     }
 
     private boolean isExecutableByScheduledWorker(NoonPullTaskRecord task) {
@@ -201,11 +261,19 @@ public class NoonPullScheduledExecutionService {
                         .build(),
                 provider
         );
-        if (pullResult.getStatus() == NoonPullTaskStatus.SUCCEEDED || pullResult.getStatus() == NoonPullTaskStatus.PARTIAL) {
+        if (pullResult.getStatus() == NoonPullTaskStatus.SUCCEEDED
+                || pullResult.getStatus() == NoonPullTaskStatus.PARTIAL
+                || pullResult.getStatus() == NoonPullTaskStatus.RUNNING) {
             result.executed();
         } else {
             result.failed();
         }
+    }
+
+    private boolean isSalesReportTask(NoonPullTaskRecord task) {
+        return task != null
+                && task.getPullType() == NoonPullType.REPORT
+                && task.getDataDomain() == NoonPullDataDomain.SALES;
     }
 
     private NoonReportProvider providerOrFail(

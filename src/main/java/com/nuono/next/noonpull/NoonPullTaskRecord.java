@@ -29,6 +29,13 @@ public class NoonPullTaskRecord {
     private String nextResumePosition;
     private String lastSafeResponseSummary;
     private String readinessState;
+    private String reportExportId;
+    private String reportExportStatus;
+    private String reportDownloadUrl;
+    private Integer reportTotalRows;
+    private LocalDateTime reportLastPollAt;
+    private LocalDateTime reportNextPollAt;
+    private Integer reportPollAttempts;
     private String lockedBy;
     private LocalDateTime queuedAt;
     private LocalDateTime startedAt;
@@ -63,6 +70,13 @@ public class NoonPullTaskRecord {
         copy.nextResumePosition = nextResumePosition;
         copy.lastSafeResponseSummary = lastSafeResponseSummary;
         copy.readinessState = readinessState;
+        copy.reportExportId = reportExportId;
+        copy.reportExportStatus = reportExportStatus;
+        copy.reportDownloadUrl = reportDownloadUrl;
+        copy.reportTotalRows = reportTotalRows;
+        copy.reportLastPollAt = reportLastPollAt;
+        copy.reportNextPollAt = reportNextPollAt;
+        copy.reportPollAttempts = reportPollAttempts;
         copy.lockedBy = lockedBy;
         copy.queuedAt = queuedAt;
         copy.startedAt = startedAt;
@@ -270,6 +284,62 @@ public class NoonPullTaskRecord {
 
     public void setReadinessState(String readinessState) {
         this.readinessState = readinessState;
+    }
+
+    public String getReportExportId() {
+        return reportExportId;
+    }
+
+    public void setReportExportId(String reportExportId) {
+        this.reportExportId = reportExportId;
+    }
+
+    public String getReportExportStatus() {
+        return reportExportStatus;
+    }
+
+    public void setReportExportStatus(String reportExportStatus) {
+        this.reportExportStatus = reportExportStatus;
+    }
+
+    public String getReportDownloadUrl() {
+        return reportDownloadUrl;
+    }
+
+    public void setReportDownloadUrl(String reportDownloadUrl) {
+        this.reportDownloadUrl = reportDownloadUrl;
+    }
+
+    public Integer getReportTotalRows() {
+        return reportTotalRows;
+    }
+
+    public void setReportTotalRows(Integer reportTotalRows) {
+        this.reportTotalRows = reportTotalRows;
+    }
+
+    public LocalDateTime getReportLastPollAt() {
+        return reportLastPollAt;
+    }
+
+    public void setReportLastPollAt(LocalDateTime reportLastPollAt) {
+        this.reportLastPollAt = reportLastPollAt;
+    }
+
+    public LocalDateTime getReportNextPollAt() {
+        return reportNextPollAt;
+    }
+
+    public void setReportNextPollAt(LocalDateTime reportNextPollAt) {
+        this.reportNextPollAt = reportNextPollAt;
+    }
+
+    public Integer getReportPollAttempts() {
+        return reportPollAttempts;
+    }
+
+    public void setReportPollAttempts(Integer reportPollAttempts) {
+        this.reportPollAttempts = reportPollAttempts;
     }
 
     public String getLockedBy() {

@@ -31,6 +31,7 @@ public class Ali1688CollectionView {
     public String finishedAt;
     public String message;
     public boolean canGenerateProcurementOrder;
+    public List<SpecValue> sourceSpecs = new ArrayList<>();
     public List<Ali1688CandidatePreview> candidates = new ArrayList<>();
 
     public static class Ali1688CandidatePreview {
@@ -53,8 +54,22 @@ public class Ali1688CollectionView {
         public ScoreBreakdown scoreBreakdown = new ScoreBreakdown();
         public String aiAssessmentStatus;
         public String procurementInquiryStatus;
+        public List<SpecValue> matchedSpecs = new ArrayList<>();
         public List<String> reasons = new ArrayList<>();
         public List<String> warnings = new ArrayList<>();
+    }
+
+    public static class SpecValue {
+        public String name;
+        public String value;
+
+        public SpecValue() {
+        }
+
+        public SpecValue(String name, String value) {
+            this.name = name;
+            this.value = value;
+        }
     }
 
     public static class ScoreBreakdown {

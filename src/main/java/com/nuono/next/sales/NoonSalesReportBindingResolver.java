@@ -44,10 +44,7 @@ public class NoonSalesReportBindingResolver {
                 store.getNoonPartnerPwd(),
                 owner == null ? null : owner.getNoonPartnerPwd()
         );
-        String persistedCookie = firstNonBlank(
-                store.getNoonPartnerCookie(),
-                owner == null ? null : owner.getNoonPartnerCookie()
-        );
+        String persistedCookie = firstNonBlank(store.getNoonPartnerCookie());
 
         requireText(projectCode, "当前店铺缺少 Noon projectCode，不能同步销量报表。");
         requireText(storeCode, "当前店铺缺少 Noon storeCode，不能同步销量报表。");

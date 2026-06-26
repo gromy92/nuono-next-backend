@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class ProductLiteMapperSqlTest {
 
     @Test
-    void searchSqlUsesOnlyMasterDraftAndSnapshotTables() throws Exception {
+    void searchSqlMatchesSkuFieldsWithoutExpandingLiteProjection() throws Exception {
         Method method = ProductLiteMapper.class.getMethod(
                 "search",
                 Long.class,
@@ -35,14 +35,21 @@ class ProductLiteMapperSqlTest {
                 .contains("pm.title_cn_cache")
                 .contains("$.content.titleEn")
                 .contains("$.content.titleCn")
-                .doesNotContain("product_variant")
-                .doesNotContain("product_site_offer")
+                .contains("pm.sku_parent")
+                .contains("EXISTS (")
+                .contains("FROM product_variant pv_search")
+                .contains("LEFT JOIN product_site_offer pso_search")
+                .contains("pv_search.product_master_id = pm.id")
+                .contains("pv_search.partner_sku")
+                .contains("pv_search.child_sku")
+                .contains("pso_search.psku_code")
+                .contains("pso_search.offer_code")
                 .doesNotContain("sku_parent AS")
-                .doesNotContain("child_sku")
-                .doesNotContain("offer_code")
+                .doesNotContain("child_sku AS")
+                .doesNotContain("offer_code AS")
                 .doesNotContain("sale_price")
                 .doesNotContain("stock")
-                .doesNotContain("variant_id")
+                .doesNotContain("variant_id AS")
                 .doesNotContain("effective_source");
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);

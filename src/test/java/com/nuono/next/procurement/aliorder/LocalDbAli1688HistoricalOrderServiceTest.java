@@ -3,6 +3,7 @@ package com.nuono.next.procurement.aliorder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -20,6 +21,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -530,6 +532,35 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
+    void assignProductLinesPersistsDiscontinuedAsDiscontinuedStoreFact() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688HistoricalOrderAssignmentView.AssignRequest request =
+                discontinuedAssignmentRequest("PRJ108065", "AE", 94011L, 4);
+        Ali1688HistoricalOrderItemRow item = itemRow(94011L, 93001L, "下架商品货品", 10);
+        item.setAuthorizationId(91008L);
+        ArgumentCaptor<Ali1688HistoricalOrderItemAssignmentRow> assignmentCaptor =
+                ArgumentCaptor.forClass(Ali1688HistoricalOrderItemAssignmentRow.class);
+
+        when(mapper.selectOrderItemForAssignment(307L, 94011L)).thenReturn(item);
+        when(mapper.listOrderItemAssignmentSummaries(307L, List.of(94011L))).thenReturn(List.of());
+        when(mapper.nextOrderItemAssignmentId()).thenReturn(99003L);
+
+        Ali1688HistoricalOrderAssignmentView.AssignResult result =
+                service.assignProductLines(context, request);
+
+        verify(mapper).insertOrderItemAssignment(assignmentCaptor.capture());
+        Ali1688HistoricalOrderItemAssignmentRow inserted = assignmentCaptor.getValue();
+        assertThat(inserted.getTargetType()).isEqualTo("DISCONTINUED");
+        assertThat(inserted.getTargetStoreCode()).isEqualTo("PRJ108065");
+        assertThat(inserted.getTargetSiteCode()).isEqualTo("AE");
+        assertThat(inserted.getAssignedQuantity()).isEqualTo(4);
+        assertThat(inserted.getRemark()).contains("下架");
+        assertThat(result.getAssignedLineCount()).isEqualTo(1);
+        assertThat(result.getAssignedQuantity()).isEqualTo(4);
+    }
+
+    @Test
     void assignProductLinesRejectsQuantityAboveRemaining() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
@@ -1017,6 +1048,23 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
+    void productLinkCandidatesRejectDiscontinuedAssignment() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688HistoricalOrderItemAssignmentRow assignment =
+                assignmentRow(99001L, 94011L, "PRJ108065", "AE", 4);
+        assignment.setTargetType("DISCONTINUED");
+
+        when(mapper.selectOrderItemAssignmentById(307L, 99001L)).thenReturn(assignment);
+
+        assertThatThrownBy(() -> service.listProductLinkCandidates(context, 99001L, null, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(mapper, never()).listOrderItemProductLinkCandidates(any(), any(), any(), any(), any());
+    }
+
+    @Test
     void productLinkCandidatesNormalizeLegacyNoonCoverImageUrls() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
@@ -1044,6 +1092,33 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
+    void productLinkCandidatesNormalizeHashedNoonCoverImageUrls() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ69486");
+        Ali1688HistoricalOrderItemAssignmentRow assignment =
+                assignmentRow(99001L, 94011L, "PRJ69486", "SA", 4);
+        Ali1688HistoricalOrderProductLinkCandidateRow candidate = productLinkCandidateRow(
+                "Z72E210340BAE3D7BC083Z",
+                "SGGRB316",
+                "a6a791ff61ac2ab2ddd6a059f17bd82a",
+                "30cm玫瑰小熊玩偶",
+                "unlinked"
+        );
+        candidate.setProductImageUrl("https://f.nooncdn.com/eff639f2df2651369082d90705ccc7ca|pzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201");
+
+        when(mapper.selectOrderItemAssignmentById(307L, 99001L)).thenReturn(assignment);
+        when(mapper.listOrderItemProductLinkCandidates(307L, "PRJ69486", "SA", null, null))
+                .thenReturn(List.of(candidate));
+
+        List<Ali1688HistoricalOrderProductLinkView.CandidateView> candidates =
+                service.listProductLinkCandidates(context, 99001L, null, null);
+
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates.get(0).getProductImageUrl())
+                .isEqualTo("https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca|pzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201.jpg");
+    }
+
+    @Test
     void linkProductLineRejectsUnassignedLineBecauseAssignmentIsRequired() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
@@ -1068,6 +1143,24 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         when(mapper.selectOrderItemAssignmentById(307L, 99002L)).thenReturn(assignment);
 
         assertThatThrownBy(() -> service.linkProductLine(context, productLinkRequest(99002L)))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(mapper, never()).countProductSkuInAssignmentTarget(any(), any(), any(), any());
+        verify(mapper, never()).insertOrderItemProductLink(any(Ali1688HistoricalOrderProductLinkRow.class));
+    }
+
+    @Test
+    void linkProductLineRejectsDiscontinuedAssignment() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688HistoricalOrderItemAssignmentRow assignment =
+                assignmentRow(99001L, 94011L, "PRJ108065", "AE", 4);
+        assignment.setTargetType("DISCONTINUED");
+
+        when(mapper.selectOrderItemAssignmentById(307L, 99001L)).thenReturn(assignment);
+
+        assertThatThrownBy(() -> service.linkProductLine(context, productLinkRequest(99001L)))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting("status")
                 .isEqualTo(HttpStatus.BAD_REQUEST);
@@ -1172,20 +1265,42 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                                 "¥200.00"
                         )
                 ));
+        Ali1688SkuPurchaseBatchRow persistedBatch = skuPurchaseBatchRow(
+                102001L,
+                "PRJ108065",
+                "AE",
+                "CANMAN-AE-SKU-001",
+                "批次 1",
+                3,
+                "120.00",
+                "3个/套换6个/套"
+        );
+        persistedBatch.setBatchType("combo_set");
+        persistedBatch.setCountedQuantityUnit("套");
+        persistedBatch.setComponentCount(10);
+        persistedBatch.setExpectedComponentCount(10);
+        Ali1688SkuPurchaseBatchSourceRow persistedSource = skuPurchaseBatchSourceRow(
+                102001L,
+                99001L,
+                "ALI-001",
+                "2026-05-01 10:00:00"
+        );
+        persistedSource.setComponentSequence(1);
+        persistedSource.setComponentRole("笔芯颜色: 粉色");
+        persistedSource.setSourceOfferId("1121281863");
+        persistedSource.setSourceSkuId("SKU-PINK");
+        persistedSource.setSourceTitle("台笔圆珠笔");
+        persistedSource.setSourceSpec("笔芯颜色: 粉色; 笔头: 子弹型1.0");
+        persistedSource.setSourceQuantity(new BigDecimal("30.0000"));
+        persistedSource.setSourceUnit("支");
+        persistedSource.setSourceUnitPrice(new BigDecimal("1.450000"));
+        persistedSource.setSourceAmount(new BigDecimal("43.5000"));
+        persistedSource.setSourceQuantityPerCountedUnit(new BigDecimal("1.000000"));
         when(mapper.listSkuPurchaseBatches(307L, "PRJ108065", "AE", null, null, null))
-                .thenReturn(List.of(skuPurchaseBatchRow(
-                        102001L,
-                        "PRJ108065",
-                        "AE",
-                        "CANMAN-AE-SKU-001",
-                        "批次 1",
-                        3,
-                        "120.00",
-                        "3个/套换6个/套"
-                )));
+                .thenReturn(List.of(persistedBatch));
         when(mapper.listSkuPurchaseBatchSources(307L, List.of(102001L)))
                 .thenReturn(List.of(
-                        skuPurchaseBatchSourceRow(102001L, 99001L, "ALI-001", "2026-05-01 10:00:00"),
+                        persistedSource,
                         skuPurchaseBatchSourceRow(102001L, 99002L, "ALI-002", "2026-05-20 10:00:00")
                 ));
 
@@ -1199,9 +1314,305 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         assertThat(item.getRecentUnitPrice()).isEqualByComparingTo(new BigDecimal("40.00"));
         assertThat(item.getAmountBasis()).isEqualTo("manual_batch_adjusted");
         assertThat(item.getPurchaseBatches()).hasSize(1);
+        assertThat(item.getPurchaseBatches().get(0).getBatchType()).isEqualTo("combo_set");
+        assertThat(item.getPurchaseBatches().get(0).getCountedQuantityUnit()).isEqualTo("套");
+        assertThat(item.getPurchaseBatches().get(0).getComponentCount()).isEqualTo(10);
+        assertThat(item.getPurchaseBatches().get(0).getExpectedComponentCount()).isEqualTo(10);
         assertThat(item.getPurchaseBatches().get(0).getSources())
                 .extracting(Ali1688SkuPurchaseHistoryView.PurchaseBatchSourceView::getAssignmentId)
                 .containsExactly(99001L, 99002L);
+        assertThat(item.getPurchaseBatches().get(0).getSources().get(0).getSourceSpec())
+                .contains("笔芯颜色: 粉色");
+        assertThat(item.getPurchaseBatches().get(0).getSources().get(0).getSourceUnitPrice())
+                .isEqualByComparingTo(new BigDecimal("1.450000"));
+    }
+
+    @Test
+    void listSkuPurchaseHistoryFiltersByAggregatedPurchaseCount() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery repeatPurchaseQuery =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+        repeatPurchaseQuery.setPurchaseCountMin(2);
+        Ali1688SkuPurchaseHistoryQuery noPurchaseQuery =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+        noPurchaseQuery.setPurchaseCountMax(0);
+
+        when(mapper.listSkuPurchaseHistoryProducts(307L, "PRJ108065", "AE", null))
+                .thenReturn(List.of(
+                        skuPurchaseProductRow("CANMAN-AE-SKU-001", "CM-AE-PARTNER-001", "PSKU-CM-AE-001", "复购商品"),
+                        skuPurchaseProductRow("CANMAN-AE-SKU-002", "CM-AE-PARTNER-002", "PSKU-CM-AE-002", "单次采购商品"),
+                        skuPurchaseProductRow("CANMAN-AE-SKU-003", "CM-AE-PARTNER-003", "PSKU-CM-AE-003", "未采购商品")
+                ));
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                4,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                5,
+                                5,
+                                "¥200.00",
+                                "¥200.00",
+                                "¥200.00"
+                        ),
+                        purchaseHistoryRow(
+                                99003L,
+                                "ALI-003",
+                                "2026-05-25 10:00:00",
+                                "CANMAN-AE-SKU-002",
+                                2,
+                                2,
+                                "¥40.00",
+                                "¥40.00",
+                                "¥40.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView repeatPurchaseView =
+                service.listSkuPurchaseHistory(context, repeatPurchaseQuery);
+        Ali1688SkuPurchaseHistoryView noPurchaseView =
+                service.listSkuPurchaseHistory(context, noPurchaseQuery);
+
+        assertThat(repeatPurchaseView.getItems())
+                .extracting(Ali1688SkuPurchaseHistoryView.ItemView::getSkuParent)
+                .containsExactly("CANMAN-AE-SKU-001");
+        assertThat(noPurchaseView.getItems())
+                .extracting(Ali1688SkuPurchaseHistoryView.ItemView::getSkuParent)
+                .containsExactly("CANMAN-AE-SKU-003");
+    }
+
+    @Test
+    void listSkuPurchaseHistoryFiltersByPriceAnomalyBeforePagination() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+        query.setPriceAnomalyOnly(true);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99011L,
+                                "ALI-NORMAL-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-NORMAL",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99012L,
+                                "ALI-NORMAL-002",
+                                "2026-05-02 10:00:00",
+                                "CANMAN-AE-SKU-NORMAL",
+                                10,
+                                10,
+                                "¥110.00",
+                                "¥110.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99013L,
+                                "ALI-NORMAL-003",
+                                "2026-05-03 10:00:00",
+                                "CANMAN-AE-SKU-NORMAL",
+                                10,
+                                10,
+                                "¥105.00",
+                                "¥105.00",
+                                "¥105.00"
+                        ),
+                        purchaseHistoryRow(
+                                99021L,
+                                "ALI-ANOMALY-001",
+                                "2026-05-04 10:00:00",
+                                "CANMAN-AE-SKU-ANOMALY",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99022L,
+                                "ALI-ANOMALY-002",
+                                "2026-05-05 10:00:00",
+                                "CANMAN-AE-SKU-ANOMALY",
+                                10,
+                                10,
+                                "¥110.00",
+                                "¥110.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99023L,
+                                "ALI-ANOMALY-003",
+                                "2026-05-06 10:00:00",
+                                "CANMAN-AE-SKU-ANOMALY",
+                                10,
+                                10,
+                                "¥300.00",
+                                "¥300.00",
+                                "¥300.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView view = service.listSkuPurchaseHistory(context, query);
+
+        assertThat(view.getPagination().getTotal()).isEqualTo(1);
+        assertThat(view.getItems())
+                .extracting(Ali1688SkuPurchaseHistoryView.ItemView::getSkuParent)
+                .containsExactly("CANMAN-AE-SKU-ANOMALY");
+        assertThat(view.getItems().get(0).getPriceAnomalyCount()).isEqualTo(1);
+    }
+
+    @Test
+    void listSkuPurchaseHistoryMarksPriceAnomaliesAndExcludesThemFromStableAverage() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥110.00",
+                                "¥110.00",
+                                "¥110.00"
+                        ),
+                        purchaseHistoryRow(
+                                99003L,
+                                "ALI-003",
+                                "2026-05-25 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥123.00",
+                                "¥123.00",
+                                "¥123.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView.ItemView item =
+                service.listSkuPurchaseHistory(context, query).getItems().get(0);
+
+        assertThat(item.getPurchaseCount()).isEqualTo(3);
+        assertThat(item.getPriceAnomalyCount()).isEqualTo(1);
+        assertThat(item.getStableAverageUnitPrice()).isEqualByComparingTo(new BigDecimal("10.50"));
+    }
+
+    @Test
+    void listSkuPurchaseHistoryDoesNotMarkTwoOrdersAnomalousWhenPricesStayWithinTenPercent() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.10",
+                                "¥100.10",
+                                "¥100.10"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView.ItemView item =
+                service.listSkuPurchaseHistory(context, query).getItems().get(0);
+
+        assertThat(item.getPurchaseCount()).isEqualTo(2);
+        assertThat(item.getPriceAnomalyCount()).isZero();
+        assertThat(item.getStableAverageUnitPrice()).isEqualByComparingTo(new BigDecimal("10.01"));
+    }
+
+    @Test
+    void listSkuPurchaseHistoryMarksBothOrdersAnomalousWhenOnlyTwoPricesDeviateByMoreThanTenPercent() {
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
+        BusinessAccessContext context = bossContextWithStores("PRJ108065");
+        Ali1688SkuPurchaseHistoryQuery query =
+                Ali1688SkuPurchaseHistoryQuery.fromRequest("PRJ108065", "AE", null, 1, 20);
+
+        when(mapper.listSkuPurchaseHistoryRows(307L, "PRJ108065", "AE", null, null, null))
+                .thenReturn(List.of(
+                        purchaseHistoryRow(
+                                99001L,
+                                "ALI-001",
+                                "2026-05-01 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥100.00",
+                                "¥100.00",
+                                "¥100.00"
+                        ),
+                        purchaseHistoryRow(
+                                99002L,
+                                "ALI-002",
+                                "2026-05-20 10:00:00",
+                                "CANMAN-AE-SKU-001",
+                                10,
+                                10,
+                                "¥120.00",
+                                "¥120.00",
+                                "¥120.00"
+                        )
+                ));
+
+        Ali1688SkuPurchaseHistoryView.ItemView item =
+                service.listSkuPurchaseHistory(context, query).getItems().get(0);
+
+        assertThat(item.getPurchaseCount()).isEqualTo(2);
+        assertThat(item.getPriceAnomalyCount()).isEqualTo(2);
+        assertThat(item.getStableAverageUnitPrice()).isNull();
     }
 
     @Test
@@ -1216,16 +1627,31 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         request.setPskuCode("PSKU-CM-AE-001");
         Ali1688SkuPurchaseBatchView.BatchRequest batch = new Ali1688SkuPurchaseBatchView.BatchRequest();
         batch.setLabel("批次 1");
+        batch.setBatchType("combo_set");
         batch.setCountedQuantity(3);
+        batch.setCountedQuantityUnit("套");
         batch.setCountedCost(new BigDecimal("120.00"));
+        batch.setComponentCount(10);
+        batch.setExpectedComponentCount(10);
         batch.setNote("3个/套换6个/套");
         Ali1688SkuPurchaseBatchView.SourceRequest firstSource = new Ali1688SkuPurchaseBatchView.SourceRequest();
         firstSource.setAssignmentId(99001L);
         firstSource.setOrderId(93001L);
         firstSource.setItemId(94001L);
+        firstSource.setComponentSequence(1);
+        firstSource.setComponentRole("粉色型号");
         firstSource.setOrderNo("ALI-001");
         firstSource.setOrderTime("2026-05-01 10:00:00");
         firstSource.setSupplierName("义乌诚信通源头工厂");
+        firstSource.setSourceOfferId("1121281863");
+        firstSource.setSourceSkuId("SKU-PINK");
+        firstSource.setSourceTitle("台笔圆珠笔");
+        firstSource.setSourceSpec("笔芯颜色: 粉色; 笔头: 子弹型1.0");
+        firstSource.setSourceQuantity(new BigDecimal("30"));
+        firstSource.setSourceUnit("支");
+        firstSource.setSourceUnitPrice(new BigDecimal("1.45"));
+        firstSource.setSourceAmount(new BigDecimal("43.50"));
+        firstSource.setSourceQuantityPerCountedUnit(new BigDecimal("1"));
         Ali1688SkuPurchaseBatchView.SourceRequest secondSource = new Ali1688SkuPurchaseBatchView.SourceRequest();
         secondSource.setAssignmentId(99002L);
         secondSource.setOrderId(93002L);
@@ -1263,14 +1689,24 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 ArgumentCaptor.forClass(Ali1688SkuPurchaseBatchRow.class);
         verify(mapper).insertSkuPurchaseBatch(batchCaptor.capture());
         assertThat(batchCaptor.getValue().getId()).isEqualTo(102001L);
+        assertThat(batchCaptor.getValue().getBatchType()).isEqualTo("combo_set");
         assertThat(batchCaptor.getValue().getCountedQuantity()).isEqualTo(3);
+        assertThat(batchCaptor.getValue().getCountedQuantityUnit()).isEqualTo("套");
         assertThat(batchCaptor.getValue().getCountedCost()).isEqualByComparingTo(new BigDecimal("120.00"));
+        assertThat(batchCaptor.getValue().getComponentCount()).isEqualTo(10);
+        assertThat(batchCaptor.getValue().getExpectedComponentCount()).isEqualTo(10);
         ArgumentCaptor<Ali1688SkuPurchaseBatchSourceRow> sourceCaptor =
                 ArgumentCaptor.forClass(Ali1688SkuPurchaseBatchSourceRow.class);
         verify(mapper, times(2)).insertSkuPurchaseBatchSource(sourceCaptor.capture());
         assertThat(sourceCaptor.getAllValues())
                 .extracting(Ali1688SkuPurchaseBatchSourceRow::getAssignmentId)
                 .containsExactly(99001L, 99002L);
+        assertThat(sourceCaptor.getAllValues().get(0).getComponentSequence()).isEqualTo(1);
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceSpec()).contains("笔芯颜色: 粉色");
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceQuantity()).isEqualByComparingTo(new BigDecimal("30.0000"));
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceUnitPrice()).isEqualByComparingTo(new BigDecimal("1.450000"));
+        assertThat(sourceCaptor.getAllValues().get(0).getSourceQuantityPerCountedUnit())
+                .isEqualByComparingTo(new BigDecimal("1.000000"));
     }
 
     @Test
@@ -1971,11 +2407,14 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         when(mapper.selectCurrentAuthorization(307L)).thenReturn(authorizationRow(91001L));
         when(mapper.listVisibleAuthorizationIds(307L, "PRJ108065", "AE")).thenReturn(List.of(91001L));
         when(mapper.selectOrderById(307L, List.of(91001L), 93001L)).thenReturn(order);
-        when(mapper.countActiveOrderAssignments(307L, 93001L)).thenReturn(0);
 
         Ali1688HistoricalOrderCleanupView.DeleteOrderResult result =
                 service.deleteHistoricalOrder(context, 93001L, request);
 
+        verify(mapper).deactivateActiveSkuPurchaseBatchesForOrder(307L, 93001L, 307L);
+        verify(mapper).deactivateActiveSkuPurchaseBatchSourcesForOrder(307L, 93001L, 307L);
+        verify(mapper).deactivateActiveProductLinksForOrder(307L, 93001L, 307L);
+        verify(mapper).revokeActiveOrderAssignmentsForOrder(307L, 93001L, 307L);
         verify(mapper).softDeleteOrderHeader(93001L, 307L, 307L, "不属于任何店铺");
         verify(mapper).softDeleteOrderItems(93001L);
         verify(mapper).softDeleteOrderLogistics(93001L);
@@ -1985,26 +2424,29 @@ class LocalDbAli1688HistoricalOrderServiceTest {
     }
 
     @Test
-    void deleteHistoricalOrderRejectsOrderWithActiveAssignments() {
+    void deleteHistoricalOrderRevokesActiveOrderStateBeforeSoftDeletingFacts() {
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper);
         BusinessAccessContext context = bossContextWithStores("PRJ108065");
 
         when(mapper.selectCurrentAuthorization(307L)).thenReturn(authorizationRow(91001L));
         when(mapper.listVisibleAuthorizationIds(307L, "PRJ108065", "AE")).thenReturn(List.of(91001L));
         when(mapper.selectOrderById(307L, List.of(91001L), 93001L)).thenReturn(orderRow(93001L, 91001L));
-        when(mapper.countActiveOrderAssignments(307L, 93001L)).thenReturn(1);
 
-        assertThatThrownBy(() -> service.deleteHistoricalOrder(
+        Ali1688HistoricalOrderCleanupView.DeleteOrderResult result = service.deleteHistoricalOrder(
                 context,
                 93001L,
                 deleteOrderRequest("PRJ108065", "AE", "不属于任何店铺")
-        ))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting("status")
-                .isEqualTo(HttpStatus.BAD_REQUEST);
-        verify(mapper, never()).softDeleteOrderHeader(any(), any(), any(), any());
-        verify(mapper, never()).softDeleteOrderItems(any());
-        verify(mapper, never()).softDeleteOrderLogistics(any());
+        );
+
+        InOrder ordered = inOrder(mapper);
+        ordered.verify(mapper).deactivateActiveSkuPurchaseBatchesForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).deactivateActiveSkuPurchaseBatchSourcesForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).deactivateActiveProductLinksForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).revokeActiveOrderAssignmentsForOrder(307L, 93001L, 307L);
+        ordered.verify(mapper).softDeleteOrderHeader(93001L, 307L, 307L, "不属于任何店铺");
+        ordered.verify(mapper).softDeleteOrderItems(93001L);
+        ordered.verify(mapper).softDeleteOrderLogistics(93001L);
+        assertThat(result.getStatus()).isEqualTo("deleted");
     }
 
     @Test
@@ -2648,6 +3090,18 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 new Ali1688HistoricalOrderAssignmentView.AssignLineRequest();
         line.setItemId(itemId);
         request.setLines(List.of(line));
+        return request;
+    }
+
+    private Ali1688HistoricalOrderAssignmentView.AssignRequest discontinuedAssignmentRequest(
+            String targetStoreCode,
+            String targetSiteCode,
+            Long itemId,
+            Integer quantity
+    ) {
+        Ali1688HistoricalOrderAssignmentView.AssignRequest request =
+                assignmentRequest(targetStoreCode, targetSiteCode, itemId, quantity);
+        request.setTargetType("DISCONTINUED");
         return request;
     }
 

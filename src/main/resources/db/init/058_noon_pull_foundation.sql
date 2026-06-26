@@ -71,6 +71,13 @@ CREATE TABLE IF NOT EXISTS `noon_pull_task` (
     `next_resume_position` VARCHAR(128) DEFAULT NULL,
     `last_safe_response_summary` VARCHAR(2000) DEFAULT NULL,
     `readiness_state` VARCHAR(64) DEFAULT NULL,
+    `report_export_id` VARCHAR(160) DEFAULT NULL,
+    `report_export_status` VARCHAR(64) DEFAULT NULL,
+    `report_download_url` VARCHAR(1200) DEFAULT NULL,
+    `report_total_rows` INT DEFAULT NULL,
+    `report_last_poll_at` DATETIME DEFAULT NULL,
+    `report_next_poll_at` DATETIME DEFAULT NULL,
+    `report_poll_attempts` INT DEFAULT NULL,
     `locked_by` VARCHAR(100) DEFAULT NULL,
     `queued_at` DATETIME DEFAULT NULL,
     `started_at` DATETIME DEFAULT NULL,
@@ -82,5 +89,7 @@ CREATE TABLE IF NOT EXISTS `noon_pull_task` (
     UNIQUE KEY `uk_noon_pull_active_lock` (`active_lock_slot`),
     KEY `idx_noon_pull_task_plan` (`plan_id`),
     KEY `idx_noon_pull_task_scope` (`owner_user_id`, `store_code`, `site_code`, `data_domain`, `pull_type`),
-    KEY `idx_noon_pull_task_status` (`status`, `queued_at`)
+    KEY `idx_noon_pull_task_status` (`status`, `queued_at`),
+    KEY `idx_noon_pull_task_report_export` (`report_export_id`),
+    KEY `idx_noon_pull_task_next_poll` (`status`, `report_next_poll_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

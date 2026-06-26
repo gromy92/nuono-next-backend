@@ -46,7 +46,7 @@ public class NoonSalesReportAdapter {
         String csv = new String(file.getContent(), StandardCharsets.UTF_8);
         List<List<String>> records = parseRecords(csv);
         if (records.isEmpty() || records.get(0).stream().noneMatch(StringUtils::hasText)) {
-            return emptyResult(file);
+            return emptyResult(file, "missing");
         }
         Map<String, Integer> headerIndex = headerIndex(records.get(0));
         if (!hasRequiredColumns(headerIndex)) {
@@ -84,7 +84,7 @@ public class NoonSalesReportAdapter {
             }
         }
         if (imported == 0 && exceptions == 0) {
-            return emptyResult(file);
+            return emptyResult(file, "valid");
         }
         if (imported == 0) {
             return NoonReportProcessResult.mappingFailed(exceptions);
@@ -95,15 +95,27 @@ public class NoonSalesReportAdapter {
         return NoonReportProcessResult.succeeded(imported, 0);
     }
 
-    private NoonReportProcessResult emptyResult(NoonReportDownloadedFile file) {
+    private NoonReportProcessResult emptyResult(NoonReportDownloadedFile file, String csvHeaderState) {
         NoonReportPullRequest request = file == null ? null : file.getRequest();
+        String diagnostic = emptyDiagnostic(request, csvHeaderState);
         if (request != null
                 && request.getDataDomain() == NoonPullDataDomain.SALES
                 && request.getDateTo() != null
                 && !request.getDateTo().isBefore(LocalDate.now(clock).minusDays(EMPTY_REPORT_CONFIRMATION_DAYS))) {
-            return NoonReportProcessResult.emptyReportPendingConfirmation();
+            return NoonReportProcessResult.emptyReportPendingConfirmation(diagnostic);
         }
-        return NoonReportProcessResult.emptyReport();
+        return NoonReportProcessResult.emptyReport(diagnostic + "; confirmed_empty");
+    }
+
+    private String emptyDiagnostic(NoonReportPullRequest request, String csvHeaderState) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("csvHeader=").append(StringUtils.hasText(csvHeaderState) ? csvHeaderState : "unknown");
+        builder.append("; importedRows=0");
+        if (request != null && request.getDateTo() != null) {
+            builder.append("; confirmationDeadline=")
+                    .append(request.getDateTo().plusDays(EMPTY_REPORT_CONFIRMATION_DAYS));
+        }
+        return builder.toString();
     }
 
     private NoonSalesFactWriter factWriter() {

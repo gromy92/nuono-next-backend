@@ -388,7 +388,7 @@ public interface ProductGroupMapper {
             "  pgm.partner_sku AS partnerSku,",
             "  pgm.axis_values_json AS axisValuesJson,",
             "  pgm.sort_ix AS sortIx,",
-            "  pm.title_cache AS title,",
+            "  COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS title,",
             "  pm.cover_image_url AS imageUrl",
             "FROM product_group_member pgm",
             "JOIN product_group pg",

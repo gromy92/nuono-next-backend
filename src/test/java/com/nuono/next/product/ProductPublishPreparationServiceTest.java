@@ -148,6 +148,18 @@ class ProductPublishPreparationServiceTest {
     }
 
     @Test
+    void shouldRejectPublicDetailReadonlySnapshotForPublish() {
+        ProductMasterSnapshotView baseline = snapshot("Base title", "STR245027-NAE", "48.00", "39.20");
+        baseline.setMode(ProductPublicDetailReadonlyWorkbenchFactory.MODE);
+        ProductMasterSnapshotView draft = copySnapshot(baseline);
+        draft.getContent().put("titleEn", "Changed title");
+
+        List<String> errors = service.validatePublishSnapshot(draft, baseline, "STR245027-NAE");
+
+        assertTrue(errors.stream().anyMatch((error) -> error.contains("前台公开详情")));
+    }
+
+    @Test
     void shouldDefaultSaleWindowOnlyForDirtyOfferWithSalePrice() {
         ProductMasterSnapshotView baseline = snapshot("Base title", "STR245027-NAE", "48.00", "39.20");
         baseline.getSiteOffers().get(0).put("priceMin", "10.00");

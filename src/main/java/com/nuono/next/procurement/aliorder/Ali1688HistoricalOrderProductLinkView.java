@@ -1,5 +1,6 @@
 package com.nuono.next.procurement.aliorder;
 
+import com.nuono.next.productselection.NoonImageUrlNormalizer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -496,31 +497,6 @@ public class Ali1688HistoricalOrderProductLinkView {
     }
 
     static String normalizeNoonImageUrl(String imageUrl) {
-        if (imageUrl == null) {
-            return null;
-        }
-        String trimmed = imageUrl.trim();
-        if (trimmed.isEmpty()) {
-            return trimmed;
-        }
-        if (trimmed.startsWith("https://f.nooncdn.com/pzsku/")
-                || trimmed.startsWith("http://f.nooncdn.com/pzsku/")) {
-            String protocol = trimmed.startsWith("https://") ? "https://" : "http://";
-            String normalized = protocol + "f.nooncdn.com/p/" + trimmed.substring((protocol + "f.nooncdn.com/").length());
-            return hasImageExtension(normalized) ? normalized : normalized + ".jpg";
-        }
-        return trimmed;
-    }
-
-    private static boolean hasImageExtension(String imageUrl) {
-        String lower = imageUrl.toLowerCase();
-        return lower.endsWith(".jpg")
-                || lower.endsWith(".jpeg")
-                || lower.endsWith(".png")
-                || lower.endsWith(".webp")
-                || lower.contains(".jpg?")
-                || lower.contains(".jpeg?")
-                || lower.contains(".png?")
-                || lower.contains(".webp?");
+        return NoonImageUrlNormalizer.normalize(imageUrl);
     }
 }

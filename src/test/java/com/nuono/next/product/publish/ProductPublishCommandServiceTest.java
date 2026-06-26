@@ -1,21 +1,29 @@
 package com.nuono.next.product.publish;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.product.ProductPublishTaskRecord;
 import com.nuono.next.product.ProductPublishTaskView;
+import com.nuono.next.product.noon.NoonProductError;
+import com.nuono.next.product.noon.NoonProductErrorCode;
+import com.nuono.next.product.noon.NoonProductException;
+import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class ProductPublishCommandServiceTest {
 
@@ -97,12 +105,214 @@ class ProductPublishCommandServiceTest {
         assertFalse(view.getChangedDomains().isEmpty());
     }
 
+    @Test
+    void shouldTreatNoonHttpFiveHundredWriteFailureAsRetryable() {
+        assertTrue(service.isRetryableNoonWriteFailure(
+                new IllegalStateException("请求 Noon 失败：HTTP 500 {\"error\":\"Sorry, something wrong on our side\"}")
+        ));
+    }
+
+    @Test
+    void shouldTreatNoonHttpRequestTimeoutWriteFailureAsRetryable() {
+        assertTrue(service.isRetryableNoonWriteFailure(
+                new IllegalStateException("请求 Noon 失败：HTTP 408 request timeout")
+        ));
+    }
+
+    @Test
+    void shouldTreatNestedRetryableNoonWriteFailureAsRetryable() {
+        NoonProductException rateLimited = new NoonProductException(
+                new NoonProductError(
+                        NoonProductErrorCode.NOON_RATE_LIMITED,
+                        true,
+                        "Noon 请求被限流，请稍后重试。"
+                ),
+                new IllegalStateException("rate limited")
+        );
+
+        assertTrue(service.isRetryableNoonWriteFailure(
+                new IllegalStateException("发布写入失败", rateLimited)
+        ));
+    }
+
+    @Test
+    void shouldNotTreatValidationFailureAsRetryableNoonWriteFailure() {
+        assertFalse(service.isRetryableNoonWriteFailure(
+                new IllegalStateException("SA / STR353172-NSA 缺少有效售价。")
+        ));
+    }
+
+    @Test
+    void shouldTreatNoonLoginAccessDeniedAsRetryableRequestFailure() {
+        assertTrue(service.isRetryableNoonRequestFailure(
+                new IllegalStateException(
+                        "请求 Noon 失败：HTTP 403 <HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>"
+                                + "You don't have permission to access \"http&#58;&#47;&#47;login.noon.partners\""
+                )
+        ));
+    }
+
+    @Test
+    void shouldNotRetryNoonInvalidPasswordAsRequestFailure() {
+        assertFalse(service.isRetryableNoonRequestFailure(
+                new IllegalStateException("Noon password validate 失败：invalid username or password")
+        ));
+    }
+
+    @Test
+    void shouldScheduleTransparentWriteRetryWhenRetryBudgetRemains() {
+        ProductPublishTaskRecord task = runningTask();
+        task.setRetryCount(0);
+        task.setMaxRetryCount(3);
+        when(productManagementMapper.updateProductPublishTaskStatus(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), anyBoolean(), any()
+        )).thenReturn(1);
+
+        boolean scheduled = service.scheduleNoonWriteRetryOrManualCheck(
+                task,
+                "noon_write_failed",
+                "Noon 发布返回错误：HTTP 500",
+                "{\"status\":\"write_retry_scheduled\"}"
+        );
+
+        assertTrue(scheduled);
+        assertEquals("write_retry_scheduled", task.getStatus());
+        assertEquals("noon_write_failed", task.getErrorCode());
+        assertEquals(Integer.valueOf(1), task.getRetryCount());
+        assertNotNull(task.getNextRunAt());
+        assertNull(task.getFinishedAt());
+        assertNull(task.getLockedBy());
+        assertNull(task.getLockedAt());
+    }
+
+    @Test
+    void shouldNotBlockForegroundActionsForScheduledBackgroundWriteRetry() {
+        ProductPublishTaskRecord task = runningTask();
+        task.setStatus("write_retry_scheduled");
+        task.setLockedBy(null);
+        task.setLockedAt(null);
+        when(productManagementMapper.selectActiveProductPublishTask(20002L)).thenReturn(task);
+
+        assertDoesNotThrow(() -> service.ensureNoForegroundBlockingActiveTask(20002L, "blocked"));
+    }
+
+    @Test
+    void shouldBlockForegroundActionsForRunningPublishTask() {
+        ProductPublishTaskRecord task = runningTask();
+        when(productManagementMapper.selectActiveProductPublishTask(20002L)).thenReturn(task);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.ensureNoForegroundBlockingActiveTask(20002L, "blocked")
+        );
+
+        assertEquals("blocked", exception.getMessage());
+    }
+
+    @Test
+    void shouldRefreshScheduledBackgroundRetryWithLatestDraft() {
+        ProductPublishTaskRecord task = runningTask();
+        task.setStatus("write_retry_scheduled");
+        task.setLockedBy(null);
+        task.setLockedAt(null);
+        task.setRetryCount(3);
+        when(productManagementMapper.refreshRetryScheduledProductPublishTaskDraft(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
+        )).thenReturn(1);
+
+        boolean refreshed = service.refreshRetryScheduledTaskDraft(
+                task,
+                "{\"draft\":true}",
+                "{\"baseline\":true}",
+                "{\"request\":true}",
+                "[\"offer\"]",
+                "draft-hash-2",
+                "noon_write_failed",
+                "Noon 发布接口暂时不可用，系统将后台自动核对并重试。"
+        );
+
+        assertTrue(refreshed);
+        assertEquals("{\"draft\":true}", task.getDraftJson());
+        assertEquals("{\"baseline\":true}", task.getBaselineJson());
+        assertEquals("{\"request\":true}", task.getRequestJson());
+        assertEquals("[\"offer\"]", task.getChangedDomainsJson());
+        assertEquals("draft-hash-2", task.getDraftHash());
+        assertEquals("noon_write_failed", task.getErrorCode());
+        assertEquals(Integer.valueOf(0), task.getRetryCount());
+        assertNotNull(task.getNextRunAt());
+        assertNull(task.getFinishedAt());
+    }
+
+    @Test
+    void shouldKeepRetryableWriteFailureScheduledBeyondTaskDefaultBudget() {
+        ProductPublishTaskRecord task = runningTask();
+        task.setRetryCount(3);
+        task.setMaxRetryCount(3);
+        when(productManagementMapper.updateProductPublishTaskStatus(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), anyBoolean(), any()
+        )).thenReturn(1);
+
+        boolean scheduled = service.scheduleNoonWriteRetryOrManualCheck(
+                task,
+                "noon_write_failed",
+                "Noon 发布返回错误：HTTP 500",
+                "{\"status\":\"write_retry_scheduled\"}"
+        );
+
+        assertTrue(scheduled);
+        assertEquals("write_retry_scheduled", task.getStatus());
+        assertEquals("noon_write_failed", task.getErrorCode());
+        assertEquals(Integer.valueOf(4), task.getRetryCount());
+        assertNotNull(task.getNextRunAt());
+        assertNull(task.getFinishedAt());
+        assertNull(task.getLockedBy());
+    }
+
+    @Test
+    void shouldMoveRetryableWriteFailureToManualCheckWhenConfiguredTransientBudgetIsExhausted() {
+        ReflectionTestUtils.setField(service, "transientAutomaticMaxRetryCount", 3);
+        ProductPublishTaskRecord task = runningTask();
+        task.setRetryCount(3);
+        task.setMaxRetryCount(3);
+        when(productManagementMapper.updateProductPublishTaskStatus(
+                any(), any(), any(), any(), any(), any(), any(), any(),
+                any(), any(), any(), any(), any(), any(), anyBoolean(), any()
+        )).thenReturn(1);
+
+        boolean scheduled = service.scheduleNoonWriteRetryOrManualCheck(
+                task,
+                "noon_write_failed",
+                "Noon 发布返回错误：HTTP 500",
+                "{\"status\":\"pending_manual_check\"}"
+        );
+
+        assertFalse(scheduled);
+        assertEquals("pending_manual_check", task.getStatus());
+        assertEquals("noon_write_retry_exhausted", task.getErrorCode());
+        assertNotNull(task.getFinishedAt());
+        assertNull(task.getLockedBy());
+    }
+
+    @Test
+    void shouldRecoverStaleAndLegacyRetryableFailedWriteTasksTogether() {
+        ReflectionTestUtils.setField(service, "staleRunningMinutes", 15);
+        ReflectionTestUtils.setField(service, "legacyRetryableFailedRecoveryHours", 24);
+        when(productManagementMapper.recoverStaleRunningProductPublishTasks(15, 0L)).thenReturn(1);
+        when(productManagementMapper.recoverRetryableFailedNoonWriteProductPublishTasks(24, 0L)).thenReturn(2);
+
+        assertEquals(3, service.recoverStaleRunningTasks());
+        verify(productManagementMapper).recoverRetryableFailedNoonWriteProductPublishTasks(24, 0L);
+    }
+
     private ProductPublishTaskRecord runningTask() {
         ProductPublishTaskRecord task = new ProductPublishTaskRecord();
         task.setId(1001L);
         task.setOwnerUserId(10002L);
         task.setStatus("running");
         task.setLockedBy("claim-token-1");
+        task.setLockedAt(LocalDateTime.now());
         task.setVersionNo(7);
         return task;
     }

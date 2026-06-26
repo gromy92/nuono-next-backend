@@ -54,9 +54,9 @@ nuono:
         system-operator-user-id: ${NUONO_FILE_PARSE_RETRY_OPERATOR_USER_ID:10003}
   product-management:
     publish-task:
-      async-enabled: ${NUONO_PRODUCT_PUBLISH_TASK_ASYNC_ENABLED:false}
+      async-enabled: ${NUONO_PRODUCT_PUBLISH_TASK_ASYNC_ENABLED:true}
       scheduler:
-        enabled: ${NUONO_PRODUCT_PUBLISH_TASK_SCHEDULER_ENABLED:false}
+        enabled: ${NUONO_PRODUCT_PUBLISH_TASK_SCHEDULER_ENABLED:true}
     attribute-template:
       scheduler:
         enabled: ${NUONO_PRODUCT_ATTRIBUTE_TEMPLATE_SCHEDULER_ENABLED:false}

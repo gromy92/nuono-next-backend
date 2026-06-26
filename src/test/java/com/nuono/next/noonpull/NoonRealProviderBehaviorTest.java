@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -124,6 +125,31 @@ class NoonRealProviderBehaviorTest {
         assertEquals("en-ae", session.posts.get(1).extraHeaders.get("X-Locale"));
         assertEquals("EXP-1", session.posts.get(1).body.get("exportCode").asText());
         assertEquals("https://download.test/sales.csv", session.downloadUrl);
+    }
+
+    @Test
+    void salesReportProviderShouldNotFallbackToOwnerAggregatedCookie() {
+        StoreSyncStoreRecord store = boundStore();
+        store.setNoonPartnerCookie(null);
+        StoreSyncOwnerContext owner = new StoreSyncOwnerContext();
+        owner.setNoonPartnerCookie("session=wrong-project");
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
+        RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
+        session.enqueuePostResponse(objectMapper.createObjectNode().put("export", "EXP-1"));
+        RecordingGatewaySessionFactory sessionFactory = new RecordingGatewaySessionFactory(session);
+        RealNoonSalesReportSmokeProvider provider = new RealNoonSalesReportSmokeProvider(
+                objectMapper,
+                new NoonPullStoreBindingResolver(storeSyncMapper),
+                sessionFactory,
+                EXPORT_CREATE_URL,
+                EXPORT_STATUS_URL,
+                ""
+        );
+
+        provider.createExport(salesRequest());
+
+        assertEquals(null, sessionFactory.lastBinding.getPersistedCookie());
     }
 
     @Test

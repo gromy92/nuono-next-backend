@@ -39,6 +39,14 @@ public class NoonProductGateway {
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/stock/noon";
     public static final String OFFER_UPSERT_URL =
             "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/offer/upsert";
+    public static final String OFFER_MGMT_PRICE_UPSERT_URL =
+            "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-offermgmt/offer/upsert/price";
+    public static final String OFFER_MGMT_ID_WARRANTY_UPSERT_URL =
+            "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-offermgmt/offer/upsert/id_warranty";
+    public static final String OFFER_MGMT_OFFER_NOTE_UPSERT_URL =
+            "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-offermgmt/offer/upsert/offer_note";
+    public static final String OFFER_MGMT_IS_ACTIVE_UPSERT_URL =
+            "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-offermgmt/offer/upsert/is_active";
 
     public NoonProductError classify(Throwable throwable) {
         String details = throwableDetails(throwable);

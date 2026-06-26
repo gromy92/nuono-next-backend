@@ -13,6 +13,9 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface ProductPublicDetailMapper {
+    String SYNCABLE_SITE_STATUS_CONDITION =
+            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')";
+
     @Insert({
             "INSERT INTO product_public_detail_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -41,7 +44,7 @@ public interface ProductPublicDetailMapper {
             "  AND ls.is_deleted = b'0'",
             "  AND lss.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "LIMIT 1"
     })
@@ -76,7 +79,7 @@ public interface ProductPublicDetailMapper {
             "  AND pv.is_deleted = b'0'",
             "  AND pso.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
@@ -136,7 +139,7 @@ public interface ProductPublicDetailMapper {
             "  AND pv.is_deleted = b'0'",
             "  AND pso.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
@@ -183,7 +186,7 @@ public interface ProductPublicDetailMapper {
             "  AND pv.is_deleted = b'0'",
             "  AND pso.is_deleted = b'0'",
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
-            "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL"
@@ -260,6 +263,34 @@ public interface ProductPublicDetailMapper {
             @Param("siteCode") String siteCode,
             @Param("productMasterId") Long productMasterId,
             @Param("productVariantId") Long productVariantId
+    );
+
+    @Select({
+            "SELECT",
+            "  id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, store_code AS storeCode, site_code AS siteCode,",
+            "  product_master_id AS productMasterId, product_variant_id AS productVariantId, product_site_offer_id AS productSiteOfferId,",
+            "  partner_sku AS partnerSku, sku_parent AS skuParent, noon_product_code AS noonProductCode, code_type AS codeType, source_platform AS sourcePlatform,",
+            "  title_en AS titleEn, title_ar AS titleAr, brand, category_path AS categoryPath, price_amount AS priceAmount, currency_code AS currencyCode,",
+            "  rating, review_count AS reviewCount, availability_text AS availabilityText, main_image_url AS mainImageUrl, detail_url AS detailUrl,",
+            "  raw_payload_json AS rawPayloadJson, snapshot_hash AS snapshotHash, provider_http_status AS providerHttpStatus, provider_source_url AS providerSourceUrl,",
+            "  provider_response_hash AS providerResponseHash, provider_parser_version AS providerParserVersion, sync_status AS syncStatus, failure_code AS failureCode,",
+            "  failure_message AS failureMessage, fact_date AS factDate, fetched_at AS fetchedAt, is_latest AS latest, created_by AS createdBy, updated_by AS updatedBy,",
+            "  gmt_create AS createdAt, gmt_updated AS updatedAt",
+            "FROM product_public_detail_snapshot",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND UPPER(store_code) = UPPER(#{storeCode})",
+            "  AND (sku_parent = #{skuParent} OR noon_product_code = #{skuParent})",
+            "  AND source_platform = 'NOON'",
+            "  AND sync_status IN ('SUCCEEDED', 'PARTIAL')",
+            "  AND is_latest = b'1'",
+            "  AND is_deleted = b'0'",
+            "ORDER BY CASE WHEN sync_status = 'SUCCEEDED' THEN 0 ELSE 1 END, fetched_at DESC, fact_date DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductPublicDetailSnapshot selectLatestUsableSnapshotBySkuParent(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent
     );
 
     @Select({

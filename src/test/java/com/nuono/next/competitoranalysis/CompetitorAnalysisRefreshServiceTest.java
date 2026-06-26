@@ -17,6 +17,7 @@ import com.nuono.next.system.task.OperationalTaskRepository;
 import com.nuono.next.system.task.OperationalTaskService;
 import com.nuono.next.system.task.OperationalTaskStatus;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -237,6 +238,109 @@ class CompetitorAnalysisRefreshServiceTest {
     }
 
     @Test
+    void scheduledRankMonitoringRetriesTransientFailedKeywordOnly() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorKeywordRow stableKeyword = keyword(190001L, "laundry basket");
+        CompetitorKeywordRow transientKeyword = keyword(190002L, "storage basket");
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+        );
+        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
+                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        when(mapper.listActiveKeywordsByWatchProductId(180123L))
+                .thenReturn(List.of(stableKeyword, transientKeyword));
+        when(mapper.nextSearchRunId()).thenReturn(220123L);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
+        when(keywordRefreshRunner.runKeyword(220123L, watchProduct, stableKeyword, null))
+                .thenReturn(CompetitorKeywordRefreshResult.success(1, 2));
+        when(keywordRefreshRunner.runKeyword(220123L, watchProduct, transientKeyword, null))
+                .thenReturn(
+                        CompetitorKeywordRefreshResult.failure("PROVIDER_UNAVAILABLE", "Noon 前台搜索返回 HTTP 502。"),
+                        CompetitorKeywordRefreshResult.success(3, 4)
+                );
+
+        CompetitorTaskView view = service.requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA");
+        submittedTasks.get(0).run();
+        submittedTasks.get(1).run();
+
+        OperationalTask productTask = taskRepository.selectById(view.getTaskId() + 1);
+        assertEquals(OperationalTaskStatus.SUCCEEDED, productTask.getStatus());
+        assertEquals("竞品排名刷新完成。", productTask.getMessage());
+        verify(keywordRefreshRunner, times(1)).runKeyword(220123L, watchProduct, stableKeyword, null);
+        verify(keywordRefreshRunner, times(2)).runKeyword(220123L, watchProduct, transientKeyword, null);
+        verify(mapper).completeSearchRun(
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq("SUCCEEDED"),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.eq(4),
+                org.mockito.ArgumentMatchers.eq(6),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull()
+        );
+        verify(mapper).updateWatchProductLatestRun(180123L, 220123L, "SUCCEEDED", null);
+    }
+
+    @Test
+    void retriesRecentTransientScheduledRankKeywordFailuresWithoutRefreshingWholeProduct() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorKeywordRow failedKeyword = keyword(190002L, "storage basket");
+        CompetitorSearchRunRow partialRun = searchRun(220123L, 150123L, "PARTIAL_FAILED");
+        partialRun.setKeywordTotal(2);
+        partialRun.setKeywordSuccess(1);
+        partialRun.setKeywordFailed(1);
+        partialRun.setCandidateUpsertedCount(5);
+        partialRun.setRankFactWrittenCount(7);
+        partialRun.setErrorCode("PROVIDER_UNAVAILABLE");
+        partialRun.setErrorMessage("Noon 前台搜索返回 HTTP 502。");
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+        );
+        when(mapper.listRetryableTransientRankKeywordFailures(
+                org.mockito.ArgumentMatchers.any(LocalDateTime.class),
+                org.mockito.ArgumentMatchers.eq(50)
+        )).thenReturn(List.of(retryCandidate(220123L, 180123L, 190002L)));
+        when(mapper.selectSearchRunById(220123L)).thenReturn(partialRun);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
+        when(mapper.selectKeywordById(190002L)).thenReturn(failedKeyword);
+        when(keywordRefreshRunner.runKeyword(220123L, watchProduct, failedKeyword, null))
+                .thenReturn(CompetitorKeywordRefreshResult.success(3, 4));
+
+        int recovered = service.retryRecentTransientRankKeywordFailures(Duration.ofHours(24), 50);
+
+        assertEquals(1, recovered);
+        verify(keywordRefreshRunner, times(1)).runKeyword(220123L, watchProduct, failedKeyword, null);
+        verify(mapper).completeSearchRun(
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq("SUCCEEDED"),
+                org.mockito.ArgumentMatchers.eq(2),
+                org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.eq(8),
+                org.mockito.ArgumentMatchers.eq(11),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.isNull()
+        );
+        verify(mapper).updateWatchProductLatestRun(180123L, 220123L, "SUCCEEDED", null);
+    }
+
+    @Test
     void scheduledDetailMonitoringRunsDetailSnapshotsWithoutKeywordRank() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         service = new CompetitorAnalysisRefreshService(
@@ -389,6 +493,18 @@ class CompetitorAnalysisRefreshServiceTest {
         row.setTriggerMode("MANUAL_REFRESH");
         row.setStatus(status);
         row.setKeywordTotal(1);
+        return row;
+    }
+
+    private static CompetitorTransientKeywordFailureRow retryCandidate(
+            Long searchRunId,
+            Long watchProductId,
+            Long keywordId
+    ) {
+        CompetitorTransientKeywordFailureRow row = new CompetitorTransientKeywordFailureRow();
+        row.setSearchRunId(searchRunId);
+        row.setWatchProductId(watchProductId);
+        row.setKeywordId(keywordId);
         return row;
     }
 

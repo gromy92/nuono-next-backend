@@ -2,6 +2,7 @@ package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.nuono.next.infrastructure.mapper.NoonPullMapper;
 import java.lang.reflect.Method;
@@ -36,6 +37,13 @@ class NoonPullPersistenceContractTest {
         assertTrue(sql.contains("retryable"));
         assertTrue(sql.contains("requires_manual_action"));
         assertTrue(sql.contains("active_lock_key"));
+        assertTrue(sql.contains("report_export_id"));
+        assertTrue(sql.contains("report_export_status"));
+        assertTrue(sql.contains("report_download_url"));
+        assertTrue(sql.contains("report_total_rows"));
+        assertTrue(sql.contains("report_last_poll_at"));
+        assertTrue(sql.contains("report_next_poll_at"));
+        assertTrue(sql.contains("report_poll_attempts"));
     }
 
     @Test
@@ -47,6 +55,19 @@ class NoonPullPersistenceContractTest {
 
         assertDoesNotThrow(() -> reflector.getGetInvoker("retryable").invoke(task, new Object[0]));
         assertDoesNotThrow(() -> reflector.getGetInvoker("requiresManualAction").invoke(task, new Object[0]));
+    }
+
+    @Test
+    void taskRecordShouldExposeReportExportStatePropertiesForMyBatis() {
+        Reflector reflector = new Reflector(NoonPullTaskRecord.class);
+
+        assertNotNull(reflector.getGetInvoker("reportExportId"));
+        assertNotNull(reflector.getGetInvoker("reportExportStatus"));
+        assertNotNull(reflector.getGetInvoker("reportDownloadUrl"));
+        assertNotNull(reflector.getGetInvoker("reportTotalRows"));
+        assertNotNull(reflector.getGetInvoker("reportLastPollAt"));
+        assertNotNull(reflector.getGetInvoker("reportNextPollAt"));
+        assertNotNull(reflector.getGetInvoker("reportPollAttempts"));
     }
 
     @Test
@@ -88,6 +109,13 @@ class NoonPullPersistenceContractTest {
         assertTrue(taskSql.contains("retryable = #{retryable}"));
         assertTrue(taskSql.contains("requires_manual_action = #{requiresManualAction}"));
         assertTrue(taskSql.contains("diagnostic_summary = #{diagnosticSummary}"));
+        assertTrue(taskSql.contains("report_export_id = #{reportExportId}"));
+        assertTrue(taskSql.contains("report_export_status = #{reportExportStatus}"));
+        assertTrue(taskSql.contains("report_download_url = #{reportDownloadUrl}"));
+        assertTrue(taskSql.contains("report_total_rows = #{reportTotalRows}"));
+        assertTrue(taskSql.contains("report_last_poll_at = #{reportLastPollAt}"));
+        assertTrue(taskSql.contains("report_next_poll_at = #{reportNextPollAt}"));
+        assertTrue(taskSql.contains("report_poll_attempts = #{reportPollAttempts}"));
     }
 
     @Test
@@ -106,5 +134,32 @@ class NoonPullPersistenceContractTest {
         assertTrue(sql.contains("retry_action"));
         assertTrue(sql.contains("retryable"));
         assertTrue(sql.contains("requires_manual_action"));
+        assertTrue(sql.contains("report_export_id"));
+        assertTrue(sql.contains("report_export_status"));
+        assertTrue(sql.contains("report_download_url"));
+        assertTrue(sql.contains("report_total_rows"));
+        assertTrue(sql.contains("report_last_poll_at"));
+        assertTrue(sql.contains("report_next_poll_at"));
+        assertTrue(sql.contains("report_poll_attempts"));
+    }
+
+    @Test
+    void migrationShouldAddReportExportResumeColumns() throws Exception {
+        String sql = Files.readString(
+                Path.of("src/main/resources/db/init/139_noon_pull_task_report_export_state.sql"),
+                StandardCharsets.UTF_8
+        );
+
+        assertTrue(sql.contains("ALTER TABLE `noon_pull_task`"));
+        assertTrue(sql.contains("information_schema.COLUMNS"));
+        assertTrue(sql.contains("COLUMN_NAME = 'report_export_id'"));
+        assertTrue(sql.contains("COLUMN_NAME = 'report_export_status'"));
+        assertTrue(sql.contains("COLUMN_NAME = 'report_download_url'"));
+        assertTrue(sql.contains("COLUMN_NAME = 'report_total_rows'"));
+        assertTrue(sql.contains("COLUMN_NAME = 'report_last_poll_at'"));
+        assertTrue(sql.contains("COLUMN_NAME = 'report_next_poll_at'"));
+        assertTrue(sql.contains("COLUMN_NAME = 'report_poll_attempts'"));
+        assertTrue(sql.contains("idx_noon_pull_task_report_export"));
+        assertTrue(sql.contains("idx_noon_pull_task_next_poll"));
     }
 }

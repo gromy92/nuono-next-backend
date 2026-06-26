@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.nuono.next.infrastructure.mapper.ProductLiteMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
+import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
@@ -13,6 +14,7 @@ import com.nuono.next.product.publish.ProductPublishCommandService;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateCommand;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateResult;
 import com.nuono.next.product.publish.ProductPublishTaskFenceLostException;
+import com.nuono.next.productpublicdetail.ProductPublicDetailSnapshot;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -52,8 +54,19 @@ public class LocalDbProductMasterService {
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    private static final List<String> CONTROLLED_PUBLISH_CODES = List.of(
+            "PRJ245027",
+            "P245027",
+            "STR245027-NAE",
+            "STR245027-NSA",
+            "PRJ353172",
+            "STR353172-NAE",
+            "STR353172-NSA"
+    );
+
     private final ProductManagementMapper productManagementMapper;
     private final ProductLiteMapper productLiteMapper;
+    private final ProductPublicDetailMapper productPublicDetailMapper;
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final ObjectMapper objectMapper;
@@ -95,6 +108,9 @@ public class LocalDbProductMasterService {
     private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
     private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
     private final ProductStoreContextBuilder productStoreContextBuilder;
+    private final ProductNoonCredentialResolver productNoonCredentialResolver = new ProductNoonCredentialResolver();
+    private final ProductPublicDetailReadonlyWorkbenchFactory productPublicDetailReadonlyWorkbenchFactory =
+            new ProductPublicDetailReadonlyWorkbenchFactory();
     private final ProductSnapshotMessageBuilder productSnapshotMessageBuilder = new ProductSnapshotMessageBuilder();
 
     @Value("${nuono.product-management.publish-task.async-enabled:true}")
@@ -112,6 +128,7 @@ public class LocalDbProductMasterService {
     public LocalDbProductMasterService(
             ProductManagementMapper productManagementMapper,
             ProductLiteMapper productLiteMapper,
+            ProductPublicDetailMapper productPublicDetailMapper,
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
             ObjectMapper objectMapper,
@@ -131,6 +148,7 @@ public class LocalDbProductMasterService {
     ) {
         this.productManagementMapper = productManagementMapper;
         this.productLiteMapper = productLiteMapper;
+        this.productPublicDetailMapper = productPublicDetailMapper;
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.objectMapper = objectMapper;
@@ -269,9 +287,10 @@ public class LocalDbProductMasterService {
                             NoonSession session,
                             String pskuCode,
                             Map<String, Object> siteOffer,
+                            Map<String, Object> baselineOffer,
                             List<String> actionWarnings
                     ) {
-                        productPublishOfferWriter.publishOffer(session, pskuCode, siteOffer, actionWarnings);
+                        productPublishOfferWriter.publishOffer(session, pskuCode, siteOffer, baselineOffer, actionWarnings);
                     }
                 }
         );
@@ -376,34 +395,24 @@ public class LocalDbProductMasterService {
             throw new IllegalArgumentException("老板账号不存在，无法读取商品主档快照。");
         }
 
-        String noonUser = firstNonBlank(
-                normalize(command.getNoonUser()),
-                owner.getNoonPartnerProjectUser(),
-                owner.getNoonPartnerUser()
-        );
-        requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先绑定店铺账号或手动填写 Noon 登录账号。");
-        String noonPassword = firstNonBlank(
-                normalize(command.getNoonPassword()),
-                normalize(owner.getNoonPartnerPwd())
-        );
-        requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
-
-        String projectCode = firstNonBlank(store.getProjectCode(), owner.getNoonPartnerId());
-        requireText(projectCode, "当前店铺缺少 Noon projectCode，无法读取真实商品主档。");
+        ProductNoonCredential credential = productNoonCredentialResolver.resolve(command, store, owner);
+        requireText(credential.getNoonUser(), "当前店铺还没有 Noon 账号上下文，请先绑定店铺账号或手动填写 Noon 登录账号。");
+        requireText(credential.getNoonPassword(), "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
+        requireText(credential.getProjectCode(), "当前店铺缺少 Noon projectCode，无法读取真实商品主档。");
 
         long stageStartedAt = System.nanoTime();
         NoonSession session = productNoonAdapter.login(
                 owner.getId(),
-                noonUser,
-                noonPassword,
-                owner.getNoonPartnerCookie(),
-                projectCode,
+                credential.getNoonUser(),
+                credential.getNoonPassword(),
+                credential.getNoonCookie(),
+                credential.getProjectCode(),
                 storeCode
         );
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "login", stageStartedAt);
 
         stageStartedAt = System.nanoTime();
-        String resolvedProjectCode = resolveProjectCode(session, projectCode, store, view.getWarnings());
+        String resolvedProjectCode = resolveProjectCode(session, credential.getProjectCode(), store, view.getWarnings());
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "resolveProjectCode", stageStartedAt);
         session = session.withProjectCode(resolvedProjectCode).withStoreCode(storeCode);
 
@@ -511,7 +520,7 @@ public class LocalDbProductMasterService {
                 productStoreContextBuilder.build(
                         owner,
                         store,
-                        noonUser,
+                        credential.getNoonUser(),
                         whoamiNode,
                         resolvedProjectCode,
                         storeCode,
@@ -558,12 +567,78 @@ public class LocalDbProductMasterService {
             return cachedWorkbench;
         }
 
+        ProductMasterWorkbenchView publicDetailWorkbench = openPublicDetailReadonlyWorkbench(command);
+        if (publicDetailWorkbench != null) {
+            return publicDetailWorkbench;
+        }
+
         ProductMasterWorkbenchView missingWorkbench = productWorkbenchViewAssembler.buildLocalBaselineMissingWorkbench(command);
         productWorkbenchViewAssembler.applyMissingBaselineBackfillPrompt(
                 missingWorkbench,
                 enqueueDetailBaselineBackfill(command, "open-missing-baseline")
         );
         return missingWorkbench;
+    }
+
+    private ProductMasterWorkbenchView openPublicDetailReadonlyWorkbench(ProductMasterFetchCommand command) {
+        if (command == null
+                || command.getOwnerUserId() == null
+                || productPublicDetailMapper == null
+                || productManagementMapper == null) {
+            return null;
+        }
+        String requestedStoreCode = normalize(command.getStoreCode());
+        String skuParent = normalize(command.getSkuParent());
+        if (!StringUtils.hasText(requestedStoreCode) || !StringUtils.hasText(skuParent)) {
+            return null;
+        }
+        StoreSyncStoreRecord store = resolveProductOwnerStore(
+                command.getOwnerUserId(),
+                requestedStoreCode,
+                "当前店铺不在选中的老板名下。"
+        );
+        String storeCode = normalize(store.getStoreCode());
+        ProductListProjectionRecord projection = productManagementMapper.selectProductListProjectionBySkuParent(
+                command.getOwnerUserId(),
+                storeCode,
+                skuParent
+        );
+        ProductPublicDetailSnapshot publicDetail = productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(
+                command.getOwnerUserId(),
+                storeCode,
+                skuParent
+        );
+        ProductMasterSnapshotView baseline = productPublicDetailReadonlyWorkbenchFactory.buildBaseline(
+                command,
+                store,
+                projection,
+                publicDetail
+        );
+        if (baseline == null) {
+            return null;
+        }
+
+        ProductWorkbenchRecord record = createSyncedRecord(baseline);
+        record.setSyncStatus("failed");
+        record.setNote("已使用 Noon 前台公开详情打开只读视图；当前尚未拿到可写的 catalog 详情基线。");
+        String backfillStatus = enqueueDetailBaselineBackfill(command, "open-public-detail-readonly");
+        if ("preparing".equals(backfillStatus)) {
+            baseline.getWarnings().add("系统正在后台继续尝试补齐可写的 Noon catalog 详情基线，补齐后重新打开详情即可编辑。");
+            record.getBaselineSnapshot().setWarnings(baseline.getWarnings());
+            record.getDraftSnapshot().setWarnings(baseline.getWarnings());
+        }
+        productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), requestedStoreCode, skuParent), record);
+        if (!Objects.equals(requestedStoreCode, storeCode)) {
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), storeCode, skuParent), record);
+        }
+
+        ProductMasterWorkbenchView view = productWorkbenchViewAssembler.buildWorkbenchView(
+                record,
+                record.getNote(),
+                baseline.getWarnings()
+        );
+        productWorkbenchStatusHydrator.hydrateListSummaryState(command.getOwnerUserId(), view, view.getWarnings());
+        return view;
     }
 
     private String enqueueDetailBaselineBackfill(ProductMasterFetchCommand command, String reason) {
@@ -886,8 +961,11 @@ public class LocalDbProductMasterService {
         String key = workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent());
 
         if ("SAVE_DRAFT".equals(resolvedAction)) {
-            ensureNoActivePublishTaskForCommand(command, "当前商品已有发布任务正在执行，请等待完成后再保存草稿。");
+            ensureNoForegroundBlockingPublishTaskForCommand(command, "当前商品已有发布任务正在执行，请等待完成后再保存草稿。");
             ProductWorkbenchRecord record = ensureWorkbenchRecord(command, key);
+            if (isPublicDetailReadonlyRecord(record)) {
+                return rejectPublicDetailReadonlyAction(command, key, record, "保存草稿");
+            }
             ProductMasterSnapshotView draftSnapshot = sanitizeSnapshot(command.getSnapshot(), record.getBaselineSnapshot());
             record.setDraftSnapshot(draftSnapshot);
             if (sameBusinessSnapshot(record.getDraftSnapshot(), record.getBaselineSnapshot())) {
@@ -913,6 +991,9 @@ public class LocalDbProductMasterService {
 
         if ("ROLLBACK_DRAFT".equals(resolvedAction)) {
             ensureNoActivePublishTaskForCommand(command, "当前商品已有发布任务正在执行，请等待完成后再回滚草稿。");
+            if (isPublicDetailReadonlyRecord(record)) {
+                return rejectPublicDetailReadonlyAction(command, key, record, "回滚草稿");
+            }
             ProductMasterSnapshotView baselineSnapshot = copySnapshot(record.getBaselineSnapshot());
             record.setDraftSnapshot(baselineSnapshot);
             record.setSyncStatus("synced");
@@ -963,6 +1044,9 @@ public class LocalDbProductMasterService {
         ProductMasterSnapshotView requestedSnapshot = sanitizeSnapshot(command.getSnapshot(), record.getDraftSnapshot());
         hydrateProjectionOnlyFields(requestedSnapshot, record.getBaselineSnapshot());
         String currentSiteCode = normalize(command.getCurrentSiteCode());
+        if (isPublicDetailReadonlyRecord(record)) {
+            return rejectPublicDetailReadonlyAction(command, key, record, "发布当前修改");
+        }
         if ("PUBLISH_CURRENT_SITE".equals(resolvedAction)) {
             requireText(currentSiteCode, "缺少当前站点编码，暂时不能发布当前站点。");
         }
@@ -1245,7 +1329,8 @@ public class LocalDbProductMasterService {
                 continue;
             }
             try {
-                if ("queued".equalsIgnoreCase(previousStatus)) {
+                if ("queued".equalsIgnoreCase(previousStatus)
+                        || requirePublishCommandService().isWriteRetryScheduledStatus(previousStatus)) {
                     executeQueuedPublishTask(task);
                 } else {
                     executePublishTaskVerificationOnly(task, previousStatus);
@@ -1290,7 +1375,44 @@ public class LocalDbProductMasterService {
         ProductPublishTaskRecord activeTask = productMasterId == null
                 ? null
                 : requirePublishCommandService().selectActiveTask(productMasterId);
-        if (activeTask != null) {
+        String draftJson = writeJson(requestedSnapshot);
+        String draftHash = sha256Hex(draftJson);
+        String baselineJson = writeJson(record.getBaselineSnapshot());
+        String changedDomainsJson = writeJson(productPublishChangedDomainComparator.resolve(
+                requestedSnapshot,
+                record.getBaselineSnapshot(),
+                currentSiteCode,
+                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
+                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
+        ));
+        String requestJson = writeJson(buildPublishTaskRequestPayload(command, currentSiteCode));
+        if (activeTask != null && requirePublishCommandService().isWriteRetryScheduledStatus(activeTask.getStatus())) {
+            boolean refreshed = requirePublishCommandService().refreshRetryScheduledTaskDraft(
+                    activeTask,
+                    draftJson,
+                    baselineJson,
+                    requestJson,
+                    changedDomainsJson,
+                    draftHash,
+                    "noon_write_failed",
+                    "Noon 发布接口暂时不可用，系统将后台自动核对并重试。"
+            );
+            record.setDraftSnapshot(requestedSnapshot);
+            record.setSyncStatus("draft");
+            record.setNote("发布正在后台处理，系统会自动发布最新草稿。");
+            record.setPublishTask(productPublishTaskViewBuilder.build(activeTask, false));
+            appendRecentAction(record, "publish-current", activeTask.getStatus(), record.getNote(), currentSiteCode, requestedSnapshot);
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
+            return finalizeWorkbenchView(
+                    command.getOwnerUserId(),
+                    refreshed ? "publish-current" : null,
+                    currentSiteCode,
+                    record,
+                    null,
+                    requestedSnapshot.getWarnings()
+            );
+        }
+        if (activeTask != null && requirePublishCommandService().isForegroundBlockingActiveTask(activeTask)) {
             record.setPublishTask(productPublishTaskViewBuilder.build(activeTask, false));
             record.setNote("当前商品已有发布任务正在执行，请等待任务完成后再继续编辑或发布。");
             productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent()), record);
@@ -1307,8 +1429,6 @@ public class LocalDbProductMasterService {
             throw new IllegalStateException("本地商品主档还没有落库，暂时不能创建发布任务。");
         }
 
-        String draftJson = writeJson(requestedSnapshot);
-        String draftHash = sha256Hex(draftJson);
         ProductPublishTaskCreateCommand createCommand = new ProductPublishTaskCreateCommand();
         createCommand.setOwnerUserId(command.getOwnerUserId());
         createCommand.setProductMasterId(productMasterId);
@@ -1319,16 +1439,10 @@ public class LocalDbProductMasterService {
         createCommand.setPskuCode(firstNonBlank(normalize(command.getPskuCode()), textValue(requestedSnapshot.getIdentity().get("pskuCode"))));
         createCommand.setCurrentSiteCode(currentSiteCode);
         createCommand.setDraftJson(draftJson);
-        createCommand.setBaselineJson(writeJson(record.getBaselineSnapshot()));
+        createCommand.setBaselineJson(baselineJson);
         createCommand.setDraftHash(draftHash);
-        createCommand.setChangedDomainsJson(writeJson(productPublishChangedDomainComparator.resolve(
-                requestedSnapshot,
-                record.getBaselineSnapshot(),
-                currentSiteCode,
-                unsupportedChanges != null && unsupportedChanges.isGroupChanged(),
-                unsupportedChanges != null && unsupportedChanges.isVariantStructureChanged()
-        )));
-        createCommand.setRequestJson(writeJson(buildPublishTaskRequestPayload(command, currentSiteCode)));
+        createCommand.setChangedDomainsJson(changedDomainsJson);
+        createCommand.setRequestJson(requestJson);
         createCommand.setIdempotencyKey(productMasterId + ":" + draftHash + ":" + normalize(currentSiteCode));
         ProductPublishTaskCreateResult createResult = requirePublishCommandService().createPublishCurrentTask(createCommand);
         ProductPublishTaskRecord task = createResult.getTask();
@@ -1420,6 +1534,21 @@ public class LocalDbProductMasterService {
             if (!publishConflictFields.isEmpty()) {
                 actionWarnings.add("发布前校验：Noon 当前内容与本地草稿存在同字段差异，本次按本地草稿覆盖 Noon 对应字段。");
             }
+            if (publishChangedFieldsMatch(baseline, publishableDraft, liveBeforePublish, currentSiteCode)) {
+                requestCounts = requestCountScope.snapshot();
+                completePublishTaskAfterVerification(
+                        task,
+                        baseline,
+                        preparedDraft,
+                        publishableDraft,
+                        liveBeforePublish,
+                        unsupportedChanges,
+                        requestCounts,
+                        mergeWarnings(actionWarnings, List.of("回读已确认 Noon 当前值符合本地草稿，未重复提交写入。")),
+                        Math.max(1, task.getVerifyAttemptCount() == null ? 0 : task.getVerifyAttemptCount() + 1)
+                );
+                return;
+            }
 
             StoreSyncStoreRecord store = requirePublishStore(task.getOwnerUserId(), task.getStoreCode());
             ensurePublishStoreAllowed(store);
@@ -1488,6 +1617,94 @@ public class LocalDbProductMasterService {
                     );
                     return;
                 }
+                if (requirePublishCommandService().isRetryableNoonWriteFailure(exception)) {
+                    requestCounts = requestCountScope.snapshot();
+                    boolean hasRetryBudget = requirePublishCommandService().hasRemainingAutomaticWriteRetries(task);
+                    String retryMessage = hasRetryBudget
+                            ? "Noon 发布接口暂时不可用，系统将后台自动核对并重试。"
+                            : "Noon 多次返回系统错误，系统已停止自动重试，诺诺草稿已保留。";
+                    boolean scheduled = requirePublishCommandService().scheduleNoonWriteRetryOrManualCheck(
+                            task,
+                            "noon_write_failed",
+                            retryMessage,
+                            buildTaskResultJson(
+                                    hasRetryBudget ? "write_retry_scheduled" : "pending_manual_check",
+                                    requestCounts,
+                                    mergeWarnings(actionWarnings, List.of(shrink(exception.getMessage())))
+                            )
+                    );
+                    log.warn(
+                            "product-management publish task noon write retryable failure id={} owner={} store={} skuParent={} site={} scheduled={} retryCount={} maxRetryCount={} error={}",
+                            task.getId(),
+                            task.getOwnerUserId(),
+                            task.getStoreCode(),
+                            task.getSkuParent(),
+                            currentSiteCode,
+                            scheduled,
+                            task.getRetryCount(),
+                            task.getMaxRetryCount(),
+                            shrink(exception.getMessage())
+                    );
+                    record.setDraftSnapshot(draft);
+                    record.setSyncStatus(scheduled ? "draft" : "failed");
+                    record.setNote(scheduled ? "发布正在后台处理，系统会自动核对 Noon 结果。" : task.getErrorMessage());
+                    record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+                    appendRecentAction(
+                            record,
+                            "publish-current",
+                            task.getStatus(),
+                            record.getNote(),
+                            currentSiteCode,
+                            draft
+                    );
+                    productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+                    return;
+                }
+                if (requirePublishCommandService().isRetryableNoonRequestFailure(exception)) {
+                    requestCounts = requestCountScope.snapshot();
+                    boolean hasRetryBudget = requirePublishCommandService().hasRemainingAutomaticWriteRetries(task);
+                    String retryMessage = hasRetryBudget
+                            ? "Noon 请求暂时不可用，系统将后台自动核对并重试。"
+                            : "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。";
+                    boolean scheduled = requirePublishCommandService().scheduleNoonRetryOrManualCheck(
+                            task,
+                            "noon_request_failed",
+                            retryMessage,
+                            "noon_request_retry_exhausted",
+                            "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。",
+                            buildTaskResultJson(
+                                    hasRetryBudget ? "write_retry_scheduled" : "pending_manual_check",
+                                    requestCounts,
+                                    mergeWarnings(actionWarnings, List.of(shrink(exception.getMessage())))
+                            )
+                    );
+                    log.warn(
+                            "product-management publish task noon request retryable failure id={} owner={} store={} skuParent={} site={} scheduled={} retryCount={} maxRetryCount={} error={}",
+                            task.getId(),
+                            task.getOwnerUserId(),
+                            task.getStoreCode(),
+                            task.getSkuParent(),
+                            currentSiteCode,
+                            scheduled,
+                            task.getRetryCount(),
+                            task.getMaxRetryCount(),
+                            shrink(exception.getMessage())
+                    );
+                    record.setDraftSnapshot(draft);
+                    record.setSyncStatus(scheduled ? "draft" : "failed");
+                    record.setNote(scheduled ? "发布正在后台处理，系统会自动核对 Noon 结果。" : task.getErrorMessage());
+                    record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+                    appendRecentAction(
+                            record,
+                            "publish-current",
+                            task.getStatus(),
+                            record.getNote(),
+                            currentSiteCode,
+                            draft
+                    );
+                    productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
+                    return;
+                }
                 failPublishTask(
                         task,
                         "noon_write_failed",
@@ -1523,6 +1740,63 @@ public class LocalDbProductMasterService {
                         null,
                         task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1
                 );
+                return;
+            }
+            if (requirePublishCommandService().isRetryableNoonRequestFailure(exception)) {
+                if (writeSubmitted) {
+                    updatePublishTaskStatus(
+                            task,
+                            "verify_timeout",
+                            "noon_verify_transient",
+                            "Noon 回读暂时不可用，系统稍后继续核对官方结果。",
+                            buildTaskResultJson("verify_timeout", requestCounts, List.of(shrink(exception.getMessage()))),
+                            nextPublishVerifyRunAt(task),
+                            null,
+                            task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1
+                    );
+                    return;
+                }
+                boolean hasRetryBudget = requirePublishCommandService().hasRemainingAutomaticWriteRetries(task);
+                String retryMessage = hasRetryBudget
+                        ? "Noon 请求暂时不可用，系统将后台自动核对并重试。"
+                        : "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。";
+                boolean scheduled = requirePublishCommandService().scheduleNoonRetryOrManualCheck(
+                        task,
+                        "noon_request_failed",
+                        retryMessage,
+                        "noon_request_retry_exhausted",
+                        "Noon 多次请求失败，系统已停止自动重试，诺诺草稿已保留。",
+                        buildTaskResultJson(
+                                hasRetryBudget ? "write_retry_scheduled" : "pending_manual_check",
+                                requestCounts,
+                                List.of(shrink(exception.getMessage()))
+                        )
+                );
+                log.warn(
+                        "product-management publish task noon pre-write retryable failure id={} owner={} store={} skuParent={} site={} scheduled={} retryCount={} maxRetryCount={} error={}",
+                        task.getId(),
+                        task.getOwnerUserId(),
+                        task.getStoreCode(),
+                        task.getSkuParent(),
+                        currentSiteCode,
+                        scheduled,
+                        task.getRetryCount(),
+                        task.getMaxRetryCount(),
+                        shrink(exception.getMessage())
+                );
+                record.setDraftSnapshot(draft);
+                record.setSyncStatus(scheduled ? "draft" : "failed");
+                record.setNote(scheduled ? "发布正在后台处理，系统会自动核对 Noon 结果。" : task.getErrorMessage());
+                record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+                appendRecentAction(
+                        record,
+                        "publish-current",
+                        task.getStatus(),
+                        record.getNote(),
+                        currentSiteCode,
+                        draft
+                );
+                productWorkbenchRecordStore.put(workbenchKey(task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent()), record);
                 return;
             }
             failPublishTask(
@@ -1739,6 +2013,29 @@ public class LocalDbProductMasterService {
         return record;
     }
 
+    private boolean isPublicDetailReadonlyRecord(ProductWorkbenchRecord record) {
+        return record != null && (
+                productPublicDetailReadonlyWorkbenchFactory.isReadonlySnapshot(record.getBaselineSnapshot())
+                        || productPublicDetailReadonlyWorkbenchFactory.isReadonlySnapshot(record.getDraftSnapshot())
+        );
+    }
+
+    private ProductMasterWorkbenchView rejectPublicDetailReadonlyAction(
+            ProductMasterActionCommand command,
+            String key,
+            ProductWorkbenchRecord record,
+            String actionLabel
+    ) {
+        String message = "当前只是 Noon 前台公开详情只读视图，" + actionLabel + "已禁用；请先从 Noon 同步拿到 catalog 详情基线。";
+        record.setSyncStatus("failed");
+        record.setNote(message);
+        productWorkbenchRecordStore.put(key, record);
+        List<String> warnings = record.getDraftSnapshot() == null
+                ? List.of(message)
+                : mergeWarnings(record.getDraftSnapshot().getWarnings(), List.of(message));
+        return productWorkbenchViewAssembler.buildWorkbenchView(record, message, warnings);
+    }
+
     private void logFetchSnapshotTimings(String traceLabel, List<String> timingEntries, long fetchStartedAt) {
         log.info(
                 "product-management fetchSnapshot trace={} totalMs={} stages={}",
@@ -1910,6 +2207,18 @@ public class LocalDbProductMasterService {
             return;
         }
         requirePublishCommandService().ensureNoActiveTask(productMasterId, message);
+    }
+
+    private void ensureNoForegroundBlockingPublishTaskForCommand(ProductMasterFetchCommand command, String message) {
+        if (isPublishTaskWorkerMode()) {
+            return;
+        }
+        recoverStaleRunningProductPublishTasks();
+        Long productMasterId = resolveProductMasterId(command);
+        if (productMasterId == null) {
+            return;
+        }
+        requirePublishCommandService().ensureNoForegroundBlockingActiveTask(productMasterId, message);
     }
 
     private Long resolveProductMasterId(ProductMasterFetchCommand command) {
@@ -2394,10 +2703,21 @@ public class LocalDbProductMasterService {
     private void ensurePublishStoreAllowed(StoreSyncStoreRecord store) {
         String projectName = normalize(store.getProjectName());
         String storeCode = normalize(store.getStoreCode());
-        if ("xingyao".equalsIgnoreCase(projectName) || "STR245027-NAE".equalsIgnoreCase(storeCode)) {
+        String projectCode = normalize(store.getProjectCode());
+        if ("xingyao".equalsIgnoreCase(projectName)
+                || isControlledPublishCode(projectCode)
+                || isControlledPublishCode(storeCode)) {
             return;
         }
-        throw new IllegalArgumentException("当前只开放 xingyao 测试店铺的受控发布。");
+        throw new IllegalArgumentException("当前只开放受控测试店铺的受控发布。");
+    }
+
+    private boolean isControlledPublishCode(String code) {
+        if (!StringUtils.hasText(code)) {
+            return false;
+        }
+        return CONTROLLED_PUBLISH_CODES.stream()
+                .anyMatch(allowedCode -> allowedCode.equalsIgnoreCase(code));
     }
 
     private List<String> mergeWarnings(List<String> baseWarnings, List<String> extraWarnings) {

@@ -47,6 +47,20 @@ class AuthApiProtectionFilterTest {
     }
 
     @Test
+    void shouldAllowPluginAuthEndpointsWithoutSession() throws ServletException, IOException {
+        for (String path : new String[] {"/api/plugin/auth/login", "/api/plugin/auth/logout"}) {
+            MockHttpServletRequest request = request("POST", path);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            AtomicBoolean called = new AtomicBoolean(false);
+
+            filter.doFilter(request, response, chain(called));
+
+            assertTrue(called.get(), path);
+            assertEquals(200, response.getStatus(), path);
+        }
+    }
+
+    @Test
     void shouldAllowAli1688OpenApiCallbackWithoutSession() throws ServletException, IOException {
         MockHttpServletRequest request = request(
                 "GET",

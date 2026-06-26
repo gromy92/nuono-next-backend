@@ -37,6 +37,9 @@ public class NoonPullFailurePolicy {
                 || value.contains("empty_report_pending_confirmation")) {
             return NoonPullFailureType.EMPTY_REPORT_PENDING_CONFIRMATION;
         }
+        if (value.contains("confirmed empty") || value.contains("confirmed_empty")) {
+            return NoonPullFailureType.CONFIRMED_EMPTY;
+        }
         if (value.contains("empty report") || value.contains("empty_report")) {
             return NoonPullFailureType.EMPTY_REPORT;
         }
@@ -70,7 +73,9 @@ public class NoonPullFailurePolicy {
             return NoonPullFailureType.PARTIAL_SUCCESS;
         }
         if (value.contains("provider unavailable") || value.contains("provider_unavailable")
-                || value.contains("http 503") || value.contains("503")) {
+                || value.contains("http 503") || value.contains("503")
+                || value.contains("header parser received no bytes")
+                || value.contains("received no bytes")) {
             return NoonPullFailureType.PROVIDER_UNAVAILABLE;
         }
         return NoonPullFailureType.UNKNOWN_FAILURE;
@@ -149,6 +154,7 @@ public class NoonPullFailurePolicy {
                         type.code() + ": retry with cooldown; Noon may return this transiently for valid report scopes"
                 );
             case EMPTY_REPORT:
+            case CONFIRMED_EMPTY:
             case PARTIAL_SUCCESS:
                 return new NoonPullFailureDecision(
                         type,

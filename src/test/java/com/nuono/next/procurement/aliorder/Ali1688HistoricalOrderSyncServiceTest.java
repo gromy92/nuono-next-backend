@@ -281,6 +281,30 @@ class Ali1688HistoricalOrderSyncServiceTest {
     }
 
     @Test
+    void manualRefreshSkipsCancelledAndDeletedProviderOrders() {
+        Ali1688HistoricalOrderProvider provider = (authorization, cursor) -> new Ali1688HistoricalOrderProvider.Page(List.of(
+                providerOrder("ALI-CANCELLED-001", "交易关闭"),
+                providerOrder("ALI-DELETED-001", "已删除")
+        ));
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper, provider);
+        BusinessAccessContext context = operationsManagerContext();
+
+        when(mapper.selectCurrentAuthorization(307L)).thenReturn(authorizationRow());
+        when(mapper.nextSyncTaskId()).thenReturn(92002L);
+        when(mapper.listOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any())).thenReturn(0);
+        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(0);
+
+        service.runManualRefresh(context);
+
+        verify(mapper, never()).upsertOrder(any());
+        verify(mapper, never()).upsertOrderItem(any());
+        verify(mapper, never()).upsertOrderLogistics(any());
+        verify(mapper).markSyncTaskSuccess(92002L, 2, 0, 0, "{\"nextCursor\":null}");
+    }
+
+    @Test
     void manualRefreshForLocalExcelImportDoesNotWriteFakeProviderOrders() {
         FakeAli1688HistoricalOrderProvider provider = FakeAli1688HistoricalOrderProvider.incrementalUpdate();
         LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper, provider);
@@ -431,6 +455,30 @@ class Ali1688HistoricalOrderSyncServiceTest {
         row.setLogisticsStatus("已签收");
         row.setAmountText("¥138.00");
         return row;
+    }
+
+    private Ali1688HistoricalOrderProvider.OrderSnapshot providerOrder(String orderNo, String orderStatus) {
+        Ali1688HistoricalOrderProvider.OrderSnapshot order = new Ali1688HistoricalOrderProvider.OrderSnapshot();
+        order.setProviderOrderNo(orderNo);
+        order.setOrderTime("2026-05-25 10:30:00");
+        order.setSupplierName("义乌诚信通源头工厂");
+        order.setOrderStatus(orderStatus);
+        order.setLogisticsStatus("无物流");
+        order.setAmountText("¥0.00");
+        order.getItems().add(providerItem());
+        return order;
+    }
+
+    private Ali1688HistoricalOrderProvider.OrderItemSnapshot providerItem() {
+        Ali1688HistoricalOrderProvider.OrderItemSnapshot item = new Ali1688HistoricalOrderProvider.OrderItemSnapshot();
+        item.setOfferId("745612345678");
+        item.setSkuId("SKU-745612345678-RED");
+        item.setTitle("取消订单商品");
+        item.setSkuText("红色");
+        item.setQuantity(1);
+        item.setUnit("件");
+        item.setAmountText("¥0.00");
+        return item;
     }
 
     private Ali1688HistoricalOrderItemRow itemRow() {

@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,6 +13,7 @@ import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -106,7 +109,91 @@ class NoonSessionGatewayTest {
         }
     }
 
+    @Test
+    void shouldRefreshProxySessionForTunnelFailureStatus() throws Exception {
+        NoonSessionGateway gateway = gateway("http://127.0.0.1:1/proxy");
+        Method method = NoonSessionGateway.class.getDeclaredMethod(
+                "shouldRefreshAfterTransientTransportFailure",
+                IllegalStateException.class
+        );
+        method.setAccessible(true);
+
+        assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 435")));
+        assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 436")));
+    }
+
+    @Test
+    void shouldRejectNoonRequestWhenProxyEnabledWithoutEndpoint() {
+        NoonSessionGateway gateway = gatewayWithSignin("");
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> gateway.login(
+                        10001L,
+                        "merchant@example.com",
+                        "password",
+                        "sid=existing",
+                        "PRJ1",
+                        "STORE1"
+                )
+        );
+
+        assertTrue(exception.getMessage().contains("Noon 代理已启用但未配置"));
+    }
+
+    @Test
+    void shouldPersistSessionCookieForRequestedProjectOnly() {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        NoonSessionGateway gateway = gateway(mapper, "");
+
+        gateway.persistCookie(308L, "PRJ100085", "sid=project-session");
+
+        verify(mapper).updateProjectSessionCookie(308L, "PRJ100085", "sid=project-session", 308L);
+    }
+
+    @Test
+    void shouldSkipPersistingCookieWhenProjectCodeIsMissing() {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        NoonSessionGateway gateway = gateway(mapper, "");
+
+        gateway.persistCookie(308L, null, "sid=project-session");
+
+        verifyNoInteractions(mapper);
+    }
+
     private NoonSessionGateway gateway(String proxyProviderUrl) {
+        return gateway(mock(StoreSyncMapper.class), proxyProviderUrl);
+    }
+
+    private NoonSessionGateway gateway(StoreSyncMapper storeSyncMapper, String proxyProviderUrl) {
+        return new NoonSessionGateway(
+                objectMapper,
+                storeSyncMapper,
+                false,
+                0L,
+                true,
+                "",
+                "",
+                "",
+                "",
+                false,
+                false,
+                "",
+                "http://noon.test/whoami",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true,
+                "HTTP",
+                "",
+                0,
+                proxyProviderUrl
+        );
+    }
+
+    private NoonSessionGateway gatewayWithSignin(String proxyProviderUrl) {
         return new NoonSessionGateway(
                 objectMapper,
                 mock(StoreSyncMapper.class),
@@ -118,8 +205,8 @@ class NoonSessionGatewayTest {
                 "",
                 "",
                 false,
-                false,
-                "",
+                true,
+                "http://noon.test/signin",
                 "http://noon.test/whoami",
                 "",
                 "",

@@ -678,7 +678,6 @@ public interface Ali1688HistoricalOrderMapper {
             "  source_batch_no = VALUES(source_batch_no),",
             "  downstream_order_no = VALUES(downstream_order_no),",
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
-            "  is_deleted = b'0',",
             "  gmt_updated = NOW()"
     })
     int upsertOrder(Ali1688HistoricalOrderRow row);
@@ -706,7 +705,6 @@ public interface Ali1688HistoricalOrderMapper {
             "  amount_text = VALUES(amount_text),",
             "  image_url = VALUES(image_url),",
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
-            "  is_deleted = b'0',",
             "  gmt_updated = NOW()"
     })
     int upsertOrderItem(Ali1688HistoricalOrderItemRow row);
@@ -722,7 +720,6 @@ public interface Ali1688HistoricalOrderMapper {
             "  logistics_company = VALUES(logistics_company),",
             "  tracking_no = VALUES(tracking_no),",
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
-            "  is_deleted = b'0',",
             "  gmt_updated = NOW()"
     })
     int upsertOrderLogistics(Ali1688HistoricalOrderLogisticsRow row);
@@ -887,13 +884,31 @@ public interface Ali1688HistoricalOrderMapper {
             "        AND consumable_filter_assignment.is_deleted = b'0'",
             "    )",
             "  </if>",
+            "  <if test=\"query.assignmentState == 'discontinued'\">",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_order_item_assignment discontinued_filter_assignment",
+            "      WHERE discontinued_filter_assignment.order_id = procurement_ali1688_order_header.id",
+            "        AND discontinued_filter_assignment.owner_user_id = #{ownerUserId}",
+            "        AND discontinued_filter_assignment.target_type = 'DISCONTINUED'",
+            "        AND discontinued_filter_assignment.status = 'active'",
+            "        AND discontinued_filter_assignment.is_deleted = b'0'",
+            "    )",
+            "  </if>",
             "  <if test='query.assignmentTargetStoreCode != null and query.assignmentTargetStoreCode != \"\"'>",
             "    AND EXISTS (",
             "      SELECT 1",
             "      FROM procurement_ali1688_order_item_assignment assignment_target_filter",
             "      WHERE assignment_target_filter.order_id = procurement_ali1688_order_header.id",
             "        AND assignment_target_filter.owner_user_id = #{ownerUserId}",
-            "        AND assignment_target_filter.target_type = 'STORE_SITE'",
+            "        <choose>",
+            "          <when test=\"query.assignmentState == 'discontinued'\">",
+            "            AND assignment_target_filter.target_type = 'DISCONTINUED'",
+            "          </when>",
+            "          <otherwise>",
+            "            AND assignment_target_filter.target_type = 'STORE_SITE'",
+            "          </otherwise>",
+            "        </choose>",
             "        AND assignment_target_filter.target_store_code = #{query.assignmentTargetStoreCode}",
             "        <if test='query.assignmentTargetSiteCode != null and query.assignmentTargetSiteCode != \"\"'>",
             "          AND assignment_target_filter.target_site_code = #{query.assignmentTargetSiteCode}",
@@ -1048,7 +1063,7 @@ public interface Ali1688HistoricalOrderMapper {
             "  grouped.item_id,",
             "  COALESCE(SUM(grouped.target_quantity), 0) AS assigned_quantity,",
             "  SUM(CASE WHEN grouped.target_type = 'CONSUMABLE' THEN 1 ELSE 0 END) AS consumable_assignment_count,",
-            "  SUM(CASE WHEN grouped.target_type != 'CONSUMABLE' THEN 1 ELSE 0 END) AS store_site_assignment_count,",
+            "  SUM(CASE WHEN grouped.target_type = 'STORE_SITE' THEN 1 ELSE 0 END) AS store_site_assignment_count,",
             "  GROUP_CONCAT(",
             "    CONCAT(grouped.target_label, ' ', grouped.target_quantity)",
             "    ORDER BY grouped.target_type ASC, grouped.target_store_code ASC, grouped.target_site_code ASC",
@@ -1059,6 +1074,7 @@ public interface Ali1688HistoricalOrderMapper {
             "    item_id, target_type, target_store_code, target_site_code,",
             "    CASE",
             "      WHEN target_type = 'CONSUMABLE' THEN '耗材'",
+            "      WHEN target_type = 'DISCONTINUED' THEN CONCAT_WS(' ', target_store_code, NULLIF(target_site_code, '*'), '已下架')",
             "      WHEN target_site_code = '*' THEN target_store_code",
             "      ELSE CONCAT(target_store_code, ' ', target_site_code)",
             "    END AS target_label,",
@@ -1139,6 +1155,7 @@ public interface Ali1688HistoricalOrderMapper {
             "  MIN(NULLIF(pso.psku_code, '')) AS pskuCode,",
             "  pm.title_cache AS productTitle,",
             "  MAX(COALESCE(",
+            "    NULLIF(pm.title_cn_cache, ''),",
             "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleCn')), ''),",
             "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.content.titleZh')), ''),",
             "    NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.titleCn')), ''),",
@@ -1182,6 +1199,7 @@ public interface Ali1688HistoricalOrderMapper {
             "    AND (",
             "      LOWER(pm.sku_parent) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "      OR LOWER(COALESCE(pm.title_cache, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
+            "      OR LOWER(COALESCE(pm.title_cn_cache, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "      OR LOWER(COALESCE(pv.partner_sku, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "      OR LOWER(COALESCE(pso.psku_code, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "    )",
@@ -1417,7 +1435,9 @@ public interface Ali1688HistoricalOrderMapper {
             "  id, owner_user_id AS ownerUserId, target_store_code AS storeCode, target_site_code AS siteCode,",
             "  sku_parent AS skuParent, partner_sku AS partnerSku, psku_code AS pskuCode,",
             "  batch_label AS batchLabel, batch_sequence AS batchSequence, counted_quantity AS countedQuantity,",
-            "  counted_cost AS countedCost, note, status, created_by AS createdBy, updated_by AS updatedBy,",
+            "  batch_type AS batchType, counted_quantity_unit AS countedQuantityUnit,",
+            "  counted_cost AS countedCost, component_count AS componentCount,",
+            "  expected_component_count AS expectedComponentCount, note, status, created_by AS createdBy, updated_by AS updatedBy,",
             "  DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
             "  DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "FROM procurement_ali1688_sku_purchase_batch batch",
@@ -1481,9 +1501,14 @@ public interface Ali1688HistoricalOrderMapper {
             "<script>",
             "SELECT",
             "  id, batch_id AS batchId, owner_user_id AS ownerUserId, order_id AS orderId, item_id AS itemId,",
-            "  assignment_id AS assignmentId, source_order_no AS sourceOrderNo,",
+            "  assignment_id AS assignmentId, component_sequence AS componentSequence, component_role AS componentRole,",
+            "  source_order_no AS sourceOrderNo,",
             "  DATE_FORMAT(source_order_time, '%Y-%m-%d %H:%i:%s') AS sourceOrderTime,",
-            "  supplier_name AS supplierName, status, created_by AS createdBy, updated_by AS updatedBy,",
+            "  supplier_name AS supplierName, source_offer_id AS sourceOfferId, source_sku_id AS sourceSkuId,",
+            "  source_title AS sourceTitle, source_spec AS sourceSpec, source_quantity AS sourceQuantity,",
+            "  source_unit AS sourceUnit, source_unit_price AS sourceUnitPrice, source_amount AS sourceAmount,",
+            "  source_quantity_per_counted_unit AS sourceQuantityPerCountedUnit,",
+            "  status, created_by AS createdBy, updated_by AS updatedBy,",
             "  DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
             "  DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "FROM procurement_ali1688_sku_purchase_batch_source",
@@ -1492,7 +1517,7 @@ public interface Ali1688HistoricalOrderMapper {
             "  AND is_deleted = b'0'",
             "  AND batch_id IN",
             "  <foreach collection='batchIds' item='batchId' open='(' separator=',' close=')'>#{batchId}</foreach>",
-            "ORDER BY batch_id ASC, id ASC",
+            "ORDER BY batch_id ASC, component_sequence IS NULL ASC, component_sequence ASC, id ASC",
             "</script>"
     })
     List<Ali1688SkuPurchaseBatchSourceRow> listSkuPurchaseBatchSources(
@@ -1523,21 +1548,27 @@ public interface Ali1688HistoricalOrderMapper {
     @Insert({
             "INSERT INTO procurement_ali1688_sku_purchase_batch (",
             "  id, owner_user_id, target_store_code, target_site_code, sku_parent, partner_sku, psku_code,",
-            "  batch_label, batch_sequence, counted_quantity, counted_cost, note, status, created_by, updated_by",
+            "  batch_label, batch_sequence, batch_type, counted_quantity, counted_quantity_unit, counted_cost,",
+            "  component_count, expected_component_count, note, status, created_by, updated_by",
             ") VALUES (",
             "  #{id}, #{ownerUserId}, #{storeCode}, #{siteCode}, #{skuParent}, #{partnerSku}, #{pskuCode},",
-            "  #{batchLabel}, #{batchSequence}, #{countedQuantity}, #{countedCost}, #{note}, #{status}, #{createdBy}, #{updatedBy}",
+            "  #{batchLabel}, #{batchSequence}, #{batchType}, #{countedQuantity}, #{countedQuantityUnit}, #{countedCost},",
+            "  #{componentCount}, #{expectedComponentCount}, #{note}, #{status}, #{createdBy}, #{updatedBy}",
             ")"
     })
     int insertSkuPurchaseBatch(Ali1688SkuPurchaseBatchRow row);
 
     @Insert({
             "INSERT INTO procurement_ali1688_sku_purchase_batch_source (",
-            "  id, batch_id, owner_user_id, order_id, item_id, assignment_id, source_order_no, source_order_time,",
-            "  supplier_name, status, created_by, updated_by",
+            "  id, batch_id, owner_user_id, order_id, item_id, assignment_id, component_sequence, component_role,",
+            "  source_order_no, source_order_time, supplier_name, source_offer_id, source_sku_id, source_title,",
+            "  source_spec, source_quantity, source_unit, source_unit_price, source_amount,",
+            "  source_quantity_per_counted_unit, status, created_by, updated_by",
             ") VALUES (",
-            "  #{id}, #{batchId}, #{ownerUserId}, #{orderId}, #{itemId}, #{assignmentId}, #{sourceOrderNo}, #{sourceOrderTime},",
-            "  #{supplierName}, #{status}, #{createdBy}, #{updatedBy}",
+            "  #{id}, #{batchId}, #{ownerUserId}, #{orderId}, #{itemId}, #{assignmentId}, #{componentSequence}, #{componentRole},",
+            "  #{sourceOrderNo}, #{sourceOrderTime}, #{supplierName}, #{sourceOfferId}, #{sourceSkuId}, #{sourceTitle},",
+            "  #{sourceSpec}, #{sourceQuantity}, #{sourceUnit}, #{sourceUnitPrice}, #{sourceAmount},",
+            "  #{sourceQuantityPerCountedUnit}, #{status}, #{createdBy}, #{updatedBy}",
             ")"
     })
     int insertSkuPurchaseBatchSource(Ali1688SkuPurchaseBatchSourceRow row);
@@ -1681,7 +1712,7 @@ public interface Ali1688HistoricalOrderMapper {
             "  pm.sku_parent AS skuParent,",
             "  MAX(pv.partner_sku) AS partnerSku,",
             "  MAX(pso.psku_code) AS pskuCode,",
-            "  pm.title_cache AS productTitle,",
+            "  COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS productTitle,",
             "  pm.cover_image_url AS productImageUrl,",
             "  CASE WHEN COUNT(DISTINCT link.id) > 0 THEN 'linked' ELSE 'unlinked' END AS linkStatus,",
             "  COUNT(DISTINCT link.assignment_id) AS linkedAssignmentCount",
@@ -1711,7 +1742,7 @@ public interface Ali1688HistoricalOrderMapper {
             "  AND (ls.project_code = #{targetStoreCode} OR lss.store_code = #{targetStoreCode})",
             "  AND UPPER(lss.site) = UPPER(#{targetSiteCode})",
             "  AND pm.sku_parent = #{skuParent}",
-            "GROUP BY ls.project_code, lss.site, pm.sku_parent, pm.title_cache, pm.cover_image_url",
+            "GROUP BY ls.project_code, lss.site, pm.sku_parent, pm.title_cn_cache, pm.title_cache, pm.cover_image_url",
             "LIMIT 1",
             "</script>"
     })
@@ -1731,7 +1762,7 @@ public interface Ali1688HistoricalOrderMapper {
             "  MIN(NULLIF(pv.partner_sku, '')) AS partnerSku,",
             "  MIN(NULLIF(pso.psku_code, '')) AS pskuCode,",
             "  MIN(NULLIF(pso.offer_code, '')) AS offerCode,",
-            "  pm.title_cache AS productTitle,",
+            "  COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS productTitle,",
             "  pm.cover_image_url AS productImageUrl,",
             "  CASE WHEN COUNT(DISTINCT link.id) > 0 THEN 'linked' ELSE 'unlinked' END AS linkStatus,",
             "  COUNT(DISTINCT link.assignment_id) AS linkedAssignmentCount",
@@ -1766,11 +1797,12 @@ public interface Ali1688HistoricalOrderMapper {
             "    AND (",
             "      LOWER(pm.sku_parent) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "      OR LOWER(COALESCE(pm.title_cache, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
+            "      OR LOWER(COALESCE(pm.title_cn_cache, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "      OR LOWER(COALESCE(pv.partner_sku, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "      OR LOWER(COALESCE(pso.psku_code, '')) LIKE CONCAT('%', LOWER(#{keyword}), '%')",
             "    )",
             "  </if>",
-            "GROUP BY ls.project_code, lss.site, pm.sku_parent, pm.title_cache, pm.cover_image_url",
+            "GROUP BY ls.project_code, lss.site, pm.sku_parent, pm.title_cn_cache, pm.title_cache, pm.cover_image_url",
             "<choose>",
             "  <when test='linkStatus == \"linked\"'>",
             "    HAVING COUNT(DISTINCT link.id) > 0",
@@ -1885,6 +1917,78 @@ public interface Ali1688HistoricalOrderMapper {
     int countActiveOrderAssignments(
             @Param("ownerUserId") Long ownerUserId,
             @Param("orderId") Long orderId
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_sku_purchase_batch batch",
+            "SET batch.status = 'replaced',",
+            "    batch.updated_by = #{operatorUserId},",
+            "    batch.gmt_updated = NOW()",
+            "WHERE batch.owner_user_id = #{ownerUserId}",
+            "  AND batch.status = 'active'",
+            "  AND batch.is_deleted = b'0'",
+            "  AND EXISTS (",
+            "    SELECT 1",
+            "    FROM procurement_ali1688_sku_purchase_batch_source source",
+            "    WHERE source.batch_id = batch.id",
+            "      AND source.owner_user_id = #{ownerUserId}",
+            "      AND source.order_id = #{orderId}",
+            "      AND source.status = 'active'",
+            "      AND source.is_deleted = b'0'",
+            "  )"
+    })
+    int deactivateActiveSkuPurchaseBatchesForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_sku_purchase_batch_source",
+            "SET status = 'replaced',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND order_id = #{orderId}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'"
+    })
+    int deactivateActiveSkuPurchaseBatchSourcesForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_order_item_product_link",
+            "SET status = 'replaced',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND order_id = #{orderId}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'"
+    })
+    int deactivateActiveProductLinksForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_ali1688_order_item_assignment",
+            "SET status = 'revoked',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND order_id = #{orderId}",
+            "  AND status = 'active'",
+            "  AND is_deleted = b'0'"
+    })
+    int revokeActiveOrderAssignmentsForOrder(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
     );
 
     @Update({
@@ -2011,13 +2115,31 @@ public interface Ali1688HistoricalOrderMapper {
             "        AND consumable_filter_assignment.is_deleted = b'0'",
             "    )",
             "  </if>",
+            "  <if test=\"query.assignmentState == 'discontinued'\">",
+            "    AND EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_ali1688_order_item_assignment discontinued_filter_assignment",
+            "      WHERE discontinued_filter_assignment.order_id = procurement_ali1688_order_header.id",
+            "        AND discontinued_filter_assignment.owner_user_id = #{ownerUserId}",
+            "        AND discontinued_filter_assignment.target_type = 'DISCONTINUED'",
+            "        AND discontinued_filter_assignment.status = 'active'",
+            "        AND discontinued_filter_assignment.is_deleted = b'0'",
+            "    )",
+            "  </if>",
             "  <if test='query.assignmentTargetStoreCode != null and query.assignmentTargetStoreCode != \"\"'>",
             "    AND EXISTS (",
             "      SELECT 1",
             "      FROM procurement_ali1688_order_item_assignment assignment_target_filter",
             "      WHERE assignment_target_filter.order_id = procurement_ali1688_order_header.id",
             "        AND assignment_target_filter.owner_user_id = #{ownerUserId}",
-            "        AND assignment_target_filter.target_type = 'STORE_SITE'",
+            "        <choose>",
+            "          <when test=\"query.assignmentState == 'discontinued'\">",
+            "            AND assignment_target_filter.target_type = 'DISCONTINUED'",
+            "          </when>",
+            "          <otherwise>",
+            "            AND assignment_target_filter.target_type = 'STORE_SITE'",
+            "          </otherwise>",
+            "        </choose>",
             "        AND assignment_target_filter.target_store_code = #{query.assignmentTargetStoreCode}",
             "        <if test='query.assignmentTargetSiteCode != null and query.assignmentTargetSiteCode != \"\"'>",
             "          AND assignment_target_filter.target_site_code = #{query.assignmentTargetSiteCode}",

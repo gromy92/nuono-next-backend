@@ -64,9 +64,25 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("assignment_breakdown_text")
                 .contains("target_type")
                 .contains("WHEN target_type = 'CONSUMABLE' THEN '耗材'")
+                .contains("WHEN target_type = 'DISCONTINUED' THEN CONCAT_WS(' ', target_store_code, NULLIF(target_site_code, '*'), '已下架')")
                 .contains("target_site_code")
                 .contains("GROUP BY item_id, target_type, target_store_code, target_site_code")
                 .contains("GROUP BY grouped.item_id");
+    }
+
+    @Test
+    void providerUpsertsDoNotRestoreSoftDeletedHistoricalOrderFacts() throws Exception {
+        Method upsertOrderMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrder", Ali1688HistoricalOrderRow.class);
+        Method upsertItemMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrderItem", Ali1688HistoricalOrderItemRow.class);
+        Method upsertLogisticsMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrderLogistics", Ali1688HistoricalOrderLogisticsRow.class);
+
+        String upsertOrderSql = annotationSql(upsertOrderMethod.getAnnotation(Insert.class).value());
+        String upsertItemSql = annotationSql(upsertItemMethod.getAnnotation(Insert.class).value());
+        String upsertLogisticsSql = annotationSql(upsertLogisticsMethod.getAnnotation(Insert.class).value());
+
+        assertThat(upsertOrderSql).doesNotContain("is_deleted = b'0'");
+        assertThat(upsertItemSql).doesNotContain("is_deleted = b'0'");
+        assertThat(upsertLogisticsSql).doesNotContain("is_deleted = b'0'");
     }
 
     @Test
@@ -89,9 +105,13 @@ class Ali1688HistoricalOrderMapperSqlTest {
         assertThat(listOrdersSql)
                 .contains("query.assignmentState == 'unassigned'")
                 .contains("query.assignmentState == 'consumable'")
+                .contains("query.assignmentState == 'discontinued'")
                 .contains("consumable_filter_assignment.target_type = 'CONSUMABLE'")
+                .contains("discontinued_filter_assignment.target_type = 'DISCONTINUED'")
                 .contains("COALESCE(SUM(unassigned_filter_assignment.assigned_quantity), 0) = 0")
                 .contains("query.assignmentTargetStoreCode != null")
+                .contains("<when test=\"query.assignmentState == 'discontinued'\">")
+                .contains("assignment_target_filter.target_type = 'DISCONTINUED'")
                 .contains("assignment_target_filter.target_type = 'STORE_SITE'")
                 .contains("assignment_target_filter.target_store_code = #{query.assignmentTargetStoreCode}")
                 .contains("query.assignmentTargetSiteCode != null")
@@ -99,8 +119,12 @@ class Ali1688HistoricalOrderMapperSqlTest {
         assertThat(countOrdersSql)
                 .contains("query.assignmentState == 'unassigned'")
                 .contains("query.assignmentState == 'consumable'")
+                .contains("query.assignmentState == 'discontinued'")
                 .contains("consumable_filter_assignment.target_type = 'CONSUMABLE'")
+                .contains("discontinued_filter_assignment.target_type = 'DISCONTINUED'")
                 .contains("query.assignmentTargetStoreCode != null")
+                .contains("<when test=\"query.assignmentState == 'discontinued'\">")
+                .contains("assignment_target_filter.target_type = 'DISCONTINUED'")
                 .contains("assignment_target_filter.target_type = 'STORE_SITE'")
                 .contains("assignment_target_filter.target_store_code = #{query.assignmentTargetStoreCode}")
                 .contains("query.assignmentTargetSiteCode != null")
@@ -216,6 +240,65 @@ class Ali1688HistoricalOrderMapperSqlTest {
     }
 
     @Test
+    void orderDeleteCascadeSqlDeactivatesActiveDependentRowsByOrder() throws Exception {
+        Method batchMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "deactivateActiveSkuPurchaseBatchesForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        Method sourceMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "deactivateActiveSkuPurchaseBatchSourcesForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        Method linkMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "deactivateActiveProductLinksForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        Method assignmentMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "revokeActiveOrderAssignmentsForOrder",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+
+        String batchSql = annotationSql(batchMethod.getAnnotation(Update.class).value());
+        String sourceSql = annotationSql(sourceMethod.getAnnotation(Update.class).value());
+        String linkSql = annotationSql(linkMethod.getAnnotation(Update.class).value());
+        String assignmentSql = annotationSql(assignmentMethod.getAnnotation(Update.class).value());
+
+        assertThat(batchSql)
+                .contains("UPDATE procurement_ali1688_sku_purchase_batch batch")
+                .contains("batch.status = 'replaced'")
+                .contains("procurement_ali1688_sku_purchase_batch_source source")
+                .contains("source.order_id = #{orderId}")
+                .contains("source.status = 'active'")
+                .contains("source.is_deleted = b'0'");
+        assertThat(sourceSql)
+                .contains("UPDATE procurement_ali1688_sku_purchase_batch_source")
+                .contains("status = 'replaced'")
+                .contains("order_id = #{orderId}")
+                .contains("status = 'active'")
+                .contains("is_deleted = b'0'");
+        assertThat(linkSql)
+                .contains("UPDATE procurement_ali1688_order_item_product_link")
+                .contains("status = 'replaced'")
+                .contains("order_id = #{orderId}")
+                .contains("status = 'active'")
+                .contains("is_deleted = b'0'");
+        assertThat(assignmentSql)
+                .contains("UPDATE procurement_ali1688_order_item_assignment")
+                .contains("status = 'revoked'")
+                .contains("order_id = #{orderId}")
+                .contains("status = 'active'")
+                .contains("is_deleted = b'0'");
+    }
+
+    @Test
     void assignmentWriteSqlLocksItemRowsBeforeCheckingRemainingQuantity() throws Exception {
         Method method = Ali1688HistoricalOrderMapper.class.getMethod(
                 "selectOrderItemForAssignment",
@@ -264,14 +347,27 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 String.class,
                 Long.class
         );
+        Method insertBatchMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "insertSkuPurchaseBatch",
+                Ali1688SkuPurchaseBatchRow.class
+        );
+        Method insertSourceMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "insertSkuPurchaseBatchSource",
+                Ali1688SkuPurchaseBatchSourceRow.class
+        );
         String listSql = annotationSql(listBatchesMethod.getAnnotation(Select.class).value());
         String softDeleteSql = annotationSql(softDeleteMethod.getAnnotation(Update.class).value());
+        String insertBatchSql = annotationSql(insertBatchMethod.getAnnotation(Insert.class).value());
+        String insertSourceSql = annotationSql(insertSourceMethod.getAnnotation(Insert.class).value());
 
         assertThat(listSql)
                 .contains("FROM procurement_ali1688_sku_purchase_batch batch")
                 .contains("target_store_code = #{storeCode}")
                 .contains("target_site_code = #{siteCode}")
                 .contains("sku_parent")
+                .contains("batch_type AS batchType")
+                .contains("counted_quantity_unit AS countedQuantityUnit")
+                .contains("component_count AS componentCount")
                 .contains("purchaseTimeFrom")
                 .contains("procurement_ali1688_sku_purchase_batch_source");
         assertThat(softDeleteSql)
@@ -279,6 +375,16 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("status = 'replaced'")
                 .contains("owner_user_id = #{ownerUserId}")
                 .contains("sku_parent = #{skuParent}");
+        assertThat(insertBatchSql)
+                .contains("batch_type")
+                .contains("counted_quantity_unit")
+                .contains("component_count")
+                .contains("expected_component_count");
+        assertThat(insertSourceSql)
+                .contains("component_sequence")
+                .contains("component_role")
+                .contains("source_offer_id")
+                .contains("source_quantity_per_counted_unit");
     }
 
     @Test

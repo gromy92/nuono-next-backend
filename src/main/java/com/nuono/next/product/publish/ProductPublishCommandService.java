@@ -4,15 +4,19 @@ import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.product.ProductMasterWorkbenchView;
 import com.nuono.next.product.ProductPublishTaskRecord;
 import com.nuono.next.product.ProductPublishTaskView;
+import com.nuono.next.product.noon.NoonProductException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,13 +37,23 @@ public class ProductPublishCommandService {
             "verifying",
             "pending_effective",
             "write_unknown",
-            "verify_timeout"
+            "verify_timeout",
+            "write_retry_scheduled"
     );
     private static final Set<String> TERMINAL_STATUSES = Set.of(
             "synced",
             "failed",
             "cancelled",
             "pending_manual_check"
+    );
+    private static final Set<Integer> RETRYABLE_NOON_WRITE_HTTP_STATUSES = Set.of(408, 429, 500, 502, 503, 504);
+    private static final Pattern HTTP_STATUS_PATTERN = Pattern.compile("\\bHTTP\\s+(\\d{3})\\b", Pattern.CASE_INSENSITIVE);
+    private static final Set<String> NON_RETRYABLE_NOON_AUTH_MARKERS = Set.of(
+            "invalid username or password",
+            "password validate",
+            "invalid password",
+            "bad credentials",
+            "账号或密码错误"
     );
 
     private final ProductManagementMapper productManagementMapper;
@@ -49,6 +63,12 @@ public class ProductPublishCommandService {
 
     @Value("${nuono.product-management.publish-task.scheduler.stale-running-minutes:15}")
     private int staleRunningMinutes;
+
+    @Value("${nuono.product-management.publish-task.scheduler.legacy-retryable-failed-recovery-hours:24}")
+    private int legacyRetryableFailedRecoveryHours;
+
+    @Value("${nuono.product-management.publish-task.transient-automatic-max-retry-count:48}")
+    private int transientAutomaticMaxRetryCount = 48;
 
     public ProductPublishCommandService(ProductManagementMapper productManagementMapper) {
         this.productManagementMapper = productManagementMapper;
@@ -133,6 +153,65 @@ public class ProductPublishCommandService {
         }
     }
 
+    public void ensureNoForegroundBlockingActiveTask(Long productMasterId, String message) {
+        recoverStaleRunningTasks();
+        ProductPublishTaskRecord activeTask = selectActiveTask(productMasterId);
+        if (isForegroundBlockingActiveTask(activeTask)) {
+            throw new IllegalStateException(message);
+        }
+    }
+
+    public boolean isForegroundBlockingActiveTask(ProductPublishTaskRecord task) {
+        return task != null
+                && isActiveStatus(task.getStatus())
+                && !isWriteRetryScheduledStatus(task.getStatus());
+    }
+
+    public boolean refreshRetryScheduledTaskDraft(
+            ProductPublishTaskRecord task,
+            String draftJson,
+            String baselineJson,
+            String requestJson,
+            String changedDomainsJson,
+            String draftHash,
+            String errorCode,
+            String errorMessage
+    ) {
+        if (task == null || !isWriteRetryScheduledStatus(task.getStatus()) || task.getLockedAt() != null) {
+            return false;
+        }
+        int updated = productManagementMapper.refreshRetryScheduledProductPublishTaskDraft(
+                task.getId(),
+                versionNo(task),
+                draftJson,
+                baselineJson,
+                requestJson,
+                changedDomainsJson,
+                draftHash,
+                errorCode,
+                errorMessage,
+                task.getOwnerUserId()
+        );
+        if (updated <= 0) {
+            return false;
+        }
+        task.setDraftJson(draftJson);
+        task.setBaselineJson(baselineJson);
+        task.setRequestJson(requestJson);
+        task.setChangedDomainsJson(changedDomainsJson);
+        task.setDraftHash(draftHash);
+        task.setResultJson(null);
+        task.setErrorCode(errorCode);
+        task.setErrorMessage(errorMessage);
+        task.setRetryCount(0);
+        task.setNextRunAt(LocalDateTime.now());
+        task.setFinishedAt(null);
+        task.setLockedBy(null);
+        task.setLockedAt(null);
+        task.setVersionNo(versionNo(task) + 1);
+        return true;
+    }
+
     public ProductPublishTaskCreateResult createPublishCurrentTask(ProductPublishTaskCreateCommand command) {
         ProductPublishTaskRecord task = new ProductPublishTaskRecord();
         task.setId(productManagementMapper.nextProductPublishTaskId());
@@ -182,7 +261,17 @@ public class ProductPublishCommandService {
             if (recovered > 0) {
                 log.warn("product-management recovered stale running publish tasks count={}", recovered);
             }
-            return recovered;
+            int recoveredRetryableFailed = productManagementMapper.recoverRetryableFailedNoonWriteProductPublishTasks(
+                    Math.max(1, legacyRetryableFailedRecoveryHours),
+                    0L
+            );
+            if (recoveredRetryableFailed > 0) {
+                log.warn(
+                        "product-management recovered retryable failed noon write publish tasks count={}",
+                        recoveredRetryableFailed
+                );
+            }
+            return recovered + recoveredRetryableFailed;
         } catch (RuntimeException exception) {
             if (isMissingTaskTable(exception)) {
                 return 0;
@@ -330,6 +419,9 @@ public class ProductPublishCommandService {
         if ("write_unknown".equalsIgnoreCase(status)) {
             return "Noon 写入请求超时，系统只回读校验，不会自动重复写入。";
         }
+        if ("write_retry_scheduled".equalsIgnoreCase(status)) {
+            return "发布正在后台处理，系统会自动核对 Noon 结果。";
+        }
         if ("verify_timeout".equalsIgnoreCase(status)) {
             return "Noon 回读校验超时，系统稍后继续核对。";
         }
@@ -355,6 +447,111 @@ public class ProductPublishCommandService {
         return firstNonBlank(task != null ? task.getErrorMessage() : null, "发布任务状态已更新。");
     }
 
+    public boolean isRetryableNoonWriteFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof NoonProductException && ((NoonProductException) current).isRetryable()) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        String details = throwableDetails(throwable);
+        Matcher matcher = HTTP_STATUS_PATTERN.matcher(details);
+        while (matcher.find()) {
+            try {
+                int status = Integer.parseInt(matcher.group(1));
+                if (RETRYABLE_NOON_WRITE_HTTP_STATUSES.contains(status)) {
+                    return true;
+                }
+            } catch (NumberFormatException ignored) {
+                // continue scanning other status fragments
+            }
+        }
+        return false;
+    }
+
+    public boolean isRetryableNoonRequestFailure(Throwable throwable) {
+        if (isNonRetryableNoonAuthFailure(throwable)) {
+            return false;
+        }
+        if (isRetryableNoonWriteFailure(throwable)) {
+            return true;
+        }
+        return isNoonAccessDeniedTransientFailure(throwable);
+    }
+
+    private boolean isNonRetryableNoonAuthFailure(Throwable throwable) {
+        String details = throwableDetails(throwable).toLowerCase(Locale.ROOT);
+        for (String marker : NON_RETRYABLE_NOON_AUTH_MARKERS) {
+            if (details.contains(marker.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isNoonAccessDeniedTransientFailure(Throwable throwable) {
+        String details = throwableDetails(throwable).toLowerCase(Locale.ROOT);
+        return details.contains("http 403")
+                && details.contains("access denied")
+                && details.contains("you don't have permission to access")
+                && (details.contains("login")
+                || details.contains("noon.partners")
+                || details.contains("http&#58;")
+                || details.contains("&#47;&#47;login"));
+    }
+
+    public boolean scheduleNoonWriteRetryOrManualCheck(
+            ProductPublishTaskRecord task,
+            String errorCode,
+            String errorMessage,
+            String resultJson
+    ) {
+        return scheduleNoonRetryOrManualCheck(
+                task,
+                errorCode,
+                errorMessage,
+                "noon_write_retry_exhausted",
+                "Noon 多次返回系统错误，系统已停止自动重试，诺诺草稿已保留。",
+                resultJson
+        );
+    }
+
+    public boolean scheduleNoonRetryOrManualCheck(
+            ProductPublishTaskRecord task,
+            String errorCode,
+            String scheduledMessage,
+            String exhaustedErrorCode,
+            String exhaustedMessage,
+            String resultJson
+    ) {
+        if (hasRemainingAutomaticWriteRetries(task)) {
+            updateStatus(
+                    task,
+                    "write_retry_scheduled",
+                    errorCode,
+                    scheduledMessage,
+                    resultJson,
+                    nextAutomaticWriteRetryRunAt(task),
+                    null,
+                    null
+            );
+            task.setRetryCount(retryCount(task) + 1);
+            return true;
+        }
+        updateStatus(
+                task,
+                "pending_manual_check",
+                exhaustedErrorCode,
+                exhaustedMessage,
+                resultJson,
+                null,
+                LocalDateTime.now(),
+                null
+        );
+        return false;
+    }
+
     public boolean isTerminalStatus(String status) {
         return TERMINAL_STATUSES.contains(normalize(status));
     }
@@ -367,6 +564,10 @@ public class ProductPublishCommandService {
         int attempts = task != null && task.getVerifyAttemptCount() != null ? task.getVerifyAttemptCount() : 0;
         int seconds = attempts <= 0 ? 10 : attempts == 1 ? 30 : 120;
         return LocalDateTime.now().plusSeconds(seconds);
+    }
+
+    public boolean isWriteRetryScheduledStatus(String status) {
+        return "write_retry_scheduled".equalsIgnoreCase(normalize(status));
     }
 
     public boolean isMissingTaskTable(Throwable exception) {
@@ -402,6 +603,41 @@ public class ProductPublishCommandService {
 
     private boolean shouldReleaseLock(String status) {
         return !"submitted".equalsIgnoreCase(status) && !"verifying".equalsIgnoreCase(status);
+    }
+
+    public boolean hasRemainingAutomaticWriteRetries(ProductPublishTaskRecord task) {
+        return retryCount(task) < effectiveTransientMaxRetryCount(task);
+    }
+
+    private int retryCount(ProductPublishTaskRecord task) {
+        return task != null && task.getRetryCount() != null ? task.getRetryCount() : 0;
+    }
+
+    private int maxRetryCount(ProductPublishTaskRecord task) {
+        return task != null && task.getMaxRetryCount() != null ? Math.max(0, task.getMaxRetryCount()) : 3;
+    }
+
+    private int effectiveTransientMaxRetryCount(ProductPublishTaskRecord task) {
+        return Math.max(maxRetryCount(task), Math.max(0, transientAutomaticMaxRetryCount));
+    }
+
+    private LocalDateTime nextAutomaticWriteRetryRunAt(ProductPublishTaskRecord task) {
+        int attemptsAfterCurrentFailure = retryCount(task) + 1;
+        int seconds = attemptsAfterCurrentFailure <= 1 ? 120 : attemptsAfterCurrentFailure == 2 ? 600 : 1800;
+        return LocalDateTime.now().plusSeconds(seconds);
+    }
+
+    private String throwableDetails(Throwable throwable) {
+        StringBuilder builder = new StringBuilder();
+        Throwable current = throwable;
+        while (current != null) {
+            if (StringUtils.hasText(current.getMessage())) {
+                builder.append(' ').append(current.getMessage());
+            }
+            builder.append(' ').append(current.getClass().getSimpleName());
+            current = current.getCause();
+        }
+        return builder.toString();
     }
 
     private int versionNo(ProductPublishTaskRecord task) {

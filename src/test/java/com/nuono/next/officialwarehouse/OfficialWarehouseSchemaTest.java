@@ -1,0 +1,70 @@
+package com.nuono.next.officialwarehouse;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.nuono.next.permission.access.BusinessCapability;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Locale;
+import org.junit.jupiter.api.Test;
+
+class OfficialWarehouseSchemaTest {
+
+    @Test
+    void officialWarehouseSchemaIsIncludedInLocalDbBootstrapList() throws Exception {
+        String java = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
+
+        assertThat(java).contains("classpath:db/init/134_official_warehouse_asn.sql");
+        assertThat(java).contains("classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql");
+        assertThat(java).contains("classpath:db/init/136_official_warehouse_appointment.sql");
+    }
+
+    @Test
+    void officialWarehouseSchemaProvidesAsnLinesAndGenericNoonCallLog() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/134_official_warehouse_asn.sql"));
+        String normalized = sql.toLowerCase(Locale.ROOT);
+
+        assertThat(sql)
+                .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_asn`")
+                .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_asn_line`")
+                .contains("CREATE TABLE IF NOT EXISTS `noon_http_call_log`")
+                .contains("`routing_response_json` LONGTEXT DEFAULT NULL")
+                .contains("`psku_code` VARCHAR(100) NOT NULL")
+                .contains("`storage_type_code` VARCHAR(60) NOT NULL DEFAULT 'standard'")
+                .contains("`cubic_feet` DECIMAL(12,5) DEFAULT NULL")
+                .contains("`request_summary_json` LONGTEXT DEFAULT NULL")
+                .contains("`response_summary_json` LONGTEXT DEFAULT NULL")
+                .contains("`operation` VARCHAR(80) NOT NULL")
+                .contains("`business_ref` VARCHAR(120) DEFAULT NULL");
+
+        assertThat(normalized).doesNotContain("authorization");
+        assertThat(normalized).doesNotContain("`cookie`");
+    }
+
+    @Test
+    void officialWarehouseAppointmentSchemaKeepsAppointmentStateSeparateFromHttpLogs() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/136_official_warehouse_appointment.sql"));
+        String normalized = sql.toLowerCase(Locale.ROOT);
+
+        assertThat(sql)
+                .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_appointment`")
+                .contains("`asn_id` BIGINT NOT NULL")
+                .contains("`noon_asn_nr` VARCHAR(120) NOT NULL")
+                .contains("`warehouse_from` VARCHAR(120) NOT NULL")
+                .contains("`warehouse_to_partner_code` VARCHAR(80) NOT NULL")
+                .contains("`ap_start_date` DATE NOT NULL")
+                .contains("`ap_end_date` DATE NOT NULL")
+                .contains("`appointment_slot_id` INT DEFAULT NULL")
+                .contains("`attempt_count` INT NOT NULL DEFAULT 0")
+                .contains("KEY `idx_official_warehouse_appointment_status`");
+
+        assertThat(normalized).doesNotContain("authorization");
+        assertThat(normalized).doesNotContain("`cookie`");
+    }
+
+    @Test
+    void officialWarehouseHasOwnBusinessCapability() {
+        assertThat(BusinessCapability.OFFICIAL_WAREHOUSE.getMenuPathPrefixes())
+                .contains("/warehouse/official-warehouse", "/api/warehouse/official-warehouse");
+    }
+}

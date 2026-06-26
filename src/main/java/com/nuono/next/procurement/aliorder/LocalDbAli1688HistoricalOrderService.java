@@ -32,7 +32,9 @@ public class LocalDbAli1688HistoricalOrderService {
     static final String EXCEL_UPLOAD_SCOPE = "用户上传 1688 历史订单 Excel，只写只读历史订单事实。";
     static final String ASSIGNMENT_TARGET_STORE_SITE = "STORE_SITE";
     static final String ASSIGNMENT_TARGET_CONSUMABLE = "CONSUMABLE";
+    static final String ASSIGNMENT_TARGET_DISCONTINUED = "DISCONTINUED";
     static final long MAX_EXCEL_IMPORT_FILE_SIZE_BYTES = 20L * 1024L * 1024L;
+    private static final BigDecimal PURCHASE_PRICE_ANOMALY_THRESHOLD_RATIO = new BigDecimal("0.10");
 
     private final Ali1688HistoricalOrderMapper mapper;
     private final Ali1688HistoricalOrderProvider provider;
@@ -811,6 +813,9 @@ public class LocalDbAli1688HistoricalOrderService {
             Ali1688HistoricalOrderProvider.Page page = provider.fetchPage(authorization, cursor);
             for (Ali1688HistoricalOrderProvider.OrderSnapshot orderSnapshot : page.getOrders()) {
                 processedCount++;
+                if (shouldSkipProviderOrder(orderSnapshot)) {
+                    continue;
+                }
                 Long orderId = mapper.nextOrderId();
                 Ali1688HistoricalOrderRow order = toOrderRow(ownerUserId, authorization, orderId, orderSnapshot);
                 mapper.upsertOrder(order);
@@ -893,6 +898,26 @@ public class LocalDbAli1688HistoricalOrderService {
         }
     }
 
+    private boolean shouldSkipProviderOrder(Ali1688HistoricalOrderProvider.OrderSnapshot orderSnapshot) {
+        if (orderSnapshot == null || !hasText(orderSnapshot.getProviderOrderNo())) {
+            return true;
+        }
+        String status = normalizeProviderOrderStatus(orderSnapshot.getOrderStatus());
+        return status.contains("取消")
+                || status.contains("删除")
+                || status.contains("交易关闭")
+                || status.contains("已关闭")
+                || status.contains("作废")
+                || status.contains("cancel")
+                || status.contains("closed")
+                || status.contains("deleted")
+                || status.contains("removed");
+    }
+
+    private String normalizeProviderOrderStatus(String value) {
+        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
     public Ali1688HistoricalOrderWorkbenchView revokeAuthorization(
             BusinessAccessContext context,
             Long authorizationId
@@ -963,6 +988,7 @@ public class LocalDbAli1688HistoricalOrderService {
         }
         String targetType = normalizeAssignmentTargetType(request.getTargetType());
         boolean consumableAssignment = ASSIGNMENT_TARGET_CONSUMABLE.equals(targetType);
+        boolean discontinuedAssignment = ASSIGNMENT_TARGET_DISCONTINUED.equals(targetType);
         Ali1688HistoricalOrderQuery targetScope = null;
         if (!consumableAssignment) {
             targetScope = Ali1688HistoricalOrderQuery.fromRequest(
@@ -1052,7 +1078,11 @@ public class LocalDbAli1688HistoricalOrderService {
             assignment.setTargetSiteCode(consumableAssignment ? null : hasText(targetScope.getSiteCode()) ? targetScope.getSiteCode() : "*");
             assignment.setAssignedQuantity(entry.getValue());
             assignment.setStatus("active");
-            assignment.setRemark(consumableAssignment ? "1688 历史订单货品行标记为耗材。" : "1688 历史订单货品行分配。");
+            assignment.setRemark(consumableAssignment
+                    ? "1688 历史订单货品行标记为耗材。"
+                    : discontinuedAssignment
+                    ? "1688 历史订单货品行标记为下架数据。"
+                    : "1688 历史订单货品行分配。");
             assignment.setCreatedBy(operatorUserId(context));
             assignment.setUpdatedBy(operatorUserId(context));
             mapper.insertOrderItemAssignment(assignment);
@@ -1186,8 +1216,8 @@ public class LocalDbAli1688HistoricalOrderService {
         Ali1688HistoricalOrderItemAssignmentRow assignment =
                 mapper.selectOrderItemAssignmentById(ownerUserId, request.getAssignmentId());
         validateMutableAssignment(context, assignment);
-        if (isConsumableAssignment(assignment)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材分配不能关联店铺商品。");
+        if (isProductLinkBlockedAssignment(assignment)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材或下架分配不能关联店铺商品。");
         }
         if (!hasText(assignment.getTargetStoreCode())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先把货品行分配到店铺后再关联商品。");
@@ -1335,7 +1365,7 @@ public class LocalDbAli1688HistoricalOrderService {
         Ali1688HistoricalOrderItemAssignmentRow assignment =
                 mapper.selectOrderItemAssignmentById(ownerUserId, assignmentId);
         validateMutableAssignment(context, assignment);
-        if (isConsumableAssignment(assignment) || !hasText(assignment.getTargetStoreCode())) {
+        if (isProductLinkBlockedAssignment(assignment) || !hasText(assignment.getTargetStoreCode())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先把货品行分配到店铺后再关联商品。");
         }
         String resolvedLinkStatus = normalizeProductLinkCandidateStatus(linkStatus);
@@ -1437,6 +1467,8 @@ public class LocalDbAli1688HistoricalOrderService {
                 .map(SkuPurchaseHistoryAccumulator::toView)
                 .filter(item -> !linkedOnly || "linked".equalsIgnoreCase(item.getLinkStatus()))
                 .filter(item -> !unlinkedOnly || "unlinked".equalsIgnoreCase(item.getLinkStatus()))
+                .filter(item -> matchesPurchaseCountRange(item, resolvedQuery))
+                .filter(item -> matchesPriceAnomalyFilter(item, resolvedQuery))
                 .collect(Collectors.toList());
         items.sort((left, right) -> nullToEmpty(right.getRecentPurchaseTime())
                 .compareTo(nullToEmpty(left.getRecentPurchaseTime())));
@@ -1453,6 +1485,135 @@ public class LocalDbAli1688HistoricalOrderService {
         );
         view.setUnlinkedAssignedLineCount(unlinkedAssignedLineCount);
         return view;
+    }
+
+    private boolean matchesPurchaseCountRange(
+            Ali1688SkuPurchaseHistoryView.ItemView item,
+            Ali1688SkuPurchaseHistoryQuery query
+    ) {
+        if (item == null || query == null) {
+            return true;
+        }
+        Integer min = query.getPurchaseCountMin();
+        Integer max = query.getPurchaseCountMax();
+        int purchaseCount = item.getPurchaseCount();
+        return (min == null || purchaseCount >= min)
+                && (max == null || purchaseCount <= max);
+    }
+
+    private boolean matchesPriceAnomalyFilter(
+            Ali1688SkuPurchaseHistoryView.ItemView item,
+            Ali1688SkuPurchaseHistoryQuery query
+    ) {
+        return query == null
+                || !query.isPriceAnomalyOnly()
+                || (item != null && item.getPriceAnomalyCount() > 0);
+    }
+
+    private static PriceAnomalyMetrics calculatePriceAnomalyMetrics(List<BigDecimal> unitPrices) {
+        List<BigDecimal> prices = unitPrices == null
+                ? List.of()
+                : unitPrices.stream()
+                        .filter(value -> value != null && value.compareTo(BigDecimal.ZERO) > 0)
+                        .collect(Collectors.toList());
+        if (prices.isEmpty()) {
+            return new PriceAnomalyMetrics(0, null);
+        }
+        if (prices.size() < 2) {
+            return new PriceAnomalyMetrics(0, averagePrice(prices));
+        }
+        if (prices.size() == 2) {
+            return exceedsPairPriceDeviation(prices)
+                    ? new PriceAnomalyMetrics(2, null)
+                    : new PriceAnomalyMetrics(0, averagePrice(prices));
+        }
+
+        BigDecimal baseline = medianPrice(prices);
+        List<BigDecimal> normalPrices = prices.stream()
+                .filter(price -> !exceedsPriceDeviation(price, baseline))
+                .collect(Collectors.toList());
+        if (normalPrices.isEmpty()) {
+            return new PriceAnomalyMetrics(0, averagePrice(prices));
+        }
+
+        int iterations = 0;
+        while (iterations++ < prices.size()) {
+            BigDecimal average = averagePrice(normalPrices);
+            List<BigDecimal> nextNormalPrices = prices.stream()
+                    .filter(price -> !exceedsPriceDeviation(price, average))
+                    .collect(Collectors.toList());
+            if (nextNormalPrices.isEmpty() || samePrices(normalPrices, nextNormalPrices)) {
+                break;
+            }
+            normalPrices = nextNormalPrices;
+        }
+        return new PriceAnomalyMetrics(prices.size() - normalPrices.size(), averagePrice(normalPrices));
+    }
+
+    private static boolean samePrices(List<BigDecimal> left, List<BigDecimal> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            if (left.get(i).compareTo(right.get(i)) != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static BigDecimal medianPrice(List<BigDecimal> prices) {
+        List<BigDecimal> sorted = prices.stream()
+                .sorted(BigDecimal::compareTo)
+                .collect(Collectors.toList());
+        int middle = sorted.size() / 2;
+        if (sorted.size() % 2 == 1) {
+            return sorted.get(middle);
+        }
+        return sorted.get(middle - 1)
+                .add(sorted.get(middle))
+                .divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal averagePrice(List<BigDecimal> prices) {
+        if (prices == null || prices.isEmpty()) {
+            return null;
+        }
+        BigDecimal total = prices.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        return total.divide(BigDecimal.valueOf(prices.size()), 8, RoundingMode.HALF_UP);
+    }
+
+    private static boolean exceedsPriceDeviation(BigDecimal unitPrice, BigDecimal baseline) {
+        if (unitPrice == null || baseline == null || baseline.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+        BigDecimal deviationRatio = unitPrice.subtract(baseline).abs()
+                .divide(baseline, 8, RoundingMode.HALF_UP);
+        return deviationRatio.compareTo(PURCHASE_PRICE_ANOMALY_THRESHOLD_RATIO) > 0;
+    }
+
+    private static boolean exceedsPairPriceDeviation(List<BigDecimal> prices) {
+        if (prices == null || prices.size() != 2) {
+            return false;
+        }
+        BigDecimal lower = prices.get(0).min(prices.get(1));
+        BigDecimal higher = prices.get(0).max(prices.get(1));
+        if (lower.compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+        BigDecimal deviationRatio = higher.subtract(lower)
+                .divide(lower, 8, RoundingMode.HALF_UP);
+        return deviationRatio.compareTo(PURCHASE_PRICE_ANOMALY_THRESHOLD_RATIO) > 0;
+    }
+
+    private static class PriceAnomalyMetrics {
+        private final int anomalyCount;
+        private final BigDecimal stableAverageUnitPrice;
+
+        private PriceAnomalyMetrics(int anomalyCount, BigDecimal stableAverageUnitPrice) {
+            this.anomalyCount = anomalyCount;
+            this.stableAverageUnitPrice = stableAverageUnitPrice;
+        }
     }
 
     @Transactional
@@ -1522,8 +1683,12 @@ public class LocalDbAli1688HistoricalOrderService {
             row.setPskuCode(trimToNull(request.getPskuCode()));
             row.setBatchLabel(hasText(batchRequest.getLabel()) ? batchRequest.getLabel().trim() : "批次 " + sequence);
             row.setBatchSequence(sequence);
+            row.setBatchType(defaultIfBlank(batchRequest.getBatchType(), "manual"));
             row.setCountedQuantity(batchRequest.getCountedQuantity());
+            row.setCountedQuantityUnit(trimToNull(batchRequest.getCountedQuantityUnit()));
             row.setCountedCost(batchRequest.getCountedCost().setScale(4, RoundingMode.HALF_UP));
+            row.setComponentCount(batchRequest.getComponentCount());
+            row.setExpectedComponentCount(batchRequest.getExpectedComponentCount());
             row.setNote(trimToNull(batchRequest.getNote()));
             row.setStatus("active");
             row.setCreatedBy(operatorUserId);
@@ -1539,9 +1704,20 @@ public class LocalDbAli1688HistoricalOrderService {
                 sourceRow.setOrderId(source.getOrderId());
                 sourceRow.setItemId(source.getItemId());
                 sourceRow.setAssignmentId(source.getAssignmentId());
+                sourceRow.setComponentSequence(source.getComponentSequence());
+                sourceRow.setComponentRole(trimToNull(source.getComponentRole()));
                 sourceRow.setSourceOrderNo(trimToNull(source.getOrderNo()));
                 sourceRow.setSourceOrderTime(trimToNull(source.getOrderTime()));
                 sourceRow.setSupplierName(trimToNull(source.getSupplierName()));
+                sourceRow.setSourceOfferId(trimToNull(source.getSourceOfferId()));
+                sourceRow.setSourceSkuId(trimToNull(source.getSourceSkuId()));
+                sourceRow.setSourceTitle(trimToNull(source.getSourceTitle()));
+                sourceRow.setSourceSpec(trimToNull(source.getSourceSpec()));
+                sourceRow.setSourceQuantity(scaleDecimal(source.getSourceQuantity(), 4));
+                sourceRow.setSourceUnit(trimToNull(source.getSourceUnit()));
+                sourceRow.setSourceUnitPrice(scaleDecimal(source.getSourceUnitPrice(), 6));
+                sourceRow.setSourceAmount(scaleDecimal(source.getSourceAmount(), 4));
+                sourceRow.setSourceQuantityPerCountedUnit(scaleDecimal(source.getSourceQuantityPerCountedUnit(), 6));
                 sourceRow.setStatus("active");
                 sourceRow.setCreatedBy(operatorUserId);
                 sourceRow.setUpdatedBy(operatorUserId);
@@ -1592,13 +1768,15 @@ public class LocalDbAli1688HistoricalOrderService {
         if (order == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "1688 历史订单不存在。");
         }
-        if (mapper.countActiveOrderAssignments(ownerUserId, orderId) > 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "订单已有有效分配记录，请先撤回分配。");
-        }
         String deleteReason = hasText(resolvedRequest.getReason())
                 ? resolvedRequest.getReason().trim()
                 : "不属于任何店铺";
-        mapper.softDeleteOrderHeader(orderId, ownerUserId, operatorUserId(context), deleteReason);
+        Long operatorUserId = operatorUserId(context);
+        mapper.deactivateActiveSkuPurchaseBatchesForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.deactivateActiveSkuPurchaseBatchSourcesForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.deactivateActiveProductLinksForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.revokeActiveOrderAssignmentsForOrder(ownerUserId, orderId, operatorUserId);
+        mapper.softDeleteOrderHeader(orderId, ownerUserId, operatorUserId, deleteReason);
         mapper.softDeleteOrderItems(orderId);
         mapper.softDeleteOrderLogistics(orderId);
         return Ali1688HistoricalOrderCleanupView.DeleteOrderResult.deleted(orderId, deleteReason);
@@ -2133,6 +2311,12 @@ public class LocalDbAli1688HistoricalOrderService {
         String storeCode = hasText(assignment.getTargetStoreCode())
                 ? assignment.getTargetStoreCode().trim()
                 : "未指定店铺";
+        if (ASSIGNMENT_TARGET_DISCONTINUED.equals(assignment.getTargetType())) {
+            if (!hasText(assignment.getTargetSiteCode()) || "*".equals(assignment.getTargetSiteCode())) {
+                return storeCode + " 已下架 " + quantity;
+            }
+            return storeCode + " " + assignment.getTargetSiteCode().trim() + " 已下架 " + quantity;
+        }
         if (!hasText(assignment.getTargetSiteCode()) || "*".equals(assignment.getTargetSiteCode())) {
             return storeCode + " " + quantity;
         }
@@ -2283,8 +2467,12 @@ public class LocalDbAli1688HistoricalOrderService {
         view.setId(batch.getId());
         view.setLabel(batch.getBatchLabel());
         view.setBatchSequence(batch.getBatchSequence());
+        view.setBatchType(batch.getBatchType());
         view.setCountedQuantity(batch.getCountedQuantity());
+        view.setCountedQuantityUnit(batch.getCountedQuantityUnit());
         view.setCountedCost(money(batch.getCountedCost()));
+        view.setComponentCount(batch.getComponentCount());
+        view.setExpectedComponentCount(batch.getExpectedComponentCount());
         view.setUnitPrice(batchUnitPrice(batch.getCountedCost(), batch.getCountedQuantity()));
         view.setNote(batch.getNote());
         view.setSources(emptyList(sourceRows).stream()
@@ -2301,9 +2489,20 @@ public class LocalDbAli1688HistoricalOrderService {
         view.setOrderId(source.getOrderId());
         view.setItemId(source.getItemId());
         view.setAssignmentId(source.getAssignmentId());
+        view.setComponentSequence(source.getComponentSequence());
+        view.setComponentRole(source.getComponentRole());
         view.setOrderNo(source.getSourceOrderNo());
         view.setOrderTime(source.getSourceOrderTime());
         view.setSupplierName(source.getSupplierName());
+        view.setSourceOfferId(source.getSourceOfferId());
+        view.setSourceSkuId(source.getSourceSkuId());
+        view.setSourceTitle(source.getSourceTitle());
+        view.setSourceSpec(source.getSourceSpec());
+        view.setSourceQuantity(source.getSourceQuantity());
+        view.setSourceUnit(source.getSourceUnit());
+        view.setSourceUnitPrice(source.getSourceUnitPrice());
+        view.setSourceAmount(source.getSourceAmount());
+        view.setSourceQuantityPerCountedUnit(source.getSourceQuantityPerCountedUnit());
         return view;
     }
 
@@ -2332,8 +2531,8 @@ public class LocalDbAli1688HistoricalOrderService {
         if (!"active".equals(assignment.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购批次来源只能使用有效分配记录。");
         }
-        if (isConsumableAssignment(assignment)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材分配不能计入店铺 SKU 采购批次。");
+        if (isProductLinkBlockedAssignment(assignment)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "耗材或下架分配不能计入店铺 SKU 采购批次。");
         }
         if (!storeCode.equals(assignment.getTargetStoreCode())
                 || !siteCode.equals(normalizeSiteCode(assignment.getTargetSiteCode()))) {
@@ -2497,6 +2696,7 @@ public class LocalDbAli1688HistoricalOrderService {
             recentPurchaseTime = null;
             amountBasisSet.clear();
             qualityFlagSet.clear();
+            List<BigDecimal> pricedUnitPrices = new ArrayList<>();
 
             if (hasManualBatches) {
                 purchaseCount = manualPurchaseBatches.size();
@@ -2510,6 +2710,7 @@ public class LocalDbAli1688HistoricalOrderService {
                     if (allocatedCost != null && unitPrice != null && quantity != null && quantity > 0) {
                         totalCost = totalCost.add(allocatedCost);
                         pricedQuantity += quantity;
+                        pricedUnitPrices.add(unitPrice);
                         if (lowestUnitPrice == null || unitPrice.compareTo(lowestUnitPrice) < 0) {
                             lowestUnitPrice = unitPrice;
                         }
@@ -2535,6 +2736,7 @@ public class LocalDbAli1688HistoricalOrderService {
                     if (allocatedCost != null && unitPrice != null && quantity != null && quantity > 0) {
                         totalCost = totalCost.add(allocatedCost);
                         pricedQuantity += quantity;
+                        pricedUnitPrices.add(unitPrice);
                         if (lowestUnitPrice == null || unitPrice.compareTo(lowestUnitPrice) < 0) {
                             lowestUnitPrice = unitPrice;
                         }
@@ -2551,6 +2753,7 @@ public class LocalDbAli1688HistoricalOrderService {
                     }
                 }
             }
+            PriceAnomalyMetrics priceAnomalyMetrics = calculatePriceAnomalyMetrics(pricedUnitPrices);
             Ali1688SkuPurchaseHistoryView.ItemView view = new Ali1688SkuPurchaseHistoryView.ItemView();
             view.setStoreCode(storeCode);
             view.setSiteCode(siteCode);
@@ -2581,6 +2784,8 @@ public class LocalDbAli1688HistoricalOrderService {
             view.setRecentPurchaseTime(recentPurchaseTime);
             view.setLowestUnitPrice(lowestUnitPrice);
             view.setHighestUnitPrice(highestUnitPrice);
+            view.setPriceAnomalyCount(priceAnomalyMetrics.anomalyCount);
+            view.setStableAverageUnitPrice(money(priceAnomalyMetrics.stableAverageUnitPrice));
             view.setAmountBasis(resolveAmountBasis(amountBasisSet));
             view.setDataQualityFlags(new ArrayList<>(qualityFlagSet.keySet()));
             view.setHistory(history);
@@ -2747,6 +2952,15 @@ public class LocalDbAli1688HistoricalOrderService {
         return amount == null ? null : amount.setScale(2, RoundingMode.HALF_UP);
     }
 
+    private BigDecimal scaleDecimal(BigDecimal amount, int scale) {
+        return amount == null ? null : amount.setScale(scale, RoundingMode.HALF_UP);
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        String normalized = trimToNull(value);
+        return normalized == null ? fallback : normalized;
+    }
+
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
     }
@@ -2790,6 +3004,9 @@ public class LocalDbAli1688HistoricalOrderService {
         if (ASSIGNMENT_TARGET_CONSUMABLE.equals(normalized)) {
             return ASSIGNMENT_TARGET_CONSUMABLE;
         }
+        if (ASSIGNMENT_TARGET_DISCONTINUED.equals(normalized)) {
+            return ASSIGNMENT_TARGET_DISCONTINUED;
+        }
         return ASSIGNMENT_TARGET_STORE_SITE;
     }
 
@@ -2806,6 +3023,14 @@ public class LocalDbAli1688HistoricalOrderService {
 
     private boolean isConsumableAssignment(Ali1688HistoricalOrderItemAssignmentRow assignment) {
         return assignment != null && ASSIGNMENT_TARGET_CONSUMABLE.equals(assignment.getTargetType());
+    }
+
+    private boolean isDiscontinuedAssignment(Ali1688HistoricalOrderItemAssignmentRow assignment) {
+        return assignment != null && ASSIGNMENT_TARGET_DISCONTINUED.equals(assignment.getTargetType());
+    }
+
+    private boolean isProductLinkBlockedAssignment(Ali1688HistoricalOrderItemAssignmentRow assignment) {
+        return isConsumableAssignment(assignment) || isDiscontinuedAssignment(assignment);
     }
 
     private void requireAssignmentWriteAccess(BusinessAccessContext context) {
