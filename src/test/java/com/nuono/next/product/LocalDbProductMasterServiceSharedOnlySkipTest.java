@@ -2,13 +2,9 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nuono.next.store.StoreSyncStoreRecord;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -285,28 +281,6 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         assertEquals(saleStart.plusYears(10), saleEnd);
     }
 
-    @Test
-    void shouldAllowXingyaoSaSiteWhenProjectNameIsMissingInControlledPublishGate() throws Exception {
-        assertDoesNotThrow(() -> invokeEnsurePublishStoreAllowed(store(null, "STR245027-NSA", "PRJ245027")));
-
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> invokeEnsurePublishStoreAllowed(store(null, "STR108065-NSA", "PRJ108065"))
-        );
-        assertEquals("当前只开放受控测试店铺的受控发布。", exception.getMessage());
-    }
-
-    @Test
-    void shouldAllowInsularScreenshotSaSiteInControlledPublishGate() throws Exception {
-        assertDoesNotThrow(() -> invokeEnsurePublishStoreAllowed(store(null, "STR353172-NSA", "PRJ353172")));
-
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> invokeEnsurePublishStoreAllowed(store(null, "STR108065-NSA", "PRJ108065"))
-        );
-        assertEquals("当前只开放受控测试店铺的受控发布。", exception.getMessage());
-    }
-
     private boolean invokeShouldSkip(
             ProductMasterSnapshotView draft,
             ProductMasterSnapshotView baseline,
@@ -395,30 +369,6 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
 
     private Map<String, String> invokeSaleWindowForPublish(Map<String, Object> siteOffer) {
         return new ProductPublishOfferWriter(objectMapper, null).saleWindowForPublish(siteOffer);
-    }
-
-    private void invokeEnsurePublishStoreAllowed(StoreSyncStoreRecord store) throws Exception {
-        Method method = LocalDbProductMasterService.class.getDeclaredMethod(
-                "ensurePublishStoreAllowed",
-                StoreSyncStoreRecord.class
-        );
-        method.setAccessible(true);
-        try {
-            method.invoke(service, store);
-        } catch (InvocationTargetException exception) {
-            if (exception.getCause() instanceof RuntimeException) {
-                throw (RuntimeException) exception.getCause();
-            }
-            throw exception;
-        }
-    }
-
-    private StoreSyncStoreRecord store(String projectName, String storeCode, String projectCode) {
-        StoreSyncStoreRecord store = new StoreSyncStoreRecord();
-        store.setProjectName(projectName);
-        store.setStoreCode(storeCode);
-        store.setProjectCode(projectCode);
-        return store;
     }
 
     private ProductMasterSnapshotView copySnapshot(ProductMasterSnapshotView source) {

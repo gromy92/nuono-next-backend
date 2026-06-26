@@ -54,16 +54,6 @@ public class LocalDbProductMasterService {
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private static final List<String> CONTROLLED_PUBLISH_CODES = List.of(
-            "PRJ245027",
-            "P245027",
-            "STR245027-NAE",
-            "STR245027-NSA",
-            "PRJ353172",
-            "STR353172-NAE",
-            "STR353172-NSA"
-    );
-
     private final ProductManagementMapper productManagementMapper;
     private final ProductLiteMapper productLiteMapper;
     private final ProductPublicDetailMapper productPublicDetailMapper;
@@ -1151,7 +1141,6 @@ public class LocalDbProductMasterService {
         }
 
         StoreSyncStoreRecord store = requirePublishStore(command.getOwnerUserId(), command.getStoreCode());
-        ensurePublishStoreAllowed(store);
         ProductMasterSnapshotView baselineBeforePublish = copySnapshot(record.getBaselineSnapshot());
 
         List<String> actionWarnings = new ArrayList<>(prePublishWarnings);
@@ -1551,7 +1540,6 @@ public class LocalDbProductMasterService {
             }
 
             StoreSyncStoreRecord store = requirePublishStore(task.getOwnerUserId(), task.getStoreCode());
-            ensurePublishStoreAllowed(store);
             try {
                 productPublishWriteService.publishSupportedChanges(
                         command,
@@ -2698,26 +2686,6 @@ public class LocalDbProductMasterService {
             throw new IllegalArgumentException(errorMessage);
         }
         return store;
-    }
-
-    private void ensurePublishStoreAllowed(StoreSyncStoreRecord store) {
-        String projectName = normalize(store.getProjectName());
-        String storeCode = normalize(store.getStoreCode());
-        String projectCode = normalize(store.getProjectCode());
-        if ("xingyao".equalsIgnoreCase(projectName)
-                || isControlledPublishCode(projectCode)
-                || isControlledPublishCode(storeCode)) {
-            return;
-        }
-        throw new IllegalArgumentException("当前只开放受控测试店铺的受控发布。");
-    }
-
-    private boolean isControlledPublishCode(String code) {
-        if (!StringUtils.hasText(code)) {
-            return false;
-        }
-        return CONTROLLED_PUBLISH_CODES.stream()
-                .anyMatch(allowedCode -> allowedCode.equalsIgnoreCase(code));
     }
 
     private List<String> mergeWarnings(List<String> baseWarnings, List<String> extraWarnings) {
