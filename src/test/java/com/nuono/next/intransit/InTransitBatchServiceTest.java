@@ -32,6 +32,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.dao.DuplicateKeyException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -246,6 +247,47 @@ class InTransitBatchServiceTest {
         assertEquals(LocalDateTime.parse("2026-05-31T10:00:00"), rowCaptor.getValue().getEstimatedDepartureAt());
         assertEquals(LocalDateTime.parse("2026-06-01T11:00:00"), rowCaptor.getValue().getEstimatedArrivalAt());
         assertEquals("2026-06-04 16:00-18:00", rowCaptor.getValue().getDeliveryAppointmentText());
+    }
+
+    @Test
+    void shouldRejectNewBatchWhenActiveReferenceAlreadyExistsForOwner() {
+        SaveBatchCommand command = new SaveBatchCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchReferenceNo(" F2604304851631 ");
+        command.setBatchStatus("draft");
+        BatchRow existing = batch(53020L, "in_transit", "易通", "forwarder_matched");
+        existing.setBatchReferenceNo("F2604304851631");
+        when(mapper.selectBatchByReferenceNo(10002L, "F2604304851631")).thenReturn(existing);
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.saveBatch(command)
+        );
+
+        assertEquals("在途批次号已存在，请打开已有批次继续更新：F2604304851631", exception.getMessage());
+        verify(mapper, never()).insertBatch(any(BatchRow.class));
+    }
+
+    @Test
+    void shouldConvertBatchReferenceUniqueConstraintViolationToConflictMessage() {
+        SaveBatchCommand command = new SaveBatchCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchReferenceNo("F2604304851631");
+        command.setBatchStatus("draft");
+        when(mapper.selectBatchByReferenceNo(10002L, "F2604304851631")).thenReturn(null);
+        when(mapper.nextBatchId()).thenReturn(53021L);
+        when(mapper.insertBatch(any(BatchRow.class))).thenThrow(new DuplicateKeyException(
+                "Duplicate entry '10002-F2604304851631' for key 'uk_in_transit_batch_reference_active'"
+        ));
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> service.saveBatch(command)
+        );
+
+        assertEquals("在途批次号已存在，请打开已有批次继续更新：F2604304851631", exception.getMessage());
     }
 
     @Test

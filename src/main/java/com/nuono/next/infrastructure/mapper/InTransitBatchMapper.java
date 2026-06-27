@@ -54,7 +54,9 @@ public interface InTransitBatchMapper extends InTransitGoodsSequenceMapper {
     @Select({
             BATCH_SELECT,
             "WHERE batch.owner_user_id = #{ownerUserId}",
-            "AND batch.batch_reference_no = #{batchReferenceNo}",
+            "AND NULLIF(TRIM(#{batchReferenceNo}), '') IS NOT NULL",
+            "AND NULLIF(TRIM(batch.batch_reference_no), '') IS NOT NULL",
+            "AND UPPER(TRIM(batch.batch_reference_no)) = UPPER(TRIM(#{batchReferenceNo}))",
             "AND batch.is_deleted = b'0'",
             "ORDER BY batch.gmt_updated DESC, batch.id DESC",
             "LIMIT 1"

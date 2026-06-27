@@ -57,6 +57,14 @@ class InTransitBatchSchemaContractTest {
             "init",
             "106_in_transit_operation_audit.sql"
     );
+    private static final Path ACTIVE_BATCH_REFERENCE_MIGRATION = Path.of(
+            "src",
+            "main",
+            "resources",
+            "db",
+            "init",
+            "142_in_transit_batch_active_reference_unique.sql"
+    );
     @Test
     void migrationDefinesBatchBasicsWithoutPurchaseFeeOrInventoryFields() throws IOException {
         String sql = Files.readString(MIGRATION);
@@ -122,6 +130,36 @@ class InTransitBatchSchemaContractTest {
         assertTrue(updateSql.contains("estimated_departure_at"));
         assertTrue(updateSql.contains("estimated_arrival_at"));
         assertTrue(updateSql.contains("delivery_appointment_text"));
+    }
+
+    @Test
+    void batchMapperSqlFindsActiveBatchByNormalizedReferenceNumber() throws NoSuchMethodException {
+        Method selectBatchByReferenceNo = InTransitGoodsMapper.class.getMethod(
+                "selectBatchByReferenceNo",
+                Long.class,
+                String.class
+        );
+        String selectSql = String.join(" ", selectBatchByReferenceNo.getAnnotation(Select.class).value());
+
+        assertTrue(selectSql.contains("NULLIF(TRIM(#{batchReferenceNo}), '') IS NOT NULL"));
+        assertTrue(selectSql.contains("NULLIF(TRIM(batch.batch_reference_no), '') IS NOT NULL"));
+        assertTrue(selectSql.contains("UPPER(TRIM(batch.batch_reference_no)) = UPPER(TRIM(#{batchReferenceNo}))"));
+        assertTrue(selectSql.contains("batch.is_deleted = b'0'"));
+    }
+
+    @Test
+    void migrationAddsActiveUniqueBatchReferenceGuard() throws IOException {
+        String sql = Files.readString(ACTIVE_BATCH_REFERENCE_MIGRATION);
+        String lower = sql.toLowerCase(Locale.ROOT);
+
+        assertTrue(sql.contains("`active_batch_reference_key` VARCHAR(160) GENERATED ALWAYS AS"));
+        assertTrue(sql.contains("NULLIF(TRIM(`batch_reference_no`)"));
+        assertTrue(sql.contains("IS NOT NULL THEN UPPER(TRIM(`batch_reference_no`))"));
+        assertTrue(sql.contains("UPPER(TRIM(`batch_reference_no`))"));
+        assertTrue(sql.contains("UNIQUE KEY `uk_in_transit_batch_reference_active` (`owner_user_id`, `active_batch_reference_key`)"));
+        assertFalse(lower.contains("delete from"));
+        assertFalse(lower.contains("drop table"));
+        assertFalse(lower.contains("drop column"));
     }
 
     @Test

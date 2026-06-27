@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -113,6 +114,8 @@ public class InTransitBatchService {
         if (!InTransitBatchStatus.DRAFT.code().equals(batchStatus) && !missingFields.isEmpty()) {
             throw new IllegalStateException("在途批次进入跟踪前需补齐：" + String.join(",", missingFields) + "。");
         }
+        String batchReferenceNo = clean(resolved.getBatchReferenceNo());
+        assertBatchReferenceUnique(ownerUserId, resolved.getBatchId(), batchReferenceNo);
 
         BatchRow row = new BatchRow();
         row.setId(resolved.getBatchId() == null ? mapper.nextBatchId() : resolved.getBatchId());
@@ -132,7 +135,7 @@ public class InTransitBatchService {
         row.setEtaDate(resolved.getEtaDate());
         row.setTrackingNo(clean(resolved.getTrackingNo()));
         row.setContainerNo(clean(resolved.getContainerNo()));
-        row.setBatchReferenceNo(clean(resolved.getBatchReferenceNo()));
+        row.setBatchReferenceNo(batchReferenceNo);
         row.setExternalShipmentNo(clean(resolved.getExternalShipmentNo()));
         row.setSourceCreatedAt(resolved.getSourceCreatedAt());
         row.setEstimatedDepartureAt(resolved.getEstimatedDepartureAt());
@@ -142,10 +145,17 @@ public class InTransitBatchService {
         row.setCreatedBy(operatorUserId);
         row.setUpdatedBy(operatorUserId);
         boolean created = resolved.getBatchId() == null;
-        if (created) {
-            mapper.insertBatch(row);
-        } else {
-            mapper.updateBatch(row);
+        try {
+            if (created) {
+                mapper.insertBatch(row);
+            } else {
+                mapper.updateBatch(row);
+            }
+        } catch (DuplicateKeyException exception) {
+            if (isBatchReferenceDuplicate(exception)) {
+                throw duplicateBatchReferenceException(batchReferenceNo, exception);
+            }
+            throw exception;
         }
         audit(
                 ownerUserId,
@@ -160,6 +170,26 @@ public class InTransitBatchService {
                 detail("batchStatus", row.getBatchStatus(), "transportMode", row.getTransportMode())
         );
         return getBatch(ownerUserId, row.getId());
+    }
+
+    private void assertBatchReferenceUnique(Long ownerUserId, Long currentBatchId, String batchReferenceNo) {
+        if (!StringUtils.hasText(batchReferenceNo)) {
+            return;
+        }
+        BatchRow existing = mapper.selectBatchByReferenceNo(ownerUserId, batchReferenceNo);
+        if (existing != null && (currentBatchId == null || !currentBatchId.equals(existing.getId()))) {
+            throw duplicateBatchReferenceException(batchReferenceNo, null);
+        }
+    }
+
+    private static boolean isBatchReferenceDuplicate(DuplicateKeyException exception) {
+        String message = exception.getMessage();
+        return message != null && message.contains("uk_in_transit_batch_reference_active");
+    }
+
+    private static IllegalStateException duplicateBatchReferenceException(String batchReferenceNo, Throwable cause) {
+        String message = "在途批次号已存在，请打开已有批次继续更新：" + batchReferenceNo;
+        return cause == null ? new IllegalStateException(message) : new IllegalStateException(message, cause);
     }
 
     private void mergeExistingBatchFieldsForTracking(SaveBatchCommand command, BatchRow existing) {
