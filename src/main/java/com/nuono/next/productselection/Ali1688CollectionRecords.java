@@ -41,6 +41,8 @@ public final class Ali1688CollectionRecords {
         public String sourceTitleCn;
         public String sourceUrl;
         public String pageUrl;
+        public String sourceSpecHintsJson;
+        public String sourceSelectedText;
         public String storeName;
         public String storeCode;
     }

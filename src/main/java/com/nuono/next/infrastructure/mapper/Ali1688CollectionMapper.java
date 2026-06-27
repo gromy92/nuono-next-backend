@@ -18,7 +18,8 @@ public interface Ali1688CollectionMapper {
             + "DATE_FORMAT(task.started_at, '%Y-%m-%d %H:%i') AS started_at, DATE_FORMAT(task.finished_at, '%Y-%m-%d %H:%i') AS finished_at, "
             + "DATE_FORMAT(task.locked_at, '%Y-%m-%d %H:%i') AS locked_at, task.locked_by, task.attempt_count, task.created_by, task.updated_by, "
             + "source.collection_no AS source_collection_no, source.source_platform, source.source_title, source.source_title_cn, "
-            + "source.source_url, source.page_url, COALESCE(store.project_name, '') AS store_name, "
+            + "source.source_url, source.page_url, source.spec_hints_json AS source_spec_hints_json, source.selected_text AS source_selected_text, "
+            + "COALESCE(store.project_name, '') AS store_name, "
             + "(SELECT site.store_code FROM logical_store_site site WHERE site.logical_store_id = task.logical_store_id AND site.is_deleted = b'0' ORDER BY site.is_reference_site DESC, site.id ASC LIMIT 1) AS store_code "
             + "FROM product_selection_ali1688_collection_task task "
             + "JOIN product_selection_source_collection source ON source.id = task.source_collection_id AND source.is_deleted = b'0' "
@@ -111,6 +112,34 @@ public interface Ali1688CollectionMapper {
             @Param("limit") Integer limit
     );
 
+    @Select({
+            "<script>",
+            TASK_SELECT,
+            "WHERE task.current_task_key IS NOT NULL",
+            "  AND task.is_deleted = b'0'",
+            "  AND task.status IN ('queued', 'running', 'failed')",
+            "<if test='ownerUserId != null'>",
+            "  AND task.owner_user_id = #{ownerUserId}",
+            "</if>",
+            "<if test='storeCodes != null and storeCodes.size() &gt; 0'>",
+            "  AND EXISTS (",
+            "    SELECT 1 FROM logical_store_site plugin_scope_site",
+            "    WHERE plugin_scope_site.logical_store_id = task.logical_store_id",
+            "      AND plugin_scope_site.is_deleted = b'0'",
+            "      AND plugin_scope_site.store_code IN",
+            "      <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>#{storeCode}</foreach>",
+            "  )",
+            "</if>",
+            "ORDER BY CASE task.status WHEN 'queued' THEN 0 WHEN 'running' THEN 1 ELSE 2 END, task.gmt_updated ASC, task.id ASC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<Ali1688CollectionRecords.TaskRecord> listPluginAssignmentTasks(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCodes") List<String> storeCodes,
+            @Param("limit") Integer limit
+    );
+
     @Update({
             "UPDATE product_selection_ali1688_collection_task",
             "SET status = 'queued', progress_percent = GREATEST(progress_percent, 5), source_image_url = #{sourceImageUrl},",
@@ -174,6 +203,20 @@ public interface Ali1688CollectionMapper {
             @Param("lockedBy") String lockedBy,
             @Param("maxAttempts") Integer maxAttempts,
             @Param("lockTimeoutMinutes") Integer lockTimeoutMinutes
+    );
+
+    @Update({
+            "UPDATE product_selection_ali1688_collection_task",
+            "SET status = 'running', progress_percent = GREATEST(progress_percent, 20), started_at = COALESCE(started_at, NOW()),",
+            "locked_at = NOW(), locked_by = #{lockedBy}, attempt_count = CASE WHEN status = 'queued' THEN attempt_count + 1 ELSE attempt_count END,",
+            "updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE id = #{taskId} AND current_task_key IS NOT NULL AND is_deleted = b'0'",
+            "AND status IN ('queued', 'running')"
+    })
+    int markTaskRunningForPlugin(
+            @Param("taskId") Long taskId,
+            @Param("lockedBy") String lockedBy,
+            @Param("updatedBy") Long updatedBy
     );
 
     @Update({
