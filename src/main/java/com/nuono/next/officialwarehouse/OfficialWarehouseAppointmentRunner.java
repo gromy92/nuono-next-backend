@@ -38,6 +38,10 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonScheduledStatus(status) && !client.reschedule(task)) {
             return RunResult.failed("RESCHEDULE_ASN", "Noon 取消当前约仓失败。");
         }
+        RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
+        if (readiness != null) {
+            return readiness;
+        }
 
         List<LocalDate> capacityDates = client.queryDayCapacity(task).stream()
                 .map(OfficialWarehouseAppointmentRunner::parseDate)
@@ -52,13 +56,6 @@ public class OfficialWarehouseAppointmentRunner {
             for (SlotCapacity slot : slots) {
                 if (!matchesTimeRange(slot, acceptedHours)) {
                     continue;
-                }
-                if (!client.setWarehouses(task)) {
-                    continue;
-                }
-                RunResult readiness = waitUntilReadyForSchedule(task, client);
-                if (readiness != null) {
-                    return readiness;
                 }
                 RunResult scheduled = scheduleAndConfirm(task, client, capacityDate, slot);
                 if (scheduled != null) {
@@ -77,6 +74,10 @@ public class OfficialWarehouseAppointmentRunner {
         applyAsnWarehouseFrom(task, detail);
         String status = normalize(detail == null ? null : detail.status);
         if (isNoonFailureStatus(status)) {
+            return List.of();
+        }
+        RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
+        if (readiness != null) {
             return List.of();
         }
         List<LocalDate> capacityDates = client.queryDayCapacity(task).stream()
@@ -123,10 +124,7 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonScheduledStatus(status) && !client.reschedule(task)) {
             return RunResult.failed("RESCHEDULE_ASN", "Noon 取消当前约仓失败。");
         }
-        if (!client.setWarehouses(task)) {
-            return RunResult.failed("SET_WAREHOUSES", "Noon 设置约仓仓库失败。");
-        }
-        RunResult readiness = waitUntilReadyForSchedule(task, client);
+        RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
         if (readiness != null) {
             return readiness;
         }
@@ -170,6 +168,13 @@ public class OfficialWarehouseAppointmentRunner {
             }
         }
         return RunResult.failed("ASN_NOT_SEALED", "Noon 已设置仓库，但 ASN 尚未 sealed，稍后再点立即约仓。");
+    }
+
+    private static RunResult setWarehousesAndWaitUntilReady(AppointmentTask task, NoonAppointmentClient client) {
+        if (!client.setWarehouses(task)) {
+            return RunResult.failed("SET_WAREHOUSES", "Noon 设置约仓仓库失败。");
+        }
+        return waitUntilReadyForSchedule(task, client);
     }
 
     private static RunResult scheduleAndConfirm(

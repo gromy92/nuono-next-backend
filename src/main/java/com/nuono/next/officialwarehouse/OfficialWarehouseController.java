@@ -9,6 +9,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentAvailabilityView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ProductCandidateView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ShippingBatchCandidateView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
@@ -101,10 +102,25 @@ public class OfficialWarehouseController {
             @RequestParam String storeCode,
             @RequestParam String siteCode,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) List<String> shippingBatchIds,
             HttpServletRequest request
     ) {
         try {
-            return service().listProductCandidates(storeAccess(request, storeCode), storeCode, siteCode, keyword);
+            return service().listProductCandidates(storeAccess(request, storeCode), storeCode, siteCode, keyword, shippingBatchIds);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @GetMapping("/shipping-batches")
+    public List<ShippingBatchCandidateView> shippingBatches(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            @RequestParam(required = false) String keyword,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().listShippingBatchCandidates(storeAccess(request, storeCode), storeCode, siteCode, keyword);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

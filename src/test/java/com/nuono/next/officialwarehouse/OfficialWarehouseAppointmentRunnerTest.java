@@ -38,10 +38,10 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(result.appointmentTime).isEqualTo("9am-10am");
         assertThat(client.calls).containsExactly(
                 "detail",
-                "days",
-                "slots:2026-06-16",
                 "set-warehouses:JED01:ETWAREHOUSE",
                 "detail",
+                "days",
+                "slots:2026-06-16",
                 "schedule:2026-06-16:9",
                 "detail"
         );
@@ -61,10 +61,10 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(client.calls).containsExactly(
                 "detail",
                 "reschedule:A05531714PN",
-                "days",
-                "slots:2026-06-16",
                 "set-warehouses:JED01:ETWAREHOUSE",
                 "detail",
+                "days",
+                "slots:2026-06-16",
                 "schedule:2026-06-16:9",
                 "detail"
         );
@@ -83,10 +83,10 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(result.appointmentDate).isEqualTo(LocalDate.parse("2026-06-16"));
         assertThat(client.calls).containsExactly(
                 "detail",
-                "days",
-                "slots:2026-06-16",
                 "set-warehouses:JED01:ETWAREHOUSE",
                 "detail",
+                "days",
+                "slots:2026-06-16",
                 "schedule:2026-06-16:4",
                 "detail"
         );
@@ -108,6 +108,8 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(slots.get(0).capacityDate).isEqualTo(LocalDate.parse("2026-06-16"));
         assertThat(slots.get(0).slotId).isEqualTo(9);
         assertThat(client.calls).containsExactly(
+                "detail",
+                "set-warehouses:JED01:ETWAREHOUSE",
                 "detail",
                 "days",
                 "slots:2026-06-16"

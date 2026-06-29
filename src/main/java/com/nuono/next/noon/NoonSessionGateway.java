@@ -891,6 +891,10 @@ public class NoonSessionGateway {
             return executeTextWithRefresh(() -> state.getText(projectCode, storeCode, url, withProject, extraHeaders));
         }
 
+        public String postText(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
+            return executeTextWithRefresh(() -> state.postText(projectCode, storeCode, url, body, withProject, extraHeaders));
+        }
+
         public JsonNode postJson(String url, JsonNode body, boolean withProject) {
             return postJson(url, body, withProject, null);
         }
@@ -1229,6 +1233,36 @@ public class NoonSessionGateway {
                     applyDefaultHeaders(builder, uri);
                     applyHeaders(builder, extraHeaders);
                     return send(builder.build(), retryTransientReadFailures);
+                } catch (IOException exception) {
+                    throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
+                }
+            }
+        }
+
+        private String postText(
+                String projectCode,
+                String storeCode,
+                String url,
+                JsonNode body,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            synchronized (requestMutex) {
+                try {
+                    applyContextCookies(projectCode, storeCode);
+                    throttleIfNeeded();
+                    URI uri = buildUri(url, withProject, projectCode);
+                    HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                            .timeout(REQUEST_TIMEOUT)
+                            .setHeader("Content-Type", "application/json")
+                            .setHeader("Accept", "text/csv,text/plain,*/*");
+                    if (withProject && StringUtils.hasText(projectCode)) {
+                        builder.setHeader("X-Project", projectCode);
+                    }
+                    applyDefaultHeaders(builder, uri);
+                    applyHeaders(builder, extraHeaders);
+                    return sendText(builder.build(), true);
                 } catch (IOException exception) {
                     throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
                 }

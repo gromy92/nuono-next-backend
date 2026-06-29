@@ -104,6 +104,130 @@ public final class OfficialWarehouseRecords {
         public Long operatorUserId;
     }
 
+    public static class ShippingBatchCandidateRecord {
+        public Long id;
+        public String sourceKind;
+        public String batchNo;
+        public String trackingNo;
+        public String externalShipmentNo;
+        public String forwarderName;
+        public String transportMode;
+        public String status;
+        public String latestNodeStatus;
+        public Long selectedOptionId;
+        public Integer totalQuantity;
+        public Integer storeSiteQuantity;
+        public Integer linkedQuantity;
+        public Integer remainingQuantity;
+        public Integer skuCount;
+        public Integer purchaseOrderCount;
+        public String storeSummaryJson;
+        public String siteSummaryJson;
+        public String transportSummaryJson;
+        public String updatedAt;
+    }
+
+    public static class ShippingBatchSourceAllocationRecord {
+        public Long shippingBatchId;
+        public String shippingBatchNo;
+        public String status;
+        public Long selectedOptionId;
+        public Long shippingBatchSourceId;
+        public Long inTransitBatchId;
+        public String batchReferenceNo;
+        public String trackingNo;
+        public String externalShipmentNo;
+        public String forwarderName;
+        public String transportMode;
+        public String latestNodeStatus;
+        public Long inTransitGoodsLineId;
+        public Long fulfillmentBalanceId;
+        public String sourceStoreCode;
+        public String sourceStoreName;
+        public Long purchaseOrderId;
+        public String purchaseOrderNo;
+        public String purchaseOrderTitle;
+        public Long purchaseOrderItemId;
+        public Long purchaseOrderItemSiteId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String partnerSku;
+        public String skuParent;
+        public String titleCache;
+        public String imageUrlCache;
+        public String siteCode;
+        public String plannedTransportMode;
+        public String fulfillmentType;
+        public String sourcePartyName;
+        public Integer quantity;
+    }
+
+    public static class AsnShippingBatchLinkInsertRecord {
+        public Long id;
+        public Long asnId;
+        public Long asnLineId;
+        public Long ownerUserId;
+        public String storeCode;
+        public String siteCode;
+        public Long shippingBatchId;
+        public String shippingBatchNo;
+        public Long shippingBatchSourceId;
+        public Long inTransitBatchId;
+        public String batchReferenceNo;
+        public String trackingNo;
+        public String externalShipmentNo;
+        public String forwarderName;
+        public String transportMode;
+        public String latestNodeStatus;
+        public Long inTransitGoodsLineId;
+        public Long fulfillmentBalanceId;
+        public Long purchaseOrderId;
+        public String purchaseOrderNo;
+        public Long purchaseOrderItemId;
+        public Long purchaseOrderItemSiteId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String partnerSku;
+        public String pskuCode;
+        public Integer quantity;
+        public String relationStatus;
+        public String relationBasis;
+        public Long operatorUserId;
+    }
+
+    public static class AsnShippingBatchLinkRecord {
+        public Long id;
+        public Long asnId;
+        public Long asnLineId;
+        public Long ownerUserId;
+        public String storeCode;
+        public String siteCode;
+        public Long shippingBatchId;
+        public String shippingBatchNo;
+        public Long shippingBatchSourceId;
+        public Long inTransitBatchId;
+        public String batchReferenceNo;
+        public String trackingNo;
+        public String externalShipmentNo;
+        public String forwarderName;
+        public String transportMode;
+        public String latestNodeStatus;
+        public Long inTransitGoodsLineId;
+        public Long fulfillmentBalanceId;
+        public Long purchaseOrderId;
+        public String purchaseOrderNo;
+        public Long purchaseOrderItemId;
+        public Long purchaseOrderItemSiteId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String partnerSku;
+        public String pskuCode;
+        public Integer quantity;
+        public String relationStatus;
+        public String relationBasis;
+        public String createdAt;
+    }
+
     public static class AsnRecord {
         public Long id;
         public Long ownerUserId;

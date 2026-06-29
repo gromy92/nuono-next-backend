@@ -5,9 +5,13 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRe
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ProductCandidateRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ShippingBatchCandidateRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ShippingBatchSourceAllocationRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.StoreSiteRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.IdSequenceCommand;
 import java.util.Collection;
@@ -37,6 +41,9 @@ public interface OfficialWarehouseMapper {
     @Select("SELECT COALESCE(MAX(id), 0) FROM official_warehouse_appointment")
     Long selectMaxAppointmentId();
 
+    @Select("SELECT COALESCE(MAX(id), 0) FROM official_warehouse_asn_shipping_batch_link")
+    Long selectMaxAsnShippingBatchLinkId();
+
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, #{minAllocatedId}, NOW(), NOW())",
@@ -58,6 +65,14 @@ public interface OfficialWarehouseMapper {
 
     default Long nextAppointmentId() {
         return nextIdAfterTableMax("official_warehouse_appointment", 610000L, selectMaxAppointmentId());
+    }
+
+    default Long nextAsnShippingBatchLinkId() {
+        return nextIdAfterTableMax(
+                "official_warehouse_asn_shipping_batch_link",
+                620000L,
+                selectMaxAsnShippingBatchLinkId()
+        );
     }
 
     default Long nextIdAfterTableMax(String sequenceName, long initialValue, Long tableMaxId) {
@@ -104,7 +119,7 @@ public interface OfficialWarehouseMapper {
             "       official.noon_partner_psku_code AS pskuCode, COALESCE(NULLIF(pv.child_sku, ''), pm.sku_parent) AS noonSku,",
             "       COALESCE(pm.title_cn_cache, pm.title_cache, pv.partner_sku, pm.sku_parent) AS titleCache,",
             "       pm.title_cache AS titleEn, pm.brand_cache AS brandCache,",
-            "       pm.cover_image_url AS imageUrlCache,",
+            "       COALESCE(imageAsset.url, pm.cover_image_url) AS imageUrlCache,",
             "       COALESCE(official.product_length_cm, effective.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
             "       COALESCE(official.product_width_cm, effective.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
             "       COALESCE(official.product_height_cm, effective.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
@@ -135,6 +150,19 @@ public interface OfficialWarehouseMapper {
             "  ON effective.id = pvs.effective_source_id AND effective.variant_id = pv.id AND effective.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source official",
             "  ON official.variant_id = pv.id AND official.source_type = 'noon_official' AND official.is_deleted = b'0'",
+            "LEFT JOIN product_image_asset imageAsset",
+            "  ON imageAsset.product_master_id = pm.id",
+            " AND imageAsset.source_type IN ('noon-cover', 'noon')",
+            " AND imageAsset.asset_status = 'synced'",
+            " AND imageAsset.is_deleted = b'0'",
+            " AND imageAsset.id = (",
+            "   SELECT MIN(pia.id)",
+            "   FROM product_image_asset pia",
+            "   WHERE pia.product_master_id = pm.id",
+            "     AND pia.source_type IN ('noon-cover', 'noon')",
+            "     AND pia.asset_status = 'synced'",
+            "     AND pia.is_deleted = b'0'",
+            " )",
             "WHERE lss.is_deleted = b'0'",
             "  AND ls.owner_user_id = #{ownerUserId}",
             "  AND UPPER(lss.store_code) = UPPER(#{storeCode})",
@@ -168,6 +196,269 @@ public interface OfficialWarehouseMapper {
             @Param("limit") int limit
     );
 
+    @Select({
+            "<script>",
+            "SELECT b.id, 'IN_TRANSIT_BATCH' AS sourceKind,",
+            "       COALESCE(NULLIF(b.batch_reference_no, ''), NULLIF(b.tracking_no, ''), NULLIF(b.external_shipment_no, ''), CAST(b.id AS CHAR)) AS batchNo,",
+            "       b.tracking_no AS trackingNo, b.external_shipment_no AS externalShipmentNo,",
+            "       COALESCE(f.forwarder_name, b.raw_forwarder_name) AS forwarderName,",
+            "       b.transport_mode AS transportMode, b.batch_status AS status, b.latest_node_status AS latestNodeStatus,",
+            "       NULL AS selectedOptionId,",
+            "       COALESCE(SUM(GREATEST(COALESCE(line.shipped_quantity, 0), 0)), 0) AS totalQuantity,",
+            "       COALESCE(SUM(GREATEST(COALESCE(line.shipped_quantity, 0), 0)), 0) AS storeSiteQuantity,",
+            "       COALESCE(SUM(LEAST(GREATEST(COALESCE(linked.linkedQuantity, 0), 0), GREATEST(COALESCE(line.shipped_quantity, 0), 0))), 0) AS linkedQuantity,",
+            "       COALESCE(SUM(GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.linkedQuantity, 0), 0), 0)), 0) AS remainingQuantity,",
+            "       COUNT(DISTINCT CASE WHEN GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.linkedQuantity, 0), 0), 0) &gt; 0 THEN line.psku END) AS skuCount,",
+            "       COALESCE(SUM(COALESCE(purchase.purchaseOrderCount, 0)), 0) AS purchaseOrderCount,",
+            "       NULL AS storeSummaryJson, NULL AS siteSummaryJson, NULL AS transportSummaryJson,",
+            "       DATE_FORMAT(b.gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM in_transit_batch b",
+            "JOIN in_transit_goods_line line",
+            "  ON line.batch_id = b.id",
+            " AND line.owner_user_id = b.owner_user_id",
+            " AND line.is_deleted = b'0'",
+            "JOIN logical_store_site lss",
+            "  ON UPPER(lss.store_code) = UPPER(#{storeCode})",
+            " AND UPPER(lss.site) = UPPER(#{siteCode})",
+            " AND lss.is_deleted = b'0'",
+            "JOIN logical_store ls",
+            "  ON ls.id = lss.logical_store_id",
+            " AND ls.owner_user_id = b.owner_user_id",
+            " AND ls.is_deleted = b'0'",
+            "JOIN product_site_offer pso",
+            "  ON pso.site_id = lss.id",
+            " AND pso.is_deleted = b'0'",
+            "JOIN product_variant pv",
+            "  ON pv.id = pso.variant_id",
+            " AND pv.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.id = pv.product_master_id",
+            " AND pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN in_transit_forwarder f",
+            "  ON f.id = b.standard_forwarder_id",
+            " AND f.owner_user_id = b.owner_user_id",
+            " AND f.is_deleted = b'0'",
+            "LEFT JOIN (",
+            "  SELECT owner_user_id, in_transit_goods_line_id,",
+            "         SUM(GREATEST(COALESCE(quantity, 0), 0)) AS linkedQuantity",
+            "  FROM official_warehouse_asn_shipping_batch_link",
+            "  WHERE is_deleted = b'0'",
+            "    AND in_transit_goods_line_id IS NOT NULL",
+            "  GROUP BY owner_user_id, in_transit_goods_line_id",
+            ") linked",
+            "  ON linked.owner_user_id = b.owner_user_id",
+            " AND linked.in_transit_goods_line_id = line.id",
+            "LEFT JOIN (",
+            "  SELECT owner_user_id, in_transit_goods_line_id, COUNT(DISTINCT source_id) AS purchaseOrderCount",
+            "  FROM procurement_logistics_shipment_allocation",
+            "  WHERE is_deleted = b'0'",
+            "    AND confirmation_status = 'CONFIRMED'",
+            "  GROUP BY owner_user_id, in_transit_goods_line_id",
+            ") purchase",
+            "  ON purchase.owner_user_id = b.owner_user_id",
+            " AND purchase.in_transit_goods_line_id = line.id",
+            "WHERE b.owner_user_id = #{ownerUserId}",
+            "  AND b.is_deleted = b'0'",
+            "  AND (",
+            "    (b.target_site_code IS NOT NULL AND b.target_site_code &lt;&gt; '' AND UPPER(b.target_site_code) = UPPER(#{siteCode}))",
+            "    OR (UPPER(#{siteCode}) = 'SA' AND (",
+            "      UPPER(COALESCE(b.target_store_code, '')) LIKE 'RUH%'",
+            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'JED%'",
+            "    ))",
+            "    OR (UPPER(#{siteCode}) = 'AE' AND (",
+            "      UPPER(COALESCE(b.target_store_code, '')) LIKE 'DB%'",
+            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'DXB%'",
+            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'AUH%'",
+            "    ))",
+            "  )",
+            "  AND (",
+            "    (UPPER(line.store_code) = UPPER(#{storeCode}) AND UPPER(line.site_code) = UPPER(#{siteCode}))",
+            "    OR ((line.store_code IS NULL OR line.store_code = '')",
+            "        AND (line.site_code IS NULL OR line.site_code = '' OR UPPER(line.site_code) = UPPER(#{siteCode})))",
+            "  )",
+            "  AND (",
+            "    (line.psku IS NOT NULL AND line.psku &lt;&gt; '' AND (",
+            "      UPPER(line.psku) = UPPER(COALESCE(pso.psku_code, ''))",
+            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.partner_sku, ''))",
+            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.child_sku, ''))",
+            "      OR UPPER(line.psku) = UPPER(COALESCE(pm.sku_parent, ''))",
+            "    ))",
+            "    OR (line.sku IS NOT NULL AND line.sku &lt;&gt; '' AND (",
+            "      UPPER(line.sku) = UPPER(COALESCE(pso.psku_code, ''))",
+            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.partner_sku, ''))",
+            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.child_sku, ''))",
+            "      OR UPPER(line.sku) = UPPER(COALESCE(pm.sku_parent, ''))",
+            "    ))",
+            "    OR (line.msku IS NOT NULL AND line.msku &lt;&gt; '' AND (",
+            "      UPPER(line.msku) = UPPER(COALESCE(pso.psku_code, ''))",
+            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.partner_sku, ''))",
+            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.child_sku, ''))",
+            "      OR UPPER(line.msku) = UPPER(COALESCE(pm.sku_parent, ''))",
+            "    ))",
+            "  )",
+            "  AND (",
+            "    b.batch_status IN ('shipped', 'in_transit', 'customs_clearance', 'delivering', 'warehouse_received')",
+            "    OR b.latest_node_status IN ('departed_origin', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_released', 'delivering', 'warehouse_received')",
+            "  )",
+            "<if test='keywordLike != null and keywordLike != \"\"'>",
+            "  AND (b.batch_reference_no LIKE #{keywordLike}",
+            "       OR b.tracking_no LIKE #{keywordLike}",
+            "       OR b.external_shipment_no LIKE #{keywordLike}",
+            "       OR b.raw_forwarder_name LIKE #{keywordLike}",
+            "       OR f.forwarder_name LIKE #{keywordLike})",
+            "</if>",
+            "GROUP BY b.id, b.batch_reference_no, b.tracking_no, b.external_shipment_no, f.forwarder_name, b.raw_forwarder_name,",
+            "         b.transport_mode, b.batch_status, b.latest_node_status, b.gmt_updated",
+            "HAVING remainingQuantity &gt; 0",
+            "ORDER BY b.gmt_updated DESC, b.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ShippingBatchCandidateRecord> listShippingBatchCandidates(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("keywordLike") String keywordLike,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT NULL AS shippingBatchId,",
+            "       COALESCE(NULLIF(b.batch_reference_no, ''), NULLIF(b.tracking_no, ''), NULLIF(b.external_shipment_no, ''), CAST(b.id AS CHAR)) AS shippingBatchNo,",
+            "       b.batch_status AS status, NULL AS selectedOptionId, NULL AS shippingBatchSourceId,",
+            "       b.id AS inTransitBatchId, b.batch_reference_no AS batchReferenceNo, b.tracking_no AS trackingNo,",
+            "       b.external_shipment_no AS externalShipmentNo, COALESCE(f.forwarder_name, b.raw_forwarder_name) AS forwarderName,",
+            "       b.transport_mode AS transportMode, b.latest_node_status AS latestNodeStatus, line.id AS inTransitGoodsLineId,",
+            "       NULL AS fulfillmentBalanceId, COALESCE(NULLIF(line.store_code, ''), #{storeCode}) AS sourceStoreCode,",
+            "       ls.project_name AS sourceStoreName,",
+            "       purchase.purchaseBatchId AS purchaseOrderId, purchase.sourceId AS purchaseOrderNo,",
+            "       NULL AS purchaseOrderTitle, NULL AS purchaseOrderItemId, NULL AS purchaseOrderItemSiteId,",
+            "       pm.id AS productMasterId, pv.id AS productVariantId, pv.partner_sku AS partnerSku, pm.sku_parent AS skuParent,",
+            "       COALESCE(pm.title_cn_cache, pm.title_cache, pv.partner_sku, pm.sku_parent) AS titleCache,",
+            "       pm.cover_image_url AS imageUrlCache, COALESCE(NULLIF(line.site_code, ''), #{siteCode}) AS siteCode,",
+            "       b.transport_mode AS plannedTransportMode,",
+            "       'FBN' AS fulfillmentType, COALESCE(f.forwarder_name, b.raw_forwarder_name) AS sourcePartyName,",
+            "       GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.linkedQuantity, 0), 0), 0) AS quantity",
+            "FROM in_transit_batch b",
+            "JOIN in_transit_goods_line line",
+            "  ON line.batch_id = b.id",
+            " AND line.owner_user_id = b.owner_user_id",
+            " AND line.is_deleted = b'0'",
+            "JOIN logical_store_site lss",
+            "  ON UPPER(lss.store_code) = UPPER(#{storeCode})",
+            " AND UPPER(lss.site) = UPPER(#{siteCode})",
+            " AND lss.is_deleted = b'0'",
+            "JOIN logical_store ls",
+            "  ON ls.id = lss.logical_store_id",
+            " AND ls.owner_user_id = b.owner_user_id",
+            " AND ls.is_deleted = b'0'",
+            "JOIN product_site_offer pso",
+            "  ON pso.site_id = lss.id",
+            " AND pso.is_deleted = b'0'",
+            "JOIN product_variant pv",
+            "  ON pv.id = pso.variant_id",
+            " AND pv.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.id = pv.product_master_id",
+            " AND pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN in_transit_forwarder f",
+            "  ON f.id = b.standard_forwarder_id",
+            " AND f.owner_user_id = b.owner_user_id",
+            " AND f.is_deleted = b'0'",
+            "LEFT JOIN (",
+            "  SELECT owner_user_id, in_transit_goods_line_id,",
+            "         SUM(GREATEST(COALESCE(quantity, 0), 0)) AS linkedQuantity",
+            "  FROM official_warehouse_asn_shipping_batch_link",
+            "  WHERE is_deleted = b'0'",
+            "    AND in_transit_goods_line_id IS NOT NULL",
+            "  GROUP BY owner_user_id, in_transit_goods_line_id",
+            ") linked",
+            "  ON linked.owner_user_id = b.owner_user_id",
+            " AND linked.in_transit_goods_line_id = line.id",
+            "LEFT JOIN (",
+            "  SELECT owner_user_id, in_transit_goods_line_id,",
+            "         MIN(purchase_batch_id) AS purchaseBatchId, MIN(source_id) AS sourceId",
+            "  FROM procurement_logistics_shipment_allocation",
+            "  WHERE is_deleted = b'0'",
+            "    AND confirmation_status = 'CONFIRMED'",
+            "  GROUP BY owner_user_id, in_transit_goods_line_id",
+            ") purchase",
+            "  ON purchase.owner_user_id = b.owner_user_id",
+            " AND purchase.in_transit_goods_line_id = line.id",
+            "WHERE b.owner_user_id = #{ownerUserId}",
+            "  AND b.is_deleted = b'0'",
+            "  AND (",
+            "    (b.target_site_code IS NOT NULL AND b.target_site_code &lt;&gt; '' AND UPPER(b.target_site_code) = UPPER(#{siteCode}))",
+            "    OR (UPPER(#{siteCode}) = 'SA' AND (",
+            "      UPPER(COALESCE(b.target_store_code, '')) LIKE 'RUH%'",
+            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'JED%'",
+            "    ))",
+            "    OR (UPPER(#{siteCode}) = 'AE' AND (",
+            "      UPPER(COALESCE(b.target_store_code, '')) LIKE 'DB%'",
+            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'DXB%'",
+            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'AUH%'",
+            "    ))",
+            "  )",
+            "  AND (",
+            "    (UPPER(line.store_code) = UPPER(#{storeCode}) AND UPPER(line.site_code) = UPPER(#{siteCode}))",
+            "    OR ((line.store_code IS NULL OR line.store_code = '')",
+            "        AND (line.site_code IS NULL OR line.site_code = '' OR UPPER(line.site_code) = UPPER(#{siteCode})))",
+            "  )",
+            "  AND (",
+            "    (line.psku IS NOT NULL AND line.psku &lt;&gt; '' AND (",
+            "      UPPER(line.psku) = UPPER(COALESCE(pso.psku_code, ''))",
+            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.partner_sku, ''))",
+            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.child_sku, ''))",
+            "      OR UPPER(line.psku) = UPPER(COALESCE(pm.sku_parent, ''))",
+            "    ))",
+            "    OR (line.sku IS NOT NULL AND line.sku &lt;&gt; '' AND (",
+            "      UPPER(line.sku) = UPPER(COALESCE(pso.psku_code, ''))",
+            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.partner_sku, ''))",
+            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.child_sku, ''))",
+            "      OR UPPER(line.sku) = UPPER(COALESCE(pm.sku_parent, ''))",
+            "    ))",
+            "    OR (line.msku IS NOT NULL AND line.msku &lt;&gt; '' AND (",
+            "      UPPER(line.msku) = UPPER(COALESCE(pso.psku_code, ''))",
+            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.partner_sku, ''))",
+            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.child_sku, ''))",
+            "      OR UPPER(line.msku) = UPPER(COALESCE(pm.sku_parent, ''))",
+            "    ))",
+            "  )",
+            "  AND (",
+            "    b.batch_status IN ('shipped', 'in_transit', 'customs_clearance', 'delivering', 'warehouse_received')",
+            "    OR b.latest_node_status IN ('departed_origin', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_released', 'delivering', 'warehouse_received')",
+            "  )",
+            "<if test='batchIds != null and batchIds.size() > 0'>",
+            "  AND b.id IN",
+            "  <foreach item='batchId' collection='batchIds' open='(' separator=',' close=')'>",
+            "    #{batchId}",
+            "  </foreach>",
+            "</if>",
+            "<if test='variantIds != null and variantIds.size() > 0'>",
+            "  AND pv.id IN",
+            "  <foreach item='variantId' collection='variantIds' open='(' separator=',' close=')'>",
+            "    #{variantId}",
+            "  </foreach>",
+            "</if>",
+            "GROUP BY b.id, b.batch_reference_no, b.tracking_no, b.external_shipment_no, b.batch_status, b.transport_mode,",
+            "         b.latest_node_status, f.forwarder_name, b.raw_forwarder_name, line.id, line.store_code, line.site_code,",
+            "         ls.project_name, purchase.purchaseBatchId, purchase.sourceId, pm.id, pv.id, pv.partner_sku, pm.sku_parent, pm.title_cn_cache,",
+            "         pm.title_cache, pm.cover_image_url, line.shipped_quantity, linked.linkedQuantity",
+            "HAVING quantity &gt; 0",
+            "ORDER BY b.gmt_updated DESC, b.id DESC, line.id ASC",
+            "</script>"
+    })
+    List<ShippingBatchSourceAllocationRecord> listShippingBatchSourceAllocations(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("batchIds") Collection<Long> batchIds,
+            @Param("variantIds") Collection<Long> variantIds
+    );
+
     @Insert({
             "INSERT INTO official_warehouse_asn (",
             "id, owner_user_id, logical_store_id, store_code, store_name, site_code, project_code, partner_id,",
@@ -193,6 +484,25 @@ public interface OfficialWarehouseMapper {
             "#{row.cubicFeet}, #{row.storageTypeCode}, #{row.lineStatus}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
     })
     int insertAsnLine(@Param("row") AsnLineInsertRecord row);
+
+    @Insert({
+            "INSERT INTO official_warehouse_asn_shipping_batch_link (",
+            "id, asn_id, asn_line_id, owner_user_id, store_code, site_code, shipping_batch_id, shipping_batch_no,",
+            "shipping_batch_source_id, in_transit_batch_id, batch_reference_no, tracking_no, external_shipment_no,",
+            "forwarder_name, transport_mode, latest_node_status, in_transit_goods_line_id,",
+            "fulfillment_balance_id, purchase_order_id, purchase_order_no, purchase_order_item_id,",
+            "purchase_order_item_site_id, product_master_id, product_variant_id, partner_sku, psku_code, quantity,",
+            "relation_status, relation_basis, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.asnId}, #{row.asnLineId}, #{row.ownerUserId}, #{row.storeCode}, #{row.siteCode},",
+            "#{row.shippingBatchId}, #{row.shippingBatchNo}, #{row.shippingBatchSourceId},",
+            "#{row.inTransitBatchId}, #{row.batchReferenceNo}, #{row.trackingNo}, #{row.externalShipmentNo},",
+            "#{row.forwarderName}, #{row.transportMode}, #{row.latestNodeStatus}, #{row.inTransitGoodsLineId},",
+            "#{row.fulfillmentBalanceId}, #{row.purchaseOrderId}, #{row.purchaseOrderNo}, #{row.purchaseOrderItemId}, #{row.purchaseOrderItemSiteId},",
+            "#{row.productMasterId}, #{row.productVariantId}, #{row.partnerSku}, #{row.pskuCode}, #{row.quantity},",
+            "#{row.relationStatus}, #{row.relationBasis}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
+    })
+    int insertAsnShippingBatchLink(@Param("row") AsnShippingBatchLinkInsertRecord row);
 
     @Update({
             "UPDATE official_warehouse_asn",
@@ -475,6 +785,27 @@ public interface OfficialWarehouseMapper {
             "ORDER BY awl.id ASC"
     })
     List<AsnLineRecord> listAsnLines(@Param("asnId") Long asnId);
+
+    @Select({
+            "SELECT id, asn_id AS asnId, asn_line_id AS asnLineId, owner_user_id AS ownerUserId,",
+            "       store_code AS storeCode, site_code AS siteCode, shipping_batch_id AS shippingBatchId,",
+            "       shipping_batch_no AS shippingBatchNo, shipping_batch_source_id AS shippingBatchSourceId,",
+            "       in_transit_batch_id AS inTransitBatchId, batch_reference_no AS batchReferenceNo,",
+            "       tracking_no AS trackingNo, external_shipment_no AS externalShipmentNo,",
+            "       forwarder_name AS forwarderName, transport_mode AS transportMode, latest_node_status AS latestNodeStatus,",
+            "       in_transit_goods_line_id AS inTransitGoodsLineId,",
+            "       fulfillment_balance_id AS fulfillmentBalanceId, purchase_order_id AS purchaseOrderId,",
+            "       purchase_order_no AS purchaseOrderNo, purchase_order_item_id AS purchaseOrderItemId,",
+            "       purchase_order_item_site_id AS purchaseOrderItemSiteId, product_master_id AS productMasterId,",
+            "       product_variant_id AS productVariantId, partner_sku AS partnerSku, psku_code AS pskuCode,",
+            "       quantity, relation_status AS relationStatus, relation_basis AS relationBasis,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt",
+            "FROM official_warehouse_asn_shipping_batch_link",
+            "WHERE asn_id = #{asnId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY asn_line_id ASC, shipping_batch_id ASC, id ASC"
+    })
+    List<AsnShippingBatchLinkRecord> listAsnShippingBatchLinks(@Param("asnId") Long asnId);
 
     @Insert({
             "INSERT INTO official_warehouse_appointment (",

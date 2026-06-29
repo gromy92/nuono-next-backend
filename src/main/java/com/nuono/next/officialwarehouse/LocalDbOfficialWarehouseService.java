@@ -18,9 +18,13 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRe
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ProductCandidateRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ShippingBatchCandidateRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ShippingBatchSourceAllocationRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.StoreSiteRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AppointmentTask;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDetail;
@@ -30,11 +34,13 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotC
 import com.nuono.next.officialwarehouse.OfficialWarehouseNoonInboundClient.NoonCallContext;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnLineView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnListSyncView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnShippingBatchLinkView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentAvailabilityView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ProductCandidateView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.RoutingWarehouseView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ShippingBatchCandidateView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
@@ -61,7 +67,7 @@ import org.springframework.util.StringUtils;
 
 @Service
 @Profile("local-db")
-public class LocalDbOfficialWarehouseService {
+public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumberSyncer {
 
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
     private static final int DEFAULT_APPOINTMENT_RETRY_MINUTES = 3;
@@ -192,6 +198,69 @@ public class LocalDbOfficialWarehouseService {
         return result;
     }
 
+    @Override
+    public AsnListSyncView syncNoonAsnNumbers(
+            BusinessAccessContext access,
+            String storeCode,
+            String siteCode,
+            Collection<String> asnNumbers,
+            boolean dryRun
+    ) {
+        String normalizedStoreCode = requireText(storeCode, "请选择店铺。");
+        String normalizedSiteCode = normalizeSite(requireText(siteCode, "请选择站点。"));
+        Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
+        StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
+        NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
+        NoonSession session = noonSessionGateway.login(
+                ownerUserId,
+                binding.getNoonUser(),
+                binding.getNoonPassword(),
+                binding.getPersistedCookie(),
+                binding.getProjectCode(),
+                binding.getStoreCode()
+        );
+
+        AsnListSyncView result = new AsnListSyncView();
+        for (String asnNumber : normalizeAsnNumbers(asnNumbers)) {
+            ObjectNode body = OfficialWarehouseAsnListSyncSupport.buildSearchRequest(
+                    objectMapper,
+                    binding.getPartnerId(),
+                    asnNumber
+            );
+            JsonNode response = noonInboundClient.syncAsnList(
+                    session,
+                    binding,
+                    NoonCallContext.appointment(
+                            "OFFICIAL_WAREHOUSE_ASN_SYNC",
+                            binding.getStoreCode() + "/" + binding.getSiteCode(),
+                            "ASN_SEARCH"
+                    ),
+                    body
+            );
+            result.pages += 1;
+            boolean found = false;
+            JsonNode rows = response.path("data").path("rows");
+            if (rows.isArray()) {
+                for (JsonNode rowNode : rows) {
+                    NoonAsnListRow remoteRow = OfficialWarehouseAsnListSyncSupport.parseRow(rowNode);
+                    if (!asnNumber.equalsIgnoreCase(trimToNull(remoteRow.asnNr))) {
+                        continue;
+                    }
+                    found = true;
+                    result.fetched += 1;
+                    if (dryRun) {
+                        continue;
+                    }
+                    syncNoonAsnListRow(result, ownerUserId, site, binding, remoteRow, access.getSessionUserId());
+                }
+            }
+            if (!found) {
+                result.skipped += 1;
+            }
+        }
+        return result;
+    }
+
     public AsnView getAsn(BusinessAccessContext access, String asnId) {
         Long parsedAsnId = parseLongId(asnId, "官方仓 ASN 不存在。");
         Long ownerUserId = requireOwnerUserId(access, null);
@@ -213,10 +282,24 @@ public class LocalDbOfficialWarehouseService {
             String siteCode,
             String keyword
     ) {
+        return listProductCandidates(access, storeCode, siteCode, keyword, List.of());
+    }
+
+    public List<ProductCandidateView> listProductCandidates(
+            BusinessAccessContext access,
+            String storeCode,
+            String siteCode,
+            String keyword,
+            Collection<String> shippingBatchIds
+    ) {
         String normalizedStoreCode = requireText(storeCode, "请选择店铺。");
         String normalizedSiteCode = normalizeSite(requireText(siteCode, "请选择站点。"));
         Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
+        List<Long> selectedBatchIds = normalizeShippingBatchIds(shippingBatchIds);
+        if (!selectedBatchIds.isEmpty()) {
+            return listProductCandidatesFromShippingBatches(ownerUserId, site, keyword, selectedBatchIds);
+        }
         return mapper.listProductCandidates(
                         ownerUserId,
                         site.storeCode,
@@ -227,6 +310,75 @@ public class LocalDbOfficialWarehouseService {
                 )
                 .stream()
                 .map(this::toProductCandidateView)
+                .collect(Collectors.toList());
+    }
+
+    private List<ProductCandidateView> listProductCandidatesFromShippingBatches(
+            Long ownerUserId,
+            StoreSiteRecord site,
+            String keyword,
+            List<Long> selectedBatchIds
+    ) {
+        List<ShippingBatchSourceAllocationRecord> allocations = mapper.listShippingBatchSourceAllocations(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode,
+                selectedBatchIds,
+                List.of()
+        );
+        if (allocations.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Integer> quantityByVariantId = new LinkedHashMap<>();
+        for (ShippingBatchSourceAllocationRecord allocation : allocations) {
+            if (allocation.productVariantId == null) {
+                continue;
+            }
+            int quantity = Math.max(0, allocation.quantity == null ? 0 : allocation.quantity);
+            if (quantity <= 0) {
+                continue;
+            }
+            quantityByVariantId.merge(allocation.productVariantId, quantity, Integer::sum);
+        }
+        if (quantityByVariantId.isEmpty()) {
+            return List.of();
+        }
+        return mapper.listProductCandidates(
+                        ownerUserId,
+                        site.storeCode,
+                        site.siteCode,
+                        keywordLike(keyword),
+                        quantityByVariantId.keySet(),
+                        Math.max(quantityByVariantId.size(), 1)
+                )
+                .stream()
+                .map(row -> {
+                    ProductCandidateView view = toProductCandidateView(row);
+                    view.batchAvailableQuantity = quantityByVariantId.getOrDefault(row.productVariantId, 0);
+                    return view;
+                })
+                .collect(Collectors.toList());
+    }
+
+    public List<ShippingBatchCandidateView> listShippingBatchCandidates(
+            BusinessAccessContext access,
+            String storeCode,
+            String siteCode,
+            String keyword
+    ) {
+        String normalizedStoreCode = requireText(storeCode, "请选择店铺。");
+        String normalizedSiteCode = normalizeSite(requireText(siteCode, "请选择站点。"));
+        Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
+        StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
+        return mapper.listShippingBatchCandidates(
+                        ownerUserId,
+                        site.storeCode,
+                        site.siteCode,
+                        keywordLike(keyword),
+                        100
+                )
+                .stream()
+                .map(this::toShippingBatchCandidateView)
                 .collect(Collectors.toList());
     }
 
@@ -309,6 +461,18 @@ public class LocalDbOfficialWarehouseService {
 
         Long asnId = mapper.nextAsnId();
         String localAsnNo = "OWA-" + asnId;
+        for (AsnLineInsertRecord lineRow : lineRows) {
+            lineRow.asnId = asnId;
+        }
+        List<Long> selectedShippingBatchIds = normalizeShippingBatchIds(command.shippingBatchIds);
+        List<AsnShippingBatchLinkInsertRecord> shippingBatchLinks = buildAsnShippingBatchLinks(
+                ownerUserId,
+                site,
+                asnId,
+                lineRows,
+                selectedShippingBatchIds,
+                access.getSessionUserId()
+        );
         AsnInsertRecord asnRow = new AsnInsertRecord();
         asnRow.id = asnId;
         asnRow.ownerUserId = ownerUserId;
@@ -325,8 +489,10 @@ public class LocalDbOfficialWarehouseService {
         asnRow.operatorUserId = access.getSessionUserId();
         mapper.insertAsn(asnRow);
         for (AsnLineInsertRecord lineRow : lineRows) {
-            lineRow.asnId = asnId;
             mapper.insertAsnLine(lineRow);
+        }
+        for (AsnShippingBatchLinkInsertRecord linkRow : shippingBatchLinks) {
+            mapper.insertAsnShippingBatchLink(linkRow);
         }
 
         try {
@@ -402,6 +568,158 @@ public class LocalDbOfficialWarehouseService {
             mapper.markPendingLinesFailed(asnId, message, access.getSessionUserId());
             throw new IllegalStateException("Noon 官方仓 ASN 创建失败：" + message, exception);
         }
+    }
+
+    private List<AsnShippingBatchLinkInsertRecord> buildAsnShippingBatchLinks(
+            Long ownerUserId,
+            StoreSiteRecord site,
+            Long asnId,
+            List<AsnLineInsertRecord> lineRows,
+            List<Long> selectedBatchIds,
+            Long operatorUserId
+    ) {
+        if (selectedBatchIds == null || selectedBatchIds.isEmpty()) {
+            return List.of();
+        }
+        if (lineRows == null || lineRows.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> variantIds = lineRows.stream()
+                .map(row -> row.productVariantId)
+                .filter(value -> value != null)
+                .distinct()
+                .collect(Collectors.toList());
+        List<ShippingBatchSourceAllocationRecord> allocations = mapper.listShippingBatchSourceAllocations(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode,
+                selectedBatchIds,
+                variantIds
+        );
+        if (allocations.isEmpty()) {
+            throw new IllegalArgumentException("选择的物流批次没有匹配当前 ASN 商品。");
+        }
+
+        Map<Long, Integer> batchOrder = new LinkedHashMap<>();
+        for (int index = 0; index < selectedBatchIds.size(); index++) {
+            batchOrder.put(selectedBatchIds.get(index), index);
+        }
+        allocations.sort((left, right) -> {
+            int leftOrder = batchOrder.getOrDefault(allocationBatchId(left), Integer.MAX_VALUE);
+            int rightOrder = batchOrder.getOrDefault(allocationBatchId(right), Integer.MAX_VALUE);
+            if (leftOrder != rightOrder) {
+                return Integer.compare(leftOrder, rightOrder);
+            }
+            long leftSourceId = allocationSourceId(left) == null ? Long.MAX_VALUE : allocationSourceId(left);
+            long rightSourceId = allocationSourceId(right) == null ? Long.MAX_VALUE : allocationSourceId(right);
+            return Long.compare(leftSourceId, rightSourceId);
+        });
+
+        Map<Long, List<ShippingBatchSourceAllocationRecord>> allocationsByVariantId = new LinkedHashMap<>();
+        Map<Long, Integer> remainingBySourceId = new LinkedHashMap<>();
+        for (ShippingBatchSourceAllocationRecord allocation : allocations) {
+            Long sourceId = allocationSourceId(allocation);
+            if (allocation.productVariantId == null || sourceId == null) {
+                continue;
+            }
+            int quantity = Math.max(0, allocation.quantity == null ? 0 : allocation.quantity);
+            if (quantity <= 0) {
+                continue;
+            }
+            allocationsByVariantId
+                    .computeIfAbsent(allocation.productVariantId, ignored -> new ArrayList<>())
+                    .add(allocation);
+            remainingBySourceId.put(sourceId, quantity);
+        }
+
+        List<AsnShippingBatchLinkInsertRecord> links = new ArrayList<>();
+        for (AsnLineInsertRecord lineRow : lineRows) {
+            int requiredQuantity = Math.max(0, lineRow.quantity == null ? 0 : lineRow.quantity);
+            int availableQuantity = allocationsByVariantId
+                    .getOrDefault(lineRow.productVariantId, List.of())
+                    .stream()
+                    .mapToInt(allocation -> remainingBySourceId.getOrDefault(allocationSourceId(allocation), 0))
+                    .sum();
+            if (availableQuantity < requiredQuantity) {
+                String label = firstNonBlank(
+                        lineRow.partnerSku,
+                        lineRow.pskuCode,
+                        lineRow.skuParent,
+                        String.valueOf(lineRow.productVariantId)
+                );
+                throw new IllegalArgumentException(
+                        label + " 选择的物流批次数量不足：需要 " + requiredQuantity + "，批次可用 " + availableQuantity + "。"
+                );
+            }
+
+            int remainingQuantity = requiredQuantity;
+            for (ShippingBatchSourceAllocationRecord allocation : allocationsByVariantId.getOrDefault(lineRow.productVariantId, List.of())) {
+                if (remainingQuantity <= 0) {
+                    break;
+                }
+                Long sourceId = allocationSourceId(allocation);
+                if (sourceId == null) {
+                    continue;
+                }
+                int sourceRemaining = remainingBySourceId.getOrDefault(sourceId, 0);
+                if (sourceRemaining <= 0) {
+                    continue;
+                }
+                int linkedQuantity = Math.min(remainingQuantity, sourceRemaining);
+                AsnShippingBatchLinkInsertRecord link = new AsnShippingBatchLinkInsertRecord();
+                link.id = mapper.nextAsnShippingBatchLinkId();
+                link.asnId = asnId;
+                link.asnLineId = lineRow.id;
+                link.ownerUserId = ownerUserId;
+                link.storeCode = site.storeCode;
+                link.siteCode = site.siteCode;
+                link.shippingBatchId = allocation.shippingBatchId;
+                link.shippingBatchNo = allocation.shippingBatchNo;
+                link.shippingBatchSourceId = allocation.shippingBatchSourceId;
+                link.inTransitBatchId = allocation.inTransitBatchId;
+                link.batchReferenceNo = allocation.batchReferenceNo;
+                link.trackingNo = allocation.trackingNo;
+                link.externalShipmentNo = allocation.externalShipmentNo;
+                link.forwarderName = allocation.forwarderName;
+                link.transportMode = allocation.transportMode;
+                link.latestNodeStatus = allocation.latestNodeStatus;
+                link.inTransitGoodsLineId = allocation.inTransitGoodsLineId;
+                link.fulfillmentBalanceId = allocation.fulfillmentBalanceId;
+                link.purchaseOrderId = allocation.purchaseOrderId;
+                link.purchaseOrderNo = allocation.purchaseOrderNo;
+                link.purchaseOrderItemId = allocation.purchaseOrderItemId;
+                link.purchaseOrderItemSiteId = allocation.purchaseOrderItemSiteId;
+                link.productMasterId = lineRow.productMasterId;
+                link.productVariantId = lineRow.productVariantId;
+                link.partnerSku = lineRow.partnerSku;
+                link.pskuCode = lineRow.pskuCode;
+                link.quantity = linkedQuantity;
+                link.relationStatus = "LINKED";
+                link.relationBasis = allocation.inTransitBatchId == null
+                        ? "ASN_CREATE_SELECTED_BATCH"
+                        : "ASN_CREATE_SELECTED_IN_TRANSIT_BATCH";
+                link.operatorUserId = operatorUserId;
+                links.add(link);
+                remainingQuantity -= linkedQuantity;
+                remainingBySourceId.put(sourceId, sourceRemaining - linkedQuantity);
+            }
+        }
+        return links;
+    }
+
+    private Long allocationBatchId(ShippingBatchSourceAllocationRecord allocation) {
+        if (allocation == null) {
+            return null;
+        }
+        return allocation.inTransitBatchId == null ? allocation.shippingBatchId : allocation.inTransitBatchId;
+    }
+
+    private Long allocationSourceId(ShippingBatchSourceAllocationRecord allocation) {
+        if (allocation == null) {
+            return null;
+        }
+        return allocation.inTransitGoodsLineId == null ? allocation.shippingBatchSourceId : allocation.inTransitGoodsLineId;
     }
 
     public List<NoonHttpCallLogView> listNoonCalls(BusinessAccessContext access, String asnId) {
@@ -841,8 +1159,11 @@ public class LocalDbOfficialWarehouseService {
         row.noonAsnNr = requireText(asn.noonAsnNr, "ASN 缺少 Noon ASN 编号。");
         row.totalUnits = asn.totalQuantity == null ? 0 : asn.totalQuantity;
         row.warehouseFrom = requireText(command.warehouseFrom, "请填写出发仓库。");
-        row.warehouseToPartnerCode = requireText(firstNonBlank(command.warehouseToPartnerCode, asn.selectedWarehousePartnerCode), "请选择到达仓库。");
-        row.warehouseToCode = firstNonBlank(command.warehouseToCode, asn.selectedWarehouseCode);
+        row.warehouseToPartnerCode = requireText(
+                resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
+                "请选择到达仓库。"
+        );
+        row.warehouseToCode = resolveAppointmentWarehouseToCode(asn.selectedWarehouseCode, command.warehouseToCode);
         row.apStartDate = parseLocalDate(command.apStartDate, "请选择约仓开始日期。");
         row.apEndDate = parseLocalDate(command.apEndDate, "请选择约仓结束日期。");
         if (row.apEndDate.isBefore(row.apStartDate)) {
@@ -1143,7 +1464,10 @@ public class LocalDbOfficialWarehouseService {
         task.asnId = parseLongId(asn.id, "官方仓 ASN 不存在。");
         task.noonAsnNr = requireText(asn.noonAsnNr, "ASN 缺少 Noon ASN 编号。");
         task.totalUnits = asn.totalQuantity == null ? 0 : asn.totalQuantity;
-        task.warehouseTo = requireText(firstNonBlank(command.warehouseToPartnerCode, asn.selectedWarehousePartnerCode), "请选择到达仓库。");
+        task.warehouseTo = requireText(
+                resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
+                "请选择到达仓库。"
+        );
         task.warehouseFrom = requireText(command.warehouseFrom, "请填写出发仓库。");
         task.apStartDate = parseLocalDate(command.apStartDate, "请选择约仓开始日期。");
         task.apEndDate = parseLocalDate(command.apEndDate, "请选择约仓结束日期。");
@@ -1312,7 +1636,23 @@ public class LocalDbOfficialWarehouseService {
         AppointmentRecord appointment = mapper.selectLatestAppointmentByAsn(row.ownerUserId, row.id);
         view.appointment = appointment == null ? null : toAppointmentView(appointment);
         if (withLines) {
-            view.lines = mapper.listAsnLines(row.id).stream().map(this::toAsnLineView).collect(Collectors.toList());
+            List<AsnShippingBatchLinkRecord> linkRecords = mapper.listAsnShippingBatchLinks(row.id);
+            view.shippingBatchLinks = linkRecords.stream()
+                    .map(this::toAsnShippingBatchLinkView)
+                    .collect(Collectors.toList());
+            Map<Long, List<AsnShippingBatchLinkRecord>> linksByLineId = linkRecords.stream()
+                    .collect(Collectors.groupingBy(
+                            link -> link.asnLineId,
+                            LinkedHashMap::new,
+                            Collectors.toList()
+                    ));
+            view.lines = mapper.listAsnLines(row.id).stream().map(lineRow -> {
+                AsnLineView lineView = toAsnLineView(lineRow);
+                lineView.shippingBatchLinks = linksByLineId.getOrDefault(lineRow.id, List.of()).stream()
+                        .map(this::toAsnShippingBatchLinkView)
+                        .collect(Collectors.toList());
+                return lineView;
+            }).collect(Collectors.toList());
         }
         return view;
     }
@@ -1346,6 +1686,38 @@ public class LocalDbOfficialWarehouseService {
         view.replToolAsn = row.replToolAsn;
         view.lineStatus = row.lineStatus;
         view.errorMessage = row.errorMessage;
+        return view;
+    }
+
+    private AsnShippingBatchLinkView toAsnShippingBatchLinkView(AsnShippingBatchLinkRecord row) {
+        AsnShippingBatchLinkView view = new AsnShippingBatchLinkView();
+        view.id = row.id == null ? null : String.valueOf(row.id);
+        view.asnId = row.asnId == null ? null : String.valueOf(row.asnId);
+        view.asnLineId = row.asnLineId == null ? null : String.valueOf(row.asnLineId);
+        view.shippingBatchId = row.shippingBatchId == null ? null : String.valueOf(row.shippingBatchId);
+        view.shippingBatchNo = row.shippingBatchNo;
+        view.shippingBatchSourceId = row.shippingBatchSourceId == null ? null : String.valueOf(row.shippingBatchSourceId);
+        view.inTransitBatchId = row.inTransitBatchId == null ? null : String.valueOf(row.inTransitBatchId);
+        view.batchReferenceNo = row.batchReferenceNo;
+        view.trackingNo = row.trackingNo;
+        view.externalShipmentNo = row.externalShipmentNo;
+        view.forwarderName = row.forwarderName;
+        view.transportMode = row.transportMode;
+        view.latestNodeStatus = row.latestNodeStatus;
+        view.inTransitGoodsLineId = row.inTransitGoodsLineId == null ? null : String.valueOf(row.inTransitGoodsLineId);
+        view.fulfillmentBalanceId = row.fulfillmentBalanceId == null ? null : String.valueOf(row.fulfillmentBalanceId);
+        view.purchaseOrderId = row.purchaseOrderId == null ? null : String.valueOf(row.purchaseOrderId);
+        view.purchaseOrderNo = row.purchaseOrderNo;
+        view.purchaseOrderItemId = row.purchaseOrderItemId == null ? null : String.valueOf(row.purchaseOrderItemId);
+        view.purchaseOrderItemSiteId = row.purchaseOrderItemSiteId == null ? null : String.valueOf(row.purchaseOrderItemSiteId);
+        view.productMasterId = row.productMasterId == null ? null : String.valueOf(row.productMasterId);
+        view.productVariantId = row.productVariantId == null ? null : String.valueOf(row.productVariantId);
+        view.partnerSku = row.partnerSku;
+        view.pskuCode = row.pskuCode;
+        view.quantity = row.quantity;
+        view.relationStatus = row.relationStatus;
+        view.relationBasis = row.relationBasis;
+        view.createdAt = row.createdAt;
         return view;
     }
 
@@ -1442,6 +1814,28 @@ public class LocalDbOfficialWarehouseService {
         return view;
     }
 
+    private ShippingBatchCandidateView toShippingBatchCandidateView(ShippingBatchCandidateRecord row) {
+        ShippingBatchCandidateView view = new ShippingBatchCandidateView();
+        view.id = row.id == null ? null : String.valueOf(row.id);
+        view.sourceKind = firstNonBlank(row.sourceKind, "IN_TRANSIT_BATCH");
+        view.batchNo = row.batchNo;
+        view.trackingNo = row.trackingNo;
+        view.externalShipmentNo = row.externalShipmentNo;
+        view.forwarderName = row.forwarderName;
+        view.transportMode = row.transportMode;
+        view.status = row.status;
+        view.latestNodeStatus = row.latestNodeStatus;
+        view.selectedOptionId = row.selectedOptionId == null ? null : String.valueOf(row.selectedOptionId);
+        view.totalQuantity = row.totalQuantity;
+        view.storeSiteQuantity = row.storeSiteQuantity;
+        view.linkedQuantity = row.linkedQuantity;
+        view.remainingQuantity = row.remainingQuantity;
+        view.skuCount = row.skuCount;
+        view.purchaseOrderCount = row.purchaseOrderCount;
+        view.updatedAt = row.updatedAt;
+        return view;
+    }
+
     private List<RoutingWarehouseView> parseRoutingWarehouses(String routingResponseJson) {
         if (!StringUtils.hasText(routingResponseJson)) {
             return List.of();
@@ -1516,6 +1910,39 @@ public class LocalDbOfficialWarehouseService {
     private String keywordLike(String keyword) {
         String normalized = trimToNull(keyword);
         return normalized == null ? null : "%" + normalized + "%";
+    }
+
+    private List<String> normalizeAsnNumbers(Collection<String> asnNumbers) {
+        if (asnNumbers == null || asnNumbers.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String asnNumber : asnNumbers) {
+            String value = trimToNull(asnNumber);
+            if (value != null) {
+                normalized.add(value);
+            }
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private List<Long> normalizeShippingBatchIds(Collection<String> shippingBatchIds) {
+        if (shippingBatchIds == null || shippingBatchIds.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<Long> normalized = new LinkedHashSet<>();
+        for (String shippingBatchId : shippingBatchIds) {
+            String text = trimToNull(shippingBatchId);
+            if (text == null) {
+                continue;
+            }
+            Long value = parseLongOrNull(text);
+            if (value == null || value <= 0) {
+                throw new IllegalArgumentException("物流批次 ID 不合法：" + text);
+            }
+            normalized.add(value);
+        }
+        return new ArrayList<>(normalized);
     }
 
     private String normalizeSite(String value) {
@@ -1634,6 +2061,14 @@ public class LocalDbOfficialWarehouseService {
             throw new IllegalArgumentException(message);
         }
         return normalized;
+    }
+
+    static String resolveAppointmentWarehouseToPartnerCode(String selectedWarehousePartnerCode, String requestedWarehouseToPartnerCode) {
+        return firstNonBlank(requestedWarehouseToPartnerCode, selectedWarehousePartnerCode);
+    }
+
+    static String resolveAppointmentWarehouseToCode(String selectedWarehouseCode, String requestedWarehouseToCode) {
+        return firstNonBlank(requestedWarehouseToCode, selectedWarehouseCode);
     }
 
     private static String firstNonBlank(String... values) {

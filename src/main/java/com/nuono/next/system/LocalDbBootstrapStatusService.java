@@ -135,7 +135,9 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/138_official_warehouse_appointment_gate_docks.sql",
                 "classpath:db/init/140_in_transit_super_search_indexes.sql",
                 "classpath:db/init/141_procurement_ali1688_sku_purchase_batch_combo_support.sql",
-                "classpath:db/init/142_in_transit_batch_active_reference_unique.sql"
+                "classpath:db/init/142_in_transit_batch_active_reference_unique.sql",
+                "classpath:db/init/143_official_warehouse_statistics.sql",
+                "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql"
             ));
         return payload;
     }

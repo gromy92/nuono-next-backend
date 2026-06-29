@@ -36,6 +36,28 @@ final class OfficialWarehouseAsnListSyncSupport {
         return body;
     }
 
+    static ObjectNode buildSearchRequest(
+            ObjectMapper objectMapper,
+            String partnerId,
+            String asnNr
+    ) {
+        ObjectNode body = objectMapper.createObjectNode();
+        Long parsedPartnerId = parseLongOrNull(partnerId);
+        if (parsedPartnerId == null) {
+            body.put("idPartnerSource", partnerId);
+        } else {
+            body.put("idPartnerSource", parsedPartnerId);
+        }
+        body.put("asnNr", trimToNull(asnNr));
+        ObjectNode pagination = body.putObject("pagination");
+        pagination.put("page", 1);
+        pagination.put("perPage", 10);
+        pagination.put("totalPages", 10);
+        body.putObject("filters");
+        body.put("orderBy", "DESC");
+        return body;
+    }
+
     static NoonAsnListRow parseRow(JsonNode row) {
         NoonAsnListRow parsed = new NoonAsnListRow();
         parsed.partnerAsnId = longValue(row, "id_partner_asn");

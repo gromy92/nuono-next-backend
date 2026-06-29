@@ -34,6 +34,23 @@ class OfficialWarehouseAsnListSyncSupportTest {
     }
 
     @Test
+    void buildsNoonPartnerAsnExactSearchPayload() {
+        ObjectNode body = OfficialWarehouseAsnListSyncSupport.buildSearchRequest(
+                objectMapper,
+                "108065",
+                "A04540991PN"
+        );
+
+        assertThat(body.path("idPartnerSource").asLong()).isEqualTo(108065L);
+        assertThat(body.path("asnNr").asText()).isEqualTo("A04540991PN");
+        assertThat(body.path("pagination").path("page").asInt()).isEqualTo(1);
+        assertThat(body.path("pagination").path("perPage").asInt()).isEqualTo(10);
+        assertThat(body.path("pagination").path("totalPages").asInt()).isEqualTo(10);
+        assertThat(body.path("filters").isObject()).isTrue();
+        assertThat(body.path("orderBy").asText()).isEqualTo("DESC");
+    }
+
+    @Test
     void parsesScheduledNoonListRow() throws Exception {
         JsonNode row = objectMapper.readTree("{"
                 + "\"id_partner_asn\":5508658,"

@@ -45,6 +45,11 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
         }
 
         @Override
+        public byte[] postBytes(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
+            return session.postText(url, body, withProject, extraHeaders).getBytes(StandardCharsets.UTF_8);
+        }
+
+        @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
             return session.getText(url, withProject, extraHeaders).getBytes(StandardCharsets.UTF_8);
         }

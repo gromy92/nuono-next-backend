@@ -43,7 +43,28 @@ public final class OfficialWarehouseViews {
         public String woodenMaterialType;
         public String bladeWeaponType;
         public Boolean manualConfirmRequired;
+        public Integer batchAvailableQuantity;
         public List<String> missingTags = new ArrayList<>();
+    }
+
+    public static class ShippingBatchCandidateView {
+        public String id;
+        public String sourceKind;
+        public String batchNo;
+        public String trackingNo;
+        public String externalShipmentNo;
+        public String forwarderName;
+        public String transportMode;
+        public String status;
+        public String latestNodeStatus;
+        public String selectedOptionId;
+        public Integer totalQuantity;
+        public Integer storeSiteQuantity;
+        public Integer linkedQuantity;
+        public Integer remainingQuantity;
+        public Integer skuCount;
+        public Integer purchaseOrderCount;
+        public String updatedAt;
     }
 
     public static class AsnView {
@@ -77,6 +98,7 @@ public final class OfficialWarehouseViews {
         public String updatedAt;
         public List<RoutingWarehouseView> routingWarehouses = new ArrayList<>();
         public List<AsnLineView> lines = new ArrayList<>();
+        public List<AsnShippingBatchLinkView> shippingBatchLinks = new ArrayList<>();
         public AppointmentView appointment;
     }
 
@@ -108,6 +130,37 @@ public final class OfficialWarehouseViews {
         public Boolean replToolAsn;
         public String lineStatus;
         public String errorMessage;
+        public List<AsnShippingBatchLinkView> shippingBatchLinks = new ArrayList<>();
+    }
+
+    public static class AsnShippingBatchLinkView {
+        public String id;
+        public String asnId;
+        public String asnLineId;
+        public String shippingBatchId;
+        public String shippingBatchNo;
+        public String shippingBatchSourceId;
+        public String inTransitBatchId;
+        public String batchReferenceNo;
+        public String trackingNo;
+        public String externalShipmentNo;
+        public String forwarderName;
+        public String transportMode;
+        public String latestNodeStatus;
+        public String inTransitGoodsLineId;
+        public String fulfillmentBalanceId;
+        public String purchaseOrderId;
+        public String purchaseOrderNo;
+        public String purchaseOrderItemId;
+        public String purchaseOrderItemSiteId;
+        public String productMasterId;
+        public String productVariantId;
+        public String partnerSku;
+        public String pskuCode;
+        public Integer quantity;
+        public String relationStatus;
+        public String relationBasis;
+        public String createdAt;
     }
 
     public static class RoutingWarehouseView {
