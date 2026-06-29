@@ -137,7 +137,11 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/141_procurement_ali1688_sku_purchase_batch_combo_support.sql",
                 "classpath:db/init/142_in_transit_batch_active_reference_unique.sql",
                 "classpath:db/init/143_official_warehouse_statistics.sql",
-                "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql"
+                "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql",
+                "classpath:db/init/145_procurement_purchase_order_logistics_quote_confirmation.sql",
+                "classpath:db/init/146_procurement_shipping_order.sql",
+                "classpath:db/init/147_product_forwarder_declaration_attribute.sql",
+                "classpath:db/init/148_procurement_logistics_billing.sql"
             ));
         return payload;
     }

@@ -25,7 +25,7 @@ public final class NoonImageUrlNormalizer {
         if (isNoonProductImage(value) && !hasImageExtension(value)) {
             value = value + ".jpg";
         }
-        return value + suffix;
+        return encodeNoonPathSeparators(value) + suffix;
     }
 
     private static int firstQueryOrHashIndex(String value) {
@@ -86,6 +86,10 @@ public final class NoonImageUrlNormalizer {
                 || lower.contains("|pnsku/")
                 || lower.contains("%7cpzsku/")
                 || lower.contains("%7cpnsku/");
+    }
+
+    private static String encodeNoonPathSeparators(String value) {
+        return isNoonProductImage(value) ? value.replace("|", "%7C") : value;
     }
 
     private static boolean hasImageExtension(String value) {

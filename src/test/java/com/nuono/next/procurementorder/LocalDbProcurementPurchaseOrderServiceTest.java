@@ -16,10 +16,14 @@ import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.AddItemsCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.CreateOrderCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.CreateShippingOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.ItemCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.ShippingOrderSegmentScopeCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.SiteQuantityCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateItemCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateOrderCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineYiteMaterialCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderBasePriceRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteSegmentRecord;
@@ -29,28 +33,53 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.Forwarder
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688HistoryRow;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688PurchaseBatchRow;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductArchiveRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderChannelQuoteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductOfferRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemSiteRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderDeclarationAttributeRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderSegmentRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.StoreScopeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.StoreSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderAli1688HistoryView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteImportView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteOptionsView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteReportExportView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsPlanView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderShippingSubmitView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.LogisticsBillView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.ShippingOrderSubmitView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.ShippingOrderView;
 import com.nuono.next.productselection.Ali1688CollectionView;
 import com.nuono.next.productselection.LocalDbAli1688CollectionService;
 import com.nuono.next.productselection.ProductSelectionSourceCollectionRow;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.imageio.ImageIO;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.apache.poi.hssf.usermodel.HSSFClientAnchor;
+import org.apache.poi.hssf.usermodel.HSSFPicture;
+import org.apache.poi.hssf.usermodel.HSSFSheet;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 @ExtendWith(MockitoExtension.class)
 class LocalDbProcurementPurchaseOrderServiceTest {
@@ -75,6 +104,10 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 new ObjectMapper()
         );
         lenient().when(mapper.nextOperationLogId()).thenReturn(240001L);
+        lenient().when(mapper.nextProductForwarderChannelQuoteId()).thenReturn(320001L);
+        lenient().when(mapper.nextLogisticsExpectedBillId()).thenReturn(330001L);
+        lenient().when(mapper.nextLogisticsExpectedBillComponentId()).thenReturn(340001L);
+        lenient().when(mapper.nextLogisticsBillReconciliationId()).thenReturn(360001L);
         lenient().when(mapper.listRouteSegments(any())).thenReturn(List.of());
     }
 
@@ -105,6 +138,957 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 eq("READY"),
                 eq("{\"detail\":\"SGGR-0607\"}")
         );
+    }
+
+    @Test
+    void listLogisticsQuoteOptionsReturnsSupportedForwarderChannelsForUnconfirmedLines() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderLogisticsQuoteLineRecord candidate = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        candidate.plannedTransportMode = "SEA";
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(candidate));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA")).thenReturn(List.of(
+                routeCandidate("SEA", "ZD-SAU-SEA-FBN-RUH", "ZD", "众鸫供应链",
+                        "ZD-SAU-SEA-WH-RUH", "众鸫沙特海运仓到仓", "RMB", "1100", "CBM", null),
+                routeCandidate("SEA", "YT-SAU-SEA-FBN-RUH", "YT", "义特物流",
+                        "YT-SAU-SEA-FBN-RUH", "义特沙特海运双清包税 + FBN利雅得送仓", "RMB", "1500", "CBM", null)
+        ));
+
+        PurchaseOrderLogisticsQuoteOptionsView options =
+                service.listLogisticsQuoteOptions(access(), "200001");
+
+        assertThat(options.purchaseOrderId).isEqualTo("200001");
+        assertThat(options.forwarders).hasSize(1);
+        assertThat(options.unsupportedChannelCount).isEqualTo(1);
+        assertThat(options.forwarders.get(0).forwarderCode).isEqualTo("YT");
+        assertThat(options.forwarders.get(0).forwarderName).isEqualTo("义特物流");
+        assertThat(options.forwarders.get(0).templateType).isEqualTo("YITE_B2B_SINGLE_TICKET");
+        assertThat(options.forwarders.get(0).channels).hasSize(1);
+        assertThat(options.forwarders.get(0).channels.get(0).routeCode).isEqualTo("YT-SAU-SEA-FBN-RUH");
+        assertThat(options.forwarders.get(0).channels.get(0).siteCode).isEqualTo("SA");
+        assertThat(options.forwarders.get(0).channels.get(0).transportMode).isEqualTo("SEA");
+        assertThat(options.forwarders.get(0).channels.get(0).pendingLineCount).isEqualTo(1);
+        assertThat(options.forwarders.get(0).channels.get(0).newProductLineCount).isEqualTo(1);
+    }
+
+    @Test
+    void listLogisticsQuoteOptionsReturnsEtForwarderChannelsWhenTemplateIsConfigured() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderLogisticsQuoteLineRecord candidate = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        candidate.plannedTransportMode = "SEA";
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(candidate));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA")).thenReturn(List.of(
+                routeCandidate("SEA", "ET-SAU-SEA-FBN-RUH-20260604", "ET", "易通物流",
+                        "ET-SAU-SEA-WH-20260604", "易通沙特海运仓到仓 20260604", "RMB", "1100", "CBM", null)
+        ));
+
+        PurchaseOrderLogisticsQuoteOptionsView options =
+                service.listLogisticsQuoteOptions(access(), "200001");
+
+        assertThat(options.forwarders).hasSize(1);
+        assertThat(options.unsupportedChannelCount).isZero();
+        assertThat(options.forwarders.get(0).forwarderCode).isEqualTo("ET");
+        assertThat(options.forwarders.get(0).forwarderName).isEqualTo("易通物流");
+        assertThat(options.forwarders.get(0).templateType).isEqualTo("ET_SKU_ONE_STEP_PACKING_IMPORT");
+        assertThat(options.forwarders.get(0).templateName).isEqualTo("易通SKU一步上传装箱清单导入模板");
+        assertThat(options.forwarders.get(0).channels).hasSize(1);
+        assertThat(options.forwarders.get(0).channels.get(0).routeCode).isEqualTo("ET-SAU-SEA-FBN-RUH-20260604");
+    }
+
+    @Test
+    void exportLogisticsQuoteReportCreatesPendingRowsForCurrentOrderSites() throws Exception {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderLogisticsQuoteLineRecord candidate = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        candidate.pskuCode = "ZPSKU-115-SA";
+        candidate.barcode = "BARCODE-115";
+        candidate.yiteMaterial = "塑料";
+        candidate.imageUrlCache = pngDataUrl(140, 70);
+        candidate.plannedTransportMode = "SEA";
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(candidate));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA")).thenReturn(List.of(
+                routeCandidate("SEA", "YT-SAU-SEA-FBN-RUH", "YT", "义特物流",
+                        "YT-SAU-SEA-FBN-RUH", "义特沙特海运双清包税 + FBN利雅得送仓", "RMB", "1500", "CBM", null)
+        ));
+        when(mapper.nextLogisticsQuoteLineId()).thenReturn(280001L);
+
+        PurchaseOrderLogisticsQuoteReportExportView export =
+                service.exportLogisticsQuoteReport(access(), "200001", "YT", "YT-SAU-SEA-FBN-RUH");
+
+        assertThat(export.filename).isEqualTo("B2B发货审核单-PO-200001.xls");
+        assertThat(export.rowCount).isEqualTo(1);
+        assertThat(export.pendingCount).isEqualTo(1);
+        assertThat(export.content).isNotEmpty();
+        try (Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(export.content))) {
+            assertThat(workbook).isInstanceOf(HSSFWorkbook.class);
+            assertThat(workbook.getSheetAt(0).getSheetName()).isEqualTo("模板");
+            assertThat(workbook.getSheetAt(0).getRow(0).getCell(0).getStringCellValue()).isEqualTo("客户订单号");
+            assertThat(workbook.getSheetAt(0).getRow(1).getCell(1).getStringCellValue()).isEqualTo("义特沙特海运双清包税 + FBN利雅得送仓");
+            Row header = workbook.getSheetAt(0).getRow(22);
+            assertThat(header.getCell(0).getStringCellValue()).isEqualTo("货箱编号*");
+            assertThat(header.getCell(5).getStringCellValue()).isEqualTo("产品SKU*");
+            Row row = workbook.getSheetAt(0).getRow(23);
+            assertThat(row.getCell(5).getStringCellValue()).isEqualTo("BARCODE-115");
+            assertThat(row.getCell(6).getStringCellValue()).isEqualTo("Orange Medium Marker Storage Box");
+            assertThat(row.getCell(7).getStringCellValue()).isEqualTo("测试商品");
+            assertThat(row.getCell(8).getNumericCellValue()).isEqualTo(20);
+            assertThat(row.getCell(10).getStringCellValue()).isEqualTo("塑料");
+            assertThat(row.getCell(20).getStringCellValue()).isEqualTo("280001");
+            assertThat(row.getCell(23).getStringCellValue()).isEqualTo("220002");
+            assertThat(row.getCell(24).getStringCellValue()).isEqualTo("YT");
+            assertThat(workbook.getSheetAt(0).isColumnHidden(20)).isTrue();
+            assertThat(((HSSFWorkbook) workbook).getAllPictures()).hasSize(1);
+            HSSFClientAnchor imageAnchor = firstPictureAnchor((HSSFSheet) workbook.getSheetAt(0));
+            assertThat((int) imageAnchor.getCol1()).isEqualTo(11);
+            assertThat((int) imageAnchor.getCol2()).isEqualTo(12);
+            assertThat(imageAnchor.getRow1()).isEqualTo(23);
+            assertThat(imageAnchor.getRow2()).isEqualTo(24);
+            assertThat(imageAnchor.getDx1()).isZero();
+            assertThat(imageAnchor.getDy1()).isZero();
+            assertThat(imageAnchor.getDx2()).isZero();
+            assertThat(imageAnchor.getDy2()).isZero();
+            assertThat(yiteImageColumnWidthPx((HSSFSheet) workbook.getSheetAt(0))).isCloseTo(70D, org.assertj.core.data.Offset.offset(1D));
+            assertThat(yiteImageRowHeightPx(workbook.getSheetAt(0).getRow(23))).isCloseTo(70D, org.assertj.core.data.Offset.offset(1D));
+            BufferedImage embeddedImage = ImageIO.read(new ByteArrayInputStream(
+                    ((HSSFWorkbook) workbook).getAllPictures().get(0).getData()
+            ));
+            assertThat(embeddedImage.getWidth()).isEqualTo(400);
+            assertThat(embeddedImage.getHeight()).isEqualTo(400);
+            assertThat(nonTransparentWidth(embeddedImage)).isEqualTo(400);
+            assertThat(nonTransparentHeight(embeddedImage)).isCloseTo(200, org.assertj.core.data.Offset.offset(1));
+            assertThat((double) nonTransparentWidth(embeddedImage) / nonTransparentHeight(embeddedImage))
+                    .isCloseTo(2D, org.assertj.core.data.Offset.offset(0.05D));
+        }
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).insertLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getValue().id).isEqualTo(280001L);
+        assertThat(rowCaptor.getValue().purchaseOrderItemSiteId).isEqualTo(220002L);
+        assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("PENDING_QUOTE");
+        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("NOT_SUBMITTED");
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> assignmentCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).assignLogisticsQuoteLineChannel(assignmentCaptor.capture(), eq(307L));
+        assertThat(assignmentCaptor.getValue().forwarderCode).isEqualTo("YT");
+        assertThat(assignmentCaptor.getValue().routeCode).isEqualTo("YT-SAU-SEA-FBN-RUH");
+        assertThat(assignmentCaptor.getValue().serviceCode).isEqualTo("YT-SAU-SEA-FBN-RUH");
+        verify(mapper).markLogisticsQuoteLinesExported(200001L, List.of(280001L), 307L);
+    }
+
+    @Test
+    void exportLogisticsQuoteReportUsesEtSkuOneStepPackingTemplateWithProductInfo() throws Exception {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderLogisticsQuoteLineRecord candidate = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        candidate.plannedTransportMode = "SEA";
+        candidate.imageUrlCache = pngDataUrl(140, 70);
+        PurchaseOrderLogisticsQuoteLineRecord secondCandidate = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        secondCandidate.purchaseOrderItemId = 210002L;
+        secondCandidate.purchaseOrderItemSiteId = 220003L;
+        secondCandidate.partnerSku = "SGGRB116";
+        secondCandidate.pskuCode = "SGGRB116";
+        secondCandidate.barcode = "BARCODE-116";
+        secondCandidate.titleCache = "补充测试商品";
+        String longEtEnglishShortName = "Replacement Water Filter Cartridge for Refrigerator Kitchen Faucet "
+                + "Drinking Water Purifier System Extra Long Name";
+        secondCandidate.titleEn = longEtEnglishShortName;
+        secondCandidate.imageUrlCache = pngDataUrl(70, 140);
+        secondCandidate.quantity = 30;
+        secondCandidate.plannedTransportMode = "SEA";
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(candidate, secondCandidate));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA")).thenReturn(List.of(
+                routeCandidate("SEA", "ET-SAU-SEA-FBN-RUH-20260604", "ET", "易通物流",
+                        "ET-SAU-SEA-WH-20260604", "易通沙特海运仓到仓 20260604", "RMB", "1100", "CBM", null)
+        ));
+        when(mapper.nextLogisticsQuoteLineId()).thenReturn(280001L, 280002L);
+
+        PurchaseOrderLogisticsQuoteReportExportView export =
+                service.exportLogisticsQuoteReport(access(), "200001", "ET", "ET-SAU-SEA-FBN-RUH-20260604");
+
+        assertThat(export.filename).isEqualTo("sku一步上传装箱清单导入模版-PO-200001.xlsx");
+        assertThat(export.contentType).isEqualTo("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        assertThat(export.rowCount).isEqualTo(2);
+        try (Workbook workbook = WorkbookFactory.create(new ByteArrayInputStream(export.content))) {
+            assertThat(workbook).isInstanceOf(XSSFWorkbook.class);
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(3);
+            assertThat(workbook.getSheetAt(0).getSheetName()).isEqualTo("装箱清单");
+            assertThat(workbook.getSheetAt(1).getSheetName()).isEqualTo("填表指南");
+            assertThat(workbook.getSheetAt(2).getSheetName()).isEqualTo("仓单地址及须知");
+            Row instruction = workbook.getSheetAt(0).getRow(0);
+            assertThat(instruction.getCell(0).getStringCellValue()).contains("产品信息和装箱清单同时导入");
+            Row header = workbook.getSheetAt(0).getRow(1);
+            assertThat(header.getCell(0).getStringCellValue()).isEqualTo("箱号");
+            assertThat(header.getCell(1).getStringCellValue()).isEqualTo("*长(CM)");
+            assertThat(header.getCell(5).getStringCellValue()).isEqualTo("*每箱数量");
+            assertThat(header.getCell(6).getStringCellValue()).isEqualTo("*商家条码");
+            assertThat(header.getCell(8).getStringCellValue()).isEqualTo("*英文简称");
+            assertThat(header.getCell(9).getStringCellValue()).isEqualTo("*中文品名");
+            assertThat(header.getCell(13).getStringCellValue()).isEqualTo("*图片");
+            assertThat(header.getCell(14).getStringCellValue()).isEqualTo("*材质");
+            Row row = workbook.getSheetAt(0).getRow(2);
+            assertThat(row.getCell(0).getStringCellValue()).isEqualTo("1/1");
+            assertThat(row.getCell(1).getNumericCellValue()).isEqualTo(30);
+            assertThat(row.getCell(2).getNumericCellValue()).isEqualTo(30);
+            assertThat(row.getCell(3).getNumericCellValue()).isEqualTo(30);
+            assertThat(row.getCell(4).getNumericCellValue()).isEqualTo(10);
+            assertThat(row.getCell(5).getNumericCellValue()).isEqualTo(20);
+            assertThat(row.getCell(6).getStringCellValue()).isEqualTo("BARCODE-115");
+            assertThat(row.getCell(7).getStringCellValue()).isEqualTo("SGGRB115");
+            assertThat(row.getCell(8).getStringCellValue()).isEqualTo("Orange Medium Marker Storage Box");
+            assertThat(row.getCell(9).getStringCellValue()).isEqualTo("测试商品");
+            assertThat(row.getCell(10).getNumericCellValue()).isEqualTo(1);
+            assertThat(row.getCell(11).getStringCellValue()).isEqualTo("paper says");
+            assertThat(row.getCell(12).getStringCellValue()).isEqualTo("paper says");
+            assertThat(row.getCell(14).getStringCellValue()).isEmpty();
+            assertThat(row.getCell(15).getStringCellValue()).isEqualTo("否");
+            assertThat(row.getCell(16).getStringCellValue()).isEqualTo("否");
+            assertThat(row.getCell(17).getStringCellValue()).isEqualTo("否");
+            assertThat(row.getCell(18).getStringCellValue()).isEqualTo("否");
+            assertThat(row.getCell(19).getStringCellValue()).isEqualTo("否");
+            assertThat(row.getCell(52).getStringCellValue()).isEqualTo("280001");
+            assertThat(row.getCell(55).getStringCellValue()).isEqualTo("220002");
+            assertThat(row.getCell(56).getStringCellValue()).isEqualTo("ET");
+            Row secondRow = workbook.getSheetAt(0).getRow(3);
+            assertThat(secondRow.getCell(0).getStringCellValue()).isEqualTo("1/2");
+            assertThat(secondRow.getCell(1).getNumericCellValue()).isEqualTo(30);
+            assertThat(secondRow.getCell(2).getNumericCellValue()).isEqualTo(30);
+            assertThat(secondRow.getCell(3).getNumericCellValue()).isEqualTo(30);
+            assertThat(secondRow.getCell(4).getNumericCellValue()).isEqualTo(10);
+            assertThat(secondRow.getCell(5).getNumericCellValue()).isEqualTo(30);
+            assertThat(secondRow.getCell(6).getStringCellValue()).isEqualTo("BARCODE-116");
+            assertThat(secondRow.getCell(7).getStringCellValue()).isEqualTo("SGGRB116");
+            assertThat(secondRow.getCell(8).getStringCellValue()).hasSize(90);
+            assertThat(secondRow.getCell(8).getStringCellValue()).isEqualTo(longEtEnglishShortName.substring(0, 90));
+            assertThat(secondRow.getCell(9).getStringCellValue()).isEqualTo("补充测试商品");
+            assertThat(secondRow.getCell(52).getStringCellValue()).isEqualTo("280002");
+            assertThat(secondRow.getCell(55).getStringCellValue()).isEqualTo("220003");
+            assertThat(workbook.getSheetAt(0).isColumnHidden(52)).isTrue();
+            assertThat(((XSSFWorkbook) workbook).getAllPictures()).hasSize(2);
+            BufferedImage embeddedImage = ImageIO.read(new ByteArrayInputStream(
+                    ((XSSFWorkbook) workbook).getAllPictures().get(0).getData()
+            ));
+            assertThat(embeddedImage.getWidth()).isEqualTo(400);
+            assertThat(embeddedImage.getHeight()).isEqualTo(400);
+            assertThat(nonTransparentWidth(embeddedImage)).isEqualTo(400);
+            assertThat(nonTransparentHeight(embeddedImage)).isCloseTo(200, org.assertj.core.data.Offset.offset(1));
+        }
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> assignmentCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper, org.mockito.Mockito.times(2)).assignLogisticsQuoteLineChannel(assignmentCaptor.capture(), eq(307L));
+        assertThat(assignmentCaptor.getAllValues())
+                .extracting(line -> line.forwarderCode, line -> line.routeCode, line -> line.serviceCode)
+                .containsOnly(org.assertj.core.groups.Tuple.tuple(
+                        "ET",
+                        "ET-SAU-SEA-FBN-RUH-20260604",
+                        "ET-SAU-SEA-WH-20260604"
+                ));
+        verify(mapper).markLogisticsQuoteLinesExported(200001L, List.of(280001L, 280002L), 307L);
+    }
+
+    @Test
+    void importLogisticsQuoteReportConfirmsRowsByHiddenItemSiteId() throws Exception {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.selectLogisticsQuoteLineByItemSiteForUpdate(200001L, 220002L)).thenReturn(line);
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importLogisticsQuoteReport(
+                access(),
+                "200001",
+                new ByteArrayInputStream(quoteWorkbookBytes()),
+                "物流报价.xlsx"
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isEqualTo(1);
+        assertThat(result.errors).isEmpty();
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getValue().id).isEqualTo(280001L);
+        assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("NOT_SUBMITTED");
+        assertThat(rowCaptor.getValue().forwarderName).isEqualTo("易通");
+        assertThat(rowCaptor.getValue().currency).isEqualTo("RMB");
+        assertThat(rowCaptor.getValue().unitPrice).isEqualByComparingTo("12.50");
+        assertThat(rowCaptor.getValue().estimatedAmount).isEqualByComparingTo("250.00");
+        ArgumentCaptor<ProductForwarderChannelQuoteRecord> quoteCaptor =
+                ArgumentCaptor.forClass(ProductForwarderChannelQuoteRecord.class);
+        verify(mapper).markHistoricalProductForwarderChannelQuote(
+                307L,
+                320001L,
+                "ET",
+                "ET-SA-AIR",
+                "ET-AIR-202606",
+                "KG",
+                307L
+        );
+        verify(mapper).insertProductForwarderChannelQuote(quoteCaptor.capture(), eq(307L));
+        assertThat(quoteCaptor.getValue().ownerUserId).isEqualTo(307L);
+        assertThat(quoteCaptor.getValue().productVariantId).isEqualTo(320001L);
+        assertThat(quoteCaptor.getValue().barcode).isEqualTo("BARCODE-115");
+        assertThat(quoteCaptor.getValue().forwarderCode).isEqualTo("ET");
+        assertThat(quoteCaptor.getValue().routeCode).isEqualTo("ET-SA-AIR");
+        assertThat(quoteCaptor.getValue().serviceCode).isEqualTo("ET-AIR-202606");
+        assertThat(quoteCaptor.getValue().unitPrice).isEqualByComparingTo("12.50");
+        assertThat(quoteCaptor.getValue().estimatedAmount).isEqualByComparingTo("250.00");
+        assertThat(quoteCaptor.getValue().sourceType).isEqualTo("SHIPPING_ORDER_QUOTE");
+        assertThat(quoteCaptor.getValue().sourceQuoteLineId).isEqualTo(280001L);
+    }
+
+    @Test
+    void importYiteTemplateConfirmsRowsAfterLogisticsFillsBoxInfo() throws Exception {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.selectLogisticsQuoteLineByItemSiteForUpdate(200001L, 220002L)).thenReturn(line);
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importLogisticsQuoteReport(
+                access(),
+                "200001",
+                new ByteArrayInputStream(yiteTemplateWorkbookBytes()),
+                "义特海外无忧-B2B单票导入模版.xls"
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isEqualTo(1);
+        assertThat(result.errors).isEmpty();
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getValue().id).isEqualTo(280001L);
+        assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("NOT_SUBMITTED");
+        assertThat(rowCaptor.getValue().forwarderCode).isEqualTo("YT");
+        assertThat(rowCaptor.getValue().forwarderName).isEqualTo("义特物流");
+        assertThat(rowCaptor.getValue().serviceName).isEqualTo("沙特海运双清");
+        assertThat(rowCaptor.getValue().unitPrice).isEqualByComparingTo("12.50");
+        assertThat(rowCaptor.getValue().remark).isEqualTo("义特模板回传确认");
+    }
+
+    @Test
+    void importYiteTemplateCanMatchShippingOrderRowsByProductCodeAndVisiblePriceOnly() throws Exception {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderNo = "SO-290001";
+        line.shippingOrderSegmentId = 292001L;
+        line.forwarderCode = "YT";
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
+                access(),
+                "290001",
+                new ByteArrayInputStream(yiteTemplateWorkbookWithoutHiddenIdsBytes()),
+                "B2B发货审核单-SO-290001-已报价.xls",
+                command
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isEqualTo(1);
+        assertThat(result.errors).isEmpty();
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getValue().id).isEqualTo(280001L);
+        assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("SUBMITTED");
+        assertThat(rowCaptor.getValue().unitPrice).isEqualByComparingTo("13.50");
+    }
+
+    @Test
+    void importEtTemplateConfirmsRowsAfterLogisticsFillsBoxInfo() throws Exception {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.selectLogisticsQuoteLineByItemSiteForUpdate(200001L, 220002L)).thenReturn(line);
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importLogisticsQuoteReport(
+                access(),
+                "200001",
+                new ByteArrayInputStream(etTemplateWorkbookBytes()),
+                "sku一步上传装箱清单导入模版.xlsx"
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isEqualTo(1);
+        assertThat(result.errors).isEmpty();
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getValue().id).isEqualTo(280001L);
+        assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("NOT_SUBMITTED");
+        assertThat(rowCaptor.getValue().forwarderCode).isEqualTo("ET");
+        assertThat(rowCaptor.getValue().forwarderName).isEqualTo("易通物流");
+        assertThat(rowCaptor.getValue().routeCode).isEqualTo("ET-SAU-SEA-FBN-RUH-20260604");
+        assertThat(rowCaptor.getValue().serviceName).isEqualTo("易通沙特海运仓到仓 20260604");
+            assertThat(rowCaptor.getValue().remark).contains("易通模板回传确认")
+                    .contains("箱号=1/1")
+                    .contains("50x40x30cm")
+                    .contains("箱重=10kg")
+                    .contains("商家条码=SGGRB115")
+                    .contains("数量=20");
+    }
+
+    @Test
+    void importShippingOrderLogisticsQuoteReportSkipsRowsOutsideSelectedSegment() throws Exception {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderSegmentId = 292002L;
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(290001L, 220002L)).thenReturn(line);
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
+                access(),
+                "290001",
+                new ByteArrayInputStream(etTemplateWorkbookBytes()),
+                "sku一步上传装箱清单导入模版.xlsx",
+                command
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isZero();
+        assertThat(result.errors).hasSize(1);
+        assertThat(result.errors.get(0).message).contains("不属于当前筛选的子发货单");
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never()).confirmLogisticsQuoteLine(any(), anyLong());
+    }
+
+    @Test
+    void importShippingOrderLogisticsQuoteReportKeepsSubmittedRowsSubmitted() throws Exception {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        shippingOrder.shippingSubmitStatus = "SUBMITTED";
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderNo = "SO-290001";
+        line.shippingOrderSegmentId = 292001L;
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(290001L, 220002L)).thenReturn(line);
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
+                access(),
+                "290001",
+                new ByteArrayInputStream(etTemplateWorkbookBytes()),
+                "sku一步上传装箱清单导入模版.xlsx",
+                command
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isEqualTo(1);
+        assertThat(result.errors).isEmpty();
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("SUBMITTED");
+    }
+
+    @Test
+    void generateShippingOrderExpectedBillCreatesBillComponentsAndPendingReconciliation() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "CONFIRMED", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderNo = "SO-290001";
+        line.forwarderCode = "YT";
+        line.forwarderName = "义特物流";
+        line.routeCode = "YT-SAU-SEA-FBN-RUH";
+        line.routeName = "义特沙特海运双清包税 + FBN利雅得送仓";
+        line.serviceCode = "YT-SAU-SEA-FBN-RUH";
+        line.serviceName = "义特沙特海运双清包税 + FBN利雅得送仓";
+        line.currency = "RMB";
+        line.billingUnit = "CBM";
+        line.unitPrice = new BigDecimal("1500.00");
+        line.estimatedAmount = new BigDecimal("300.00");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
+
+        LogisticsBillView view = service.generateShippingOrderExpectedBill(access(), "290001");
+
+        assertThat(view.expectedBillNo).isEqualTo("EB-330001");
+        assertThat(view.shippingOrderNo).isEqualTo("SO-290001");
+        assertThat(view.expectedTotalAmount).isEqualByComparingTo("300.00");
+        assertThat(view.reconciliationStatus).isEqualTo("PENDING_ACTUAL_BILL");
+
+        ArgumentCaptor<ProcurementPurchaseOrderRecords.LogisticsExpectedBillRecord> billCaptor =
+                ArgumentCaptor.forClass(ProcurementPurchaseOrderRecords.LogisticsExpectedBillRecord.class);
+        ArgumentCaptor<ProcurementPurchaseOrderRecords.LogisticsExpectedBillComponentRecord> componentCaptor =
+                ArgumentCaptor.forClass(ProcurementPurchaseOrderRecords.LogisticsExpectedBillComponentRecord.class);
+        ArgumentCaptor<ProcurementPurchaseOrderRecords.LogisticsBillReconciliationRecord> reconciliationCaptor =
+                ArgumentCaptor.forClass(ProcurementPurchaseOrderRecords.LogisticsBillReconciliationRecord.class);
+        verify(mapper).cancelOpenLogisticsExpectedBills(307L, 290001L, null, 307L);
+        verify(mapper).insertLogisticsExpectedBill(billCaptor.capture(), eq(307L));
+        verify(mapper).insertLogisticsExpectedBillComponent(componentCaptor.capture(), eq(307L));
+        verify(mapper).insertLogisticsBillReconciliation(reconciliationCaptor.capture(), eq(307L));
+        assertThat(billCaptor.getValue().id).isEqualTo(330001L);
+        assertThat(billCaptor.getValue().expectedTotalAmount).isEqualByComparingTo("300.00");
+        assertThat(componentCaptor.getValue().quoteLineId).isEqualTo(280001L);
+        assertThat(componentCaptor.getValue().barcode).isEqualTo("BARCODE-115");
+        assertThat(componentCaptor.getValue().expectedAmount).isEqualByComparingTo("300.00");
+        assertThat(reconciliationCaptor.getValue().reconciliationStatus).isEqualTo("PENDING_ACTUAL_BILL");
+    }
+
+    @Test
+    void generateShippingOrderExpectedBillUsesSelectedSegmentScope() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "CONFIRMED", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderNo = "SO-290001";
+        line.shippingOrderSegmentId = 292001L;
+        line.shippingOrderSegmentNo = "SO-290001-SA-AIR";
+        line.shippingOrderLineId = 291001L;
+        line.forwarderCode = "YT";
+        line.forwarderName = "义特物流";
+        line.routeCode = "YT-SAU-AIR-FBN-RUH";
+        line.routeName = "义特沙特空运";
+        line.serviceCode = "YT-SAU-AIR-FBN-RUH";
+        line.serviceName = "义特沙特空运";
+        line.currency = "RMB";
+        line.billingUnit = "KG";
+        line.unitPrice = new BigDecimal("12.00");
+        line.estimatedAmount = new BigDecimal("240.00");
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(290001L, List.of(292001L))).thenReturn(List.of(line));
+
+        LogisticsBillView view = service.generateShippingOrderExpectedBill(access(), "290001", command);
+
+        assertThat(view.shippingOrderSegmentId).isEqualTo("292001");
+        assertThat(view.shippingOrderSegmentNo).isEqualTo("SO-290001-SA-AIR");
+        ArgumentCaptor<ProcurementPurchaseOrderRecords.LogisticsExpectedBillRecord> billCaptor =
+                ArgumentCaptor.forClass(ProcurementPurchaseOrderRecords.LogisticsExpectedBillRecord.class);
+        ArgumentCaptor<ProcurementPurchaseOrderRecords.LogisticsExpectedBillComponentRecord> componentCaptor =
+                ArgumentCaptor.forClass(ProcurementPurchaseOrderRecords.LogisticsExpectedBillComponentRecord.class);
+        verify(mapper).cancelOpenLogisticsExpectedBills(307L, 290001L, 292001L, 307L);
+        verify(mapper).insertLogisticsExpectedBill(billCaptor.capture(), eq(307L));
+        verify(mapper).insertLogisticsExpectedBillComponent(componentCaptor.capture(), eq(307L));
+        assertThat(billCaptor.getValue().shippingOrderSegmentId).isEqualTo(292001L);
+        assertThat(billCaptor.getValue().shippingOrderSegmentNo).isEqualTo("SO-290001-SA-AIR");
+        assertThat(componentCaptor.getValue().shippingOrderSegmentId).isEqualTo(292001L);
+    }
+
+    @Test
+    void generateShippingOrderExpectedBillAppliesCurrentProductChannelQuote() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderNo = "SO-290001";
+        line.plannedTransportMode = "SEA";
+        line.forwarderCode = "YT";
+        line.forwarderName = "义特物流";
+        line.routeCode = "YT-SAU-SEA-FBN-RUH";
+        line.routeName = "义特沙特海运双清包税 + FBN利雅得送仓";
+        line.serviceCode = "YT-SAU-SEA-FBN-RUH";
+        line.serviceName = "义特沙特海运双清包税 + FBN利雅得送仓";
+        ProductForwarderChannelQuoteRecord currentQuote = productForwarderChannelQuote();
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
+        when(mapper.selectCurrentProductForwarderChannelQuote(
+                307L,
+                320001L,
+                "YT",
+                "YT-SAU-SEA-FBN-RUH",
+                "YT-SAU-SEA-FBN-RUH"
+        )).thenReturn(currentQuote);
+
+        LogisticsBillView view = service.generateShippingOrderExpectedBill(access(), "290001");
+
+        assertThat(view.expectedTotalAmount).isEqualByComparingTo("280.00");
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> quoteLineCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(quoteLineCaptor.capture(), eq(307L));
+        assertThat(quoteLineCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(quoteLineCaptor.getValue().unitPrice).isEqualByComparingTo("14.00");
+        assertThat(quoteLineCaptor.getValue().estimatedAmount).isEqualByComparingTo("280.00");
+        assertThat(quoteLineCaptor.getValue().remark).isEqualTo("商品渠道历史报价自动确认");
+        verify(mapper).refreshShippingOrderQuoteState(eq(290001L), any(PurchaseOrderLogisticsQuoteLineRecord.class), eq(307L));
+        verify(mapper).insertLogisticsExpectedBill(any(), eq(307L));
+        verify(mapper).insertLogisticsBillReconciliation(any(), eq(307L));
+    }
+
+    @Test
+    void submitShippingRequiresAllLogisticsQuotesConfirmed() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.countUnconfirmedLogisticsQuoteLines(200001L)).thenReturn(1);
+
+        assertThatThrownBy(() -> service.submitShipping(access(), "200001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("物流报价未确认");
+    }
+
+    @Test
+    void submitShippingMarksConfirmedQuoteRowsForWarehousePacking() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.countUnconfirmedLogisticsQuoteLines(200001L)).thenReturn(0);
+        when(mapper.submitLogisticsQuoteLinesForShipping(200001L, 307L)).thenReturn(1);
+
+        PurchaseOrderShippingSubmitView view = service.submitShipping(access(), "200001");
+
+        assertThat(view.purchaseOrderId).isEqualTo("200001");
+        assertThat(view.shippingSubmitStatus).isEqualTo("SUBMITTED");
+        assertThat(view.submittedLineCount).isEqualTo(1);
+    }
+
+    @Test
+    void listOrdersCanReturnSubmittedOnlyForShippingOrderSelection() {
+        PurchaseOrderRecord submitted = order("SGGR-0607", "人工补货");
+        submitted.status = "SUBMITTED";
+        when(mapper.listOrdersByOwner(307L, Set.of("STR69486-NSA"), "", true, false, 120))
+                .thenReturn(List.of(submitted));
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of());
+
+        List<PurchaseOrderView> orders = service.listOrders(access(), null, null, true);
+
+        assertThat(orders).hasSize(1);
+        assertThat(orders.get(0).status).isEqualTo("submitted");
+        verify(mapper).listOrdersByOwner(307L, Set.of("STR69486-NSA"), "", true, false, 120);
+    }
+
+    @Test
+    void listShippingOrdersReturnsMissingYiteMaterialCount() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord order = shippingOrder();
+        order.missingYiteMaterialCount = 75;
+        when(mapper.listShippingOrders(307L, "", 50)).thenReturn(List.of(order));
+
+        List<ShippingOrderView> orders = service.listShippingOrders(access(), null);
+
+        assertThat(orders).hasSize(1);
+        assertThat(orders.get(0).missingYiteMaterialCount).isEqualTo(75);
+        verify(mapper).listShippingOrders(307L, "", 50);
+    }
+
+    @Test
+    void submitOrderMarksPurchaseOrderSubmitted() {
+        PurchaseOrderRecord before = order("SGGR-0607", "人工补货");
+        PurchaseOrderRecord after = order("SGGR-0607", "人工补货");
+        after.status = "SUBMITTED";
+        when(mapper.selectOrderById(200001L)).thenReturn(before, after);
+        when(mapper.submitOrder(200001L, 307L)).thenReturn(1);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of());
+
+        PurchaseOrderView view = service.submitOrder(access(), "200001");
+
+        assertThat(view.status).isEqualTo("submitted");
+        verify(mapper).submitOrder(200001L, 307L);
+        verify(mapper).insertOperationLog(
+                eq(240001L),
+                eq(200001L),
+                isNull(),
+                eq("SUBMIT_ORDER"),
+                eq(307L),
+                eq("READY"),
+                eq("SUBMITTED"),
+                isNull()
+        );
+    }
+
+    @Test
+    void updateOrderRejectsSubmittedPurchaseOrder() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "SUBMITTED";
+        UpdateOrderCommand command = new UpdateOrderCommand();
+        command.title = "SGGR-0607-改";
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+
+        assertThatThrownBy(() -> service.updateOrder(access(), "200001", command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("采购单已提交");
+    }
+
+    @Test
+    void createShippingOrderRejectsUnsubmittedPurchaseOrder() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "READY";
+        CreateShippingOrderCommand command = new CreateShippingOrderCommand();
+        command.purchaseOrderIds = List.of("200001");
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+
+        assertThatThrownBy(() -> service.createShippingOrder(access(), command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("提交后的采购单才可加入发货单");
+    }
+
+    @Test
+    void createShippingOrderAcceptsSubmittedPurchaseOrder() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "SUBMITTED";
+        PurchaseOrderLogisticsQuoteLineRecord sourceLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(sourceLine));
+        when(mapper.nextShippingOrderId()).thenReturn(290001L);
+        when(mapper.nextShippingOrderSegmentId()).thenReturn(292001L);
+        when(mapper.nextShippingOrderLineId()).thenReturn(291001L);
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder());
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "AIR")));
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(sourceLine));
+
+        CreateShippingOrderCommand command = new CreateShippingOrderCommand();
+        command.purchaseOrderIds = List.of("200001");
+
+        ShippingOrderView view = service.createShippingOrder(access(), command);
+
+        assertThat(view.id).isEqualTo("290001");
+        assertThat(view.shippingOrderNo).isEqualTo("SO-290001");
+        verify(mapper).insertShippingOrder(any(), eq(307L));
+        verify(mapper).insertShippingOrderSegment(any(), eq(307L));
+        verify(mapper).insertShippingOrderLine(any(), eq(307L));
+    }
+
+    @Test
+    void createShippingOrderAllowsAlreadyJoinedPurchaseOrderWithWarning() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "SUBMITTED";
+        PurchaseOrderLogisticsQuoteLineRecord sourceLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(sourceLine));
+        when(mapper.countActiveShippingOrderLinesByItemSites(List.of(220002L))).thenReturn(1);
+        when(mapper.nextShippingOrderId()).thenReturn(290001L);
+        when(mapper.nextShippingOrderSegmentId()).thenReturn(292001L);
+        when(mapper.nextShippingOrderLineId()).thenReturn(291001L);
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder());
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "AIR")));
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(sourceLine));
+
+        CreateShippingOrderCommand command = new CreateShippingOrderCommand();
+        command.purchaseOrderIds = List.of("200001");
+
+        ShippingOrderView view = service.createShippingOrder(access(), command);
+
+        assertThat(view.id).isEqualTo("290001");
+        assertThat(view.warnings).contains("所选采购单中已有商品行加入过发货单，本次已按整单重新生成发货单。");
+        verify(mapper).insertShippingOrder(any(), eq(307L));
+    }
+
+    @Test
+    void createShippingOrderSplitsSegmentsBySiteAndTransportMode() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "SUBMITTED";
+        PurchaseOrderLogisticsQuoteLineRecord airLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        airLine.siteCode = "SA";
+        airLine.plannedTransportMode = "AIR";
+        PurchaseOrderLogisticsQuoteLineRecord seaLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        seaLine.purchaseOrderItemId = 210002L;
+        seaLine.purchaseOrderItemSiteId = 220003L;
+        seaLine.productVariantId = 320002L;
+        seaLine.partnerSku = "SGGRB116";
+        seaLine.siteCode = "SA";
+        seaLine.plannedTransportMode = "SEA";
+        seaLine.quantity = 30;
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(airLine, seaLine));
+        when(mapper.nextShippingOrderId()).thenReturn(290001L);
+        when(mapper.nextShippingOrderSegmentId()).thenReturn(292001L, 292002L);
+        when(mapper.nextShippingOrderLineId()).thenReturn(291001L, 291002L);
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder());
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(
+                shippingOrderSegment(292001L, "SA", "AIR"),
+                shippingOrderSegment(292002L, "SA", "SEA")
+        ));
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(airLine, seaLine));
+
+        CreateShippingOrderCommand command = new CreateShippingOrderCommand();
+        command.purchaseOrderIds = List.of("200001");
+
+        ShippingOrderView view = service.createShippingOrder(access(), command);
+
+        assertThat(view.segments).extracting(segment -> segment.siteCode, segment -> segment.transportMode)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("SA", "AIR"),
+                        org.assertj.core.groups.Tuple.tuple("SA", "SEA")
+                );
+        ArgumentCaptor<ShippingOrderSegmentRecord> segmentCaptor =
+                ArgumentCaptor.forClass(ShippingOrderSegmentRecord.class);
+        verify(mapper, org.mockito.Mockito.times(2)).insertShippingOrderSegment(segmentCaptor.capture(), eq(307L));
+        assertThat(segmentCaptor.getAllValues())
+                .extracting(segment -> segment.segmentNo, segment -> segment.siteCode, segment -> segment.transportMode, segment -> segment.totalQuantity)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("SO-290001-SA-AIR", "SA", "AIR", 20),
+                        org.assertj.core.groups.Tuple.tuple("SO-290001-SA-SEA", "SA", "SEA", 30)
+                );
+        ArgumentCaptor<ShippingOrderLineRecord> lineCaptor =
+                ArgumentCaptor.forClass(ShippingOrderLineRecord.class);
+        verify(mapper, org.mockito.Mockito.times(2)).insertShippingOrderLine(lineCaptor.capture(), eq(307L));
+        assertThat(lineCaptor.getAllValues())
+                .extracting(line -> line.shippingOrderSegmentId, line -> line.plannedTransportMode)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(292001L, "AIR"),
+                        org.assertj.core.groups.Tuple.tuple(292002L, "SEA")
+                );
+    }
+
+    @Test
+    void submitShippingOrderSegmentAllowsPendingQuotes() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord next = shippingOrder();
+        next.shippingSubmitStatus = "PARTIAL_SUBMITTED";
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderSegmentId = 292001L;
+        line.forwarderCode = "ET";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder, next);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(290001L, List.of(292001L))).thenReturn(List.of(line));
+        when(mapper.submitLogisticsQuoteLinesForShippingOrderSegments(290001L, List.of(292001L), 307L)).thenReturn(1);
+
+        ShippingOrderSubmitView view = service.submitShippingOrder(access(), "290001", command);
+
+        assertThat(view.shippingOrderId).isEqualTo("290001");
+        assertThat(view.submittedLineCount).isEqualTo(1);
+        verify(mapper).submitLogisticsQuoteLinesForShippingOrderSegments(290001L, List.of(292001L), 307L);
+    }
+
+    @Test
+    void submitShippingOrderSegmentRejectsMissingYiteMaterial() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "CONFIRMED", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderSegmentId = 292001L;
+        line.forwarderCode = "YT";
+        line.yiteMaterial = null;
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(290001L, List.of(292001L))).thenReturn(List.of(line));
+
+        assertThatThrownBy(() -> service.submitShippingOrder(access(), "290001", command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("义特材质缺失");
+    }
+
+    @Test
+    void createShippingOrderReusesYiteMaterialFromProductForwarderDeclarationAttribute() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "SUBMITTED";
+        PurchaseOrderLogisticsQuoteLineRecord sourceLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        sourceLine.yiteMaterial = null;
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(sourceLine));
+        when(mapper.listProductForwarderDeclarationAttributes(
+                307L,
+                "YT",
+                "YITE_MATERIAL",
+                List.of(320001L)
+        )).thenReturn(List.of(productForwarderDeclarationAttribute("塑料")));
+        when(mapper.countActiveShippingOrderLinesByItemSites(List.of(220002L))).thenReturn(0);
+        when(mapper.nextShippingOrderId()).thenReturn(290001L);
+        when(mapper.nextShippingOrderLineId()).thenReturn(291001L);
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder());
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(sourceLine));
+
+        CreateShippingOrderCommand command = new CreateShippingOrderCommand();
+        command.purchaseOrderIds = List.of("200001");
+
+        service.createShippingOrder(access(), command);
+
+        ArgumentCaptor<ShippingOrderLineRecord> lineCaptor =
+                ArgumentCaptor.forClass(ShippingOrderLineRecord.class);
+        verify(mapper).insertShippingOrderLine(lineCaptor.capture(), eq(307L));
+        assertThat(lineCaptor.getValue().productVariantId).isEqualTo(320001L);
+        assertThat(lineCaptor.getValue().yiteMaterial).isEqualTo("塑料");
+    }
+
+    @Test
+    void updateShippingOrderEditsTitleAndRemark() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord before = shippingOrder();
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord after = shippingOrder();
+        after.title = "6月新品合并发货";
+        after.remark = "物流确认";
+        UpdateShippingOrderCommand command = new UpdateShippingOrderCommand();
+        command.title = "  6月新品合并发货  ";
+        command.remark = "  物流确认  ";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(before, after);
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+
+        ShippingOrderView view = service.updateShippingOrder(access(), "290001", command);
+
+        assertThat(view.title).isEqualTo("6月新品合并发货");
+        assertThat(view.remark).isEqualTo("物流确认");
+        verify(mapper).updateShippingOrderHeader(290001L, 307L, "6月新品合并发货", "物流确认", 307L);
+    }
+
+    @Test
+    void updateShippingOrderLineYiteMaterialPersistsAllowedMaterial() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord order = shippingOrder();
+        ShippingOrderLineRecord line = shippingOrderLine();
+        line.yiteMaterial = "陶瓷";
+        UpdateShippingOrderLineYiteMaterialCommand command = new UpdateShippingOrderLineYiteMaterialCommand();
+        command.yiteMaterial = "陶瓷";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(order, order);
+        when(mapper.selectShippingOrderLineById(290001L, 291001L, 307L)).thenReturn(line);
+        when(mapper.updateShippingOrderLineYiteMaterial(290001L, 291001L, 307L, "陶瓷", 307L)).thenReturn(1);
+        when(mapper.nextProductForwarderDeclarationAttributeId()).thenReturn(310001L);
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(line));
+
+        ShippingOrderView view = service.updateShippingOrderLineYiteMaterial(access(), "290001", "291001", command);
+
+        assertThat(view.lines).hasSize(1);
+        assertThat(view.lines.get(0).barcode).isEqualTo("BARCODE-115");
+        assertThat(view.lines.get(0).yiteMaterial).isEqualTo("陶瓷");
+        verify(mapper).updateShippingOrderLineYiteMaterial(290001L, 291001L, 307L, "陶瓷", 307L);
+        verify(mapper).updateShippingOrderQuoteLineYiteMaterial(290001L, 291001L, 307L, "陶瓷", 307L);
+        ArgumentCaptor<ProductForwarderDeclarationAttributeRecord> attributeCaptor =
+                ArgumentCaptor.forClass(ProductForwarderDeclarationAttributeRecord.class);
+        verify(mapper).upsertProductForwarderDeclarationAttribute(attributeCaptor.capture(), eq(307L));
+        assertThat(attributeCaptor.getValue().id).isEqualTo(310001L);
+        assertThat(attributeCaptor.getValue().ownerUserId).isEqualTo(307L);
+        assertThat(attributeCaptor.getValue().productMasterId).isEqualTo(310001L);
+        assertThat(attributeCaptor.getValue().productVariantId).isEqualTo(320001L);
+        assertThat(attributeCaptor.getValue().barcode).isEqualTo("BARCODE-115");
+        assertThat(attributeCaptor.getValue().forwarderCode).isEqualTo("YT");
+        assertThat(attributeCaptor.getValue().attributeCode).isEqualTo("YITE_MATERIAL");
+        assertThat(attributeCaptor.getValue().attributeValue).isEqualTo("陶瓷");
+        assertThat(attributeCaptor.getValue().sourceShippingOrderId).isEqualTo(290001L);
+        assertThat(attributeCaptor.getValue().sourceShippingOrderLineId).isEqualTo(291001L);
+    }
+
+    @Test
+    void updateShippingOrderLineYiteMaterialRejectsUnsupportedMaterial() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord order = shippingOrder();
+        UpdateShippingOrderLineYiteMaterialCommand command = new UpdateShippingOrderLineYiteMaterialCommand();
+        command.yiteMaterial = "玻璃";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(order);
+
+        assertThatThrownBy(() -> service.updateShippingOrderLineYiteMaterial(access(), "290001", "291001", command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("义特材质只能选择");
     }
 
     @Test
@@ -839,6 +1823,391 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         record.quantity = quantity;
         record.status = "ACTIVE";
         return record;
+    }
+
+    private PurchaseOrderLogisticsQuoteLineRecord quoteLine(
+            Long id,
+            String quoteStatus,
+            String shippingSubmitStatus
+    ) {
+        PurchaseOrderLogisticsQuoteLineRecord record = new PurchaseOrderLogisticsQuoteLineRecord();
+        record.id = id;
+        record.ownerUserId = 307L;
+        record.logicalStoreId = 301L;
+        record.purchaseOrderId = 200001L;
+        record.purchaseOrderNo = "PO-200001";
+        record.purchaseOrderTitle = "SGGR-0607";
+        record.purchaseOrderItemId = 210001L;
+        record.purchaseOrderItemSiteId = 220002L;
+        record.productMasterId = 310001L;
+        record.productVariantId = 320001L;
+        record.skuParent = "SGGR";
+        record.partnerSku = "SGGRB115";
+        record.barcode = "BARCODE-115";
+        record.titleCache = "测试商品";
+        record.titleEn = "Orange Medium Marker Storage Box";
+        record.imageUrlCache = "https://example.test/SGGRB115.jpg";
+        record.brandName = "paper says";
+        record.siteCode = "SA";
+        record.pskuCode = "SGGRB115";
+        record.plannedTransportMode = "AIR";
+        record.quantity = 20;
+        record.fulfillmentType = "WAREHOUSE_RECEIPT";
+        record.isNewProduct = Boolean.TRUE;
+        record.quoteStatus = quoteStatus;
+        record.shippingSubmitStatus = shippingSubmitStatus;
+        return record;
+    }
+
+    private ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord record =
+                new ProcurementPurchaseOrderRecords.ShippingOrderRecord();
+        record.id = 290001L;
+        record.ownerUserId = 307L;
+        record.shippingOrderNo = "SO-290001";
+        record.title = "SGGR-0607 发货单";
+        record.status = "DRAFT";
+        record.purchaseOrderCount = 1;
+        record.lineCount = 1;
+        record.skuCount = 1;
+        record.totalQuantity = 20;
+        record.quoteStatus = "PENDING_QUOTE";
+        record.shippingSubmitStatus = "NOT_SUBMITTED";
+        return record;
+    }
+
+    private ShippingOrderLineRecord shippingOrderLine() {
+        ShippingOrderLineRecord record = new ShippingOrderLineRecord();
+        record.id = 291001L;
+        record.shippingOrderId = 290001L;
+        record.ownerUserId = 307L;
+        record.logicalStoreId = 301L;
+        record.sourceStoreCode = "PRJ69486";
+        record.sourceStoreName = "SGGR";
+        record.purchaseOrderId = 200001L;
+        record.purchaseOrderNo = "PO-200001";
+        record.purchaseOrderTitle = "SGGR-0607";
+        record.purchaseOrderItemId = 210001L;
+        record.purchaseOrderItemSiteId = 220002L;
+        record.productMasterId = 310001L;
+        record.productVariantId = 320001L;
+        record.skuParent = "SGGR";
+        record.partnerSku = "SGGRB115";
+        record.barcode = "BARCODE-115";
+        record.titleCache = "测试商品";
+        record.imageUrlCache = "https://example.test/SGGRB115.jpg";
+        record.siteCode = "SA";
+        record.pskuCode = "ZPSKU-115-SA";
+        record.plannedTransportMode = "SEA";
+        record.quantity = 20;
+        record.fulfillmentType = "WAREHOUSE_RECEIPT";
+        record.quoteLineId = 280001L;
+        return record;
+    }
+
+    private ShippingOrderSegmentRecord shippingOrderSegment(Long id, String siteCode, String transportMode) {
+        ShippingOrderSegmentRecord record = new ShippingOrderSegmentRecord();
+        record.id = id;
+        record.shippingOrderId = 290001L;
+        record.ownerUserId = 307L;
+        record.segmentNo = "SO-290001-" + siteCode + "-" + transportMode;
+        record.siteCode = siteCode;
+        record.transportMode = transportMode;
+        record.quoteStatus = "PENDING_QUOTE";
+        record.shippingSubmitStatus = "NOT_SUBMITTED";
+        record.lineCount = 1;
+        record.skuCount = 1;
+        record.totalQuantity = 20;
+        record.missingYiteMaterialCount = 0;
+        return record;
+    }
+
+    private ProductForwarderDeclarationAttributeRecord productForwarderDeclarationAttribute(String value) {
+        ProductForwarderDeclarationAttributeRecord record = new ProductForwarderDeclarationAttributeRecord();
+        record.id = 310001L;
+        record.ownerUserId = 307L;
+        record.productMasterId = 310001L;
+        record.productVariantId = 320001L;
+        record.barcode = "BARCODE-115";
+        record.forwarderCode = "YT";
+        record.attributeCode = "YITE_MATERIAL";
+        record.attributeValue = value;
+        return record;
+    }
+
+    private ProductForwarderChannelQuoteRecord productForwarderChannelQuote() {
+        ProductForwarderChannelQuoteRecord record = new ProductForwarderChannelQuoteRecord();
+        record.id = 320001L;
+        record.ownerUserId = 307L;
+        record.productMasterId = 310001L;
+        record.productVariantId = 320001L;
+        record.barcode = "BARCODE-115";
+        record.forwarderCode = "YT";
+        record.forwarderName = "义特物流";
+        record.routeCode = "YT-SAU-SEA-FBN-RUH";
+        record.routeName = "义特沙特海运双清包税 + FBN利雅得送仓";
+        record.serviceCode = "YT-SAU-SEA-FBN-RUH";
+        record.serviceName = "义特沙特海运双清包税 + FBN利雅得送仓";
+        record.siteCode = "SA";
+        record.transportMode = "SEA";
+        record.currency = "RMB";
+        record.unitPrice = new BigDecimal("14.00");
+        record.billingUnit = "PCS";
+        record.estimatedAmount = new BigDecimal("280.00");
+        record.effectiveStatus = "CURRENT";
+        return record;
+    }
+
+    private String tinyPngDataUrl() throws Exception {
+        return pngDataUrl(1, 1);
+    }
+
+    private String pngDataUrl(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        for (int x = 0; x < width; x++) {
+            for (int y = 0; y < height; y++) {
+                image.setRGB(x, y, 0xFF4F46E5);
+            }
+        }
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", output);
+        return "data:image/png;base64," + Base64.getEncoder().encodeToString(output.toByteArray());
+    }
+
+    private HSSFClientAnchor firstPictureAnchor(HSSFSheet sheet) {
+        return (HSSFClientAnchor) ((HSSFPicture) sheet.getDrawingPatriarch().getChildren().get(0)).getAnchor();
+    }
+
+    private double yiteImageColumnWidthPx(HSSFSheet sheet) {
+        return sheet.getColumnWidth(11) / 256D * 7D;
+    }
+
+    private double yiteImageRowHeightPx(Row row) {
+        return row.getHeightInPoints() * 96D / 72D;
+    }
+
+    private int nonTransparentWidth(BufferedImage image) {
+        int minX = image.getWidth();
+        int maxX = -1;
+        for (int x = 0; x < image.getWidth(); x++) {
+            for (int y = 0; y < image.getHeight(); y++) {
+                if (((image.getRGB(x, y) >>> 24) & 0xFF) > 0) {
+                    minX = Math.min(minX, x);
+                    maxX = Math.max(maxX, x);
+                }
+            }
+        }
+        return maxX < minX ? 0 : maxX - minX + 1;
+    }
+
+    private int nonTransparentHeight(BufferedImage image) {
+        int minY = image.getHeight();
+        int maxY = -1;
+        for (int x = 0; x < image.getWidth(); x++) {
+            for (int y = 0; y < image.getHeight(); y++) {
+                if (((image.getRGB(x, y) >>> 24) & 0xFF) > 0) {
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+        }
+        return maxY < minY ? 0 : maxY - minY + 1;
+    }
+
+    private byte[] quoteWorkbookBytes() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("物流报价确认");
+            Row header = sheet.createRow(0);
+            String[] headers = {
+                    "报价行ID", "采购单ID", "采购商品ID", "采购站点行ID", "采购单号", "采购单名", "站点", "运输方式",
+                    "商品SKU", "PSKU", "商品名称", "数量", "履约方式", "新品", "报价状态", "提交发货状态",
+                    "货代编码", "货代名称", "路线编码", "路线名称", "服务编码", "服务名称", "币种", "单价",
+                    "计费单位", "确认金额", "物流备注"
+            };
+            for (int i = 0; i < headers.length; i++) {
+                header.createCell(i).setCellValue(headers[i]);
+            }
+            Row row = sheet.createRow(1);
+            row.createCell(0).setCellValue("280001");
+            row.createCell(1).setCellValue("200001");
+            row.createCell(2).setCellValue("210001");
+            row.createCell(3).setCellValue("220002");
+            row.createCell(4).setCellValue("PO-200001");
+            row.createCell(5).setCellValue("SGGR-0607");
+            row.createCell(6).setCellValue("SA");
+            row.createCell(7).setCellValue("AIR");
+            row.createCell(8).setCellValue("SGGRB115");
+            row.createCell(9).setCellValue("SGGRB115");
+            row.createCell(10).setCellValue("测试商品");
+            row.createCell(11).setCellValue(20);
+            row.createCell(12).setCellValue("到仓");
+            row.createCell(13).setCellValue("是");
+            row.createCell(14).setCellValue("已确认");
+            row.createCell(15).setCellValue("未提交");
+            row.createCell(16).setCellValue("ET");
+            row.createCell(17).setCellValue("易通");
+            row.createCell(18).setCellValue("ET-SA-AIR");
+            row.createCell(19).setCellValue("易通空运");
+            row.createCell(20).setCellValue("ET-AIR-202606");
+            row.createCell(21).setCellValue("易通空运普货");
+            row.createCell(22).setCellValue("RMB");
+            row.createCell(23).setCellValue(12.50);
+            row.createCell(24).setCellValue("KG");
+            row.createCell(25).setCellValue(250.00);
+            row.createCell(26).setCellValue("物流已确认");
+            workbook.write(output);
+            return output.toByteArray();
+        }
+    }
+
+    private byte[] yiteTemplateWorkbookBytes() throws Exception {
+        try (HSSFWorkbook workbook = new HSSFWorkbook();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("模板");
+            sheet.createRow(1).createCell(1).setCellValue("沙特海运双清");
+            Row header = sheet.createRow(22);
+            String[] headers = {
+                    "货箱编号*", "货箱重量(KG)*", "货箱长度(CM)*", "货箱宽度(CM)*", "货箱高度(CM)*",
+                    "产品SKU*", "产品英文品名*", "产品中文品名*", "产品申报数量*", "产品申报单价*",
+                    "产品材质*", "产品图片", "产品品牌", "产品型号", "产品海关编码", "历史报价", "最新报价"
+            };
+            for (int i = 0; i < headers.length; i++) {
+                header.createCell(i).setCellValue(headers[i]);
+            }
+            Row row = sheet.createRow(23);
+            row.createCell(0).setCellValue("1/1");
+            row.createCell(1).setCellValue(8);
+            row.createCell(2).setCellValue(40);
+            row.createCell(3).setCellValue(40);
+            row.createCell(4).setCellValue(40);
+            row.createCell(5).setCellValue("SGGRB115");
+            row.createCell(6).setCellValue("Orange Medium Marker Storage Box");
+            row.createCell(7).setCellValue("测试商品");
+            row.createCell(8).setCellValue(20);
+            row.createCell(9).setCellValue(12.50);
+            row.createCell(10).setCellValue("塑料");
+            row.createCell(20).setCellValue("280001");
+            row.createCell(21).setCellValue("200001");
+            row.createCell(22).setCellValue("210001");
+            row.createCell(23).setCellValue("220002");
+            row.createCell(24).setCellValue("YT");
+            workbook.write(output);
+            return output.toByteArray();
+        }
+    }
+
+    private byte[] yiteTemplateWorkbookWithoutHiddenIdsBytes() throws Exception {
+        try (HSSFWorkbook workbook = new HSSFWorkbook();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("模板");
+            sheet.createRow(1).createCell(1).setCellValue("沙特海运双清");
+            Row header = sheet.createRow(22);
+            String[] headers = {
+                    "货箱编号*", "货箱重量(KG)*", "货箱长度(CM)*", "货箱宽度(CM)*", "货箱高度(CM)*",
+                    "产品SKU*", "产品英文品名*", "产品中文品名*", "产品申报数量*", "产品申报单价*",
+                    "产品材质*", "产品图片", "产品品牌", "产品型号", "产品海关编码"
+            };
+            for (int i = 0; i < headers.length; i++) {
+                header.createCell(i).setCellValue(headers[i]);
+            }
+            Row row = sheet.createRow(23);
+            row.createCell(5).setCellValue("BARCODE-115");
+            row.createCell(6).setCellValue("Orange Medium Marker Storage Box");
+            row.createCell(7).setCellValue("测试商品");
+            row.createCell(8).setCellValue(20);
+            row.createCell(16).setCellValue(13.50);
+            workbook.write(output);
+            return output.toByteArray();
+        }
+    }
+
+    private byte[] etTemplateWorkbookBytes() throws Exception {
+        try (XSSFWorkbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            org.apache.poi.ss.usermodel.Sheet sheet = workbook.createSheet("装箱清单");
+            sheet.createRow(0).createCell(0).setCellValue("填表说明 1 1 该表格用于产品信息和装箱清单同时导入");
+            Row header = sheet.createRow(1);
+            String[] headers = {
+                    "箱号", "*长(CM)", "*宽(CM)", "*高(CM)", "*重量(KG)", "*每箱数量",
+                    "*商家条码", "款号", "*英文简称", "*中文品名", "*申报单价($)", "*实物品牌",
+                    "平台品牌", "*图片", "*材质", "*是否带电", "*是否带磁", "*是否带蓝牙",
+                    "*是否带液体", "*是否带粉末", "用途"
+            };
+            for (int i = 0; i < headers.length; i++) {
+                header.createCell(i).setCellValue(headers[i]);
+            }
+            String[] hiddenHeaders = {
+                    "Nuono报价行ID", "Nuono采购单ID", "Nuono采购商品ID", "Nuono采购站点行ID",
+                    "Nuono货代编码", "Nuono货代名称", "Nuono路线编码", "Nuono路线名称",
+                    "Nuono服务编码", "Nuono服务名称", "货代确认单价", "计费单位", "确认金额", "物流备注"
+            };
+            for (int i = 0; i < hiddenHeaders.length; i++) {
+                header.createCell(52 + i).setCellValue(hiddenHeaders[i]);
+                sheet.setColumnHidden(52 + i, true);
+            }
+            Row row = sheet.createRow(2);
+            row.createCell(0).setCellValue("1/1");
+            row.createCell(1).setCellValue(50);
+            row.createCell(2).setCellValue(40);
+            row.createCell(3).setCellValue(30);
+            row.createCell(4).setCellValue(10);
+            row.createCell(5).setCellValue(20);
+            row.createCell(6).setCellValue("SGGRB115");
+            row.createCell(7).setCellValue("SGGRB115");
+            row.createCell(8).setCellValue("Orange Medium Marker Storage Box");
+            row.createCell(9).setCellValue("测试商品");
+            row.createCell(10).setCellValue(1);
+            row.createCell(11).setCellValue("paper says");
+            row.createCell(12).setCellValue("paper says");
+            row.createCell(14).setCellValue("塑料");
+            row.createCell(15).setCellValue("否");
+            row.createCell(16).setCellValue("否");
+            row.createCell(17).setCellValue("否");
+            row.createCell(18).setCellValue("否");
+            row.createCell(19).setCellValue("否");
+            row.createCell(52).setCellValue("280001");
+            row.createCell(53).setCellValue("200001");
+            row.createCell(54).setCellValue("210001");
+            row.createCell(55).setCellValue("220002");
+            row.createCell(56).setCellValue("ET");
+            row.createCell(57).setCellValue("易通物流");
+            row.createCell(58).setCellValue("ET-SAU-SEA-FBN-RUH-20260604");
+            row.createCell(59).setCellValue("易通沙特海运仓到仓 20260604");
+            row.createCell(60).setCellValue("ET-SAU-SEA-WH-20260604");
+            row.createCell(61).setCellValue("易通沙特海运仓到仓 20260604");
+
+            org.apache.poi.ss.usermodel.Sheet guide = workbook.createSheet("填表指南");
+            guide.createRow(0).createCell(0).setCellValue("填表说明");
+            Row guideHeader = guide.createRow(1);
+            for (int i = 0; i < headers.length; i++) {
+                guideHeader.createCell(i).setCellValue(headers[i]);
+            }
+            Row guideExample = guide.createRow(2);
+            guideExample.createCell(0).setCellValue("1/20-18/20");
+            guideExample.createCell(1).setCellValue(50);
+            guideExample.createCell(2).setCellValue(50);
+            guideExample.createCell(3).setCellValue(50);
+            guideExample.createCell(4).setCellValue(10);
+            guideExample.createCell(5).setCellValue(10);
+            guideExample.createCell(6).setCellValue("bh088");
+            guideExample.createCell(7).setCellValue("bh088");
+            guideExample.createCell(8).setCellValue("T-shirt");
+            guideExample.createCell(9).setCellValue("T恤");
+            guideExample.createCell(10).setCellValue(1);
+            guideExample.createCell(11).setCellValue("Basaa");
+            guideExample.createCell(12).setCellValue("Basaa");
+            guideExample.createCell(14).setCellValue("锦纶");
+            guideExample.createCell(15).setCellValue("否");
+            guideExample.createCell(16).setCellValue("否");
+            guideExample.createCell(17).setCellValue("否");
+            guideExample.createCell(18).setCellValue("否");
+            guideExample.createCell(19).setCellValue("否");
+
+            workbook.createSheet("仓单地址及须知");
+            workbook.write(output);
+            return output.toByteArray();
+        }
     }
 
     private PurchaseOrderAli1688PurchaseBatchRow purchaseBatchRow() {

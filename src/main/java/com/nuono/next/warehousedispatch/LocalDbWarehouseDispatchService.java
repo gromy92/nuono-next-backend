@@ -90,6 +90,9 @@ public class LocalDbWarehouseDispatchService {
     private static final String TRANSPORT_AIR = "AIR";
     private static final String TRANSPORT_SEA = "SEA";
     private static final String TRANSPORT_UNSPECIFIED = "UNSPECIFIED";
+    private static final String LOGISTICS_QUOTE_CONFIRMED = "CONFIRMED";
+    private static final String SHIPPING_SUBMITTED = "SUBMITTED";
+    private static final String LOGISTICS_QUOTE_BLOCK_MESSAGE = "物流报价未确认或运营未提交发货，仓库暂不能装箱。";
     private static final BigDecimal CUBIC_CM_PER_CBM = BigDecimal.valueOf(1_000_000L);
     private static final BigDecimal GRAMS_PER_KG = BigDecimal.valueOf(1_000L);
     private static final BigDecimal DEFAULT_AIR_VOLUME_DIVISOR = BigDecimal.valueOf(5000L);
@@ -301,14 +304,15 @@ public class LocalDbWarehouseDispatchService {
             if (!canAccessSourceStore(access, row.sourceStoreCode)) {
                 continue;
             }
-            PurchaseReceiptOrderView order = byOrder.computeIfAbsent(row.orderId, ignored -> {
+            Long receiptSourceId = row.receiptSourceId == null ? row.orderId : row.receiptSourceId;
+            PurchaseReceiptOrderView order = byOrder.computeIfAbsent(receiptSourceId, ignored -> {
                 PurchaseReceiptOrderView view = new PurchaseReceiptOrderView();
-                view.id = String.valueOf(row.orderId);
-                view.orderNo = row.orderNo;
-                view.title = row.orderTitle;
-                view.storeName = row.storeName;
-                view.storeCode = row.sourceStoreCode;
-                view.createdAt = row.createdAt;
+                view.id = String.valueOf(receiptSourceId);
+                view.orderNo = defaultText(row.receiptSourceNo, row.orderNo);
+                view.title = defaultText(row.receiptSourceTitle, row.orderTitle);
+                view.storeName = defaultText(row.receiptSourceStoreName, row.storeName);
+                view.storeCode = defaultText(row.receiptSourceStoreCode, row.sourceStoreCode);
+                view.createdAt = defaultText(row.receiptSourceCreatedAt, row.createdAt);
                 return view;
             });
             order.items.add(toReceiptItemView(row));
@@ -364,6 +368,11 @@ public class LocalDbWarehouseDispatchService {
             });
             view.isNewProduct = Boolean.TRUE.equals(view.isNewProduct) || Boolean.TRUE.equals(balance.isNewProduct);
             view.manualConfirmRequired = Boolean.TRUE.equals(view.manualConfirmRequired) || requiresManualConfirm(balance);
+            view.logisticsQuoteBlocking =
+                    Boolean.TRUE.equals(view.logisticsQuoteBlocking) || logisticsQuoteBlocks(balance);
+            view.logisticsQuoteStatus = mergedQuoteStatus(view.logisticsQuoteStatus, balance.logisticsQuoteStatus);
+            view.logisticsShippingSubmitStatus =
+                    mergedShippingSubmitStatus(view.logisticsShippingSubmitStatus, balance.logisticsShippingSubmitStatus);
             view.availableQuantity += nonNull(balance.availableQuantity);
             view.sources.add(toReadySourceView(balance));
         }
@@ -440,6 +449,9 @@ public class LocalDbWarehouseDispatchService {
             List<DispatchPlanSourceCommand> sourceCommands = requested.get(balance.id);
             if (!canUseBalance(access, balance)) {
                 throw new IllegalArgumentException("当前账号不能发运所选来源。");
+            }
+            if (logisticsQuoteBlocks(balance)) {
+                throw new IllegalArgumentException(LOGISTICS_QUOTE_BLOCK_MESSAGE);
             }
             int totalQuantity = sourceCommands.stream().mapToInt(source -> nonNull(source.quantity)).sum();
             if (totalQuantity > nonNull(balance.availableQuantity)) {
@@ -544,6 +556,9 @@ public class LocalDbWarehouseDispatchService {
         for (FulfillmentBalanceRecord balance : balances) {
             if (!canUseBalance(access, balance)) {
                 throw new IllegalArgumentException("当前账号不能发运所选来源。");
+            }
+            if (logisticsQuoteBlocks(balance)) {
+                throw new IllegalArgumentException(LOGISTICS_QUOTE_BLOCK_MESSAGE);
             }
             int quantity = requested.getOrDefault(balance.id, 0);
             if (quantity <= 0 || quantity > nonNull(balance.availableQuantity)) {
@@ -779,6 +794,9 @@ public class LocalDbWarehouseDispatchService {
         );
         if (!"DRAFT".equals(outboundOrder.status) && !"PACKING".equals(outboundOrder.status)) {
             throw new IllegalArgumentException("只有草稿或装箱中的出库单可以创建装箱单。");
+        }
+        if (mapper.countBlockingOutboundOrderLogisticsQuotes(outboundOrder.id) > 0) {
+            throw new IllegalArgumentException(LOGISTICS_QUOTE_BLOCK_MESSAGE);
         }
 
         Long operatorUserId = access.getSessionUserId();
@@ -1103,6 +1121,9 @@ public class LocalDbWarehouseDispatchService {
         source.purchaseOrderItemId = balance.purchaseOrderItemId;
         source.purchaseOrderItemSiteId = balance.purchaseOrderItemSiteId;
         source.plannedTransportMode = normalizeTransportMode(balance.plannedTransportMode);
+        source.logisticsQuoteStatus = normalizeLogisticsQuoteStatus(balance.logisticsQuoteStatus);
+        source.logisticsShippingSubmitStatus = normalizeShippingSubmitStatus(balance.logisticsShippingSubmitStatus);
+        source.logisticsQuoteBlocking = logisticsQuoteBlocks(balance);
         source.availableQuantity = nonNull(balance.availableQuantity);
         return source;
     }
@@ -1112,6 +1133,7 @@ public class LocalDbWarehouseDispatchService {
         view.id = String.valueOf(row.itemId);
         view.orderId = String.valueOf(row.orderId);
         view.orderNo = row.orderNo;
+        view.purchaseOrderTitle = row.orderTitle;
         view.storeName = row.storeName;
         view.psku = row.partnerSku;
         view.title = defaultText(row.titleCache, row.partnerSku);
@@ -1325,6 +1347,9 @@ public class LocalDbWarehouseDispatchService {
         record.productHeightCm = balance.productHeightCm;
         record.productWeightG = balance.productWeightG;
         record.logisticsProfileStatus = balance.logisticsProfileStatus;
+        record.logisticsQuoteStatus = normalizeLogisticsQuoteStatus(balance.logisticsQuoteStatus);
+        record.logisticsShippingSubmitStatus = normalizeShippingSubmitStatus(balance.logisticsShippingSubmitStatus);
+        record.logisticsQuoteBlocking = logisticsQuoteBlocks(balance);
         List<String> sensitiveReasons = sensitiveReasons(balance);
         record.sensitiveFlag = !sensitiveReasons.isEmpty();
         record.sensitiveReasonJson = sensitiveReasons.isEmpty() ? null : writeJson(sensitiveReasons);
@@ -1774,6 +1799,9 @@ public class LocalDbWarehouseDispatchService {
         view.logisticsProfileStatus = source.logisticsProfileStatus;
         view.sensitiveFlag = Boolean.TRUE.equals(source.sensitiveFlag);
         view.sensitiveReasons.addAll(readJsonStringList(source.sensitiveReasonJson));
+        view.logisticsQuoteStatus = normalizeLogisticsQuoteStatus(source.logisticsQuoteStatus);
+        view.logisticsShippingSubmitStatus = normalizeShippingSubmitStatus(source.logisticsShippingSubmitStatus);
+        view.logisticsQuoteBlocking = Boolean.TRUE.equals(source.logisticsQuoteBlocking);
         view.reservedQuantity = nonNull(source.reservedQuantity);
         return view;
     }
@@ -2224,6 +2252,36 @@ public class LocalDbWarehouseDispatchService {
         return balance != null
                 && ownerUserId(access).equals(balance.ownerUserId)
                 && canAccessSourceStore(access, balance.sourceStoreCode);
+    }
+
+    private boolean logisticsQuoteBlocks(FulfillmentBalanceRecord balance) {
+        return balance == null
+                || !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(balance.logisticsQuoteStatus))
+                || !SHIPPING_SUBMITTED.equals(normalizeShippingSubmitStatus(balance.logisticsShippingSubmitStatus));
+    }
+
+    private String normalizeLogisticsQuoteStatus(String value) {
+        String normalized = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";
+        return LOGISTICS_QUOTE_CONFIRMED.equals(normalized) ? LOGISTICS_QUOTE_CONFIRMED : "PENDING_QUOTE";
+    }
+
+    private String normalizeShippingSubmitStatus(String value) {
+        String normalized = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";
+        return SHIPPING_SUBMITTED.equals(normalized) ? SHIPPING_SUBMITTED : "NOT_SUBMITTED";
+    }
+
+    private String mergedQuoteStatus(String current, String next) {
+        if (!LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(next))) {
+            return "PENDING_QUOTE";
+        }
+        return current == null ? LOGISTICS_QUOTE_CONFIRMED : normalizeLogisticsQuoteStatus(current);
+    }
+
+    private String mergedShippingSubmitStatus(String current, String next) {
+        if (!SHIPPING_SUBMITTED.equals(normalizeShippingSubmitStatus(next))) {
+            return "NOT_SUBMITTED";
+        }
+        return current == null ? SHIPPING_SUBMITTED : normalizeShippingSubmitStatus(current);
     }
 
     private boolean canAccessSourceStore(BusinessAccessContext access, String storeCode) {

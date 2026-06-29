@@ -216,6 +216,272 @@ public final class ProcurementPurchaseOrderRecords {
         public String remark;
     }
 
+    public static class PurchaseOrderLogisticsQuoteLineRecord {
+        public Long id;
+        public Long ownerUserId;
+        public Long logicalStoreId;
+        public Long shippingOrderId;
+        public String shippingOrderNo;
+        public Long shippingOrderSegmentId;
+        public String shippingOrderSegmentNo;
+        public Long shippingOrderLineId;
+        public Long purchaseOrderId;
+        public String purchaseOrderNo;
+        public String purchaseOrderTitle;
+        public Long purchaseOrderItemId;
+        public Long purchaseOrderItemSiteId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String skuParent;
+        public String partnerSku;
+        public String barcode;
+        public String titleCache;
+        public String titleEn;
+        public String imageUrlCache;
+        public String brandName;
+        public String siteCode;
+        public String pskuCode;
+        public String yiteMaterial;
+        public String plannedTransportMode;
+        public Integer quantity;
+        public String fulfillmentType;
+        public Boolean isNewProduct;
+        public String quoteStatus;
+        public String shippingSubmitStatus;
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String currency;
+        public BigDecimal unitPrice;
+        public String billingUnit;
+        public BigDecimal estimatedAmount;
+        public String remark;
+        public BigDecimal productLengthCm;
+        public BigDecimal productWidthCm;
+        public BigDecimal productHeightCm;
+        public BigDecimal productWeightG;
+        public BigDecimal cartonLengthCm;
+        public BigDecimal cartonWidthCm;
+        public BigDecimal cartonHeightCm;
+        public BigDecimal cartonWeightKg;
+        public Integer cartonQuantity;
+        public String exportedAt;
+        public String confirmedAt;
+        public String shippingSubmittedAt;
+    }
+
+    public static class ProductForwarderChannelQuoteRecord {
+        public Long id;
+        public Long ownerUserId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String barcode;
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String siteCode;
+        public String transportMode;
+        public String targetPlatform;
+        public String deliveryCity;
+        public String currency;
+        public BigDecimal unitPrice;
+        public String billingUnit;
+        public BigDecimal estimatedAmount;
+        public String sourceType;
+        public Long sourceShippingOrderId;
+        public Long sourceShippingOrderLineId;
+        public Long sourceQuoteLineId;
+        public Long sourceActualBillId;
+        public Long sourceActualComponentId;
+        public String sourceFilename;
+        public String effectiveStatus;
+        public String rawSnapshotJson;
+    }
+
+    public static class LogisticsExpectedBillRecord {
+        public Long id;
+        public Long ownerUserId;
+        public String expectedBillNo;
+        public Long shippingOrderId;
+        public String shippingOrderNo;
+        public String shippingOrderTitle;
+        public Long shippingOrderSegmentId;
+        public String shippingOrderSegmentNo;
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String transportMode;
+        public String currency;
+        public BigDecimal exchangeRateToCny;
+        public BigDecimal expectedTotalAmount;
+        public BigDecimal expectedTotalCny;
+        public Integer componentCount;
+        public String billStatus;
+        public String generatedFrom;
+        public String reconciliationStatus;
+        public BigDecimal actualTotalCny;
+        public BigDecimal diffAmountCny;
+        public String createdAt;
+        public String updatedAt;
+        public String rawSnapshotJson;
+    }
+
+    public static class LogisticsExpectedBillComponentRecord {
+        public Long id;
+        public Long ownerUserId;
+        public Long expectedBillId;
+        public Long shippingOrderId;
+        public Long shippingOrderSegmentId;
+        public Long shippingOrderLineId;
+        public Long quoteLineId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String barcode;
+        public String pskuCode;
+        public String siteCode;
+        public String boxNo;
+        public String feeType;
+        public String rawFeeName;
+        public BigDecimal quantity;
+        public BigDecimal chargeQuantity;
+        public String chargeUnit;
+        public BigDecimal unitPrice;
+        public String currency;
+        public BigDecimal exchangeRateToCny;
+        public BigDecimal expectedAmount;
+        public BigDecimal expectedAmountCny;
+        public String allocationBasis;
+        public String rawSnapshotJson;
+    }
+
+    public static class LogisticsBillReconciliationRecord {
+        public Long id;
+        public Long ownerUserId;
+        public Long shippingOrderId;
+        public Long shippingOrderSegmentId;
+        public Long expectedBillId;
+        public Long actualBillId;
+        public String reconciliationNo;
+        public String reconciliationStatus;
+        public BigDecimal expectedTotalCny;
+        public BigDecimal actualTotalCny;
+        public BigDecimal diffAmountCny;
+        public BigDecimal diffRate;
+        public Integer matchedComponentCount;
+        public Integer unmatchedExpectedCount;
+        public Integer unmatchedActualCount;
+        public String summaryJson;
+    }
+
+    public static class ShippingOrderRecord {
+        public Long id;
+        public Long ownerUserId;
+        public String shippingOrderNo;
+        public String title;
+        public String status;
+        public Integer purchaseOrderCount;
+        public Integer lineCount;
+        public Integer skuCount;
+        public Integer totalQuantity;
+        public Integer missingYiteMaterialCount;
+        public String storeSummaryJson;
+        public String siteSummaryJson;
+        public String transportSummaryJson;
+        public String quoteStatus;
+        public String shippingSubmitStatus;
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String submittedAt;
+        public String remark;
+        public String createdAt;
+        public String updatedAt;
+    }
+
+    public static class ShippingOrderSegmentRecord {
+        public Long id;
+        public Long shippingOrderId;
+        public Long ownerUserId;
+        public String segmentNo;
+        public String siteCode;
+        public String transportMode;
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String quoteStatus;
+        public String shippingSubmitStatus;
+        public Integer lineCount;
+        public Integer skuCount;
+        public Integer totalQuantity;
+        public Integer missingYiteMaterialCount;
+        public String submittedAt;
+        public String createdAt;
+        public String updatedAt;
+    }
+
+    public static class ShippingOrderLineRecord {
+        public Long id;
+        public Long shippingOrderId;
+        public Long shippingOrderSegmentId;
+        public String shippingOrderSegmentNo;
+        public Long ownerUserId;
+        public Long logicalStoreId;
+        public String sourceStoreCode;
+        public String sourceStoreName;
+        public Long purchaseOrderId;
+        public String purchaseOrderNo;
+        public String purchaseOrderTitle;
+        public Long purchaseOrderItemId;
+        public Long purchaseOrderItemSiteId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String skuParent;
+        public String partnerSku;
+        public String barcode;
+        public String titleCache;
+        public String titleEn;
+        public String imageUrlCache;
+        public String siteCode;
+        public String pskuCode;
+        public String yiteMaterial;
+        public String plannedTransportMode;
+        public Integer quantity;
+        public String fulfillmentType;
+        public Long quoteLineId;
+        public String quoteStatus;
+        public String shippingSubmitStatus;
+    }
+
+    public static class ProductForwarderDeclarationAttributeRecord {
+        public Long id;
+        public Long ownerUserId;
+        public Long productMasterId;
+        public Long productVariantId;
+        public String barcode;
+        public String forwarderCode;
+        public String attributeCode;
+        public String attributeValue;
+        public Long sourceShippingOrderId;
+        public Long sourceShippingOrderLineId;
+        public String createdAt;
+        public String updatedAt;
+    }
+
     public static class PurchaseOrderAli1688HistoryRow {
         public Long allocationId;
         public Long orderId;

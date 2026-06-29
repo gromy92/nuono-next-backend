@@ -8,13 +8,22 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.Forwarder
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderSeaRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderTransportFeeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderWarehouseProcessingFeeRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsBillReconciliationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsCostComponentInsertRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsExpectedBillComponentRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsExpectedBillRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsRecommendationInsertRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688HistoryRow;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688PurchaseBatchRow;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemSiteRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderChannelQuoteRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderDeclarationAttributeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderLineRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderSegmentRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.StoreScopeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.StoreSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderSourcingRequirement;
@@ -114,6 +123,42 @@ public interface ProcurementPurchaseOrderMapper {
 
     default Long nextLogisticsCostComponentId() {
         return nextId("procurement_purchase_order_logistics_cost_component", 270000L);
+    }
+
+    default Long nextLogisticsQuoteLineId() {
+        return nextId("procurement_purchase_order_logistics_quote_line", 280000L);
+    }
+
+    default Long nextShippingOrderId() {
+        return nextId("procurement_shipping_order", 290000L);
+    }
+
+    default Long nextShippingOrderSegmentId() {
+        return nextId("procurement_shipping_order_segment", 292000L);
+    }
+
+    default Long nextShippingOrderLineId() {
+        return nextId("procurement_shipping_order_line", 300000L);
+    }
+
+    default Long nextProductForwarderDeclarationAttributeId() {
+        return nextId("product_forwarder_declaration_attribute", 310000L);
+    }
+
+    default Long nextProductForwarderChannelQuoteId() {
+        return nextId("product_forwarder_channel_quote", 320000L);
+    }
+
+    default Long nextLogisticsExpectedBillId() {
+        return nextId("logistics_expected_bill", 330000L);
+    }
+
+    default Long nextLogisticsExpectedBillComponentId() {
+        return nextId("logistics_expected_bill_component", 340000L);
+    }
+
+    default Long nextLogisticsBillReconciliationId() {
+        return nextId("logistics_bill_reconciliation", 360000L);
     }
 
     @Select({
@@ -578,6 +623,17 @@ public interface ProcurementPurchaseOrderMapper {
 
     @Update({
             "UPDATE procurement_purchase_order",
+            "SET status = 'SUBMITTED',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{orderId}",
+            "  AND status <> 'SUBMITTED'",
+            "  AND is_deleted = b'0'"
+    })
+    int submitOrder(@Param("orderId") Long orderId, @Param("updatedBy") Long updatedBy);
+
+    @Update({
+            "UPDATE procurement_purchase_order",
             "SET site_codes_json = #{siteCodesJson},",
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
@@ -600,6 +656,17 @@ public interface ProcurementPurchaseOrderMapper {
             ORDER_SELECT,
             "WHERE po.logical_store_id = #{logicalStoreId}",
             "  AND po.is_deleted = b'0'",
+            "<if test='submittedOnly != null and submittedOnly'>",
+            "  AND po.status = 'SUBMITTED'",
+            "</if>",
+            "<if test='shippingAvailableOnly != null and shippingAvailableOnly'>",
+            "  AND NOT EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_shipping_order_line sol",
+            "      WHERE sol.purchase_order_id = po.id",
+            "        AND sol.is_deleted = b'0'",
+            "  )",
+            "</if>",
             "<if test='keyword != null and keyword != \"\"'>",
             "  AND (po.order_no LIKE CONCAT('%', #{keyword}, '%')",
             "       OR po.title LIKE CONCAT('%', #{keyword}, '%')",
@@ -619,6 +686,54 @@ public interface ProcurementPurchaseOrderMapper {
     List<PurchaseOrderRecord> listOrders(
             @Param("logicalStoreId") Long logicalStoreId,
             @Param("keyword") String keyword,
+            @Param("submittedOnly") Boolean submittedOnly,
+            @Param("shippingAvailableOnly") Boolean shippingAvailableOnly,
+            @Param("limit") Integer limit
+    );
+
+    @Select({
+            "<script>",
+            ORDER_SELECT,
+            "WHERE po.owner_user_id = #{ownerUserId}",
+            "  AND po.is_deleted = b'0'",
+            "<if test='submittedOnly != null and submittedOnly'>",
+            "  AND po.status = 'SUBMITTED'",
+            "</if>",
+            "<if test='shippingAvailableOnly != null and shippingAvailableOnly'>",
+            "  AND NOT EXISTS (",
+            "      SELECT 1",
+            "      FROM procurement_shipping_order_line sol",
+            "      WHERE sol.purchase_order_id = po.id",
+            "        AND sol.is_deleted = b'0'",
+            "  )",
+            "</if>",
+            "<if test='storeCodes != null and storeCodes.size() &gt; 0'>",
+            "  AND po.anchor_store_code_cache IN",
+            "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>#{storeCode}</foreach>",
+            "</if>",
+            "<if test='keyword != null and keyword != \"\"'>",
+            "  AND (po.order_no LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR po.title LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR po.project_name_cache LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR EXISTS (",
+            "           SELECT 1 FROM procurement_purchase_order_item item",
+            "           WHERE item.purchase_order_id = po.id",
+            "             AND item.is_deleted = b'0'",
+            "             AND (item.partner_sku LIKE CONCAT('%', #{keyword}, '%')",
+            "                  OR item.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
+            "                  OR item.title_cache LIKE CONCAT('%', #{keyword}, '%'))",
+            "       ))",
+            "</if>",
+            "ORDER BY po.gmt_create DESC, po.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<PurchaseOrderRecord> listOrdersByOwner(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCodes") java.util.Collection<String> storeCodes,
+            @Param("keyword") String keyword,
+            @Param("submittedOnly") Boolean submittedOnly,
+            @Param("shippingAvailableOnly") Boolean shippingAvailableOnly,
             @Param("limit") Integer limit
     );
 
@@ -711,6 +826,677 @@ public interface ProcurementPurchaseOrderMapper {
             "ORDER BY purchase_order_item_id ASC, site_code ASC, transport_mode ASC"
     })
     List<PurchaseOrderItemSiteRecord> listItemSitesByOrder(@Param("orderId") Long orderId);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM procurement_shipping_order_line",
+            "WHERE purchase_order_item_site_id IN",
+            "  <foreach collection='itemSiteIds' item='itemSiteId' open='(' separator=',' close=')'>#{itemSiteId}</foreach>",
+            "  AND is_deleted = b'0'",
+            "</script>"
+    })
+    int countActiveShippingOrderLinesByItemSites(@Param("itemSiteIds") List<Long> itemSiteIds);
+
+    @Insert({
+            "INSERT INTO procurement_shipping_order (",
+            "id, owner_user_id, shipping_order_no, title, status, purchase_order_count, line_count, sku_count, total_quantity,",
+            "store_summary_json, site_summary_json, transport_summary_json, quote_status, shipping_submit_status, remark,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.shippingOrderNo}, #{row.title}, #{row.status},",
+            "#{row.purchaseOrderCount}, #{row.lineCount}, #{row.skuCount}, #{row.totalQuantity},",
+            "#{row.storeSummaryJson}, #{row.siteSummaryJson}, #{row.transportSummaryJson}, #{row.quoteStatus},",
+            "#{row.shippingSubmitStatus}, #{row.remark}, b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
+    })
+    int insertShippingOrder(
+            @Param("row") ShippingOrderRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO procurement_shipping_order_segment (",
+            "id, shipping_order_id, owner_user_id, segment_no, site_code, transport_mode,",
+            "quote_status, shipping_submit_status, line_count, sku_count, total_quantity, missing_yite_material_count,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.shippingOrderId}, #{row.ownerUserId}, #{row.segmentNo}, #{row.siteCode}, #{row.transportMode},",
+            "#{row.quoteStatus}, #{row.shippingSubmitStatus}, #{row.lineCount}, #{row.skuCount}, #{row.totalQuantity}, #{row.missingYiteMaterialCount},",
+            "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
+    })
+    int insertShippingOrderSegment(
+            @Param("row") ShippingOrderSegmentRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_shipping_order",
+            "SET title = #{title},",
+            "    remark = #{remark},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{shippingOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateShippingOrderHeader(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("title") String title,
+            @Param("remark") String remark,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO procurement_shipping_order_line (",
+            "id, shipping_order_id, shipping_order_segment_id, owner_user_id, logical_store_id, source_store_code, source_store_name,",
+            "purchase_order_id, purchase_order_no, purchase_order_title, purchase_order_item_id, purchase_order_item_site_id,",
+            "product_master_id, product_variant_id, sku_parent, partner_sku, title_cache, image_url_cache,",
+            "site_code, psku_code, yite_material, planned_transport_mode, quantity, fulfillment_type, quote_line_id,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.shippingOrderId}, #{row.shippingOrderSegmentId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.sourceStoreCode},",
+            "#{row.sourceStoreName}, #{row.purchaseOrderId}, #{row.purchaseOrderNo}, #{row.purchaseOrderTitle},",
+            "#{row.purchaseOrderItemId}, #{row.purchaseOrderItemSiteId}, #{row.productMasterId}, #{row.productVariantId},",
+            "#{row.skuParent}, #{row.partnerSku}, #{row.titleCache}, #{row.imageUrlCache}, #{row.siteCode},",
+            "#{row.pskuCode}, #{row.yiteMaterial}, #{row.plannedTransportMode}, #{row.quantity}, #{row.fulfillmentType}, #{row.quoteLineId},",
+            "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
+    })
+    int insertShippingOrderLine(
+            @Param("row") ShippingOrderLineRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_shipping_order_line",
+            "SET quote_line_id = #{quoteLineId},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE shipping_order_id = #{shippingOrderId}",
+            "  AND purchase_order_item_site_id = #{itemSiteId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateShippingOrderLineQuoteLine(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("itemSiteId") Long itemSiteId,
+            @Param("quoteLineId") Long quoteLineId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_shipping_order_line",
+            "SET yite_material = #{yiteMaterial},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{shippingOrderLineId}",
+            "  AND shipping_order_id = #{shippingOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateShippingOrderLineYiteMaterial(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("shippingOrderLineId") Long shippingOrderLineId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("yiteMaterial") String yiteMaterial,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_purchase_order_logistics_quote_line quote",
+            "JOIN procurement_shipping_order_line sol",
+            "  ON sol.shipping_order_id = quote.shipping_order_id",
+            " AND sol.purchase_order_item_site_id = quote.purchase_order_item_site_id",
+            " AND sol.is_deleted = b'0'",
+            "SET quote.yite_material = #{yiteMaterial},",
+            "    quote.updated_by = #{operatorUserId},",
+            "    quote.gmt_updated = NOW()",
+            "WHERE sol.id = #{shippingOrderLineId}",
+            "  AND sol.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.owner_user_id = #{ownerUserId}",
+            "  AND quote.is_deleted = b'0'"
+    })
+    int updateShippingOrderQuoteLineYiteMaterial(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("shippingOrderLineId") Long shippingOrderLineId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("yiteMaterial") String yiteMaterial,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "<script>",
+            "SELECT id, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
+            "       product_variant_id AS productVariantId, barcode, forwarder_code AS forwarderCode,",
+            "       attribute_code AS attributeCode, attribute_value AS attributeValue,",
+            "       source_shipping_order_id AS sourceShippingOrderId,",
+            "       source_shipping_order_line_id AS sourceShippingOrderLineId,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt,",
+            "       DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM product_forwarder_declaration_attribute",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND forwarder_code = #{forwarderCode}",
+            "  AND attribute_code = #{attributeCode}",
+            "  AND is_deleted = b'0'",
+            "<if test='productVariantIds != null and productVariantIds.size() &gt; 0'>",
+            "  AND product_variant_id IN",
+            "  <foreach collection='productVariantIds' item='productVariantId' open='(' separator=',' close=')'>",
+            "    #{productVariantId}",
+            "  </foreach>",
+            "</if>",
+            "</script>"
+    })
+    List<ProductForwarderDeclarationAttributeRecord> listProductForwarderDeclarationAttributes(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("forwarderCode") String forwarderCode,
+            @Param("attributeCode") String attributeCode,
+            @Param("productVariantIds") List<Long> productVariantIds
+    );
+
+    @Insert({
+            "INSERT INTO product_forwarder_declaration_attribute (",
+            "id, owner_user_id, product_master_id, product_variant_id, barcode,",
+            "forwarder_code, attribute_code, attribute_value, source_shipping_order_id, source_shipping_order_line_id,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.productMasterId}, #{row.productVariantId}, #{row.barcode},",
+            "#{row.forwarderCode}, #{row.attributeCode}, #{row.attributeValue}, #{row.sourceShippingOrderId}, #{row.sourceShippingOrderLineId},",
+            "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  product_master_id = VALUES(product_master_id),",
+            "  barcode = VALUES(barcode),",
+            "  attribute_value = VALUES(attribute_value),",
+            "  source_shipping_order_id = VALUES(source_shipping_order_id),",
+            "  source_shipping_order_line_id = VALUES(source_shipping_order_line_id),",
+            "  is_deleted = b'0',",
+            "  updated_by = #{operatorUserId},",
+            "  gmt_updated = NOW()"
+    })
+    int upsertProductForwarderDeclarationAttribute(
+            @Param("row") ProductForwarderDeclarationAttributeRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE product_forwarder_declaration_attribute",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND product_variant_id = #{productVariantId}",
+            "  AND forwarder_code = #{forwarderCode}",
+            "  AND attribute_code = #{attributeCode}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteProductForwarderDeclarationAttribute(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("productVariantId") Long productVariantId,
+            @Param("forwarderCode") String forwarderCode,
+            @Param("attributeCode") String attributeCode,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE product_forwarder_channel_quote",
+            "SET effective_status = 'HISTORICAL',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND product_variant_id = #{productVariantId}",
+            "  AND forwarder_code = #{forwarderCode}",
+            "  AND COALESCE(route_code, '') = COALESCE(#{routeCode}, '')",
+            "  AND COALESCE(service_code, '') = COALESCE(#{serviceCode}, '')",
+            "  AND COALESCE(billing_unit, '') = COALESCE(#{billingUnit}, '')",
+            "  AND effective_status = 'CURRENT'",
+            "  AND is_deleted = b'0'"
+    })
+    int markHistoricalProductForwarderChannelQuote(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("productVariantId") Long productVariantId,
+            @Param("forwarderCode") String forwarderCode,
+            @Param("routeCode") String routeCode,
+            @Param("serviceCode") String serviceCode,
+            @Param("billingUnit") String billingUnit,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO product_forwarder_channel_quote (",
+            "id, owner_user_id, product_master_id, product_variant_id, barcode,",
+            "forwarder_code, forwarder_name, route_code, route_name, service_code, service_name,",
+            "site_code, transport_mode, target_platform, delivery_city, currency, unit_price, billing_unit, estimated_amount,",
+            "source_type, source_shipping_order_id, source_shipping_order_line_id, source_quote_line_id,",
+            "source_actual_bill_id, source_actual_component_id, source_filename, effective_status, raw_snapshot_json,",
+            "is_deleted, confirmed_at, confirmed_by, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.productMasterId}, #{row.productVariantId}, #{row.barcode},",
+            "#{row.forwarderCode}, #{row.forwarderName}, #{row.routeCode}, #{row.routeName}, #{row.serviceCode}, #{row.serviceName},",
+            "#{row.siteCode}, #{row.transportMode}, #{row.targetPlatform}, #{row.deliveryCity}, #{row.currency}, #{row.unitPrice}, #{row.billingUnit}, #{row.estimatedAmount},",
+            "#{row.sourceType}, #{row.sourceShippingOrderId}, #{row.sourceShippingOrderLineId}, #{row.sourceQuoteLineId},",
+            "#{row.sourceActualBillId}, #{row.sourceActualComponentId}, #{row.sourceFilename}, #{row.effectiveStatus}, #{row.rawSnapshotJson},",
+            "b'0', NOW(), #{operatorUserId}, #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertProductForwarderChannelQuote(
+            @Param("row") ProductForwarderChannelQuoteRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
+            "       product_variant_id AS productVariantId, barcode,",
+            "       forwarder_code AS forwarderCode, forwarder_name AS forwarderName,",
+            "       route_code AS routeCode, route_name AS routeName,",
+            "       service_code AS serviceCode, service_name AS serviceName,",
+            "       site_code AS siteCode, transport_mode AS transportMode,",
+            "       target_platform AS targetPlatform, delivery_city AS deliveryCity,",
+            "       currency, unit_price AS unitPrice, billing_unit AS billingUnit, estimated_amount AS estimatedAmount,",
+            "       source_type AS sourceType, source_shipping_order_id AS sourceShippingOrderId,",
+            "       source_shipping_order_line_id AS sourceShippingOrderLineId, source_quote_line_id AS sourceQuoteLineId,",
+            "       source_actual_bill_id AS sourceActualBillId, source_actual_component_id AS sourceActualComponentId,",
+            "       source_filename AS sourceFilename, effective_status AS effectiveStatus, raw_snapshot_json AS rawSnapshotJson",
+            "FROM product_forwarder_channel_quote",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND product_variant_id = #{productVariantId}",
+            "  AND forwarder_code = #{forwarderCode}",
+            "  AND COALESCE(route_code, '') = COALESCE(#{routeCode}, '')",
+            "  AND COALESCE(service_code, '') = COALESCE(#{serviceCode}, '')",
+            "  AND effective_status = 'CURRENT'",
+            "  AND is_deleted = b'0'",
+            "ORDER BY confirmed_at DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductForwarderChannelQuoteRecord selectCurrentProductForwarderChannelQuote(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("productVariantId") Long productVariantId,
+            @Param("forwarderCode") String forwarderCode,
+            @Param("routeCode") String routeCode,
+            @Param("serviceCode") String serviceCode
+    );
+
+    @Update({
+            "UPDATE logistics_expected_bill",
+            "SET bill_status = 'CANCELLED',",
+            "    cancelled_at = NOW(),",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND shipping_order_id = #{shippingOrderId}",
+            "  AND ((#{shippingOrderSegmentId} IS NULL AND shipping_order_segment_id IS NULL)",
+            "       OR shipping_order_segment_id = #{shippingOrderSegmentId})",
+            "  AND bill_status IN ('DRAFT', 'GENERATED')",
+            "  AND is_deleted = b'0'"
+    })
+    int cancelOpenLogisticsExpectedBills(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("shippingOrderSegmentId") Long shippingOrderSegmentId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE logistics_bill_reconciliation",
+            "SET reconciliation_status = 'CANCELLED',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND shipping_order_id = #{shippingOrderId}",
+            "  AND ((#{shippingOrderSegmentId} IS NULL AND shipping_order_segment_id IS NULL)",
+            "       OR shipping_order_segment_id = #{shippingOrderSegmentId})",
+            "  AND reconciliation_status IN ('PENDING_ACTUAL_BILL', 'MATCHED', 'DIFF_FOUND')",
+            "  AND is_deleted = b'0'"
+    })
+    int cancelOpenLogisticsBillReconciliations(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("shippingOrderSegmentId") Long shippingOrderSegmentId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO logistics_expected_bill (",
+            "id, owner_user_id, expected_bill_no, shipping_order_id, shipping_order_no, shipping_order_segment_id, shipping_order_segment_no,",
+            "forwarder_code, forwarder_name, route_code, route_name, service_code, service_name, transport_mode,",
+            "currency, exchange_rate_to_cny, expected_total_amount, expected_total_cny, component_count,",
+            "bill_status, generated_from, generated_at, raw_snapshot_json,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.expectedBillNo}, #{row.shippingOrderId}, #{row.shippingOrderNo}, #{row.shippingOrderSegmentId}, #{row.shippingOrderSegmentNo},",
+            "#{row.forwarderCode}, #{row.forwarderName}, #{row.routeCode}, #{row.routeName}, #{row.serviceCode}, #{row.serviceName}, #{row.transportMode},",
+            "#{row.currency}, #{row.exchangeRateToCny}, #{row.expectedTotalAmount}, #{row.expectedTotalCny}, #{row.componentCount},",
+            "#{row.billStatus}, #{row.generatedFrom}, NOW(), #{row.rawSnapshotJson},",
+            "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertLogisticsExpectedBill(
+            @Param("row") LogisticsExpectedBillRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO logistics_expected_bill_component (",
+            "id, owner_user_id, expected_bill_id, shipping_order_id, shipping_order_segment_id, shipping_order_line_id, quote_line_id,",
+            "product_master_id, product_variant_id, barcode, psku_code, site_code, box_no, fee_type, raw_fee_name,",
+            "quantity, charge_quantity, charge_unit, unit_price, currency, exchange_rate_to_cny,",
+            "expected_amount, expected_amount_cny, allocation_basis, raw_snapshot_json,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.expectedBillId}, #{row.shippingOrderId}, #{row.shippingOrderSegmentId}, #{row.shippingOrderLineId}, #{row.quoteLineId},",
+            "#{row.productMasterId}, #{row.productVariantId}, #{row.barcode}, #{row.pskuCode}, #{row.siteCode}, #{row.boxNo}, #{row.feeType}, #{row.rawFeeName},",
+            "#{row.quantity}, #{row.chargeQuantity}, #{row.chargeUnit}, #{row.unitPrice}, #{row.currency}, #{row.exchangeRateToCny},",
+            "#{row.expectedAmount}, #{row.expectedAmountCny}, #{row.allocationBasis}, #{row.rawSnapshotJson},",
+            "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertLogisticsExpectedBillComponent(
+            @Param("row") LogisticsExpectedBillComponentRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Insert({
+            "INSERT INTO logistics_bill_reconciliation (",
+            "id, owner_user_id, shipping_order_id, shipping_order_segment_id, expected_bill_id, actual_bill_id, reconciliation_no,",
+            "reconciliation_status, expected_total_cny, actual_total_cny, diff_amount_cny, diff_rate,",
+            "matched_component_count, unmatched_expected_count, unmatched_actual_count, summary_json,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.shippingOrderId}, #{row.shippingOrderSegmentId}, #{row.expectedBillId}, #{row.actualBillId}, #{row.reconciliationNo},",
+            "#{row.reconciliationStatus}, #{row.expectedTotalCny}, #{row.actualTotalCny}, #{row.diffAmountCny}, #{row.diffRate},",
+            "#{row.matchedComponentCount}, #{row.unmatchedExpectedCount}, #{row.unmatchedActualCount}, #{row.summaryJson},",
+            "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
+            ")"
+    })
+    int insertLogisticsBillReconciliation(
+            @Param("row") LogisticsBillReconciliationRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "<script>",
+            "SELECT bill.id, bill.owner_user_id AS ownerUserId, bill.expected_bill_no AS expectedBillNo,",
+            "       bill.shipping_order_id AS shippingOrderId, bill.shipping_order_no AS shippingOrderNo,",
+            "       COALESCE(so.title, bill.shipping_order_no) AS shippingOrderTitle,",
+            "       bill.shipping_order_segment_id AS shippingOrderSegmentId, bill.shipping_order_segment_no AS shippingOrderSegmentNo,",
+            "       bill.forwarder_code AS forwarderCode, bill.forwarder_name AS forwarderName,",
+            "       bill.route_code AS routeCode, bill.route_name AS routeName,",
+            "       bill.service_code AS serviceCode, bill.service_name AS serviceName,",
+            "       bill.transport_mode AS transportMode, bill.currency, bill.exchange_rate_to_cny AS exchangeRateToCny,",
+            "       bill.expected_total_amount AS expectedTotalAmount, bill.expected_total_cny AS expectedTotalCny,",
+            "       bill.component_count AS componentCount, bill.bill_status AS billStatus, bill.generated_from AS generatedFrom,",
+            "       reconciliation.reconciliation_status AS reconciliationStatus,",
+            "       reconciliation.actual_total_cny AS actualTotalCny, reconciliation.diff_amount_cny AS diffAmountCny,",
+            "       DATE_FORMAT(bill.gmt_create, '%Y-%m-%d %H:%i') AS createdAt,",
+            "       DATE_FORMAT(bill.gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM logistics_expected_bill bill",
+            "LEFT JOIN procurement_shipping_order so",
+            "  ON so.id = bill.shipping_order_id",
+            " AND so.owner_user_id = bill.owner_user_id",
+            " AND so.is_deleted = b'0'",
+            "LEFT JOIN logistics_bill_reconciliation reconciliation",
+            "  ON reconciliation.expected_bill_id = bill.id",
+            " AND reconciliation.owner_user_id = bill.owner_user_id",
+            " AND reconciliation.is_deleted = b'0'",
+            " AND reconciliation.reconciliation_status != 'CANCELLED'",
+            "WHERE bill.owner_user_id = #{ownerUserId}",
+            "  AND bill.is_deleted = b'0'",
+            "<if test='keyword != null and keyword != \"\"'>",
+            "  AND (bill.expected_bill_no LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR bill.shipping_order_no LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR bill.shipping_order_segment_no LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR bill.forwarder_name LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR bill.route_name LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR EXISTS (",
+            "           SELECT 1 FROM logistics_expected_bill_component component",
+            "           WHERE component.expected_bill_id = bill.id",
+            "             AND component.is_deleted = b'0'",
+            "             AND (component.barcode LIKE CONCAT('%', #{keyword}, '%')",
+            "                  OR component.psku_code LIKE CONCAT('%', #{keyword}, '%'))",
+            "       ))",
+            "</if>",
+            "ORDER BY bill.gmt_create DESC, bill.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<LogisticsExpectedBillRecord> listLogisticsBills(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("keyword") String keyword,
+            @Param("limit") Integer limit
+    );
+
+    @Select({
+            "SELECT bill.id, bill.owner_user_id AS ownerUserId, bill.expected_bill_no AS expectedBillNo,",
+            "       bill.shipping_order_id AS shippingOrderId, bill.shipping_order_no AS shippingOrderNo,",
+            "       COALESCE(so.title, bill.shipping_order_no) AS shippingOrderTitle,",
+            "       bill.shipping_order_segment_id AS shippingOrderSegmentId, bill.shipping_order_segment_no AS shippingOrderSegmentNo,",
+            "       bill.forwarder_code AS forwarderCode, bill.forwarder_name AS forwarderName,",
+            "       bill.route_code AS routeCode, bill.route_name AS routeName,",
+            "       bill.service_code AS serviceCode, bill.service_name AS serviceName,",
+            "       bill.transport_mode AS transportMode, bill.currency, bill.exchange_rate_to_cny AS exchangeRateToCny,",
+            "       bill.expected_total_amount AS expectedTotalAmount, bill.expected_total_cny AS expectedTotalCny,",
+            "       bill.component_count AS componentCount, bill.bill_status AS billStatus, bill.generated_from AS generatedFrom,",
+            "       reconciliation.reconciliation_status AS reconciliationStatus,",
+            "       reconciliation.actual_total_cny AS actualTotalCny, reconciliation.diff_amount_cny AS diffAmountCny,",
+            "       DATE_FORMAT(bill.gmt_create, '%Y-%m-%d %H:%i') AS createdAt,",
+            "       DATE_FORMAT(bill.gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM logistics_expected_bill bill",
+            "LEFT JOIN procurement_shipping_order so",
+            "  ON so.id = bill.shipping_order_id",
+            " AND so.owner_user_id = bill.owner_user_id",
+            " AND so.is_deleted = b'0'",
+            "LEFT JOIN logistics_bill_reconciliation reconciliation",
+            "  ON reconciliation.expected_bill_id = bill.id",
+            " AND reconciliation.owner_user_id = bill.owner_user_id",
+            " AND reconciliation.is_deleted = b'0'",
+            " AND reconciliation.reconciliation_status != 'CANCELLED'",
+            "WHERE bill.owner_user_id = #{ownerUserId}",
+            "  AND bill.id = #{expectedBillId}",
+            "  AND bill.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    LogisticsExpectedBillRecord selectLogisticsBillById(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("expectedBillId") Long expectedBillId
+    );
+
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, expected_bill_id AS expectedBillId,",
+            "       shipping_order_id AS shippingOrderId, shipping_order_segment_id AS shippingOrderSegmentId, shipping_order_line_id AS shippingOrderLineId,",
+            "       quote_line_id AS quoteLineId, product_master_id AS productMasterId, product_variant_id AS productVariantId,",
+            "       barcode, psku_code AS pskuCode, site_code AS siteCode, box_no AS boxNo, fee_type AS feeType, raw_fee_name AS rawFeeName,",
+            "       quantity, charge_quantity AS chargeQuantity, charge_unit AS chargeUnit, unit_price AS unitPrice,",
+            "       currency, exchange_rate_to_cny AS exchangeRateToCny, expected_amount AS expectedAmount, expected_amount_cny AS expectedAmountCny,",
+            "       allocation_basis AS allocationBasis",
+            "FROM logistics_expected_bill_component",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND expected_bill_id = #{expectedBillId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC"
+    })
+    List<LogisticsExpectedBillComponentRecord> listLogisticsBillComponents(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("expectedBillId") Long expectedBillId
+    );
+
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, shipping_order_no AS shippingOrderNo, title, status,",
+            "       purchase_order_count AS purchaseOrderCount, line_count AS lineCount, sku_count AS skuCount,",
+            "       total_quantity AS totalQuantity, store_summary_json AS storeSummaryJson, site_summary_json AS siteSummaryJson,",
+            "       (",
+            "         SELECT COUNT(1)",
+            "         FROM procurement_shipping_order_line sol",
+            "         LEFT JOIN procurement_shipping_order_segment segment",
+            "           ON segment.id = sol.shipping_order_segment_id",
+            "          AND segment.is_deleted = b'0'",
+            "         LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "           ON quote.id = sol.quote_line_id",
+            "          AND quote.is_deleted = b'0'",
+            "         WHERE sol.shipping_order_id = procurement_shipping_order.id",
+            "           AND sol.is_deleted = b'0'",
+            "           AND UPPER(COALESCE(quote.forwarder_code, segment.forwarder_code, procurement_shipping_order.forwarder_code, '')) = 'YT'",
+            "           AND (sol.yite_material IS NULL OR TRIM(sol.yite_material) = '')",
+            "       ) AS missingYiteMaterialCount,",
+            "       transport_summary_json AS transportSummaryJson, quote_status AS quoteStatus,",
+            "       shipping_submit_status AS shippingSubmitStatus, forwarder_code AS forwarderCode, forwarder_name AS forwarderName,",
+            "       route_code AS routeCode, route_name AS routeName, service_code AS serviceCode, service_name AS serviceName,",
+            "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i') AS submittedAt, remark,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM procurement_shipping_order",
+            "WHERE id = #{shippingOrderId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    ShippingOrderRecord selectShippingOrderById(@Param("shippingOrderId") Long shippingOrderId);
+
+    @Select({
+            "<script>",
+            "SELECT id, owner_user_id AS ownerUserId, shipping_order_no AS shippingOrderNo, title, status,",
+            "       purchase_order_count AS purchaseOrderCount, line_count AS lineCount, sku_count AS skuCount,",
+            "       total_quantity AS totalQuantity, store_summary_json AS storeSummaryJson, site_summary_json AS siteSummaryJson,",
+            "       (",
+            "         SELECT COUNT(1)",
+            "         FROM procurement_shipping_order_line sol",
+            "         LEFT JOIN procurement_shipping_order_segment segment",
+            "           ON segment.id = sol.shipping_order_segment_id",
+            "          AND segment.is_deleted = b'0'",
+            "         LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "           ON quote.id = sol.quote_line_id",
+            "          AND quote.is_deleted = b'0'",
+            "         WHERE sol.shipping_order_id = procurement_shipping_order.id",
+            "           AND sol.is_deleted = b'0'",
+            "           AND UPPER(COALESCE(quote.forwarder_code, segment.forwarder_code, procurement_shipping_order.forwarder_code, '')) = 'YT'",
+            "           AND (sol.yite_material IS NULL OR TRIM(sol.yite_material) = '')",
+            "       ) AS missingYiteMaterialCount,",
+            "       transport_summary_json AS transportSummaryJson, quote_status AS quoteStatus,",
+            "       shipping_submit_status AS shippingSubmitStatus, forwarder_code AS forwarderCode, forwarder_name AS forwarderName,",
+            "       route_code AS routeCode, route_name AS routeName, service_code AS serviceCode, service_name AS serviceName,",
+            "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i') AS submittedAt, remark,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM procurement_shipping_order",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "<if test='keyword != null and keyword != \"\"'>",
+            "  AND (shipping_order_no LIKE CONCAT('%', #{keyword}, '%') OR title LIKE CONCAT('%', #{keyword}, '%'))",
+            "</if>",
+            "ORDER BY gmt_create DESC, id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ShippingOrderRecord> listShippingOrders(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("keyword") String keyword,
+            @Param("limit") Integer limit
+    );
+
+    @Select({
+            "SELECT id, shipping_order_id AS shippingOrderId, owner_user_id AS ownerUserId, segment_no AS segmentNo,",
+            "       site_code AS siteCode, transport_mode AS transportMode,",
+            "       forwarder_code AS forwarderCode, forwarder_name AS forwarderName,",
+            "       route_code AS routeCode, route_name AS routeName, service_code AS serviceCode, service_name AS serviceName,",
+            "       quote_status AS quoteStatus, shipping_submit_status AS shippingSubmitStatus,",
+            "       line_count AS lineCount, sku_count AS skuCount, total_quantity AS totalQuantity,",
+            "       missing_yite_material_count AS missingYiteMaterialCount,",
+            "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i') AS submittedAt,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM procurement_shipping_order_segment",
+            "WHERE shipping_order_id = #{shippingOrderId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY site_code ASC, transport_mode ASC, id ASC"
+    })
+    List<ShippingOrderSegmentRecord> listShippingOrderSegments(@Param("shippingOrderId") Long shippingOrderId);
+
+    @Select({
+            "SELECT sol.id, sol.shipping_order_id AS shippingOrderId, sol.shipping_order_segment_id AS shippingOrderSegmentId,",
+            "       segment.segment_no AS shippingOrderSegmentNo, sol.owner_user_id AS ownerUserId, sol.logical_store_id AS logicalStoreId,",
+            "       sol.source_store_code AS sourceStoreCode, sol.source_store_name AS sourceStoreName,",
+            "       sol.purchase_order_id AS purchaseOrderId, sol.purchase_order_no AS purchaseOrderNo, sol.purchase_order_title AS purchaseOrderTitle,",
+            "       sol.purchase_order_item_id AS purchaseOrderItemId, sol.purchase_order_item_site_id AS purchaseOrderItemSiteId,",
+            "       sol.product_master_id AS productMasterId, sol.product_variant_id AS productVariantId, sol.sku_parent AS skuParent,",
+            "       sol.partner_sku AS partnerSku,",
+            "       (",
+            "         SELECT COALESCE(MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END), MAX(pb.barcode))",
+            "         FROM product_barcode pb",
+            "         WHERE pb.variant_id = sol.product_variant_id",
+            "           AND pb.is_deleted = b'0'",
+            "       ) AS barcode,",
+            "       COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(sol.title_cache, ''), NULLIF(pm.title_cache, ''), NULLIF(public_detail.title_en, '')) AS titleCache,",
+            "       COALESCE(NULLIF(public_detail.title_en, ''), NULLIF(pm.title_cache, ''), NULLIF(sol.title_cache, '')) AS titleEn,",
+            "       COALESCE(NULLIF(public_detail.main_image_url, ''), NULLIF(pm.cover_image_url, ''), NULLIF(sol.image_url_cache, '')) AS imageUrlCache,",
+            "       sol.site_code AS siteCode, sol.psku_code AS pskuCode, sol.yite_material AS yiteMaterial, sol.planned_transport_mode AS plannedTransportMode,",
+            "       sol.quantity, sol.fulfillment_type AS fulfillmentType, sol.quote_line_id AS quoteLineId,",
+            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
+            "FROM procurement_shipping_order_line sol",
+            "LEFT JOIN procurement_shipping_order_segment segment",
+            "  ON segment.id = sol.shipping_order_segment_id",
+            " AND segment.is_deleted = b'0'",
+            "LEFT JOIN product_master pm",
+            "  ON pm.id = sol.product_master_id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_public_detail_snapshot public_detail",
+            "  ON public_detail.product_variant_id = sol.product_variant_id",
+            " AND public_detail.site_code = sol.site_code",
+            " AND public_detail.source_platform = 'NOON'",
+            " AND public_detail.is_latest = b'1'",
+            " AND public_detail.is_deleted = b'0'",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.shipping_order_id = sol.shipping_order_id",
+            " AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE sol.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.id = #{shippingOrderLineId}",
+            "  AND sol.owner_user_id = #{ownerUserId}",
+            "  AND sol.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    ShippingOrderLineRecord selectShippingOrderLineById(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("shippingOrderLineId") Long shippingOrderLineId,
+            @Param("ownerUserId") Long ownerUserId
+    );
+
+    @Select({
+            "SELECT sol.id, sol.shipping_order_id AS shippingOrderId, sol.shipping_order_segment_id AS shippingOrderSegmentId,",
+            "       segment.segment_no AS shippingOrderSegmentNo, sol.owner_user_id AS ownerUserId, sol.logical_store_id AS logicalStoreId,",
+            "       sol.source_store_code AS sourceStoreCode, sol.source_store_name AS sourceStoreName,",
+            "       sol.purchase_order_id AS purchaseOrderId, sol.purchase_order_no AS purchaseOrderNo, sol.purchase_order_title AS purchaseOrderTitle,",
+            "       sol.purchase_order_item_id AS purchaseOrderItemId, sol.purchase_order_item_site_id AS purchaseOrderItemSiteId,",
+            "       sol.product_master_id AS productMasterId, sol.product_variant_id AS productVariantId, sol.sku_parent AS skuParent,",
+            "       sol.partner_sku AS partnerSku,",
+            "       (",
+            "         SELECT COALESCE(MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END), MAX(pb.barcode))",
+            "         FROM product_barcode pb",
+            "         WHERE pb.variant_id = sol.product_variant_id",
+            "           AND pb.is_deleted = b'0'",
+            "       ) AS barcode,",
+            "       COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(sol.title_cache, ''), NULLIF(pm.title_cache, ''), NULLIF(public_detail.title_en, '')) AS titleCache,",
+            "       COALESCE(NULLIF(public_detail.title_en, ''), NULLIF(pm.title_cache, ''), NULLIF(sol.title_cache, '')) AS titleEn,",
+            "       COALESCE(NULLIF(public_detail.main_image_url, ''), NULLIF(pm.cover_image_url, ''), NULLIF(sol.image_url_cache, '')) AS imageUrlCache,",
+            "       sol.site_code AS siteCode, sol.psku_code AS pskuCode, sol.yite_material AS yiteMaterial, sol.planned_transport_mode AS plannedTransportMode,",
+            "       sol.quantity, sol.fulfillment_type AS fulfillmentType, sol.quote_line_id AS quoteLineId,",
+            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
+            "FROM procurement_shipping_order_line sol",
+            "LEFT JOIN procurement_shipping_order_segment segment",
+            "  ON segment.id = sol.shipping_order_segment_id",
+            " AND segment.is_deleted = b'0'",
+            "LEFT JOIN product_master pm",
+            "  ON pm.id = sol.product_master_id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_public_detail_snapshot public_detail",
+            "  ON public_detail.product_variant_id = sol.product_variant_id",
+            " AND public_detail.site_code = sol.site_code",
+            " AND public_detail.source_platform = 'NOON'",
+            " AND public_detail.is_latest = b'1'",
+            " AND public_detail.is_deleted = b'0'",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.shipping_order_id = sol.shipping_order_id",
+            " AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE sol.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.is_deleted = b'0'",
+            "ORDER BY segment.site_code ASC, segment.transport_mode ASC, sol.source_store_code ASC, sol.purchase_order_id ASC, sol.partner_sku ASC, sol.site_code ASC, sol.id ASC"
+    })
+    List<ShippingOrderLineRecord> listShippingOrderLines(@Param("shippingOrderId") Long shippingOrderId);
 
     @Select({
             "<script>",
@@ -965,6 +1751,7 @@ public interface ProcurementPurchaseOrderMapper {
             "      ELSE 'NOT_STARTED'",
             "    END,",
             "    po.status = CASE",
+            "      WHEN po.status = 'SUBMITTED' THEN 'SUBMITTED'",
             "      WHEN COALESCE(agg.item_count, 0) = 0 THEN 'DRAFT'",
             "      WHEN COALESCE(agg.failed_count, 0) > 0 THEN 'ABNORMAL'",
             "      WHEN COALESCE(agg.collecting_count, 0) > 0 THEN 'COLLECTING'",
@@ -1199,6 +1986,700 @@ public interface ProcurementPurchaseOrderMapper {
     })
     int insertLogisticsCostComponent(
             @Param("row") LogisticsCostComponentInsertRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "SELECT quote.id, site.owner_user_id AS ownerUserId, site.logical_store_id AS logicalStoreId,",
+            "       quote.shipping_order_id AS shippingOrderId, quote.shipping_order_no AS shippingOrderNo,",
+            "       site.purchase_order_id AS purchaseOrderId, po.order_no AS purchaseOrderNo, po.title AS purchaseOrderTitle,",
+            "       site.purchase_order_item_id AS purchaseOrderItemId, site.id AS purchaseOrderItemSiteId,",
+            "       item.product_master_id AS productMasterId, item.product_variant_id AS productVariantId,",
+            "       item.sku_parent AS skuParent, item.partner_sku AS partnerSku,",
+            "       (",
+            "         SELECT COALESCE(MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END), MAX(pb.barcode))",
+            "         FROM product_barcode pb",
+            "         WHERE pb.variant_id = item.product_variant_id",
+            "           AND pb.is_deleted = b'0'",
+            "       ) AS barcode,",
+            "       COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(item.title_cache, ''), NULLIF(pm.title_cache, ''), NULLIF(public_detail.title_en, '')) AS titleCache,",
+            "       COALESCE(NULLIF(public_detail.title_en, ''), NULLIF(pm.title_cache, ''), NULLIF(item.title_cache, '')) AS titleEn,",
+            "       COALESCE(NULLIF(public_detail.main_image_url, ''), NULLIF(pm.cover_image_url, ''), NULLIF(item.image_url_cache, '')) AS imageUrlCache,",
+            "       COALESCE(public_detail.brand, pm.brand_cache) AS brandName,",
+            "       site.site_code AS siteCode, site.psku_code AS pskuCode, quote.yite_material AS yiteMaterial, site.transport_mode AS plannedTransportMode,",
+            "       site.quantity, COALESCE(item.fulfillment_type, 'WAREHOUSE_RECEIPT') AS fulfillmentType,",
+            "       COALESCE(balance.is_new_product, b'0') = b'1' AS isNewProduct,",
+            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus,",
+            "       quote.forwarder_code AS forwarderCode, quote.forwarder_name AS forwarderName,",
+            "       quote.route_code AS routeCode, quote.route_name AS routeName,",
+            "       quote.service_code AS serviceCode, quote.service_name AS serviceName,",
+            "       quote.currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
+            "       quote.estimated_amount AS estimatedAmount, quote.remark,",
+            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
+            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
+            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
+            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS productWeightG,",
+            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS cartonLengthCm,",
+            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS cartonWidthCm,",
+            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS cartonHeightCm,",
+            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS cartonWeightKg,",
+            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS cartonQuantity,",
+            "       DATE_FORMAT(quote.exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
+            "       DATE_FORMAT(quote.confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
+            "       DATE_FORMAT(quote.shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
+            "FROM procurement_purchase_order_item_site site",
+            "JOIN procurement_purchase_order_item item",
+            "  ON item.id = site.purchase_order_item_id",
+            " AND item.is_deleted = b'0'",
+            "JOIN procurement_purchase_order po",
+            "  ON po.id = site.purchase_order_id",
+            " AND po.is_deleted = b'0'",
+            "LEFT JOIN product_master pm",
+            "  ON pm.id = item.product_master_id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec pvs",
+            "  ON pvs.variant_id = item.product_variant_id",
+            " AND pvs.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source pvss",
+            "  ON pvss.id = pvs.effective_source_id",
+            " AND pvss.variant_id = item.product_variant_id",
+            " AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_public_detail_snapshot public_detail",
+            "  ON public_detail.product_variant_id = item.product_variant_id",
+            " AND public_detail.site_code = site.site_code",
+            " AND public_detail.source_platform = 'NOON'",
+            " AND public_detail.is_latest = b'1'",
+            " AND public_detail.is_deleted = b'0'",
+            "LEFT JOIN procurement_fulfillment_balance balance",
+            "  ON balance.purchase_order_item_site_id = site.id",
+            " AND balance.is_deleted = b'0'",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.purchase_order_item_site_id = site.id",
+            " AND quote.shipping_order_id IS NULL",
+            " AND quote.is_deleted = b'0'",
+            "WHERE site.purchase_order_id = #{orderId}",
+            "  AND site.is_deleted = b'0'",
+            "ORDER BY site.site_code ASC, site.transport_mode ASC, item.partner_sku ASC, site.id ASC"
+    })
+    List<PurchaseOrderLogisticsQuoteLineRecord> listLogisticsQuoteCandidatesByOrder(@Param("orderId") Long orderId);
+
+    @Select({
+            "SELECT quote.id, sol.owner_user_id AS ownerUserId, sol.logical_store_id AS logicalStoreId,",
+            "       sol.shipping_order_id AS shippingOrderId, so.shipping_order_no AS shippingOrderNo,",
+            "       sol.shipping_order_segment_id AS shippingOrderSegmentId, segment.segment_no AS shippingOrderSegmentNo,",
+            "       sol.id AS shippingOrderLineId,",
+            "       sol.purchase_order_id AS purchaseOrderId, sol.purchase_order_no AS purchaseOrderNo, sol.purchase_order_title AS purchaseOrderTitle,",
+            "       sol.purchase_order_item_id AS purchaseOrderItemId, sol.purchase_order_item_site_id AS purchaseOrderItemSiteId,",
+            "       sol.product_master_id AS productMasterId, sol.product_variant_id AS productVariantId,",
+            "       sol.sku_parent AS skuParent, sol.partner_sku AS partnerSku,",
+            "       (",
+            "         SELECT COALESCE(MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END), MAX(pb.barcode))",
+            "         FROM product_barcode pb",
+            "         WHERE pb.variant_id = sol.product_variant_id",
+            "           AND pb.is_deleted = b'0'",
+            "       ) AS barcode,",
+            "       COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(sol.title_cache, ''), NULLIF(pm.title_cache, ''), NULLIF(public_detail.title_en, '')) AS titleCache,",
+            "       COALESCE(NULLIF(public_detail.title_en, ''), NULLIF(pm.title_cache, ''), NULLIF(sol.title_cache, '')) AS titleEn,",
+            "       COALESCE(NULLIF(public_detail.main_image_url, ''), NULLIF(pm.cover_image_url, ''), NULLIF(sol.image_url_cache, '')) AS imageUrlCache,",
+            "       COALESCE(public_detail.brand, pm.brand_cache) AS brandName,",
+            "       sol.site_code AS siteCode, sol.psku_code AS pskuCode, COALESCE(sol.yite_material, quote.yite_material) AS yiteMaterial, sol.planned_transport_mode AS plannedTransportMode,",
+            "       sol.quantity, sol.fulfillment_type AS fulfillmentType,",
+            "       COALESCE(balance.is_new_product, b'0') = b'1' AS isNewProduct,",
+            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus,",
+            "       quote.forwarder_code AS forwarderCode, quote.forwarder_name AS forwarderName,",
+            "       quote.route_code AS routeCode, quote.route_name AS routeName,",
+            "       quote.service_code AS serviceCode, quote.service_name AS serviceName,",
+            "       quote.currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
+            "       quote.estimated_amount AS estimatedAmount, quote.remark,",
+            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
+            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
+            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
+            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS productWeightG,",
+            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS cartonLengthCm,",
+            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS cartonWidthCm,",
+            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS cartonHeightCm,",
+            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS cartonWeightKg,",
+            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS cartonQuantity,",
+            "       DATE_FORMAT(quote.exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
+            "       DATE_FORMAT(quote.confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
+            "       DATE_FORMAT(quote.shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
+            "FROM procurement_shipping_order_line sol",
+            "JOIN procurement_shipping_order so",
+            "  ON so.id = sol.shipping_order_id",
+            " AND so.is_deleted = b'0'",
+            "LEFT JOIN procurement_shipping_order_segment segment",
+            "  ON segment.id = sol.shipping_order_segment_id",
+            " AND segment.is_deleted = b'0'",
+            "LEFT JOIN product_master pm",
+            "  ON pm.id = sol.product_master_id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec pvs",
+            "  ON pvs.variant_id = sol.product_variant_id",
+            " AND pvs.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source pvss",
+            "  ON pvss.id = pvs.effective_source_id",
+            " AND pvss.variant_id = sol.product_variant_id",
+            " AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_public_detail_snapshot public_detail",
+            "  ON public_detail.product_variant_id = sol.product_variant_id",
+            " AND public_detail.site_code = sol.site_code",
+            " AND public_detail.source_platform = 'NOON'",
+            " AND public_detail.is_latest = b'1'",
+            " AND public_detail.is_deleted = b'0'",
+            "LEFT JOIN procurement_fulfillment_balance balance",
+            "  ON balance.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND balance.is_deleted = b'0'",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.shipping_order_id = sol.shipping_order_id",
+            " AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE sol.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.is_deleted = b'0'",
+            "ORDER BY sol.site_code ASC, sol.planned_transport_mode ASC, sol.partner_sku ASC, sol.id ASC"
+    })
+    List<PurchaseOrderLogisticsQuoteLineRecord> listLogisticsQuoteCandidatesByShippingOrder(
+            @Param("shippingOrderId") Long shippingOrderId
+    );
+
+    @Select({
+            "<script>",
+            "SELECT quote.id, sol.owner_user_id AS ownerUserId, sol.logical_store_id AS logicalStoreId,",
+            "       sol.shipping_order_id AS shippingOrderId, so.shipping_order_no AS shippingOrderNo,",
+            "       sol.shipping_order_segment_id AS shippingOrderSegmentId, segment.segment_no AS shippingOrderSegmentNo,",
+            "       sol.id AS shippingOrderLineId,",
+            "       sol.purchase_order_id AS purchaseOrderId, sol.purchase_order_no AS purchaseOrderNo, sol.purchase_order_title AS purchaseOrderTitle,",
+            "       sol.purchase_order_item_id AS purchaseOrderItemId, sol.purchase_order_item_site_id AS purchaseOrderItemSiteId,",
+            "       sol.product_master_id AS productMasterId, sol.product_variant_id AS productVariantId,",
+            "       sol.sku_parent AS skuParent, sol.partner_sku AS partnerSku,",
+            "       (",
+            "         SELECT COALESCE(MAX(CASE WHEN pb.is_primary = b'1' THEN pb.barcode END), MAX(pb.barcode))",
+            "         FROM product_barcode pb",
+            "         WHERE pb.variant_id = sol.product_variant_id",
+            "           AND pb.is_deleted = b'0'",
+            "       ) AS barcode,",
+            "       COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(sol.title_cache, ''), NULLIF(pm.title_cache, ''), NULLIF(public_detail.title_en, '')) AS titleCache,",
+            "       COALESCE(NULLIF(public_detail.title_en, ''), NULLIF(pm.title_cache, ''), NULLIF(sol.title_cache, '')) AS titleEn,",
+            "       COALESCE(NULLIF(public_detail.main_image_url, ''), NULLIF(pm.cover_image_url, ''), NULLIF(sol.image_url_cache, '')) AS imageUrlCache,",
+            "       COALESCE(public_detail.brand, pm.brand_cache) AS brandName,",
+            "       sol.site_code AS siteCode, sol.psku_code AS pskuCode, COALESCE(sol.yite_material, quote.yite_material) AS yiteMaterial, sol.planned_transport_mode AS plannedTransportMode,",
+            "       sol.quantity, sol.fulfillment_type AS fulfillmentType,",
+            "       COALESCE(balance.is_new_product, b'0') = b'1' AS isNewProduct,",
+            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus,",
+            "       quote.forwarder_code AS forwarderCode, quote.forwarder_name AS forwarderName,",
+            "       quote.route_code AS routeCode, quote.route_name AS routeName,",
+            "       quote.service_code AS serviceCode, quote.service_name AS serviceName,",
+            "       quote.currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
+            "       quote.estimated_amount AS estimatedAmount, quote.remark,",
+            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
+            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
+            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
+            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS productWeightG,",
+            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS cartonLengthCm,",
+            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS cartonWidthCm,",
+            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS cartonHeightCm,",
+            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS cartonWeightKg,",
+            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS cartonQuantity,",
+            "       DATE_FORMAT(quote.exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
+            "       DATE_FORMAT(quote.confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
+            "       DATE_FORMAT(quote.shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
+            "FROM procurement_shipping_order_line sol",
+            "JOIN procurement_shipping_order so",
+            "  ON so.id = sol.shipping_order_id",
+            " AND so.is_deleted = b'0'",
+            "LEFT JOIN procurement_shipping_order_segment segment",
+            "  ON segment.id = sol.shipping_order_segment_id",
+            " AND segment.is_deleted = b'0'",
+            "LEFT JOIN product_master pm",
+            "  ON pm.id = sol.product_master_id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec pvs",
+            "  ON pvs.variant_id = sol.product_variant_id",
+            " AND pvs.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source pvss",
+            "  ON pvss.id = pvs.effective_source_id",
+            " AND pvss.variant_id = sol.product_variant_id",
+            " AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_public_detail_snapshot public_detail",
+            "  ON public_detail.product_variant_id = sol.product_variant_id",
+            " AND public_detail.site_code = sol.site_code",
+            " AND public_detail.source_platform = 'NOON'",
+            " AND public_detail.is_latest = b'1'",
+            " AND public_detail.is_deleted = b'0'",
+            "LEFT JOIN procurement_fulfillment_balance balance",
+            "  ON balance.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND balance.is_deleted = b'0'",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.shipping_order_id = sol.shipping_order_id",
+            " AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE sol.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.shipping_order_segment_id IN",
+            "  <foreach collection='segmentIds' item='segmentId' open='(' separator=',' close=')'>#{segmentId}</foreach>",
+            "  AND sol.is_deleted = b'0'",
+            "ORDER BY sol.site_code ASC, sol.planned_transport_mode ASC, sol.partner_sku ASC, sol.id ASC",
+            "</script>"
+    })
+    List<PurchaseOrderLogisticsQuoteLineRecord> listLogisticsQuoteCandidatesByShippingOrderSegments(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("segmentIds") List<Long> segmentIds
+    );
+
+    @Insert({
+            "INSERT INTO procurement_purchase_order_logistics_quote_line (",
+            "id, owner_user_id, logical_store_id, shipping_order_id, shipping_order_no, shipping_order_segment_id, shipping_order_line_id,",
+            "purchase_order_id, purchase_order_no, purchase_order_title,",
+            "purchase_order_item_id, purchase_order_item_site_id, product_master_id, product_variant_id,",
+            "sku_parent, partner_sku, title_cache, site_code, psku_code, yite_material, planned_transport_mode, quantity, fulfillment_type,",
+            "is_new_product, quote_status, shipping_submit_status, forwarder_code, forwarder_name, route_code, route_name,",
+            "service_code, service_name, currency, unit_price, billing_unit, estimated_amount, remark,",
+            "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.shippingOrderId}, #{row.shippingOrderNo},",
+            "#{row.shippingOrderSegmentId}, #{row.shippingOrderLineId},",
+            "#{row.purchaseOrderId}, #{row.purchaseOrderNo}, #{row.purchaseOrderTitle},",
+            "#{row.purchaseOrderItemId}, #{row.purchaseOrderItemSiteId}, #{row.productMasterId}, #{row.productVariantId},",
+            "#{row.skuParent}, #{row.partnerSku}, #{row.titleCache}, #{row.siteCode}, #{row.pskuCode}, #{row.yiteMaterial}, #{row.plannedTransportMode},",
+            "#{row.quantity}, #{row.fulfillmentType}, CASE WHEN #{row.isNewProduct} THEN b'1' ELSE b'0' END,",
+            "#{row.quoteStatus}, #{row.shippingSubmitStatus}, #{row.forwarderCode}, #{row.forwarderName}, #{row.routeCode}, #{row.routeName},",
+            "#{row.serviceCode}, #{row.serviceName}, #{row.currency}, #{row.unitPrice}, #{row.billingUnit}, #{row.estimatedAmount}, #{row.remark},",
+            "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
+    })
+    int insertLogisticsQuoteLine(
+            @Param("row") PurchaseOrderLogisticsQuoteLineRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_purchase_order_logistics_quote_line",
+            "SET shipping_order_id = #{row.shippingOrderId},",
+            "    shipping_order_no = #{row.shippingOrderNo},",
+            "    shipping_order_segment_id = #{row.shippingOrderSegmentId},",
+            "    shipping_order_line_id = #{row.shippingOrderLineId},",
+            "    purchase_order_no = #{row.purchaseOrderNo},",
+            "    purchase_order_title = #{row.purchaseOrderTitle},",
+            "    product_master_id = #{row.productMasterId},",
+            "    product_variant_id = #{row.productVariantId},",
+            "    sku_parent = #{row.skuParent},",
+            "    partner_sku = #{row.partnerSku},",
+            "    title_cache = #{row.titleCache},",
+            "    site_code = #{row.siteCode},",
+            "    psku_code = #{row.pskuCode},",
+            "    yite_material = #{row.yiteMaterial},",
+            "    planned_transport_mode = #{row.plannedTransportMode},",
+            "    quantity = #{row.quantity},",
+            "    fulfillment_type = #{row.fulfillmentType},",
+            "    is_new_product = CASE WHEN #{row.isNewProduct} THEN b'1' ELSE b'0' END,",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{row.id}",
+            "  AND is_deleted = b'0'"
+    })
+    int refreshLogisticsQuoteLineSnapshot(
+            @Param("row") PurchaseOrderLogisticsQuoteLineRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_purchase_order_logistics_quote_line",
+            "SET forwarder_code = #{row.forwarderCode},",
+            "    forwarder_name = #{row.forwarderName},",
+            "    route_code = #{row.routeCode},",
+            "    route_name = #{row.routeName},",
+            "    service_code = #{row.serviceCode},",
+            "    service_name = #{row.serviceName},",
+            "    currency = #{row.currency},",
+            "    billing_unit = #{row.billingUnit},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{row.id}",
+            "  AND is_deleted = b'0'",
+            "  AND quote_status != 'CONFIRMED'"
+    })
+    int assignLogisticsQuoteLineChannel(
+            @Param("row") PurchaseOrderLogisticsQuoteLineRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
+            "       shipping_order_id AS shippingOrderId, shipping_order_no AS shippingOrderNo,",
+            "       shipping_order_segment_id AS shippingOrderSegmentId, shipping_order_line_id AS shippingOrderLineId,",
+            "       purchase_order_id AS purchaseOrderId, purchase_order_no AS purchaseOrderNo, purchase_order_title AS purchaseOrderTitle,",
+            "       purchase_order_item_id AS purchaseOrderItemId, purchase_order_item_site_id AS purchaseOrderItemSiteId,",
+            "       product_master_id AS productMasterId, product_variant_id AS productVariantId, sku_parent AS skuParent,",
+            "       partner_sku AS partnerSku, title_cache AS titleCache, site_code AS siteCode, psku_code AS pskuCode, yite_material AS yiteMaterial,",
+            "       planned_transport_mode AS plannedTransportMode, quantity, fulfillment_type AS fulfillmentType,",
+            "       is_new_product = b'1' AS isNewProduct, quote_status AS quoteStatus, shipping_submit_status AS shippingSubmitStatus,",
+            "       forwarder_code AS forwarderCode, forwarder_name AS forwarderName, route_code AS routeCode, route_name AS routeName,",
+            "       service_code AS serviceCode, service_name AS serviceName, currency, unit_price AS unitPrice,",
+            "       billing_unit AS billingUnit, estimated_amount AS estimatedAmount, remark,",
+            "       DATE_FORMAT(exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
+            "       DATE_FORMAT(confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
+            "       DATE_FORMAT(shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
+            "FROM procurement_purchase_order_logistics_quote_line",
+            "WHERE purchase_order_id = #{orderId}",
+            "  AND purchase_order_item_site_id = #{itemSiteId}",
+            "  AND shipping_order_id IS NULL",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    PurchaseOrderLogisticsQuoteLineRecord selectLogisticsQuoteLineByItemSiteForUpdate(
+            @Param("orderId") Long orderId,
+            @Param("itemSiteId") Long itemSiteId
+    );
+
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
+            "       shipping_order_id AS shippingOrderId, shipping_order_no AS shippingOrderNo,",
+            "       shipping_order_segment_id AS shippingOrderSegmentId, shipping_order_line_id AS shippingOrderLineId,",
+            "       purchase_order_id AS purchaseOrderId, purchase_order_no AS purchaseOrderNo, purchase_order_title AS purchaseOrderTitle,",
+            "       purchase_order_item_id AS purchaseOrderItemId, purchase_order_item_site_id AS purchaseOrderItemSiteId,",
+            "       product_master_id AS productMasterId, product_variant_id AS productVariantId, sku_parent AS skuParent,",
+            "       partner_sku AS partnerSku, title_cache AS titleCache, site_code AS siteCode, psku_code AS pskuCode, yite_material AS yiteMaterial,",
+            "       planned_transport_mode AS plannedTransportMode, quantity, fulfillment_type AS fulfillmentType,",
+            "       is_new_product = b'1' AS isNewProduct, quote_status AS quoteStatus, shipping_submit_status AS shippingSubmitStatus,",
+            "       forwarder_code AS forwarderCode, forwarder_name AS forwarderName, route_code AS routeCode, route_name AS routeName,",
+            "       service_code AS serviceCode, service_name AS serviceName, currency, unit_price AS unitPrice,",
+            "       billing_unit AS billingUnit, estimated_amount AS estimatedAmount, remark,",
+            "       DATE_FORMAT(exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
+            "       DATE_FORMAT(confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
+            "       DATE_FORMAT(shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
+            "FROM procurement_purchase_order_logistics_quote_line",
+            "WHERE shipping_order_id = #{shippingOrderId}",
+            "  AND purchase_order_item_site_id = #{itemSiteId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    PurchaseOrderLogisticsQuoteLineRecord selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("itemSiteId") Long itemSiteId
+    );
+
+    @Update({
+            "UPDATE procurement_purchase_order_logistics_quote_line",
+            "SET quote_status = 'CONFIRMED',",
+            "    shipping_submit_status = COALESCE(#{row.shippingSubmitStatus}, shipping_submit_status, 'NOT_SUBMITTED'),",
+            "    forwarder_code = #{row.forwarderCode},",
+            "    forwarder_name = #{row.forwarderName},",
+            "    route_code = #{row.routeCode},",
+            "    route_name = #{row.routeName},",
+            "    service_code = #{row.serviceCode},",
+            "    service_name = #{row.serviceName},",
+            "    currency = #{row.currency},",
+            "    unit_price = #{row.unitPrice},",
+            "    billing_unit = #{row.billingUnit},",
+            "    estimated_amount = #{row.estimatedAmount},",
+            "    remark = #{row.remark},",
+            "    confirmed_at = NOW(),",
+            "    confirmed_by = #{operatorUserId},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{row.id}",
+            "  AND is_deleted = b'0'"
+    })
+    int confirmLogisticsQuoteLine(
+            @Param("row") PurchaseOrderLogisticsQuoteLineRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE procurement_purchase_order_logistics_quote_line",
+            "SET exported_at = NOW(),",
+            "    exported_by = #{operatorUserId},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE purchase_order_id = #{orderId}",
+            "  AND id IN",
+            "  <foreach collection='lineIds' item='lineId' open='(' separator=',' close=')'>#{lineId}</foreach>",
+            "  AND is_deleted = b'0'",
+            "</script>"
+    })
+    int markLogisticsQuoteLinesExported(
+            @Param("orderId") Long orderId,
+            @Param("lineIds") List<Long> lineIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE procurement_purchase_order_logistics_quote_line",
+            "SET exported_at = NOW(),",
+            "    exported_by = #{operatorUserId},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE shipping_order_id = #{shippingOrderId}",
+            "  AND id IN",
+            "  <foreach collection='lineIds' item='lineId' open='(' separator=',' close=')'>#{lineId}</foreach>",
+            "  AND is_deleted = b'0'",
+            "</script>"
+    })
+    int markShippingOrderLogisticsQuoteLinesExported(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("lineIds") List<Long> lineIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM procurement_purchase_order_item_site site",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.purchase_order_item_site_id = site.id",
+            " AND quote.shipping_order_id IS NULL",
+            " AND quote.is_deleted = b'0'",
+            "WHERE site.purchase_order_id = #{orderId}",
+            "  AND site.is_deleted = b'0'",
+            "  AND (quote.id IS NULL",
+            "       OR quote.quote_status != 'CONFIRMED')"
+    })
+    int countUnconfirmedLogisticsQuoteLines(@Param("orderId") Long orderId);
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM procurement_shipping_order_line sol",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.shipping_order_id = sol.shipping_order_id",
+            " AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE sol.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.is_deleted = b'0'",
+            "  AND (quote.id IS NULL OR quote.quote_status != 'CONFIRMED')"
+    })
+    int countUnconfirmedLogisticsQuoteLinesByShippingOrder(@Param("shippingOrderId") Long shippingOrderId);
+
+    @Select({
+            "<script>",
+            "SELECT COUNT(1)",
+            "FROM procurement_shipping_order_line sol",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.shipping_order_id = sol.shipping_order_id",
+            " AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE sol.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.shipping_order_segment_id IN",
+            "  <foreach collection='segmentIds' item='segmentId' open='(' separator=',' close=')'>#{segmentId}</foreach>",
+            "  AND sol.is_deleted = b'0'",
+            "  AND (quote.id IS NULL OR quote.quote_status != 'CONFIRMED')",
+            "</script>"
+    })
+    int countUnconfirmedLogisticsQuoteLinesByShippingOrderSegments(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("segmentIds") List<Long> segmentIds
+    );
+
+    @Update({
+            "UPDATE procurement_purchase_order_logistics_quote_line",
+            "SET shipping_submit_status = 'SUBMITTED',",
+            "    shipping_submitted_at = NOW(),",
+            "    shipping_submitted_by = #{operatorUserId},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE purchase_order_id = #{orderId}",
+            "  AND quote_status = 'CONFIRMED'",
+            "  AND is_deleted = b'0'"
+    })
+    int submitLogisticsQuoteLinesForShipping(
+            @Param("orderId") Long orderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_purchase_order_logistics_quote_line",
+            "SET shipping_submit_status = 'SUBMITTED',",
+            "    shipping_submitted_at = NOW(),",
+            "    shipping_submitted_by = #{operatorUserId},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE shipping_order_id = #{shippingOrderId}",
+            "  AND is_deleted = b'0'"
+    })
+    int submitLogisticsQuoteLinesForShippingOrder(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE procurement_purchase_order_logistics_quote_line quote",
+            "JOIN procurement_shipping_order_line sol",
+            "  ON sol.shipping_order_id = quote.shipping_order_id",
+            " AND sol.purchase_order_item_site_id = quote.purchase_order_item_site_id",
+            " AND sol.is_deleted = b'0'",
+            "SET quote.shipping_submit_status = 'SUBMITTED',",
+            "    quote.shipping_submitted_at = NOW(),",
+            "    quote.shipping_submitted_by = #{operatorUserId},",
+            "    quote.updated_by = #{operatorUserId},",
+            "    quote.gmt_updated = NOW()",
+            "WHERE quote.shipping_order_id = #{shippingOrderId}",
+            "  AND sol.shipping_order_segment_id IN",
+            "  <foreach collection='segmentIds' item='segmentId' open='(' separator=',' close=')'>#{segmentId}</foreach>",
+            "  AND quote.is_deleted = b'0'",
+            "</script>"
+    })
+    int submitLogisticsQuoteLinesForShippingOrderSegments(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("segmentIds") List<Long> segmentIds,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_shipping_order",
+            "SET shipping_submit_status = 'SUBMITTED',",
+            "    submitted_at = NOW(),",
+            "    submitted_by = #{operatorUserId},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{shippingOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markShippingOrderSubmitted(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE procurement_shipping_order_segment segment",
+            "SET quote_status = CASE",
+            "      WHEN EXISTS (",
+            "        SELECT 1 FROM procurement_shipping_order_line sol",
+            "        LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "          ON quote.shipping_order_id = sol.shipping_order_id",
+            "         AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            "         AND quote.is_deleted = b'0'",
+            "        WHERE sol.shipping_order_segment_id = segment.id",
+            "          AND sol.is_deleted = b'0'",
+            "          AND (quote.id IS NULL OR quote.quote_status != 'CONFIRMED')",
+            "      ) THEN 'PENDING_QUOTE' ELSE 'CONFIRMED' END,",
+            "    shipping_submit_status = CASE",
+            "      WHEN NOT EXISTS (",
+            "        SELECT 1 FROM procurement_shipping_order_line sol",
+            "        JOIN procurement_purchase_order_logistics_quote_line quote",
+            "          ON quote.shipping_order_id = sol.shipping_order_id",
+            "         AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            "         AND quote.is_deleted = b'0'",
+            "        WHERE sol.shipping_order_segment_id = segment.id",
+            "          AND sol.is_deleted = b'0'",
+            "          AND quote.shipping_submit_status = 'SUBMITTED'",
+            "      ) THEN 'NOT_SUBMITTED'",
+            "      WHEN EXISTS (",
+            "        SELECT 1 FROM procurement_shipping_order_line sol",
+            "        LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "          ON quote.shipping_order_id = sol.shipping_order_id",
+            "         AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            "         AND quote.is_deleted = b'0'",
+            "        WHERE sol.shipping_order_segment_id = segment.id",
+            "          AND sol.is_deleted = b'0'",
+            "          AND (quote.id IS NULL OR quote.shipping_submit_status != 'SUBMITTED')",
+            "      ) THEN 'PARTIAL_SUBMITTED' ELSE 'SUBMITTED' END,",
+            "    forwarder_code = #{row.forwarderCode},",
+            "    forwarder_name = #{row.forwarderName},",
+            "    route_code = #{row.routeCode},",
+            "    route_name = #{row.routeName},",
+            "    service_code = #{row.serviceCode},",
+            "    service_name = #{row.serviceName},",
+            "    missing_yite_material_count = (",
+            "      SELECT COUNT(1) FROM procurement_shipping_order_line sol",
+            "      WHERE sol.shipping_order_segment_id = segment.id",
+            "        AND sol.is_deleted = b'0'",
+            "        AND UPPER(COALESCE(segment.forwarder_code, '')) = 'YT'",
+            "        AND (sol.yite_material IS NULL OR TRIM(sol.yite_material) = '')",
+            "    ),",
+            "    submitted_at = CASE",
+            "      WHEN segment.shipping_submit_status = 'SUBMITTED' THEN COALESCE(segment.submitted_at, NOW())",
+            "      ELSE segment.submitted_at END,",
+            "    submitted_by = CASE",
+            "      WHEN segment.shipping_submit_status = 'SUBMITTED' THEN COALESCE(segment.submitted_by, #{operatorUserId})",
+            "      ELSE segment.submitted_by END,",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE segment.shipping_order_id = #{shippingOrderId}",
+            "  AND segment.id IN",
+            "  <foreach collection='segmentIds' item='segmentId' open='(' separator=',' close=')'>#{segmentId}</foreach>",
+            "  AND segment.is_deleted = b'0'",
+            "</script>"
+    })
+    int refreshShippingOrderSegmentState(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("segmentIds") List<Long> segmentIds,
+            @Param("row") PurchaseOrderLogisticsQuoteLineRecord row,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_shipping_order so",
+            "SET quote_status = CASE",
+            "      WHEN EXISTS (",
+            "        SELECT 1 FROM procurement_shipping_order_segment segment",
+            "        WHERE segment.shipping_order_id = so.id",
+            "          AND segment.is_deleted = b'0'",
+            "          AND segment.quote_status != 'CONFIRMED'",
+            "      ) THEN 'PENDING_QUOTE' ELSE 'CONFIRMED' END,",
+            "    shipping_submit_status = CASE",
+            "      WHEN NOT EXISTS (",
+            "        SELECT 1 FROM procurement_shipping_order_segment segment",
+            "        WHERE segment.shipping_order_id = so.id",
+            "          AND segment.is_deleted = b'0'",
+            "          AND segment.shipping_submit_status IN ('SUBMITTED', 'PARTIAL_SUBMITTED')",
+            "      ) THEN 'NOT_SUBMITTED'",
+            "      WHEN EXISTS (",
+            "        SELECT 1 FROM procurement_shipping_order_segment segment",
+            "        WHERE segment.shipping_order_id = so.id",
+            "          AND segment.is_deleted = b'0'",
+            "          AND segment.shipping_submit_status != 'SUBMITTED'",
+            "      ) THEN 'PARTIAL_SUBMITTED' ELSE 'SUBMITTED' END,",
+            "    submitted_at = CASE",
+            "      WHEN so.shipping_submit_status = 'SUBMITTED' THEN COALESCE(so.submitted_at, NOW())",
+            "      ELSE so.submitted_at END,",
+            "    submitted_by = CASE",
+            "      WHEN so.shipping_submit_status = 'SUBMITTED' THEN COALESCE(so.submitted_by, #{operatorUserId})",
+            "      ELSE so.submitted_by END,",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE so.id = #{shippingOrderId}",
+            "  AND so.owner_user_id = #{ownerUserId}",
+            "  AND so.is_deleted = b'0'"
+    })
+    int refreshShippingOrderHeaderState(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_shipping_order",
+            "SET quote_status = CASE",
+            "      WHEN EXISTS (",
+            "        SELECT 1 FROM procurement_shipping_order_line sol",
+            "        LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "          ON quote.shipping_order_id = sol.shipping_order_id",
+            "         AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            "         AND quote.is_deleted = b'0'",
+            "        WHERE sol.shipping_order_id = #{shippingOrderId}",
+            "          AND sol.is_deleted = b'0'",
+            "          AND (quote.id IS NULL OR quote.quote_status != 'CONFIRMED')",
+            "      ) THEN 'PENDING_QUOTE' ELSE 'CONFIRMED' END,",
+            "    forwarder_code = #{row.forwarderCode},",
+            "    forwarder_name = #{row.forwarderName},",
+            "    route_code = #{row.routeCode},",
+            "    route_name = #{row.routeName},",
+            "    service_code = #{row.serviceCode},",
+            "    service_name = #{row.serviceName},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{shippingOrderId}",
+            "  AND is_deleted = b'0'"
+    })
+    int refreshShippingOrderQuoteState(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("row") PurchaseOrderLogisticsQuoteLineRecord row,
             @Param("operatorUserId") Long operatorUserId
     );
 

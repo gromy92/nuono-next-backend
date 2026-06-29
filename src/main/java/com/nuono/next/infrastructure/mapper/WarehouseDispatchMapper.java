@@ -60,6 +60,9 @@ public interface WarehouseDispatchMapper {
             + "pvlp.magnetic_type AS magneticType, pvlp.liquid_powder_type AS liquidPowderType, "
             + "pvlp.electric_type AS electricType, pvlp.blade_weapon_type AS bladeWeaponType, "
             + "pvlp.sensitive_tags_json AS sensitiveTagsJson, pvlp.manual_confirm_required = b'1' AS manualConfirmRequired, "
+            + "COALESCE(quote.quote_status, 'PENDING_QUOTE') AS logisticsQuoteStatus, "
+            + "COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS logisticsShippingSubmitStatus, "
+            + "(quote.id IS NULL OR quote.quote_status != 'CONFIRMED' OR quote.shipping_submit_status != 'SUBMITTED') AS logisticsQuoteBlocking, "
             + "balance.status "
             + "FROM procurement_fulfillment_balance balance "
             + "LEFT JOIN product_variant_spec pvs "
@@ -71,7 +74,10 @@ public interface WarehouseDispatchMapper {
             + " AND pvss.is_deleted = b'0' "
             + "LEFT JOIN product_variant_logistics_profile pvlp "
             + "  ON pvlp.variant_id = balance.product_variant_id "
-            + " AND pvlp.is_deleted = b'0' ";
+            + " AND pvlp.is_deleted = b'0' "
+            + "LEFT JOIN procurement_purchase_order_logistics_quote_line quote "
+            + "  ON quote.purchase_order_item_site_id = balance.purchase_order_item_site_id "
+            + " AND quote.is_deleted = b'0' ";
 
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -363,14 +369,18 @@ public interface WarehouseDispatchMapper {
 
     @Select({
             "<script>",
-            "SELECT po.id AS orderId, po.order_no AS orderNo, po.title AS orderTitle,",
+            "SELECT so.id AS receiptSourceId, so.shipping_order_no AS receiptSourceNo, so.title AS receiptSourceTitle,",
+            "       GROUP_CONCAT(DISTINCT COALESCE(sol.source_store_name, sol.source_store_code) ORDER BY sol.source_store_code SEPARATOR ' / ') AS receiptSourceStoreName,",
+            "       GROUP_CONCAT(DISTINCT sol.source_store_code ORDER BY sol.source_store_code SEPARATOR ',') AS receiptSourceStoreCode,",
+            "       DATE_FORMAT(so.gmt_create, '%Y-%m-%d') AS receiptSourceCreatedAt,",
+            "       po.id AS orderId, po.order_no AS orderNo, po.title AS orderTitle,",
             "       po.project_name_cache AS storeName, po.anchor_store_code_cache AS sourceStoreCode,",
             "       DATE_FORMAT(po.gmt_create, '%Y-%m-%d') AS createdAt,",
             "       item.id AS itemId, item.product_variant_id AS productVariantId, item.partner_sku AS partnerSku,",
             "       item.sku_parent AS skuParent, item.title_cache AS titleCache, item.image_url_cache AS imageUrlCache,",
-            "       SUBSTRING_INDEX(GROUP_CONCAT(DISTINCT site.site_code ORDER BY site.id SEPARATOR ','), ',', 1) AS siteCode,",
-            "       SUBSTRING_INDEX(GROUP_CONCAT(DISTINCT site.transport_mode ORDER BY site.id SEPARATOR ','), ',', 1) AS transportMode,",
-            "       COALESCE(item.total_quantity, SUM(site.quantity), 0) AS expectedQuantity,",
+            "       SUBSTRING_INDEX(GROUP_CONCAT(DISTINCT sol.site_code ORDER BY sol.id SEPARATOR ','), ',', 1) AS siteCode,",
+            "       SUBSTRING_INDEX(GROUP_CONCAT(DISTINCT sol.planned_transport_mode ORDER BY sol.id SEPARATOR ','), ',', 1) AS transportMode,",
+            "       COALESCE(SUM(sol.quantity), 0) AS expectedQuantity,",
             "       COALESCE(SUM(balance.confirmed_quantity - balance.abnormal_quantity), 0) AS receivedQuantity,",
             "       COALESCE(SUM(balance.reserved_quantity + balance.logistics_handoff_quantity), 0) AS plannedQuantity,",
             "       CASE WHEN COALESCE(pvss.product_length_cm, pvs.product_length_cm) IS NULL",
@@ -380,15 +390,19 @@ public interface WarehouseDispatchMapper {
             "            THEN 'SPEC_MISSING' ELSE 'READY' END AS specStatus,",
             "       COALESCE(item.fulfillment_type, 'WAREHOUSE_RECEIPT') AS fulfillmentType,",
             "       item.fulfillment_source_name AS fulfillmentSourceName",
-            "FROM procurement_purchase_order po",
+            "FROM procurement_shipping_order so",
+            "JOIN procurement_shipping_order_line sol",
+            "  ON sol.shipping_order_id = so.id",
+            " AND sol.is_deleted = b'0'",
+            "JOIN procurement_purchase_order po",
+            "  ON po.id = sol.purchase_order_id",
+            " AND po.is_deleted = b'0'",
             "JOIN procurement_purchase_order_item item",
             "  ON item.purchase_order_id = po.id",
+            " AND item.id = sol.purchase_order_item_id",
             " AND item.is_deleted = b'0'",
-            "LEFT JOIN procurement_purchase_order_item_site site",
-            "  ON site.purchase_order_item_id = item.id",
-            " AND site.is_deleted = b'0'",
             "LEFT JOIN procurement_fulfillment_balance balance",
-            "  ON balance.purchase_order_item_site_id = site.id",
+            "  ON balance.purchase_order_item_site_id = sol.purchase_order_item_site_id",
             " AND balance.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec pvs",
             "  ON pvs.variant_id = item.product_variant_id",
@@ -397,26 +411,30 @@ public interface WarehouseDispatchMapper {
             "  ON pvss.id = pvs.effective_source_id",
             " AND pvss.variant_id = item.product_variant_id",
             " AND pvss.is_deleted = b'0'",
-            "WHERE po.owner_user_id = #{ownerUserId}",
-            "  AND po.is_deleted = b'0'",
+            "WHERE so.owner_user_id = #{ownerUserId}",
+            "  AND so.is_deleted = b'0'",
+            "  AND so.shipping_submit_status IN ('SUBMITTED', 'PARTIAL_SUBMITTED')",
             "<if test='storeCodes != null and storeCodes.size() &gt; 0'>",
-            "  AND po.anchor_store_code_cache IN",
+            "  AND sol.source_store_code IN",
             "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>#{storeCode}</foreach>",
             "</if>",
             "<if test='keyword != null and keyword != \"\"'>",
-            "  AND (po.order_no LIKE CONCAT('%', #{keyword}, '%')",
+            "  AND (so.shipping_order_no LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR so.title LIKE CONCAT('%', #{keyword}, '%')",
+            "       OR po.order_no LIKE CONCAT('%', #{keyword}, '%')",
             "       OR po.title LIKE CONCAT('%', #{keyword}, '%')",
             "       OR item.partner_sku LIKE CONCAT('%', #{keyword}, '%')",
             "       OR item.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
             "       OR item.title_cache LIKE CONCAT('%', #{keyword}, '%'))",
             "</if>",
-            "GROUP BY po.id, po.order_no, po.title, po.project_name_cache, po.anchor_store_code_cache, po.gmt_create,",
+            "GROUP BY so.id, so.shipping_order_no, so.title, so.gmt_create,",
+            "         po.id, po.order_no, po.title, po.project_name_cache, po.anchor_store_code_cache, po.gmt_create,",
             "         item.id, item.product_variant_id, item.partner_sku, item.sku_parent, item.title_cache, item.image_url_cache,",
-            "         item.total_quantity, COALESCE(pvss.product_length_cm, pvs.product_length_cm),",
+            "         COALESCE(pvss.product_length_cm, pvs.product_length_cm),",
             "         COALESCE(pvss.product_width_cm, pvs.product_width_cm),",
             "         COALESCE(pvss.product_height_cm, pvs.product_height_cm),",
             "         COALESCE(pvss.product_weight_g, pvs.product_weight_g), item.fulfillment_type, item.fulfillment_source_name",
-            "ORDER BY po.gmt_create DESC, po.id DESC, item.id ASC",
+            "ORDER BY so.gmt_create DESC, so.id DESC, po.id ASC, item.id ASC",
             "</script>"
     })
     List<PurchaseReceiptRow> listReceiptRows(
@@ -627,20 +645,32 @@ public interface WarehouseDispatchMapper {
     ShippingBatchRecord selectShippingBatchById(@Param("batchId") Long batchId);
 
     @Select({
-            "SELECT id, batch_id AS batchId, owner_user_id AS ownerUserId, fulfillment_balance_id AS fulfillmentBalanceId,",
-            "       source_store_code AS sourceStoreCode, source_store_name AS sourceStoreName,",
-            "       purchase_order_id AS purchaseOrderId, purchase_order_no AS purchaseOrderNo, purchase_order_title AS purchaseOrderTitle,",
-            "       purchase_order_item_id AS purchaseOrderItemId, purchase_order_item_site_id AS purchaseOrderItemSiteId,",
-            "       product_master_id AS productMasterId, product_variant_id AS productVariantId, partner_sku AS partnerSku,",
-            "       sku_parent AS skuParent, title_cache AS titleCache, image_url_cache AS imageUrlCache, site_code AS siteCode,",
-            "       planned_transport_mode AS plannedTransportMode, fulfillment_type AS fulfillmentType, source_party_name AS sourcePartyName,",
-            "       spec_status AS specStatus, product_length_cm AS productLengthCm, product_width_cm AS productWidthCm,",
-            "       product_height_cm AS productHeightCm, product_weight_g AS productWeightG, logistics_profile_status AS logisticsProfileStatus,",
-            "       sensitive_flag = b'1' AS sensitiveFlag, sensitive_reason_json AS sensitiveReasonJson, reserved_quantity AS reservedQuantity",
-            "FROM warehouse_shipping_batch_source",
-            "WHERE batch_id = #{batchId}",
-            "  AND is_deleted = b'0'",
-            "ORDER BY id ASC"
+            "SELECT source.id, source.batch_id AS batchId, source.owner_user_id AS ownerUserId,",
+            "       source.fulfillment_balance_id AS fulfillmentBalanceId,",
+            "       source.source_store_code AS sourceStoreCode, source.source_store_name AS sourceStoreName,",
+            "       source.purchase_order_id AS purchaseOrderId, source.purchase_order_no AS purchaseOrderNo,",
+            "       source.purchase_order_title AS purchaseOrderTitle, source.purchase_order_item_id AS purchaseOrderItemId,",
+            "       source.purchase_order_item_site_id AS purchaseOrderItemSiteId,",
+            "       source.product_master_id AS productMasterId, source.product_variant_id AS productVariantId,",
+            "       source.partner_sku AS partnerSku, source.sku_parent AS skuParent, source.title_cache AS titleCache,",
+            "       source.image_url_cache AS imageUrlCache, source.site_code AS siteCode,",
+            "       source.planned_transport_mode AS plannedTransportMode, source.fulfillment_type AS fulfillmentType,",
+            "       source.source_party_name AS sourcePartyName, source.spec_status AS specStatus,",
+            "       source.product_length_cm AS productLengthCm, source.product_width_cm AS productWidthCm,",
+            "       source.product_height_cm AS productHeightCm, source.product_weight_g AS productWeightG,",
+            "       source.logistics_profile_status AS logisticsProfileStatus, source.sensitive_flag = b'1' AS sensitiveFlag,",
+            "       source.sensitive_reason_json AS sensitiveReasonJson,",
+            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS logisticsQuoteStatus,",
+            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS logisticsShippingSubmitStatus,",
+            "       (quote.id IS NULL OR quote.quote_status != 'CONFIRMED' OR quote.shipping_submit_status != 'SUBMITTED') AS logisticsQuoteBlocking,",
+            "       source.reserved_quantity AS reservedQuantity",
+            "FROM warehouse_shipping_batch_source source",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE source.batch_id = #{batchId}",
+            "  AND source.is_deleted = b'0'",
+            "ORDER BY source.id ASC"
     })
     List<ShippingBatchSourceRecord> listShippingBatchSources(@Param("batchId") Long batchId);
 
@@ -900,6 +930,20 @@ public interface WarehouseDispatchMapper {
             "ORDER BY outbound_order_line_id ASC, id ASC"
     })
     List<OutboundOrderLineSourceRecord> listOutboundOrderLineSources(@Param("outboundOrderId") Long outboundOrderId);
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM warehouse_outbound_order_line_source source",
+            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
+            "  ON quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
+            " AND quote.is_deleted = b'0'",
+            "WHERE source.outbound_order_id = #{outboundOrderId}",
+            "  AND source.is_deleted = b'0'",
+            "  AND (quote.id IS NULL",
+            "       OR quote.quote_status != 'CONFIRMED'",
+            "       OR quote.shipping_submit_status != 'SUBMITTED')"
+    })
+    int countBlockingOutboundOrderLogisticsQuotes(@Param("outboundOrderId") Long outboundOrderId);
 
     @Insert({
             "INSERT INTO warehouse_packing_list (",

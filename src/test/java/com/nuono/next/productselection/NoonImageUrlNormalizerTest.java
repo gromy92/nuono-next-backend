@@ -10,7 +10,7 @@ class NoonImageUrlNormalizerTest {
     @Test
     void normalizeConvertsNoonHashedPzskuAssetKeyToCdnImageUrl() {
         assertEquals(
-                "https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca|pzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201.jpg",
+                "https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca%7Cpzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201.jpg",
                 NoonImageUrlNormalizer.normalize(
                         "https://f.nooncdn.com/eff639f2df2651369082d90705ccc7ca|pzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201"
                 )

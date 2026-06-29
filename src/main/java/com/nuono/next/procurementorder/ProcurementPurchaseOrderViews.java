@@ -22,6 +22,7 @@ public final class ProcurementPurchaseOrderViews {
         public String remark;
         public List<String> siteCodes = new ArrayList<>();
         public List<PurchaseOrderItemView> items = new ArrayList<>();
+        public PurchaseOrderLogisticsQuoteSummaryView logisticsQuoteSummary = new PurchaseOrderLogisticsQuoteSummaryView();
     }
 
     public static class PurchaseOrderAli1688HistoryView {
@@ -104,6 +105,201 @@ public final class ProcurementPurchaseOrderViews {
         public List<String> messages = new ArrayList<>();
         public List<PurchaseOrderLogisticsRecommendationView> recommendations = new ArrayList<>();
         public List<PurchaseOrderLogisticsPlanLineView> lines = new ArrayList<>();
+    }
+
+    public static class PurchaseOrderLogisticsQuoteSummaryView {
+        public Integer totalLineCount = 0;
+        public Integer pendingLineCount = 0;
+        public Integer confirmedLineCount = 0;
+        public Integer submittedLineCount = 0;
+        public Integer newProductLineCount = 0;
+        public String shippingSubmitStatus = "NOT_SUBMITTED";
+    }
+
+    public static class PurchaseOrderLogisticsQuoteOptionsView {
+        public String purchaseOrderId;
+        public String purchaseOrderNo;
+        public Integer pendingLineCount = 0;
+        public Integer unsupportedChannelCount = 0;
+        public List<PurchaseOrderLogisticsQuoteForwarderOptionView> forwarders = new ArrayList<>();
+    }
+
+    public static class PurchaseOrderLogisticsQuoteForwarderOptionView {
+        public String forwarderCode;
+        public String forwarderName;
+        public String templateType;
+        public String templateName;
+        public List<PurchaseOrderLogisticsQuoteChannelOptionView> channels = new ArrayList<>();
+    }
+
+    public static class PurchaseOrderLogisticsQuoteChannelOptionView {
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String siteCode;
+        public String transportMode;
+        public String transportModeLabel;
+        public String country;
+        public String targetPlatform;
+        public String deliveryCity;
+        public String destinationNode;
+        public String transitTimeText;
+        public String priceSummary;
+        public Integer pendingLineCount = 0;
+        public Integer newProductLineCount = 0;
+    }
+
+    public static class PurchaseOrderLogisticsQuoteReportExportView {
+        public String filename;
+        public String contentType;
+        public byte[] content;
+        public Integer rowCount = 0;
+        public Integer pendingCount = 0;
+        public Integer newProductCount = 0;
+    }
+
+    public static class PurchaseOrderLogisticsQuoteImportView {
+        public Integer totalRows = 0;
+        public Integer updatedRows = 0;
+        public Integer skippedRows = 0;
+        public List<PurchaseOrderLogisticsQuoteImportErrorView> errors = new ArrayList<>();
+    }
+
+    public static class PurchaseOrderLogisticsQuoteImportErrorView {
+        public Integer rowNumber;
+        public String message;
+    }
+
+    public static class PurchaseOrderShippingSubmitView {
+        public String purchaseOrderId;
+        public String purchaseOrderNo;
+        public String shippingSubmitStatus;
+        public Integer submittedLineCount = 0;
+    }
+
+    public static class ShippingOrderView {
+        public String id;
+        public String shippingOrderNo;
+        public String title;
+        public String status;
+        public Integer purchaseOrderCount = 0;
+        public Integer lineCount = 0;
+        public Integer skuCount = 0;
+        public Integer totalQuantity = 0;
+        public Integer missingYiteMaterialCount = 0;
+        public String quoteStatus;
+        public String shippingSubmitStatus;
+        public String forwarderName;
+        public String routeName;
+        public String submittedAt;
+        public String remark;
+        public String createdAt;
+        public String updatedAt;
+        public List<String> warnings = new ArrayList<>();
+        public List<ShippingOrderSegmentView> segments = new ArrayList<>();
+        public List<ShippingOrderLineView> lines = new ArrayList<>();
+    }
+
+    public static class ShippingOrderSegmentView {
+        public String id;
+        public String segmentNo;
+        public String siteCode;
+        public String transportMode;
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String quoteStatus;
+        public String shippingSubmitStatus;
+        public Integer lineCount = 0;
+        public Integer skuCount = 0;
+        public Integer totalQuantity = 0;
+        public Integer missingYiteMaterialCount = 0;
+        public String submittedAt;
+    }
+
+    public static class ShippingOrderLineView {
+        public String id;
+        public String shippingOrderSegmentId;
+        public String shippingOrderSegmentNo;
+        public String sourceStoreCode;
+        public String sourceStoreName;
+        public String purchaseOrderId;
+        public String purchaseOrderNo;
+        public String purchaseOrderTitle;
+        public String purchaseOrderItemId;
+        public String purchaseOrderItemSiteId;
+        public String partnerSku;
+        public String skuParent;
+        public String barcode;
+        public String productTitle;
+        public String productTitleCn;
+        public String productTitleEn;
+        public String productImageUrl;
+        public String siteCode;
+        public String pskuCode;
+        public String yiteMaterial;
+        public String plannedTransportMode;
+        public String quoteStatus;
+        public String shippingSubmitStatus;
+        public String fulfillmentType;
+        public Integer quantity = 0;
+    }
+
+    public static class ShippingOrderSubmitView {
+        public String shippingOrderId;
+        public String shippingOrderNo;
+        public String shippingSubmitStatus;
+        public Integer submittedLineCount = 0;
+    }
+
+    public static class LogisticsBillView {
+        public String id;
+        public String expectedBillNo;
+        public String shippingOrderId;
+        public String shippingOrderNo;
+        public String shippingOrderTitle;
+        public String shippingOrderSegmentId;
+        public String shippingOrderSegmentNo;
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String serviceCode;
+        public String serviceName;
+        public String transportMode;
+        public String currency;
+        public BigDecimal expectedTotalAmount;
+        public BigDecimal expectedTotalCny;
+        public BigDecimal actualTotalCny;
+        public BigDecimal diffAmountCny;
+        public Integer componentCount = 0;
+        public String billStatus;
+        public String reconciliationStatus;
+        public String createdAt;
+        public String updatedAt;
+        public List<LogisticsBillComponentView> components = new ArrayList<>();
+    }
+
+    public static class LogisticsBillComponentView {
+        public String id;
+        public String shippingOrderSegmentId;
+        public String shippingOrderLineId;
+        public String quoteLineId;
+        public String barcode;
+        public String pskuCode;
+        public String siteCode;
+        public String feeType;
+        public BigDecimal quantity;
+        public BigDecimal chargeQuantity;
+        public String chargeUnit;
+        public BigDecimal unitPrice;
+        public String currency;
+        public BigDecimal expectedAmount;
+        public BigDecimal expectedAmountCny;
     }
 
     public static class PurchaseOrderLogisticsRecommendationView {

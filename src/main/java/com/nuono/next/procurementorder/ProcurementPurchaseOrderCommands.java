@@ -34,6 +34,25 @@ public final class ProcurementPurchaseOrderCommands {
         public String sourcingColor;
     }
 
+    public static class CreateShippingOrderCommand {
+        public String title;
+        public String remark;
+        public List<String> purchaseOrderIds = new ArrayList<>();
+    }
+
+    public static class UpdateShippingOrderCommand {
+        public String title;
+        public String remark;
+    }
+
+    public static class UpdateShippingOrderLineYiteMaterialCommand {
+        public String yiteMaterial;
+    }
+
+    public static class ShippingOrderSegmentScopeCommand {
+        public List<String> segmentIds = new ArrayList<>();
+    }
+
     public static class ItemCommand {
         public String psku;
         public String site;

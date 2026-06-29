@@ -58,6 +58,9 @@ public final class WarehouseDispatchViews {
         public String siteCode;
         public Boolean isNewProduct;
         public Boolean manualConfirmRequired;
+        public Boolean logisticsQuoteBlocking;
+        public String logisticsQuoteStatus;
+        public String logisticsShippingSubmitStatus;
         public String fulfillmentType;
         public String specStatus;
         public Integer availableQuantity;
@@ -78,6 +81,7 @@ public final class WarehouseDispatchViews {
         public String id;
         public String orderId;
         public String orderNo;
+        public String purchaseOrderTitle;
         public String storeName;
         public String psku;
         public String title;
@@ -103,6 +107,9 @@ public final class WarehouseDispatchViews {
         public Long purchaseOrderItemId;
         public Long purchaseOrderItemSiteId;
         public String plannedTransportMode;
+        public String logisticsQuoteStatus;
+        public String logisticsShippingSubmitStatus;
+        public Boolean logisticsQuoteBlocking;
         public Integer availableQuantity;
     }
 
@@ -272,6 +279,9 @@ public final class WarehouseDispatchViews {
         public String logisticsProfileStatus;
         public Boolean sensitiveFlag;
         public List<String> sensitiveReasons = new ArrayList<>();
+        public String logisticsQuoteStatus;
+        public String logisticsShippingSubmitStatus;
+        public Boolean logisticsQuoteBlocking;
         public Integer reservedQuantity;
 
         public ShippingBatchSourceRecord toRecord() {

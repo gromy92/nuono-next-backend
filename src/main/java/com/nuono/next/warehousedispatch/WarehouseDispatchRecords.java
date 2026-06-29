@@ -112,10 +112,19 @@ public final class WarehouseDispatchRecords {
         public String bladeWeaponType;
         public String sensitiveTagsJson;
         public Boolean manualConfirmRequired;
+        public String logisticsQuoteStatus;
+        public String logisticsShippingSubmitStatus;
+        public Boolean logisticsQuoteBlocking;
         public String status;
     }
 
     public static class PurchaseReceiptRow {
+        public Long receiptSourceId;
+        public String receiptSourceNo;
+        public String receiptSourceTitle;
+        public String receiptSourceStoreName;
+        public String receiptSourceStoreCode;
+        public String receiptSourceCreatedAt;
         public Long orderId;
         public String orderNo;
         public String orderTitle;
@@ -297,6 +306,9 @@ public final class WarehouseDispatchRecords {
         public String logisticsProfileStatus;
         public Boolean sensitiveFlag;
         public String sensitiveReasonJson;
+        public String logisticsQuoteStatus;
+        public String logisticsShippingSubmitStatus;
+        public Boolean logisticsQuoteBlocking;
         public Integer reservedQuantity;
     }
 
