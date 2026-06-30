@@ -1630,8 +1630,8 @@ public class LocalDbProcurementPurchaseOrderService {
         row.ownerUserId = line.ownerUserId;
         row.logicalStoreId = line.logicalStoreId;
         PurchaseOrderRecord order = requireOrder(line.purchaseOrderId);
-        row.sourceStoreCode = order.anchorStoreCodeCache;
-        row.sourceStoreName = order.projectNameCache;
+        row.sourceStoreCode = defaultText(line.sourceStoreCode, order.anchorStoreCodeCache);
+        row.sourceStoreName = defaultText(line.sourceStoreName, order.projectNameCache);
         row.purchaseOrderId = line.purchaseOrderId;
         row.purchaseOrderNo = line.purchaseOrderNo;
         row.purchaseOrderTitle = line.purchaseOrderTitle;
@@ -1767,6 +1767,9 @@ public class LocalDbProcurementPurchaseOrderService {
         view.quoteStatus = normalizeLogisticsQuoteStatus(line.quoteStatus);
         view.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
         view.fulfillmentType = normalizeFulfillmentType(line.fulfillmentType);
+        view.unitPrice = line.unitPrice;
+        view.currency = line.currency;
+        view.billingUnit = line.billingUnit;
         view.quantity = nonNull(line.quantity);
         return view;
     }
@@ -3008,47 +3011,65 @@ public class LocalDbProcurementPurchaseOrderService {
             addImportError(view, rowNumber, "缺少报价，请在最新报价或产品申报单价列填写报价后回传。");
             return;
         }
-        PurchaseOrderLogisticsQuoteLineRecord line =
-                itemSiteId == null
-                        ? selectLogisticsQuoteLineForYiteImportByProductCode(order, productCode, allowedSegmentIds)
-                        : selectLogisticsQuoteLineForImport(order, itemSiteId);
-        if (line == null) {
+        List<PurchaseOrderLogisticsQuoteLineRecord> lines =
+                selectLogisticsQuoteLinesForYiteImport(order, itemSiteId, productCode, allowedSegmentIds);
+        if (lines.isEmpty()) {
             addImportError(view, rowNumber, "报价行不存在或不属于当前导出单据，请检查产品SKU。");
             return;
         }
-        if (isOutsideSelectedShippingOrderSegment(order, line, allowedSegmentIds)) {
-            addImportError(view, rowNumber, "报价行不属于当前筛选的子发货单。");
-            return;
+        for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
+            if (isOutsideSelectedShippingOrderSegment(order, line, allowedSegmentIds)) {
+                addImportError(view, rowNumber, "报价行不属于当前筛选的子发货单。");
+                return;
+            }
         }
-        line.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
-        line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
-        String hiddenForwarderCode = readTextCell(row, YITE_HIDDEN_FORWARDER_CODE_COLUMN);
-        line.forwarderCode = defaultText(hiddenForwarderCode, defaultText(line.forwarderCode, YITE_FORWARDER_CODE));
-        line.forwarderName = defaultText(line.forwarderName, YITE_FORWARDER_NAME);
-        line.routeCode = defaultText(line.routeCode, serviceName);
-        line.routeName = defaultText(line.routeName, serviceName);
-        line.serviceCode = defaultText(line.serviceCode, serviceName);
-        line.serviceName = defaultText(line.serviceName, serviceName);
-        line.currency = "RMB";
-        line.unitPrice = unitPrice;
-        line.billingUnit = defaultText(readTextCell(row, YITE_HIDDEN_BILLING_UNIT_COLUMN), line.billingUnit);
-        line.estimatedAmount = estimatedAmount;
-        line.remark = defaultText(readTextCell(row, YITE_HIDDEN_REMARK_COLUMN), "义特模板回传确认");
-        mapper.confirmLogisticsQuoteLine(line, operatorUserId);
-        persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename);
+        for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
+            line.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
+            line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
+            String hiddenForwarderCode = readTextCell(row, YITE_HIDDEN_FORWARDER_CODE_COLUMN);
+            line.forwarderCode = defaultText(hiddenForwarderCode, defaultText(line.forwarderCode, YITE_FORWARDER_CODE));
+            line.forwarderName = defaultText(line.forwarderName, YITE_FORWARDER_NAME);
+            line.routeCode = defaultText(line.routeCode, serviceName);
+            line.routeName = defaultText(line.routeName, serviceName);
+            line.serviceCode = defaultText(line.serviceCode, serviceName);
+            line.serviceName = defaultText(line.serviceName, serviceName);
+            line.currency = "RMB";
+            line.unitPrice = unitPrice;
+            line.billingUnit = defaultText(readTextCell(row, YITE_HIDDEN_BILLING_UNIT_COLUMN), line.billingUnit);
+            line.estimatedAmount = estimatedAmount;
+            line.remark = defaultText(readTextCell(row, YITE_HIDDEN_REMARK_COLUMN), "义特模板回传确认");
+            mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+            persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename);
+        }
         view.updatedRows += 1;
     }
 
-    private PurchaseOrderLogisticsQuoteLineRecord selectLogisticsQuoteLineForYiteImportByProductCode(
+    private List<PurchaseOrderLogisticsQuoteLineRecord> selectLogisticsQuoteLinesForYiteImport(
+            PurchaseOrderRecord order,
+            Long itemSiteId,
+            String productCode,
+            Set<Long> allowedSegmentIds
+    ) {
+        if (itemSiteId != null) {
+            PurchaseOrderLogisticsQuoteLineRecord line = selectLogisticsQuoteLineForImport(order, itemSiteId);
+            if (line != null) {
+                return List.of(line);
+            }
+        }
+        return selectLogisticsQuoteLinesForYiteImportByProductCode(order, productCode, allowedSegmentIds);
+    }
+
+    private List<PurchaseOrderLogisticsQuoteLineRecord> selectLogisticsQuoteLinesForYiteImportByProductCode(
             PurchaseOrderRecord order,
             String productCode,
             Set<Long> allowedSegmentIds
     ) {
         if (!StringUtils.hasText(productCode) || order == null || order.id == null) {
-            return null;
+            return Collections.emptyList();
         }
         List<PurchaseOrderLogisticsQuoteLineRecord> lines;
-        if (StringUtils.hasText(order.orderNo) && order.orderNo.startsWith("SO-")) {
+        boolean shippingOrder = StringUtils.hasText(order.orderNo) && order.orderNo.startsWith("SO-");
+        if (shippingOrder) {
             lines = emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrder(order.id));
         } else {
             lines = emptyIfNull(mapper.listLogisticsQuoteCandidatesByOrder(order.id));
@@ -3058,7 +3079,10 @@ public class LocalDbProcurementPurchaseOrderService {
                 .filter(line -> !isOutsideSelectedShippingOrderSegment(order, line, allowedSegmentIds))
                 .filter(line -> matchesYiteImportProductCode(line, normalizedProductCode))
                 .collect(Collectors.toList());
-        return matches.size() == 1 ? matches.get(0) : null;
+        if (!shippingOrder && matches.size() != 1) {
+            return Collections.emptyList();
+        }
+        return matches;
     }
 
     private boolean matchesYiteImportProductCode(
