@@ -138,10 +138,19 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         ProductListProjectionRecord record = new ProductListProjectionRecord();
         record.setSkuParent("ZTEST001");
         record.setTitle("Amber Burner");
+        record.setImageUrl("https://img.example.com/cover.jpg");
         record.setDetailBaselineStatus("missing");
         record.setSyncStatus("synced");
         when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
                 .thenReturn(List.of(record));
+        ProductListSnapshotMediaRecord firstMediaRecord = new ProductListSnapshotMediaRecord();
+        firstMediaRecord.setSkuParent("ZTEST001");
+        firstMediaRecord.setImageUrl("https://img.example.com/a.jpg");
+        ProductListSnapshotMediaRecord secondMediaRecord = new ProductListSnapshotMediaRecord();
+        secondMediaRecord.setSkuParent("ZTEST001");
+        secondMediaRecord.setImageUrl("https://img.example.com/b.jpg");
+        when(productManagementMapper.selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(firstMediaRecord, secondMediaRecord));
 
         List<ProductListSummaryView> summaries = service.loadProductListSummaries(
                 10002L,
@@ -151,7 +160,10 @@ class ProductProjectionPersistenceServiceListSummaryTest {
 
         assertEquals(1, summaries.size());
         assertEquals("ZTEST001", summaries.get(0).getSkuParent());
+        assertEquals("https://img.example.com/cover.jpg", summaries.get(0).getImageUrl());
+        assertEquals(List.of("https://img.example.com/a.jpg", "https://img.example.com/b.jpg"), summaries.get(0).getGalleryImages());
         assertNull(summaries.get(0).getHistoryMetaReady());
+        verify(productManagementMapper).selectLatestProductListSnapshotMedia(10002L, "STR245027-NAE");
         verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(
                 eq(10002L),
                 eq("STR245027-NAE"),

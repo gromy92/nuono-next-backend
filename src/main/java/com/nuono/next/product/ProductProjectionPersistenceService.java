@@ -554,11 +554,73 @@ public class ProductProjectionPersistenceService {
             List<String> warnings
     ) {
         List<ProductListSummaryView> summaries = new ArrayList<>();
+        String normalizedStoreCode = normalize(storeCode);
         for (ProductListProjectionRecord record : loadProductListProjection(ownerUserId, storeCode, warnings)) {
-            ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode));
+            ProductListSummaryView summary = toListSummaryView(record, normalizedStoreCode);
             summaries.add(summary);
         }
+        hydrateListSnapshotMedia(summaries, ownerUserId, normalizedStoreCode, warnings);
         return summaries;
+    }
+
+    private void hydrateListSnapshotMedia(
+            List<ProductListSummaryView> summaries,
+            Long ownerUserId,
+            String storeCode,
+            List<String> warnings
+    ) {
+        if (summaries == null || summaries.isEmpty() || ownerUserId == null || !StringUtils.hasText(storeCode)) {
+            return;
+        }
+        if (!ensureWorkbenchTablesReady(warnings)) {
+            return;
+        }
+        Map<String, ProductListSummaryView> summariesBySkuParent = new LinkedHashMap<>();
+        for (ProductListSummaryView summary : summaries) {
+            if (summary == null || !StringUtils.hasText(summary.getSkuParent())) {
+                continue;
+            }
+            summariesBySkuParent.put(normalize(summary.getSkuParent()), summary);
+        }
+        if (summariesBySkuParent.isEmpty()) {
+            return;
+        }
+        List<ProductListSnapshotMediaRecord> records =
+                productManagementMapper.selectLatestProductListSnapshotMedia(
+                        ownerUserId,
+                        storeCode
+                );
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+        Map<String, List<String>> imageUrlsBySkuParent = new LinkedHashMap<>();
+        for (ProductListSnapshotMediaRecord record : records) {
+            if (record == null || !StringUtils.hasText(record.getSkuParent())) {
+                continue;
+            }
+            String skuParent = normalize(record.getSkuParent());
+            if (!summariesBySkuParent.containsKey(skuParent)) {
+                continue;
+            }
+            String imageUrl = normalize(record.getImageUrl());
+            if (!StringUtils.hasText(imageUrl)) {
+                continue;
+            }
+            List<String> images = imageUrlsBySkuParent.computeIfAbsent(skuParent, ignored -> new ArrayList<>());
+            if (!images.contains(imageUrl)) {
+                images.add(imageUrl);
+            }
+        }
+        for (Map.Entry<String, List<String>> entry : imageUrlsBySkuParent.entrySet()) {
+            ProductListSummaryView summary = summariesBySkuParent.get(entry.getKey());
+            List<String> images = entry.getValue();
+            if (!images.isEmpty()) {
+                summary.setGalleryImages(images);
+                if (!StringUtils.hasText(summary.getImageUrl())) {
+                    summary.setImageUrl(images.get(0));
+                }
+            }
+        }
     }
 
     public ProductListSummaryView loadProductListSummary(
