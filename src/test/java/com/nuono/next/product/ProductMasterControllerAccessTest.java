@@ -11,6 +11,9 @@ import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noonpull.NoonProductDetailBaselineSyncRequest;
+import com.nuono.next.noonpull.NoonProductDetailBaselineSyncResult;
+import com.nuono.next.noonpull.NoonProductDetailBaselineSyncer;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessAccountType;
@@ -56,6 +59,12 @@ class ProductMasterControllerAccessTest {
     private ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider;
 
     @Mock
+    private ObjectProvider<NoonProductDetailBaselineSyncer> productDetailBaselineSyncerProvider;
+
+    @Mock
+    private NoonProductDetailBaselineSyncer productDetailBaselineSyncer;
+
+    @Mock
     private BusinessAccessResolver businessAccessResolver;
 
     private ProductMasterController controller;
@@ -70,7 +79,8 @@ class ProductMasterControllerAccessTest {
                 translationServiceProvider,
                 sessionTokenService,
                 productMasterAccessGuardProvider,
-                businessAccessResolverProvider
+                businessAccessResolverProvider,
+                productDetailBaselineSyncerProvider
         );
     }
 
@@ -134,6 +144,40 @@ class ProductMasterControllerAccessTest {
         controller.publishTask(64001L, 10002L, request);
 
         verify(productMasterService).loadPublishTask(64001L, 10002L);
+    }
+
+    @Test
+    void shouldResolveOwnerAndClampBatchBeforeSyncingMissingDetailBaselines() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(productDetailBaselineSyncerProvider.getIfAvailable()).thenReturn(productDetailBaselineSyncer);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                "STR245027-NAE"
+        )).thenReturn(productContext(10003L, 10002L, "STR245027-NAE"));
+        NoonProductDetailBaselineSyncResult syncResult = new NoonProductDetailBaselineSyncResult();
+        syncResult.setAttemptedCount(50);
+        syncResult.setRemainingCount(3);
+        when(productDetailBaselineSyncer.sync(org.mockito.ArgumentMatchers.any())).thenReturn(syncResult);
+
+        NoonProductDetailBaselineSyncRequest command = new NoonProductDetailBaselineSyncRequest();
+        command.setOwnerUserId(99999L);
+        command.setStoreCode("STR245027-NAE");
+        command.setSiteCode("AE");
+        command.setMaxDetailFetches(999);
+        command.setResumePosition("BEBI029");
+
+        NoonProductDetailBaselineSyncResult result = controller.syncMissingDetailBaselines(command, request);
+
+        ArgumentCaptor<NoonProductDetailBaselineSyncRequest> captor =
+                ArgumentCaptor.forClass(NoonProductDetailBaselineSyncRequest.class);
+        verify(productDetailBaselineSyncer).sync(captor.capture());
+        assertEquals(50, result.getAttemptedCount());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals("STR245027-NAE", captor.getValue().getStoreCode());
+        assertEquals("AE", captor.getValue().getSiteCode());
+        assertEquals(50, captor.getValue().getMaxDetailFetches());
+        assertEquals("BEBI029", captor.getValue().getResumePosition());
     }
 
     private MockHttpServletRequest requestFor(AuthenticatedSession session) {
