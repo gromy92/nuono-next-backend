@@ -246,6 +246,9 @@ public final class ProcurementPurchaseOrderViews {
         public String quoteStatus;
         public String shippingSubmitStatus;
         public String fulfillmentType;
+        public BigDecimal unitPrice;
+        public String currency;
+        public String billingUnit;
         public Integer quantity = 0;
     }
 
