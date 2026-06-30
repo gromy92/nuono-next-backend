@@ -123,6 +123,24 @@ class OfficialWarehouseSchemaTest {
     }
 
     @Test
+    void officialWarehouseProductCandidatesUseSiteOfferPskuCodeAsAsnPskuFallback() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+
+        assertThat(mapper)
+                .contains("COALESCE(NULLIF(TRIM(official.noon_partner_psku_code), ''), NULLIF(TRIM(pso.psku_code), '')) AS pskuCode");
+    }
+
+    @Test
+    void officialWarehouseViewsNormalizeNoonImageUrlsBeforeReturningRows() throws Exception {
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
+
+        assertThat(service)
+                .contains("import com.nuono.next.productselection.NoonImageUrlNormalizer;")
+                .contains("lineRow.imageUrlCache = NoonImageUrlNormalizer.normalize(candidate.imageUrlCache);")
+                .contains("view.imageUrl = NoonImageUrlNormalizer.normalize(row.imageUrlCache);");
+    }
+
+    @Test
     void officialWarehouseHasOwnBusinessCapability() {
         assertThat(BusinessCapability.OFFICIAL_WAREHOUSE.getMenuPathPrefixes())
                 .contains("/warehouse/official-warehouse", "/api/warehouse/official-warehouse");
