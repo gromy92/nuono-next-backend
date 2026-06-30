@@ -287,14 +287,17 @@ public class CompetitorAnalysisService {
         if (StringUtils.hasText(frontendSelfCode) && !selfCode.equals(frontendSelfCode)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_SELF_CODE_MISMATCH");
         }
+        String partnerSku = requireText(option.getPartnerSku(), "COMPETITOR_PARTNER_SKU_REQUIRED");
 
-        CompetitorWatchProductRow existing = mapper.selectWatchProductByProductSiteOfferId(
+        CompetitorWatchProductRow existing = mapper.selectWatchProductByBusinessKey(
                 ownerUserId,
                 storeCode,
                 siteCode,
-                option.getProductSiteOfferId()
+                partnerSku,
+                selfCode
         );
         if (existing != null) {
+            mapper.updateWatchProductCurrentBinding(existing.getId(), option, actorUserId(context));
             return detail(context, existing.getId());
         }
 

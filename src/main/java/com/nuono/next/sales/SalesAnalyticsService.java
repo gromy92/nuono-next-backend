@@ -166,7 +166,9 @@ public class SalesAnalyticsService {
     }
 
     public List<SalesProductRow> listProductRows(SalesFactQuery query) {
-        List<DailySalesFact> facts = filteredFacts(query);
+        List<DailySalesFact> facts = filteredFacts(query).stream()
+                .filter(this::hasBusinessPartnerSku)
+                .collect(Collectors.toList());
         Map<String, List<DailySalesFact>> factsByProduct = new TreeMap<>();
         for (DailySalesFact fact : facts) {
             factsByProduct.computeIfAbsent(productKey(fact), ignored -> new ArrayList<>()).add(fact);
@@ -186,15 +188,16 @@ public class SalesAnalyticsService {
     }
 
     public SalesProductDetail getProductDetail(SalesFactQuery query) {
-        List<DailySalesFact> facts = filteredFacts(query);
-        Map<String, SalesProductDimensionSnapshot> dimensionsByProduct = dimensionsByProduct(query);
-        SalesProductDimensionSnapshot queryDimension = dimensionsByProduct.get(productKey(query.getPartnerSku(), query.getSku()));
-        SalesPriceTrendResult priceTrend = priceTrendFor(query, "day");
-        SalesHistoryCoverage historyCoverage = historyCoverageFor(query, facts, priceTrend);
+        SalesFactQuery productQuery = productDetailIdentityQuery(query);
+        List<DailySalesFact> facts = filteredFacts(productQuery);
+        Map<String, SalesProductDimensionSnapshot> dimensionsByProduct = dimensionsByProduct(productQuery);
+        SalesProductDimensionSnapshot queryDimension = dimensionsByProduct.get(productKey(productQuery.getPartnerSku(), productQuery.getSku()));
+        SalesPriceTrendResult priceTrend = priceTrendFor(productQuery, "day");
+        SalesHistoryCoverage historyCoverage = historyCoverageFor(productQuery, facts, priceTrend);
         if (facts.isEmpty()) {
             return new SalesProductDetail(
-                    query.getPartnerSku(),
-                    query.getSku(),
+                    productQuery.getPartnerSku(),
+                    queryDimension == null ? productQuery.getSku() : queryDimension.getSku(),
                     null,
                     null,
                     List.of(),
@@ -231,6 +234,27 @@ public class SalesAnalyticsService {
                 priceTrend.getBuckets(),
                 priceTrend.getState(),
                 historyCoverage
+        );
+    }
+
+    private SalesFactQuery productDetailIdentityQuery(SalesFactQuery query) {
+        if (query == null || !hasBusinessPartnerSku(query.getPartnerSku())) {
+            return query;
+        }
+        return new SalesFactQuery(
+                query.getOwnerUserId(),
+                query.getStoreCode(),
+                query.getSiteCode(),
+                query.getDateFrom(),
+                query.getDateTo(),
+                query.getPartnerSku(),
+                null,
+                query.getSearchKeyword(),
+                query.getBrand(),
+                query.getProductFulltype(),
+                query.getDataQualityCode(),
+                query.getPartnerSkuList(),
+                query.getLifecycleCode()
         );
     }
 
@@ -657,7 +681,18 @@ public class SalesAnalyticsService {
     }
 
     private String productKey(String partnerSku, String sku) {
-        return nullSafe(partnerSku) + "|" + nullSafe(sku);
+        if (hasBusinessPartnerSku(partnerSku)) {
+            return partnerSku.trim();
+        }
+        return "__missing_partner_sku__|" + nullSafe(sku);
+    }
+
+    private boolean hasBusinessPartnerSku(DailySalesFact fact) {
+        return fact != null && hasBusinessPartnerSku(fact.getPartnerSku());
+    }
+
+    private boolean hasBusinessPartnerSku(String partnerSku) {
+        return partnerSku != null && !partnerSku.isBlank() && !"-".equals(partnerSku.trim());
     }
 
     private String nullSafe(String value) {

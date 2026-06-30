@@ -203,6 +203,41 @@ class SalesAnalyticsServiceTest {
     }
 
     @Test
+    void groupsProductRowsByPartnerSkuWhenExternalSkuChanges() {
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "SAMPLE-SKU-001", "Z-OLD-1", 4, 4, 0, 4, new BigDecimal("40.00"), 20, 30, null, null),
+                fact(LocalDate.of(2026, 5, 19), "SAMPLE-SKU-001", "Z-NEW-1", 6, 6, 0, 6, new BigDecimal("60.00"), 25, 35, null, null)
+        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
+
+        List<SalesProductRow> rows = service.listProductRows(defaultQuery());
+
+        assertEquals(1, rows.size());
+        assertEquals("SAMPLE-SKU-001", rows.get(0).getPartnerSku());
+        assertEquals("Z-NEW-1", rows.get(0).getSku());
+        assertEquals(10, rows.get(0).getNetUnits());
+        assertEquals(LocalDate.of(2026, 5, 19), rows.get(0).getLatestFactDate());
+    }
+
+    @Test
+    void productRowsExcludeFactsWithoutBusinessPsku() {
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "-", "Z-MISSING-1", 4, 4, 0, 4, new BigDecimal("40.00"), 20, 30, null, null),
+                fact(LocalDate.of(2026, 5, 19), "-", "Z-MISSING-2", 6, 6, 0, 6, new BigDecimal("60.00"), 25, 35, null, null),
+                fact(LocalDate.of(2026, 5, 20), "SAMPLE-SKU-001", "Z-VALID-1", 8, 8, 0, 8, new BigDecimal("80.00"), 30, 40, null, null)
+        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
+
+        List<SalesProductRow> rows = service.listProductRows(defaultQuery());
+
+        assertEquals(1, rows.size());
+        assertEquals("SAMPLE-SKU-001", rows.get(0).getPartnerSku());
+        assertEquals(8, rows.get(0).getNetUnits());
+    }
+
+    @Test
     void productRowsExposeLatestFactMetricsBesideRangeTotals() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         repository.facts = List.of(
@@ -400,11 +435,11 @@ class SalesAnalyticsServiceTest {
         );
         RecordingLifecycleStateRepository lifecycleRepository = new RecordingLifecycleStateRepository();
         lifecycleRepository.currentStates.put(
-                "STABLE-PSKU|ZSTABLE-1",
+                "STABLE-PSKU",
                 lifecycleState("stable", "稳定", "ready", "DEFAULT_V1")
         );
         lifecycleRepository.currentStates.put(
-                "NEW-PSKU|ZNEW-1",
+                "NEW-PSKU",
                 lifecycleState("new", "新品", "ready", "DEFAULT_V1")
         );
         SalesAnalyticsService service = new SalesAnalyticsService(
@@ -649,6 +684,59 @@ class SalesAnalyticsServiceTest {
     }
 
     @Test
+    void productDetailIgnoresExternalSkuWhenPartnerSkuIsPresent() {
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "SAMPLE-SKU-001", "Z-OLD-1", 4, 4, 0, 4, new BigDecimal("40.00"), 20, 30, null, null),
+                fact(LocalDate.of(2026, 5, 19), "SAMPLE-SKU-001", "Z-NEW-1", 6, 6, 0, 6, new BigDecimal("60.00"), 25, 35, null, null)
+        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
+
+        SalesProductDetail detail = service.getProductDetail(new SalesFactQuery(
+                10002L,
+                "STR245027-SAU",
+                "SA",
+                LocalDate.of(2026, 5, 1),
+                LocalDate.of(2026, 5, 31),
+                "SAMPLE-SKU-001",
+                "Z-OLD-1"
+        ));
+
+        assertEquals("SAMPLE-SKU-001", detail.getPartnerSku());
+        assertEquals("Z-NEW-1", detail.getSku());
+        assertEquals(10, detail.getSummary().getNetUnits());
+        assertEquals(2, detail.getFacts().size());
+        assertEquals(LocalDate.of(2026, 5, 19), detail.getLatestFactDate());
+        assertEquals(null, repository.lastQuery.getSku());
+    }
+
+    @Test
+    void productDetailKeepsExternalSkuWhenPartnerSkuIsPlaceholder() {
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "-", "Z-MISSING-1", 4, 4, 0, 4, new BigDecimal("40.00"), 20, 30, null, null),
+                fact(LocalDate.of(2026, 5, 19), "-", "Z-MISSING-2", 6, 6, 0, 6, new BigDecimal("60.00"), 25, 35, null, null)
+        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
+
+        SalesProductDetail detail = service.getProductDetail(new SalesFactQuery(
+                10002L,
+                "STR245027-SAU",
+                "SA",
+                LocalDate.of(2026, 5, 1),
+                LocalDate.of(2026, 5, 31),
+                "-",
+                "Z-MISSING-1"
+        ));
+
+        assertEquals("-", detail.getPartnerSku());
+        assertEquals("Z-MISSING-1", detail.getSku());
+        assertEquals(4, detail.getSummary().getNetUnits());
+        assertEquals(1, detail.getFacts().size());
+        assertEquals("Z-MISSING-1", repository.lastQuery.getSku());
+    }
+
+    @Test
     void exportsDailyFactsWithTheSameAnalyticsQuery() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         repository.facts = List.of(
@@ -697,10 +785,36 @@ class SalesAnalyticsServiceTest {
         @Override
         public List<DailySalesFact> list(SalesFactQuery query) {
             this.lastQuery = query;
-            if (facts != null) {
-                return facts;
+            List<DailySalesFact> source = facts;
+            if (source == null) {
+                source = List.of(fact());
             }
-            return List.of(fact());
+            java.util.ArrayList<DailySalesFact> result = new java.util.ArrayList<>();
+            for (DailySalesFact fact : source) {
+                if (query.getOwnerUserId() != null && !query.getOwnerUserId().equals(fact.getOwnerUserId())) {
+                    continue;
+                }
+                if (query.getStoreCode() != null && !query.getStoreCode().equals(fact.getStoreCode())) {
+                    continue;
+                }
+                if (query.getSiteCode() != null && !query.getSiteCode().equals(fact.getSiteCode())) {
+                    continue;
+                }
+                if (query.getDateFrom() != null && fact.getFactDate().isBefore(query.getDateFrom())) {
+                    continue;
+                }
+                if (query.getDateTo() != null && fact.getFactDate().isAfter(query.getDateTo())) {
+                    continue;
+                }
+                if (hasText(query.getPartnerSku()) && !query.getPartnerSku().equals(fact.getPartnerSku())) {
+                    continue;
+                }
+                if (hasText(query.getSku()) && !query.getSku().equals(fact.getSku())) {
+                    continue;
+                }
+                result.add(fact);
+            }
+            return result;
         }
 
         @Override
@@ -795,7 +909,7 @@ class SalesAnalyticsServiceTest {
         @Override
         public ProductLifecycleCurrentState findCurrentState(ProductLifecycleStateQuery query) {
             this.lastQuery = query;
-            ProductLifecycleCurrentState mapped = currentStates.get(query.getPartnerSku() + "|" + query.getSku());
+            ProductLifecycleCurrentState mapped = currentStates.get(query.getPartnerSku());
             if (mapped != null) {
                 return mapped;
             }
@@ -859,6 +973,10 @@ class SalesAnalyticsServiceTest {
                 null,
                 null
         );
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private SalesProductRow productRow(List<SalesProductRow> rows, String partnerSku) {

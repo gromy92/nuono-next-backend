@@ -96,12 +96,18 @@ class CompetitorAnalysisServiceTest {
     }
 
     @Test
-    void createWatchProductReturnsExistingWatchProductForSameProductSiteOffer() {
+    void createWatchProductReturnsExistingWatchProductForSameBusinessIdentity() {
         CompetitorWatchProductCreateCommand command = createCommand("Z6122BASKETSA");
         CompetitorProductOptionRow option = productOption("Z6122BASKETSA");
         when(mapper.selectProductOptionByOfferId(501L, "STR108065-NSA", "SA", 91001L))
                 .thenReturn(option);
-        when(mapper.selectWatchProductByProductSiteOfferId(501L, "STR108065-NSA", "SA", 91001L))
+        when(mapper.selectWatchProductByBusinessKey(
+                501L,
+                "STR108065-NSA",
+                "SA",
+                "BASKET-SA-001-BLUE",
+                "Z6122BASKETSA"
+        ))
                 .thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
         when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
         when(mapper.listKeywordsByWatchProductId(180123L)).thenReturn(List.of());
@@ -112,6 +118,36 @@ class CompetitorAnalysisServiceTest {
         CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
 
         assertEquals(180123L, view.getWatchProduct().getId());
+        verify(mapper).updateWatchProductCurrentBinding(180123L, option, 601L);
+        verify(mapper, never()).nextWatchProductId();
+        verify(mapper, never()).insertWatchProduct(any());
+    }
+
+    @Test
+    void createWatchProductReturnsExistingWatchProductForSameBusinessIdentityWhenOfferIdChanged() {
+        CompetitorWatchProductCreateCommand command = createCommand("Z6122BASKETSA");
+        CompetitorProductOptionRow option = productOption("Z6122BASKETSA");
+        option.setProductSiteOfferId(91002L);
+        when(mapper.selectProductOptionByOfferId(501L, "STR108065-NSA", "SA", 91001L))
+                .thenReturn(option);
+        when(mapper.selectWatchProductByBusinessKey(
+                501L,
+                "STR108065-NSA",
+                "SA",
+                "BASKET-SA-001-BLUE",
+                "Z6122BASKETSA"
+        )).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
+        when(mapper.listKeywordsByWatchProductId(180123L)).thenReturn(List.of());
+        when(mapper.listProductsByWatchProductId(180123L)).thenReturn(List.of());
+        when(mapper.listKeywordProductRelationsByWatchProductId(180123L)).thenReturn(List.of());
+        when(mapper.listLatestRankPointsByWatchProductId(180123L)).thenReturn(List.of());
+
+        CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
+
+        assertEquals(180123L, view.getWatchProduct().getId());
+        verify(mapper).updateWatchProductCurrentBinding(180123L, option, 601L);
+        verify(mapper, never()).selectWatchProductByProductSiteOfferId(any(), any(), any(), any());
         verify(mapper, never()).nextWatchProductId();
         verify(mapper, never()).insertWatchProduct(any());
     }

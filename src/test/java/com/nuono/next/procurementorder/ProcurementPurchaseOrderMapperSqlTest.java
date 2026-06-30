@@ -6,9 +6,9 @@ import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderDeclarationAttributeRecord;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.lang.reflect.Method;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -22,6 +22,7 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 "listOrders",
                 Long.class,
                 String.class,
+                Boolean.class,
                 Boolean.class,
                 Integer.class
         );
@@ -40,6 +41,7 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 Long.class,
                 java.util.Collection.class,
                 String.class,
+                Boolean.class,
                 Boolean.class,
                 Integer.class
         );
@@ -398,8 +400,18 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(sql).contains("link.target_store_code = #{projectCode}");
         assertThat(sql).contains("<foreach collection='siteCodes'");
         assertThat(sql).contains("link.partner_sku IN");
-        assertThat(sql).contains("link.psku_code IN");
         assertThat(sql).contains("link.sku_parent IN");
+        assertThat(sql).doesNotContain("link.psku_code IN");
+    }
+
+    @Test
+    void orderAli1688HistoryRequestTreatsPskuAsPartnerSkuOnly() throws Exception {
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderService.java"));
+
+        assertThat(service)
+                .contains("addTrimmed(partnerSkus, item.partnerSku);")
+                .doesNotContain("addTrimmed(partnerSkus, site.pskuCode);")
+                .doesNotContain("firstText(partnerSku, pskuCode)");
     }
 
     @Test
@@ -421,7 +433,24 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(sql).contains("batch.target_store_code = #{projectCode}");
         assertThat(sql).contains("<foreach collection='siteCodes'");
         assertThat(sql).contains("batch.partner_sku IN");
-        assertThat(sql).contains("batch.psku_code IN");
         assertThat(sql).contains("batch.sku_parent IN");
+        assertThat(sql).doesNotContain("batch.psku_code IN");
+    }
+
+    @Test
+    void productArchiveMatchesTreatPskuAsPartnerSkuOnly() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "listProductArchiveMatches",
+                Long.class,
+                String.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("pv.partner_sku = #{psku}")
+                .doesNotContain("pso.psku_code = #{psku}")
+                .doesNotContain("CASE WHEN pv.partner_sku = #{psku}");
     }
 }

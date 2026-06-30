@@ -1712,13 +1712,14 @@ public interface ProductManagementMapper {
 
     @Insert({
             "INSERT INTO product_variant (",
-            "  id, product_master_id, child_sku, partner_sku, size_en, size_ar, variant_ix,",
+            "  id, logical_store_id, product_master_id, child_sku, partner_sku, size_en, size_ar, variant_ix,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{productMasterId}, #{childSku}, #{partnerSku}, #{sizeEn}, #{sizeAr}, #{variantIx},",
+            "  #{id}, #{logicalStoreId}, #{productMasterId}, #{childSku}, #{partnerSku}, #{sizeEn}, #{sizeAr}, #{variantIx},",
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  logical_store_id = VALUES(logical_store_id),",
             "  product_master_id = VALUES(product_master_id),",
             "  child_sku = VALUES(child_sku),",
             "  partner_sku = VALUES(partner_sku),",
@@ -1731,6 +1732,7 @@ public interface ProductManagementMapper {
     })
     int upsertProductVariant(
             @Param("id") Long id,
+            @Param("logicalStoreId") Long logicalStoreId,
             @Param("productMasterId") Long productMasterId,
             @Param("childSku") String childSku,
             @Param("partnerSku") String partnerSku,
@@ -1750,6 +1752,19 @@ public interface ProductManagementMapper {
     })
     Long selectProductVariantIdByPartnerSku(
             @Param("productMasterId") Long productMasterId,
+            @Param("partnerSku") String partnerSku
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_variant",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductVariantIdByStorePartnerSku(
+            @Param("logicalStoreId") Long logicalStoreId,
             @Param("partnerSku") String partnerSku
     );
 
@@ -2797,8 +2812,8 @@ public interface ProductManagementMapper {
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
             "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
+            "            NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')",
+            "            OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')",
             "          )",
             "          AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)",
             "      ) IS NOT NULL THEN CAST((",
@@ -2808,8 +2823,8 @@ public interface ProductManagementMapper {
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
             "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
+            "            NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')",
+            "            OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')",
             "          )",
             "          AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)",
             "      ) AS DATETIME)",
@@ -2821,8 +2836,8 @@ public interface ProductManagementMapper {
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
             "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
+            "            NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')",
+            "            OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')",
             "          )",
             "          AND COALESCE(dsf.net_units, 0) > 0",
             "      ) IS NOT NULL THEN CAST((",
@@ -2832,8 +2847,8 @@ public interface ProductManagementMapper {
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
             "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
+            "            NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')",
+            "            OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')",
             "          )",
             "          AND COALESCE(dsf.net_units, 0) > 0",
             "      ) AS DATETIME)",
@@ -2855,8 +2870,8 @@ public interface ProductManagementMapper {
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
             "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
+            "            NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')",
+            "            OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')",
             "          )",
             "          AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)",
             "      ) IS NOT NULL THEN 'pv'",
@@ -2868,8 +2883,8 @@ public interface ProductManagementMapper {
             "          AND dsf.store_code = lss.store_code",
             "          AND dsf.site_code = lss.site",
             "          AND (",
-            "            NULLIF(dsf.partner_sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "            OR NULLIF(dsf.sku, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
+            "            NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')",
+            "            OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')",
             "          )",
             "          AND COALESCE(dsf.net_units, 0) > 0",
             "      ) IS NOT NULL THEN 'sales'",
@@ -2970,8 +2985,8 @@ public interface ProductManagementMapper {
             "  AND pso.listing_started_at IS NULL",
             "  AND (pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed'))",
             "  AND (",
-            "    NULLIF(#{partnerSku}, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
-            "    OR NULLIF(#{sku}, '') IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))",
+            "    NULLIF(#{partnerSku}, '') = NULLIF(pv.partner_sku, '')",
+            "    OR NULLIF(#{sku}, '') = NULLIF(pv.partner_sku, '')",
             "  )"
     })
     int refreshProductSiteOfferListingStartedAtBySalesFact(

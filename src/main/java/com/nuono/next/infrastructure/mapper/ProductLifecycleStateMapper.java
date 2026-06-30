@@ -162,8 +162,7 @@ public interface ProductLifecycleStateMapper {
             "WHERE owner_user_id = #{query.ownerUserId}",
             "  AND store_code = #{query.storeCode}",
             "  AND site_code = #{query.siteCode}",
-            "  AND partner_sku = #{query.partnerSku}",
-            "  AND sku = #{query.sku}"
+            "  AND partner_sku = #{query.partnerSku}"
     })
     ProductLifecycleCurrentState selectCurrentState(@Param("query") ProductLifecycleStateQuery query);
 
@@ -208,7 +207,6 @@ public interface ProductLifecycleStateMapper {
             "  AND store_code = #{query.storeCode}",
             "  AND site_code = #{query.siteCode}",
             "  AND partner_sku = #{query.partnerSku}",
-            "  AND sku = #{query.sku}",
             "ORDER BY changed_at DESC, id DESC",
             "LIMIT 20"
     })

@@ -33,6 +33,7 @@ class InTransitSuperSearchSchemaContractTest {
         assertTrue(sql.contains("exact_ls.project_code = #{query.projectCode}"));
         assertTrue(sql.contains("fallback_ls.project_code = #{query.projectCode}"));
         assertTrue(sql.contains("filter_ls.project_code = #{query.projectCode}"));
+        assertFalse(sql.contains("exact_pso.psku_code = line.psku"));
         assertTrue(sql.contains("fallback_pv.partner_sku IN (line.psku,"));
         assertTrue(sql.contains("REGEXP_REPLACE(line.psku, 'B[0-9]+$', '', 1, 1, 'c')"));
         assertTrue(sql.contains("REGEXP_SUBSTR(line.psku, '[0-9]+$')"));
@@ -57,6 +58,7 @@ class InTransitSuperSearchSchemaContractTest {
         assertTrue(sql.contains(") matched LEFT JOIN product_master pm"));
         assertTrue(sql.contains("filter_ls.project_code = #{query.projectCode}"));
         assertTrue(sql.indexOf("filter_ls.project_code = #{query.projectCode}") < sql.indexOf("LIMIT 500"));
+        assertFalse(sql.contains("exact_pso.psku_code = matched.psku"));
         assertTrue(sql.contains("fallback_pv.partner_sku IN (matched.psku,"));
         assertTrue(sql.contains("WHERE (pm.id IS NOT NULL OR EXISTS"));
         assertTrue(sql.contains("ORDER BY COALESCE(matched.source_created_at, matched.gmt_create)"));
@@ -95,5 +97,13 @@ class InTransitSuperSearchSchemaContractTest {
         assertTrue(sql.contains("idx_product_variant_partner_sku_lookup"));
         assertTrue(sql.contains("(partner_sku, is_deleted, product_master_id)"));
         assertTrue(bootstrapSource.contains("classpath:db/init/140_in_transit_super_search_indexes.sql"));
+    }
+
+    @Test
+    void inTransitGoodsProductJoinTreatsPskuAsPartnerSku() throws Exception {
+        String source = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/InTransitGoodsSql.java"));
+
+        assertFalse(source.contains("exact_pso.psku_code = line.psku"));
+        assertTrue(source.contains("fallback_pv.partner_sku IN (line.psku,"));
     }
 }

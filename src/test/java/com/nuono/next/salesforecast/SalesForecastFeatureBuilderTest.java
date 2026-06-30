@@ -47,6 +47,43 @@ class SalesForecastFeatureBuilderTest {
     }
 
     @Test
+    void groupsForecastFeaturesByPartnerSkuWhenExternalSkuChanges() {
+        LocalDate latestFactDate = LocalDate.of(2026, 5, 20);
+        SalesForecastFeatureBuilder builder = new SalesForecastFeatureBuilder(new ProductLifecycleClassifier());
+        List<DailySalesFact> facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "Z-OLD-1", 2),
+                fact(LocalDate.of(2026, 5, 19), "Z-OLD-1", 3),
+                fact(LocalDate.of(2026, 5, 20), "Z-NEW-1", 5)
+        );
+
+        List<SalesForecastFeatureSnapshot> snapshots = builder.build(facts, latestFactDate);
+
+        assertEquals(1, snapshots.size());
+        SalesForecastFeatureSnapshot snapshot = snapshots.get(0);
+        assertEquals("PAPERSAYSB359", snapshot.getPartnerSku());
+        assertEquals("Z-NEW-1", snapshot.getSku());
+        assertEquals(10, snapshot.getHistoryUnits7());
+        assertEquals(10, snapshot.getHistoryUnits30());
+    }
+
+    @Test
+    void excludesFactsWithoutBusinessPskuFromForecastFeatures() {
+        LocalDate latestFactDate = LocalDate.of(2026, 5, 20);
+        SalesForecastFeatureBuilder builder = new SalesForecastFeatureBuilder(new ProductLifecycleClassifier());
+        List<DailySalesFact> facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "-", "Z-MISSING-1", 2),
+                fact(LocalDate.of(2026, 5, 19), "-", "Z-MISSING-2", 3),
+                fact(LocalDate.of(2026, 5, 20), "PAPERSAYSB359", "Z-VALID-1", 5)
+        );
+
+        List<SalesForecastFeatureSnapshot> snapshots = builder.build(facts, latestFactDate);
+
+        assertEquals(1, snapshots.size());
+        assertEquals("PAPERSAYSB359", snapshots.get(0).getPartnerSku());
+        assertEquals(5, snapshots.get(0).getHistoryUnits30());
+    }
+
+    @Test
     void consumesPersistedLifecycleStateInsteadOfIndependentForecastFormula() {
         LocalDate latestFactDate = LocalDate.of(2026, 5, 20);
         RecordingLifecycleStateRepository lifecycleRepository = new RecordingLifecycleStateRepository();
@@ -131,6 +168,14 @@ class SalesForecastFeatureBuilderTest {
     }
 
     private DailySalesFact fact(LocalDate factDate, int netUnits) {
+        return fact(factDate, "Z02AD5F198C0C2E813C30Z-1", netUnits);
+    }
+
+    private DailySalesFact fact(LocalDate factDate, String sku, int netUnits) {
+        return fact(factDate, "PAPERSAYSB359", sku, netUnits);
+    }
+
+    private DailySalesFact fact(LocalDate factDate, String partnerSku, String sku, int netUnits) {
         return new DailySalesFact(
                 NoonSalesCsvImportService.SOURCE_SYSTEM,
                 10001L,
@@ -139,8 +184,8 @@ class SalesForecastFeatureBuilderTest {
                 "STR245027-SAU",
                 "SA",
                 factDate,
-                "PAPERSAYSB359",
-                "Z02AD5F198C0C2E813C30Z-1",
+                partnerSku,
+                sku,
                 "Z02AD5F198C0C2E813C30Z",
                 "SA",
                 "SAR",

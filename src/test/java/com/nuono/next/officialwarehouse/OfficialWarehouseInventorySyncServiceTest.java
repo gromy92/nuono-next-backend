@@ -109,6 +109,60 @@ class OfficialWarehouseInventorySyncServiceTest {
         assertThat(result.insertedRows).isEqualTo(2);
     }
 
+    @Test
+    void syncDoesNotBackfillExternalPskuCodeFromPartnerSku() {
+        mapper.scope.logicalStoreId = 7001L;
+        mapper.scope.projectCode = "PRJ108065";
+        mapper.scope.partnerId = "108065";
+        mapper.match.productMasterId = 7001L;
+        mapper.match.productVariantId = 8001L;
+        mapper.match.productSiteOfferId = 9001L;
+        mapper.match.partnerSku = "PAPERSAYSB422";
+        mapper.match.pskuCode = null;
+        provider.pages.add(new InventoryPage(
+                1,
+                false,
+                List.of(InventoryItem.from(objectMapper.createObjectNode()
+                        .put("warehouse_code", "RUH01")
+                        .put("qty", 7)
+                        .put("inventory_type", "saleable")
+                        .put("partner_sku", "PAPERSAYSB422"))),
+                objectMapper.createObjectNode()
+        ));
+        InventorySyncCommand command = new InventorySyncCommand();
+        command.storeCode = "STR108065-NSA";
+        command.siteCode = "SA";
+
+        service.sync(access(), command);
+
+        assertThat(mapper.insertedLines).hasSize(1);
+        InventorySnapshotLineInsertRecord line = mapper.insertedLines.get(0);
+        assertThat(line.matchStatus).isEqualTo("MATCHED");
+        assertThat(line.partnerSku).isEqualTo("PAPERSAYSB422");
+        assertThat(line.pskuCode).isNull();
+
+        mapper.insertedLines.clear();
+        mapper.match.productVariantId = null;
+        provider.pages.add(new InventoryPage(
+                1,
+                false,
+                List.of(InventoryItem.from(objectMapper.createObjectNode()
+                        .put("warehouse_code", "RUH01")
+                        .put("qty", 3)
+                        .put("inventory_type", "saleable")
+                        .put("partner_sku", "PAPERSAYSB999"))),
+                objectMapper.createObjectNode()
+        ));
+
+        service.sync(access(), command);
+
+        assertThat(mapper.insertedLines).hasSize(1);
+        InventorySnapshotLineInsertRecord unmatchedLine = mapper.insertedLines.get(0);
+        assertThat(unmatchedLine.matchStatus).isEqualTo("PRODUCT_UNMATCHED");
+        assertThat(unmatchedLine.partnerSku).isEqualTo("PAPERSAYSB999");
+        assertThat(unmatchedLine.pskuCode).isNull();
+    }
+
     private static BusinessAccessContext access() {
         return BusinessAccessContext.builder()
                 .sessionUserId(307L)
@@ -333,7 +387,7 @@ class OfficialWarehouseInventorySyncServiceTest {
                 String noonSku,
                 String partnerSku
         ) {
-            return match;
+            return match.productVariantId == null ? null : match;
         }
 
         @Override

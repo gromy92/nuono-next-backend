@@ -32,7 +32,7 @@ public class ProductLifecycleStateController {
             @RequestParam String storeCode,
             @RequestParam String siteCode,
             @RequestParam String partnerSku,
-            @RequestParam String sku,
+            @RequestParam(required = false) String sku,
             HttpServletRequest request
     ) {
         validateOverviewRequest(storeCode, siteCode, partnerSku, sku);
@@ -57,9 +57,8 @@ public class ProductLifecycleStateController {
     private void validateOverviewRequest(String storeCode, String siteCode, String partnerSku, String sku) {
         if (!StringUtils.hasText(storeCode)
                 || !StringUtils.hasText(siteCode)
-                || !StringUtils.hasText(partnerSku)
-                || !StringUtils.hasText(sku)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "店铺、站点、Partner SKU 和 SKU 不能为空。");
+                || !StringUtils.hasText(partnerSku)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "店铺、站点和 Partner SKU 不能为空。");
         }
     }
 }

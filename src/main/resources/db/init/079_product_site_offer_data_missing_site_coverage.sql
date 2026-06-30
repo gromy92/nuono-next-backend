@@ -38,20 +38,8 @@ SET pso.listing_started_at = CASE
               AND dsf.store_code = lss.store_code
               AND dsf.site_code = lss.site
               AND (
-                  NULLIF(dsf.partner_sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
-                  OR NULLIF(dsf.sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
+                  NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')
+                  OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')
               )
               AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)
         ) IS NOT NULL THEN CAST((
@@ -61,20 +49,8 @@ SET pso.listing_started_at = CASE
               AND dsf.store_code = lss.store_code
               AND dsf.site_code = lss.site
               AND (
-                  NULLIF(dsf.partner_sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
-                  OR NULLIF(dsf.sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
+                  NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')
+                  OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')
               )
               AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)
         ) AS DATETIME)
@@ -87,20 +63,8 @@ SET pso.listing_started_at = CASE
               AND dsf.store_code = lss.store_code
               AND dsf.site_code = lss.site
               AND (
-                  NULLIF(dsf.partner_sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
-                  OR NULLIF(dsf.sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
+                  NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')
+                  OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')
               )
               AND COALESCE(dsf.net_units, 0) > 0
         ) IS NOT NULL THEN CAST((
@@ -110,20 +74,8 @@ SET pso.listing_started_at = CASE
               AND dsf.store_code = lss.store_code
               AND dsf.site_code = lss.site
               AND (
-                  NULLIF(dsf.partner_sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
-                  OR NULLIF(dsf.sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
+                  NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')
+                  OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')
               )
               AND COALESCE(dsf.net_units, 0) > 0
         ) AS DATETIME)
@@ -137,20 +89,8 @@ SET pso.listing_started_at = CASE
               AND dsf.store_code = lss.store_code
               AND dsf.site_code = lss.site
               AND (
-                  NULLIF(dsf.partner_sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
-                  OR NULLIF(dsf.sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
+                  NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')
+                  OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')
               )
               AND (COALESCE(dsf.your_visitors, 0) > 0 OR COALESCE(dsf.total_visitors, 0) > 0)
         ) IS NOT NULL THEN 'pv'
@@ -162,20 +102,8 @@ SET pso.listing_started_at = CASE
               AND dsf.store_code = lss.store_code
               AND dsf.site_code = lss.site
               AND (
-                  NULLIF(dsf.partner_sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
-                  OR NULLIF(dsf.sku, '') IN (
-                      NULLIF(pv.partner_sku, ''),
-                      NULLIF(pso.offer_code, ''),
-                      NULLIF(pso.psku_code, ''),
-                      NULLIF(pv.child_sku, ''),
-                      NULLIF(pm.sku_parent, '')
-                  )
+                  NULLIF(dsf.partner_sku, '') = NULLIF(pv.partner_sku, '')
+                  OR NULLIF(dsf.sku, '') = NULLIF(pv.partner_sku, '')
               )
               AND COALESCE(dsf.net_units, 0) > 0
         ) IS NOT NULL THEN 'sales'

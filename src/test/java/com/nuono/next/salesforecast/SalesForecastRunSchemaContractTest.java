@@ -36,10 +36,24 @@ class SalesForecastRunSchemaContractTest {
         assertTrue(sql.contains("`risk_codes` VARCHAR(1000) DEFAULT NULL"));
         assertTrue(sql.contains("`activity_window_summary` VARCHAR(1000) DEFAULT NULL"));
         assertTrue(sql.contains("`feature_snapshot_json` LONGTEXT DEFAULT NULL"));
+        assertTrue(sql.contains("UNIQUE KEY `uk_sales_forecast_result_run_product` (`run_id`, `partner_sku`)"));
         assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `sales_forecast_follow_up`"));
-        assertTrue(sql.contains("UNIQUE KEY `uk_sales_forecast_follow_up_product`"));
+        assertTrue(sql.contains("UNIQUE KEY `uk_sales_forecast_follow_up_product` (`owner_user_id`, `store_code`, `site_code`, `partner_sku`)"));
         assertTrue(sql.contains("KEY `idx_sales_forecast_follow_up_scope`"));
         assertTrue(sql.contains("KEY `idx_sales_forecast_run_scope`"));
         assertTrue(sql.contains("KEY `idx_sales_forecast_result_run`"));
+    }
+
+    @Test
+    void pskuIdentityMigrationMergesForecastResultDuplicatesBeforeUniqueKeyUpgrade() throws IOException {
+        String sql = Files.readString(Path.of("src", "main", "resources", "db", "init", "150_sales_product_psku_identity.sql"));
+
+        assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `sales_forecast_result_invalid_psku_archive`"));
+        assertTrue(sql.contains("TRIM(`partner_sku`) = '-'"));
+        assertTrue(sql.contains("DELETE invalid_result"));
+        assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `sales_forecast_result_psku_merge_map`"));
+        assertTrue(sql.contains("DELETE duplicate_result"));
+        assertTrue(sql.contains("ALTER TABLE `sales_forecast_result` ADD UNIQUE KEY `uk_sales_forecast_result_run_product` (`run_id`, `partner_sku`)"));
+        assertTrue(sql.contains("ALTER TABLE `sales_forecast_result` DROP INDEX `uk_sales_forecast_result_run_product`"));
     }
 }

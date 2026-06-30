@@ -122,4 +122,26 @@ class OfficialWarehouseStatisticsSchemaTest {
                 .contains("WHERE ranked.accuracy_business_rank = 1");
         assertThat(mapper).doesNotContain("SELECT MAX(i2.id)");
     }
+
+    @Test
+    void inventoryLineProductMatchTreatsPartnerSkuAsBusinessPskuOnly() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java"));
+
+        assertThat(mapper)
+                .contains("BINARY pv.partner_sku = BINARY #{partnerSku}")
+                .doesNotContain("BINARY pso.psku_code = BINARY #{partnerSku}");
+    }
+
+    @Test
+    void productPerspectiveStockMatchingUsesPartnerSkuOnlyAsProductIdentity() throws Exception {
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java"));
+
+        assertThat(service)
+                .contains("lookupKeys(row.partnerSku)")
+                .contains("lookupKeys(product.getPartnerSku())")
+                .doesNotContain("lookupKeys(row.skuParent, row.partnerSku, row.pskuCode, row.noonSku)")
+                .doesNotContain("lookupKeys(warehouseStock.partnerSku, warehouseStock.pskuCode, warehouseStock.noonSku)")
+                .doesNotContain("lookupKeys(stockRow.skuParent, stockRow.partnerSku, stockRow.pskuCode, stockRow.noonSku)")
+                .doesNotContain("lookupKeys(product.getSkuParent(), product.getPartnerSku(), product.getPskuCode(), product.getOfferCode())");
+    }
 }

@@ -634,7 +634,6 @@ public class LocalDbProcurementPurchaseOrderService {
             if (StringUtils.hasText(siteCode)) {
                 siteCodes.add(siteCode);
             }
-            addTrimmed(partnerSkus, site.pskuCode);
             PurchaseOrderItemRecord item = itemsById.get(site.purchaseOrderItemId);
             if (item != null) {
                 addTrimmed(partnerSkus, item.partnerSku);
@@ -5306,7 +5305,7 @@ public class LocalDbProcurementPurchaseOrderService {
             String skuParent
     ) {
         return normalizeSiteCode(siteCode) + ":"
-                + defaultText(firstText(firstText(partnerSku, pskuCode), skuParent), "").toUpperCase(Locale.ROOT);
+                + defaultText(firstText(partnerSku, skuParent), "").toUpperCase(Locale.ROOT);
     }
 
     private void fillPagination(PurchaseOrderAli1688HistoryView view) {

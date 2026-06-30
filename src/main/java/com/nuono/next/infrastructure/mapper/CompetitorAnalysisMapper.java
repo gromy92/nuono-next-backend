@@ -1141,6 +1141,57 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
+            "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "  logical_store_id AS logicalStoreId, product_master_id AS productMasterId,",
+            "  product_variant_id AS productVariantId, product_site_offer_id AS productSiteOfferId,",
+            "  sku_parent AS skuParent, partner_sku AS partnerSku, child_sku AS childSku,",
+            "  self_noon_product_code AS selfNoonProductCode, self_code_type AS selfCodeType,",
+            "  title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
+            "  image_url_snapshot AS imageUrlSnapshot, product_fulltype_snapshot AS productFulltypeSnapshot,",
+            "  status, latest_run_id AS latestRunId, latest_run_status AS latestRunStatus,",
+            "  latest_run_at AS latestRunAt, gmt_updated AS gmtUpdated",
+            "FROM operations_competitor_watch_product",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND UPPER(site_code) = UPPER(#{siteCode})",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND self_noon_product_code = #{selfNoonProductCode}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    CompetitorWatchProductRow selectWatchProductByBusinessKey(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("selfNoonProductCode") String selfNoonProductCode
+    );
+
+    @Update({
+            "UPDATE operations_competitor_watch_product",
+            "SET logical_store_id = #{option.logicalStoreId},",
+            "    product_master_id = #{option.productMasterId},",
+            "    product_variant_id = #{option.productVariantId},",
+            "    product_site_offer_id = #{option.productSiteOfferId},",
+            "    sku_parent = #{option.skuParent},",
+            "    child_sku = #{option.childSku},",
+            "    title_snapshot = #{option.title},",
+            "    brand_snapshot = #{option.brand},",
+            "    image_url_snapshot = #{option.imageUrl},",
+            "    product_fulltype_snapshot = #{option.productFulltype},",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{watchProductId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateWatchProductCurrentBinding(
+            @Param("watchProductId") Long watchProductId,
+            @Param("option") CompetitorProductOptionRow option,
+            @Param("actorUserId") Long actorUserId
+    );
+
+    @Select({
+            "SELECT",
             "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode",
             "FROM operations_competitor_watch_product",
             "WHERE id = #{watchProductId}",
