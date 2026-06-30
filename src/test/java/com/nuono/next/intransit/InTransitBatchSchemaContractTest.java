@@ -228,7 +228,7 @@ class InTransitBatchSchemaContractTest {
     }
 
     @Test
-    void lineSelectMatchesProductsBySitePskuThenOwnerPartnerSkuFallback() {
+    void lineSelectMatchesProductsBySitePartnerSkuThenOwnerPartnerSkuFallback() {
         String sql = InTransitGoodsMapper.LINE_SELECT;
 
         assertTrue(sql.contains("LEFT JOIN in_transit_package pkg"));
@@ -239,7 +239,8 @@ class InTransitBatchSchemaContractTest {
         assertTrue(sql.contains("pkg.measured_weight_kg AS measured_weight_kg"));
         assertTrue(sql.contains("pkg.package_status AS package_status"));
         assertTrue(sql.contains("pkg.logistics_status AS logistics_status"));
-        assertTrue(sql.contains("exact_pso.psku_code = line.psku"));
+        assertFalse(sql.contains("exact_pso.psku_code = line.psku"));
+        assertTrue(sql.contains("exact_pv.partner_sku IN (line.psku,"));
         assertTrue(sql.contains("fallback_ls.owner_user_id = line.owner_user_id"));
         assertTrue(sql.contains("fallback_pv.partner_sku IN (line.psku,"));
         assertTrue(sql.contains("REGEXP_REPLACE(line.psku, 'B[0-9]+$', '', 1, 1, 'c')"));

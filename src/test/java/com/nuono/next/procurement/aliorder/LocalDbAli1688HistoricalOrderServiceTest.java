@@ -1115,7 +1115,7 @@ class LocalDbAli1688HistoricalOrderServiceTest {
 
         assertThat(candidates).hasSize(1);
         assertThat(candidates.get(0).getProductImageUrl())
-                .isEqualTo("https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca|pzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201.jpg");
+                .isEqualTo("https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca%7Cpzsku/Z72E210340BAE3D7BC083Z/45/1768470807/02b50050-583d-484e-bfc5-639dcdcf4201.jpg");
     }
 
     @Test

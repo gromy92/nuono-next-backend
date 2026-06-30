@@ -135,8 +135,5 @@ public class SalesForecastController {
         if (!StringUtils.hasText(body.getPartnerSku())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少 Partner SKU。");
         }
-        if (!StringUtils.hasText(body.getSku())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少 SKU。");
-        }
     }
 }

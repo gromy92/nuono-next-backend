@@ -212,7 +212,7 @@ public class SalesDataController {
             @RequestParam String dateFrom,
             @RequestParam String dateTo,
             @RequestParam String partnerSku,
-            @RequestParam String sku,
+            @RequestParam(required = false) String sku,
             HttpServletRequest request
     ) {
         return analyticsService.getProductDetail(authorizedSalesFactQuery(

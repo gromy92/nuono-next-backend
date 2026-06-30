@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS `sales_forecast_result` (
     `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_sales_forecast_result_run_product` (`run_id`, `partner_sku`, `sku`),
+    UNIQUE KEY `uk_sales_forecast_result_run_product` (`run_id`, `partner_sku`),
     KEY `idx_sales_forecast_result_run` (`run_id`),
     KEY `idx_sales_forecast_result_scope` (`owner_user_id`, `store_code`, `site_code`, `partner_sku`, `sku`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -213,14 +213,14 @@ CREATE TABLE IF NOT EXISTS `sales_forecast_follow_up` (
     `store_code` VARCHAR(80) NOT NULL,
     `site_code` VARCHAR(20) NOT NULL,
     `partner_sku` VARCHAR(160) NOT NULL,
-    `sku` VARCHAR(160) NOT NULL,
+    `sku` VARCHAR(160) DEFAULT NULL,
     `marked` TINYINT(1) NOT NULL DEFAULT 1,
     `marked_by` BIGINT DEFAULT NULL,
     `marked_at` DATETIME DEFAULT NULL,
     `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_sales_forecast_follow_up_product` (`owner_user_id`, `store_code`, `site_code`, `partner_sku`, `sku`),
+    UNIQUE KEY `uk_sales_forecast_follow_up_product` (`owner_user_id`, `store_code`, `site_code`, `partner_sku`),
     KEY `idx_sales_forecast_follow_up_scope` (`owner_user_id`, `store_code`, `site_code`, `marked`, `gmt_updated`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

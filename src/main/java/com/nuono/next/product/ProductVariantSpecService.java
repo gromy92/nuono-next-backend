@@ -448,6 +448,10 @@ public class ProductVariantSpecService {
         if (view.getProductWeightG() == null) {
             missing.add("weight");
         }
+        if (ProductVariantSpecLogisticsType.UNKNOWN.equals(view.getBatteryMagneticType())
+                || ProductVariantSpecLogisticsType.UNKNOWN.equals(view.getLiquidPowderType())) {
+            missing.add("logistics_attribute");
+        }
         view.setMissingFields(missing);
         if (missing.isEmpty()) {
             view.setCompletenessStatus("ready");
@@ -455,6 +459,8 @@ public class ProductVariantSpecService {
             view.setCompletenessStatus("missing_dimensions");
         } else if (missing.contains("weight")) {
             view.setCompletenessStatus("missing_weight");
+        } else if (missing.contains("logistics_attribute")) {
+            view.setCompletenessStatus("logistics_attribute_unknown");
         } else {
             view.setCompletenessStatus("missing_dimensions");
         }

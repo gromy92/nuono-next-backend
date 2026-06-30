@@ -56,12 +56,11 @@ public class ProductLifecycleStateQuery {
         return Objects.equals(ownerUserId, that.ownerUserId)
                 && Objects.equals(storeCode, that.storeCode)
                 && Objects.equals(siteCode, that.siteCode)
-                && Objects.equals(partnerSku, that.partnerSku)
-                && Objects.equals(sku, that.sku);
+                && Objects.equals(partnerSku, that.partnerSku);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(ownerUserId, storeCode, siteCode, partnerSku, sku);
+        return Objects.hash(ownerUserId, storeCode, siteCode, partnerSku);
     }
 }

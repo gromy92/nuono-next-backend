@@ -148,6 +148,10 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("NOT EXISTS ( SELECT 1 FROM daily_sales_fact dsf"));
         assertTrue(sql.contains("WHEN NOT EXISTS ( SELECT 1 FROM daily_sales_fact dsf"));
         assertTrue(!sql.contains("COUNT(1) AS site_fact_row_count FROM daily_sales_fact dsf GROUP BY"));
+        assertTrue(!sql.contains("NULLIF(pso.offer_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pso.psku_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pv.child_sku, '')"));
+        assertTrue(!sql.contains("NULLIF(pm.sku_parent, '')"));
         assertTrue(sql.contains("ELSE 'not_listed'"));
     }
 
@@ -165,6 +169,10 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("pm.logical_store_id = ls.id"));
         assertTrue(sql.contains("site_fact_signal"));
         assertTrue(sql.contains("WHEN COALESCE(site_fact_signal.site_fact_row_count, 0) = 0 THEN 'data_missing'"));
+        assertTrue(!sql.contains("NULLIF(pso.offer_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pso.psku_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pv.child_sku, '')"));
+        assertTrue(!sql.contains("NULLIF(pm.sku_parent, '')"));
         assertTrue(sql.contains("ELSE 'not_listed'"));
     }
 
@@ -194,6 +202,22 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("JOIN product_site_offer_listing_coverage_scope scope"));
         assertTrue(!sql.contains("FROM daily_sales_fact GROUP BY owner_user_id, store_code, site_code"));
         assertTrue(!sql.contains("site_fact_row_count"));
+        assertTrue(!sql.contains("NULLIF(pso.offer_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pso.psku_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pv.child_sku, '')"));
+        assertTrue(!sql.contains("NULLIF(pm.sku_parent, '')"));
         assertTrue(sql.contains("SELECT MIN(dsf.fact_date)"));
+    }
+
+    @Test
+    void migration074ShouldUsePartnerSkuOnlyForListingStartedFactMatching() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/074_product_site_offer_listing_started_at.sql"))
+                .replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("NULLIF(pv.partner_sku, '')"));
+        assertTrue(!sql.contains("NULLIF(pso.offer_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pso.psku_code, '')"));
+        assertTrue(!sql.contains("NULLIF(pv.child_sku, '')"));
+        assertTrue(!sql.contains("NULLIF(pm.sku_parent, '')"));
     }
 }

@@ -126,6 +126,26 @@ class CompetitorAnalysisMapperSqlTest {
     }
 
     @Test
+    void watchProductNaturalKeyUsesStoreSitePartnerSkuAndSelfNoonCode() throws NoSuchMethodException {
+        String sql = selectSql(
+                "selectWatchProductByBusinessKey",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class
+        );
+
+        assertThat(sql)
+                .contains("owner_user_id = #{owneruserid}")
+                .contains("store_code = #{storecode}")
+                .contains("upper(site_code) = upper(#{sitecode})")
+                .contains("partner_sku = #{partnersku}")
+                .contains("self_noon_product_code = #{selfnoonproductcode}")
+                .doesNotContain("product_site_offer_id = #{productsiteofferid}");
+    }
+
+    @Test
     void productListsExposeRecentSevenDayCompetitorChangeCount() throws NoSuchMethodException {
         String productBaselinesSql = selectSql(
                 "listProductBaselines",

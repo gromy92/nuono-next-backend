@@ -138,14 +138,14 @@ public class OfficialWarehouseInventorySyncService {
             line.productVariantId = match.productVariantId;
             line.productSiteOfferId = match.productSiteOfferId;
             line.partnerSku = firstNonBlank(item.partnerSku, match.partnerSku);
-            line.pskuCode = firstNonBlank(match.pskuCode, item.partnerSku);
+            line.pskuCode = match.pskuCode;
             line.noonSku = firstNonBlank(item.noonSku, match.noonSku);
             line.titleCache = firstNonBlank(item.title, match.title);
             line.brandCache = firstNonBlank(item.brand, match.brand);
             line.matchStatus = "MATCHED";
         } else {
             line.partnerSku = item.partnerSku;
-            line.pskuCode = item.partnerSku;
+            line.pskuCode = null;
             line.noonSku = item.noonSku;
             line.titleCache = item.title;
             line.brandCache = item.brand;

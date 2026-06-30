@@ -82,7 +82,7 @@ public class MyBatisProductLifecycleCalculationSource implements ProductLifecycl
                 from,
                 to,
                 query.getPartnerSku(),
-                query.getSku()
+                null
         ));
     }
 

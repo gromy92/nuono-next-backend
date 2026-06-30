@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS `product_master` (
 CREATE TABLE IF NOT EXISTS `product_variant` (
     `id` BIGINT NOT NULL,
     `product_master_id` BIGINT NOT NULL,
+    `logical_store_id` BIGINT NOT NULL,
     `child_sku` VARCHAR(100) DEFAULT NULL,
     `partner_sku` VARCHAR(100) NOT NULL,
     `size_en` VARCHAR(200) DEFAULT NULL,
@@ -82,9 +83,10 @@ CREATE TABLE IF NOT EXISTS `product_variant` (
     `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_product_variant_master_partner_sku` (`product_master_id`, `partner_sku`),
+    UNIQUE KEY `uk_product_variant_store_partner_sku` (`logical_store_id`, `partner_sku`),
     UNIQUE KEY `uk_product_variant_master_child_sku` (`product_master_id`, `child_sku`),
-    KEY `idx_product_variant_product_master_id` (`product_master_id`)
+    KEY `idx_product_variant_product_master_id` (`product_master_id`),
+    KEY `idx_product_variant_store_id` (`logical_store_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `product_barcode` (

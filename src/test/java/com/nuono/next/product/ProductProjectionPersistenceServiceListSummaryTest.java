@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -229,6 +231,58 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void initializationProjectionReusesPartnerSkuVariantWhenSkuParentChanges() {
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ69486")).thenReturn(50003L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR69486-NSA")).thenReturn(50003L);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50003L, "STR69486-NSA")).thenReturn(51003L);
+        when(productManagementMapper.selectProductMasterId(50003L, "ZOLDPSKU001")).thenReturn(52001L);
+        when(productManagementMapper.selectProductMasterId(50003L, "ZNEWPSKU001")).thenReturn(null, 52002L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52002L);
+        when(productManagementMapper.selectProductVariantIdByStorePartnerSku(50003L, "SGGRB113"))
+                .thenReturn(null, 53001L, 53001L, 53001L);
+        when(productManagementMapper.nextProductVariantId()).thenReturn(53001L, 53002L);
+        when(productManagementMapper.selectProductSiteOfferId(anyLong(), eq(51003L))).thenReturn(null, 54001L);
+        when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54001L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ69486",
+                "SGGR",
+                "STR69486-NSA",
+                List.of(new ProductProjectionPersistenceService.SiteSeed("STR69486-NSA", "SA", "ACTIVE", true)),
+                List.of(
+                        productSeed("ZOLDPSKU001", "SGGRB113", "PSO-OLD"),
+                        productSeed("ZNEWPSKU001", "SGGRB113", "PSO-NEW")
+                ),
+                new ArrayList<>()
+        );
+
+        verify(productManagementMapper, times(1)).nextProductVariantId();
+        verify(productManagementMapper).upsertProductVariant(
+                53001L,
+                50003L,
+                52001L,
+                "SGGRB113-CHILD",
+                "SGGRB113",
+                null,
+                null,
+                null,
+                307L
+        );
+        verify(productManagementMapper).upsertProductVariant(
+                53001L,
+                50003L,
+                52002L,
+                "SGGRB113-CHILD",
+                "SGGRB113",
+                null,
+                null,
+                null,
+                307L
+        );
+    }
+
+    @Test
     void shouldCaptureArabicContentAndOfferNoteInModificationChanges() throws Exception {
         ProductMasterSnapshotView baseline = historySnapshot("Old title", "عنوان قديم", "Old note");
         ProductMasterSnapshotView draft = historySnapshot("Old title", "عنوان جديد", "New note");
@@ -245,6 +299,29 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertTrue(changes.stream().anyMatch((change) -> "long_description_ar".equals(change.get("field"))));
         assertTrue(changes.stream().anyMatch((change) -> "feature_bullet_ar".equals(change.get("field"))));
         assertTrue(changes.stream().anyMatch((change) -> "offerNote".equals(change.get("field"))));
+    }
+
+    private static ProductProjectionPersistenceService.ProductMasterSeed productSeed(
+            String skuParent,
+            String partnerSku,
+            String pskuCode
+    ) {
+        ProductProjectionPersistenceService.ProductMasterSeed seed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        seed.setSkuParent(skuParent);
+        seed.setPartnerSku(partnerSku);
+        seed.setChildSku(partnerSku + "-CHILD");
+        seed.setTitleCache(partnerSku + " title");
+        seed.addSiteOffer(siteOffer("STR69486-NSA", pskuCode));
+        return seed;
+    }
+
+    private static ProductProjectionPersistenceService.SiteOfferSeed siteOffer(String storeCode, String pskuCode) {
+        ProductProjectionPersistenceService.SiteOfferSeed offer = new ProductProjectionPersistenceService.SiteOfferSeed();
+        offer.setStoreCode(storeCode);
+        offer.setPskuCode(pskuCode);
+        offer.setOfferCode(pskuCode + "-OFFER");
+        return offer;
     }
 
     @Test

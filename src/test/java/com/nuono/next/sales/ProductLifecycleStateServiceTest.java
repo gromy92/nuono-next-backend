@@ -51,6 +51,35 @@ class ProductLifecycleStateServiceTest {
     }
 
     @Test
+    void productLifecycleStateQueryIdentityIgnoresExternalSku() {
+        ProductLifecycleStateQuery oldExternalSku = new ProductLifecycleStateQuery(
+                10002L,
+                "STR245027-SAU",
+                "SA",
+                "SAMPLE-SKU-001",
+                "Z-OLD-1"
+        );
+        ProductLifecycleStateQuery newExternalSku = new ProductLifecycleStateQuery(
+                10002L,
+                "STR245027-SAU",
+                "SA",
+                "SAMPLE-SKU-001",
+                "Z-NEW-1"
+        );
+        ProductLifecycleStateQuery differentPsku = new ProductLifecycleStateQuery(
+                10002L,
+                "STR245027-SAU",
+                "SA",
+                "SAMPLE-SKU-002",
+                "Z-NEW-1"
+        );
+
+        assertEquals(oldExternalSku, newExternalSku);
+        assertEquals(oldExternalSku.hashCode(), newExternalSku.hashCode());
+        org.junit.jupiter.api.Assertions.assertNotEquals(oldExternalSku, differentPsku);
+    }
+
+    @Test
     void upsertsCurrentStateAndRecordsTransitionHistoryThroughRepository() {
         RecordingProductLifecycleStateRepository repository = new RecordingProductLifecycleStateRepository();
         ProductLifecycleStateService service = new ProductLifecycleStateService(repository);

@@ -66,6 +66,9 @@ public class SalesForecastFeatureBuilder {
         Map<String, SalesForecastStockSnapshot> stockByProduct = stockByProduct(stockSnapshots);
         Map<String, List<DailySalesFact>> factsByProduct = new TreeMap<>();
         for (DailySalesFact fact : facts) {
+            if (!hasBusinessPartnerSku(fact)) {
+                continue;
+            }
             factsByProduct.computeIfAbsent(productKey(fact), ignored -> new ArrayList<>()).add(fact);
         }
         return factsByProduct.values().stream()
@@ -213,7 +216,18 @@ public class SalesForecastFeatureBuilder {
     }
 
     private String productKey(String partnerSku, String sku) {
-        return nullSafe(partnerSku) + "|" + nullSafe(sku);
+        if (hasBusinessPartnerSku(partnerSku)) {
+            return partnerSku.trim();
+        }
+        return "__missing_partner_sku__|" + nullSafe(sku);
+    }
+
+    private boolean hasBusinessPartnerSku(DailySalesFact fact) {
+        return fact != null && hasBusinessPartnerSku(fact.getPartnerSku());
+    }
+
+    private boolean hasBusinessPartnerSku(String partnerSku) {
+        return partnerSku != null && !partnerSku.isBlank() && !"-".equals(partnerSku.trim());
     }
 
     private String nullSafe(String value) {

@@ -107,7 +107,7 @@ public class SalesForecastOverviewView {
     }
 
     private static String productKey(String partnerSku, String sku) {
-        return String.valueOf(partnerSku) + "|" + String.valueOf(sku);
+        return String.valueOf(partnerSku);
     }
 
     private static SalesForecastOverviewView empty(

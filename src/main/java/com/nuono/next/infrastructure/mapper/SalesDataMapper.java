@@ -490,6 +490,7 @@ public interface SalesDataMapper {
             "  NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  sku = VALUES(sku),",
             "  marked = VALUES(marked),",
             "  marked_by = VALUES(marked_by),",
             "  marked_at = VALUES(marked_at),",

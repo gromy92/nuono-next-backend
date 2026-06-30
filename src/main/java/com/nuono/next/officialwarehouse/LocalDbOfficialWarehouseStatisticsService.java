@@ -231,8 +231,8 @@ public class LocalDbOfficialWarehouseStatisticsService {
         if (rowProductSiteOfferId != null && rowProductSiteOfferId.equals(warehouseStock.productSiteOfferId)) {
             return true;
         }
-        Set<String> rowKeys = lookupKeys(row.skuParent, row.partnerSku, row.pskuCode, row.noonSku);
-        Set<String> warehouseKeys = lookupKeys(warehouseStock.partnerSku, warehouseStock.pskuCode, warehouseStock.noonSku);
+        Set<String> rowKeys = lookupKeys(row.partnerSku);
+        Set<String> warehouseKeys = lookupKeys(warehouseStock.partnerSku);
         warehouseKeys.retainAll(rowKeys);
         return !warehouseKeys.isEmpty();
     }
@@ -319,7 +319,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
     private Map<String, List<StockStatisticsRowView>> indexStockRows(List<StockStatisticsRowView> stockRows) {
         Map<String, List<StockStatisticsRowView>> stockRowsByKey = new HashMap<>();
         for (StockStatisticsRowView stockRow : stockRows) {
-            for (String key : lookupKeys(stockRow.skuParent, stockRow.partnerSku, stockRow.pskuCode, stockRow.noonSku)) {
+            for (String key : lookupKeys(stockRow.partnerSku)) {
                 stockRowsByKey.computeIfAbsent(key, ignored -> new ArrayList<>()).add(stockRow);
             }
         }
@@ -331,7 +331,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
             Map<String, List<StockStatisticsRowView>> stockRowsByKey
     ) {
         Set<StockStatisticsRowView> matches = new LinkedHashSet<>();
-        for (String key : lookupKeys(product.getSkuParent(), product.getPartnerSku(), product.getPskuCode(), product.getOfferCode())) {
+        for (String key : lookupKeys(product.getPartnerSku())) {
             matches.addAll(stockRowsByKey.getOrDefault(key, List.of()));
         }
         return matches;

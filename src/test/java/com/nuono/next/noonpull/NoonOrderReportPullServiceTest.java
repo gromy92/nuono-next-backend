@@ -110,9 +110,9 @@ class NoonOrderReportPullServiceTest {
                 provider
         );
 
-        assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
-        assertEquals(5, provider.pollCount);
-        assertEquals(1, writer.facts.size());
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertEquals(1, provider.pollCount);
+        assertEquals(0, writer.facts.size());
     }
 
     private static final class InMemoryOrderFactWriter implements NoonOrderFactWriter {

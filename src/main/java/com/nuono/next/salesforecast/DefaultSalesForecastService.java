@@ -127,7 +127,10 @@ public class DefaultSalesForecastService implements SalesForecastService {
                 && latestFactDate.equals(existingRun.getSourceDataDate())
                 && activityImpact.configVersion.equals(existingRun.getConfigVersion())
                 && sameVersionEvidence(existingRun, activityImpact, lifecycleVersion)) {
-            return readyView(query, existingRun, forecastRunRepository.listResults(existingRun.getId()));
+            List<SalesForecastResultRecord> existingResults = forecastRunRepository.listResults(existingRun.getId());
+            if (!hasDuplicatePartnerSkuResults(existingResults)) {
+                return readyView(query, existingRun, existingResults);
+            }
         }
 
         SalesForecastRunRecord savedRun = calculateAndSaveRun(query, latestFactDate, activityImpact, lifecycleVersion);
@@ -277,6 +280,29 @@ public class DefaultSalesForecastService implements SalesForecastService {
     ) {
         return safeText(activityImpact.calendarVersion.getVersionNo()).equals(safeText(existingRun.getCalendarVersionNo()))
                 && safeText(lifecycleVersion.getVersionNo()).equals(safeText(existingRun.getLifecycleVersionNo()));
+    }
+
+    private boolean hasDuplicatePartnerSkuResults(List<SalesForecastResultRecord> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        Set<String> seen = new java.util.HashSet<>();
+        for (SalesForecastResultRecord result : results) {
+            if (result == null) {
+                continue;
+            }
+            String key = safeText(result.getOwnerUserId() == null ? null : String.valueOf(result.getOwnerUserId()))
+                    + "|"
+                    + safeText(result.getStoreCode())
+                    + "|"
+                    + safeText(result.getSiteCode())
+                    + "|"
+                    + safeText(result.getPartnerSku());
+            if (!seen.add(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean matchesExportFilter(SalesForecastOverviewRow row, SalesForecastExportQuery query) {

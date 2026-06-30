@@ -169,7 +169,7 @@ public class ProductProjectionPersistenceService {
                 productManagementMapper.deleteProductMasterDraftByProductMasterId(productMasterId);
             }
             persistIssues(productMasterId, productSeed.getIssueTags(), ownerUserId);
-            persistRepresentativeOffer(productMasterId, siteIdMap, productSeed, ownerUserId);
+            persistRepresentativeOffer(logicalStoreId, productMasterId, siteIdMap, productSeed, ownerUserId);
         }
     }
 
@@ -231,7 +231,7 @@ public class ProductProjectionPersistenceService {
         }
 
         VariantSeed referenceVariant = VariantSeed.fromSnapshot(snapshot);
-        Long variantId = ensureVariant(productMasterId, ownerUserId, referenceVariant);
+        Long variantId = ensureVariant(logicalStoreId, productMasterId, ownerUserId, referenceVariant);
         if (variantId == null) {
             return;
         }
@@ -1770,17 +1770,18 @@ public class ProductProjectionPersistenceService {
         return "incomplete";
     }
 
-    private Long ensureVariant(Long productMasterId, Long updatedBy, VariantSeed seed) {
-        if (productMasterId == null || seed == null || !StringUtils.hasText(seed.getPartnerSku())) {
+    private Long ensureVariant(Long logicalStoreId, Long productMasterId, Long updatedBy, VariantSeed seed) {
+        if (logicalStoreId == null || productMasterId == null || seed == null || !StringUtils.hasText(seed.getPartnerSku())) {
             return null;
         }
-        Long existingId = productManagementMapper.selectProductVariantIdByPartnerSku(
-                productMasterId,
+        Long existingId = productManagementMapper.selectProductVariantIdByStorePartnerSku(
+                logicalStoreId,
                 normalize(seed.getPartnerSku())
         );
         Long id = existingId != null ? existingId : productManagementMapper.nextProductVariantId();
         productManagementMapper.upsertProductVariant(
                 id,
+                logicalStoreId,
                 productMasterId,
                 normalize(seed.getChildSku()),
                 normalize(seed.getPartnerSku()),
@@ -1789,10 +1790,11 @@ public class ProductProjectionPersistenceService {
                 seed.getVariantIx(),
                 updatedBy
         );
-        return productManagementMapper.selectProductVariantIdByPartnerSku(productMasterId, normalize(seed.getPartnerSku()));
+        return productManagementMapper.selectProductVariantIdByStorePartnerSku(logicalStoreId, normalize(seed.getPartnerSku()));
     }
 
     private void persistRepresentativeOffer(
+            Long logicalStoreId,
             Long productMasterId,
             Map<String, Long> siteIdMap,
             ProductMasterSeed seed,
@@ -1802,7 +1804,7 @@ public class ProductProjectionPersistenceService {
             return;
         }
         VariantSeed variantSeed = seed.toRepresentativeVariantSeed();
-        Long variantId = ensureVariant(productMasterId, updatedBy, variantSeed);
+        Long variantId = ensureVariant(logicalStoreId, productMasterId, updatedBy, variantSeed);
         if (variantId == null) {
             return;
         }

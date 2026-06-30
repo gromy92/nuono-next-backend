@@ -54,7 +54,12 @@ public interface ProductLifecycleCalculationMapper {
             "  lss.store_code AS storeCode,",
             "  lss.site AS siteCode,",
             "  pv.partner_sku AS partnerSku,",
-            "  COALESCE(NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, '')) AS sku",
+            "  COALESCE(",
+            "    MAX(NULLIF(pv.child_sku, '')),",
+            "    MAX(NULLIF(pso.offer_code, '')),",
+            "    MAX(NULLIF(pso.psku_code, '')),",
+            "    MAX(NULLIF(pm.sku_parent, ''))",
+            "  ) AS sku",
             "FROM logical_store_site lss",
             "JOIN logical_store ls ON ls.id = lss.logical_store_id AND ls.is_deleted = b'0'",
             "JOIN product_master pm ON pm.logical_store_id = ls.id AND pm.is_deleted = b'0'",
@@ -68,7 +73,8 @@ public interface ProductLifecycleCalculationMapper {
             "  AND lss.is_deleted = b'0'",
             "  AND pv.partner_sku IS NOT NULL",
             "  AND pv.partner_sku <> ''",
-            "  AND COALESCE(NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, '')) IS NOT NULL",
+            "GROUP BY ls.owner_user_id, lss.store_code, lss.site, pv.partner_sku",
+            "HAVING sku IS NOT NULL",
             "ORDER BY pv.partner_sku ASC, sku ASC"
     })
     List<ProductLifecycleProductScopeRow> selectProductScopes(
@@ -97,7 +103,6 @@ public interface ProductLifecycleCalculationMapper {
             "      AND dsf.store_code = #{query.storeCode}",
             "      AND dsf.site_code = #{query.siteCode}",
             "      AND dsf.partner_sku = #{query.partnerSku}",
-            "      AND dsf.sku = #{query.sku}",
             "      AND (dsf.your_visitors IS NOT NULL OR dsf.total_visitors IS NOT NULL)",
             "  ) AS earliestPvDate,",
             "  (",
@@ -107,7 +112,6 @@ public interface ProductLifecycleCalculationMapper {
             "      AND dsf.store_code = #{query.storeCode}",
             "      AND dsf.site_code = #{query.siteCode}",
             "      AND dsf.partner_sku = #{query.partnerSku}",
-            "      AND dsf.sku = #{query.sku}",
             "      AND COALESCE(dsf.net_units, 0) > 0",
             "  ) AS earliestSalesDate,",
             "  COALESCE(MIN(DATE(pm.last_synced_at)), MIN(DATE(pm.gmt_create))) AS productPulledDate,",
@@ -118,7 +122,6 @@ public interface ProductLifecycleCalculationMapper {
             "      AND dsf.store_code = #{query.storeCode}",
             "      AND dsf.site_code = #{query.siteCode}",
             "      AND dsf.partner_sku = #{query.partnerSku}",
-            "      AND dsf.sku = #{query.sku}",
             "      AND (dsf.net_units IS NOT NULL OR dsf.your_visitors IS NOT NULL OR dsf.total_visitors IS NOT NULL)",
             "  ) AS historicalSignalDays,",
             "  (",
@@ -128,7 +131,6 @@ public interface ProductLifecycleCalculationMapper {
             "      AND dsf.store_code = #{query.storeCode}",
             "      AND dsf.site_code = #{query.siteCode}",
             "      AND dsf.partner_sku = #{query.partnerSku}",
-            "      AND dsf.sku = #{query.sku}",
             "      AND dsf.net_units IS NOT NULL",
             "  ) AS salesSignalDays,",
             "  (",
@@ -138,7 +140,6 @@ public interface ProductLifecycleCalculationMapper {
             "      AND dsf.store_code = #{query.storeCode}",
             "      AND dsf.site_code = #{query.siteCode}",
             "      AND dsf.partner_sku = #{query.partnerSku}",
-            "      AND dsf.sku = #{query.sku}",
             "      AND (dsf.your_visitors IS NOT NULL OR dsf.total_visitors IS NOT NULL)",
             "  ) AS pvSignalDays,",
             "  0 AS inventorySignalDays",
@@ -153,13 +154,7 @@ public interface ProductLifecycleCalculationMapper {
             "  AND lss.store_code = #{query.storeCode}",
             "  AND lss.site = #{query.siteCode}",
             "  AND pso.is_deleted = b'0'",
-            "  AND pv.partner_sku = #{query.partnerSku}",
-            "  AND (",
-            "    pso.offer_code = #{query.sku}",
-            "    OR pso.psku_code = #{query.sku}",
-            "    OR pv.child_sku = #{query.sku}",
-            "    OR pm.sku_parent = #{query.sku}",
-            "  )"
+            "  AND pv.partner_sku = #{query.partnerSku}"
     })
     ProductLifecycleListingSignalRow selectListingSignals(@Param("query") ProductLifecycleStateQuery query);
 
@@ -184,13 +179,7 @@ public interface ProductLifecycleCalculationMapper {
             "  AND lss.store_code = #{query.storeCode}",
             "  AND lss.site = #{query.siteCode}",
             "  AND pso.is_deleted = b'0'",
-            "  AND pv.partner_sku = #{query.partnerSku}",
-            "  AND (",
-            "    pso.offer_code = #{query.sku}",
-            "    OR pso.psku_code = #{query.sku}",
-            "    OR pv.child_sku = #{query.sku}",
-            "    OR pm.sku_parent = #{query.sku}",
-            "  )"
+            "  AND pv.partner_sku = #{query.partnerSku}"
     })
     Integer selectCurrentStock(@Param("query") ProductLifecycleStateQuery query);
 }

@@ -87,7 +87,7 @@ LEFT JOIN (
   ON pvf.owner_user_id = ls.owner_user_id
  AND pvf.store_code = lss.store_code
  AND pvf.site_code = lss.site
- AND pvf.product_key IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))
+ AND pvf.product_key = NULLIF(pv.partner_sku, '')
 LEFT JOIN (
     SELECT owner_user_id, store_code, site_code, product_key, MIN(fact_date) AS first_sales_date
     FROM (
@@ -105,7 +105,7 @@ LEFT JOIN (
   ON sf.owner_user_id = ls.owner_user_id
  AND sf.store_code = lss.store_code
  AND sf.site_code = lss.site
- AND sf.product_key IN (NULLIF(pv.partner_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), NULLIF(pv.child_sku, ''), NULLIF(pm.sku_parent, ''))
+ AND sf.product_key = NULLIF(pv.partner_sku, '')
 SET pso.listing_started_at = CASE
       WHEN COALESCE(sitef.site_fact_row_count, 0) = 0 THEN NULL
       WHEN pvf.first_pv_date IS NOT NULL THEN CAST(pvf.first_pv_date AS DATETIME)

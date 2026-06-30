@@ -1,5 +1,5 @@
 -- Product lifecycle state engine DEFAULT_V1 persistent state.
--- Current state is scoped by owner + store + site + partner SKU + SKU.
+-- Current state is scoped by owner + store + site + partner SKU.
 
 SET NAMES utf8mb4;
 
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS `product_lifecycle_current_state` (
     `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_product_lifecycle_current_scope` (`owner_user_id`, `store_code`, `site_code`, `partner_sku`, `sku`),
+    UNIQUE KEY `uk_product_lifecycle_current_scope` (`owner_user_id`, `store_code`, `site_code`, `partner_sku`),
     KEY `idx_product_lifecycle_current_scope_state` (`owner_user_id`, `store_code`, `site_code`, `lifecycle_code`, `quality_state`),
     KEY `idx_product_lifecycle_current_analysis` (`analysis_date`, `rule_version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
