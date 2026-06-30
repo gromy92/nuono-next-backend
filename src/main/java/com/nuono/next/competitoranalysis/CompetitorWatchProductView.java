@@ -1,5 +1,6 @@
 package com.nuono.next.competitoranalysis;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.time.LocalDateTime;
 
 public class CompetitorWatchProductView {
@@ -41,7 +42,7 @@ public class CompetitorWatchProductView {
         view.setTitle(row.getTitleSnapshot());
         view.setTitleCn(row.getTitleCnSnapshot());
         view.setBrand(row.getBrandSnapshot());
-        view.setImageUrl(row.getImageUrlSnapshot());
+        view.setImageUrl(ProductImageUrlSupport.normalize(row.getImageUrlSnapshot()));
         view.setProductFulltype(row.getProductFulltypeSnapshot());
         view.setStatus(row.getStatus());
         view.setLatestRunId(row.getLatestRunId());

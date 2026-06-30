@@ -55,7 +55,7 @@ class ProductLiteQueryServiceTest {
         assertEquals("脏衣篮", view.getTitleCn());
         assertEquals("Laundry Basket English", view.getTitleEn());
         assertEquals("Acme", view.getBrand());
-        assertEquals("https://cdn.example/basket.jpg", view.getImageUrl());
+        assertEquals("https://f.nooncdn.com/p/pzsku/Z2D0347857C8C73BD6E15Z/45/_/1780233631/d574a3eb-2028-44b1-9bbf-7a9e8c346316.jpg", view.getImageUrl());
         assertEquals("home-storage-basket", view.getProductFulltype());
         assertEquals("SELF_BUILT", view.getSourceType());
         assertNoForbiddenProductLiteGetters();
@@ -117,7 +117,7 @@ class ProductLiteQueryServiceTest {
         record.setTitleCn("脏衣篮");
         record.setTitleEn("Laundry Basket English");
         record.setBrand("Acme");
-        record.setImageUrl("https://cdn.example/basket.jpg");
+        record.setImageUrl("https://f.nooncdn.com/pzsku/Z2D0347857C8C73BD6E15Z/45/_/1780233631/d574a3eb-2028-44b1-9bbf-7a9e8c346316");
         record.setProductFulltype("home-storage-basket");
         record.setSourceType("SELF_BUILT");
         return record;

@@ -1,5 +1,6 @@
 package com.nuono.next.intransit;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -80,7 +81,7 @@ public final class InTransitSuperSearchRecords {
             view.setProductName(row.getProductName());
             view.setProductTitle(row.getProductTitle());
             view.setProductTitleCn(row.getProductTitleCn());
-            view.setProductImageUrl(row.getProductImageUrl());
+            view.setProductImageUrl(ProductImageUrlSupport.normalize(row.getProductImageUrl()));
             view.setBatchId(row.getBatchId());
             view.setBatchReferenceNo(row.getBatchReferenceNo());
             view.setRawForwarderName(row.getRawForwarderName());

@@ -135,9 +135,9 @@ class OfficialWarehouseSchemaTest {
         String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
 
         assertThat(service)
-                .contains("import com.nuono.next.productselection.NoonImageUrlNormalizer;")
-                .contains("lineRow.imageUrlCache = NoonImageUrlNormalizer.normalize(candidate.imageUrlCache);")
-                .contains("view.imageUrl = NoonImageUrlNormalizer.normalize(row.imageUrlCache);");
+                .contains("import com.nuono.next.product.ProductImageUrlSupport;")
+                .contains("lineRow.imageUrlCache = ProductImageUrlSupport.normalize(candidate.imageUrlCache);")
+                .contains("view.imageUrl = ProductImageUrlSupport.normalize(row.imageUrlCache);");
     }
 
     @Test

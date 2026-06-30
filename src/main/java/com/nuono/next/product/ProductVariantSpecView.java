@@ -65,7 +65,7 @@ public class ProductVariantSpecView {
     }
 
     public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
     }
 
     public Long getVariantId() {

@@ -231,15 +231,18 @@ public class ProductNoonCatalogContentService {
             return null;
         }
         if (value.startsWith("//")) {
-            return "https:" + value;
+            return ProductImageUrlSupport.normalize("https:" + value);
         }
         String lower = value.toLowerCase(Locale.ROOT);
         if (lower.startsWith("http://") || lower.startsWith("https://")) {
-            return value;
+            return ProductImageUrlSupport.normalize(value);
         }
         if (forceImageKey || value.contains("/") || value.matches("(?i)^[a-z0-9_-]{8,}$")) {
             String key = value.replaceAll("^/+", "").replaceAll("\\.(jpg|jpeg|png|webp)$", "");
-            return "https://f.nooncdn.com/p/" + key + ".jpg";
+            String prefix = key.regionMatches(true, 0, "p/", 0, 2)
+                    ? "https://f.nooncdn.com/"
+                    : "https://f.nooncdn.com/p/";
+            return ProductImageUrlSupport.normalize(prefix + key + ".jpg");
         }
         return value;
     }

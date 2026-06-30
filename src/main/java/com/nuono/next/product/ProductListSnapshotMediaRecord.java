@@ -18,6 +18,6 @@ public class ProductListSnapshotMediaRecord {
     }
 
     public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
     }
 }

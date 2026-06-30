@@ -1,5 +1,6 @@
 package com.nuono.next.sales;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -169,7 +170,7 @@ public class SalesProductRow {
         this.lifecycleWarningCodes = lifecycle == null ? List.of() : lifecycle.getWarningCodes();
         this.brand = brand;
         this.productFulltype = productFulltype;
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
         this.currentStock = currentStock;
         this.fbnStock = fbnStock;
         this.supermallStock = supermallStock;

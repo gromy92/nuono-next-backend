@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.product.ProductSourceTypeSupport;
 import java.time.LocalDateTime;
@@ -141,9 +142,22 @@ public class NoonProductListPullAdapter {
     }
 
     private String resolveImageUrl(String image) {
-        if (!StringUtils.hasText(image) || image.startsWith("http://") || image.startsWith("https://")) {
+        if (!StringUtils.hasText(image)) {
             return image;
         }
-        return "https://f.nooncdn.com/p/" + image;
+        if (isHttpOrProtocolRelativeUrl(image)) {
+            return ProductImageUrlSupport.normalize(image);
+        }
+        String path = image.replaceFirst("^/+", "");
+        String prefix = path.regionMatches(true, 0, "p/", 0, 2)
+                ? "https://f.nooncdn.com/"
+                : "https://f.nooncdn.com/p/";
+        return ProductImageUrlSupport.normalize(prefix + path);
+    }
+
+    private boolean isHttpOrProtocolRelativeUrl(String value) {
+        return value.startsWith("//")
+                || value.regionMatches(true, 0, "http://", 0, "http://".length())
+                || value.regionMatches(true, 0, "https://", 0, "https://".length());
     }
 }

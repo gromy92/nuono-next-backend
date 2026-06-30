@@ -1,5 +1,6 @@
 package com.nuono.next.competitoranalysis;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -28,7 +29,7 @@ public class CompetitorWatchProductListItemView extends CompetitorWatchProductVi
         view.setTitle(row.getTitleSnapshot());
         view.setTitleCn(row.getTitleCnSnapshot());
         view.setBrand(row.getBrandSnapshot());
-        view.setImageUrl(row.getImageUrlSnapshot());
+        view.setImageUrl(ProductImageUrlSupport.normalize(row.getImageUrlSnapshot()));
         view.setProductFulltype(row.getProductFulltypeSnapshot());
         view.setStatus(row.getStatus());
         view.setLatestRunId(row.getLatestRunId());

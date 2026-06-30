@@ -118,7 +118,7 @@ public class ProductListProjectionRecord {
     }
 
     public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
     }
 
     public String getBarcode() {
