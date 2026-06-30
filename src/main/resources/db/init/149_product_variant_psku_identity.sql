@@ -191,26 +191,50 @@ SET duplicate_source.variant_id = CASE WHEN canonical_source.id IS NULL THEN mer
     duplicate_source.is_deleted = CASE WHEN canonical_source.id IS NULL THEN duplicate_source.is_deleted ELSE b'1' END,
     duplicate_source.gmt_updated = NOW();
 
-UPDATE `product_variant_logistics_profile` duplicate_profile
+SET @psku_identity_product_variant_logistics_profile_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `product_variant_logistics_profile` duplicate_profile
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = duplicate_profile.variant_id
 LEFT JOIN `product_variant_logistics_profile` canonical_profile
   ON canonical_profile.variant_id = merge_map.canonical_variant_id
- AND canonical_profile.is_deleted = b'0'
+ AND canonical_profile.is_deleted = b''0''
 SET duplicate_profile.variant_id = CASE WHEN canonical_profile.id IS NULL THEN merge_map.canonical_variant_id ELSE duplicate_profile.variant_id END,
-    duplicate_profile.is_deleted = CASE WHEN canonical_profile.id IS NULL THEN duplicate_profile.is_deleted ELSE b'1' END,
-    duplicate_profile.gmt_updated = NOW();
+    duplicate_profile.is_deleted = CASE WHEN canonical_profile.id IS NULL THEN duplicate_profile.is_deleted ELSE b''1'' END,
+    duplicate_profile.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_variant_logistics_profile'
+);
+PREPARE stmt FROM @psku_identity_product_variant_logistics_profile_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `product_variant_logistics_profile_source` duplicate_source
+SET @psku_identity_product_variant_logistics_profile_source_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `product_variant_logistics_profile_source` duplicate_source
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = duplicate_source.variant_id
 LEFT JOIN `product_variant_logistics_profile_source` canonical_source
   ON canonical_source.variant_id = merge_map.canonical_variant_id
  AND canonical_source.source_type = duplicate_source.source_type
- AND canonical_source.is_deleted = b'0'
+ AND canonical_source.is_deleted = b''0''
 SET duplicate_source.variant_id = CASE WHEN canonical_source.id IS NULL THEN merge_map.canonical_variant_id ELSE duplicate_source.variant_id END,
-    duplicate_source.is_deleted = CASE WHEN canonical_source.id IS NULL THEN duplicate_source.is_deleted ELSE b'1' END,
-    duplicate_source.gmt_updated = NOW();
+    duplicate_source.is_deleted = CASE WHEN canonical_source.id IS NULL THEN duplicate_source.is_deleted ELSE b''1'' END,
+    duplicate_source.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_variant_logistics_profile_source'
+);
+PREPARE stmt FROM @psku_identity_product_variant_logistics_profile_source_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 UPDATE `product_barcode` barcode
 JOIN `product_variant_identity_merge_map` merge_map
@@ -225,11 +249,23 @@ JOIN `product_site_offer_identity_merge_map` offer_map
 SET duplicate_pso.variant_id = offer_map.canonical_variant_id,
     duplicate_pso.gmt_updated = NOW();
 
-UPDATE `procurement_purchase_order_item_site` item_site
+SET @psku_identity_procurement_purchase_order_item_site_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `procurement_purchase_order_item_site` item_site
 JOIN `product_site_offer_identity_merge_map` offer_map
   ON offer_map.duplicate_site_offer_id = item_site.product_site_offer_id
 SET item_site.product_site_offer_id = offer_map.canonical_site_offer_id,
-    item_site.gmt_updated = NOW();
+    item_site.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'procurement_purchase_order_item_site'
+);
+PREPARE stmt FROM @psku_identity_procurement_purchase_order_item_site_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 UPDATE `operations_competitor_watch_product` watch_product
 JOIN `product_site_offer_identity_merge_map` offer_map
@@ -237,29 +273,77 @@ JOIN `product_site_offer_identity_merge_map` offer_map
 SET watch_product.product_site_offer_id = offer_map.canonical_site_offer_id,
     watch_product.gmt_updated = NOW();
 
-UPDATE `official_warehouse_asn_line` asn_line
+SET @psku_identity_official_warehouse_asn_line_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_asn_line` asn_line
 JOIN `product_site_offer_identity_merge_map` offer_map
   ON offer_map.duplicate_site_offer_id = asn_line.product_site_offer_id
 SET asn_line.product_site_offer_id = offer_map.canonical_site_offer_id,
-    asn_line.gmt_updated = NOW();
+    asn_line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_asn_line'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_asn_line_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `official_warehouse_stock_correction_event` correction
+SET @psku_identity_official_warehouse_stock_correction_event_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_stock_correction_event` correction
 JOIN `product_site_offer_identity_merge_map` offer_map
   ON offer_map.duplicate_site_offer_id = correction.product_site_offer_id
 SET correction.product_site_offer_id = offer_map.canonical_site_offer_id,
-    correction.gmt_updated = NOW();
+    correction.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_stock_correction_event'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_stock_correction_event_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `official_warehouse_inventory_snapshot_line` inventory_line
+SET @psku_identity_official_warehouse_inventory_snapshot_line_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_inventory_snapshot_line` inventory_line
 JOIN `product_site_offer_identity_merge_map` offer_map
   ON offer_map.duplicate_site_offer_id = inventory_line.product_site_offer_id
 SET inventory_line.product_site_offer_id = offer_map.canonical_site_offer_id,
-    inventory_line.gmt_updated = NOW();
+    inventory_line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_inventory_snapshot_line'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_inventory_snapshot_line_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `official_warehouse_inbound_receipt_line` receipt_line
+SET @psku_identity_official_warehouse_inbound_receipt_line_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_inbound_receipt_line` receipt_line
 JOIN `product_site_offer_identity_merge_map` offer_map
   ON offer_map.duplicate_site_offer_id = receipt_line.product_site_offer_id
 SET receipt_line.product_site_offer_id = offer_map.canonical_site_offer_id,
-    receipt_line.gmt_updated = NOW();
+    receipt_line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_inbound_receipt_line'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_inbound_receipt_line_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 UPDATE `product_public_detail_snapshot` snapshot
 JOIN `product_site_offer_identity_merge_map` offer_map
@@ -296,46 +380,118 @@ SET duplicate_pso.is_deleted = b'1',
     END,
     duplicate_pso.gmt_updated = NOW();
 
-UPDATE `procurement_purchase_order_item` item
+SET @psku_identity_procurement_purchase_order_item_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `procurement_purchase_order_item` item
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = item.product_variant_id
 SET item.product_variant_id = merge_map.canonical_variant_id,
     item.product_master_id = merge_map.target_product_master_id,
-    item.gmt_updated = NOW();
+    item.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'procurement_purchase_order_item'
+);
+PREPARE stmt FROM @psku_identity_procurement_purchase_order_item_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `procurement_fulfillment_balance` balance
+SET @psku_identity_procurement_fulfillment_balance_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `procurement_fulfillment_balance` balance
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = balance.product_variant_id
 SET balance.product_variant_id = merge_map.canonical_variant_id,
     balance.product_master_id = merge_map.target_product_master_id,
-    balance.gmt_updated = NOW();
+    balance.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'procurement_fulfillment_balance'
+);
+PREPARE stmt FROM @psku_identity_procurement_fulfillment_balance_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `warehouse_shipping_batch_source` source
+SET @psku_identity_warehouse_shipping_batch_source_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `warehouse_shipping_batch_source` source
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = source.product_variant_id
 SET source.product_variant_id = merge_map.canonical_variant_id,
     source.product_master_id = merge_map.target_product_master_id,
-    source.gmt_updated = NOW();
+    source.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'warehouse_shipping_batch_source'
+);
+PREPARE stmt FROM @psku_identity_warehouse_shipping_batch_source_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `warehouse_shipping_suggestion_line` line
+SET @psku_identity_warehouse_shipping_suggestion_line_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `warehouse_shipping_suggestion_line` line
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = line.product_variant_id
 SET line.product_variant_id = merge_map.canonical_variant_id,
     line.product_master_id = merge_map.target_product_master_id,
-    line.gmt_updated = NOW();
+    line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'warehouse_shipping_suggestion_line'
+);
+PREPARE stmt FROM @psku_identity_warehouse_shipping_suggestion_line_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `warehouse_outbound_order_line` line
+SET @psku_identity_warehouse_outbound_order_line_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `warehouse_outbound_order_line` line
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = line.product_variant_id
 SET line.product_variant_id = merge_map.canonical_variant_id,
     line.product_master_id = merge_map.target_product_master_id,
-    line.gmt_updated = NOW();
+    line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'warehouse_outbound_order_line'
+);
+PREPARE stmt FROM @psku_identity_warehouse_outbound_order_line_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `warehouse_packing_box_item` item
+SET @psku_identity_warehouse_packing_box_item_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `warehouse_packing_box_item` item
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = item.product_variant_id
 SET item.product_variant_id = merge_map.canonical_variant_id,
-    item.gmt_updated = NOW();
+    item.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'warehouse_packing_box_item'
+);
+PREPARE stmt FROM @psku_identity_warehouse_packing_box_item_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 UPDATE `operations_competitor_watch_product` watch_product
 JOIN `product_variant_identity_merge_map` merge_map
@@ -344,51 +500,135 @@ SET watch_product.product_variant_id = merge_map.canonical_variant_id,
     watch_product.product_master_id = merge_map.target_product_master_id,
     watch_product.gmt_updated = NOW();
 
-UPDATE `official_warehouse_asn_line` asn_line
+SET @psku_identity_official_warehouse_asn_line_2_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_asn_line` asn_line
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = asn_line.product_variant_id
 SET asn_line.product_variant_id = merge_map.canonical_variant_id,
     asn_line.product_master_id = merge_map.target_product_master_id,
-    asn_line.gmt_updated = NOW();
+    asn_line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_asn_line'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_asn_line_2_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `official_warehouse_stock_correction_event` correction
+SET @psku_identity_official_warehouse_stock_correction_event_2_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_stock_correction_event` correction
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = correction.product_variant_id
 SET correction.product_variant_id = merge_map.canonical_variant_id,
     correction.product_master_id = merge_map.target_product_master_id,
-    correction.gmt_updated = NOW();
+    correction.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_stock_correction_event'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_stock_correction_event_2_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `official_warehouse_inventory_snapshot_line` inventory_line
+SET @psku_identity_official_warehouse_inventory_snapshot_line_2_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_inventory_snapshot_line` inventory_line
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = inventory_line.product_variant_id
 SET inventory_line.product_variant_id = merge_map.canonical_variant_id,
     inventory_line.product_master_id = merge_map.target_product_master_id,
-    inventory_line.gmt_updated = NOW();
+    inventory_line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_inventory_snapshot_line'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_inventory_snapshot_line_2_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `official_warehouse_inbound_receipt_line` receipt_line
+SET @psku_identity_official_warehouse_inbound_receipt_line_2_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_inbound_receipt_line` receipt_line
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = receipt_line.product_variant_id
 SET receipt_line.product_variant_id = merge_map.canonical_variant_id,
     receipt_line.product_master_id = merge_map.target_product_master_id,
-    receipt_line.gmt_updated = NOW();
+    receipt_line.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_inbound_receipt_line'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_inbound_receipt_line_2_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `official_warehouse_asn_shipping_batch_link` link
+SET @psku_identity_official_warehouse_asn_shipping_batch_link_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `official_warehouse_asn_shipping_batch_link` link
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = link.product_variant_id
 SET link.product_variant_id = merge_map.canonical_variant_id,
-    link.gmt_updated = NOW();
+    link.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'official_warehouse_asn_shipping_batch_link'
+);
+PREPARE stmt FROM @psku_identity_official_warehouse_asn_shipping_batch_link_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `product_psku_lifecycle_archive` archive
+SET @psku_identity_product_psku_lifecycle_archive_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `product_psku_lifecycle_archive` archive
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = archive.product_variant_id
 SET archive.product_variant_id = merge_map.canonical_variant_id,
-    archive.gmt_updated = NOW();
+    archive.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_psku_lifecycle_archive'
+);
+PREPARE stmt FROM @psku_identity_product_psku_lifecycle_archive_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
-UPDATE `procurement_archived_purchase_history` history
+SET @psku_identity_procurement_archived_purchase_history_1_sql := (
+    SELECT IF(
+        COUNT(1) > 0,
+        'UPDATE `procurement_archived_purchase_history` history
 JOIN `product_variant_identity_merge_map` merge_map
   ON merge_map.duplicate_variant_id = history.product_variant_id
 SET history.product_variant_id = merge_map.canonical_variant_id,
-    history.gmt_updated = NOW();
+    history.gmt_updated = NOW()',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'procurement_archived_purchase_history'
+);
+PREPARE stmt FROM @psku_identity_procurement_archived_purchase_history_1_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 UPDATE `product_variant` duplicate_variant
 JOIN `product_variant_identity_merge_map` merge_map
