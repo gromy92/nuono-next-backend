@@ -21,10 +21,12 @@ class Ali1688HistoricalOrderPermissionSeedContractTest {
                 "071_procurement_ali1688_historical_order_sync.sql"
         )).replaceAll("\\s+", " ");
 
-        assertTrue(sql.contains("9401, '1688 历史订单'"), "seed must define the 1688 historical order menu");
+        assertTrue(sql.contains("2402, '1688 历史订单'"), "seed must define the 1688 historical order menu without reusing sales ids");
         assertTrue(sql.contains("/purchase/ali1688-orders"), "seed must use the historical order route");
-        assertTrue(sql.contains("9402, 'SKU 采购历史'"), "seed must define the SKU purchase history menu");
+        assertTrue(sql.contains("2403, 'SKU 采购历史'"), "seed must define the SKU purchase history menu without reusing sales ids");
         assertTrue(sql.contains("/purchase/ali1688-sku-purchase-history"), "seed must use the SKU purchase history route");
+        assertFalse(sql.contains("9401, '1688 历史订单'"), "9401 belongs to 销量分析");
+        assertFalse(sql.contains("9402, 'SKU 采购历史'"), "9402 belongs to 销量预测");
         assertTrue(sql.contains("r.`id` IN (2, 3, 4, 5, 6)"),
                 "boss, ops manager, operator, procurement, and warehouse roles must receive the menu");
         assertTrue(sql.contains("u.`role_id` IN (2, 3, 4, 5, 6)"),

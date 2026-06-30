@@ -131,6 +131,84 @@ public class OrderFinanceController {
         ));
     }
 
+    @GetMapping("/actual-outbound-fees")
+    public List<OrderFinanceActualOutboundFeeSnapshot> actualOutboundFees(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            @RequestParam(required = false) String dateFrom,
+            @RequestParam(required = false) String dateTo,
+            @RequestParam(required = false) String currency,
+            @RequestParam(required = false) String partnerSkuList,
+            HttpServletRequest request
+    ) {
+        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(siteCode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "storeCode and siteCode are required.");
+        }
+        String normalizedStoreCode = storeCode.trim();
+        String normalizedSiteCode = siteCode.trim();
+        LocalDate normalizedDateTo = StringUtils.hasText(dateTo) ? parseDate(dateTo, "dateTo") : LocalDate.now();
+        LocalDate normalizedDateFrom = StringUtils.hasText(dateFrom) ? parseDate(dateFrom, "dateFrom") : normalizedDateTo.minusYears(1);
+        if (normalizedDateTo.isBefore(normalizedDateFrom)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "dateTo must be on or after dateFrom.");
+        }
+        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.SALES_DATA,
+                normalizedStoreCode
+        );
+        Long ownerUserId = ownerUserId(context, normalizedStoreCode);
+        requireActiveStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
+        return analyticsService.actualOutboundFees(OrderFinanceQuery.summary(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSiteCode,
+                normalizedDateFrom,
+                normalizedDateTo,
+                currency,
+                null,
+                splitPartnerSkuList(partnerSkuList)
+        ));
+    }
+
+    @GetMapping("/actual-commissions")
+    public List<OrderFinanceActualCommissionSnapshot> actualCommissions(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            @RequestParam(required = false) String dateFrom,
+            @RequestParam(required = false) String dateTo,
+            @RequestParam(required = false) String currency,
+            @RequestParam(required = false) String partnerSkuList,
+            HttpServletRequest request
+    ) {
+        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(siteCode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "storeCode and siteCode are required.");
+        }
+        String normalizedStoreCode = storeCode.trim();
+        String normalizedSiteCode = siteCode.trim();
+        LocalDate normalizedDateTo = StringUtils.hasText(dateTo) ? parseDate(dateTo, "dateTo") : LocalDate.now();
+        LocalDate normalizedDateFrom = StringUtils.hasText(dateFrom) ? parseDate(dateFrom, "dateFrom") : normalizedDateTo.minusYears(1);
+        if (normalizedDateTo.isBefore(normalizedDateFrom)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "dateTo must be on or after dateFrom.");
+        }
+        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.SALES_DATA,
+                normalizedStoreCode
+        );
+        Long ownerUserId = ownerUserId(context, normalizedStoreCode);
+        requireActiveStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
+        return analyticsService.actualCommissions(OrderFinanceQuery.summary(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSiteCode,
+                normalizedDateFrom,
+                normalizedDateTo,
+                currency,
+                null,
+                splitPartnerSkuList(partnerSkuList)
+        ));
+    }
+
     private void validateSyncRequest(OrderFinanceSyncRequest body) {
         if (body == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Request body is required.");
@@ -155,6 +233,14 @@ public class OrderFinanceController {
         }
         if (to.isBefore(from)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "dateTo must be on or after dateFrom.");
+        }
+    }
+
+    private LocalDate parseDate(String value, String fieldName) {
+        try {
+            return LocalDate.parse(value);
+        } catch (RuntimeException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, fieldName + " must be an ISO date.", exception);
         }
     }
 

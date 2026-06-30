@@ -1,6 +1,8 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.orderfinance.NoonFinanceTransactionFact;
+import com.nuono.next.orderfinance.OrderFinanceActualCommissionSnapshot;
+import com.nuono.next.orderfinance.OrderFinanceActualOutboundFeeSnapshot;
 import com.nuono.next.orderfinance.OrderFinanceDataStatus;
 import com.nuono.next.orderfinance.OrderFinanceQuery;
 import com.nuono.next.orderfinance.OrderFinanceSkuSummaryRow;
@@ -221,6 +223,114 @@ public interface NoonFinanceTransactionMapper {
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode
     );
+
+    @Select({
+            "<script>",
+            "WITH filtered AS (",
+            "SELECT",
+            "  COALESCE(NULLIF(TRIM(partner_sku), ''), '__missing__') AS partnerSku,",
+            "  NULLIF(TRIM(sku), '') AS sku,",
+            "  currency,",
+            "  transaction_date AS transactionDate,",
+            "  id,",
+            "  ABS(fulfillment_logistics_fees_including_vat) AS amount",
+            "FROM noon_finance_transaction_fact",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "  AND transaction_date BETWEEN #{dateFrom} AND #{dateTo}",
+            "  AND LOWER(TRIM(transaction_type)) IN ('order', 'order_update')",
+            "  AND fulfillment_logistics_fees_including_vat IS NOT NULL",
+            "  AND fulfillment_logistics_fees_including_vat &lt;&gt; 0",
+            "  <if test='currency != null and currency != \"\"'>",
+            "    AND currency = #{currency}",
+            "  </if>",
+            "  <if test='partnerSkuList != null and !partnerSkuList.isEmpty()'>",
+            "    AND (partner_sku IN",
+            "      <foreach collection='partnerSkuList' item='partnerSku' open='(' separator=',' close=')'>#{partnerSku}</foreach>",
+            "      OR sku IN",
+            "      <foreach collection='partnerSkuList' item='partnerSku' open='(' separator=',' close=')'>#{partnerSku}</foreach>",
+            "    )",
+            "  </if>",
+            "), ranked AS (",
+            "  SELECT filtered.*,",
+            "    ROW_NUMBER() OVER (PARTITION BY partnerSku ORDER BY transactionDate DESC, id DESC) AS latestRank",
+            "  FROM filtered",
+            ")",
+            "SELECT",
+            "  partnerSku,",
+            "  MAX(sku) AS sku,",
+            "  CASE",
+            "    WHEN COUNT(DISTINCT currency) = 0 THEN NULL",
+            "    WHEN COUNT(DISTINCT currency) = 1 THEN MAX(currency)",
+            "    ELSE 'MIXED'",
+            "  END AS currency,",
+            "  COUNT(1) AS sampleCount,",
+            "  COUNT(1) AS transactionRowCount,",
+            "  SUM(amount) AS totalFeeAmount,",
+            "  AVG(amount) AS averageFeeAmount,",
+            "  MAX(CASE WHEN latestRank = 1 THEN amount ELSE NULL END) AS latestFeeAmount,",
+            "  MAX(transactionDate) AS latestTransactionDate",
+            "FROM ranked",
+            "GROUP BY partnerSku",
+            "ORDER BY sampleCount DESC",
+            "</script>"
+    })
+    List<OrderFinanceActualOutboundFeeSnapshot> selectActualOutboundFeeSnapshots(OrderFinanceQuery query);
+
+    @Select({
+            "<script>",
+            "WITH filtered AS (",
+            "SELECT",
+            "  COALESCE(NULLIF(TRIM(partner_sku), ''), '__missing__') AS partnerSku,",
+            "  NULLIF(TRIM(sku), '') AS sku,",
+            "  currency,",
+            "  transaction_date AS transactionDate,",
+            "  id,",
+            "  ABS(referral_fee_including_vat) AS amount",
+            "FROM noon_finance_transaction_fact",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "  AND transaction_date BETWEEN #{dateFrom} AND #{dateTo}",
+            "  AND LOWER(TRIM(transaction_type)) IN ('order', 'order_update')",
+            "  AND referral_fee_including_vat IS NOT NULL",
+            "  AND referral_fee_including_vat &lt;&gt; 0",
+            "  <if test='currency != null and currency != \"\"'>",
+            "    AND currency = #{currency}",
+            "  </if>",
+            "  <if test='partnerSkuList != null and !partnerSkuList.isEmpty()'>",
+            "    AND (partner_sku IN",
+            "      <foreach collection='partnerSkuList' item='partnerSku' open='(' separator=',' close=')'>#{partnerSku}</foreach>",
+            "      OR sku IN",
+            "      <foreach collection='partnerSkuList' item='partnerSku' open='(' separator=',' close=')'>#{partnerSku}</foreach>",
+            "    )",
+            "  </if>",
+            "), ranked AS (",
+            "  SELECT filtered.*,",
+            "    ROW_NUMBER() OVER (PARTITION BY partnerSku ORDER BY transactionDate DESC, id DESC) AS latestRank",
+            "  FROM filtered",
+            ")",
+            "SELECT",
+            "  partnerSku,",
+            "  MAX(sku) AS sku,",
+            "  CASE",
+            "    WHEN COUNT(DISTINCT currency) = 0 THEN NULL",
+            "    WHEN COUNT(DISTINCT currency) = 1 THEN MAX(currency)",
+            "    ELSE 'MIXED'",
+            "  END AS currency,",
+            "  COUNT(1) AS sampleCount,",
+            "  COUNT(1) AS transactionRowCount,",
+            "  SUM(amount) AS totalCommissionAmount,",
+            "  AVG(amount) AS averageCommissionAmount,",
+            "  MAX(CASE WHEN latestRank = 1 THEN amount ELSE NULL END) AS latestCommissionAmount,",
+            "  MAX(transactionDate) AS latestTransactionDate",
+            "FROM ranked",
+            "GROUP BY partnerSku",
+            "ORDER BY sampleCount DESC",
+            "</script>"
+    })
+    List<OrderFinanceActualCommissionSnapshot> selectActualCommissionSnapshots(OrderFinanceQuery query);
 
     @Insert({
             "INSERT INTO noon_finance_transaction_fact (",

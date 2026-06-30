@@ -294,13 +294,21 @@ public class MyBatisOfficialOutboundFeeFactRepository implements OfficialOutboun
     private Object value(Map<String, Object> row, String key) {
         Object value = row.get(key);
         if (value != null || row.containsKey(key)) {
-            return value;
+            return normalizeNullLiteral(value);
         }
         String underscoreKey = key.replaceAll("([A-Z])", "_$1").toLowerCase();
         value = row.get(underscoreKey);
         if (value != null || row.containsKey(underscoreKey)) {
+            return normalizeNullLiteral(value);
+        }
+        return normalizeNullLiteral(row.get(key.toUpperCase()));
+    }
+
+    private Object normalizeNullLiteral(Object value) {
+        if (!(value instanceof String)) {
             return value;
         }
-        return row.get(key.toUpperCase());
+        String text = ((String) value).trim();
+        return text.isEmpty() || "null".equalsIgnoreCase(text) ? null : text;
     }
 }
