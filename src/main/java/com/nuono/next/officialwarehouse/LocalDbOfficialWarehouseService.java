@@ -1119,17 +1119,35 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 binding.getProjectCode(),
                 binding.getStoreCode()
         );
-        LinkedHashSet<String> warehouses = new LinkedHashSet<>(
-                noonInboundClient.listPartnerWarehouses(
-                        session,
-                        binding,
-                        NoonCallContext.asn(asnRecord.id, asnRecord.localAsnNo)
-                )
-        );
-        if (asn.appointment != null && StringUtils.hasText(asn.appointment.warehouseFrom)) {
-            warehouses.add(asn.appointment.warehouseFrom.trim());
+        NoonCallContext context = NoonCallContext.asn(asnRecord.id, asnRecord.localAsnNo);
+        List<String> partnerWarehouses = List.of();
+        RuntimeException partnerWarehouseFailure = null;
+        try {
+            partnerWarehouses = noonInboundClient.listPartnerWarehouses(session, binding, context);
+        } catch (RuntimeException exception) {
+            partnerWarehouseFailure = exception;
         }
-        return new ArrayList<>(warehouses);
+        AsnDetail detail = null;
+        RuntimeException asnDetailFailure = null;
+        if (StringUtils.hasText(asn.noonAsnNr)) {
+            try {
+                detail = noonInboundClient.queryAsnDetail(session, binding, context, asn.noonAsnNr);
+            } catch (RuntimeException exception) {
+                asnDetailFailure = exception;
+            }
+        }
+        String appointmentWarehouseFrom = asn.appointment == null ? null : asn.appointment.warehouseFrom;
+        List<String> warehouses = resolveAppointmentWarehouseFromOptions(partnerWarehouses, detail, appointmentWarehouseFrom);
+        if (!warehouses.isEmpty()) {
+            return warehouses;
+        }
+        if (partnerWarehouseFailure != null) {
+            throw partnerWarehouseFailure;
+        }
+        if (asnDetailFailure != null) {
+            throw asnDetailFailure;
+        }
+        return warehouses;
     }
 
     private AppointmentRecord upsertAppointmentRecord(
@@ -2070,6 +2088,31 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
 
     static String resolveAppointmentWarehouseToCode(String selectedWarehouseCode, String requestedWarehouseToCode) {
         return firstNonBlank(requestedWarehouseToCode, selectedWarehouseCode);
+    }
+
+    static List<String> resolveAppointmentWarehouseFromOptions(
+            List<String> partnerWarehouses,
+            AsnDetail asnDetail,
+            String appointmentWarehouseFrom
+    ) {
+        LinkedHashSet<String> warehouses = new LinkedHashSet<>();
+        if (partnerWarehouses != null) {
+            for (String warehouse : partnerWarehouses) {
+                String normalized = trimToNull(warehouse);
+                if (normalized != null) {
+                    warehouses.add(normalized);
+                }
+            }
+        }
+        String detailWarehouseFrom = asnDetail == null ? null : trimToNull(asnDetail.warehouseFrom);
+        if (detailWarehouseFrom != null) {
+            warehouses.add(detailWarehouseFrom);
+        }
+        String existingAppointmentWarehouseFrom = trimToNull(appointmentWarehouseFrom);
+        if (existingAppointmentWarehouseFrom != null) {
+            warehouses.add(existingAppointmentWarehouseFrom);
+        }
+        return new ArrayList<>(warehouses);
     }
 
     private static String firstNonBlank(String... values) {

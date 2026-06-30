@@ -1078,7 +1078,7 @@ public interface OfficialWarehouseMapper {
             "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "FROM official_warehouse_appointment",
             "WHERE is_deleted = b'0'",
-            "  AND status IN ('PENDING', 'RUNNING', 'FAILED')",
+            "  AND status = 'PENDING'",
             "  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())",
             "ORDER BY COALESCE(next_attempt_at, gmt_updated) ASC, id ASC",
             "LIMIT #{limit}"
