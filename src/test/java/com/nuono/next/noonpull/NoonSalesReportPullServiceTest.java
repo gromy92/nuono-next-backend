@@ -18,10 +18,11 @@ class NoonSalesReportPullServiceTest {
     private InMemoryNoonPullRepository repository;
     private InMemorySalesFactWriter writer;
     private NoonSalesReportPullService service;
+    private Clock clock;
 
     @BeforeEach
     void setUp() {
-        Clock clock = Clock.fixed(Instant.parse("2026-05-22T10:00:00Z"), ZoneOffset.UTC);
+        clock = Clock.fixed(Instant.parse("2026-05-22T10:00:00Z"), ZoneOffset.UTC);
         repository = new InMemoryNoonPullRepository();
         NoonPullFoundationService foundationService =
                 new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
@@ -29,7 +30,7 @@ class NoonSalesReportPullServiceTest {
         service = new NoonSalesReportPullService(
                 foundationService,
                 new NoonReportPuller(foundationService),
-                new NoonSalesReportAdapter(writer)
+                new NoonSalesReportAdapter(writer, clock)
         );
     }
 
@@ -66,8 +67,8 @@ class NoonSalesReportPullServiceTest {
         NoonReportPullResult result = service.pullLatestDay(command(), provider("date,sku_parent,units_sold,sales_amount,currency\n"));
         NoonPullTaskRecord task = repository.listTasks().get(0);
 
-        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
-        assertEquals("empty_report", task.getFailureType());
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertEquals("empty_report_pending_confirmation", task.getFailureType());
         assertEquals(0, writer.facts.size());
     }
 
@@ -134,9 +135,9 @@ class NoonSalesReportPullServiceTest {
             }
         });
 
-        assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
-        assertEquals(5, pollCount.get());
-        assertEquals(1, writer.facts.size());
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertEquals(1, pollCount.get());
+        assertEquals(0, writer.facts.size());
     }
 
     private NoonSalesReportPullCommand command() {

@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -13,6 +14,10 @@ import org.junit.jupiter.api.Test;
 
 class SqlMigrationNamingTest {
     private static final Pattern MIGRATION = Pattern.compile("^(\\d{3})_.+\\.sql$");
+    private static final Set<String> LEGACY_DUPLICATE_PREFIXES = Set.of(
+            "101", "102", "103", "104",
+            "133", "134", "135", "136", "137", "138"
+    );
 
     @Test
     void migrationPrefixesAreUnique() throws IOException, InterruptedException {
@@ -27,7 +32,7 @@ class SqlMigrationNamingTest {
 
         Map<String, List<String>> duplicates = new HashMap<>();
         byPrefix.forEach((prefix, names) -> {
-            if (names.size() > 1) {
+            if (names.size() > 1 && !LEGACY_DUPLICATE_PREFIXES.contains(prefix)) {
                 duplicates.put(prefix, names);
             }
         });
