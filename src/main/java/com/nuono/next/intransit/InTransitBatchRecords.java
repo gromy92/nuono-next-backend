@@ -1,6 +1,7 @@
 package com.nuono.next.intransit;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -525,7 +526,7 @@ public final class InTransitBatchRecords {
             view.setMatchedProductId(row.getMatchedProductId());
             view.setProductSkuParent(row.getProductSkuParent());
             view.setProductTitle(row.getProductTitle());
-            view.setProductImageUrl(row.getProductImageUrl());
+            view.setProductImageUrl(ProductImageUrlSupport.normalize(row.getProductImageUrl()));
             return view;
         }
 

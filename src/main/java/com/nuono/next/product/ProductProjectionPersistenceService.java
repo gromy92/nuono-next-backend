@@ -1306,7 +1306,7 @@ public class ProductProjectionPersistenceService {
                 normalize(seed.getTitleCache()),
                 normalize(seed.getTitleCnCache()),
                 normalize(seed.getProductFulltypeCache()),
-                normalize(seed.getCoverImageUrl()),
+                ProductImageUrlSupport.normalize(seed.getCoverImageUrl()),
                 normalize(seed.getSkuGroup()),
                 normalize(seed.getGroupNameCache()),
                 normalize(seed.getGroupRef()),

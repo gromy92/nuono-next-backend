@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.WarehouseDispatchMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationLineCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateDispatchPlanCommand;
@@ -357,7 +358,7 @@ public class LocalDbWarehouseDispatchService {
                 item.partnerSku = balance.partnerSku;
                 item.skuParent = balance.skuParent;
                 item.productTitle = defaultText(balance.titleCache, balance.partnerSku);
-                item.productImageUrl = balance.imageUrlCache;
+                item.productImageUrl = ProductImageUrlSupport.normalize(balance.imageUrlCache);
                 item.siteCode = balance.siteCode;
                 item.isNewProduct = Boolean.TRUE.equals(balance.isNewProduct);
                 item.manualConfirmRequired = requiresManualConfirm(balance);
@@ -1137,7 +1138,7 @@ public class LocalDbWarehouseDispatchService {
         view.storeName = row.storeName;
         view.psku = row.partnerSku;
         view.title = defaultText(row.titleCache, row.partnerSku);
-        view.imageUrl = row.imageUrlCache;
+        view.imageUrl = ProductImageUrlSupport.normalize(row.imageUrlCache);
         view.siteCode = defaultText(row.siteCode, "SA");
         view.transportMode = normalizeTransportMode(row.transportMode);
         view.expectedQty = nonNull(row.expectedQuantity);
@@ -1188,7 +1189,7 @@ public class LocalDbWarehouseDispatchService {
         view.partnerSku = line.partnerSku;
         view.skuParent = line.skuParent;
         view.productTitle = defaultText(line.titleCache, line.partnerSku);
-        view.productImageUrl = line.imageUrlCache;
+        view.productImageUrl = ProductImageUrlSupport.normalize(line.imageUrlCache);
         view.siteCode = line.siteCode;
         view.actualTransportMode = normalizeTransportMode(line.actualTransportMode);
         view.fulfillmentType = normalizeFulfillmentType(line.fulfillmentType);
@@ -1786,7 +1787,7 @@ public class LocalDbWarehouseDispatchService {
         view.partnerSku = source.partnerSku;
         view.skuParent = source.skuParent;
         view.productTitle = defaultText(source.titleCache, source.partnerSku);
-        view.productImageUrl = source.imageUrlCache;
+        view.productImageUrl = ProductImageUrlSupport.normalize(source.imageUrlCache);
         view.siteCode = source.siteCode;
         view.plannedTransportMode = normalizeTransportMode(source.plannedTransportMode);
         view.fulfillmentType = normalizeFulfillmentType(source.fulfillmentType);
@@ -1856,7 +1857,7 @@ public class LocalDbWarehouseDispatchService {
         view.partnerSku = line.partnerSku;
         view.skuParent = line.skuParent;
         view.productTitle = defaultText(line.titleCache, line.partnerSku);
-        view.productImageUrl = line.imageUrlCache;
+        view.productImageUrl = ProductImageUrlSupport.normalize(line.imageUrlCache);
         view.siteCode = line.siteCode;
         view.actualTransportMode = normalizeTransportMode(line.actualTransportMode);
         view.fulfillmentType = normalizeFulfillmentType(line.fulfillmentType);
@@ -2032,7 +2033,7 @@ public class LocalDbWarehouseDispatchService {
         view.partnerSku = line.partnerSku;
         view.skuParent = line.skuParent;
         view.productTitle = defaultText(line.titleCache, line.partnerSku);
-        view.productImageUrl = line.imageUrlCache;
+        view.productImageUrl = ProductImageUrlSupport.normalize(line.imageUrlCache);
         view.siteCode = line.siteCode;
         view.actualTransportMode = normalizeTransportMode(line.actualTransportMode);
         view.fulfillmentType = normalizeFulfillmentType(line.fulfillmentType);

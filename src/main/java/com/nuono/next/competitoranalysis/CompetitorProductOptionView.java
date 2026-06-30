@@ -1,5 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
+import com.nuono.next.product.ProductImageUrlSupport;
+
 public class CompetitorProductOptionView {
     private Long productSiteOfferId;
     private Long productMasterId;
@@ -34,7 +36,7 @@ public class CompetitorProductOptionView {
         view.setCodeType(codeType);
         view.setTitle(row.getTitle());
         view.setBrand(row.getBrand());
-        view.setImageUrl(row.getImageUrl());
+        view.setImageUrl(ProductImageUrlSupport.normalize(row.getImageUrl()));
         view.setProductFulltype(row.getProductFulltype());
         return view;
     }

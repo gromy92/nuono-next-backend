@@ -25,6 +25,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.StockSt
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.StockStatisticsView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.StockWarehouseStockView;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.product.ProductListDatasetView;
 import com.nuono.next.product.ProductMasterFetchCommand;
 import com.nuono.next.product.ProductReadModelService;
@@ -373,7 +374,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
                 firstMatched == null ? null : firstMatched.title
         );
         row.brand = firstNonBlankValue(product.getBrand(), firstMatched == null ? null : firstMatched.brand);
-        row.imageUrl = firstNonBlankValue(product.getImageUrl(), firstMatched == null ? null : firstMatched.imageUrl);
+        row.imageUrl = ProductImageUrlSupport.firstNonBlankNormalized(product.getImageUrl(), firstMatched == null ? null : firstMatched.imageUrl);
         row.warehouseCode = firstNonBlankValue(query.warehouseCode, firstMatched == null ? null : firstMatched.warehouseCode);
         if (matchedRows.isEmpty()) {
             row.sourceType = "PRODUCT_MASTER_LIST";
@@ -747,7 +748,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
         row.title = source.title;
         row.titleEn = source.title;
         row.brand = source.brand;
-        row.imageUrl = source.imageUrl;
+        row.imageUrl = ProductImageUrlSupport.normalize(source.imageUrl);
         row.warehouseCode = firstNonBlank(source.warehouseCode, FALLBACK_WAREHOUSE_CODE);
         row.currentStock = nonNegative(source.fbnStock) + nonNegative(source.supermallStock);
         row.inventoryConfidence = "PENDING_CONFIRMATION_ONLY";
@@ -786,7 +787,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
         row.title = source.title;
         row.titleEn = source.title;
         row.brand = source.brand;
-        row.imageUrl = source.imageUrl;
+        row.imageUrl = ProductImageUrlSupport.normalize(source.imageUrl);
         row.warehouseCode = trimToNull(source.warehouseCode);
         long baseEffective = nonNegative(source.effectiveStock);
         long baseReturn = nonNegative(source.returnStock);

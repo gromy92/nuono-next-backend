@@ -45,7 +45,7 @@ class InTransitSuperSearchServiceTest {
         row.setProductName("PHOMEMO无墨打印机M08F");
         row.setProductTitle("Phomemo Inkless Printer M08F");
         row.setProductTitleCn("PHOMEMO无墨打印机M08F");
-        row.setProductImageUrl("https://img.example/phomemo.jpg");
+        row.setProductImageUrl("https://f.nooncdn.com/pzsku/Z2D0347857C8C73BD6E15Z/45/_/1780233631/d574a3eb-2028-44b1-9bbf-7a9e8c346316");
         row.setBatchId(53001L);
         row.setBatchReferenceNo("XGGEKSA04077");
         row.setRawForwarderName("启客");
@@ -75,6 +75,7 @@ class InTransitSuperSearchServiceTest {
         assertEquals(1, result.getTotalCount());
         assertEquals("XGGEKSA04077", result.getItems().get(0).getBatchReferenceNo());
         assertEquals("PHOMEMO无墨打印机M08F", result.getItems().get(0).getProductTitleCn());
+        assertEquals("https://f.nooncdn.com/p/pzsku/Z2D0347857C8C73BD6E15Z/45/_/1780233631/d574a3eb-2028-44b1-9bbf-7a9e8c346316.jpg", result.getItems().get(0).getProductImageUrl());
         assertEquals(LocalDateTime.parse("2026-06-12T16:42:28"), result.getItems().get(0).getDomesticReceivedAt());
 
         ArgumentCaptor<InTransitSuperSearchQuery> captor = ArgumentCaptor.forClass(InTransitSuperSearchQuery.class);
