@@ -508,6 +508,83 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
+    void importYiteTemplateFallsBackToProductCodeWhenHiddenShippingOrderItemSiteIdIsStale() throws Exception {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderNo = "SO-290001";
+        line.shippingOrderSegmentId = 292001L;
+        line.forwarderCode = "YT";
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        lenient().when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
+                access(),
+                "290001",
+                new ByteArrayInputStream(yiteTemplateWorkbookBytes()),
+                "B2B发货审核单-SO-290006-已报价.xls",
+                command
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isEqualTo(1);
+        assertThat(result.errors).isEmpty();
+        verify(mapper).selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(290001L, 220002L);
+        verify(mapper).listLogisticsQuoteCandidatesByShippingOrder(290001L);
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getValue().id).isEqualTo(280001L);
+        assertThat(rowCaptor.getValue().unitPrice).isEqualByComparingTo("12.50");
+    }
+
+    @Test
+    void importYiteTemplateAppliesProductCodeFallbackToDuplicateShippingOrderRows() throws Exception {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord firstLine = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
+        firstLine.shippingOrderId = 290001L;
+        firstLine.shippingOrderNo = "SO-290001";
+        firstLine.shippingOrderSegmentId = 292001L;
+        firstLine.forwarderCode = "YT";
+        PurchaseOrderLogisticsQuoteLineRecord secondLine = quoteLine(280002L, "PENDING_QUOTE", "SUBMITTED");
+        secondLine.purchaseOrderItemSiteId = 220003L;
+        secondLine.shippingOrderId = 290001L;
+        secondLine.shippingOrderNo = "SO-290001";
+        secondLine.shippingOrderSegmentId = 292001L;
+        secondLine.forwarderCode = "YT";
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        lenient().when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L))
+                .thenReturn(List.of(firstLine, secondLine));
+
+        PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
+                access(),
+                "290001",
+                new ByteArrayInputStream(yiteTemplateWorkbookBytes()),
+                "B2B发货审核单-SO-290006-已报价.xls",
+                command
+        );
+
+        assertThat(result.totalRows).isEqualTo(1);
+        assertThat(result.updatedRows).isEqualTo(1);
+        assertThat(result.errors).isEmpty();
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper, org.mockito.Mockito.times(2)).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
+        assertThat(rowCaptor.getAllValues())
+                .extracting(line -> line.id)
+                .containsExactlyInAnyOrder(280001L, 280002L);
+        assertThat(rowCaptor.getAllValues())
+                .extracting(line -> line.unitPrice)
+                .allSatisfy(price -> assertThat(price).isEqualByComparingTo("12.50"));
+    }
+
+    @Test
     void importEtTemplateConfirmsRowsAfterLogisticsFillsBoxInfo() throws Exception {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
@@ -864,6 +941,39 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
+    void createShippingOrderSnapshotsSiteStoreCodeForSiteLines() {
+        PurchaseOrderRecord order = order("canman-626", "人工补货");
+        order.status = "SUBMITTED";
+        order.anchorStoreCodeCache = "STR69486-NSA";
+        order.projectNameCache = "canman";
+        PurchaseOrderLogisticsQuoteLineRecord sourceLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        sourceLine.sourceStoreCode = "STR69486-NAE";
+        sourceLine.sourceStoreName = "canman";
+        sourceLine.siteCode = "AE";
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(sourceLine));
+        when(mapper.nextShippingOrderId()).thenReturn(290001L);
+        when(mapper.nextShippingOrderSegmentId()).thenReturn(292001L);
+        when(mapper.nextShippingOrderLineId()).thenReturn(291001L);
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder());
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "AE", "AIR")));
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(sourceLine));
+
+        CreateShippingOrderCommand command = new CreateShippingOrderCommand();
+        command.purchaseOrderIds = List.of("200001");
+
+        service.createShippingOrder(access(), command);
+
+        ArgumentCaptor<ShippingOrderLineRecord> lineCaptor =
+                ArgumentCaptor.forClass(ShippingOrderLineRecord.class);
+        verify(mapper).insertShippingOrderLine(lineCaptor.capture(), eq(307L));
+        assertThat(lineCaptor.getValue().sourceStoreCode).isEqualTo("STR69486-NAE");
+        assertThat(lineCaptor.getValue().siteCode).isEqualTo("AE");
+    }
+
+    @Test
     void createShippingOrderAllowsAlreadyJoinedPurchaseOrderWithWarning() {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         order.status = "SUBMITTED";
@@ -1040,6 +1150,28 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         assertThat(view.title).isEqualTo("6月新品合并发货");
         assertThat(view.remark).isEqualTo("物流确认");
         verify(mapper).updateShippingOrderHeader(290001L, 307L, "6月新品合并发货", "物流确认", 307L);
+    }
+
+    @Test
+    void getShippingOrderIncludesLineQuotePrice() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord order = shippingOrder();
+        ShippingOrderLineRecord line = shippingOrderLine();
+        line.yiteMaterial = "塑料";
+        line.unitPrice = new BigDecimal("1390.00");
+        line.currency = "CNY";
+        line.billingUnit = "CBM";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(order);
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "SEA")));
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(line));
+
+        ShippingOrderView view = service.getShippingOrder(access(), "290001");
+
+        assertThat(view.lines).hasSize(1);
+        assertThat(view.lines.get(0).yiteMaterial).isEqualTo("塑料");
+        assertThat(view.lines.get(0).unitPrice).isEqualByComparingTo("1390.00");
+        assertThat(view.lines.get(0).currency).isEqualTo("CNY");
+        assertThat(view.lines.get(0).billingUnit).isEqualTo("CBM");
     }
 
     @Test

@@ -220,6 +220,8 @@ public final class ProcurementPurchaseOrderRecords {
         public Long id;
         public Long ownerUserId;
         public Long logicalStoreId;
+        public String sourceStoreCode;
+        public String sourceStoreName;
         public Long shippingOrderId;
         public String shippingOrderNo;
         public Long shippingOrderSegmentId;
@@ -463,6 +465,9 @@ public final class ProcurementPurchaseOrderRecords {
         public Integer quantity;
         public String fulfillmentType;
         public Long quoteLineId;
+        public BigDecimal unitPrice;
+        public String currency;
+        public String billingUnit;
         public String quoteStatus;
         public String shippingSubmitStatus;
     }
