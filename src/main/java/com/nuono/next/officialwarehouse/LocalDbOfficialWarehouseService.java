@@ -42,7 +42,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ProductCandidateV
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.RoutingWarehouseView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ShippingBatchCandidateView;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import com.nuono.next.productselection.NoonImageUrlNormalizer;
+import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import com.nuono.next.sales.NoonSalesReportRequest;
@@ -446,7 +446,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             lineRow.pskuCode = candidate.pskuCode;
             lineRow.noonSku = candidate.noonSku;
             lineRow.titleCache = candidate.titleCache;
-            lineRow.imageUrlCache = NoonImageUrlNormalizer.normalize(candidate.imageUrlCache);
+            lineRow.imageUrlCache = ProductImageUrlSupport.normalize(candidate.imageUrlCache);
             lineRow.quantity = entry.getValue();
             lineRow.productLengthCm = candidate.productLengthCm;
             lineRow.productWidthCm = candidate.productWidthCm;
@@ -1671,7 +1671,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         view.title = row.titleCache;
         view.titleEn = row.titleEn;
         view.brand = row.brandCache;
-        view.imageUrl = NoonImageUrlNormalizer.normalize(row.imageUrlCache);
+        view.imageUrl = ProductImageUrlSupport.normalize(row.imageUrlCache);
         view.quantity = row.qty;
         view.productLengthCm = row.productLengthCm;
         view.productWidthCm = row.productWidthCm;
@@ -1783,7 +1783,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         view.title = row.titleCache;
         view.titleEn = row.titleEn;
         view.brand = row.brandCache;
-        view.imageUrl = NoonImageUrlNormalizer.normalize(row.imageUrlCache);
+        view.imageUrl = ProductImageUrlSupport.normalize(row.imageUrlCache);
         view.productLengthCm = row.productLengthCm;
         view.productWidthCm = row.productWidthCm;
         view.productHeightCm = row.productHeightCm;

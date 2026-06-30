@@ -88,7 +88,7 @@ public class ProductVariantSpecDetailView {
     }
 
     public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
     }
 
     public Long getEffectiveSourceId() {

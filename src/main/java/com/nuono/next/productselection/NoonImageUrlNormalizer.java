@@ -13,6 +13,9 @@ public final class NoonImageUrlNormalizer {
             return null;
         }
         String value = imageUrl.trim();
+        if (value.startsWith("//")) {
+            value = "https:" + value;
+        }
         String suffix = "";
         int splitIndex = firstQueryOrHashIndex(value);
         if (splitIndex >= 0) {
@@ -57,10 +60,12 @@ public final class NoonImageUrlNormalizer {
             return value;
         }
         String path = value.substring(cdnPrefix.length());
-        if (path.toLowerCase(Locale.ROOT).startsWith("p/")) {
-            return value;
+        String strippedPath = stripLeadingSlash(path);
+        if (strippedPath.toLowerCase(Locale.ROOT).startsWith("p/")) {
+            String nestedProductPath = strippedPath.substring("p/".length());
+            return isNoonProductImagePath(nestedProductPath) ? cdnPrefix + "p/" + nestedProductPath : value;
         }
-        return isNoonProductImagePath(path) ? cdnPrefix + "p/" + stripLeadingSlash(path) : value;
+        return isNoonProductImagePath(strippedPath) ? cdnPrefix + "p/" + strippedPath : value;
     }
 
     private static String stripLeadingSlash(String value) {

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -467,6 +468,62 @@ class ProductProjectionPersistenceServiceListSummaryTest {
                 eq(true),
                 eq(true),
                 eq("ACTIVE"),
+                eq(307L)
+        );
+    }
+
+    @Test
+    void shouldNormalizeNoonCoverImageUrlWhenPersistingProductMasterSeed() {
+        ProductProjectionPersistenceService.ProductMasterSeed productSeed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        productSeed.setSkuParent("ZIMAGE001");
+        productSeed.setBrandCache("Papersays");
+        productSeed.setTitleCache("Noon bad image");
+        productSeed.setCoverImageUrl("https://f.nooncdn.com/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b");
+        productSeed.setSyncStatus("synced");
+
+        ProductProjectionPersistenceService.SiteSeed siteSeed =
+                new ProductProjectionPersistenceService.SiteSeed("STR108065-NSA", "SA", "ACTIVE", true);
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ69486"))
+                .thenReturn(50003L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR108065-NSA"))
+                .thenReturn(50003L);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50003L, "STR108065-NSA"))
+                .thenReturn(51004L);
+        when(productManagementMapper.selectProductMasterId(50003L, "ZIMAGE001"))
+                .thenReturn(null, 52006L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52006L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ69486",
+                "canman",
+                "STR108065-NSA",
+                List.of(siteSeed),
+                List.of(productSeed),
+                new ArrayList<>()
+        );
+
+        verify(productManagementMapper).upsertProductMaster(
+                eq(52006L),
+                eq(50003L),
+                eq("ZIMAGE001"),
+                eq("SELF_BUILT"),
+                eq("Papersays"),
+                eq("Noon bad image"),
+                isNull(),
+                isNull(),
+                eq("https://f.nooncdn.com/p/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b.jpg"),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq(0),
+                isNull(),
+                isNull(),
+                eq("synced"),
+                isNull(),
                 eq(307L)
         );
     }

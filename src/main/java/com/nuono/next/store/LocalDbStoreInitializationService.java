@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreInitializationSnapshotMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.product.ProductSourceTypeSupport;
@@ -1623,10 +1624,16 @@ public class LocalDbStoreInitializationService {
         if (!StringUtils.hasText(imagePath)) {
             return null;
         }
-        if (imagePath.startsWith("http://") || imagePath.startsWith("https://")) {
-            return imagePath;
+        if (isHttpOrProtocolRelativeUrl(imagePath)) {
+            return ProductImageUrlSupport.normalize(imagePath);
         }
-        return "https://f.nooncdn.com/" + imagePath.replaceFirst("^/+", "");
+        return ProductImageUrlSupport.normalize("https://f.nooncdn.com/" + imagePath.replaceFirst("^/+", ""));
+    }
+
+    private boolean isHttpOrProtocolRelativeUrl(String value) {
+        return value.startsWith("//")
+                || value.regionMatches(true, 0, "http://", 0, "http://".length())
+                || value.regionMatches(true, 0, "https://", 0, "https://".length());
     }
 
     private String resolveFirstImage(JsonNode commonNode) {

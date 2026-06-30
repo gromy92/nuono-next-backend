@@ -172,7 +172,7 @@ public class ProductListSummaryView {
     }
 
     public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
     }
 
     public List<String> getGalleryImages() {

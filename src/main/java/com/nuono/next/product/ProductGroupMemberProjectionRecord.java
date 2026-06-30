@@ -72,6 +72,6 @@ public class ProductGroupMemberProjectionRecord {
     }
 
     public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
     }
 }

@@ -43,4 +43,14 @@ class NoonImageUrlNormalizerTest {
         );
         assertNull(NoonImageUrlNormalizer.normalize(" "));
     }
+
+    @Test
+    void normalizeConvertsProtocolRelativeNoonImageUrl() {
+        assertEquals(
+                "https://f.nooncdn.com/p/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b.jpg",
+                NoonImageUrlNormalizer.normalize(
+                        "//f.nooncdn.com/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b"
+                )
+        );
+    }
 }

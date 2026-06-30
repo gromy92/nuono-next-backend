@@ -1,5 +1,6 @@
 package com.nuono.next.sales;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -132,7 +133,7 @@ public class SalesProductDetail {
         this.sourceSystems = sourceSystems == null ? List.of() : List.copyOf(sourceSystems);
         this.summary = summary;
         this.facts = facts == null ? List.of() : List.copyOf(facts);
-        this.imageUrl = imageUrl;
+        this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
         this.currentStock = currentStock;
         this.fbnStock = fbnStock;
         this.supermallStock = supermallStock;

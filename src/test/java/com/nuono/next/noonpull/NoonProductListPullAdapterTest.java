@@ -57,6 +57,64 @@ class NoonProductListPullAdapterTest {
         assertEquals(1, seed.getSiteOffers().size());
     }
 
+    @Test
+    void shouldNotDoublePrefixAlreadyProductScopedNoonImagePath() {
+        CapturingProjectionWriter writer = new CapturingProjectionWriter();
+        NoonProductListPullAdapter adapter = new NoonProductListPullAdapter(writer);
+        NoonProductListApplyCommand command = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .projectCode("PRJ245027")
+                .projectName("Xingyao")
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .sourceBatchId("noon-interface-product-130001")
+                .items(List.of(
+                        Map.of(
+                                "sku_parent", "ZPARENT-2",
+                                "sku", "ZCHILD-2",
+                                "content", Map.of("title", "Noon item", "image", "p/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b")
+                        )
+                ))
+                .build();
+
+        adapter.apply(command);
+
+        ProductProjectionPersistenceService.ProductMasterSeed seed = writer.command.getProductSeeds().get(0);
+        assertEquals(
+                "https://f.nooncdn.com/p/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b.jpg",
+                seed.getCoverImageUrl()
+        );
+    }
+
+    @Test
+    void shouldNormalizeProtocolRelativeNoonImagePath() {
+        CapturingProjectionWriter writer = new CapturingProjectionWriter();
+        NoonProductListPullAdapter adapter = new NoonProductListPullAdapter(writer);
+        NoonProductListApplyCommand command = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .projectCode("PRJ245027")
+                .projectName("Xingyao")
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .sourceBatchId("noon-interface-product-130002")
+                .items(List.of(
+                        Map.of(
+                                "sku_parent", "ZPARENT-3",
+                                "sku", "ZCHILD-3",
+                                "content", Map.of("title", "Noon item", "image", "//f.nooncdn.com/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b")
+                        )
+                ))
+                .build();
+
+        adapter.apply(command);
+
+        ProductProjectionPersistenceService.ProductMasterSeed seed = writer.command.getProductSeeds().get(0);
+        assertEquals(
+                "https://f.nooncdn.com/p/pzsku/Z92550AC9ECB3A39E5B7AZ/45/1768272072/75cf5a38-3af3-4055-ae03-df18f1d3912b.jpg",
+                seed.getCoverImageUrl()
+        );
+    }
+
     private static final class CapturingProjectionWriter implements NoonProductProjectionWriter {
         private NoonProductProjectionWriteCommand command;
 

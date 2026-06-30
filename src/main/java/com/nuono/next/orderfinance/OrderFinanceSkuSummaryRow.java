@@ -1,5 +1,6 @@
 package com.nuono.next.orderfinance;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.math.BigDecimal;
 
 public class OrderFinanceSkuSummaryRow {
@@ -29,7 +30,7 @@ public class OrderFinanceSkuSummaryRow {
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getImageUrl() { return imageUrl; }
-    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = ProductImageUrlSupport.normalize(imageUrl); }
     public String getCurrency() { return currency; }
     public void setCurrency(String currency) { this.currency = currency; }
     public long getOrderCount() { return orderCount; }
