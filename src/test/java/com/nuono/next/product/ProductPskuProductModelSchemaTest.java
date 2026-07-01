@@ -50,4 +50,30 @@ class ProductPskuProductModelSchemaTest {
                 .doesNotContain("DROP TABLE `product_variant`")
                 .doesNotContain("DROP COLUMN `variant_id`");
     }
+
+    @Test
+    void forwarderLegacyBackfillUsesCanonicalPskuIdentityWithoutRewritingSourceStore() throws Exception {
+        String migration = Files.readString(Path.of("src/main/resources/db/init/153_psku_product_model_forwarder_legacy_backfill.sql"));
+        String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
+
+        assertThat(bootstrap).contains("classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql");
+        assertThat(migration)
+                .contains("UPDATE `product_forwarder_declaration_attribute` pfda")
+                .contains("UPDATE `product_forwarder_channel_quote` pfcq")
+                .contains("LEFT JOIN `product_variant_identity_merge_map` merge_map")
+                .contains("merge_map.canonical_variant_id")
+                .contains("canonical_pv.logical_store_id")
+                .contains("canonical_pv.partner_sku")
+                .contains("canonical_pm.partner_sku")
+                .contains("ls.owner_user_id = pfda.owner_user_id")
+                .contains("ls.owner_user_id = pfcq.owner_user_id")
+                .contains("pfda.logical_store_id = ls.id")
+                .contains("pfcq.logical_store_id = ls.id")
+                .contains("pfda.partner_sku = COALESCE")
+                .contains("pfcq.partner_sku = COALESCE")
+                .doesNotContain("source_store_code =")
+                .doesNotContain("DELETE FROM")
+                .doesNotContain("DROP TABLE")
+                .doesNotContain("DROP COLUMN");
+    }
 }

@@ -1495,6 +1495,7 @@ public class LocalDbProcurementPurchaseOrderService {
         ProductForwarderChannelQuoteRecord quote = mapper.selectCurrentProductForwarderChannelQuote(
                 line.ownerUserId,
                 line.sourceStoreCode,
+                line.logicalStoreId,
                 line.partnerSku,
                 line.productVariantId,
                 line.forwarderCode,
@@ -1845,16 +1846,26 @@ public class LocalDbProcurementPurchaseOrderService {
                         stableProductKey(attribute.sourceStoreCode, attribute.partnerSku, attribute.productVariantId),
                         material
                 );
+                if (!StringUtils.hasText(attribute.sourceStoreCode) && StringUtils.hasText(attribute.partnerSku)) {
+                    materialByProduct.putIfAbsent(
+                            stableProductKey(null, attribute.partnerSku, attribute.productVariantId),
+                            material
+                    );
+                }
             }
         }
         if (materialByProduct.isEmpty()) {
             return;
         }
         for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
-            if (line.productVariantId == null || StringUtils.hasText(line.yiteMaterial)) {
+            if ((line.productVariantId == null && !StringUtils.hasText(line.partnerSku))
+                    || StringUtils.hasText(line.yiteMaterial)) {
                 continue;
             }
             String material = materialByProduct.get(stableProductKey(line.sourceStoreCode, line.partnerSku, line.productVariantId));
+            if (!StringUtils.hasText(material) && StringUtils.hasText(line.partnerSku)) {
+                material = materialByProduct.get(stableProductKey(null, line.partnerSku, line.productVariantId));
+            }
             if (StringUtils.hasText(material)) {
                 line.yiteMaterial = material;
             }
@@ -1874,6 +1885,7 @@ public class LocalDbProcurementPurchaseOrderService {
             mapper.softDeleteProductForwarderDeclarationAttribute(
                     order.ownerUserId,
                     line.sourceStoreCode,
+                    line.logicalStoreId,
                     line.partnerSku,
                     line.productVariantId,
                     YITE_FORWARDER_CODE,
@@ -3225,6 +3237,7 @@ public class LocalDbProcurementPurchaseOrderService {
         mapper.markHistoricalProductForwarderChannelQuote(
                 quote.ownerUserId,
                 quote.sourceStoreCode,
+                quote.logicalStoreId,
                 quote.partnerSku,
                 quote.productVariantId,
                 quote.forwarderCode,
