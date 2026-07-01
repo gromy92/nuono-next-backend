@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import java.util.Objects;
 import org.springframework.util.StringUtils;
 
 public final class ProductSiteIdentity {
@@ -28,5 +29,24 @@ public final class ProductSiteIdentity {
 
     public boolean isComplete() {
         return logicalStoreId != null && StringUtils.hasText(partnerSku) && StringUtils.hasText(siteCode);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+        if (!(other instanceof ProductSiteIdentity)) {
+            return false;
+        }
+        ProductSiteIdentity that = (ProductSiteIdentity) other;
+        return Objects.equals(logicalStoreId, that.logicalStoreId)
+                && Objects.equals(partnerSku, that.partnerSku)
+                && Objects.equals(siteCode, that.siteCode);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(logicalStoreId, partnerSku, siteCode);
     }
 }

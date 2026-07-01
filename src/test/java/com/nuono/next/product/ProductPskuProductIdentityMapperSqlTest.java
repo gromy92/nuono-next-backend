@@ -17,8 +17,11 @@ class ProductPskuProductIdentityMapperSqlTest {
         assertThat(identity.logicalStoreId()).isEqualTo(50003L);
         assertThat(identity.partnerSku()).isEqualTo("SGGRB113");
         assertThat(identity.isComplete()).isTrue();
+        assertThat(identity).isEqualTo(new ProductIdentity(50003L, "SGGRB113"));
+        assertThat(identity).hasSameHashCodeAs(new ProductIdentity(50003L, "SGGRB113"));
         assertThat(new ProductIdentity(50003L, " ").isComplete()).isFalse();
         assertThat(new ProductIdentity(null, "SGGRB113").isComplete()).isFalse();
+        assertThat(new ProductIdentity(50003L, "SGGRB113")).isNotEqualTo(new ProductIdentity(50003L, "OTHER"));
     }
 
     @Test
@@ -29,7 +32,11 @@ class ProductPskuProductIdentityMapperSqlTest {
         assertThat(identity.partnerSku()).isEqualTo("SGGRB113");
         assertThat(identity.siteCode()).isEqualTo("NSA");
         assertThat(identity.isComplete()).isTrue();
+        assertThat(identity).isEqualTo(new ProductSiteIdentity(50003L, "SGGRB113", "NSA"));
+        assertThat(identity).hasSameHashCodeAs(new ProductSiteIdentity(50003L, "SGGRB113", "NSA"));
         assertThat(new ProductSiteIdentity(50003L, "SGGRB113", " ").isComplete()).isFalse();
+        assertThat(new ProductSiteIdentity(50003L, "SGGRB113", "NSA"))
+                .isNotEqualTo(new ProductSiteIdentity(50003L, "SGGRB113", "NAE"));
     }
 
     @Test
@@ -65,8 +72,8 @@ class ProductPskuProductIdentityMapperSqlTest {
                 .contains("logical_store_id, partner_sku, current_z_code, sku_parent")
                 .contains("#{partnerSku}")
                 .contains("#{currentZCode}")
-                .contains("partner_sku = VALUES(partner_sku)")
-                .contains("current_z_code = VALUES(current_z_code)")
+                .contains("partner_sku = COALESCE(NULLIF(VALUES(partner_sku), ''), partner_sku)")
+                .contains("current_z_code = COALESCE(NULLIF(VALUES(current_z_code), ''), current_z_code)")
                 .contains("sku_parent = VALUES(sku_parent)");
     }
 
@@ -143,10 +150,10 @@ class ProductPskuProductIdentityMapperSqlTest {
                 .contains("#{logicalStoreId}")
                 .contains("#{partnerSku}")
                 .contains("#{siteCode}")
-                .contains("product_master_id = VALUES(product_master_id)")
-                .contains("logical_store_id = VALUES(logical_store_id)")
-                .contains("partner_sku = VALUES(partner_sku)")
-                .contains("site_code = VALUES(site_code)");
+                .contains("product_master_id = COALESCE(VALUES(product_master_id), product_master_id)")
+                .contains("logical_store_id = COALESCE(VALUES(logical_store_id), logical_store_id)")
+                .contains("partner_sku = COALESCE(NULLIF(VALUES(partner_sku), ''), partner_sku)")
+                .contains("site_code = COALESCE(NULLIF(VALUES(site_code), ''), site_code)");
     }
 
     @Test

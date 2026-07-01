@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -11,8 +12,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.CoreTableStatusMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.system.BootstrapProperties;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -153,5 +157,38 @@ class ProductProjectionPersistenceServicePskuMasterTest {
                 any(),
                 eq(307L)
         );
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void snapshotSiteCodeFallbackFeedsTheSameSiteSeedMapUsedForOfferPersistence() throws Exception {
+        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+        snapshot.getStoreContext().put("storeCode", "STR69486-NSA");
+        Map<String, Object> offer = new LinkedHashMap<>();
+        offer.put("storeCode", "STR69486-NSA");
+        offer.put("siteCode", "SA");
+        offer.put("statusCode", "ACTIVE");
+        snapshot.setSiteOffers(List.of(offer));
+
+        Method buildSiteSeeds = ProductProjectionPersistenceService.class.getDeclaredMethod(
+                "buildSiteSeeds",
+                ProductMasterSnapshotView.class
+        );
+        buildSiteSeeds.setAccessible(true);
+        List<ProductProjectionPersistenceService.SiteSeed> seeds =
+                (List<ProductProjectionPersistenceService.SiteSeed>) buildSiteSeeds.invoke(service, snapshot);
+
+        Method siteCodeByStoreCode = ProductProjectionPersistenceService.class.getDeclaredMethod(
+                "siteCodeByStoreCode",
+                List.class
+        );
+        siteCodeByStoreCode.setAccessible(true);
+        Map<String, String> siteCodes =
+                (Map<String, String>) siteCodeByStoreCode.invoke(service, seeds);
+
+        assertThat(seeds).hasSize(1);
+        assertThat(seeds.get(0).getStoreCode()).isEqualTo("STR69486-NSA");
+        assertThat(seeds.get(0).getSite()).isEqualTo("SA");
+        assertThat(siteCodes).containsEntry("STR69486-NSA", "SA");
     }
 }

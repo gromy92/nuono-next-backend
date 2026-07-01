@@ -198,12 +198,14 @@ public class ProductProjectionPersistenceService {
         }
 
         Long logicalStoreId = ensureLogicalStore(ownerUserId, projectCode, projectName);
+        List<SiteSeed> siteSeeds = buildSiteSeeds(snapshot);
         Map<String, Long> siteIdMap = ensureSites(
                 logicalStoreId,
                 referenceStoreCode,
-                buildSiteSeeds(snapshot),
+                siteSeeds,
                 ownerUserId
         );
+        Map<String, String> siteCodeMap = siteCodeByStoreCode(siteSeeds);
 
         ProductMasterSeed masterSeed = ProductMasterSeed.fromSnapshot(snapshot, syncStatus, lastSyncedAt);
         if (!StringUtils.hasText(masterSeed.getSkuParent())) {
@@ -256,10 +258,7 @@ public class ProductProjectionPersistenceService {
                     existingOffer,
                     historicalEditableOffers.get(normalizedStoreCode)
             );
-            String siteCode = normalize(firstNonBlank(
-                    text(siteOffer.get("site")),
-                    text(siteOffer.get("siteCode"))
-            ));
+            String siteCode = siteCodeMap.get(normalizedStoreCode);
             upsertSiteOffer(
                     productMasterId,
                     logicalStoreId,
@@ -3396,7 +3395,10 @@ public class ProductProjectionPersistenceService {
             return seeds;
         }
         String referenceStoreCode = text(snapshot.getStoreContext().get("storeCode"));
-        String referenceSite = text(snapshot.getStoreContext().get("site"));
+        String referenceSite = firstNonBlank(
+                text(snapshot.getStoreContext().get("site")),
+                text(snapshot.getStoreContext().get("siteCode"))
+        );
         if (StringUtils.hasText(referenceStoreCode)) {
             seeds.add(new SiteSeed(referenceStoreCode, referenceSite, null, true));
         }
@@ -3407,7 +3409,7 @@ public class ProductProjectionPersistenceService {
             }
             seeds.add(new SiteSeed(
                     storeCode,
-                    text(siteOffer.get("site")),
+                    firstNonBlank(text(siteOffer.get("site")), text(siteOffer.get("siteCode"))),
                     text(siteOffer.get("statusCode")),
                     true
             ));
