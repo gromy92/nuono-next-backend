@@ -96,6 +96,7 @@ class ProductPskuProductIdentityMapperSqlTest {
         assertThat(sql)
                 .contains("logical_store_id = #{logicalStoreId}")
                 .contains("partner_sku = #{partnerSku}")
+                .contains("ORDER BY gmt_updated DESC, id DESC")
                 .doesNotContain("sku_parent = #{skuParent}");
     }
 
@@ -140,6 +141,73 @@ class ProductPskuProductIdentityMapperSqlTest {
 
         assertThat(resolved).isSameAs(record);
         verify(mapper, never()).selectProductListProjection(any(), any());
+    }
+
+    @Test
+    void storeCodeProductMasterResolverPrefersCurrentZBeforeSkuParentFallback() {
+        ProductManagementMapper mapper = Mockito.mock(ProductManagementMapper.class, Answers.CALLS_REAL_METHODS);
+        when(mapper.selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZCURRENT001"))
+                .thenReturn(52001L);
+
+        Long productMasterId = mapper.selectProductMasterIdByStoreCode(307L, " STR245027-NSA ", " ZCURRENT001 ");
+
+        assertThat(productMasterId).isEqualTo(52001L);
+        verify(mapper).selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZCURRENT001");
+        verify(mapper, never()).selectProductMasterIdByStoreCodeLegacySkuParent(any(), any(), any());
+    }
+
+    @Test
+    void storeCodeProductMasterResolverFallsBackToLegacySkuParentAfterCurrentZMiss() {
+        ProductManagementMapper mapper = Mockito.mock(ProductManagementMapper.class, Answers.CALLS_REAL_METHODS);
+        when(mapper.selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZLEGACY001"))
+                .thenReturn(null);
+        when(mapper.selectProductMasterIdByStoreCodeLegacySkuParent(307L, "STR245027-NSA", "ZLEGACY001"))
+                .thenReturn(52002L);
+
+        Long productMasterId = mapper.selectProductMasterIdByStoreCode(307L, "STR245027-NSA", "ZLEGACY001");
+
+        assertThat(productMasterId).isEqualTo(52002L);
+        verify(mapper).selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZLEGACY001");
+        verify(mapper).selectProductMasterIdByStoreCodeLegacySkuParent(307L, "STR245027-NSA", "ZLEGACY001");
+    }
+
+    @Test
+    void skuParentProjectionResolverUsesProductMasterResolverAndSingleProjection() {
+        ProductManagementMapper mapper = Mockito.mock(ProductManagementMapper.class, Answers.CALLS_REAL_METHODS);
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        when(mapper.selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZCURRENT001"))
+                .thenReturn(52001L);
+        when(mapper.selectProductListProjectionByProductMasterId(307L, "STR245027-NSA", 52001L)).thenReturn(record);
+
+        ProductListProjectionRecord resolved = mapper.selectProductListProjectionBySkuParent(
+                307L,
+                " STR245027-NSA ",
+                " ZCURRENT001 "
+        );
+
+        assertThat(resolved).isSameAs(record);
+        verify(mapper).selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZCURRENT001");
+        verify(mapper).selectProductListProjectionByProductMasterId(307L, "STR245027-NSA", 52001L);
+    }
+
+    @Test
+    void groupCandidateContextResolverUsesProductMasterResolverAndSingleContextQuery() {
+        ProductManagementMapper mapper = Mockito.mock(ProductManagementMapper.class, Answers.CALLS_REAL_METHODS);
+        ProductGroupCandidateContextRecord record = new ProductGroupCandidateContextRecord();
+        when(mapper.selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZCURRENT001"))
+                .thenReturn(52001L);
+        when(mapper.selectProductGroupCandidateContextByProductMasterId(307L, "STR245027-NSA", 52001L))
+                .thenReturn(record);
+
+        ProductGroupCandidateContextRecord resolved = mapper.selectProductGroupCandidateContext(
+                307L,
+                " STR245027-NSA ",
+                " ZCURRENT001 "
+        );
+
+        assertThat(resolved).isSameAs(record);
+        verify(mapper).selectProductMasterIdByStoreCodeCurrentZCode(307L, "STR245027-NSA", "ZCURRENT001");
+        verify(mapper).selectProductGroupCandidateContextByProductMasterId(307L, "STR245027-NSA", 52001L);
     }
 
     @Test

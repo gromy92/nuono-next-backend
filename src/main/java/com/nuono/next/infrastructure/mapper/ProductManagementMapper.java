@@ -782,6 +782,7 @@ public interface ProductManagementMapper {
             "WHERE logical_store_id = #{logicalStoreId}",
             "  AND partner_sku = #{partnerSku}",
             "  AND is_deleted = 0",
+            "ORDER BY gmt_updated DESC, id DESC",
             "LIMIT 1"
     })
     Long selectProductMasterIdByStorePartnerSku(
