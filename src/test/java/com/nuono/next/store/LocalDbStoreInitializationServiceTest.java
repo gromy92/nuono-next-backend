@@ -1,5 +1,7 @@
 package com.nuono.next.store;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -15,6 +17,7 @@ import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.product.ProductNoonCatalogContentService;
+import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
@@ -48,12 +51,14 @@ class LocalDbStoreInitializationServiceTest {
     @Mock
     private ProductNoonCatalogContentService productNoonCatalogContentService;
 
+    private ObjectMapper objectMapper;
     private LocalDbStoreInitializationService service;
 
     @BeforeEach
     void setUp() {
+        objectMapper = new ObjectMapper();
         noonSessionGateway = spy(new NoonSessionGateway(
-                new ObjectMapper(),
+                objectMapper,
                 storeSyncMapper,
                 false,
                 0L,
@@ -81,7 +86,7 @@ class LocalDbStoreInitializationServiceTest {
                 storeSyncMapper,
                 storeInitializationSnapshotMapper,
                 bootstrapStatusService,
-                new ObjectMapper(),
+                objectMapper,
                 noonAccountTaskQueue,
                 noonSessionGateway,
                 productProjectionPersistenceService,
@@ -137,6 +142,55 @@ class LocalDbStoreInitializationServiceTest {
                 eq("PRJ245027"),
                 eq("STR245027-NAE")
         );
+    }
+
+    @Test
+    void statusOverlayCarriesCurrentZCodeFromProjectionSummary() throws Exception {
+        StoreSyncOwnerContext owner = ownerContext();
+        StoreSyncStoreRecord referenceStore = store(
+                51004L,
+                "xingyao",
+                "STR245027-NAE",
+                "AE",
+                "PRJ245027",
+                "xingyao-project-user",
+                "xingyao-password",
+                "xingyao-cookie"
+        );
+        LocalDbStoreInitializationService.StoreInitializationStatusView persisted =
+                new LocalDbStoreInitializationService.StoreInitializationStatusView();
+        persisted.setStatus("READY");
+        persisted.setProductItems(List.of());
+        StoreInitializationSnapshotRecord snapshotRecord = new StoreInitializationSnapshotRecord();
+        snapshotRecord.setSnapshotJson(objectMapper.writeValueAsString(persisted));
+
+        ProductListSummaryView summary = new ProductListSummaryView();
+        summary.setSkuParent("ZNEW001");
+        summary.setCurrentZCode("ZNEW001");
+        summary.setPartnerSku("SGGRB113");
+        summary.setProductSourceType("noon");
+
+        when(bootstrapStatusService.inspect()).thenReturn(
+                new CoreTableInspection("nuonuoai", List.of("user"), List.of("user"), List.of())
+        );
+        when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(owner);
+        when(storeSyncMapper.selectOwnerStore(307L, "STR245027-NAE")).thenReturn(referenceStore);
+        when(storeSyncMapper.listOwnerStores(307L)).thenReturn(List.of(referenceStore));
+        when(storeInitializationSnapshotMapper.selectByOwnerAndStore(307L, "STR245027-NAE"))
+                .thenReturn(snapshotRecord);
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(307L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(summary));
+
+        LocalDbStoreInitializationService.StoreInitializationStatusView view =
+                service.getStatus(307L, "STR245027-NAE");
+
+        assertEquals(1, view.getProductItems().size());
+        assertEquals("ZNEW001", view.getProductItems().get(0).getSkuParent());
+        assertEquals("ZNEW001", view.getProductItems().get(0).getCurrentZCode());
+        assertEquals("SGGRB113", view.getProductItems().get(0).getPartnerSku());
     }
 
     private StoreSyncOwnerContext ownerContext() {
