@@ -740,7 +740,7 @@ public interface ProductManagementMapper {
             "SELECT id",
             "FROM product_master",
             "WHERE logical_store_id = #{logicalStoreId}",
-            "  AND sku_parent = #{skuParent}",
+            "  AND (current_z_code = #{skuParent} OR sku_parent = #{skuParent})",
             "  AND is_deleted = 0",
             "LIMIT 1"
     })
@@ -771,7 +771,7 @@ public interface ProductManagementMapper {
             " AND lss.is_deleted = 0",
             "JOIN product_master pm",
             "  ON pm.logical_store_id = ls.id",
-            " AND pm.sku_parent = #{skuParent}",
+            " AND (pm.current_z_code = #{skuParent} OR pm.sku_parent = #{skuParent})",
             " AND pm.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
@@ -988,9 +988,10 @@ public interface ProductManagementMapper {
 
     @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS currentZCode,",
             "  pm.product_source_type AS productSourceType,",
-            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  pm.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
             "    MAX(pso.psku_code)",
@@ -1178,7 +1179,7 @@ public interface ProductManagementMapper {
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.current_z_code, pm.partner_sku, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "ORDER BY pm.gmt_updated DESC, pm.id DESC"
@@ -1189,8 +1190,41 @@ public interface ProductManagementMapper {
     );
 
     @Select({
+            "SELECT owner_user_id",
+            "FROM logical_store",
+            "WHERE id = #{logicalStoreId}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreOwnerUserId(@Param("logicalStoreId") Long logicalStoreId);
+
+    default ProductListProjectionRecord selectProductListProjectionByStorePartnerSku(
+            Long logicalStoreId,
+            String storeCode,
+            String partnerSku
+    ) {
+        if (logicalStoreId == null || storeCode == null || storeCode.trim().isEmpty()
+                || partnerSku == null || partnerSku.trim().isEmpty()) {
+            return null;
+        }
+        Long ownerUserId = selectLogicalStoreOwnerUserId(logicalStoreId);
+        if (ownerUserId == null) {
+            return null;
+        }
+        String normalizedPartnerSku = partnerSku.trim();
+        for (ProductListProjectionRecord record : selectProductListProjection(ownerUserId, storeCode.trim())) {
+            if (record != null
+                    && record.getPartnerSku() != null
+                    && normalizedPartnerSku.equals(record.getPartnerSku().trim())) {
+                return record;
+            }
+        }
+        return null;
+    }
+
+    @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
             "  pia.url AS imageUrl",
             "FROM logical_store ls",
             "JOIN logical_store_site anchor",
@@ -1216,9 +1250,10 @@ public interface ProductManagementMapper {
 
     @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS currentZCode,",
             "  pm.product_source_type AS productSourceType,",
-            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  pm.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
             "    MAX(pso.psku_code)",
@@ -1405,9 +1440,9 @@ public interface ProductManagementMapper {
             " AND pg_for_member.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "  AND pm.sku_parent = #{skuParent}",
+            "  AND (pm.current_z_code = #{skuParent} OR pm.sku_parent = #{skuParent})",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.current_z_code, pm.partner_sku, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "LIMIT 1"
@@ -1540,7 +1575,7 @@ public interface ProductManagementMapper {
 
     @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
             "  pm.brand_cache AS brand,",
             "  pm.product_fulltype_cache AS productFulltype,",
             "  pm.sku_group AS skuGroup",
@@ -1551,7 +1586,7 @@ public interface ProductManagementMapper {
             " AND anchor.is_deleted = 0",
             "JOIN product_master pm",
             "  ON pm.logical_store_id = ls.id",
-            " AND pm.sku_parent = #{skuParent}",
+            " AND (pm.current_z_code = #{skuParent} OR pm.sku_parent = #{skuParent})",
             " AND pm.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
@@ -1566,9 +1601,10 @@ public interface ProductManagementMapper {
     @Select({
             "<script>",
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS currentZCode,",
             "  pm.product_source_type AS productSourceType,",
-            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  pm.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
             "    MAX(pso.psku_code)",
@@ -1682,7 +1718,7 @@ public interface ProductManagementMapper {
             " AND pg_for_member.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "  AND pm.sku_parent != #{skuParent}",
+            "  AND COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) != #{skuParent}",
             "  <if test='brand != null and brand != \"\"'>",
             "    AND LOWER(pm.brand_cache) = LOWER(#{brand})",
             "  </if>",
@@ -1694,7 +1730,7 @@ public interface ProductManagementMapper {
             "  </if>",
             "  <if test='keyword != null and keyword != \"\"'>",
             "    AND (",
-            "      pm.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
+            "      COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.title_cache LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.title_cn_cache LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.brand_cache LIKE CONCAT('%', #{keyword}, '%')",
@@ -1716,7 +1752,7 @@ public interface ProductManagementMapper {
             "    )",
             "  </if>",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.current_z_code, pm.partner_sku, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "ORDER BY",

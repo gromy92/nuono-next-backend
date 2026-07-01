@@ -59,6 +59,8 @@ class ProductReadModelServiceListDatasetTest {
         summary.setReady(true);
         summary.setStoreCode("STR245027-NAE");
         summary.setSkuParent("PAPERSAYSB132");
+        summary.setCurrentZCode("ZPAPER001");
+        summary.setPartnerSku("PAPERSAYSB132");
         summary.setTitle("Paper bag");
         summary.setSyncStatus("synced");
         summary.setDetailBaselineStatus("missing");
@@ -84,7 +86,9 @@ class ProductReadModelServiceListDatasetTest {
         assertNull(view.getInitializationMessage());
         assertEquals("2026-06-04 10:00:00", view.getLastDatasetSyncedAt());
         assertEquals(1, view.getItems().size());
-        assertEquals("PAPERSAYSB132", view.getItems().get(0).getSkuParent());
+        assertEquals("ZPAPER001", view.getItems().get(0).getSkuParent());
+        assertEquals("PAPERSAYSB132", view.getItems().get(0).getPartnerSku());
+        assertEquals("ZPAPER001", view.getItems().get(0).getCurrentZCode());
         assertEquals("missing", view.getItems().get(0).getDetailBaselineStatus());
 
         verify(productProjectionPersistenceService).loadProductListSummaries(
@@ -94,6 +98,50 @@ class ProductReadModelServiceListDatasetTest {
         );
         verify(productDetailBaselineBackfillService, never()).state(10002L, "STR245027-NAE", "PAPERSAYSB132");
         verify(productDetailBaselineBackfillService, never()).enqueue(any(), anyString(), any());
+    }
+
+    @Test
+    void listDatasetMergesRowsByPartnerSkuBeforeCurrentZCode() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        when(productManagementMapper.selectDeletedProductSkuParentsByStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(List.of());
+
+        ProductListSummaryView oldZ = new ProductListSummaryView();
+        oldZ.setReady(true);
+        oldZ.setStoreCode("STR245027-NAE");
+        oldZ.setSkuParent("ZOLD001");
+        oldZ.setCurrentZCode("ZOLD001");
+        oldZ.setPartnerSku("PAPERSAYSB132");
+        oldZ.setTitle("Old Z row");
+        oldZ.setSyncStatus("synced");
+
+        ProductListSummaryView currentZ = new ProductListSummaryView();
+        currentZ.setReady(true);
+        currentZ.setStoreCode("STR245027-NAE");
+        currentZ.setSkuParent("ZNEW001");
+        currentZ.setCurrentZCode("ZNEW001");
+        currentZ.setPartnerSku("PAPERSAYSB132");
+        currentZ.setTitle("Current Z row");
+        currentZ.setSyncStatus("draft");
+
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(currentZ, oldZ));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListDatasetView view = service.loadListDataset(command);
+
+        assertEquals(1, view.getItems().size());
+        assertEquals("PAPERSAYSB132", view.getItems().get(0).getPartnerSku());
+        assertEquals("ZNEW001", view.getItems().get(0).getCurrentZCode());
+        assertEquals("ZNEW001", view.getItems().get(0).getSkuParent());
+        assertEquals("draft", view.getItems().get(0).getSyncStatus());
     }
 
     @Test

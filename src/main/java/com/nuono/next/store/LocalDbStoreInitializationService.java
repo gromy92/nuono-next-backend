@@ -2831,6 +2831,7 @@ public class LocalDbStoreInitializationService {
 
     public static class StoreInitializationProductSampleView {
         private String skuParent;
+        private String currentZCode;
         private String productSourceType;
         private String partnerSku;
         private String pskuCode;
@@ -2854,6 +2855,14 @@ public class LocalDbStoreInitializationService {
 
         public void setSkuParent(String skuParent) {
             this.skuParent = skuParent;
+        }
+
+        public String getCurrentZCode() {
+            return currentZCode;
+        }
+
+        public void setCurrentZCode(String currentZCode) {
+            this.currentZCode = currentZCode;
         }
 
         public String getProductSourceType() {
@@ -2987,6 +2996,7 @@ public class LocalDbStoreInitializationService {
 
     public static class StoreInitializationProductListItemView {
         private String skuParent;
+        private String currentZCode;
         private String productSourceType;
         private String partnerSku;
         private String pskuCode;
@@ -3043,6 +3053,14 @@ public class LocalDbStoreInitializationService {
 
         public void setSkuParent(String skuParent) {
             this.skuParent = skuParent;
+        }
+
+        public String getCurrentZCode() {
+            return currentZCode;
+        }
+
+        public void setCurrentZCode(String currentZCode) {
+            this.currentZCode = currentZCode;
         }
 
         public String getProductSourceType() {

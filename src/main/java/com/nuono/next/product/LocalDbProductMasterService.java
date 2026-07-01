@@ -734,11 +734,14 @@ public class LocalDbProductMasterService {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能读取商品列表摘要。");
         }
         requireText(normalize(command.getStoreCode()), "缺少店铺编码，暂时不能读取商品列表摘要。");
-        requireText(normalize(command.getSkuParent()), "缺少 skuParent，暂时不能读取商品列表摘要。");
+        if (!StringUtils.hasText(normalize(command.getPartnerSku())) && !StringUtils.hasText(normalize(command.getSkuParent()))) {
+            throw new IllegalArgumentException("缺少商品身份，暂时不能读取商品列表摘要。");
+        }
         List<String> warnings = new ArrayList<>();
         return productProjectionPersistenceService.loadProductListSummary(
                 command.getOwnerUserId(),
                 command.getStoreCode(),
+                command.getPartnerSku(),
                 command.getSkuParent(),
                 warnings
         );
@@ -932,11 +935,14 @@ public class LocalDbProductMasterService {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能读取关键内容历史。");
         }
         requireText(normalize(command.getStoreCode()), "缺少店铺编码，暂时不能读取关键内容历史。");
-        requireText(normalize(command.getSkuParent()), "缺少 skuParent，暂时不能读取关键内容历史。");
+        if (!StringUtils.hasText(normalize(command.getPartnerSku())) && !StringUtils.hasText(normalize(command.getSkuParent()))) {
+            throw new IllegalArgumentException("缺少商品身份，暂时不能读取关键内容历史。");
+        }
         List<String> warnings = new ArrayList<>();
         return productProjectionPersistenceService.loadProductHistoryView(
                 command.getOwnerUserId(),
                 command.getStoreCode(),
+                command.getPartnerSku(),
                 command.getSkuParent(),
                 warnings
         );

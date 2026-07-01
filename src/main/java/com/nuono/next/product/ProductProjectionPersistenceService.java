@@ -581,13 +581,26 @@ public class ProductProjectionPersistenceService {
             String skuParent,
             List<String> warnings
     ) {
+        return loadProductListSummary(ownerUserId, storeCode, null, skuParent, warnings);
+    }
+
+    public ProductListSummaryView loadProductListSummary(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent,
+            List<String> warnings
+    ) {
         ProductListSummaryView summary = new ProductListSummaryView();
         summary.setStoreCode(normalize(storeCode));
         summary.setSkuParent(normalize(skuParent));
-        if (ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
+        summary.setCurrentZCode(normalize(skuParent));
+        summary.setPartnerSku(normalize(partnerSku));
+        if (ownerUserId == null || !StringUtils.hasText(storeCode)
+                || (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent))) {
             summary.setReady(false);
             summary.setSource("missing");
-            summary.setMessage("缺少店铺编码或 skuParent，暂时不能读取列表摘要。");
+            summary.setMessage("缺少店铺编码或商品身份，暂时不能读取列表摘要。");
             return summary;
         }
         if (!ensureProductTablesReady(warnings)) {
@@ -599,10 +612,11 @@ public class ProductProjectionPersistenceService {
         }
         String normalizedStoreCode = normalize(storeCode);
         reconcileDraftProjectionForList(ownerUserId, normalizedStoreCode);
-        ProductListProjectionRecord record = productManagementMapper.selectProductListProjectionBySkuParent(
+        ProductListProjectionRecord record = selectProductListProjectionByIdentity(
                 ownerUserId,
                 normalizedStoreCode,
-                normalize(skuParent)
+                partnerSku,
+                skuParent
         );
         if (record == null) {
             summary.setReady(false);
@@ -615,6 +629,41 @@ public class ProductProjectionPersistenceService {
         hydrateHistoryMeta(readySummary, ownerUserId, normalize(storeCode));
         readySummary.setWarnings(copyWarnings(warnings));
         return readySummary;
+    }
+
+    private ProductListProjectionRecord selectProductListProjectionByIdentity(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent
+    ) {
+        String normalizedPartnerSku = normalize(partnerSku);
+        String normalizedStoreCode = normalize(storeCode);
+        if (StringUtils.hasText(normalizedPartnerSku)) {
+            Long logicalStoreId = productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(
+                    ownerUserId,
+                    normalizedStoreCode
+            );
+            if (logicalStoreId != null) {
+                ProductListProjectionRecord record = productManagementMapper.selectProductListProjectionByStorePartnerSku(
+                        logicalStoreId,
+                        normalizedStoreCode,
+                        normalizedPartnerSku
+                );
+                if (record != null) {
+                    return record;
+                }
+            }
+        }
+        String normalizedSkuParent = normalize(skuParent);
+        if (!StringUtils.hasText(normalizedSkuParent)) {
+            return null;
+        }
+        return productManagementMapper.selectProductListProjectionBySkuParent(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSkuParent
+        );
     }
 
     private void reconcileDraftProjectionForList(Long ownerUserId, String storeCode) {
@@ -724,18 +773,29 @@ public class ProductProjectionPersistenceService {
             String skuParent,
             List<String> warnings
     ) {
+        return loadProductHistoryView(ownerUserId, storeCode, null, skuParent, warnings);
+    }
+
+    public ProductHistoryView loadProductHistoryView(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent,
+            List<String> warnings
+    ) {
         ProductHistoryView view = new ProductHistoryView();
-        ProductListSummaryView summary = loadProductListSummary(ownerUserId, storeCode, skuParent, warnings);
+        ProductListSummaryView summary = loadProductListSummary(ownerUserId, storeCode, partnerSku, skuParent, warnings);
         view.setListSummary(summary);
         view.setWarnings(copyWarnings(warnings));
         view.setVisibleKeyContentHistoryCount(summary.getVisibleKeyContentHistoryCount());
         view.setPendingKeyContentHistoryCount(summary.getPendingKeyContentHistoryCount());
         view.setPendingKeyContentHistoryVisibleAfter(summary.getPendingKeyContentHistoryVisibleAfter());
 
-        if (ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
+        if (ownerUserId == null || !StringUtils.hasText(storeCode)
+                || (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent))) {
             view.setReady(false);
             view.setSource("missing");
-            view.setMessage("缺少店铺编码或 skuParent，暂时不能读取商品修改历史。");
+            view.setMessage("缺少店铺编码或商品身份，暂时不能读取商品修改历史。");
             view.setWarnings(copyWarnings(warnings));
             return view;
         }
@@ -747,10 +807,12 @@ public class ProductProjectionPersistenceService {
             return view;
         }
 
-        Long productMasterId = productManagementMapper.selectProductMasterIdByStoreCode(
+        Long productMasterId = resolveProductMasterIdByStoreIdentity(
                 ownerUserId,
-                normalize(storeCode),
-                normalize(skuParent)
+                storeCode,
+                partnerSku,
+                skuParent,
+                warnings
         );
         if (productMasterId == null) {
             view.setReady(false);
@@ -1658,10 +1720,11 @@ public class ProductProjectionPersistenceService {
             return view;
         }
         view.setSkuParent(record.getSkuParent());
+        view.setCurrentZCode(firstNonBlank(record.getCurrentZCode(), record.getSkuParent()));
         view.setProductSourceType(ProductSourceTypeSupport.resolve(
                 record.getProductSourceType(),
                 null,
-                record.getSkuParent()
+                firstNonBlank(record.getCurrentZCode(), record.getSkuParent())
         ));
         view.setPartnerSku(record.getPartnerSku());
         view.setPskuCode(record.getPskuCode());
@@ -1726,16 +1789,19 @@ public class ProductProjectionPersistenceService {
             return;
         }
         view.setHistoryMetaReady(false);
-        if (ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(view.getSkuParent())) {
+        if (ownerUserId == null || !StringUtils.hasText(storeCode)
+                || (!StringUtils.hasText(view.getPartnerSku()) && !StringUtils.hasText(view.getSkuParent()))) {
             return;
         }
         if (!ensureProductTablesReady(null) || !ensureWorkbenchTablesReady(null)) {
             return;
         }
-        Long productMasterId = productManagementMapper.selectProductMasterIdByStoreCode(
+        Long productMasterId = resolveProductMasterIdByStoreIdentity(
                 ownerUserId,
-                normalize(storeCode),
-                normalize(view.getSkuParent())
+                storeCode,
+                view.getPartnerSku(),
+                view.getSkuParent(),
+                null
         );
         if (productMasterId == null) {
             return;
