@@ -143,7 +143,8 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/147_product_forwarder_declaration_attribute.sql",
                 "classpath:db/init/148_procurement_logistics_billing.sql",
                 "classpath:db/init/149_product_variant_psku_identity.sql",
-                "classpath:db/init/150_sales_product_psku_identity.sql"
+                "classpath:db/init/150_sales_product_psku_identity.sql",
+                "classpath:db/init/152_psku_product_model_realignment.sql"
             ));
         return payload;
     }
