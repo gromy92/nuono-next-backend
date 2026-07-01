@@ -6,9 +6,7 @@ import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -53,33 +51,21 @@ public class ProductReadModelService {
                 storeCode,
                 warnings
         );
-        Set<String> deletedSkuParents = new LinkedHashSet<>(
-                productManagementMapper.selectDeletedProductSkuParentsByStoreCode(command.getOwnerUserId(), storeCode)
-        );
 
-        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsByIdentity =
+        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsByProductIdentity =
                 new LinkedHashMap<>();
         for (ProductListSummaryView summary : summaries) {
-            if (summary == null) {
-                continue;
-            }
-            String currentZCode = firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent());
-            String identityKey = firstNonBlank(summary.getPartnerSku(), currentZCode);
-            if (!StringUtils.hasText(identityKey)) {
-                continue;
-            }
-            if (StringUtils.hasText(currentZCode) && deletedSkuParents.contains(currentZCode)) {
+            String identityKey = productIdentityKey(storeCode, summary);
+            if (summary == null || !StringUtils.hasText(identityKey)) {
                 continue;
             }
             LocalDbStoreInitializationService.StoreInitializationProductListItemView current =
-                    itemsByIdentity.get(identityKey);
-            if (current == null) {
-                itemsByIdentity.put(identityKey, createListItemFromSummary(summary));
-            }
+                    itemsByProductIdentity.getOrDefault(identityKey, createListItemFromSummary(summary));
+            itemsByProductIdentity.put(identityKey, mergeListItemWithSummary(current, summary));
         }
 
         List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items =
-                new ArrayList<>(itemsByIdentity.values());
+                new ArrayList<>(itemsByProductIdentity.values());
 
         ProductListDatasetView view = new ProductListDatasetView();
         view.setOwnerUserId(command.getOwnerUserId());
@@ -379,6 +365,17 @@ public class ProductReadModelService {
             }
         }
         return null;
+    }
+
+    private String productIdentityKey(String storeCode, ProductListSummaryView summary) {
+        if (summary == null) {
+            return null;
+        }
+        String productKey = firstNonBlank(summary.getPartnerSku(), summary.getSkuParent());
+        if (!StringUtils.hasText(productKey)) {
+            return null;
+        }
+        return firstNonBlank(summary.getStoreCode(), storeCode) + "::" + productKey;
     }
 
     private String normalize(String value) {

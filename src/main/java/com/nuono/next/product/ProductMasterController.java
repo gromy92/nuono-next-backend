@@ -182,7 +182,7 @@ public class ProductMasterController {
 
         try {
             applyProductScope(command, request);
-            return productMasterService.deleteLocalProduct(command);
+            return productMasterService.deleteProduct(command);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {

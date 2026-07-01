@@ -42,11 +42,17 @@ class ProductWorkbenchPublishTaskAttacherTest {
         activeTask.setId(77001L);
         ProductPublishTaskView taskView = new ProductPublishTaskView();
         taskView.setTaskId(77001L);
-        when(productManagementMapper.selectProductMasterIdByStoreCode(
+        ProductMasterIdentityRecord identity = new ProductMasterIdentityRecord();
+        identity.setProductMasterId(90001L);
+        identity.setLogicalStoreId(50001L);
+        identity.setStoreCode("STR245027-NAE");
+        identity.setSkuParent("PAPERSAYSB132");
+        identity.setPartnerSku("PARTNER-132");
+        when(productManagementMapper.selectProductMasterIdentityByStorePartnerSku(
                 10002L,
                 "STR245027-NAE",
-                "PAPERSAYSB132"
-        )).thenReturn(90001L);
+                "PARTNER-132"
+        )).thenReturn(identity);
         when(productManagementMapper.selectActiveProductPublishTask(90001L)).thenReturn(activeTask);
         when(taskViewBuilder.build(activeTask, false)).thenReturn(taskView);
 
@@ -60,6 +66,7 @@ class ProductWorkbenchPublishTaskAttacherTest {
         ProductMasterSnapshotView draft = new ProductMasterSnapshotView();
         draft.getStoreContext().put("storeCode", "STR245027-NAE");
         draft.getIdentity().put("skuParent", "PAPERSAYSB132");
+        draft.getIdentity().put("partnerSku", "PARTNER-132");
         ProductWorkbenchRecord record = new ProductWorkbenchRecord();
         record.setDraftSnapshot(draft);
         return record;

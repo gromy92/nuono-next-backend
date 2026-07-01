@@ -56,6 +56,60 @@ class ProductManagementPskuIdentityMapperSqlTest {
     }
 
     @Test
+    void productMasterIdentityResolverUsesStoreAndPartnerSkuWithoutPskuCodeFallback() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "selectProductMasterIdentityByStorePartnerSku",
+                Long.class,
+                String.class,
+                String.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("anchor.store_code = #{storeCode}")
+                .contains("pv.logical_store_id = ls.id")
+                .contains("pv.partner_sku = #{partnerSku}")
+                .contains("pso.site_id = anchor.id")
+                .contains("anchor.site AS siteCode")
+                .doesNotContain("pso.psku_code = #{partnerSku}")
+                .doesNotContain("psku_code = #{partnerSku}")
+                .doesNotContain("pm.sku_parent = #{partnerSku}");
+    }
+
+    @Test
+    void productMasterUpsertCanRefreshSkuParentForStablePartnerSkuMaster() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "upsertProductMaster",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                Integer.class,
+                Integer.class,
+                String.class,
+                Integer.class,
+                String.class,
+                java.time.LocalDateTime.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Insert.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("sku_parent = VALUES(sku_parent)");
+    }
+
+    @Test
     void pskuIdentityMigrationIsLoadedAndStoreScoped() throws Exception {
         String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
         String migration = Files.readString(Path.of("src/main/resources/db/init/149_product_variant_psku_identity.sql"));

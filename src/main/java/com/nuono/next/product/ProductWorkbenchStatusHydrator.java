@@ -31,6 +31,7 @@ class ProductWorkbenchStatusHydrator {
                 textValue(snapshot.getStoreContext().get("projectCode")),
                 textValue(snapshot.getStoreContext().get("projectName")),
                 textValue(snapshot.getIdentity().get("skuParent")),
+                textValue(snapshot.getIdentity().get("partnerSku")),
                 syncStatus,
                 lastSyncedAt,
                 warnings

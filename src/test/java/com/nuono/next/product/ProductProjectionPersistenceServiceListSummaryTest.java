@@ -2,10 +2,13 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -244,15 +247,31 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
-    void listSummariesShouldNotHydrateHistoryMetadataPerRow() {
+    void listSummariesShouldAttachLastPublishTaskWithoutHydratingHistoryMetadataPerRow() {
         ProductListProjectionRecord record = new ProductListProjectionRecord();
         record.setSkuParent("ZTEST001");
         record.setCurrentZCode("ZTEST001");
+        record.setPartnerSku("PARTNER-001");
         record.setTitle("Amber Burner");
         record.setDetailBaselineStatus("missing");
         record.setSyncStatus("synced");
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64001L);
+        task.setProductMasterId(52001L);
+        task.setTaskType("product-delete");
+        task.setStatus("queued");
+        task.setPartnerSku("PARTNER-001");
+        task.setPskuCode("NOON-001");
+        task.setSubmittedAt(LocalDateTime.of(2026, 7, 1, 10, 0));
         when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
                 .thenReturn(List.of(record));
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR245027-NAE"))
+                .thenReturn(50003L);
+        when(productManagementMapper.selectLatestProductPublishTasksByStorePartnerSkus(
+                eq(50003L),
+                eq(List.of("PARTNER-001"))
+        ))
+                .thenReturn(List.of(task));
 
         List<ProductListSummaryView> summaries = service.loadProductListSummaries(
                 10002L,
@@ -262,12 +281,23 @@ class ProductProjectionPersistenceServiceListSummaryTest {
 
         assertEquals(1, summaries.size());
         assertEquals("ZTEST001", summaries.get(0).getSkuParent());
+        assertNotNull(summaries.get(0).getLastPublishTask());
+        assertEquals("product-delete", summaries.get(0).getLastPublishTask().get("taskType"));
+        assertEquals("删除中", summaries.get(0).getLastPublishTask().get("statusLabel"));
+        assertEquals("PARTNER-001", summaries.get(0).getLastPublishTask().get("partnerSku"));
         assertNull(summaries.get(0).getHistoryMetaReady());
         verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(
                 eq(10002L),
                 eq("STR245027-NAE"),
                 eq("ZTEST001")
         );
+        verify(productManagementMapper, never()).promoteVisibleProductKeyContentHistory(
+                anyLong(),
+                any(LocalDateTime.class),
+                anyLong()
+        );
+        verify(productManagementMapper, never()).selectProductMasterIdByStorePartnerSku(anyLong(), eq("PARTNER-001"));
+        verify(productManagementMapper, never()).selectRecentProductPublishTasks(anyLong());
     }
 
     @Test
@@ -365,6 +395,7 @@ class ProductProjectionPersistenceServiceListSummaryTest {
                 new ArrayList<>()
         );
 
+        verify(productManagementMapper, never()).nextProductMasterId();
         verify(productManagementMapper, times(1)).nextProductVariantId();
         verify(productManagementMapper, times(2)).upsertProductVariant(
                 53001L,

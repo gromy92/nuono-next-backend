@@ -25,4 +25,11 @@ public class ProductWorkbenchRecordStore {
         }
         records.put(key, record);
     }
+
+    void remove(String key) {
+        if (!StringUtils.hasText(key)) {
+            return;
+        }
+        records.remove(key);
+    }
 }
