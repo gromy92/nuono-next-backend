@@ -15,6 +15,7 @@ import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,8 +53,6 @@ class ProductReadModelServiceListDatasetTest {
     void listDatasetReadsLocalProjectionWithoutInitializationStatusOrBackfillSideEffects() {
         StoreSyncStoreRecord store = ownerStore();
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
-        when(productManagementMapper.selectDeletedProductSkuParentsByStoreCode(10002L, "STR245027-NAE"))
-                .thenReturn(List.of());
 
         ProductListSummaryView summary = new ProductListSummaryView();
         summary.setReady(true);
@@ -65,6 +64,11 @@ class ProductReadModelServiceListDatasetTest {
         summary.setSyncStatus("synced");
         summary.setDetailBaselineStatus("missing");
         summary.setLastSyncedAt("2026-06-04 10:00:00");
+        summary.setLastPublishTask(Map.of(
+                "taskType", "product-delete",
+                "statusLabel", "删除中",
+                "partnerSku", "PAPERSAYSB132"
+        ));
         when(productProjectionPersistenceService.loadProductListSummaries(
                 eq(10002L),
                 eq("STR245027-NAE"),
@@ -90,6 +94,7 @@ class ProductReadModelServiceListDatasetTest {
         assertEquals("PAPERSAYSB132", view.getItems().get(0).getPartnerSku());
         assertEquals("ZPAPER001", view.getItems().get(0).getCurrentZCode());
         assertEquals("missing", view.getItems().get(0).getDetailBaselineStatus());
+        assertEquals("删除中", view.getItems().get(0).getLastPublishTask().get("statusLabel"));
 
         verify(productProjectionPersistenceService).loadProductListSummaries(
                 eq(10002L),
@@ -104,27 +109,15 @@ class ProductReadModelServiceListDatasetTest {
     void listDatasetMergesRowsByPartnerSkuBeforeCurrentZCode() {
         StoreSyncStoreRecord store = ownerStore();
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
-        when(productManagementMapper.selectDeletedProductSkuParentsByStoreCode(10002L, "STR245027-NAE"))
-                .thenReturn(List.of());
 
-        ProductListSummaryView oldZ = new ProductListSummaryView();
-        oldZ.setReady(true);
-        oldZ.setStoreCode("STR245027-NAE");
-        oldZ.setSkuParent("ZOLD001");
+        ProductListSummaryView oldZ = productSummary("STR245027-NAE", "ZOLD001", "PAPERSAYSB132", "OLD-NOON-CODE");
         oldZ.setCurrentZCode("ZOLD001");
-        oldZ.setPartnerSku("PAPERSAYSB132");
         oldZ.setTitle("Old Z row");
         oldZ.setSyncStatus("synced");
-
-        ProductListSummaryView currentZ = new ProductListSummaryView();
-        currentZ.setReady(true);
-        currentZ.setStoreCode("STR245027-NAE");
-        currentZ.setSkuParent("ZNEW001");
+        ProductListSummaryView currentZ = productSummary("STR245027-NAE", "ZNEW001", "PAPERSAYSB132", "NEW-NOON-CODE");
         currentZ.setCurrentZCode("ZNEW001");
-        currentZ.setPartnerSku("PAPERSAYSB132");
         currentZ.setTitle("Current Z row");
         currentZ.setSyncStatus("draft");
-
         when(productProjectionPersistenceService.loadProductListSummaries(
                 eq(10002L),
                 eq("STR245027-NAE"),
@@ -142,6 +135,57 @@ class ProductReadModelServiceListDatasetTest {
         assertEquals("ZNEW001", view.getItems().get(0).getCurrentZCode());
         assertEquals("ZNEW001", view.getItems().get(0).getSkuParent());
         assertEquals("draft", view.getItems().get(0).getSyncStatus());
+    }
+
+    @Test
+    void listDatasetKeepsStoreScopeWhenPartnerSkuIsSameAcrossStores() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+
+        ProductListSummaryView rebuiltSummary = productSummary("STR245027-NAE", "ZNEWPSKU001", "SGGRB113", "NEW-NOON-CODE");
+        ProductListSummaryView otherStoreSummary = productSummary("STR-OTHER", "ZOTHERPSKU001", "SGGRB113", "OTHER-NOON-CODE");
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(rebuiltSummary, otherStoreSummary));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListDatasetView view = service.loadListDataset(command);
+
+        assertEquals(2, view.getItems().size());
+        assertEquals("ZNEWPSKU001", view.getItems().get(0).getSkuParent());
+        assertEquals("SGGRB113", view.getItems().get(0).getPartnerSku());
+        assertEquals("NEW-NOON-CODE", view.getItems().get(0).getPskuCode());
+        assertEquals("ZOTHERPSKU001", view.getItems().get(1).getSkuParent());
+    }
+
+    @Test
+    void listDatasetDoesNotHideActiveProjectionRowsByDeletedHistoricalSkuParent() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+
+        ProductListSummaryView summary = productSummary("STR245027-NAE", "ZREUSED", "PARTNER-SKU-001", "NOON-CODE-001");
+        summary.setCurrentZCode("ZREUSED");
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(summary));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListDatasetView view = service.loadListDataset(command);
+
+        assertEquals(1, view.getItems().size());
+        assertEquals("ZREUSED", view.getItems().get(0).getSkuParent());
+        assertEquals("PARTNER-SKU-001", view.getItems().get(0).getPartnerSku());
+        verify(productManagementMapper, never()).selectDeletedProductSkuParentsByStoreCode(10002L, "STR245027-NAE");
     }
 
     @Test
@@ -182,5 +226,22 @@ class ProductReadModelServiceListDatasetTest {
         store.setProjectCode("PRJ108065");
         store.setProjectName("canman");
         return store;
+    }
+
+    private ProductListSummaryView productSummary(
+            String storeCode,
+            String skuParent,
+            String partnerSku,
+            String pskuCode
+    ) {
+        ProductListSummaryView summary = new ProductListSummaryView();
+        summary.setReady(true);
+        summary.setStoreCode(storeCode);
+        summary.setSkuParent(skuParent);
+        summary.setPartnerSku(partnerSku);
+        summary.setPskuCode(pskuCode);
+        summary.setTitle(partnerSku + " title");
+        summary.setSyncStatus("synced");
+        return summary;
     }
 }

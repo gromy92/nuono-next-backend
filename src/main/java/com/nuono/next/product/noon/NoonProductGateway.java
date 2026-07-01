@@ -21,6 +21,10 @@ public class NoonProductGateway {
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
     public static final String PRODUCT_UPDATE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/update";
+    public static final String PSKU_UNMAP_URL =
+            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/psku/map";
+    public static final String PSKU_DELETE_URL =
+            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/psku/delete";
     public static final String CATPLAT_SKU_CACHE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
     public static final String GROUP_CURRENT_URL_PREFIX =
@@ -37,6 +41,8 @@ public class NoonProductGateway {
             "https://noon-catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
     public static final String STOCK_INFO_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/stock/noon";
+    public static final String OFFER_LIST_NOON_URL =
+            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
     public static final String OFFER_UPSERT_URL =
             "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/offer/upsert";
     public static final String OFFER_MGMT_PRICE_UPSERT_URL =

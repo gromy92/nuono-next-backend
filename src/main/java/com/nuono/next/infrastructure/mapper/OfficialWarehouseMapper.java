@@ -907,7 +907,7 @@ public interface OfficialWarehouseMapper {
     @Update({
             "UPDATE official_warehouse_appointment",
             "SET status = 'SCHEDULED', appointment_date = #{appointmentDate}, appointment_slot_id = #{slotId},",
-            "    appointment_time = #{appointmentTime}, ap_success_time = NOW(), next_attempt_at = NULL,",
+            "    appointment_time = #{appointmentTime}, ap_success_time = NOW(), next_attempt_at = NULL, attempt_count = 0,",
             "    error_stage = NULL, failure_type = NULL, error_message = NULL, updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",
             "  AND is_deleted = b'0'"
@@ -922,7 +922,7 @@ public interface OfficialWarehouseMapper {
 
     @Update({
             "UPDATE official_warehouse_appointment",
-            "SET status = 'PENDING', next_attempt_at = DATE_ADD(NOW(), INTERVAL #{retryMinutes} MINUTE),",
+            "SET status = 'PENDING', next_attempt_at = DATE_ADD(NOW(), INTERVAL #{retrySeconds} SECOND),",
             "    error_stage = #{errorStage}, failure_type = #{failureType}, error_message = #{errorMessage},",
             "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",
@@ -930,7 +930,7 @@ public interface OfficialWarehouseMapper {
     })
     int markAppointmentPendingRetry(
             @Param("appointmentId") Long appointmentId,
-            @Param("retryMinutes") int retryMinutes,
+            @Param("retrySeconds") int retrySeconds,
             @Param("errorStage") String errorStage,
             @Param("failureType") String failureType,
             @Param("errorMessage") String errorMessage,

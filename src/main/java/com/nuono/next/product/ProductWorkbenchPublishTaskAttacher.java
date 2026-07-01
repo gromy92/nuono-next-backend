@@ -26,18 +26,18 @@ class ProductWorkbenchPublishTaskAttacher {
         }
         String storeCode = textValue(record.getDraftSnapshot().getStoreContext().get("storeCode"));
         String skuParent = textValue(record.getDraftSnapshot().getIdentity().get("skuParent"));
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
+        String partnerSku = textValue(record.getDraftSnapshot().getIdentity().get("partnerSku"));
+        if (!StringUtils.hasText(storeCode) || (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent))) {
             return;
         }
         if (productManagementMapper == null || productPublishCommandService == null) {
             record.setPublishTask(null);
             return;
         }
-        Long productMasterId = productManagementMapper.selectProductMasterIdByStoreCode(
-                ownerUserId,
-                storeCode,
-                skuParent
-        );
+        ProductMasterIdentityRecord identity = StringUtils.hasText(partnerSku)
+                ? productManagementMapper.selectProductMasterIdentityByStorePartnerSku(ownerUserId, storeCode, partnerSku)
+                : productManagementMapper.selectProductMasterIdentityByStoreSkuParent(ownerUserId, storeCode, skuParent);
+        Long productMasterId = identity == null ? null : identity.getProductMasterId();
         productPublishCommandService.recoverStaleRunningTasks();
         ProductPublishTaskRecord activeTask = productMasterId == null
                 ? null

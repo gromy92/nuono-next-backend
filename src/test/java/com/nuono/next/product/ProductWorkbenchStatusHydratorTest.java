@@ -39,6 +39,7 @@ class ProductWorkbenchStatusHydratorTest {
                 eq("PRJ108065"),
                 eq("canman"),
                 eq("PAPERSAYSB132"),
+                eq("PARTNER-132"),
                 eq("draft"),
                 eq("2026-06-04 10:00:00"),
                 eq(warnings)
@@ -78,6 +79,7 @@ class ProductWorkbenchStatusHydratorTest {
         snapshot.getStoreContext().put("projectName", "canman");
         snapshot.getStoreContext().put("storeCode", "STR245027-NAE");
         snapshot.getIdentity().put("skuParent", "PAPERSAYSB132");
+        snapshot.getIdentity().put("partnerSku", "PARTNER-132");
         return snapshot;
     }
 }

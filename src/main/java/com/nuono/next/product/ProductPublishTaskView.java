@@ -7,6 +7,7 @@ import java.util.List;
 public class ProductPublishTaskView {
 
     private Long taskId;
+    private String taskType;
     private String status;
     private String message;
     private List<String> changedDomains = new ArrayList<>();
@@ -23,6 +24,14 @@ public class ProductPublishTaskView {
 
     public void setTaskId(Long taskId) {
         this.taskId = taskId;
+    }
+
+    public String getTaskType() {
+        return taskType;
+    }
+
+    public void setTaskType(String taskType) {
+        this.taskType = taskType;
     }
 
     public String getStatus() {

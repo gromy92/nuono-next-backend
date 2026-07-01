@@ -29,16 +29,32 @@ import org.springframework.util.StringUtils;
 @Profile("local-db")
 public class ProductPublishCommandService {
     private static final Logger log = LoggerFactory.getLogger(ProductPublishCommandService.class);
+    public static final String TASK_TYPE_PUBLISH_CURRENT = "publish-current";
+    public static final String TASK_TYPE_PRODUCT_DELETE = "product-delete";
+    public static final String PRODUCT_DELETE_STATUS_QUEUED = "product_delete_queued";
+    public static final String PRODUCT_DELETE_STATUS_RUNNING = "product_delete_running";
+    public static final String PRODUCT_DELETE_STATUS_SUBMITTED = "product_delete_submitted";
+    public static final String PRODUCT_DELETE_STATUS_VERIFYING = "product_delete_verifying";
+    public static final String PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE = "product_delete_pending_effective";
+    public static final String PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED = "product_delete_write_retry_scheduled";
+    public static final String PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT = "product_delete_verify_timeout";
 
     private static final Set<String> ACTIVE_STATUSES = Set.of(
             "queued",
+            PRODUCT_DELETE_STATUS_QUEUED,
             "running",
+            PRODUCT_DELETE_STATUS_RUNNING,
             "submitted",
+            PRODUCT_DELETE_STATUS_SUBMITTED,
             "verifying",
+            PRODUCT_DELETE_STATUS_VERIFYING,
             "pending_effective",
+            PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE,
             "write_unknown",
             "verify_timeout",
-            "write_retry_scheduled"
+            PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT,
+            "write_retry_scheduled",
+            PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED
     );
     private static final Set<String> TERMINAL_STATUSES = Set.of(
             "synced",
@@ -213,6 +229,26 @@ public class ProductPublishCommandService {
     }
 
     public ProductPublishTaskCreateResult createPublishCurrentTask(ProductPublishTaskCreateCommand command) {
+        return createTask(command, TASK_TYPE_PUBLISH_CURRENT, "queued", command.getChangedDomainsJson(), 3);
+    }
+
+    public ProductPublishTaskCreateResult createProductDeleteTask(ProductPublishTaskCreateCommand command) {
+        return createTask(
+                command,
+                TASK_TYPE_PRODUCT_DELETE,
+                PRODUCT_DELETE_STATUS_QUEUED,
+                "[\"delete\"]",
+                Integer.MAX_VALUE
+        );
+    }
+
+    private ProductPublishTaskCreateResult createTask(
+            ProductPublishTaskCreateCommand command,
+            String taskType,
+            String initialStatus,
+            String changedDomainsJson,
+            int maxRetryCount
+    ) {
         ProductPublishTaskRecord task = new ProductPublishTaskRecord();
         task.setId(productManagementMapper.nextProductPublishTaskId());
         task.setOwnerUserId(command.getOwnerUserId());
@@ -223,18 +259,18 @@ public class ProductPublishCommandService {
         task.setPartnerSku(command.getPartnerSku());
         task.setPskuCode(command.getPskuCode());
         task.setCurrentSiteCode(normalize(command.getCurrentSiteCode()));
-        task.setTaskType("publish-current");
-        task.setStatus("queued");
+        task.setTaskType(taskType);
+        task.setStatus(initialStatus);
         task.setActiveLockKey(activeLockKey(command.getProductMasterId()));
         task.setDraftJson(command.getDraftJson());
         task.setBaselineJson(command.getBaselineJson());
         task.setDraftHash(command.getDraftHash());
-        task.setChangedDomainsJson(command.getChangedDomainsJson());
+        task.setChangedDomainsJson(changedDomainsJson);
         task.setRequestJson(command.getRequestJson());
         task.setIdempotencyKey(command.getIdempotencyKey());
         task.setRetryCount(0);
         task.setVerifyAttemptCount(0);
-        task.setMaxRetryCount(3);
+        task.setMaxRetryCount(maxRetryCount);
         task.setVersionNo(1);
         try {
             productManagementMapper.insertProductPublishTask(task);
@@ -300,7 +336,7 @@ public class ProductPublishCommandService {
         if (claimed <= 0) {
             return false;
         }
-        task.setStatus("running");
+        task.setStatus(isProductDeleteTask(task) ? PRODUCT_DELETE_STATUS_RUNNING : "running");
         task.setLockedBy(lockedBy);
         task.setLockedAt(LocalDateTime.now());
         task.setVersionNo(versionNo(task) + 1);
@@ -336,10 +372,15 @@ public class ProductPublishCommandService {
                 errorCode,
                 errorMessage,
                 nextRunAt,
-                "submitted".equalsIgnoreCase(status) ? now : null,
-                "verifying".equalsIgnoreCase(status) ? now : null,
-                isTerminalStatus(status) || "pending_effective".equalsIgnoreCase(status)
+                "submitted".equalsIgnoreCase(status)
+                        || PRODUCT_DELETE_STATUS_SUBMITTED.equalsIgnoreCase(status) ? now : null,
+                "verifying".equalsIgnoreCase(status)
+                        || PRODUCT_DELETE_STATUS_VERIFYING.equalsIgnoreCase(status) ? now : null,
+                isTerminalStatus(status)
+                        || "pending_effective".equalsIgnoreCase(status)
+                        || PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE.equalsIgnoreCase(status)
                         || "verify_timeout".equalsIgnoreCase(status)
+                        || PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT.equalsIgnoreCase(status)
                         || "pending_manual_check".equalsIgnoreCase(status) ? now : null,
                 resolvedFinishedAt,
                 verifyAttemptCount,
@@ -377,6 +418,7 @@ public class ProductPublishCommandService {
         }
         List<String> changedDomains = resolveChangedDomains(task, changedDomainsResolver);
         view.setTaskId(task.getId());
+        view.setTaskType(task.getTaskType());
         view.setStatus(task.getStatus());
         view.setMessage(message(task, changedDomains));
         view.setChangedDomains(changedDomains);
@@ -401,6 +443,9 @@ public class ProductPublishCommandService {
 
     public String message(ProductPublishTaskRecord task, List<String> changedDomains) {
         String status = task == null ? null : normalize(task.getStatus());
+        if (isProductDeleteTask(task)) {
+            return productDeleteMessage(status);
+        }
         if ("queued".equalsIgnoreCase(status)) {
             return "发布已排队，等待后台执行。";
         }
@@ -445,6 +490,37 @@ public class ProductPublishCommandService {
             return "发布任务已取消。";
         }
         return firstNonBlank(task != null ? task.getErrorMessage() : null, "发布任务状态已更新。");
+    }
+
+    private String productDeleteMessage(String status) {
+        status = normalizeProductDeleteStatus(status);
+        if ("queued".equalsIgnoreCase(status)) {
+            return "商品删除已排队，后台会先处理 Noon 删除，成功后再清理本地商品目录。";
+        }
+        if ("running".equalsIgnoreCase(status)) {
+            return "商品删除正在后台执行。";
+        }
+        if ("submitted".equalsIgnoreCase(status)
+                || "verifying".equalsIgnoreCase(status)
+                || "pending_effective".equalsIgnoreCase(status)
+                || "write_unknown".equalsIgnoreCase(status)
+                || "write_retry_scheduled".equalsIgnoreCase(status)
+                || "verify_timeout".equalsIgnoreCase(status)) {
+            return "商品删除正在后台自动处理，系统会继续核对 Noon 删除结果。";
+        }
+        if ("pending_manual_check".equalsIgnoreCase(status)) {
+            return "商品删除结果需要人工核对：请在 Noon 后台确认 ZSKU/catalog 是否已删除后重试或联系技术处理。";
+        }
+        if ("failed".equalsIgnoreCase(status)) {
+            return "商品删除失败，诺诺本地商品未删除，请重试或联系技术处理。";
+        }
+        if ("synced".equalsIgnoreCase(status)) {
+            return "商品删除已完成。";
+        }
+        if ("cancelled".equalsIgnoreCase(status)) {
+            return "商品删除任务已取消。";
+        }
+        return "商品删除任务状态已更新，系统会在后台继续处理。";
     }
 
     public boolean isRetryableNoonWriteFailure(Throwable throwable) {
@@ -552,6 +628,41 @@ public class ProductPublishCommandService {
         return false;
     }
 
+    public boolean scheduleProductDeleteRetryOrManualCheck(
+            ProductPublishTaskRecord task,
+            String errorCode,
+            String scheduledMessage,
+            String exhaustedErrorCode,
+            String exhaustedMessage,
+            String resultJson
+    ) {
+        if (hasRemainingAutomaticWriteRetries(task)) {
+            updateStatus(
+                    task,
+                    PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED,
+                    errorCode,
+                    scheduledMessage,
+                    resultJson,
+                    nextAutomaticWriteRetryRunAt(task),
+                    null,
+                    null
+            );
+            task.setRetryCount(retryCount(task) + 1);
+            return true;
+        }
+        updateStatus(
+                task,
+                "pending_manual_check",
+                exhaustedErrorCode,
+                exhaustedMessage,
+                resultJson,
+                null,
+                LocalDateTime.now(),
+                null
+        );
+        return false;
+    }
+
     public boolean isTerminalStatus(String status) {
         return TERMINAL_STATUSES.contains(normalize(status));
     }
@@ -568,6 +679,14 @@ public class ProductPublishCommandService {
 
     public boolean isWriteRetryScheduledStatus(String status) {
         return "write_retry_scheduled".equalsIgnoreCase(normalize(status));
+    }
+
+    public boolean isProductDeleteWriteRetryScheduledStatus(String status) {
+        return PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED.equalsIgnoreCase(normalize(status));
+    }
+
+    public boolean isProductDeleteTask(ProductPublishTaskRecord task) {
+        return task != null && TASK_TYPE_PRODUCT_DELETE.equalsIgnoreCase(normalize(task.getTaskType()));
     }
 
     public boolean isMissingTaskTable(Throwable exception) {
@@ -602,7 +721,10 @@ public class ProductPublishCommandService {
     }
 
     private boolean shouldReleaseLock(String status) {
-        return !"submitted".equalsIgnoreCase(status) && !"verifying".equalsIgnoreCase(status);
+        return !"submitted".equalsIgnoreCase(status)
+                && !PRODUCT_DELETE_STATUS_SUBMITTED.equalsIgnoreCase(status)
+                && !"verifying".equalsIgnoreCase(status)
+                && !PRODUCT_DELETE_STATUS_VERIFYING.equalsIgnoreCase(status);
     }
 
     public boolean hasRemainingAutomaticWriteRetries(ProductPublishTaskRecord task) {
@@ -690,11 +812,40 @@ public class ProductPublishCommandService {
         if ("sizes".equalsIgnoreCase(normalized)) {
             return "尺码";
         }
+        if ("delete".equalsIgnoreCase(normalized)) {
+            return "商品删除";
+        }
         return null;
     }
 
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String normalizeProductDeleteStatus(String status) {
+        String normalized = normalize(status);
+        if (PRODUCT_DELETE_STATUS_QUEUED.equalsIgnoreCase(normalized)) {
+            return "queued";
+        }
+        if (PRODUCT_DELETE_STATUS_RUNNING.equalsIgnoreCase(normalized)) {
+            return "running";
+        }
+        if (PRODUCT_DELETE_STATUS_SUBMITTED.equalsIgnoreCase(normalized)) {
+            return "submitted";
+        }
+        if (PRODUCT_DELETE_STATUS_VERIFYING.equalsIgnoreCase(normalized)) {
+            return "verifying";
+        }
+        if (PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE.equalsIgnoreCase(normalized)) {
+            return "pending_effective";
+        }
+        if (PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED.equalsIgnoreCase(normalized)) {
+            return "write_retry_scheduled";
+        }
+        if (PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT.equalsIgnoreCase(normalized)) {
+            return "verify_timeout";
+        }
+        return normalized;
     }
 
     private String firstNonBlank(String first, String second) {

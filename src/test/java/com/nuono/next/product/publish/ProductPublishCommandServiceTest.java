@@ -88,6 +88,64 @@ class ProductPublishCommandServiceTest {
     }
 
     @Test
+    void shouldCreateProductDeleteTaskWithDeleteMessage() {
+        when(productManagementMapper.nextProductPublishTaskId()).thenReturn(77001L);
+
+        ProductPublishCommandService.ProductPublishTaskCreateCommand command =
+                new ProductPublishCommandService.ProductPublishTaskCreateCommand();
+        command.setOwnerUserId(10002L);
+        command.setProductMasterId(64001L);
+        command.setStoreCode("STR245027-NAE");
+        command.setSkuParent("MILKYWAYA17");
+        command.setPskuCode("PSKU-1");
+        command.setCurrentSiteCode("AE");
+        command.setDraftJson("{\"identity\":{\"skuParent\":\"MILKYWAYA17\"}}");
+        command.setBaselineJson("{\"identity\":{\"skuParent\":\"MILKYWAYA17\"}}");
+        command.setDraftHash("delete-hash");
+        command.setChangedDomainsJson("[\"delete\"]");
+        command.setRequestJson("{\"action\":\"product-delete\"}");
+        command.setIdempotencyKey("product-delete:64001:delete-hash");
+
+        ProductPublishCommandService.ProductPublishTaskCreateResult result =
+                service.createProductDeleteTask(command);
+
+        ProductPublishTaskRecord task = result.getTask();
+        assertFalse(result.isDuplicate());
+        assertEquals(77001L, task.getId());
+        assertEquals("product-delete", task.getTaskType());
+        assertEquals(ProductPublishCommandService.PRODUCT_DELETE_STATUS_QUEUED, task.getStatus());
+        assertEquals("[\"delete\"]", task.getChangedDomainsJson());
+        assertEquals(Integer.MAX_VALUE, task.getMaxRetryCount());
+
+        ProductPublishTaskView view = service.buildTaskView(task, false, null, ignored -> java.util.List.of("delete"));
+        assertTrue(view.getMessage().contains("删除"));
+        assertFalse(view.getMessage().contains("发布已排队"));
+    }
+
+    @Test
+    void shouldClaimProductDeleteTaskWithProductDeleteRunningStatus() {
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(77001L);
+        task.setOwnerUserId(10002L);
+        task.setTaskType(ProductPublishCommandService.TASK_TYPE_PRODUCT_DELETE);
+        task.setStatus(ProductPublishCommandService.PRODUCT_DELETE_STATUS_QUEUED);
+        task.setVersionNo(3);
+        when(productManagementMapper.tryStartProductPublishTask(
+                77001L,
+                ProductPublishCommandService.PRODUCT_DELETE_STATUS_QUEUED,
+                3,
+                "delete-lock-1",
+                10002L
+        )).thenReturn(1);
+
+        assertTrue(service.claimTask(task, ProductPublishCommandService.PRODUCT_DELETE_STATUS_QUEUED, "delete-lock-1"));
+
+        assertEquals(ProductPublishCommandService.PRODUCT_DELETE_STATUS_RUNNING, task.getStatus());
+        assertEquals("delete-lock-1", task.getLockedBy());
+        assertEquals(Integer.valueOf(4), task.getVersionNo());
+    }
+
+    @Test
     void shouldRenderPendingManualCheckMessageWithChangedDomainLabels() {
         ProductPublishTaskRecord task = new ProductPublishTaskRecord();
         task.setId(64003L);

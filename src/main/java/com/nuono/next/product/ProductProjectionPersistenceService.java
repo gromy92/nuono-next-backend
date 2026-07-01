@@ -526,17 +526,35 @@ public class ProductProjectionPersistenceService {
             String projectCode,
             String projectName,
             String skuParent,
+            String partnerSku,
             String syncStatus,
             String lastSyncedAt,
             List<String> warnings
     ) {
-        if (ownerUserId == null || !StringUtils.hasText(projectCode) || !StringUtils.hasText(skuParent)) {
+        if (ownerUserId == null
+                || !StringUtils.hasText(projectCode)
+                || (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent))) {
             return;
         }
         if (!ensureProductTablesReady(warnings)) {
             return;
         }
         Long logicalStoreId = ensureLogicalStore(ownerUserId, projectCode, projectName);
+        Long productMasterId = StringUtils.hasText(partnerSku)
+                ? productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, normalize(partnerSku))
+                : null;
+        if (productMasterId != null) {
+            productManagementMapper.updateProductMasterStatusById(
+                    productMasterId,
+                    normalizeSyncStatus(syncStatus),
+                    parseDateTime(lastSyncedAt),
+                    ownerUserId
+            );
+            return;
+        }
+        if (!StringUtils.hasText(skuParent)) {
+            return;
+        }
         productManagementMapper.updateProductMasterStatus(
                 logicalStoreId,
                 skuParent,
@@ -567,9 +585,17 @@ public class ProductProjectionPersistenceService {
             String storeCode,
             List<String> warnings
     ) {
+        String normalizedStoreCode = normalize(storeCode);
+        List<ProductListProjectionRecord> records = loadProductListProjection(ownerUserId, normalizedStoreCode, warnings);
+        Long logicalStoreId = records.isEmpty()
+                ? null
+                : productManagementMapper.selectLogicalStoreIdBySiteStoreCode(normalizedStoreCode);
+        Map<String, ProductPublishTaskRecord> latestPublishTasksByPartnerSku =
+                loadLatestListPublishTasksByPartnerSku(logicalStoreId, records);
         List<ProductListSummaryView> summaries = new ArrayList<>();
-        for (ProductListProjectionRecord record : loadProductListProjection(ownerUserId, storeCode, warnings)) {
-            ProductListSummaryView summary = toListSummaryView(record, normalize(storeCode));
+        for (ProductListProjectionRecord record : records) {
+            ProductListSummaryView summary = toListSummaryView(record, normalizedStoreCode);
+            hydrateListPublishTaskSummary(summary, latestPublishTasksByPartnerSku);
             summaries.add(summary);
         }
         return summaries;
@@ -1821,6 +1847,88 @@ public class ProductProjectionPersistenceService {
         );
     }
 
+    private Map<String, ProductPublishTaskRecord> loadLatestListPublishTasksByPartnerSku(
+            Long logicalStoreId,
+            List<ProductListProjectionRecord> records
+    ) {
+        if (logicalStoreId == null || records == null || records.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> partnerSkuLookup = new LinkedHashMap<>();
+        for (ProductListProjectionRecord record : records) {
+            String partnerSku = normalize(record == null ? null : record.getPartnerSku());
+            if (StringUtils.hasText(partnerSku)) {
+                partnerSkuLookup.putIfAbsent(partnerSku, partnerSku);
+            }
+        }
+        if (partnerSkuLookup.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<ProductPublishTaskRecord> tasks = productManagementMapper.selectLatestProductPublishTasksByStorePartnerSkus(
+                logicalStoreId,
+                new ArrayList<>(partnerSkuLookup.values())
+        );
+        if (tasks == null || tasks.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, ProductPublishTaskRecord> result = new LinkedHashMap<>();
+        for (ProductPublishTaskRecord task : tasks) {
+            String partnerSku = normalize(task == null ? null : task.getPartnerSku());
+            if (StringUtils.hasText(partnerSku)) {
+                result.putIfAbsent(partnerSku, task);
+            }
+        }
+        return result;
+    }
+
+    private void hydrateListPublishTaskSummary(
+            ProductListSummaryView view,
+            Map<String, ProductPublishTaskRecord> latestPublishTasksByPartnerSku
+    ) {
+        if (view == null || latestPublishTasksByPartnerSku == null || !StringUtils.hasText(view.getPartnerSku())) {
+            return;
+        }
+        ProductPublishTaskRecord task = latestPublishTasksByPartnerSku.get(normalize(view.getPartnerSku()));
+        if (task == null) {
+            return;
+        }
+        view.setLastPublishTask(buildLastPublishTaskSummary(task, null));
+    }
+
+    private Long resolveProductMasterIdForSummary(
+            ProductListSummaryView view,
+            Long ownerUserId,
+            String storeCode,
+            boolean allowSkuParentFallback
+    ) {
+        if (view == null || !StringUtils.hasText(storeCode)) {
+            return null;
+        }
+        String normalizedStoreCode = normalize(storeCode);
+        if (StringUtils.hasText(view.getPartnerSku())) {
+            Long logicalStoreId = productManagementMapper.selectLogicalStoreIdBySiteStoreCode(normalizedStoreCode);
+            if (logicalStoreId != null) {
+                Long productMasterId = productManagementMapper.selectProductMasterIdByStorePartnerSku(
+                        logicalStoreId,
+                        normalize(view.getPartnerSku())
+                );
+                if (productMasterId != null) {
+                    return productMasterId;
+                }
+            }
+        }
+        if (!allowSkuParentFallback
+                || ownerUserId == null
+                || !StringUtils.hasText(view.getSkuParent())) {
+            return null;
+        }
+        return productManagementMapper.selectProductMasterIdByStoreCode(
+                ownerUserId,
+                normalizedStoreCode,
+                normalize(view.getSkuParent())
+        );
+    }
+
     private Map<String, Object> loadLastPublishTaskSummary(Long productMasterId, List<String> warnings) {
         if (productMasterId == null) {
             return null;
@@ -1829,8 +1937,14 @@ public class ProductProjectionPersistenceService {
         if (tasks == null || tasks.isEmpty()) {
             return null;
         }
-        ProductPublishTaskRecord task = tasks.get(0);
-        String statusLabel = publishTaskListStatusLabel(task.getStatus());
+        return buildLastPublishTaskSummary(tasks.get(0), warnings);
+    }
+
+    private Map<String, Object> buildLastPublishTaskSummary(ProductPublishTaskRecord task, List<String> warnings) {
+        if (task == null) {
+            return null;
+        }
+        String statusLabel = publishTaskListStatusLabel(task);
         if (!StringUtils.hasText(statusLabel)) {
             return null;
         }
@@ -1838,6 +1952,7 @@ public class ProductProjectionPersistenceService {
         ProductMasterSnapshotView draft = readHistorySnapshot(task.getDraftJson(), warnings);
         Map<String, Object> summary = new LinkedHashMap<>();
         putIfNotNull(summary, "taskId", task.getId());
+        putIfNotBlank(summary, "taskType", normalize(task.getTaskType()));
         putIfNotBlank(summary, "status", normalize(task.getStatus()));
         putIfNotBlank(summary, "statusLabel", statusLabel);
         putIfNotBlank(summary, "resultText", publishTaskHistoryMessage(task));
@@ -1846,8 +1961,17 @@ public class ProductProjectionPersistenceService {
         putIfNotBlank(summary, "targetSiteCode", task.getCurrentSiteCode());
         putIfNotBlank(summary, "pskuCode", task.getPskuCode());
         putIfNotBlank(summary, "partnerSku", task.getPartnerSku());
-        putIfNotNull(summary, "changes", buildProductModificationChanges(baseline, draft, task.getCurrentSiteCode()));
+        if (!isProductDeleteTask(task)) {
+            putIfNotNull(summary, "changes", buildProductModificationChanges(baseline, draft, task.getCurrentSiteCode()));
+        }
         return summary;
+    }
+
+    private String publishTaskListStatusLabel(ProductPublishTaskRecord task) {
+        if (isProductDeleteTask(task)) {
+            return productDeleteListStatusLabel(task.getStatus());
+        }
+        return publishTaskListStatusLabel(task == null ? null : task.getStatus());
     }
 
     private String publishTaskListStatusLabel(String status) {
@@ -1869,6 +1993,33 @@ public class ProductProjectionPersistenceService {
                 || "write_unknown".equalsIgnoreCase(normalized)
                 || "verify_timeout".equalsIgnoreCase(normalized)) {
             return "发布中";
+        }
+        return null;
+    }
+
+    private String productDeleteListStatusLabel(String status) {
+        String normalized = normalizeProductDeleteStatus(status);
+        if ("synced".equalsIgnoreCase(normalized)) {
+            return "删除成功";
+        }
+        if ("failed".equalsIgnoreCase(normalized)) {
+            return "删除失败";
+        }
+        if ("pending_manual_check".equalsIgnoreCase(normalized)) {
+            return "删除待核对";
+        }
+        if ("cancelled".equalsIgnoreCase(normalized)) {
+            return "已取消";
+        }
+        if ("queued".equalsIgnoreCase(normalized)
+                || "running".equalsIgnoreCase(normalized)
+                || "submitted".equalsIgnoreCase(normalized)
+                || "verifying".equalsIgnoreCase(normalized)
+                || "pending_effective".equalsIgnoreCase(normalized)
+                || "write_unknown".equalsIgnoreCase(normalized)
+                || "verify_timeout".equalsIgnoreCase(normalized)
+                || "write_retry_scheduled".equalsIgnoreCase(normalized)) {
+            return "删除中";
         }
         return null;
     }
@@ -2601,6 +2752,9 @@ public class ProductProjectionPersistenceService {
     }
 
     private String publishTaskHistoryMessage(ProductPublishTaskRecord task) {
+        if (isProductDeleteTask(task)) {
+            return productDeleteHistoryMessage(task);
+        }
         String status = task == null ? null : normalize(task.getStatus());
         if ("synced".equalsIgnoreCase(status)) {
             return "发布已完成。";
@@ -2624,6 +2778,62 @@ public class ProductProjectionPersistenceService {
             return "发布处理中。";
         }
         return "发布任务已记录。";
+    }
+
+    private String productDeleteHistoryMessage(ProductPublishTaskRecord task) {
+        String status = task == null ? null : normalizeProductDeleteStatus(task.getStatus());
+        if ("synced".equalsIgnoreCase(status)) {
+            return "商品删除已完成。";
+        }
+        if ("failed".equalsIgnoreCase(status)) {
+            return firstNonBlank(task.getErrorMessage(), "商品删除失败，本地商品未删除。");
+        }
+        if ("pending_manual_check".equalsIgnoreCase(status)) {
+            return "商品删除结果需要人工核对。";
+        }
+        if ("pending_effective".equalsIgnoreCase(status)
+                || "write_unknown".equalsIgnoreCase(status)
+                || "verify_timeout".equalsIgnoreCase(status)
+                || "write_retry_scheduled".equalsIgnoreCase(status)) {
+            return "商品删除正在后台核对 Noon 结果。";
+        }
+        if ("queued".equalsIgnoreCase(status)) {
+            return "商品删除已排队。";
+        }
+        if ("running".equalsIgnoreCase(status) || "submitted".equalsIgnoreCase(status) || "verifying".equalsIgnoreCase(status)) {
+            return "商品删除处理中。";
+        }
+        return "商品删除任务已记录。";
+    }
+
+    private String normalizeProductDeleteStatus(String status) {
+        String normalized = normalize(status);
+        if ("product_delete_queued".equalsIgnoreCase(normalized)) {
+            return "queued";
+        }
+        if ("product_delete_running".equalsIgnoreCase(normalized)) {
+            return "running";
+        }
+        if ("product_delete_submitted".equalsIgnoreCase(normalized)) {
+            return "submitted";
+        }
+        if ("product_delete_verifying".equalsIgnoreCase(normalized)) {
+            return "verifying";
+        }
+        if ("product_delete_pending_effective".equalsIgnoreCase(normalized)) {
+            return "pending_effective";
+        }
+        if ("product_delete_write_retry_scheduled".equalsIgnoreCase(normalized)) {
+            return "write_retry_scheduled";
+        }
+        if ("product_delete_verify_timeout".equalsIgnoreCase(normalized)) {
+            return "verify_timeout";
+        }
+        return normalized;
+    }
+
+    private boolean isProductDeleteTask(ProductPublishTaskRecord task) {
+        return task != null && "product-delete".equalsIgnoreCase(normalize(task.getTaskType()));
     }
 
     private String publishTaskStatusLabel(String status) {
@@ -3810,6 +4020,7 @@ public class ProductProjectionPersistenceService {
         ) {
             ProductMasterSeed seed = new ProductMasterSeed();
             seed.setSkuParent(stringValue(snapshot.getIdentity().get("skuParent")));
+            seed.setPartnerSku(stringValue(snapshot.getIdentity().get("partnerSku")));
             seed.setProductSourceType(ProductSourceTypeSupport.resolve(
                     stringValue(snapshot.getIdentity().get("productSourceType")),
                     stringValue(snapshot.getIdentity().get("childSku")),

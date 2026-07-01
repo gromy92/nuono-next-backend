@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.ResultMap;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
@@ -54,9 +55,36 @@ class ProductManagementMapperPublishTaskSqlTest {
 
         assertTrue(activeSql.contains("'write_retry_scheduled'"));
         assertTrue(runnableSql.contains("'write_retry_scheduled'"));
+        assertTrue(activeSql.contains("'product_delete_queued'"));
+        assertTrue(runnableSql.contains("'product_delete_queued'"));
+        assertTrue(activeSql.contains("'product_delete_pending_effective'"));
+        assertTrue(runnableSql.contains("'product_delete_pending_effective'"));
+        assertTrue(activeSql.contains("'product_delete_write_retry_scheduled'"));
+        assertTrue(runnableSql.contains("'product_delete_write_retry_scheduled'"));
         assertTrue(activeSql.contains("id = ( SELECT MAX(latest.id)"));
         assertTrue(runnableSql.contains("id = ( SELECT MAX(latest.id)"));
         assertTrue(runnableSql.contains("latest.product_master_id = product_publish_task.product_master_id"));
+    }
+
+    @Test
+    void publishTaskRecordQueriesShouldUseExplicitResultMapForUnderscoreColumns() {
+        for (String methodName : Arrays.asList(
+                "selectProductPublishTaskByIdempotency",
+                "selectActiveProductPublishTask",
+                "selectRecentProductPublishTasks",
+                "selectRunnableProductPublishTasks"
+        )) {
+            Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                    .filter((candidate) -> methodName.equals(candidate.getName()))
+                    .findFirst()
+                    .orElseThrow();
+            ResultMap resultMap = method.getAnnotation(ResultMap.class);
+            assertTrue(resultMap != null, methodName + " must map task_type/request_json/draft_json fields explicitly");
+            assertTrue(
+                    Arrays.asList(resultMap.value()).contains("ProductPublishTaskRecordMap"),
+                    methodName + " must reuse ProductPublishTaskRecordMap"
+            );
+        }
     }
 
     @Test
@@ -71,7 +99,11 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("UPDATE product_publish_task t"));
         assertTrue(sql.contains("JOIN ( SELECT product_master_id, MAX(id) AS latest_id FROM product_publish_task"));
         assertTrue(sql.contains("latest.latest_id = t.id"));
-        assertTrue(sql.contains("t.status IN ('running', 'submitted', 'verifying')"));
+        assertTrue(sql.contains("WHEN t.task_type = 'product-delete' THEN 'product_delete_verify_timeout'"));
+        assertTrue(sql.contains("ELSE 'write_unknown'"));
+        assertTrue(sql.contains("'product_delete_running'"));
+        assertTrue(sql.contains("'product_delete_submitted'"));
+        assertTrue(sql.contains("'product_delete_verifying'"));
     }
 
     @Test
@@ -84,7 +116,7 @@ class ProductManagementMapperPublishTaskSqlTest {
         String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
 
         assertTrue(sql.contains("retry_count = CASE"));
-        assertTrue(sql.contains("WHEN #{status} = 'write_retry_scheduled' THEN COALESCE(retry_count, 0) + 1"));
+        assertTrue(sql.contains("WHEN #{status} IN ('write_retry_scheduled', 'product_delete_write_retry_scheduled') THEN COALESCE(retry_count, 0) + 1"));
     }
 
     @Test
@@ -104,6 +136,32 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("status = 'write_retry_scheduled'"));
         assertTrue(sql.contains("locked_at IS NULL"));
         assertTrue(sql.contains("version_no = #{expectedVersionNo}"));
+    }
+
+    @Test
+    void retryProductPublishTaskShouldPreserveProductDeleteQueueStatus() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "retryProductPublishTask".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("status = CASE"));
+        assertTrue(sql.contains("WHEN task_type = 'product-delete' THEN 'product_delete_queued'"));
+        assertTrue(sql.contains("ELSE 'queued'"));
+    }
+
+    @Test
+    void cancelQueuedProductPublishTaskShouldAllowProductDeleteQueueStatus() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "cancelQueuedProductPublishTask".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("status IN ('queued', 'product_delete_queued')"));
     }
 
     @Test
@@ -127,8 +185,10 @@ class ProductManagementMapperPublishTaskSqlTest {
         assertTrue(sql.contains("DATE_SUB(NOW(), INTERVAL #{lookbackHours} HOUR)"));
         assertTrue(sql.contains("candidate.id = ( SELECT MAX(latest.id)"));
         assertTrue(sql.contains("NOT EXISTS"));
-        assertTrue(sql.contains("active.status IN ('queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')"));
-        assertTrue(sql.contains("SET t.status = 'write_retry_scheduled'"));
+        assertTrue(sql.contains("'product_delete_pending_effective'"));
+        assertTrue(sql.contains("'product_delete_write_retry_scheduled'"));
+        assertTrue(sql.contains("WHEN t.task_type = 'product-delete' THEN 'product_delete_write_retry_scheduled'"));
+        assertTrue(sql.contains("ELSE 'write_retry_scheduled'"));
         assertTrue(sql.contains("WHEN t.error_code IN ('publish_task_failed', 'noon_request_failed') THEN 'noon_request_failed'"));
         assertTrue(sql.contains("t.active_lock_key = CONCAT('product:', t.product_master_id)"));
     }

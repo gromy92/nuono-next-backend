@@ -9,6 +9,7 @@ import com.nuono.next.product.ProductKeyContentHistoryRecord;
 import com.nuono.next.product.ProductMasterSnapshotRecord;
 import com.nuono.next.product.ProductListProjectionRecord;
 import com.nuono.next.product.ProductListSnapshotMediaRecord;
+import com.nuono.next.product.ProductMasterIdentityRecord;
 import com.nuono.next.product.ProductPublishTaskRecord;
 import com.nuono.next.product.ProductVariantLogisticsProfileCommand;
 import com.nuono.next.product.ProductVariantLogisticsProfileView;
@@ -23,6 +24,9 @@ import java.util.Map;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Result;
+import org.apache.ibatis.annotations.ResultMap;
+import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
@@ -281,6 +285,42 @@ public interface ProductManagementMapper {
             "  AND is_deleted = 0",
             "LIMIT 1"
     })
+    @Results(id = "ProductPublishTaskRecordMap", value = {
+            @Result(column = "id", property = "id"),
+            @Result(column = "owner_user_id", property = "ownerUserId"),
+            @Result(column = "product_master_id", property = "productMasterId"),
+            @Result(column = "baseline_snapshot_id", property = "baselineSnapshotId"),
+            @Result(column = "draft_snapshot_id", property = "draftSnapshotId"),
+            @Result(column = "store_code", property = "storeCode"),
+            @Result(column = "project_code", property = "projectCode"),
+            @Result(column = "sku_parent", property = "skuParent"),
+            @Result(column = "partner_sku", property = "partnerSku"),
+            @Result(column = "psku_code", property = "pskuCode"),
+            @Result(column = "current_site_code", property = "currentSiteCode"),
+            @Result(column = "task_type", property = "taskType"),
+            @Result(column = "status", property = "status"),
+            @Result(column = "active_lock_key", property = "activeLockKey"),
+            @Result(column = "idempotency_key", property = "idempotencyKey"),
+            @Result(column = "draft_hash", property = "draftHash"),
+            @Result(column = "changed_domains_json", property = "changedDomainsJson"),
+            @Result(column = "baseline_json", property = "baselineJson"),
+            @Result(column = "draft_json", property = "draftJson"),
+            @Result(column = "request_json", property = "requestJson"),
+            @Result(column = "result_json", property = "resultJson"),
+            @Result(column = "error_code", property = "errorCode"),
+            @Result(column = "error_message", property = "errorMessage"),
+            @Result(column = "retry_count", property = "retryCount"),
+            @Result(column = "verify_attempt_count", property = "verifyAttemptCount"),
+            @Result(column = "max_retry_count", property = "maxRetryCount"),
+            @Result(column = "version_no", property = "versionNo"),
+            @Result(column = "next_run_at", property = "nextRunAt"),
+            @Result(column = "locked_by", property = "lockedBy"),
+            @Result(column = "locked_at", property = "lockedAt"),
+            @Result(column = "submitted_at", property = "submittedAt"),
+            @Result(column = "verify_started_at", property = "verifyStartedAt"),
+            @Result(column = "verify_finished_at", property = "verifyFinishedAt"),
+            @Result(column = "finished_at", property = "finishedAt")
+    })
     ProductPublishTaskRecord selectProductPublishTaskById(@Param("id") Long id);
 
     @Select({
@@ -290,6 +330,7 @@ public interface ProductManagementMapper {
             "  AND is_deleted = 0",
             "LIMIT 1"
     })
+    @ResultMap("ProductPublishTaskRecordMap")
     ProductPublishTaskRecord selectProductPublishTaskByIdempotency(@Param("idempotencyKey") String idempotencyKey);
 
     @Select({
@@ -306,11 +347,16 @@ public interface ProductManagementMapper {
             "  AND status IN (",
             "    'queued', 'running', 'submitted', 'verifying',",
             "    'pending_effective', 'write_unknown', 'verify_timeout',",
-            "    'write_retry_scheduled'",
+            "    'write_retry_scheduled',",
+            "    'product_delete_queued', 'product_delete_running',",
+            "    'product_delete_submitted', 'product_delete_verifying',",
+            "    'product_delete_pending_effective',",
+            "    'product_delete_verify_timeout', 'product_delete_write_retry_scheduled'",
             "  )",
             "ORDER BY id DESC",
             "LIMIT 1"
     })
+    @ResultMap("ProductPublishTaskRecordMap")
     ProductPublishTaskRecord selectActiveProductPublishTask(@Param("productMasterId") Long productMasterId);
 
     @Select({
@@ -321,14 +367,53 @@ public interface ProductManagementMapper {
             "ORDER BY COALESCE(finished_at, verify_finished_at, submitted_at, locked_at, gmt_updated, gmt_create) DESC, id DESC",
             "LIMIT 20"
     })
+    @ResultMap("ProductPublishTaskRecordMap")
     List<ProductPublishTaskRecord> selectRecentProductPublishTasks(@Param("productMasterId") Long productMasterId);
+
+    @Select({
+            "<script>",
+            "SELECT ppt.*",
+            "FROM product_variant pv",
+            "JOIN product_master pm",
+            "  ON pm.id = pv.product_master_id",
+            " AND pm.logical_store_id = pv.logical_store_id",
+            " AND pm.is_deleted = 0",
+            "JOIN product_publish_task ppt",
+            "  ON ppt.product_master_id = pm.id",
+            " AND ppt.is_deleted = 0",
+            "WHERE pv.logical_store_id = #{logicalStoreId}",
+            "  AND pv.is_deleted = 0",
+            "  AND pv.partner_sku IN",
+            "  <foreach collection='partnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
+            "    #{partnerSku}",
+            "  </foreach>",
+            "  AND ppt.id = (",
+            "    SELECT latest.id",
+            "    FROM product_publish_task latest",
+            "    WHERE latest.product_master_id = pm.id",
+            "      AND latest.is_deleted = 0",
+            "    ORDER BY COALESCE(latest.finished_at, latest.verify_finished_at, latest.submitted_at,",
+            "             latest.locked_at, latest.gmt_updated, latest.gmt_create) DESC, latest.id DESC",
+            "    LIMIT 1",
+            "  )",
+            "</script>"
+    })
+    @ResultMap("ProductPublishTaskRecordMap")
+    List<ProductPublishTaskRecord> selectLatestProductPublishTasksByStorePartnerSkus(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSkus") List<String> partnerSkus
+    );
 
     @Select({
             "<script>",
             "SELECT *",
             "FROM product_publish_task",
             "WHERE is_deleted = 0",
-            "  AND status IN ('queued', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')",
+            "  AND status IN (",
+            "    'queued', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled',",
+            "    'product_delete_queued', 'product_delete_running', 'product_delete_submitted', 'product_delete_verifying',",
+            "    'product_delete_pending_effective', 'product_delete_verify_timeout', 'product_delete_write_retry_scheduled'",
+            "  )",
             "  AND locked_at IS NULL",
             "  AND (next_run_at IS NULL OR next_run_at &lt;= NOW())",
             "  AND id = (",
@@ -341,6 +426,7 @@ public interface ProductManagementMapper {
             "LIMIT #{limit}",
             "</script>"
     })
+    @ResultMap("ProductPublishTaskRecordMap")
     List<ProductPublishTaskRecord> selectRunnableProductPublishTasks(@Param("limit") int limit);
 
     @Update({
@@ -351,7 +437,10 @@ public interface ProductManagementMapper {
             "  WHERE is_deleted = 0",
             "  GROUP BY product_master_id",
             ") latest ON latest.latest_id = t.id",
-            "SET t.status = 'write_unknown',",
+            "SET t.status = CASE",
+            "      WHEN t.task_type = 'product-delete' THEN 'product_delete_verify_timeout'",
+            "      ELSE 'write_unknown'",
+            "    END,",
             "    t.error_code = 'task_recovered_from_stale_running',",
             "    t.error_message = '发布任务执行中断，系统将只回读校验 Noon 当前结果。',",
             "    t.next_run_at = NOW(),",
@@ -360,7 +449,7 @@ public interface ProductManagementMapper {
             "    t.version_no = t.version_no + 1,",
             "    t.updated_by = #{updatedBy},",
             "    t.gmt_updated = NOW()",
-            "WHERE t.status IN ('running', 'submitted', 'verifying')",
+            "WHERE t.status IN ('running', 'submitted', 'verifying', 'product_delete_running', 'product_delete_submitted', 'product_delete_verifying')",
             "  AND t.locked_at IS NOT NULL",
             "  AND t.locked_at < DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)",
             "  AND t.is_deleted = 0"
@@ -401,11 +490,18 @@ public interface ProductManagementMapper {
             "      FROM product_publish_task active",
             "      WHERE active.product_master_id = candidate.product_master_id",
             "        AND active.is_deleted = 0",
-            "        AND active.status IN ('queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled')",
+            "        AND active.status IN (",
+            "          'queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled',",
+            "          'product_delete_queued', 'product_delete_running', 'product_delete_submitted', 'product_delete_verifying',",
+            "          'product_delete_pending_effective', 'product_delete_verify_timeout', 'product_delete_write_retry_scheduled'",
+            "        )",
             "    )",
             "  GROUP BY candidate.product_master_id",
             ") recoverable ON recoverable.id = t.id",
-            "SET t.status = 'write_retry_scheduled',",
+            "SET t.status = CASE",
+            "      WHEN t.task_type = 'product-delete' THEN 'product_delete_write_retry_scheduled'",
+            "      ELSE 'write_retry_scheduled'",
+            "    END,",
             "    t.error_code = CASE",
             "      WHEN t.error_code IN ('publish_task_failed', 'noon_request_failed') THEN 'noon_request_failed'",
             "      ELSE t.error_code",
@@ -429,7 +525,10 @@ public interface ProductManagementMapper {
 
     @Update({
             "UPDATE product_publish_task",
-            "SET status = 'running',",
+            "SET status = CASE",
+            "      WHEN task_type = 'product-delete' THEN 'product_delete_running'",
+            "      ELSE 'running'",
+            "    END,",
             "    locked_by = #{lockedBy},",
             "    locked_at = NOW(),",
             "    version_no = version_no + 1,",
@@ -461,7 +560,7 @@ public interface ProductManagementMapper {
             "    verify_finished_at = COALESCE(#{verifyFinishedAt}, verify_finished_at),",
             "    finished_at = #{finishedAt},",
             "    retry_count = CASE",
-            "      WHEN #{status} = 'write_retry_scheduled' THEN COALESCE(retry_count, 0) + 1",
+            "      WHEN #{status} IN ('write_retry_scheduled', 'product_delete_write_retry_scheduled') THEN COALESCE(retry_count, 0) + 1",
             "      ELSE retry_count",
             "    END,",
             "    verify_attempt_count = COALESCE(#{verifyAttemptCount}, verify_attempt_count),",
@@ -538,7 +637,10 @@ public interface ProductManagementMapper {
 
     @Update({
             "UPDATE product_publish_task",
-            "SET status = 'queued',",
+            "SET status = CASE",
+            "        WHEN task_type = 'product-delete' THEN 'product_delete_queued'",
+            "        ELSE 'queued'",
+            "    END,",
             "    retry_count = retry_count + 1,",
             "    next_run_at = NOW(),",
             "    error_code = NULL,",
@@ -562,7 +664,7 @@ public interface ProductManagementMapper {
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE id = #{id}",
-            "  AND status = 'queued'",
+            "  AND status IN ('queued', 'product_delete_queued')",
             "  AND is_deleted = 0"
     })
     int cancelQueuedProductPublishTask(@Param("id") Long id, @Param("updatedBy") Long updatedBy);
@@ -851,6 +953,84 @@ public interface ProductManagementMapper {
             "LIMIT 1"
     })
     Long selectProductMasterIdByStoreCodeLegacySkuParent(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "SELECT",
+            "  pm.id AS productMasterId,",
+            "  ls.id AS logicalStoreId,",
+            "  anchor.store_code AS storeCode,",
+            "  anchor.site AS siteCode,",
+            "  pm.sku_parent AS skuParent,",
+            "  pv.partner_sku AS partnerSku,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN pso.site_id = anchor.id THEN pso.psku_code END),",
+            "    MAX(pso.psku_code)",
+            "  ) AS pskuCode",
+            "FROM logical_store ls",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_variant pv",
+            "  ON pv.logical_store_id = ls.id",
+            " AND pv.partner_sku = #{partnerSku}",
+            " AND pv.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.id = pv.product_master_id",
+            " AND pm.logical_store_id = ls.id",
+            " AND pm.is_deleted = 0",
+            "LEFT JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent, pv.partner_sku",
+            "LIMIT 1"
+    })
+    ProductMasterIdentityRecord selectProductMasterIdentityByStorePartnerSku(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("partnerSku") String partnerSku
+    );
+
+    @Select({
+            "SELECT",
+            "  pm.id AS productMasterId,",
+            "  ls.id AS logicalStoreId,",
+            "  anchor.store_code AS storeCode,",
+            "  anchor.site AS siteCode,",
+            "  pm.sku_parent AS skuParent,",
+            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  COALESCE(",
+            "    MAX(CASE WHEN pso.site_id = anchor.id THEN pso.psku_code END),",
+            "    MAX(pso.psku_code)",
+            "  ) AS pskuCode",
+            "FROM logical_store ls",
+            "JOIN logical_store_site anchor",
+            "  ON anchor.logical_store_id = ls.id",
+            " AND anchor.store_code = #{storeCode}",
+            " AND anchor.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.sku_parent = #{skuParent}",
+            " AND pm.is_deleted = 0",
+            "LEFT JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.logical_store_id = ls.id",
+            " AND pv.is_deleted = 0",
+            "LEFT JOIN product_site_offer pso",
+            "  ON pso.variant_id = pv.id",
+            " AND pso.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent",
+            "LIMIT 1"
+    })
+    ProductMasterIdentityRecord selectProductMasterIdentityByStoreSkuParent(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
             @Param("skuParent") String skuParent
@@ -3620,6 +3800,15 @@ public interface ProductManagementMapper {
             @Param("occurredAt") LocalDateTime occurredAt,
             @Param("updatedBy") Long updatedBy
     );
+
+    @Select({
+            "SELECT id",
+            "FROM product_action_log",
+            "WHERE idempotency_key = #{idempotencyKey}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductActionLogIdByIdempotency(@Param("idempotencyKey") String idempotencyKey);
 
     @Select({
             "SELECT",

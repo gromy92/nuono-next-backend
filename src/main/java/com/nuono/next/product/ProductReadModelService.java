@@ -6,9 +6,7 @@ import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -53,33 +51,21 @@ public class ProductReadModelService {
                 storeCode,
                 warnings
         );
-        Set<String> deletedSkuParents = new LinkedHashSet<>(
-                productManagementMapper.selectDeletedProductSkuParentsByStoreCode(command.getOwnerUserId(), storeCode)
-        );
 
-        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsByIdentity =
+        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsByProductIdentity =
                 new LinkedHashMap<>();
         for (ProductListSummaryView summary : summaries) {
-            if (summary == null) {
-                continue;
-            }
-            String currentZCode = firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent());
-            String identityKey = firstNonBlank(summary.getPartnerSku(), currentZCode);
-            if (!StringUtils.hasText(identityKey)) {
-                continue;
-            }
-            if (StringUtils.hasText(currentZCode) && deletedSkuParents.contains(currentZCode)) {
+            String identityKey = productIdentityKey(storeCode, summary);
+            if (summary == null || !StringUtils.hasText(identityKey)) {
                 continue;
             }
             LocalDbStoreInitializationService.StoreInitializationProductListItemView current =
-                    itemsByIdentity.get(identityKey);
-            if (current == null) {
-                itemsByIdentity.put(identityKey, createListItemFromSummary(summary));
-            }
+                    itemsByProductIdentity.getOrDefault(identityKey, createListItemFromSummary(summary));
+            itemsByProductIdentity.put(identityKey, mergeListItemWithSummary(current, summary));
         }
 
         List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items =
-                new ArrayList<>(itemsByIdentity.values());
+                new ArrayList<>(itemsByProductIdentity.values());
 
         ProductListDatasetView view = new ProductListDatasetView();
         view.setOwnerUserId(command.getOwnerUserId());
@@ -262,85 +248,124 @@ public class ProductReadModelService {
             LocalDbStoreInitializationService.StoreInitializationProductListItemView item,
             ProductListSummaryView summary
     ) {
+        boolean currentZRow = isCurrentZRow(item, summary);
         item.setSkuParent(firstNonBlank(item.getSkuParent(), summary.getCurrentZCode(), summary.getSkuParent()));
         item.setCurrentZCode(firstNonBlank(item.getCurrentZCode(), summary.getCurrentZCode(), summary.getSkuParent()));
-        item.setProductSourceType(firstNonBlank(summary.getProductSourceType(), item.getProductSourceType()));
-        item.setPartnerSku(firstNonBlank(summary.getPartnerSku(), item.getPartnerSku()));
-        item.setPskuCode(firstNonBlank(summary.getPskuCode(), item.getPskuCode()));
-        item.setOfferCode(firstNonBlank(summary.getOfferCode(), item.getOfferCode()));
-        item.setReferenceStoreCode(firstNonBlank(summary.getStoreCode(), item.getReferenceStoreCode()));
-        item.setTitle(firstNonBlank(summary.getTitle(), item.getTitle()));
-        item.setTitleCn(firstNonBlank(summary.getTitleCn(), item.getTitleCn()));
-        item.setBrand(firstNonBlank(summary.getBrand(), item.getBrand()));
-        item.setImageUrl(firstNonBlank(summary.getImageUrl(), item.getImageUrl()));
-        if (!summary.getGalleryImages().isEmpty()) {
+        item.setProductSourceType(mergeCurrentZValue(item.getProductSourceType(), summary.getProductSourceType(), currentZRow));
+        item.setPartnerSku(mergeCurrentZValue(item.getPartnerSku(), summary.getPartnerSku(), currentZRow));
+        item.setPskuCode(mergeCurrentZValue(item.getPskuCode(), summary.getPskuCode(), currentZRow));
+        item.setOfferCode(mergeCurrentZValue(item.getOfferCode(), summary.getOfferCode(), currentZRow));
+        item.setReferenceStoreCode(mergeCurrentZValue(item.getReferenceStoreCode(), summary.getStoreCode(), currentZRow));
+        item.setTitle(mergeCurrentZValue(item.getTitle(), summary.getTitle(), currentZRow));
+        item.setTitleCn(mergeCurrentZValue(item.getTitleCn(), summary.getTitleCn(), currentZRow));
+        item.setBrand(mergeCurrentZValue(item.getBrand(), summary.getBrand(), currentZRow));
+        item.setImageUrl(mergeCurrentZValue(item.getImageUrl(), summary.getImageUrl(), currentZRow));
+        if (!summary.getGalleryImages().isEmpty() && (currentZRow || item.getGalleryImages().isEmpty())) {
             item.setGalleryImages(new ArrayList<>(summary.getGalleryImages()));
         }
-        item.setBarcode(firstNonBlank(summary.getBarcode(), item.getBarcode()));
-        item.setReferencePrice(firstNonBlank(summary.getReferencePrice(), item.getReferencePrice()));
-        item.setOriginalPrice(firstNonBlank(summary.getOriginalPrice(), item.getOriginalPrice()));
-        item.setSalePrice(firstNonBlank(summary.getSalePrice(), item.getSalePrice()));
-        item.setProductFulltype(firstNonBlank(summary.getProductFulltype(), item.getProductFulltype()));
-        item.setSkuGroup(normalize(summary.getSkuGroup()));
-        item.setGroupRef(normalize(summary.getGroupRef()));
-        item.setGroupRefCanonical(normalize(summary.getGroupRefCanonical()));
-        item.setLiveStatus(firstNonBlank(summary.getLiveStatus(), item.getLiveStatus()));
-        item.setStatusCode(firstNonBlank(summary.getStatusCode(), item.getStatusCode()));
-        item.setIsActive(summary.getIsActive() != null ? summary.getIsActive() : item.getIsActive());
-        item.setSyncStatus(firstNonBlank(summary.getSyncStatus(), item.getSyncStatus()));
-        item.setLastSyncedAt(firstNonBlank(summary.getLastSyncedAt(), item.getLastSyncedAt()));
-        item.setLastDraftSavedAt(firstNonBlank(summary.getLastDraftSavedAt(), item.getLastDraftSavedAt()));
-        item.setDetailBaselineStatus(firstNonBlank(summary.getDetailBaselineStatus(), item.getDetailBaselineStatus()));
-        item.setDetailBaselineMessage(firstNonBlank(summary.getDetailBaselineMessage(), item.getDetailBaselineMessage()));
-        item.setDetailBaselineSyncedAt(firstNonBlank(summary.getDetailBaselineSyncedAt(), item.getDetailBaselineSyncedAt()));
-        item.setProductVariantSpecStatus(firstNonBlank(summary.getProductVariantSpecStatus(), item.getProductVariantSpecStatus()));
-        item.setProductVariantSpecTotalCount(summary.getProductVariantSpecTotalCount() != null
-                ? summary.getProductVariantSpecTotalCount()
-                : item.getProductVariantSpecTotalCount());
-        item.setProductVariantSpecReadyCount(summary.getProductVariantSpecReadyCount() != null
-                ? summary.getProductVariantSpecReadyCount()
-                : item.getProductVariantSpecReadyCount());
-        item.setProductVariantSpecMaintainedCount(summary.getProductVariantSpecMaintainedCount() != null
-                ? summary.getProductVariantSpecMaintainedCount()
-                : item.getProductVariantSpecMaintainedCount());
-        item.setVariantCount(summary.getVariantCount() != null ? summary.getVariantCount() : item.getVariantCount());
-        item.setSiteOfferCount(summary.getSiteOfferCount() != null ? summary.getSiteOfferCount() : item.getSiteOfferCount());
-        item.setHistoryMetaReady(summary.getHistoryMetaReady() != null ? summary.getHistoryMetaReady() : item.getHistoryMetaReady());
+        item.setBarcode(mergeCurrentZValue(item.getBarcode(), summary.getBarcode(), currentZRow));
+        item.setReferencePrice(mergeCurrentZValue(item.getReferencePrice(), summary.getReferencePrice(), currentZRow));
+        item.setOriginalPrice(mergeCurrentZValue(item.getOriginalPrice(), summary.getOriginalPrice(), currentZRow));
+        item.setSalePrice(mergeCurrentZValue(item.getSalePrice(), summary.getSalePrice(), currentZRow));
+        item.setProductFulltype(mergeCurrentZValue(item.getProductFulltype(), summary.getProductFulltype(), currentZRow));
+        item.setSkuGroup(mergeCurrentZValue(item.getSkuGroup(), summary.getSkuGroup(), currentZRow));
+        item.setGroupRef(mergeCurrentZValue(item.getGroupRef(), summary.getGroupRef(), currentZRow));
+        item.setGroupRefCanonical(mergeCurrentZValue(item.getGroupRefCanonical(), summary.getGroupRefCanonical(), currentZRow));
+        item.setLiveStatus(mergeCurrentZValue(item.getLiveStatus(), summary.getLiveStatus(), currentZRow));
+        item.setStatusCode(mergeCurrentZValue(item.getStatusCode(), summary.getStatusCode(), currentZRow));
+        item.setIsActive(mergeCurrentZValue(item.getIsActive(), summary.getIsActive(), currentZRow));
+        item.setSyncStatus(mergeCurrentZValue(item.getSyncStatus(), summary.getSyncStatus(), currentZRow));
+        item.setLastSyncedAt(mergeCurrentZValue(item.getLastSyncedAt(), summary.getLastSyncedAt(), currentZRow));
+        item.setLastDraftSavedAt(mergeCurrentZValue(item.getLastDraftSavedAt(), summary.getLastDraftSavedAt(), currentZRow));
+        item.setDetailBaselineStatus(mergeCurrentZValue(item.getDetailBaselineStatus(), summary.getDetailBaselineStatus(), currentZRow));
+        item.setDetailBaselineMessage(mergeCurrentZValue(item.getDetailBaselineMessage(), summary.getDetailBaselineMessage(), currentZRow));
+        item.setDetailBaselineSyncedAt(mergeCurrentZValue(item.getDetailBaselineSyncedAt(), summary.getDetailBaselineSyncedAt(), currentZRow));
+        item.setProductVariantSpecStatus(mergeCurrentZValue(item.getProductVariantSpecStatus(), summary.getProductVariantSpecStatus(), currentZRow));
+        item.setProductVariantSpecTotalCount(mergeCurrentZValue(
+                item.getProductVariantSpecTotalCount(),
+                summary.getProductVariantSpecTotalCount(),
+                currentZRow
+        ));
+        item.setProductVariantSpecReadyCount(mergeCurrentZValue(
+                item.getProductVariantSpecReadyCount(),
+                summary.getProductVariantSpecReadyCount(),
+                currentZRow
+        ));
+        item.setProductVariantSpecMaintainedCount(mergeCurrentZValue(
+                item.getProductVariantSpecMaintainedCount(),
+                summary.getProductVariantSpecMaintainedCount(),
+                currentZRow
+        ));
+        item.setVariantCount(mergeCurrentZValue(item.getVariantCount(), summary.getVariantCount(), currentZRow));
+        item.setSiteOfferCount(mergeCurrentZValue(item.getSiteOfferCount(), summary.getSiteOfferCount(), currentZRow));
+        item.setHistoryMetaReady(mergeCurrentZValue(item.getHistoryMetaReady(), summary.getHistoryMetaReady(), currentZRow));
         item.setPendingKeyContentHistoryCount(
-                summary.getPendingKeyContentHistoryCount() != null
-                        ? summary.getPendingKeyContentHistoryCount()
-                        : item.getPendingKeyContentHistoryCount()
+                mergeCurrentZValue(
+                        item.getPendingKeyContentHistoryCount(),
+                        summary.getPendingKeyContentHistoryCount(),
+                        currentZRow
+                )
         );
         item.setVisibleKeyContentHistoryCount(
-                summary.getVisibleKeyContentHistoryCount() != null
-                        ? summary.getVisibleKeyContentHistoryCount()
-                        : item.getVisibleKeyContentHistoryCount()
+                mergeCurrentZValue(
+                        item.getVisibleKeyContentHistoryCount(),
+                        summary.getVisibleKeyContentHistoryCount(),
+                        currentZRow
+                )
         );
         item.setPendingKeyContentHistoryVisibleAfter(
-                firstNonBlank(summary.getPendingKeyContentHistoryVisibleAfter(), item.getPendingKeyContentHistoryVisibleAfter())
+                mergeCurrentZValue(
+                        item.getPendingKeyContentHistoryVisibleAfter(),
+                        summary.getPendingKeyContentHistoryVisibleAfter(),
+                        currentZRow
+                )
         );
-        if (!summary.getSiteLabels().isEmpty()) {
+        if (!summary.getSiteLabels().isEmpty() && (currentZRow || item.getSiteLabels().isEmpty())) {
             item.setSiteLabels(new ArrayList<>(summary.getSiteLabels()));
         } else if (StringUtils.hasText(summary.getStoreCode()) && item.getSiteLabels().isEmpty()) {
             item.setSiteLabels(new ArrayList<>(List.of(summary.getStoreCode())));
         }
-        if (!summary.getLiveStatuses().isEmpty()) {
+        if (!summary.getLiveStatuses().isEmpty() && (currentZRow || item.getLiveStatuses().isEmpty())) {
             item.setLiveStatuses(new ArrayList<>(summary.getLiveStatuses()));
         } else if (StringUtils.hasText(summary.getLiveStatus()) && item.getLiveStatuses().isEmpty()) {
             item.setLiveStatuses(new ArrayList<>(List.of(summary.getLiveStatus())));
         }
-        if (!summary.getIssueTags().isEmpty()) {
+        if (!summary.getIssueTags().isEmpty() && (currentZRow || item.getIssueTags().isEmpty())) {
             item.setIssueTags(new ArrayList<>(summary.getIssueTags()));
         }
-        item.setTotalFbnStock(summary.getTotalFbnStock() != null ? summary.getTotalFbnStock() : item.getTotalFbnStock());
-        item.setTotalSupermallStock(summary.getTotalSupermallStock() != null ? summary.getTotalSupermallStock() : item.getTotalSupermallStock());
-        item.setTotalFbpStock(summary.getTotalFbpStock() != null ? summary.getTotalFbpStock() : item.getTotalFbpStock());
-        item.setViewsCount(summary.getViewsCount() != null ? summary.getViewsCount() : item.getViewsCount());
-        item.setUnitsSold(summary.getUnitsSold() != null ? summary.getUnitsSold() : item.getUnitsSold());
-        item.setSalesAmount(firstNonBlank(summary.getSalesAmount(), item.getSalesAmount()));
-        item.setSalesCurrency(firstNonBlank(summary.getSalesCurrency(), item.getSalesCurrency()));
-        item.setLastPublishTask(summary.getLastPublishTask() != null ? summary.getLastPublishTask() : item.getLastPublishTask());
+        item.setTotalFbnStock(mergeCurrentZValue(item.getTotalFbnStock(), summary.getTotalFbnStock(), currentZRow));
+        item.setTotalSupermallStock(mergeCurrentZValue(item.getTotalSupermallStock(), summary.getTotalSupermallStock(), currentZRow));
+        item.setTotalFbpStock(mergeCurrentZValue(item.getTotalFbpStock(), summary.getTotalFbpStock(), currentZRow));
+        item.setViewsCount(mergeCurrentZValue(item.getViewsCount(), summary.getViewsCount(), currentZRow));
+        item.setUnitsSold(mergeCurrentZValue(item.getUnitsSold(), summary.getUnitsSold(), currentZRow));
+        item.setSalesAmount(mergeCurrentZValue(item.getSalesAmount(), summary.getSalesAmount(), currentZRow));
+        item.setSalesCurrency(mergeCurrentZValue(item.getSalesCurrency(), summary.getSalesCurrency(), currentZRow));
+        item.setLastPublishTask(mergeCurrentZValue(item.getLastPublishTask(), summary.getLastPublishTask(), currentZRow));
         return item;
+    }
+
+    private boolean isCurrentZRow(
+            LocalDbStoreInitializationService.StoreInitializationProductListItemView item,
+            ProductListSummaryView summary
+    ) {
+        String itemCurrentZCode = normalize(item.getCurrentZCode());
+        String summaryCurrentZCode = firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent());
+        return !StringUtils.hasText(itemCurrentZCode)
+                || !StringUtils.hasText(summaryCurrentZCode)
+                || itemCurrentZCode.equalsIgnoreCase(summaryCurrentZCode);
+    }
+
+    private String mergeCurrentZValue(String currentValue, String nextValue, boolean currentZRow) {
+        return currentZRow
+                ? firstNonBlank(nextValue, currentValue)
+                : firstNonBlank(currentValue, nextValue);
+    }
+
+    private <T> T mergeCurrentZValue(T currentValue, T nextValue, boolean currentZRow) {
+        if (currentZRow) {
+            return nextValue != null ? nextValue : currentValue;
+        }
+        return currentValue != null ? currentValue : nextValue;
     }
 
     private String resolveLastDatasetSyncedAt(
@@ -379,6 +404,17 @@ public class ProductReadModelService {
             }
         }
         return null;
+    }
+
+    private String productIdentityKey(String storeCode, ProductListSummaryView summary) {
+        if (summary == null) {
+            return null;
+        }
+        String productKey = firstNonBlank(summary.getPartnerSku(), summary.getSkuParent());
+        if (!StringUtils.hasText(productKey)) {
+            return null;
+        }
+        return firstNonBlank(summary.getStoreCode(), storeCode) + "::" + productKey;
     }
 
     private String normalize(String value) {
