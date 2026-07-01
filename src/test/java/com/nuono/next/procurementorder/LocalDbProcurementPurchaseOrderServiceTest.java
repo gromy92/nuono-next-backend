@@ -423,6 +423,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         verify(mapper).markHistoricalProductForwarderChannelQuote(
                 307L,
                 "STR69486-NSA",
+                301L,
                 "SGGRB115",
                 320001L,
                 "ET",
@@ -791,6 +792,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.selectCurrentProductForwarderChannelQuote(
                 307L,
                 "STR69486-NSA",
+                301L,
                 "SGGRB115",
                 320001L,
                 "YT",
@@ -1140,6 +1142,45 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         verify(mapper).insertShippingOrderLine(lineCaptor.capture(), eq(307L));
         assertThat(lineCaptor.getValue().productVariantId).isEqualTo(320001L);
         assertThat(lineCaptor.getValue().yiteMaterial).isEqualTo("塑料");
+    }
+
+    @Test
+    void createShippingOrderReusesLegacyYiteMaterialWithoutSourceStore() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "SUBMITTED";
+        PurchaseOrderLogisticsQuoteLineRecord sourceLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
+        sourceLine.yiteMaterial = null;
+        ProductForwarderDeclarationAttributeRecord legacyAttribute =
+                productForwarderDeclarationAttribute("金属");
+        legacyAttribute.sourceStoreCode = null;
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(sourceLine));
+        when(mapper.listProductForwarderDeclarationAttributes(
+                307L,
+                "YT",
+                "YITE_MATERIAL",
+                List.of(320001L),
+                List.of("SGGRB115")
+        )).thenReturn(List.of(legacyAttribute));
+        when(mapper.countActiveShippingOrderLinesByItemSites(List.of(220002L))).thenReturn(0);
+        when(mapper.nextShippingOrderId()).thenReturn(290001L);
+        when(mapper.nextShippingOrderLineId()).thenReturn(291001L);
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder());
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(sourceLine));
+
+        CreateShippingOrderCommand command = new CreateShippingOrderCommand();
+        command.purchaseOrderIds = List.of("200001");
+
+        service.createShippingOrder(access(), command);
+
+        ArgumentCaptor<ShippingOrderLineRecord> lineCaptor =
+                ArgumentCaptor.forClass(ShippingOrderLineRecord.class);
+        verify(mapper).insertShippingOrderLine(lineCaptor.capture(), eq(307L));
+        assertThat(lineCaptor.getValue().productVariantId).isEqualTo(320001L);
+        assertThat(lineCaptor.getValue().sourceStoreCode).isEqualTo("STR69486-NSA");
+        assertThat(lineCaptor.getValue().yiteMaterial).isEqualTo("金属");
     }
 
     @Test

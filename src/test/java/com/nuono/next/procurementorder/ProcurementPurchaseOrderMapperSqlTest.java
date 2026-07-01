@@ -204,6 +204,7 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 "selectCurrentProductForwarderChannelQuote",
                 Long.class,
                 String.class,
+                Long.class,
                 String.class,
                 Long.class,
                 String.class,
@@ -218,13 +219,18 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(sql).contains("FROM product_forwarder_channel_quote");
         assertThat(sql).contains("owner_user_id = #{ownerUserId}");
         assertThat(sql).contains("UPPER(partner_sku) = UPPER(#{partnerSku})");
-        assertThat(sql).contains("UPPER(source_store_code) = UPPER(#{sourceStoreCode})");
+        assertThat(sql).contains("logical_store_id IS NULL OR logical_store_id = #{logicalStoreId}");
+        assertThat(sql).contains("source_store_code IS NULL OR TRIM(source_store_code) = '' OR UPPER(source_store_code) = UPPER(#{sourceStoreCode})");
         assertThat(sql).contains("product_variant_id = #{productVariantId}");
         assertThat(sql).contains("forwarder_code = #{forwarderCode}");
         assertThat(sql).contains("COALESCE(site_code, '') = COALESCE(#{siteCode}, '')");
         assertThat(sql).contains("effective_status = 'CURRENT'");
         assertThat(sql).contains("is_deleted = b'0'");
-        assertThat(sql).contains("ORDER BY confirmed_at DESC, id DESC");
+        assertThat(sql).contains("ORDER BY CASE");
+        assertThat(sql).contains("TRIM(source_store_code) != ''");
+        assertThat(sql).contains("UPPER(source_store_code) = UPPER(#{sourceStoreCode}) THEN 0");
+        assertThat(sql).contains("confirmed_at DESC, id DESC");
+        assertThat(sql).doesNotContain("TRIM(source_store_code) <>");
     }
 
     @Test
@@ -326,6 +332,7 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 "softDeleteProductForwarderDeclarationAttribute",
                 Long.class,
                 String.class,
+                Long.class,
                 String.class,
                 Long.class,
                 String.class,
@@ -359,7 +366,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(deleteSql).contains("SET is_deleted = b'1'");
         assertThat(deleteSql).contains("owner_user_id = #{ownerUserId}");
         assertThat(deleteSql).contains("UPPER(partner_sku) = UPPER(#{partnerSku})");
-        assertThat(deleteSql).contains("UPPER(source_store_code) = UPPER(#{sourceStoreCode})");
+        assertThat(deleteSql).contains("logical_store_id IS NULL OR logical_store_id = #{logicalStoreId}");
+        assertThat(deleteSql).contains("source_store_code IS NULL OR TRIM(source_store_code) = '' OR UPPER(source_store_code) = UPPER(#{sourceStoreCode})");
         assertThat(deleteSql).contains("product_variant_id = #{productVariantId}");
         assertThat(deleteSql).contains("forwarder_code = #{forwarderCode}");
         assertThat(deleteSql).contains("attribute_code = #{attributeCode}");
