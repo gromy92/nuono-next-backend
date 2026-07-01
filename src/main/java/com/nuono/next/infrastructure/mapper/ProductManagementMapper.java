@@ -959,23 +959,6 @@ public interface ProductManagementMapper {
     );
 
     @Select({
-            "SELECT pm.id",
-            "FROM product_variant pv",
-            "JOIN product_master pm",
-            "  ON pm.id = pv.product_master_id",
-            " AND pm.logical_store_id = pv.logical_store_id",
-            " AND pm.is_deleted = 0",
-            "WHERE pv.logical_store_id = #{logicalStoreId}",
-            "  AND pv.partner_sku = #{partnerSku}",
-            "  AND pv.is_deleted = 0",
-            "LIMIT 1"
-    })
-    Long selectProductMasterIdByStorePartnerSku(
-            @Param("logicalStoreId") Long logicalStoreId,
-            @Param("partnerSku") String partnerSku
-    );
-
-    @Select({
             "SELECT",
             "  pm.id AS productMasterId,",
             "  ls.id AS logicalStoreId,",

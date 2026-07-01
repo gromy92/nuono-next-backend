@@ -94,6 +94,8 @@ class ProductManagementPskuIdentityMapperSqlTest {
                 String.class,
                 String.class,
                 String.class,
+                String.class,
+                String.class,
                 Integer.class,
                 Integer.class,
                 String.class,

@@ -395,7 +395,7 @@ class ProductProjectionPersistenceServiceListSummaryTest {
                 new ArrayList<>()
         );
 
-        verify(productManagementMapper, never()).nextProductMasterId();
+        verify(productManagementMapper, times(1)).nextProductMasterId();
         verify(productManagementMapper, times(1)).nextProductVariantId();
         verify(productManagementMapper, times(2)).upsertProductVariant(
                 53001L,
