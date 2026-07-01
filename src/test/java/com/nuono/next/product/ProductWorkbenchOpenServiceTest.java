@@ -42,6 +42,7 @@ class ProductWorkbenchOpenServiceTest {
         when(productProjectionPersistenceService.loadLatestBaselineSnapshot(
                 eq(10002L),
                 eq("STR245027-NAE"),
+                eq(null),
                 eq("PAPERSAYSB132"),
                 anyList()
         )).thenReturn(null);
@@ -52,6 +53,7 @@ class ProductWorkbenchOpenServiceTest {
         verify(productProjectionPersistenceService, never()).loadPersistedWorkbenchState(
                 eq(10002L),
                 eq("STR245027-NAE"),
+                eq(null),
                 eq("PAPERSAYSB132"),
                 anyList()
         );
@@ -65,12 +67,14 @@ class ProductWorkbenchOpenServiceTest {
         when(productProjectionPersistenceService.loadLatestBaselineSnapshot(
                 eq(10002L),
                 eq("STR245027-NAE"),
+                eq(null),
                 eq("PAPERSAYSB132"),
                 anyList()
         )).thenReturn(baseline);
         when(productProjectionPersistenceService.loadPersistedWorkbenchState(
                 eq(10002L),
                 eq("STR245027-NAE"),
+                eq(null),
                 eq("PAPERSAYSB132"),
                 anyList()
         )).thenReturn(null);
@@ -90,6 +94,7 @@ class ProductWorkbenchOpenServiceTest {
         verify(productProjectionPersistenceService).clearInactivePersistedDraft(
                 eq(10002L),
                 eq("STR245027-NAE"),
+                eq(null),
                 eq("PAPERSAYSB132"),
                 eq("2026-06-04 10:00:00"),
                 anyList()

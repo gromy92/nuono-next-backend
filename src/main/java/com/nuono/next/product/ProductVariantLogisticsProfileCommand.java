@@ -5,6 +5,7 @@ public class ProductVariantLogisticsProfileCommand {
     public Long ownerUserId;
     public String storeCode;
     public String skuParent;
+    public String partnerSku;
     public Long variantId;
     public String profileStatus;
     public String batteryElectricType;

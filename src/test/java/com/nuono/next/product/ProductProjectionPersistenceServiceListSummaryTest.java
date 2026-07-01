@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -59,6 +58,7 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     void shouldLoadAuthoritativeProjectionSummaryWhenRowExists() {
         ProductListProjectionRecord record = new ProductListProjectionRecord();
         record.setSkuParent("ZTEST001");
+        record.setCurrentZCode("ZTEST001");
         record.setPartnerSku("PARTNER-001");
         record.setPskuCode("PSKU-001");
         record.setOfferCode("OFFER-001");
@@ -103,6 +103,8 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertTrue(summary.isReady());
         assertEquals("projection", summary.getSource());
         assertEquals("ZTEST001", summary.getSkuParent());
+        assertEquals("ZTEST001", summary.getCurrentZCode());
+        assertEquals("PARTNER-001", summary.getPartnerSku());
         assertEquals("draft", summary.getSyncStatus());
         assertEquals("ready", summary.getDetailBaselineStatus());
         assertEquals("详情基线已准备。", summary.getDetailBaselineMessage());
@@ -119,6 +121,43 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("星耀琥珀香薰炉", summary.getTitleCn());
         assertEquals(List.of("AE"), summary.getSiteLabels());
         assertEquals(List.of("LIVE"), summary.getLiveStatuses());
+    }
+
+    @Test
+    void shouldPreferPartnerSkuWhenLoadingProjectionSummary() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZCURRENT001");
+        record.setCurrentZCode("ZCURRENT001");
+        record.setPartnerSku("PARTNER-PSKU-001");
+        record.setPskuCode("NOON-EXTERNAL-PSKU");
+        record.setTitle("PSKU anchored product");
+        record.setSyncStatus("synced");
+
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectProductListProjectionByStorePartnerSku(
+                50001L,
+                "STR245027-NAE",
+                "PARTNER-PSKU-001"
+        )).thenReturn(record);
+
+        ProductListSummaryView summary = service.loadProductListSummary(
+                10002L,
+                "STR245027-NAE",
+                "PARTNER-PSKU-001",
+                null,
+                new ArrayList<>()
+        );
+
+        assertTrue(summary.isReady());
+        assertEquals("PARTNER-PSKU-001", summary.getPartnerSku());
+        assertEquals("ZCURRENT001", summary.getCurrentZCode());
+        assertEquals("ZCURRENT001", summary.getSkuParent());
+        verify(productManagementMapper, never()).selectProductListProjectionBySkuParent(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("PARTNER-PSKU-001")
+        );
     }
 
     @Test
@@ -139,9 +178,76 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void shouldFallbackToCurrentZCodeWhenPartnerSkuIsAbsent() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZLEGACY001");
+        record.setCurrentZCode("ZLEGACY001");
+        record.setTitle("Legacy product");
+        record.setSyncStatus("synced");
+        when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZLEGACY001"))
+                .thenReturn(record);
+
+        ProductListSummaryView summary = service.loadProductListSummary(
+                10002L,
+                "STR245027-NAE",
+                null,
+                "ZLEGACY001",
+                new ArrayList<>()
+        );
+
+        assertTrue(summary.isReady());
+        assertEquals("ZLEGACY001", summary.getSkuParent());
+        assertEquals("ZLEGACY001", summary.getCurrentZCode());
+    }
+
+    @Test
+    void historyShouldResolveProductMasterByPartnerSkuBeforeSkuParent() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZCURRENT001");
+        record.setCurrentZCode("ZCURRENT001");
+        record.setPartnerSku("PARTNER-PSKU-001");
+        record.setTitle("PSKU history product");
+        record.setSyncStatus("synced");
+
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectProductListProjectionByStorePartnerSku(
+                50001L,
+                "STR245027-NAE",
+                "PARTNER-PSKU-001"
+        )).thenReturn(record);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50001L, "PARTNER-PSKU-001"))
+                .thenReturn(52001L);
+        when(productManagementMapper.selectRecentProductPublishTasks(52001L)).thenReturn(List.of());
+        when(productManagementMapper.selectRecentProductActionLogs(52001L)).thenReturn(List.of());
+        when(productManagementMapper.selectPendingProductKeyContentHistories(52001L)).thenReturn(List.of());
+        when(productManagementMapper.selectVisibleProductKeyContentHistories(52001L)).thenReturn(List.of());
+        when(productManagementMapper.countVisibleProductKeyContentHistories(52001L)).thenReturn(0);
+        when(productManagementMapper.countPendingProductKeyContentHistories(52001L)).thenReturn(0);
+
+        ProductHistoryView view = service.loadProductHistoryView(
+                10002L,
+                "STR245027-NAE",
+                "PARTNER-PSKU-001",
+                null,
+                new ArrayList<>()
+        );
+
+        assertTrue(view.isReady());
+        assertEquals("PARTNER-PSKU-001", view.getListSummary().getPartnerSku());
+        assertEquals("ZCURRENT001", view.getListSummary().getCurrentZCode());
+        verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("ZCURRENT001")
+        );
+    }
+
+    @Test
     void listSummariesShouldNotHydrateHistoryMetadataPerRow() {
         ProductListProjectionRecord record = new ProductListProjectionRecord();
         record.setSkuParent("ZTEST001");
+        record.setCurrentZCode("ZTEST001");
         record.setTitle("Amber Burner");
         record.setDetailBaselineStatus("missing");
         record.setSyncStatus("synced");
@@ -236,13 +342,14 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         when(productManagementMapper.selectLogicalStoreId(307L, "PRJ69486")).thenReturn(50003L);
         when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR69486-NSA")).thenReturn(50003L);
         when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50003L, "STR69486-NSA")).thenReturn(51003L);
-        when(productManagementMapper.selectProductMasterId(50003L, "ZOLDPSKU001")).thenReturn(52001L);
-        when(productManagementMapper.selectProductMasterId(50003L, "ZNEWPSKU001")).thenReturn(null, 52002L);
-        when(productManagementMapper.nextProductMasterId()).thenReturn(52002L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50003L, "SGGRB113"))
+                .thenReturn(null, 52001L, 52001L, 52001L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52001L);
         when(productManagementMapper.selectProductVariantIdByStorePartnerSku(50003L, "SGGRB113"))
                 .thenReturn(null, 53001L, 53001L, 53001L);
         when(productManagementMapper.nextProductVariantId()).thenReturn(53001L, 53002L);
-        when(productManagementMapper.selectProductSiteOfferId(anyLong(), eq(51003L))).thenReturn(null, 54001L);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(50003L, "SGGRB113", "SA"))
+                .thenReturn(null, 54001L);
         when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54001L);
 
         service.persistInitializationProjection(
@@ -259,21 +366,10 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         );
 
         verify(productManagementMapper, times(1)).nextProductVariantId();
-        verify(productManagementMapper).upsertProductVariant(
+        verify(productManagementMapper, times(2)).upsertProductVariant(
                 53001L,
                 50003L,
                 52001L,
-                "SGGRB113-CHILD",
-                "SGGRB113",
-                null,
-                null,
-                null,
-                307L
-        );
-        verify(productManagementMapper).upsertProductVariant(
-                53001L,
-                50003L,
-                52002L,
                 "SGGRB113-CHILD",
                 "SGGRB113",
                 null,
@@ -508,6 +604,8 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         verify(productManagementMapper).upsertProductMaster(
                 eq(52006L),
                 eq(50003L),
+                isNull(),
+                eq("ZIMAGE001"),
                 eq("ZIMAGE001"),
                 eq("SELF_BUILT"),
                 eq("Papersays"),

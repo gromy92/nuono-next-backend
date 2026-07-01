@@ -45,8 +45,11 @@ class ProductWorkbenchViewAssembler {
             if (StringUtils.hasText(command.getStoreCode())) {
                 view.getStoreContext().put("storeCode", command.getStoreCode());
             }
-            if (StringUtils.hasText(command.getSkuParent())) {
-                view.getIdentity().put("skuParent", command.getSkuParent());
+            String currentZCode = firstNonBlank(command.getCurrentZCode(), command.getSkuParent());
+            if (StringUtils.hasText(currentZCode)) {
+                view.setCurrentZCode(currentZCode);
+                view.getIdentity().put("currentZCode", currentZCode);
+                view.getIdentity().put("skuParent", currentZCode);
             }
             if (StringUtils.hasText(command.getPartnerSku())) {
                 view.getIdentity().put("partnerSku", command.getPartnerSku());
@@ -86,6 +89,7 @@ class ProductWorkbenchViewAssembler {
         target.setWarnings(userVisibleWarnings(source.getWarnings()));
         target.setStoreContext(new LinkedHashMap<>(source.getStoreContext()));
         target.setIdentity(new LinkedHashMap<>(source.getIdentity()));
+        normalizeIdentityAliases(target);
         target.setTaxonomy(new LinkedHashMap<>(source.getTaxonomy()));
         target.setContent(new LinkedHashMap<>(source.getContent()));
         target.setPlatformSignals(new LinkedHashMap<>(source.getPlatformSignals()));
@@ -96,6 +100,23 @@ class ProductWorkbenchViewAssembler {
         target.setStock(new LinkedHashMap<>(source.getStock()));
         target.setSiteOffers(copyRecordList(source.getSiteOffers()));
         target.setDegraded(source.isDegraded());
+    }
+
+    private void normalizeIdentityAliases(ProductMasterSnapshotView target) {
+        if (target == null || target.getIdentity() == null) {
+            return;
+        }
+        String currentZCode = firstNonBlank(
+                text(target.getIdentity().get("currentZCode")),
+                text(target.getIdentity().get("skuParent"))
+        );
+        if (StringUtils.hasText(currentZCode)) {
+            target.getIdentity().put("currentZCode", currentZCode);
+            target.getIdentity().put("skuParent", currentZCode);
+            if (target instanceof ProductMasterWorkbenchView) {
+                ((ProductMasterWorkbenchView) target).setCurrentZCode(currentZCode);
+            }
+        }
     }
 
     private ProductMasterSnapshotView copySnapshot(ProductMasterSnapshotView source) {
@@ -136,5 +157,13 @@ class ProductWorkbenchViewAssembler {
             }
         }
         return visible;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        return StringUtils.hasText(first) ? first.trim() : (StringUtils.hasText(second) ? second.trim() : null);
+    }
+
+    private String text(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }

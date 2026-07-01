@@ -52,6 +52,23 @@ public class ProductVariantLogisticsProfileController {
         }
     }
 
+    @GetMapping("/by-psku")
+    public ProductVariantLogisticsProfileView detailByPsku(
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            HttpServletRequest request
+    ) {
+        try {
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            return requireService().detailByPsku(resolvedOwnerUserId, storeCode, partnerSku);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PutMapping("/{variantId}")
     public ProductVariantLogisticsProfileView save(
             @PathVariable Long variantId,
@@ -67,6 +84,26 @@ public class ProductVariantLogisticsProfileController {
             effectiveCommand.variantId = variantId;
             effectiveCommand.operatorUserId = session.getUserId();
             return requireService().save(effectiveCommand);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PutMapping("/by-psku")
+    public ProductVariantLogisticsProfileView saveByPsku(
+            @RequestBody(required = false) ProductVariantLogisticsProfileCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            ProductVariantLogisticsProfileCommand effectiveCommand =
+                    command == null ? new ProductVariantLogisticsProfileCommand() : command;
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, effectiveCommand.storeCode);
+            effectiveCommand.ownerUserId = resolvedOwnerUserId;
+            effectiveCommand.operatorUserId = session.getUserId();
+            return requireService().saveByPsku(effectiveCommand);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (IllegalArgumentException exception) {

@@ -579,17 +579,30 @@ public interface ProcurementPurchaseOrderMapper {
     List<ForwarderTransportFeeRecord> listTransportFeesByServiceCodes(@Param("serviceCodes") List<String> serviceCodes);
 
     @Select({
+            "<script>",
             "SELECT lss.id AS site_id, lss.site AS site_code, pso.id AS product_site_offer_id,",
             "       pso.psku_code, pso.offer_code",
             "FROM logical_store_site lss",
-            "JOIN product_site_offer pso ON pso.site_id = lss.id AND pso.variant_id = #{variantId} AND pso.is_deleted = b'0'",
+            "JOIN product_site_offer pso ON pso.site_id = lss.id AND pso.is_deleted = b'0'",
+            "JOIN product_variant pv ON pv.id = pso.variant_id AND pv.is_deleted = b'0'",
+            "JOIN product_master pm ON pm.id = pv.product_master_id AND pm.logical_store_id = lss.logical_store_id AND pm.is_deleted = b'0'",
             "WHERE lss.logical_store_id = #{logicalStoreId}",
             "  AND lss.site = #{siteCode}",
             "  AND lss.is_deleted = b'0'",
-            "LIMIT 1"
+            "<choose>",
+            "  <when test='partnerSku != null and partnerSku != \"\"'>",
+            "    AND UPPER(COALESCE(NULLIF(pso.partner_sku, ''), NULLIF(pm.partner_sku, ''), pv.partner_sku)) = UPPER(#{partnerSku})",
+            "  </when>",
+            "  <otherwise>",
+            "    AND pso.variant_id = #{variantId}",
+            "  </otherwise>",
+            "</choose>",
+            "LIMIT 1",
+            "</script>"
     })
     ProductOfferRecord selectProductOffer(
             @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
             @Param("variantId") Long variantId,
             @Param("siteCode") String siteCode
     );
@@ -754,13 +767,13 @@ public interface ProcurementPurchaseOrderMapper {
     @Select({
             "SELECT * FROM procurement_purchase_order_item",
             "WHERE purchase_order_id = #{orderId}",
-            "  AND product_variant_id = #{variantId}",
+            "  AND UPPER(partner_sku) = UPPER(#{partnerSku})",
             "  AND is_deleted = b'0'",
             "LIMIT 1"
     })
-    PurchaseOrderItemRecord selectItemByVariant(
+    PurchaseOrderItemRecord selectItemByPartnerSku(
             @Param("orderId") Long orderId,
-            @Param("variantId") Long variantId
+            @Param("partnerSku") String partnerSku
     );
 
     @Insert({
@@ -966,7 +979,9 @@ public interface ProcurementPurchaseOrderMapper {
     @Select({
             "<script>",
             "SELECT id, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
-            "       product_variant_id AS productVariantId, barcode, forwarder_code AS forwarderCode,",
+            "       product_variant_id AS productVariantId, logical_store_id AS logicalStoreId,",
+            "       source_store_code AS sourceStoreCode, partner_sku AS partnerSku,",
+            "       barcode, forwarder_code AS forwarderCode,",
             "       attribute_code AS attributeCode, attribute_value AS attributeValue,",
             "       source_shipping_order_id AS sourceShippingOrderId,",
             "       source_shipping_order_line_id AS sourceShippingOrderLineId,",
@@ -977,33 +992,53 @@ public interface ProcurementPurchaseOrderMapper {
             "  AND forwarder_code = #{forwarderCode}",
             "  AND attribute_code = #{attributeCode}",
             "  AND is_deleted = b'0'",
-            "<if test='productVariantIds != null and productVariantIds.size() &gt; 0'>",
-            "  AND product_variant_id IN",
-            "  <foreach collection='productVariantIds' item='productVariantId' open='(' separator=',' close=')'>",
-            "    #{productVariantId}",
-            "  </foreach>",
-            "</if>",
+            "<choose>",
+            "  <when test='partnerSkus != null and partnerSkus.size() &gt; 0'>",
+            "    AND (",
+            "      UPPER(partner_sku) IN",
+            "      <foreach collection='partnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
+            "        UPPER(#{partnerSku})",
+            "      </foreach>",
+            "      <if test='productVariantIds != null and productVariantIds.size() &gt; 0'>",
+            "        OR product_variant_id IN",
+            "        <foreach collection='productVariantIds' item='productVariantId' open='(' separator=',' close=')'>",
+            "          #{productVariantId}",
+            "        </foreach>",
+            "      </if>",
+            "    )",
+            "  </when>",
+            "  <when test='productVariantIds != null and productVariantIds.size() &gt; 0'>",
+            "    AND product_variant_id IN",
+            "    <foreach collection='productVariantIds' item='productVariantId' open='(' separator=',' close=')'>",
+            "      #{productVariantId}",
+            "    </foreach>",
+            "  </when>",
+            "</choose>",
             "</script>"
     })
     List<ProductForwarderDeclarationAttributeRecord> listProductForwarderDeclarationAttributes(
             @Param("ownerUserId") Long ownerUserId,
             @Param("forwarderCode") String forwarderCode,
             @Param("attributeCode") String attributeCode,
-            @Param("productVariantIds") List<Long> productVariantIds
+            @Param("productVariantIds") List<Long> productVariantIds,
+            @Param("partnerSkus") List<String> partnerSkus
     );
 
     @Insert({
             "INSERT INTO product_forwarder_declaration_attribute (",
-            "id, owner_user_id, product_master_id, product_variant_id, barcode,",
+            "id, owner_user_id, product_master_id, product_variant_id, logical_store_id, source_store_code, partner_sku, barcode,",
             "forwarder_code, attribute_code, attribute_value, source_shipping_order_id, source_shipping_order_line_id,",
             "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.productMasterId}, #{row.productVariantId}, #{row.barcode},",
+            "#{row.id}, #{row.ownerUserId}, #{row.productMasterId}, #{row.productVariantId}, #{row.logicalStoreId}, #{row.sourceStoreCode}, #{row.partnerSku}, #{row.barcode},",
             "#{row.forwarderCode}, #{row.attributeCode}, #{row.attributeValue}, #{row.sourceShippingOrderId}, #{row.sourceShippingOrderLineId},",
             "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
             "  product_master_id = VALUES(product_master_id),",
+            "  logical_store_id = VALUES(logical_store_id),",
+            "  source_store_code = VALUES(source_store_code),",
+            "  partner_sku = VALUES(partner_sku),",
             "  barcode = VALUES(barcode),",
             "  attribute_value = VALUES(attribute_value),",
             "  source_shipping_order_id = VALUES(source_shipping_order_id),",
@@ -1018,18 +1053,32 @@ public interface ProcurementPurchaseOrderMapper {
     );
 
     @Update({
+            "<script>",
             "UPDATE product_forwarder_declaration_attribute",
             "SET is_deleted = b'1',",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE owner_user_id = #{ownerUserId}",
-            "  AND product_variant_id = #{productVariantId}",
             "  AND forwarder_code = #{forwarderCode}",
             "  AND attribute_code = #{attributeCode}",
-            "  AND is_deleted = b'0'"
+            "<choose>",
+            "  <when test='partnerSku != null and partnerSku != \"\"'>",
+            "    AND UPPER(partner_sku) = UPPER(#{partnerSku})",
+            "    <if test='sourceStoreCode != null and sourceStoreCode != \"\"'>",
+            "      AND UPPER(source_store_code) = UPPER(#{sourceStoreCode})",
+            "    </if>",
+            "  </when>",
+            "  <otherwise>",
+            "    AND product_variant_id = #{productVariantId}",
+            "  </otherwise>",
+            "</choose>",
+            "  AND is_deleted = b'0'",
+            "</script>"
     })
     int softDeleteProductForwarderDeclarationAttribute(
             @Param("ownerUserId") Long ownerUserId,
+            @Param("sourceStoreCode") String sourceStoreCode,
+            @Param("partnerSku") String partnerSku,
             @Param("productVariantId") Long productVariantId,
             @Param("forwarderCode") String forwarderCode,
             @Param("attributeCode") String attributeCode,
@@ -1037,23 +1086,39 @@ public interface ProcurementPurchaseOrderMapper {
     );
 
     @Update({
+            "<script>",
             "UPDATE product_forwarder_channel_quote",
             "SET effective_status = 'HISTORICAL',",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE owner_user_id = #{ownerUserId}",
-            "  AND product_variant_id = #{productVariantId}",
             "  AND forwarder_code = #{forwarderCode}",
+            "<choose>",
+            "  <when test='partnerSku != null and partnerSku != \"\"'>",
+            "    AND UPPER(partner_sku) = UPPER(#{partnerSku})",
+            "    <if test='sourceStoreCode != null and sourceStoreCode != \"\"'>",
+            "      AND UPPER(source_store_code) = UPPER(#{sourceStoreCode})",
+            "    </if>",
+            "  </when>",
+            "  <otherwise>",
+            "    AND product_variant_id = #{productVariantId}",
+            "  </otherwise>",
+            "</choose>",
+            "  AND COALESCE(site_code, '') = COALESCE(#{siteCode}, '')",
             "  AND COALESCE(route_code, '') = COALESCE(#{routeCode}, '')",
             "  AND COALESCE(service_code, '') = COALESCE(#{serviceCode}, '')",
             "  AND COALESCE(billing_unit, '') = COALESCE(#{billingUnit}, '')",
             "  AND effective_status = 'CURRENT'",
-            "  AND is_deleted = b'0'"
+            "  AND is_deleted = b'0'",
+            "</script>"
     })
     int markHistoricalProductForwarderChannelQuote(
             @Param("ownerUserId") Long ownerUserId,
+            @Param("sourceStoreCode") String sourceStoreCode,
+            @Param("partnerSku") String partnerSku,
             @Param("productVariantId") Long productVariantId,
             @Param("forwarderCode") String forwarderCode,
+            @Param("siteCode") String siteCode,
             @Param("routeCode") String routeCode,
             @Param("serviceCode") String serviceCode,
             @Param("billingUnit") String billingUnit,
@@ -1062,14 +1127,14 @@ public interface ProcurementPurchaseOrderMapper {
 
     @Insert({
             "INSERT INTO product_forwarder_channel_quote (",
-            "id, owner_user_id, product_master_id, product_variant_id, barcode,",
+            "id, owner_user_id, product_master_id, product_variant_id, logical_store_id, source_store_code, partner_sku, barcode,",
             "forwarder_code, forwarder_name, route_code, route_name, service_code, service_name,",
             "site_code, transport_mode, target_platform, delivery_city, currency, unit_price, billing_unit, estimated_amount,",
             "source_type, source_shipping_order_id, source_shipping_order_line_id, source_quote_line_id,",
             "source_actual_bill_id, source_actual_component_id, source_filename, effective_status, raw_snapshot_json,",
             "is_deleted, confirmed_at, confirmed_by, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.productMasterId}, #{row.productVariantId}, #{row.barcode},",
+            "#{row.id}, #{row.ownerUserId}, #{row.productMasterId}, #{row.productVariantId}, #{row.logicalStoreId}, #{row.sourceStoreCode}, #{row.partnerSku}, #{row.barcode},",
             "#{row.forwarderCode}, #{row.forwarderName}, #{row.routeCode}, #{row.routeName}, #{row.serviceCode}, #{row.serviceName},",
             "#{row.siteCode}, #{row.transportMode}, #{row.targetPlatform}, #{row.deliveryCity}, #{row.currency}, #{row.unitPrice}, #{row.billingUnit}, #{row.estimatedAmount},",
             "#{row.sourceType}, #{row.sourceShippingOrderId}, #{row.sourceShippingOrderLineId}, #{row.sourceQuoteLineId},",
@@ -1083,8 +1148,10 @@ public interface ProcurementPurchaseOrderMapper {
     );
 
     @Select({
+            "<script>",
             "SELECT id, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
-            "       product_variant_id AS productVariantId, barcode,",
+            "       product_variant_id AS productVariantId, logical_store_id AS logicalStoreId,",
+            "       source_store_code AS sourceStoreCode, partner_sku AS partnerSku, barcode,",
             "       forwarder_code AS forwarderCode, forwarder_name AS forwarderName,",
             "       route_code AS routeCode, route_name AS routeName,",
             "       service_code AS serviceCode, service_name AS serviceName,",
@@ -1097,19 +1164,34 @@ public interface ProcurementPurchaseOrderMapper {
             "       source_filename AS sourceFilename, effective_status AS effectiveStatus, raw_snapshot_json AS rawSnapshotJson",
             "FROM product_forwarder_channel_quote",
             "WHERE owner_user_id = #{ownerUserId}",
-            "  AND product_variant_id = #{productVariantId}",
             "  AND forwarder_code = #{forwarderCode}",
+            "<choose>",
+            "  <when test='partnerSku != null and partnerSku != \"\"'>",
+            "    AND UPPER(partner_sku) = UPPER(#{partnerSku})",
+            "    <if test='sourceStoreCode != null and sourceStoreCode != \"\"'>",
+            "      AND UPPER(source_store_code) = UPPER(#{sourceStoreCode})",
+            "    </if>",
+            "  </when>",
+            "  <otherwise>",
+            "    AND product_variant_id = #{productVariantId}",
+            "  </otherwise>",
+            "</choose>",
+            "  AND COALESCE(site_code, '') = COALESCE(#{siteCode}, '')",
             "  AND COALESCE(route_code, '') = COALESCE(#{routeCode}, '')",
             "  AND COALESCE(service_code, '') = COALESCE(#{serviceCode}, '')",
             "  AND effective_status = 'CURRENT'",
             "  AND is_deleted = b'0'",
             "ORDER BY confirmed_at DESC, id DESC",
-            "LIMIT 1"
+            "LIMIT 1",
+            "</script>"
     })
     ProductForwarderChannelQuoteRecord selectCurrentProductForwarderChannelQuote(
             @Param("ownerUserId") Long ownerUserId,
+            @Param("sourceStoreCode") String sourceStoreCode,
+            @Param("partnerSku") String partnerSku,
             @Param("productVariantId") Long productVariantId,
             @Param("forwarderCode") String forwarderCode,
+            @Param("siteCode") String siteCode,
             @Param("routeCode") String routeCode,
             @Param("serviceCode") String serviceCode
     );

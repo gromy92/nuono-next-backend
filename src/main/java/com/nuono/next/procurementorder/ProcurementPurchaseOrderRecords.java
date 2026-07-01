@@ -280,6 +280,9 @@ public final class ProcurementPurchaseOrderRecords {
         public Long ownerUserId;
         public Long productMasterId;
         public Long productVariantId;
+        public Long logicalStoreId;
+        public String sourceStoreCode;
+        public String partnerSku;
         public String barcode;
         public String forwarderCode;
         public String forwarderName;
@@ -477,6 +480,9 @@ public final class ProcurementPurchaseOrderRecords {
         public Long ownerUserId;
         public Long productMasterId;
         public Long productVariantId;
+        public Long logicalStoreId;
+        public String sourceStoreCode;
+        public String partnerSku;
         public String barcode;
         public String forwarderCode;
         public String attributeCode;

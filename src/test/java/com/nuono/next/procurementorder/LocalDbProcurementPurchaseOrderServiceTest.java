@@ -422,8 +422,11 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 ArgumentCaptor.forClass(ProductForwarderChannelQuoteRecord.class);
         verify(mapper).markHistoricalProductForwarderChannelQuote(
                 307L,
+                "STR69486-NSA",
+                "SGGRB115",
                 320001L,
                 "ET",
+                "SA",
                 "ET-SA-AIR",
                 "ET-AIR-202606",
                 "KG",
@@ -431,6 +434,9 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         );
         verify(mapper).insertProductForwarderChannelQuote(quoteCaptor.capture(), eq(307L));
         assertThat(quoteCaptor.getValue().ownerUserId).isEqualTo(307L);
+        assertThat(quoteCaptor.getValue().logicalStoreId).isEqualTo(301L);
+        assertThat(quoteCaptor.getValue().sourceStoreCode).isEqualTo("STR69486-NSA");
+        assertThat(quoteCaptor.getValue().partnerSku).isEqualTo("SGGRB115");
         assertThat(quoteCaptor.getValue().productVariantId).isEqualTo(320001L);
         assertThat(quoteCaptor.getValue().barcode).isEqualTo("BARCODE-115");
         assertThat(quoteCaptor.getValue().forwarderCode).isEqualTo("ET");
@@ -784,8 +790,11 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
         when(mapper.selectCurrentProductForwarderChannelQuote(
                 307L,
+                "STR69486-NSA",
+                "SGGRB115",
                 320001L,
                 "YT",
+                "SA",
                 "YT-SAU-SEA-FBN-RUH",
                 "YT-SAU-SEA-FBN-RUH"
         )).thenReturn(currentQuote);
@@ -1111,7 +1120,8 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 307L,
                 "YT",
                 "YITE_MATERIAL",
-                List.of(320001L)
+                List.of(320001L),
+                List.of("SGGRB115")
         )).thenReturn(List.of(productForwarderDeclarationAttribute("塑料")));
         when(mapper.countActiveShippingOrderLinesByItemSites(List.of(220002L))).thenReturn(0);
         when(mapper.nextShippingOrderId()).thenReturn(290001L);
@@ -1273,9 +1283,9 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 storeSite(30002L, "AE", "STR69486-NAE")
         ));
         when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
-        when(mapper.selectItemByVariant(200001L, 320002L)).thenReturn(null);
+        when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(null);
         when(mapper.nextItemId()).thenReturn(210002L);
-        when(mapper.selectProductOffer(301L, 320002L, "AE")).thenReturn(offer());
+        when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
         when(mapper.nextItemSiteId()).thenReturn(220002L);
         when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow()));
         PurchaseOrderItemRecord savedItem = item();
@@ -1314,7 +1324,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow(210001L, "SGGRB116", "AE", "AIR", 20)));
         when(mapper.listStoreSites(301L)).thenReturn(List.of(storeSite(30002L, "AE", "STR69486-NAE")));
         when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
-        when(mapper.selectItemByVariant(200001L, 320002L)).thenReturn(existingItem);
+        when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(existingItem);
 
         assertThatThrownBy(() -> service.addItems(access(), "200001", command))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -1357,9 +1367,9 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.nextOrderId()).thenReturn(200002L);
         when(mapper.selectOrderById(200002L)).thenReturn(savedOrder, savedOrder);
         when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
-        when(mapper.selectItemByVariant(200002L, 320002L)).thenReturn(null);
+        when(mapper.selectItemByPartnerSku(200002L, "SGGRB116")).thenReturn(null);
         when(mapper.nextItemId()).thenReturn(210002L);
-        when(mapper.selectProductOffer(301L, 320002L, "AE")).thenReturn(offer());
+        when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
         when(mapper.nextItemSiteId()).thenReturn(220002L);
         when(mapper.listItemSitesByOrder(200002L)).thenReturn(List.of(savedSite));
         when(mapper.listItemsByOrder(200002L)).thenReturn(List.of(savedItem));
@@ -1393,8 +1403,8 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 storeSite(30001L, "SA", "STR69486-NSA"),
                 storeSite(30002L, "AE", "STR69486-NAE")
         ));
-        when(mapper.selectProductOffer(301L, 320001L, "SA")).thenReturn(offer("SA", 30001L, 330001L, "SGGRB115"));
-        when(mapper.selectProductOffer(301L, 320001L, "AE")).thenReturn(offer("AE", 30002L, 330002L, "SGGRB115"));
+        when(mapper.selectProductOffer(301L, "SGGRB115", 320001L, "SA")).thenReturn(offer("SA", 30001L, 330001L, "SGGRB115"));
+        when(mapper.selectProductOffer(301L, "SGGRB115", 320001L, "AE")).thenReturn(offer("AE", 30002L, 330002L, "SGGRB115"));
         when(mapper.nextItemSiteId()).thenReturn(220101L, 220102L);
         when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow("SA", "SEA", 80), siteRow("AE", "AIR", 10)));
         when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(existingItem));
@@ -1976,6 +1986,8 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         record.skuParent = "SGGR";
         record.partnerSku = "SGGRB115";
         record.barcode = "BARCODE-115";
+        record.sourceStoreCode = "STR69486-NSA";
+        record.sourceStoreName = "SGGR";
         record.titleCache = "测试商品";
         record.titleEn = "Orange Medium Marker Storage Box";
         record.imageUrlCache = "https://example.test/SGGRB115.jpg";
@@ -2060,6 +2072,9 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         record.ownerUserId = 307L;
         record.productMasterId = 310001L;
         record.productVariantId = 320001L;
+        record.logicalStoreId = 301L;
+        record.sourceStoreCode = "STR69486-NSA";
+        record.partnerSku = "SGGRB115";
         record.barcode = "BARCODE-115";
         record.forwarderCode = "YT";
         record.attributeCode = "YITE_MATERIAL";
@@ -2073,6 +2088,9 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         record.ownerUserId = 307L;
         record.productMasterId = 310001L;
         record.productVariantId = 320001L;
+        record.logicalStoreId = 301L;
+        record.sourceStoreCode = "STR69486-NSA";
+        record.partnerSku = "SGGRB115";
         record.barcode = "BARCODE-115";
         record.forwarderCode = "YT";
         record.forwarderName = "义特物流";

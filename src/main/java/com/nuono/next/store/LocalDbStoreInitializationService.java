@@ -924,12 +924,14 @@ public class LocalDbStoreInitializationService {
                     ignored -> {
                         StoreInitializationProductListItemView created = new StoreInitializationProductListItemView();
                         created.setSkuParent(summary.getSkuParent());
+                        created.setCurrentZCode(firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent()));
                         created.setProductSourceType(summary.getProductSourceType());
                         created.setReferenceStoreCode(storeCode);
                         created.setIssueTags(new ArrayList<>());
                         return created;
                     }
             );
+            item.setCurrentZCode(firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent(), item.getCurrentZCode()));
             item.setProductSourceType(firstNonBlank(summary.getProductSourceType(), item.getProductSourceType()));
             item.setPartnerSku(firstNonBlank(summary.getPartnerSku(), item.getPartnerSku()));
             item.setPskuCode(firstNonBlank(summary.getPskuCode(), item.getPskuCode()));
@@ -1311,6 +1313,7 @@ public class LocalDbStoreInitializationService {
             }
             StoreInitializationProductSampleView sample = new StoreInitializationProductSampleView();
             sample.setSkuParent(entry.skuParent);
+            sample.setCurrentZCode(entry.skuParent);
             sample.setPartnerSku(entry.partnerSku);
             sample.setPskuCode(entry.pskuCode);
             sample.setOfferCode(entry.offerCode);
@@ -1337,6 +1340,7 @@ public class LocalDbStoreInitializationService {
         for (ProductIndexEntry entry : productIndexMap.values()) {
             StoreInitializationProductListItemView item = new StoreInitializationProductListItemView();
             item.setSkuParent(entry.skuParent);
+            item.setCurrentZCode(entry.skuParent);
             item.setProductSourceType(ProductSourceTypeSupport.resolve(null, entry.catalogSku, entry.skuParent));
             item.setPartnerSku(entry.partnerSku);
             item.setPskuCode(entry.pskuCode);
@@ -2285,6 +2289,7 @@ public class LocalDbStoreInitializationService {
         private StoreInitializationProductSampleView copyProductSample(StoreInitializationProductSampleView source) {
             StoreInitializationProductSampleView target = new StoreInitializationProductSampleView();
             target.setSkuParent(source.getSkuParent());
+            target.setCurrentZCode(source.getCurrentZCode());
             target.setProductSourceType(source.getProductSourceType());
             target.setPartnerSku(source.getPartnerSku());
             target.setPskuCode(source.getPskuCode());
@@ -2306,6 +2311,7 @@ public class LocalDbStoreInitializationService {
         private StoreInitializationProductListItemView copyProductItem(StoreInitializationProductListItemView source) {
             StoreInitializationProductListItemView target = new StoreInitializationProductListItemView();
             target.setSkuParent(source.getSkuParent());
+            target.setCurrentZCode(source.getCurrentZCode());
             target.setPartnerSku(source.getPartnerSku());
             target.setPskuCode(source.getPskuCode());
             target.setOfferCode(source.getOfferCode());
@@ -2831,6 +2837,7 @@ public class LocalDbStoreInitializationService {
 
     public static class StoreInitializationProductSampleView {
         private String skuParent;
+        private String currentZCode;
         private String productSourceType;
         private String partnerSku;
         private String pskuCode;
@@ -2854,6 +2861,14 @@ public class LocalDbStoreInitializationService {
 
         public void setSkuParent(String skuParent) {
             this.skuParent = skuParent;
+        }
+
+        public String getCurrentZCode() {
+            return currentZCode;
+        }
+
+        public void setCurrentZCode(String currentZCode) {
+            this.currentZCode = currentZCode;
         }
 
         public String getProductSourceType() {
@@ -2987,6 +3002,7 @@ public class LocalDbStoreInitializationService {
 
     public static class StoreInitializationProductListItemView {
         private String skuParent;
+        private String currentZCode;
         private String productSourceType;
         private String partnerSku;
         private String pskuCode;
@@ -3043,6 +3059,14 @@ public class LocalDbStoreInitializationService {
 
         public void setSkuParent(String skuParent) {
             this.skuParent = skuParent;
+        }
+
+        public String getCurrentZCode() {
+            return currentZCode;
+        }
+
+        public void setCurrentZCode(String currentZCode) {
+            this.currentZCode = currentZCode;
         }
 
         public String getProductSourceType() {

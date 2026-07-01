@@ -193,6 +193,22 @@ public interface ProductManagementMapper {
     })
     Long selectLogicalStoreIdBySiteStoreCode(@Param("storeCode") String storeCode);
 
+    @Select({
+            "SELECT ls.id",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND BINARY lss.store_code = BINARY #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreIdByOwnerStoreCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode
+    );
+
     @Update({
             "<script>",
             "UPDATE logical_store_site",
@@ -553,17 +569,20 @@ public interface ProductManagementMapper {
 
     @Insert({
             "INSERT INTO product_master (",
-            "  id, logical_store_id, sku_parent, product_source_type, brand_cache, title_cache, title_cn_cache, product_fulltype_cache, cover_image_url,",
+            "  id, logical_store_id, partner_sku, current_z_code, sku_parent, product_source_type, brand_cache, title_cache, title_cn_cache, product_fulltype_cache, cover_image_url,",
             "  sku_group, group_name_cache, group_ref, group_member_count, issue_count, issue_summary_json,",
             "  variant_count_cache, sync_status, last_synced_at,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{logicalStoreId}, #{skuParent}, #{productSourceType}, #{brandCache}, #{titleCache}, #{titleCnCache}, #{productFulltypeCache}, #{coverImageUrl},",
+            "  #{id}, #{logicalStoreId}, #{partnerSku}, #{currentZCode}, #{skuParent}, #{productSourceType}, #{brandCache}, #{titleCache}, #{titleCnCache}, #{productFulltypeCache}, #{coverImageUrl},",
             "  #{skuGroup}, #{groupNameCache}, #{groupRef}, #{groupMemberCount}, #{issueCount}, #{issueSummaryJson},",
             "  #{variantCountCache}, #{syncStatus}, #{lastSyncedAt},",
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  partner_sku = COALESCE(NULLIF(VALUES(partner_sku), ''), partner_sku),",
+            "  current_z_code = COALESCE(NULLIF(VALUES(current_z_code), ''), current_z_code),",
+            "  sku_parent = VALUES(sku_parent),",
             "  product_source_type = VALUES(product_source_type),",
             "  brand_cache = VALUES(brand_cache),",
             "  title_cache = VALUES(title_cache),",
@@ -586,6 +605,8 @@ public interface ProductManagementMapper {
     int upsertProductMaster(
             @Param("id") Long id,
             @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
+            @Param("currentZCode") String currentZCode,
             @Param("skuParent") String skuParent,
             @Param("productSourceType") String productSourceType,
             @Param("brandCache") String brandCache,
@@ -715,17 +736,102 @@ public interface ProductManagementMapper {
             @Param("productFulltype") String productFulltype
     );
 
+    default Long selectProductMasterId(Long logicalStoreId, String skuParent) {
+        if (logicalStoreId == null || skuParent == null || skuParent.trim().isEmpty()) {
+            return null;
+        }
+        String normalizedSkuParent = skuParent.trim();
+        Long currentZMatch = selectProductMasterIdByCurrentZCode(logicalStoreId, normalizedSkuParent);
+        if (currentZMatch != null) {
+            return currentZMatch;
+        }
+        return selectProductMasterIdByLegacySkuParent(logicalStoreId, normalizedSkuParent);
+    }
+
+    @Select({
+            "SELECT id",
+            "FROM product_master",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND current_z_code = #{currentZCode}",
+            "  AND is_deleted = 0",
+            "ORDER BY gmt_updated DESC, id DESC",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByCurrentZCode(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("currentZCode") String currentZCode
+    );
+
     @Select({
             "SELECT id",
             "FROM product_master",
             "WHERE logical_store_id = #{logicalStoreId}",
             "  AND sku_parent = #{skuParent}",
             "  AND is_deleted = 0",
+            "ORDER BY gmt_updated DESC, id DESC",
             "LIMIT 1"
     })
-    Long selectProductMasterId(
+    Long selectProductMasterIdByLegacySkuParent(
             @Param("logicalStoreId") Long logicalStoreId,
             @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_master",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = 0",
+            "ORDER BY gmt_updated DESC, id DESC",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByStorePartnerSku(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku
+    );
+
+    default Long selectProductMasterIdByStoreCode(Long ownerUserId, String storeCode, String skuParent) {
+        if (ownerUserId == null || storeCode == null || storeCode.trim().isEmpty()
+                || skuParent == null || skuParent.trim().isEmpty()) {
+            return null;
+        }
+        String normalizedStoreCode = storeCode.trim();
+        String normalizedSkuParent = skuParent.trim();
+        Long currentZMatch = selectProductMasterIdByStoreCodeCurrentZCode(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSkuParent
+        );
+        if (currentZMatch != null) {
+            return currentZMatch;
+        }
+        return selectProductMasterIdByStoreCodeLegacySkuParent(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSkuParent
+        );
+    }
+
+    @Select({
+            "SELECT pm.id",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.current_z_code = #{currentZCode}",
+            " AND pm.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "ORDER BY pm.gmt_updated DESC, pm.id DESC",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByStoreCodeCurrentZCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("currentZCode") String currentZCode
     );
 
     @Select({
@@ -741,9 +847,10 @@ public interface ProductManagementMapper {
             " AND pm.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
+            "ORDER BY pm.gmt_updated DESC, pm.id DESC",
             "LIMIT 1"
     })
-    Long selectProductMasterIdByStoreCode(
+    Long selectProductMasterIdByStoreCodeLegacySkuParent(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
             @Param("skuParent") String skuParent
@@ -954,9 +1061,10 @@ public interface ProductManagementMapper {
 
     @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS currentZCode,",
             "  pm.product_source_type AS productSourceType,",
-            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  pm.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
             "    MAX(pso.psku_code)",
@@ -1144,7 +1252,7 @@ public interface ProductManagementMapper {
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.current_z_code, pm.partner_sku, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "ORDER BY pm.gmt_updated DESC, pm.id DESC"
@@ -1155,8 +1263,37 @@ public interface ProductManagementMapper {
     );
 
     @Select({
+            "SELECT owner_user_id",
+            "FROM logical_store",
+            "WHERE id = #{logicalStoreId}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreOwnerUserId(@Param("logicalStoreId") Long logicalStoreId);
+
+    default ProductListProjectionRecord selectProductListProjectionByStorePartnerSku(
+            Long logicalStoreId,
+            String storeCode,
+            String partnerSku
+    ) {
+        if (logicalStoreId == null || storeCode == null || storeCode.trim().isEmpty()
+                || partnerSku == null || partnerSku.trim().isEmpty()) {
+            return null;
+        }
+        Long productMasterId = selectProductMasterIdByStorePartnerSku(logicalStoreId, partnerSku.trim());
+        if (productMasterId == null) {
+            return null;
+        }
+        Long ownerUserId = selectLogicalStoreOwnerUserId(logicalStoreId);
+        if (ownerUserId == null) {
+            return null;
+        }
+        return selectProductListProjectionByProductMasterId(ownerUserId, storeCode.trim(), productMasterId);
+    }
+
+    @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
             "  pia.url AS imageUrl",
             "FROM logical_store ls",
             "JOIN logical_store_site anchor",
@@ -1182,9 +1319,10 @@ public interface ProductManagementMapper {
 
     @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS currentZCode,",
             "  pm.product_source_type AS productSourceType,",
-            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  pm.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
             "    MAX(pso.psku_code)",
@@ -1371,18 +1509,29 @@ public interface ProductManagementMapper {
             " AND pg_for_member.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "  AND pm.sku_parent = #{skuParent}",
+            "  AND pm.id = #{productMasterId}",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.current_z_code, pm.partner_sku, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "LIMIT 1"
     })
-    ProductListProjectionRecord selectProductListProjectionBySkuParent(
+    ProductListProjectionRecord selectProductListProjectionByProductMasterId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
-            @Param("skuParent") String skuParent
+            @Param("productMasterId") Long productMasterId
     );
+
+    default ProductListProjectionRecord selectProductListProjectionBySkuParent(
+            Long ownerUserId,
+            String storeCode,
+            String skuParent
+    ) {
+        Long productMasterId = selectProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent);
+        return productMasterId == null
+                ? null
+                : selectProductListProjectionByProductMasterId(ownerUserId, storeCode.trim(), productMasterId);
+    }
 
     @Select({
             "<script>",
@@ -1504,9 +1653,20 @@ public interface ProductManagementMapper {
             @Param("limit") int limit
     );
 
+    default ProductGroupCandidateContextRecord selectProductGroupCandidateContext(
+            Long ownerUserId,
+            String storeCode,
+            String skuParent
+    ) {
+        Long productMasterId = selectProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent);
+        return productMasterId == null
+                ? null
+                : selectProductGroupCandidateContextByProductMasterId(ownerUserId, storeCode.trim(), productMasterId);
+    }
+
     @Select({
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
             "  pm.brand_cache AS brand,",
             "  pm.product_fulltype_cache AS productFulltype,",
             "  pm.sku_group AS skuGroup",
@@ -1517,24 +1677,25 @@ public interface ProductManagementMapper {
             " AND anchor.is_deleted = 0",
             "JOIN product_master pm",
             "  ON pm.logical_store_id = ls.id",
-            " AND pm.sku_parent = #{skuParent}",
+            " AND pm.id = #{productMasterId}",
             " AND pm.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
             "LIMIT 1"
     })
-    ProductGroupCandidateContextRecord selectProductGroupCandidateContext(
+    ProductGroupCandidateContextRecord selectProductGroupCandidateContextByProductMasterId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
-            @Param("skuParent") String skuParent
+            @Param("productMasterId") Long productMasterId
     );
 
     @Select({
             "<script>",
             "SELECT",
-            "  pm.sku_parent AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
+            "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS currentZCode,",
             "  pm.product_source_type AS productSourceType,",
-            "  MAX(pv.partner_sku) AS partnerSku,",
+            "  pm.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.psku_code END),",
             "    MAX(pso.psku_code)",
@@ -1648,7 +1809,7 @@ public interface ProductManagementMapper {
             " AND pg_for_member.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "  AND pm.sku_parent != #{skuParent}",
+            "  AND COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) != #{skuParent}",
             "  <if test='brand != null and brand != \"\"'>",
             "    AND LOWER(pm.brand_cache) = LOWER(#{brand})",
             "  </if>",
@@ -1660,7 +1821,7 @@ public interface ProductManagementMapper {
             "  </if>",
             "  <if test='keyword != null and keyword != \"\"'>",
             "    AND (",
-            "      pm.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
+            "      COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.title_cache LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.title_cn_cache LIKE CONCAT('%', #{keyword}, '%')",
             "      OR pm.brand_cache LIKE CONCAT('%', #{keyword}, '%')",
@@ -1682,7 +1843,7 @@ public interface ProductManagementMapper {
             "    )",
             "  </if>",
             "GROUP BY",
-            "  pm.id, pm.sku_parent, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
+            "  pm.id, pm.sku_parent, pm.current_z_code, pm.partner_sku, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "ORDER BY",
@@ -2681,7 +2842,7 @@ public interface ProductManagementMapper {
 
     @Insert({
             "INSERT INTO product_site_offer (",
-            "  id, variant_id, site_id, psku_code, offer_code, currency, price, sale_price, sale_start, sale_end,",
+            "  id, product_master_id, logical_store_id, partner_sku, variant_id, site_id, site_code, psku_code, offer_code, currency, price, sale_price, sale_start, sale_end,",
             "  price_min, price_max, final_price, final_price_source, active_promotion_code, active_promotion_name,",
             "  active_promotion_url, promotion_payload_json, price_synced_at,",
             "  pricing_method, pricing_rule, price_engine_min, price_engine_max,",
@@ -2689,7 +2850,7 @@ public interface ProductManagementMapper {
             "  fbn_stock, supermall_stock, fbp_stock, views_count, units_sold, sales_amount, sales_currency, last_synced_at,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{variantId}, #{siteId}, #{pskuCode}, #{offerCode}, #{currency}, #{price}, #{salePrice}, #{saleStart}, #{saleEnd},",
+            "  #{id}, #{productMasterId}, #{logicalStoreId}, #{partnerSku}, #{variantId}, #{siteId}, #{siteCode}, #{pskuCode}, #{offerCode}, #{currency}, #{price}, #{salePrice}, #{saleStart}, #{saleEnd},",
             "  #{priceMin}, #{priceMax}, #{finalPrice}, #{finalPriceSource}, #{activePromotionCode}, #{activePromotionName},",
             "  #{activePromotionUrl}, #{promotionPayloadJson}, #{priceSyncedAt},",
             "  #{pricingMethod}, #{pricingRule}, #{priceEngineMin}, #{priceEngineMax},",
@@ -2698,8 +2859,12 @@ public interface ProductManagementMapper {
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  product_master_id = COALESCE(VALUES(product_master_id), product_master_id),",
+            "  logical_store_id = COALESCE(VALUES(logical_store_id), logical_store_id),",
+            "  partner_sku = COALESCE(NULLIF(VALUES(partner_sku), ''), partner_sku),",
             "  variant_id = VALUES(variant_id),",
             "  site_id = VALUES(site_id),",
+            "  site_code = COALESCE(NULLIF(VALUES(site_code), ''), site_code),",
             "  psku_code = VALUES(psku_code),",
             "  offer_code = VALUES(offer_code),",
             "  currency = VALUES(currency),",
@@ -2741,8 +2906,12 @@ public interface ProductManagementMapper {
     })
     int upsertProductSiteOffer(
             @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
             @Param("variantId") Long variantId,
             @Param("siteId") Long siteId,
+            @Param("siteCode") String siteCode,
             @Param("pskuCode") String pskuCode,
             @Param("offerCode") String offerCode,
             @Param("currency") String currency,
@@ -3079,6 +3248,21 @@ public interface ProductManagementMapper {
     Long selectProductSiteOfferId(
             @Param("variantId") Long variantId,
             @Param("siteId") Long siteId
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_site_offer",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND site_code = #{siteCode}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductSiteOfferIdByStorePartnerSkuSite(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
+            @Param("siteCode") String siteCode
     );
 
     @Select({

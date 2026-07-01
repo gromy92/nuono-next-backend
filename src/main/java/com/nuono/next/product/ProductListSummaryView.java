@@ -12,6 +12,7 @@ public class ProductListSummaryView {
     private List<String> warnings = new ArrayList<>();
     private String storeCode;
     private String skuParent;
+    private String currentZCode;
     private String productSourceType;
     private String partnerSku;
     private String pskuCode;
@@ -109,6 +110,14 @@ public class ProductListSummaryView {
 
     public void setSkuParent(String skuParent) {
         this.skuParent = skuParent;
+    }
+
+    public String getCurrentZCode() {
+        return currentZCode;
+    }
+
+    public void setCurrentZCode(String currentZCode) {
+        this.currentZCode = currentZCode;
     }
 
     public String getProductSourceType() {

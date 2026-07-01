@@ -6,6 +6,7 @@ import java.util.List;
 public class ProductListProjectionRecord {
 
     private String skuParent;
+    private String currentZCode;
     private String productSourceType;
     private String partnerSku;
     private String pskuCode;
@@ -55,6 +56,14 @@ public class ProductListProjectionRecord {
 
     public void setSkuParent(String skuParent) {
         this.skuParent = skuParent;
+    }
+
+    public String getCurrentZCode() {
+        return currentZCode;
+    }
+
+    public void setCurrentZCode(String currentZCode) {
+        this.currentZCode = currentZCode;
     }
 
     public String getProductSourceType() {

@@ -349,7 +349,8 @@ public class LocalDbWarehouseDispatchService {
             if (!canAccessSourceStore(access, balance.sourceStoreCode)) {
                 continue;
             }
-            String key = balance.productVariantId + "|" + balance.siteCode + "|"
+            String key = stableProductKey(balance.sourceStoreCode, balance.partnerSku, balance.productVariantId)
+                    + "|" + balance.siteCode + "|"
                     + normalizeFulfillmentType(balance.fulfillmentType) + "|"
                     + defaultText(balance.specStatus, "READY");
             ReadyItemView view = grouped.computeIfAbsent(key, ignored -> {
@@ -506,7 +507,7 @@ public class LocalDbWarehouseDispatchService {
             }
             view.lines.add(lineView);
             view.totalQuantity += nonNull(line.quantity);
-            skuKeys.add(String.valueOf(line.productVariantId));
+            skuKeys.add(stableProductKey(null, line.partnerSku, line.productVariantId));
         }
 
         view.itemCount = view.lines.size();
@@ -1237,7 +1238,7 @@ public class LocalDbWarehouseDispatchService {
         view.sourceStoreCode = first.sourceStoreCode;
         view.sourceStoreName = first.sourceStoreName;
         view.skuCount = (int) balances.stream()
-                .map(balance -> String.valueOf(balance.productVariantId))
+                .map(balance -> stableProductKey(balance.sourceStoreCode, balance.partnerSku, balance.productVariantId))
                 .distinct()
                 .count();
         view.totalQuantity = balances.stream().mapToInt(this::purchaseComparisonQuantity).sum();
@@ -2333,7 +2334,7 @@ public class LocalDbWarehouseDispatchService {
 
     private int shippingSkuCount(List<ShippingBatchSourceRecord> sources) {
         return (int) sources.stream()
-                .map(source -> String.valueOf(source.productVariantId))
+                .map(source -> stableProductKey(source.sourceStoreCode, source.partnerSku, source.productVariantId))
                 .distinct()
                 .count();
     }
@@ -2798,7 +2799,8 @@ public class LocalDbWarehouseDispatchService {
             String actualTransportMode,
             ShippingForwarderAssignment assignment
     ) {
-        return source.productVariantId + "|" + source.siteCode + "|" + normalizeTransportMode(actualTransportMode) + "|"
+        return stableProductKey(source.sourceStoreCode, source.partnerSku, source.productVariantId)
+                + "|" + source.siteCode + "|" + normalizeTransportMode(actualTransportMode) + "|"
                 + normalizeFulfillmentType(source.fulfillmentType) + "|"
                 + defaultText(source.sourcePartyName, "") + "|"
                 + defaultText(source.specStatus, "READY") + "|"
@@ -2813,7 +2815,7 @@ public class LocalDbWarehouseDispatchService {
 
     private int outboundSkuCount(List<ShippingSuggestionLineRecord> lines) {
         return (int) lines.stream()
-                .map(line -> String.valueOf(line.productVariantId))
+                .map(line -> stableProductKey(null, line.partnerSku, line.productVariantId))
                 .distinct()
                 .count();
     }
@@ -2882,8 +2884,18 @@ public class LocalDbWarehouseDispatchService {
             String fulfillmentType,
             String specStatus
     ) {
-        return balance.productVariantId + "|" + balance.siteCode + "|" + actualTransportMode + "|"
+        return stableProductKey(balance.sourceStoreCode, balance.partnerSku, balance.productVariantId)
+                + "|" + balance.siteCode + "|" + actualTransportMode + "|"
                 + fulfillmentType + "|" + specStatus;
+    }
+
+    private String stableProductKey(String sourceStoreCode, String partnerSku, Long productVariantId) {
+        String store = defaultText(sourceStoreCode, "");
+        String psku = defaultText(partnerSku, "");
+        if (!psku.isEmpty()) {
+            return store.isEmpty() ? "psku:" + psku : store + "|psku:" + psku;
+        }
+        return "variant:" + productVariantId;
     }
 
     private <T> List<T> emptyIfNull(List<T> values) {

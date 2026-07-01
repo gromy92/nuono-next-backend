@@ -19,6 +19,7 @@ public final class OfficialWarehouseCommands {
     public static class CreateAsnLineCommand {
         public Long productVariantId;
         public Long productSiteOfferId;
+        public String partnerSku;
         public Integer quantity;
     }
 

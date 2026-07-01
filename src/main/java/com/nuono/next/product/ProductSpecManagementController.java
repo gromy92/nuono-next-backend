@@ -76,6 +76,24 @@ public class ProductSpecManagementController {
         }
     }
 
+    @GetMapping("/by-psku")
+    public ProductVariantSpecDetailView detailByPsku(
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            HttpServletRequest request
+    ) {
+        ProductVariantSpecService service = requireService();
+        try {
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            return service.detailByPsku(resolvedOwnerUserId, storeCode, partnerSku);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PutMapping("/{variantId}/sources/{sourceType}")
     public ProductVariantSpecSourceView saveSource(
             @PathVariable Long variantId,
@@ -100,6 +118,31 @@ public class ProductSpecManagementController {
         }
     }
 
+    @PutMapping("/by-psku/sources/{sourceType}")
+    public ProductVariantSpecSourceView saveSourceByPsku(
+            @PathVariable String sourceType,
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            @RequestBody(required = false) ProductVariantSpecSourceCommand command,
+            HttpServletRequest request
+    ) {
+        ProductVariantSpecService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            ProductVariantSpecSourceCommand effectiveCommand = command == null ? new ProductVariantSpecSourceCommand() : command;
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            effectiveCommand.setOwnerUserId(resolvedOwnerUserId);
+            effectiveCommand.setStoreCode(storeCode);
+            effectiveCommand.setSourceType(sourceType);
+            effectiveCommand.setOperatorUserId(session.getUserId());
+            return service.saveSourceByPsku(partnerSku, effectiveCommand);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PostMapping("/{variantId}/effective-source")
     public ProductVariantSpecDetailView selectEffectiveSource(
             @PathVariable Long variantId,
@@ -116,6 +159,34 @@ public class ProductSpecManagementController {
                     resolvedOwnerUserId,
                     effectiveCommand.getStoreCode(),
                     variantId,
+                    effectiveCommand.getSourceId(),
+                    session.getUserId()
+            );
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PutMapping("/by-psku/effective-source")
+    public ProductVariantSpecDetailView selectEffectiveSourceByPsku(
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            @RequestBody(required = false) ProductVariantSpecEffectiveSourceCommand command,
+            HttpServletRequest request
+    ) {
+        ProductVariantSpecService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            ProductVariantSpecEffectiveSourceCommand effectiveCommand =
+                    command == null ? new ProductVariantSpecEffectiveSourceCommand() : command;
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            return service.selectEffectiveSourceByPsku(
+                    resolvedOwnerUserId,
+                    storeCode,
+                    partnerSku,
+                    null,
                     effectiveCommand.getSourceId(),
                     session.getUserId()
             );

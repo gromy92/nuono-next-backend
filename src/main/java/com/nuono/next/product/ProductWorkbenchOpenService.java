@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -27,22 +28,22 @@ public class ProductWorkbenchOpenService {
             ProductMasterFetchCommand command,
             OpenSupport support
     ) {
-        if (command == null || command.getOwnerUserId() == null || support == null) {
+        OpenIdentity identity = resolveIdentity(command);
+        if (command == null || command.getOwnerUserId() == null || support == null || identity == null) {
             return null;
         }
-        String storeCode = normalize(command.getStoreCode());
-        String skuParent = normalize(command.getSkuParent());
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
-            return null;
-        }
-
-        String key = workbenchKey(command.getOwnerUserId(), storeCode, skuParent);
+        String storeCode = identity.storeCode();
+        String partnerSku = identity.partnerSku();
+        String skuParent = identity.currentZCode();
+        String fallbackSkuParent = identity.currentZCode();
+        String key = workbenchKey(command.getOwnerUserId(), storeCode, identity.productKey());
         List<String> warnings = new ArrayList<>();
         ProductMasterSnapshotView baselineSnapshot =
                 productProjectionPersistenceService.loadLatestBaselineSnapshot(
                         command.getOwnerUserId(),
                         storeCode,
-                        skuParent,
+                        partnerSku,
+                        fallbackSkuParent,
                         warnings
                 );
         if (baselineSnapshot == null || !baselineSnapshot.isReady()) {
@@ -54,14 +55,16 @@ public class ProductWorkbenchOpenService {
                 productProjectionPersistenceService.loadPersistedWorkbenchState(
                         command.getOwnerUserId(),
                         storeCode,
-                        skuParent,
+                        partnerSku,
+                        fallbackSkuParent,
                         warnings
                 );
         if (!support.hasActivePersistedDraft(persistedState)) {
             productProjectionPersistenceService.clearInactivePersistedDraft(
                     command.getOwnerUserId(),
                     storeCode,
-                    skuParent,
+                    partnerSku,
+                    fallbackSkuParent,
                     support.extractFetchedAt(baselineSnapshot),
                     warnings
             );
@@ -99,6 +102,36 @@ public class ProductWorkbenchOpenService {
         return ownerUserId + "::" + normalize(storeCode) + "::" + normalize(skuParent);
     }
 
+    OpenIdentity resolveIdentity(ProductMasterFetchCommand command) {
+        if (command == null) {
+            return null;
+        }
+        String storeCode = normalize(command.getStoreCode());
+        String partnerSku = normalize(command.getPartnerSku());
+        String currentZCode = firstNonBlank(command.getCurrentZCode(), command.getSkuParent());
+        if (StringUtils.hasText(currentZCode)) {
+            command.setCurrentZCode(currentZCode);
+        }
+        if (!StringUtils.hasText(storeCode)) {
+            return null;
+        }
+        if (StringUtils.hasText(partnerSku)) {
+            return new OpenIdentity(storeCode, partnerSku, currentZCode, null);
+        }
+        if (!StringUtils.hasText(currentZCode)) {
+            return null;
+        }
+        return new OpenIdentity(storeCode, null, currentZCode, currentZCode);
+    }
+
+    private String firstNonBlank(String first, String second) {
+        String normalized = normalize(first);
+        if (StringUtils.hasText(normalized)) {
+            return normalized;
+        }
+        return normalize(second);
+    }
+
     private String localBaselineOpenNote(String lastSyncedAt) {
         if (StringUtils.hasText(lastSyncedAt)) {
             return "当前使用本地商品基线，最后同步时间：" + lastSyncedAt + "。需要核对 Noon 当前版本时可手动同步。";
@@ -108,6 +141,59 @@ public class ProductWorkbenchOpenService {
 
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    static class OpenIdentity {
+        private final String storeCode;
+        private final String partnerSku;
+        private final String currentZCode;
+        private final String legacySkuParent;
+
+        OpenIdentity(String storeCode, String partnerSku, String currentZCode, String legacySkuParent) {
+            this.storeCode = storeCode;
+            this.partnerSku = partnerSku;
+            this.currentZCode = currentZCode;
+            this.legacySkuParent = legacySkuParent;
+        }
+
+        String storeCode() {
+            return storeCode;
+        }
+
+        String partnerSku() {
+            return partnerSku;
+        }
+
+        String currentZCode() {
+            return currentZCode;
+        }
+
+        String legacySkuParent() {
+            return legacySkuParent;
+        }
+
+        String productKey() {
+            return StringUtils.hasText(partnerSku) ? partnerSku : legacySkuParent;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof OpenIdentity)) {
+                return false;
+            }
+            OpenIdentity that = (OpenIdentity) other;
+            return Objects.equals(storeCode, that.storeCode)
+                    && Objects.equals(partnerSku, that.partnerSku)
+                    && Objects.equals(legacySkuParent, that.legacySkuParent);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(storeCode, partnerSku, legacySkuParent);
+        }
     }
 
     interface OpenSupport {

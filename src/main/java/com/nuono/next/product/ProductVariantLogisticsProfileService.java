@@ -56,6 +56,38 @@ public class ProductVariantLogisticsProfileService {
         return view;
     }
 
+    public ProductVariantLogisticsProfileView detailByPsku(Long ownerUserId, String storeCode, String partnerSku) {
+        Long variantId = resolveVariantId(ownerUserId, storeCode, partnerSku, null);
+        requireVariantScope(ownerUserId, storeCode, variantId);
+        ProductVariantLogisticsProfileView saved = mapper.selectProductVariantLogisticsProfile(
+                ownerUserId,
+                storeCode,
+                variantId
+        );
+        if (saved != null && saved.variantId != null) {
+            return normalizeView(saved);
+        }
+        ProductVariantSpecRecord scopedVariant = mapper.selectProductVariantForSpecByVariantId(
+                ownerUserId,
+                storeCode,
+                variantId
+        );
+        if (scopedVariant == null || scopedVariant.getVariantId() == null) {
+            throw new IllegalArgumentException("SKU 不属于当前店铺范围");
+        }
+        ProductVariantLogisticsProfileView view = new ProductVariantLogisticsProfileView();
+        view.storeCode = scopedVariant.getStoreCode();
+        view.skuParent = scopedVariant.getSkuParent();
+        view.title = scopedVariant.getTitle();
+        view.imageUrl = scopedVariant.getImageUrl();
+        view.variantId = scopedVariant.getVariantId();
+        view.partnerSku = scopedVariant.getPartnerSku();
+        view.childSku = scopedVariant.getChildSku();
+        view.sizeEn = scopedVariant.getSizeEn();
+        view.sizeAr = scopedVariant.getSizeAr();
+        return normalizeView(view);
+    }
+
     public ProductVariantLogisticsProfileView save(ProductVariantLogisticsProfileCommand command) {
         requireVariantScope(command.ownerUserId, command.storeCode, command.variantId);
         if (command.operatorUserId == null || command.operatorUserId <= 0) {
@@ -81,6 +113,33 @@ public class ProductVariantLogisticsProfileService {
             throw new IllegalStateException("物流属性保存后读取失败");
         }
         return normalizeView(saved);
+    }
+
+    public ProductVariantLogisticsProfileView saveByPsku(ProductVariantLogisticsProfileCommand command) {
+        if (command == null) {
+            command = new ProductVariantLogisticsProfileCommand();
+        }
+        command.variantId = resolveVariantId(
+                command.ownerUserId,
+                command.storeCode,
+                command.partnerSku,
+                command.variantId
+        );
+        return save(command);
+    }
+
+    Long resolveVariantId(Long ownerUserId, String storeCode, String partnerSku, Long variantId) {
+        requireOwnerStore(ownerUserId, storeCode);
+        if (StringUtils.hasText(partnerSku)) {
+            Long logicalStoreId = mapper.selectLogicalStoreIdByOwnerStoreCode(ownerUserId, storeCode.trim());
+            if (logicalStoreId != null) {
+                Long resolved = mapper.selectProductVariantIdByStorePartnerSku(logicalStoreId, partnerSku.trim());
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+        }
+        return variantId;
     }
 
     private void requireScope(Long ownerUserId, String storeCode, String skuParent) {

@@ -57,23 +57,29 @@ public class ProductReadModelService {
                 productManagementMapper.selectDeletedProductSkuParentsByStoreCode(command.getOwnerUserId(), storeCode)
         );
 
-        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsBySkuParent =
+        LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsByIdentity =
                 new LinkedHashMap<>();
         for (ProductListSummaryView summary : summaries) {
-            if (summary == null || !StringUtils.hasText(summary.getSkuParent())) {
+            if (summary == null) {
                 continue;
             }
-            String skuParent = normalize(summary.getSkuParent());
-            if (deletedSkuParents.contains(skuParent)) {
+            String currentZCode = firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent());
+            String identityKey = firstNonBlank(summary.getPartnerSku(), currentZCode);
+            if (!StringUtils.hasText(identityKey)) {
+                continue;
+            }
+            if (StringUtils.hasText(currentZCode) && deletedSkuParents.contains(currentZCode)) {
                 continue;
             }
             LocalDbStoreInitializationService.StoreInitializationProductListItemView current =
-                    itemsBySkuParent.getOrDefault(skuParent, createListItemFromSummary(summary));
-            itemsBySkuParent.put(skuParent, mergeListItemWithSummary(current, summary));
+                    itemsByIdentity.get(identityKey);
+            if (current == null) {
+                itemsByIdentity.put(identityKey, createListItemFromSummary(summary));
+            }
         }
 
         List<LocalDbStoreInitializationService.StoreInitializationProductListItemView> items =
-                new ArrayList<>(itemsBySkuParent.values());
+                new ArrayList<>(itemsByIdentity.values());
 
         ProductListDatasetView view = new ProductListDatasetView();
         view.setOwnerUserId(command.getOwnerUserId());
@@ -242,7 +248,8 @@ public class ProductReadModelService {
     ) {
         LocalDbStoreInitializationService.StoreInitializationProductListItemView item =
                 new LocalDbStoreInitializationService.StoreInitializationProductListItemView();
-        item.setSkuParent(summary.getSkuParent());
+        item.setSkuParent(firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent()));
+        item.setCurrentZCode(firstNonBlank(summary.getCurrentZCode(), summary.getSkuParent()));
         item.setProductSourceType(summary.getProductSourceType());
         item.setReferenceStoreCode(summary.getStoreCode());
         item.setSiteLabels(new ArrayList<>());
@@ -255,7 +262,8 @@ public class ProductReadModelService {
             LocalDbStoreInitializationService.StoreInitializationProductListItemView item,
             ProductListSummaryView summary
     ) {
-        item.setSkuParent(firstNonBlank(summary.getSkuParent(), item.getSkuParent()));
+        item.setSkuParent(firstNonBlank(item.getSkuParent(), summary.getCurrentZCode(), summary.getSkuParent()));
+        item.setCurrentZCode(firstNonBlank(item.getCurrentZCode(), summary.getCurrentZCode(), summary.getSkuParent()));
         item.setProductSourceType(firstNonBlank(summary.getProductSourceType(), item.getProductSourceType()));
         item.setPartnerSku(firstNonBlank(summary.getPartnerSku(), item.getPartnerSku()));
         item.setPskuCode(firstNonBlank(summary.getPskuCode(), item.getPskuCode()));

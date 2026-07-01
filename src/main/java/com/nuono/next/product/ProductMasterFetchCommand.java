@@ -12,6 +12,8 @@ public class ProductMasterFetchCommand {
 
     private String skuParent;
 
+    private String currentZCode;
+
     private String partnerSku;
 
     private String pskuCode;
@@ -54,6 +56,20 @@ public class ProductMasterFetchCommand {
 
     public void setSkuParent(String skuParent) {
         this.skuParent = skuParent;
+        if (currentZCode == null || currentZCode.isBlank()) {
+            this.currentZCode = skuParent;
+        }
+    }
+
+    public String getCurrentZCode() {
+        if (currentZCode != null && !currentZCode.isBlank()) {
+            return currentZCode;
+        }
+        return skuParent;
+    }
+
+    public void setCurrentZCode(String currentZCode) {
+        this.currentZCode = currentZCode;
     }
 
     public String getPartnerSku() {

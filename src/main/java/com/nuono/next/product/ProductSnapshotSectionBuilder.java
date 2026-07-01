@@ -33,6 +33,7 @@ class ProductSnapshotSectionBuilder {
         Map<String, Object> identity = new LinkedHashMap<>();
         JsonNode pricingItem = firstDataItem(pricingRoot);
         putIfNotBlank(identity, "skuParent", skuParent);
+        putIfNotBlank(identity, "currentZCode", skuParent);
         putIfNotBlank(identity, "parentSku", text(productNode, "parent_sku"));
         putIfNotBlank(identity, "partnerSku", firstNonBlank(partnerSku, text(pricingItem, "psku")));
         putIfNotBlank(identity, "pskuCode", pskuCode);

@@ -107,6 +107,11 @@ public class ProductVariantSpecService {
         return view;
     }
 
+    public ProductVariantSpecDetailView detailByPsku(Long ownerUserId, String storeCode, String partnerSku) {
+        Long variantId = resolveVariantId(ownerUserId, storeCode, partnerSku, null);
+        return detail(ownerUserId, storeCode, variantId);
+    }
+
     public ProductVariantSpecView save(ProductVariantSpecCommand command) {
         requireScope(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent());
         if (!StringUtils.hasText(command.getPartnerSku())) {
@@ -193,6 +198,19 @@ public class ProductVariantSpecService {
                 .orElseThrow(() -> new IllegalStateException("来源规格保存后读取失败"));
     }
 
+    public ProductVariantSpecSourceView saveSourceByPsku(String partnerSku, ProductVariantSpecSourceCommand command) {
+        if (command == null) {
+            command = new ProductVariantSpecSourceCommand();
+        }
+        command.setVariantId(resolveVariantId(
+                command.getOwnerUserId(),
+                command.getStoreCode(),
+                partnerSku,
+                command.getVariantId()
+        ));
+        return saveSource(command);
+    }
+
     public ProductVariantSpecDetailView selectEffectiveSource(
             Long ownerUserId,
             String storeCode,
@@ -220,6 +238,37 @@ public class ProductVariantSpecService {
                 operatorUserId
         );
         return detail(ownerUserId, storeCode, variantId);
+    }
+
+    public ProductVariantSpecDetailView selectEffectiveSourceByPsku(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            Long variantId,
+            Long sourceId,
+            Long operatorUserId
+    ) {
+        return selectEffectiveSource(
+                ownerUserId,
+                storeCode,
+                resolveVariantId(ownerUserId, storeCode, partnerSku, variantId),
+                sourceId,
+                operatorUserId
+        );
+    }
+
+    Long resolveVariantId(Long ownerUserId, String storeCode, String partnerSku, Long variantId) {
+        requireOwnerStore(ownerUserId, storeCode);
+        if (StringUtils.hasText(partnerSku)) {
+            Long logicalStoreId = mapper.selectLogicalStoreIdByOwnerStoreCode(ownerUserId, storeCode.trim());
+            if (logicalStoreId != null) {
+                Long resolved = mapper.selectProductVariantIdByStorePartnerSku(logicalStoreId, partnerSku.trim());
+                if (resolved != null) {
+                    return resolved;
+                }
+            }
+        }
+        return variantId;
     }
 
     private void requireScope(Long ownerUserId, String storeCode, String skuParent) {
