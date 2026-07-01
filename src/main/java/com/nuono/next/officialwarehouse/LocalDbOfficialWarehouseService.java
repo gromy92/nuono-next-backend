@@ -70,7 +70,7 @@ import org.springframework.util.StringUtils;
 public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumberSyncer {
 
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
-    private static final int DEFAULT_APPOINTMENT_RETRY_MINUTES = 3;
+    private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
     private static final int DEFAULT_SEAL_CHECK_ATTEMPTS = 8;
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
     private static final int DEFAULT_ASN_LIST_SYNC_PER_PAGE = 50;
@@ -90,8 +90,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     @Value("${nuono.official-warehouse.appointment.scheduler.max-items-per-tick:20}")
     private int appointmentSchedulerMaxItems;
 
-    @Value("${nuono.official-warehouse.appointment.scheduler.retry-minutes:3}")
-    private int appointmentRetryMinutes;
+    @Value("${nuono.official-warehouse.appointment.scheduler.retry-base-seconds:5}")
+    private int appointmentRetryBaseSeconds;
 
     @Value("${nuono.official-warehouse.appointment.scheduler.system-operator-user-id:0}")
     private long appointmentSystemOperatorUserId;
@@ -1311,8 +1311,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     @Scheduled(
-            initialDelayString = "${nuono.official-warehouse.appointment.scheduler.initial-delay-ms:30000}",
-            fixedDelayString = "${nuono.official-warehouse.appointment.scheduler.fixed-delay-ms:60000}"
+            initialDelayString = "${nuono.official-warehouse.appointment.scheduler.initial-delay-ms:5000}",
+            fixedDelayString = "${nuono.official-warehouse.appointment.scheduler.fixed-delay-ms:5000}"
     )
     public void runAppointmentScheduler() {
         if (!appointmentSchedulerEnabled) {
@@ -1367,7 +1367,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             } else if (allowRetry && shouldRetryAppointment(appointment, result.failureType)) {
                 mapper.markAppointmentPendingRetry(
                         appointment.id,
-                        safeRetryMinutes(),
+                        nextAppointmentRetrySeconds(safeRetryBaseSeconds(), appointment),
                         "SCHEDULE",
                         result.failureType,
                         result.errorMessage,
@@ -1388,7 +1388,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             if (allowRetry && shouldRetryAppointment(appointment, "NOON_CALL")) {
                 mapper.markAppointmentPendingRetry(
                         appointment.id,
-                        safeRetryMinutes(),
+                        nextAppointmentRetrySeconds(safeRetryBaseSeconds(), appointment),
                         "NOON_CALL",
                         exception.getClass().getSimpleName(),
                         message,
@@ -1492,8 +1492,19 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         return appointment.apEndDateValue == null || !today.isAfter(appointment.apEndDateValue);
     }
 
-    private int safeRetryMinutes() {
-        return appointmentRetryMinutes <= 0 ? DEFAULT_APPOINTMENT_RETRY_MINUTES : appointmentRetryMinutes;
+    private int safeRetryBaseSeconds() {
+        return appointmentRetryBaseSeconds <= 0 ? DEFAULT_APPOINTMENT_RETRY_SECONDS : appointmentRetryBaseSeconds;
+    }
+
+    static int nextAppointmentRetrySeconds(int baseRetrySeconds, AppointmentRecord appointment) {
+        int safeBase = baseRetrySeconds <= 0 ? DEFAULT_APPOINTMENT_RETRY_SECONDS : baseRetrySeconds;
+        int previousAttemptCount = appointment == null || appointment.attemptCount == null
+                ? 0
+                : Math.max(0, appointment.attemptCount);
+        int failedAttemptsAfterCurrentRun = previousAttemptCount + 1;
+        long multiplier = 1L << Math.min(30, failedAttemptsAfterCurrentRun);
+        long seconds = (long) safeBase * multiplier;
+        return seconds > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) seconds;
     }
 
     private Long schedulerOperatorUserId(AppointmentRecord appointment) {
