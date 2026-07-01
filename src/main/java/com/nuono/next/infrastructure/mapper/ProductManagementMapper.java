@@ -193,6 +193,22 @@ public interface ProductManagementMapper {
     })
     Long selectLogicalStoreIdBySiteStoreCode(@Param("storeCode") String storeCode);
 
+    @Select({
+            "SELECT ls.id",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND BINARY lss.store_code = BINARY #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectLogicalStoreIdByOwnerStoreCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode
+    );
+
     @Update({
             "<script>",
             "UPDATE logical_store_site",

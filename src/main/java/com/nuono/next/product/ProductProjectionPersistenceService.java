@@ -822,6 +822,32 @@ public class ProductProjectionPersistenceService {
             List<String> warnings
     ) {
         Long productMasterId = resolveProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent, warnings);
+        return loadLatestBaselineSnapshot(productMasterId, storeCode, warnings, ownerUserId);
+    }
+
+    public ProductMasterSnapshotView loadLatestBaselineSnapshot(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent,
+            List<String> warnings
+    ) {
+        Long productMasterId = resolveProductMasterIdByStoreIdentity(
+                ownerUserId,
+                storeCode,
+                partnerSku,
+                skuParent,
+                warnings
+        );
+        return loadLatestBaselineSnapshot(productMasterId, storeCode, warnings, ownerUserId);
+    }
+
+    private ProductMasterSnapshotView loadLatestBaselineSnapshot(
+            Long productMasterId,
+            String storeCode,
+            List<String> warnings,
+            Long ownerUserId
+    ) {
         if (productMasterId == null) {
             return null;
         }
@@ -996,6 +1022,26 @@ public class ProductProjectionPersistenceService {
         return loadPersistedWorkbenchState(productMasterId, ownerUserId, warnings);
     }
 
+    public PersistedWorkbenchState loadPersistedWorkbenchState(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent,
+            List<String> warnings
+    ) {
+        Long productMasterId = resolveProductMasterIdByStoreIdentity(
+                ownerUserId,
+                storeCode,
+                partnerSku,
+                skuParent,
+                warnings
+        );
+        if (productMasterId == null) {
+            return null;
+        }
+        return loadPersistedWorkbenchState(productMasterId, ownerUserId, warnings);
+    }
+
     @Transactional
     public void clearInactivePersistedDraft(
             Long ownerUserId,
@@ -1005,6 +1051,33 @@ public class ProductProjectionPersistenceService {
             List<String> warnings
     ) {
         Long productMasterId = resolveProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent, warnings);
+        clearInactivePersistedDraft(productMasterId, ownerUserId, lastSyncedAt);
+    }
+
+    @Transactional
+    public void clearInactivePersistedDraft(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent,
+            String lastSyncedAt,
+            List<String> warnings
+    ) {
+        Long productMasterId = resolveProductMasterIdByStoreIdentity(
+                ownerUserId,
+                storeCode,
+                partnerSku,
+                skuParent,
+                warnings
+        );
+        clearInactivePersistedDraft(productMasterId, ownerUserId, lastSyncedAt);
+    }
+
+    private void clearInactivePersistedDraft(
+            Long productMasterId,
+            Long ownerUserId,
+            String lastSyncedAt
+    ) {
         if (productMasterId == null) {
             return;
         }
@@ -1058,6 +1131,45 @@ public class ProductProjectionPersistenceService {
             return null;
         }
         if (!ensureProductTablesReady(warnings) || !ensureWorkbenchTablesReady(warnings)) {
+            return null;
+        }
+        return productManagementMapper.selectProductMasterIdByStoreCode(
+                ownerUserId,
+                normalize(storeCode),
+                normalize(skuParent)
+        );
+    }
+
+    private Long resolveProductMasterIdByStoreIdentity(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent,
+            List<String> warnings
+    ) {
+        if (ownerUserId == null || !StringUtils.hasText(storeCode)) {
+            return null;
+        }
+        if (!ensureProductTablesReady(warnings) || !ensureWorkbenchTablesReady(warnings)) {
+            return null;
+        }
+        String normalizedPartnerSku = normalize(partnerSku);
+        if (StringUtils.hasText(normalizedPartnerSku)) {
+            Long logicalStoreId = productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(
+                    ownerUserId,
+                    normalize(storeCode)
+            );
+            if (logicalStoreId != null) {
+                Long productMasterId = productManagementMapper.selectProductMasterIdByStorePartnerSku(
+                        logicalStoreId,
+                        normalizedPartnerSku
+                );
+                if (productMasterId != null) {
+                    return productMasterId;
+                }
+            }
+        }
+        if (!StringUtils.hasText(skuParent)) {
             return null;
         }
         return productManagementMapper.selectProductMasterIdByStoreCode(

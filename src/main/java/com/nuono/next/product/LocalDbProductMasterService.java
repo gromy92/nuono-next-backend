@@ -2215,7 +2215,26 @@ public class LocalDbProductMasterService {
         }
         String storeCode = normalize(command.getStoreCode());
         String skuParent = normalize(command.getSkuParent());
-        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
+        String partnerSku = normalize(command.getPartnerSku());
+        if (!StringUtils.hasText(storeCode) || (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent))) {
+            return null;
+        }
+        if (StringUtils.hasText(partnerSku)) {
+            Long logicalStoreId = productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(
+                    command.getOwnerUserId(),
+                    storeCode
+            );
+            if (logicalStoreId != null) {
+                Long productMasterId = productManagementMapper.selectProductMasterIdByStorePartnerSku(
+                        logicalStoreId,
+                        partnerSku
+                );
+                if (productMasterId != null) {
+                    return productMasterId;
+                }
+            }
+        }
+        if (!StringUtils.hasText(skuParent)) {
             return null;
         }
         return productManagementMapper.selectProductMasterIdByStoreCode(command.getOwnerUserId(), storeCode, skuParent);

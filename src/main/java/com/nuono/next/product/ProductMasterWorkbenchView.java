@@ -16,6 +16,8 @@ public class ProductMasterWorkbenchView extends ProductMasterSnapshotView {
 
     private String note;
 
+    private String currentZCode;
+
     private List<Map<String, Object>> recentActions = new ArrayList<>();
 
     private List<Map<String, Object>> keyContentHistory = new ArrayList<>();
@@ -68,6 +70,14 @@ public class ProductMasterWorkbenchView extends ProductMasterSnapshotView {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public String getCurrentZCode() {
+        return currentZCode;
+    }
+
+    public void setCurrentZCode(String currentZCode) {
+        this.currentZCode = currentZCode;
     }
 
     public List<Map<String, Object>> getRecentActions() {
