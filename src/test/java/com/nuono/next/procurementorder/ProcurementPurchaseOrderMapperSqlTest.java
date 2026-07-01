@@ -203,7 +203,10 @@ class ProcurementPurchaseOrderMapperSqlTest {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "selectCurrentProductForwarderChannelQuote",
                 Long.class,
+                String.class,
+                String.class,
                 Long.class,
+                String.class,
                 String.class,
                 String.class,
                 String.class
@@ -214,8 +217,11 @@ class ProcurementPurchaseOrderMapperSqlTest {
 
         assertThat(sql).contains("FROM product_forwarder_channel_quote");
         assertThat(sql).contains("owner_user_id = #{ownerUserId}");
+        assertThat(sql).contains("UPPER(partner_sku) = UPPER(#{partnerSku})");
+        assertThat(sql).contains("UPPER(source_store_code) = UPPER(#{sourceStoreCode})");
         assertThat(sql).contains("product_variant_id = #{productVariantId}");
         assertThat(sql).contains("forwarder_code = #{forwarderCode}");
+        assertThat(sql).contains("COALESCE(site_code, '') = COALESCE(#{siteCode}, '')");
         assertThat(sql).contains("effective_status = 'CURRENT'");
         assertThat(sql).contains("is_deleted = b'0'");
         assertThat(sql).contains("ORDER BY confirmed_at DESC, id DESC");
@@ -308,6 +314,7 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 Long.class,
                 String.class,
                 String.class,
+                java.util.List.class,
                 java.util.List.class
         );
         Method upsertMethod = ProcurementPurchaseOrderMapper.class.getMethod(
@@ -318,6 +325,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
         Method deleteMethod = ProcurementPurchaseOrderMapper.class.getMethod(
                 "softDeleteProductForwarderDeclarationAttribute",
                 Long.class,
+                String.class,
+                String.class,
                 Long.class,
                 String.class,
                 String.class,
@@ -335,14 +344,22 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(listSql).contains("owner_user_id = #{ownerUserId}");
         assertThat(listSql).contains("forwarder_code = #{forwarderCode}");
         assertThat(listSql).contains("attribute_code = #{attributeCode}");
+        assertThat(listSql).contains("source_store_code AS sourceStoreCode");
+        assertThat(listSql).contains("partner_sku AS partnerSku");
+        assertThat(listSql).contains("UPPER(partner_sku) IN");
         assertThat(listSql).contains("product_variant_id IN");
         assertThat(listSql).contains("is_deleted = b'0'");
         assertThat(upsertSql).contains("INSERT INTO product_forwarder_declaration_attribute");
+        assertThat(upsertSql).contains("logical_store_id, source_store_code, partner_sku");
         assertThat(upsertSql).contains("ON DUPLICATE KEY UPDATE");
+        assertThat(upsertSql).contains("source_store_code = VALUES(source_store_code)");
+        assertThat(upsertSql).contains("partner_sku = VALUES(partner_sku)");
         assertThat(upsertSql).contains("attribute_value = VALUES(attribute_value)");
         assertThat(upsertSql).contains("source_shipping_order_line_id = VALUES(source_shipping_order_line_id)");
         assertThat(deleteSql).contains("SET is_deleted = b'1'");
         assertThat(deleteSql).contains("owner_user_id = #{ownerUserId}");
+        assertThat(deleteSql).contains("UPPER(partner_sku) = UPPER(#{partnerSku})");
+        assertThat(deleteSql).contains("UPPER(source_store_code) = UPPER(#{sourceStoreCode})");
         assertThat(deleteSql).contains("product_variant_id = #{productVariantId}");
         assertThat(deleteSql).contains("forwarder_code = #{forwarderCode}");
         assertThat(deleteSql).contains("attribute_code = #{attributeCode}");

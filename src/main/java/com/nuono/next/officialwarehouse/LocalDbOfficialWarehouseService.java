@@ -58,7 +58,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -307,6 +306,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                         site.siteCode,
                         keywordLike(keyword),
                         List.of(),
+                        List.of(),
                         200
                 )
                 .stream()
@@ -325,23 +325,31 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 site.storeCode,
                 site.siteCode,
                 selectedBatchIds,
+                List.of(),
                 List.of()
         );
         if (allocations.isEmpty()) {
             return List.of();
         }
-        Map<Long, Integer> quantityByVariantId = new LinkedHashMap<>();
+        Map<String, Integer> quantityByProductKey = new LinkedHashMap<>();
+        Set<Long> legacyVariantIds = new LinkedHashSet<>();
+        Set<String> partnerSkus = new LinkedHashSet<>();
         for (ShippingBatchSourceAllocationRecord allocation : allocations) {
-            if (allocation.productVariantId == null) {
+            if (!StringUtils.hasText(allocation.partnerSku) && allocation.productVariantId == null) {
                 continue;
             }
             int quantity = Math.max(0, allocation.quantity == null ? 0 : allocation.quantity);
             if (quantity <= 0) {
                 continue;
             }
-            quantityByVariantId.merge(allocation.productVariantId, quantity, Integer::sum);
+            quantityByProductKey.merge(siteProductKey(site.storeCode, site.siteCode, allocation.partnerSku, allocation.productVariantId), quantity, Integer::sum);
+            if (StringUtils.hasText(allocation.partnerSku)) {
+                partnerSkus.add(allocation.partnerSku.trim());
+            } else {
+                legacyVariantIds.add(allocation.productVariantId);
+            }
         }
-        if (quantityByVariantId.isEmpty()) {
+        if (quantityByProductKey.isEmpty()) {
             return List.of();
         }
         return mapper.listProductCandidates(
@@ -349,13 +357,14 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                         site.storeCode,
                         site.siteCode,
                         keywordLike(keyword),
-                        quantityByVariantId.keySet(),
-                        Math.max(quantityByVariantId.size(), 1)
+                        legacyVariantIds,
+                        partnerSkus,
+                        Math.max(quantityByProductKey.size(), 1)
                 )
                 .stream()
                 .map(row -> {
                     ProductCandidateView view = toProductCandidateView(row);
-                    view.batchAvailableQuantity = quantityByVariantId.getOrDefault(row.productVariantId, 0);
+                    view.batchAvailableQuantity = quantityByProductKey.getOrDefault(siteProductKey(site.storeCode, site.siteCode, row.partnerSku, row.productVariantId), 0);
                     return view;
                 })
                 .collect(Collectors.toList());
@@ -396,16 +405,23 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             throw new IllegalArgumentException("请选择至少一个商品。");
         }
 
-        Map<Long, Integer> quantityByVariantId = new LinkedHashMap<>();
+        Map<String, Integer> quantityByProductKey = new LinkedHashMap<>();
+        Set<Long> legacyVariantIds = new LinkedHashSet<>();
+        Set<String> partnerSkus = new LinkedHashSet<>();
         for (CreateAsnLineCommand lineCommand : lineCommands) {
-            if (lineCommand == null || lineCommand.productVariantId == null) {
-                throw new IllegalArgumentException("商品行缺少商品变体 ID。");
+            if (lineCommand == null || (!StringUtils.hasText(lineCommand.partnerSku) && lineCommand.productVariantId == null)) {
+                throw new IllegalArgumentException("商品行缺少 PSKU。");
             }
             int quantity = lineCommand.quantity == null ? 0 : lineCommand.quantity;
             if (quantity <= 0) {
                 throw new IllegalArgumentException("商品数量必须大于 0。");
             }
-            quantityByVariantId.merge(lineCommand.productVariantId, quantity, Integer::sum);
+            quantityByProductKey.merge(siteProductKey(site.storeCode, site.siteCode, lineCommand.partnerSku, lineCommand.productVariantId), quantity, Integer::sum);
+            if (StringUtils.hasText(lineCommand.partnerSku)) {
+                partnerSkus.add(lineCommand.partnerSku.trim());
+            } else {
+                legacyVariantIds.add(lineCommand.productVariantId);
+            }
         }
 
         List<ProductCandidateRecord> candidateRows = mapper.listProductCandidates(
@@ -413,21 +429,27 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 site.storeCode,
                 site.siteCode,
                 null,
-                quantityByVariantId.keySet(),
-                Math.max(quantityByVariantId.size(), 1)
+                legacyVariantIds,
+                partnerSkus,
+                Math.max(quantityByProductKey.size(), 1)
         );
-        Map<Long, ProductCandidateRecord> candidatesByVariantId = candidateRows.stream()
-                .collect(Collectors.toMap(row -> row.productVariantId, Function.identity(), (left, right) -> left, LinkedHashMap::new));
-        Set<Long> missingVariantIds = new LinkedHashSet<>(quantityByVariantId.keySet());
-        missingVariantIds.removeAll(candidatesByVariantId.keySet());
-        if (!missingVariantIds.isEmpty()) {
-            throw new IllegalArgumentException("部分商品缺少站点 PSKU 或不属于当前店铺：" + missingVariantIds);
+        Map<String, ProductCandidateRecord> candidatesByProductKey = candidateRows.stream()
+                .collect(Collectors.toMap(
+                        row -> siteProductKey(site.storeCode, site.siteCode, row.partnerSku, row.productVariantId),
+                        row -> row,
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ));
+        Set<String> missingProductKeys = new LinkedHashSet<>(quantityByProductKey.keySet());
+        missingProductKeys.removeAll(candidatesByProductKey.keySet());
+        if (!missingProductKeys.isEmpty()) {
+            throw new IllegalArgumentException("部分商品缺少站点 PSKU 或不属于当前店铺：" + missingProductKeys);
         }
 
         List<AsnLineInsertRecord> lineRows = new ArrayList<>();
         int totalQuantity = 0;
-        for (Map.Entry<Long, Integer> entry : quantityByVariantId.entrySet()) {
-            ProductCandidateRecord candidate = candidatesByVariantId.get(entry.getKey());
+        for (Map.Entry<String, Integer> entry : quantityByProductKey.entrySet()) {
+            ProductCandidateRecord candidate = candidatesByProductKey.get(entry.getKey());
             ProductCandidateView candidateView = toProductCandidateView(candidate);
             if (!candidateView.missingTags.isEmpty()) {
                 throw new IllegalArgumentException(candidateView.partnerSku + " 缺少官方仓建 ASN 所需数据：" + candidateView.missingTags);
@@ -586,7 +608,13 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             return List.of();
         }
 
+        List<String> partnerSkus = lineRows.stream()
+                .map(row -> trimToNull(row.partnerSku))
+                .filter(value -> value != null)
+                .distinct()
+                .collect(Collectors.toList());
         List<Long> variantIds = lineRows.stream()
+                .filter(row -> !StringUtils.hasText(row.partnerSku))
                 .map(row -> row.productVariantId)
                 .filter(value -> value != null)
                 .distinct()
@@ -596,7 +624,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 site.storeCode,
                 site.siteCode,
                 selectedBatchIds,
-                variantIds
+                variantIds,
+                partnerSkus
         );
         if (allocations.isEmpty()) {
             throw new IllegalArgumentException("选择的物流批次没有匹配当前 ASN 商品。");
@@ -617,19 +646,19 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             return Long.compare(leftSourceId, rightSourceId);
         });
 
-        Map<Long, List<ShippingBatchSourceAllocationRecord>> allocationsByVariantId = new LinkedHashMap<>();
+        Map<String, List<ShippingBatchSourceAllocationRecord>> allocationsByProductKey = new LinkedHashMap<>();
         Map<Long, Integer> remainingBySourceId = new LinkedHashMap<>();
         for (ShippingBatchSourceAllocationRecord allocation : allocations) {
             Long sourceId = allocationSourceId(allocation);
-            if (allocation.productVariantId == null || sourceId == null) {
+            if ((!StringUtils.hasText(allocation.partnerSku) && allocation.productVariantId == null) || sourceId == null) {
                 continue;
             }
             int quantity = Math.max(0, allocation.quantity == null ? 0 : allocation.quantity);
             if (quantity <= 0) {
                 continue;
             }
-            allocationsByVariantId
-                    .computeIfAbsent(allocation.productVariantId, ignored -> new ArrayList<>())
+            allocationsByProductKey
+                    .computeIfAbsent(siteProductKey(site.storeCode, site.siteCode, allocation.partnerSku, allocation.productVariantId), ignored -> new ArrayList<>())
                     .add(allocation);
             remainingBySourceId.put(sourceId, quantity);
         }
@@ -637,8 +666,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         List<AsnShippingBatchLinkInsertRecord> links = new ArrayList<>();
         for (AsnLineInsertRecord lineRow : lineRows) {
             int requiredQuantity = Math.max(0, lineRow.quantity == null ? 0 : lineRow.quantity);
-            int availableQuantity = allocationsByVariantId
-                    .getOrDefault(lineRow.productVariantId, List.of())
+            String productKey = siteProductKey(site.storeCode, site.siteCode, lineRow.partnerSku, lineRow.productVariantId);
+            int availableQuantity = allocationsByProductKey
+                    .getOrDefault(productKey, List.of())
                     .stream()
                     .mapToInt(allocation -> remainingBySourceId.getOrDefault(allocationSourceId(allocation), 0))
                     .sum();
@@ -655,7 +685,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             }
 
             int remainingQuantity = requiredQuantity;
-            for (ShippingBatchSourceAllocationRecord allocation : allocationsByVariantId.getOrDefault(lineRow.productVariantId, List.of())) {
+            for (ShippingBatchSourceAllocationRecord allocation : allocationsByProductKey.getOrDefault(productKey, List.of())) {
                 if (remainingQuantity <= 0) {
                     break;
                 }
@@ -721,6 +751,16 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             return null;
         }
         return allocation.inTransitGoodsLineId == null ? allocation.shippingBatchSourceId : allocation.inTransitGoodsLineId;
+    }
+
+    private String siteProductKey(String storeCode, String siteCode, String partnerSku, Long productVariantId) {
+        String store = trimToNull(storeCode);
+        String site = trimToNull(siteCode);
+        String psku = trimToNull(partnerSku);
+        if (store != null && site != null && psku != null) {
+            return store.toUpperCase(Locale.ROOT) + "|" + site.toUpperCase(Locale.ROOT) + "|psku:" + psku;
+        }
+        return "variant:" + productVariantId;
     }
 
     public List<NoonHttpCallLogView> listNoonCalls(BusinessAccessContext access, String asnId) {

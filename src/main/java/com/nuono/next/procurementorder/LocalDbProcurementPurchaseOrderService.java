@@ -100,6 +100,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -455,7 +456,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 throw new IllegalArgumentException("站点 " + siteCode + " 不属于当前店铺。");
             }
             nextOrderSiteCodes.add(siteCode);
-            ProductOfferRecord offer = mapper.selectProductOffer(order.logicalStoreId, item.productVariantId, siteCode);
+            ProductOfferRecord offer = mapper.selectProductOffer(order.logicalStoreId, item.partnerSku, item.productVariantId, siteCode);
             if (offer == null) {
                 throw new IllegalArgumentException(item.partnerSku + " 在站点 " + siteCode + " 没有商品 Offer，不能加入采购单。");
             }
@@ -996,7 +997,7 @@ public class LocalDbProcurementPurchaseOrderService {
             segment.skuCount = (int) sourceLines.stream()
                     .filter(line -> defaultText(line.siteCode, "-").equals(segment.siteCode))
                     .filter(line -> normalizeTransportMode(line.plannedTransportMode).equals(segment.transportMode))
-                    .map(line -> String.valueOf(line.productVariantId))
+                    .map(line -> stableProductKey(line.sourceStoreCode, line.partnerSku, line.productVariantId))
                     .distinct()
                     .count();
         }
@@ -1019,7 +1020,7 @@ public class LocalDbProcurementPurchaseOrderService {
         shippingOrder.purchaseOrderCount = orders.size();
         shippingOrder.lineCount = shippingLines.size();
         shippingOrder.skuCount = (int) shippingLines.stream()
-                .map(line -> String.valueOf(line.productVariantId))
+                .map(line -> stableProductKey(line.sourceStoreCode, line.partnerSku, line.productVariantId))
                 .distinct()
                 .count();
         shippingOrder.totalQuantity = shippingLines.stream().mapToInt(line -> nonNull(line.quantity)).sum();
@@ -1493,8 +1494,11 @@ public class LocalDbProcurementPurchaseOrderService {
         }
         ProductForwarderChannelQuoteRecord quote = mapper.selectCurrentProductForwarderChannelQuote(
                 line.ownerUserId,
+                line.sourceStoreCode,
+                line.partnerSku,
                 line.productVariantId,
                 line.forwarderCode,
+                line.siteCode,
                 line.routeCode,
                 line.serviceCode
         );
@@ -1814,34 +1818,43 @@ public class LocalDbProcurementPurchaseOrderService {
                 .filter(id -> id != null)
                 .distinct()
                 .collect(Collectors.toList());
-        if (productVariantIds.isEmpty()) {
+        List<String> partnerSkus = lines.stream()
+                .map(line -> trimToNull(line.partnerSku))
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (productVariantIds.isEmpty() && partnerSkus.isEmpty()) {
             return;
         }
-        Map<Long, String> materialByVariant = new HashMap<>();
+        Map<String, String> materialByProduct = new HashMap<>();
         for (ProductForwarderDeclarationAttributeRecord attribute : emptyIfNull(
                 mapper.listProductForwarderDeclarationAttributes(
                         ownerUserId,
                         YITE_FORWARDER_CODE,
                         YITE_MATERIAL_ATTRIBUTE_CODE,
-                        productVariantIds
+                        productVariantIds,
+                        partnerSkus
                 )
         )) {
-            if (attribute == null || attribute.productVariantId == null) {
+            if (attribute == null) {
                 continue;
             }
             String material = trimToNull(attribute.attributeValue);
             if (YITE_MATERIAL_OPTIONS.contains(material)) {
-                materialByVariant.putIfAbsent(attribute.productVariantId, material);
+                materialByProduct.putIfAbsent(
+                        stableProductKey(attribute.sourceStoreCode, attribute.partnerSku, attribute.productVariantId),
+                        material
+                );
             }
         }
-        if (materialByVariant.isEmpty()) {
+        if (materialByProduct.isEmpty()) {
             return;
         }
         for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
             if (line.productVariantId == null || StringUtils.hasText(line.yiteMaterial)) {
                 continue;
             }
-            String material = materialByVariant.get(line.productVariantId);
+            String material = materialByProduct.get(stableProductKey(line.sourceStoreCode, line.partnerSku, line.productVariantId));
             if (StringUtils.hasText(material)) {
                 line.yiteMaterial = material;
             }
@@ -1860,6 +1873,8 @@ public class LocalDbProcurementPurchaseOrderService {
         if (!StringUtils.hasText(material)) {
             mapper.softDeleteProductForwarderDeclarationAttribute(
                     order.ownerUserId,
+                    line.sourceStoreCode,
+                    line.partnerSku,
                     line.productVariantId,
                     YITE_FORWARDER_CODE,
                     YITE_MATERIAL_ATTRIBUTE_CODE,
@@ -1875,6 +1890,9 @@ public class LocalDbProcurementPurchaseOrderService {
         attribute.ownerUserId = order.ownerUserId;
         attribute.productMasterId = line.productMasterId;
         attribute.productVariantId = line.productVariantId;
+        attribute.logicalStoreId = line.logicalStoreId;
+        attribute.sourceStoreCode = line.sourceStoreCode;
+        attribute.partnerSku = line.partnerSku;
         attribute.barcode = trimToNull(line.barcode);
         attribute.forwarderCode = YITE_FORWARDER_CODE;
         attribute.attributeCode = YITE_MATERIAL_ATTRIBUTE_CODE;
@@ -3181,6 +3199,9 @@ public class LocalDbProcurementPurchaseOrderService {
         quote.ownerUserId = line.ownerUserId;
         quote.productMasterId = line.productMasterId;
         quote.productVariantId = line.productVariantId;
+        quote.logicalStoreId = line.logicalStoreId;
+        quote.sourceStoreCode = line.sourceStoreCode;
+        quote.partnerSku = line.partnerSku;
         quote.barcode = trim(line.barcode);
         quote.forwarderCode = trim(line.forwarderCode);
         quote.forwarderName = trim(line.forwarderName);
@@ -3203,8 +3224,11 @@ public class LocalDbProcurementPurchaseOrderService {
         quote.rawSnapshotJson = productForwarderChannelQuoteSnapshot(line);
         mapper.markHistoricalProductForwarderChannelQuote(
                 quote.ownerUserId,
+                quote.sourceStoreCode,
+                quote.partnerSku,
                 quote.productVariantId,
                 quote.forwarderCode,
+                quote.siteCode,
                 quote.routeCode,
                 quote.serviceCode,
                 quote.billingUnit,
@@ -3833,7 +3857,7 @@ public class LocalDbProcurementPurchaseOrderService {
         }
         Map<String, StoreSiteRecord> availableStoreSites = storeSitesByCode(order.logicalStoreId);
         Map<Long, Set<String>> existingSitesByItemId = existingSitesByItemId(order.id);
-        Map<Long, Set<String>> pendingSitesByVariantId = new LinkedHashMap<>();
+        Map<String, Set<String>> pendingSitesByPartnerSku = new LinkedHashMap<>();
         LinkedHashSet<String> nextOrderSiteCodes = new LinkedHashSet<>(readStringList(order.siteCodesJson));
         for (ItemCommand itemCommand : itemCommands) {
             String psku = requiredText(itemCommand == null ? null : itemCommand.psku, "请选择 PSKU。");
@@ -3846,7 +3870,7 @@ public class LocalDbProcurementPurchaseOrderService {
             }
             ensureNoDuplicateSitesInAllocations(psku, allocations);
 
-            PurchaseOrderItemRecord item = mapper.selectItemByVariant(order.id, product.productVariantId);
+            PurchaseOrderItemRecord item = mapper.selectItemByPartnerSku(order.id, product.partnerSku);
             boolean itemAlreadyExisted = item != null;
             if (item == null) {
                 item = new PurchaseOrderItemRecord();
@@ -3881,8 +3905,8 @@ public class LocalDbProcurementPurchaseOrderService {
             Set<String> existingSites = itemAlreadyExisted
                     ? existingSitesByItemId.getOrDefault(item.id, Collections.emptySet())
                     : Collections.emptySet();
-            Set<String> pendingSites = pendingSitesByVariantId.computeIfAbsent(
-                    product.productVariantId,
+            Set<String> pendingSites = pendingSitesByPartnerSku.computeIfAbsent(
+                    product.partnerSku,
                     ignored -> new LinkedHashSet<>()
             );
             for (SiteTransportQuantity allocation : allocations) {
@@ -3895,7 +3919,7 @@ public class LocalDbProcurementPurchaseOrderService {
                             + " 加入采购单，不能重复添加相同商品相同站点。");
                 }
                 nextOrderSiteCodes.add(siteCode);
-                ProductOfferRecord offer = mapper.selectProductOffer(order.logicalStoreId, product.productVariantId, siteCode);
+                ProductOfferRecord offer = mapper.selectProductOffer(order.logicalStoreId, product.partnerSku, product.productVariantId, siteCode);
                 if (offer == null) {
                     throw new IllegalArgumentException(psku + " 在站点 " + siteCode + " 没有商品 Offer，不能加入采购单。");
                 }
@@ -5289,6 +5313,15 @@ public class LocalDbProcurementPurchaseOrderService {
 
     private String defaultText(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
+    }
+
+    private String stableProductKey(String sourceStoreCode, String partnerSku, Long productVariantId) {
+        String psku = defaultText(partnerSku, "");
+        if (!psku.isEmpty()) {
+            String store = defaultText(sourceStoreCode, "");
+            return store.isEmpty() ? "psku:" + psku : store + "|psku:" + psku;
+        }
+        return "variant:" + productVariantId;
     }
 
     private String truncateText(String value, int maxLength) {

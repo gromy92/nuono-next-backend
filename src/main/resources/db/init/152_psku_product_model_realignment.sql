@@ -308,3 +308,163 @@ SET @pso_add_product_master_site_index := (
 PREPARE stmt FROM @pso_add_product_master_site_index;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+SET @pfda_add_logical_store_id := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_declaration_attribute` ADD COLUMN `logical_store_id` BIGINT DEFAULT NULL AFTER `product_variant_id`',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_declaration_attribute'
+      AND COLUMN_NAME = 'logical_store_id'
+);
+PREPARE stmt FROM @pfda_add_logical_store_id;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @pfda_add_source_store_code := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_declaration_attribute` ADD COLUMN `source_store_code` VARCHAR(100) DEFAULT NULL AFTER `logical_store_id`',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_declaration_attribute'
+      AND COLUMN_NAME = 'source_store_code'
+);
+PREPARE stmt FROM @pfda_add_source_store_code;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @pfda_add_partner_sku := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_declaration_attribute` ADD COLUMN `partner_sku` VARCHAR(100) DEFAULT NULL AFTER `source_store_code`',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_declaration_attribute'
+      AND COLUMN_NAME = 'partner_sku'
+);
+PREPARE stmt FROM @pfda_add_partner_sku;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE `product_forwarder_declaration_attribute` pfda
+JOIN `procurement_shipping_order_line` sol
+  ON sol.id = pfda.source_shipping_order_line_id
+ AND sol.owner_user_id = pfda.owner_user_id
+ AND sol.is_deleted = b'0'
+SET pfda.logical_store_id = sol.logical_store_id,
+    pfda.source_store_code = sol.source_store_code,
+    pfda.partner_sku = sol.partner_sku,
+    pfda.gmt_updated = NOW()
+WHERE pfda.is_deleted = b'0'
+  AND NULLIF(TRIM(sol.partner_sku), '') IS NOT NULL
+  AND (
+      pfda.logical_store_id IS NULL
+      OR pfda.logical_store_id <> sol.logical_store_id
+      OR NULLIF(TRIM(pfda.source_store_code), '') IS NULL
+      OR TRIM(pfda.source_store_code) <> TRIM(sol.source_store_code)
+      OR NULLIF(TRIM(pfda.partner_sku), '') IS NULL
+      OR TRIM(pfda.partner_sku) <> TRIM(sol.partner_sku)
+  );
+
+SET @pfda_add_business_lookup_index := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_declaration_attribute` ADD KEY `idx_pfda_owner_store_psku_attr` (`owner_user_id`, `source_store_code`, `partner_sku`, `forwarder_code`, `attribute_code`, `is_deleted`)',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_declaration_attribute'
+      AND INDEX_NAME = 'idx_pfda_owner_store_psku_attr'
+);
+PREPARE stmt FROM @pfda_add_business_lookup_index;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @pfcq_add_logical_store_id := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_channel_quote` ADD COLUMN `logical_store_id` BIGINT DEFAULT NULL AFTER `product_variant_id`',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_channel_quote'
+      AND COLUMN_NAME = 'logical_store_id'
+);
+PREPARE stmt FROM @pfcq_add_logical_store_id;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @pfcq_add_source_store_code := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_channel_quote` ADD COLUMN `source_store_code` VARCHAR(100) DEFAULT NULL AFTER `logical_store_id`',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_channel_quote'
+      AND COLUMN_NAME = 'source_store_code'
+);
+PREPARE stmt FROM @pfcq_add_source_store_code;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @pfcq_add_partner_sku := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_channel_quote` ADD COLUMN `partner_sku` VARCHAR(100) DEFAULT NULL AFTER `source_store_code`',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_channel_quote'
+      AND COLUMN_NAME = 'partner_sku'
+);
+PREPARE stmt FROM @pfcq_add_partner_sku;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+UPDATE `product_forwarder_channel_quote` pfcq
+JOIN `procurement_shipping_order_line` sol
+  ON sol.id = pfcq.source_shipping_order_line_id
+ AND sol.owner_user_id = pfcq.owner_user_id
+ AND sol.is_deleted = b'0'
+SET pfcq.logical_store_id = sol.logical_store_id,
+    pfcq.source_store_code = sol.source_store_code,
+    pfcq.partner_sku = sol.partner_sku,
+    pfcq.gmt_updated = NOW()
+WHERE pfcq.is_deleted = b'0'
+  AND NULLIF(TRIM(sol.partner_sku), '') IS NOT NULL
+  AND (
+      pfcq.logical_store_id IS NULL
+      OR pfcq.logical_store_id <> sol.logical_store_id
+      OR NULLIF(TRIM(pfcq.source_store_code), '') IS NULL
+      OR TRIM(pfcq.source_store_code) <> TRIM(sol.source_store_code)
+      OR NULLIF(TRIM(pfcq.partner_sku), '') IS NULL
+      OR TRIM(pfcq.partner_sku) <> TRIM(sol.partner_sku)
+  );
+
+SET @pfcq_add_business_lookup_index := (
+    SELECT IF(
+        COUNT(1) = 0,
+        'ALTER TABLE `product_forwarder_channel_quote` ADD KEY `idx_pfcq_owner_store_psku_channel` (`owner_user_id`, `source_store_code`, `partner_sku`, `site_code`, `forwarder_code`, `route_code`, `service_code`, `billing_unit`, `effective_status`, `is_deleted`)',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_forwarder_channel_quote'
+      AND INDEX_NAME = 'idx_pfcq_owner_store_psku_channel'
+);
+PREPARE stmt FROM @pfcq_add_business_lookup_index;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
