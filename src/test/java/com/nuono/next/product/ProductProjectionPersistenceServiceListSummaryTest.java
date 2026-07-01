@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -236,13 +235,14 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         when(productManagementMapper.selectLogicalStoreId(307L, "PRJ69486")).thenReturn(50003L);
         when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR69486-NSA")).thenReturn(50003L);
         when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50003L, "STR69486-NSA")).thenReturn(51003L);
-        when(productManagementMapper.selectProductMasterId(50003L, "ZOLDPSKU001")).thenReturn(52001L);
-        when(productManagementMapper.selectProductMasterId(50003L, "ZNEWPSKU001")).thenReturn(null, 52002L);
-        when(productManagementMapper.nextProductMasterId()).thenReturn(52002L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50003L, "SGGRB113"))
+                .thenReturn(null, 52001L, 52001L, 52001L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52001L);
         when(productManagementMapper.selectProductVariantIdByStorePartnerSku(50003L, "SGGRB113"))
                 .thenReturn(null, 53001L, 53001L, 53001L);
         when(productManagementMapper.nextProductVariantId()).thenReturn(53001L, 53002L);
-        when(productManagementMapper.selectProductSiteOfferId(anyLong(), eq(51003L))).thenReturn(null, 54001L);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(50003L, "SGGRB113", "SA"))
+                .thenReturn(null, 54001L);
         when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54001L);
 
         service.persistInitializationProjection(
@@ -259,21 +259,10 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         );
 
         verify(productManagementMapper, times(1)).nextProductVariantId();
-        verify(productManagementMapper).upsertProductVariant(
+        verify(productManagementMapper, times(2)).upsertProductVariant(
                 53001L,
                 50003L,
                 52001L,
-                "SGGRB113-CHILD",
-                "SGGRB113",
-                null,
-                null,
-                null,
-                307L
-        );
-        verify(productManagementMapper).upsertProductVariant(
-                53001L,
-                50003L,
-                52002L,
                 "SGGRB113-CHILD",
                 "SGGRB113",
                 null,
@@ -508,6 +497,8 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         verify(productManagementMapper).upsertProductMaster(
                 eq(52006L),
                 eq(50003L),
+                isNull(),
+                eq("ZIMAGE001"),
                 eq("ZIMAGE001"),
                 eq("SELF_BUILT"),
                 eq("Papersays"),

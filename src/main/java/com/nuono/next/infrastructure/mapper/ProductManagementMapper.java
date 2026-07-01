@@ -553,17 +553,20 @@ public interface ProductManagementMapper {
 
     @Insert({
             "INSERT INTO product_master (",
-            "  id, logical_store_id, sku_parent, product_source_type, brand_cache, title_cache, title_cn_cache, product_fulltype_cache, cover_image_url,",
+            "  id, logical_store_id, partner_sku, current_z_code, sku_parent, product_source_type, brand_cache, title_cache, title_cn_cache, product_fulltype_cache, cover_image_url,",
             "  sku_group, group_name_cache, group_ref, group_member_count, issue_count, issue_summary_json,",
             "  variant_count_cache, sync_status, last_synced_at,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{logicalStoreId}, #{skuParent}, #{productSourceType}, #{brandCache}, #{titleCache}, #{titleCnCache}, #{productFulltypeCache}, #{coverImageUrl},",
+            "  #{id}, #{logicalStoreId}, #{partnerSku}, #{currentZCode}, #{skuParent}, #{productSourceType}, #{brandCache}, #{titleCache}, #{titleCnCache}, #{productFulltypeCache}, #{coverImageUrl},",
             "  #{skuGroup}, #{groupNameCache}, #{groupRef}, #{groupMemberCount}, #{issueCount}, #{issueSummaryJson},",
             "  #{variantCountCache}, #{syncStatus}, #{lastSyncedAt},",
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  partner_sku = VALUES(partner_sku),",
+            "  current_z_code = VALUES(current_z_code),",
+            "  sku_parent = VALUES(sku_parent),",
             "  product_source_type = VALUES(product_source_type),",
             "  brand_cache = VALUES(brand_cache),",
             "  title_cache = VALUES(title_cache),",
@@ -586,6 +589,8 @@ public interface ProductManagementMapper {
     int upsertProductMaster(
             @Param("id") Long id,
             @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
+            @Param("currentZCode") String currentZCode,
             @Param("skuParent") String skuParent,
             @Param("productSourceType") String productSourceType,
             @Param("brandCache") String brandCache,
@@ -726,6 +731,19 @@ public interface ProductManagementMapper {
     Long selectProductMasterId(
             @Param("logicalStoreId") Long logicalStoreId,
             @Param("skuParent") String skuParent
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_master",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByStorePartnerSku(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku
     );
 
     @Select({
@@ -2681,7 +2699,7 @@ public interface ProductManagementMapper {
 
     @Insert({
             "INSERT INTO product_site_offer (",
-            "  id, variant_id, site_id, psku_code, offer_code, currency, price, sale_price, sale_start, sale_end,",
+            "  id, product_master_id, logical_store_id, partner_sku, variant_id, site_id, site_code, psku_code, offer_code, currency, price, sale_price, sale_start, sale_end,",
             "  price_min, price_max, final_price, final_price_source, active_promotion_code, active_promotion_name,",
             "  active_promotion_url, promotion_payload_json, price_synced_at,",
             "  pricing_method, pricing_rule, price_engine_min, price_engine_max,",
@@ -2689,7 +2707,7 @@ public interface ProductManagementMapper {
             "  fbn_stock, supermall_stock, fbp_stock, views_count, units_sold, sales_amount, sales_currency, last_synced_at,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{variantId}, #{siteId}, #{pskuCode}, #{offerCode}, #{currency}, #{price}, #{salePrice}, #{saleStart}, #{saleEnd},",
+            "  #{id}, #{productMasterId}, #{logicalStoreId}, #{partnerSku}, #{variantId}, #{siteId}, #{siteCode}, #{pskuCode}, #{offerCode}, #{currency}, #{price}, #{salePrice}, #{saleStart}, #{saleEnd},",
             "  #{priceMin}, #{priceMax}, #{finalPrice}, #{finalPriceSource}, #{activePromotionCode}, #{activePromotionName},",
             "  #{activePromotionUrl}, #{promotionPayloadJson}, #{priceSyncedAt},",
             "  #{pricingMethod}, #{pricingRule}, #{priceEngineMin}, #{priceEngineMax},",
@@ -2698,8 +2716,12 @@ public interface ProductManagementMapper {
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  product_master_id = VALUES(product_master_id),",
+            "  logical_store_id = VALUES(logical_store_id),",
+            "  partner_sku = VALUES(partner_sku),",
             "  variant_id = VALUES(variant_id),",
             "  site_id = VALUES(site_id),",
+            "  site_code = VALUES(site_code),",
             "  psku_code = VALUES(psku_code),",
             "  offer_code = VALUES(offer_code),",
             "  currency = VALUES(currency),",
@@ -2741,8 +2763,12 @@ public interface ProductManagementMapper {
     })
     int upsertProductSiteOffer(
             @Param("id") Long id,
+            @Param("productMasterId") Long productMasterId,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
             @Param("variantId") Long variantId,
             @Param("siteId") Long siteId,
+            @Param("siteCode") String siteCode,
             @Param("pskuCode") String pskuCode,
             @Param("offerCode") String offerCode,
             @Param("currency") String currency,
@@ -3079,6 +3105,21 @@ public interface ProductManagementMapper {
     Long selectProductSiteOfferId(
             @Param("variantId") Long variantId,
             @Param("siteId") Long siteId
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_site_offer",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND site_code = #{siteCode}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductSiteOfferIdByStorePartnerSkuSite(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
+            @Param("siteCode") String siteCode
     );
 
     @Select({

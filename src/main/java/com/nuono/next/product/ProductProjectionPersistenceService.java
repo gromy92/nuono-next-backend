@@ -156,6 +156,7 @@ public class ProductProjectionPersistenceService {
 
         Long logicalStoreId = ensureLogicalStore(ownerUserId, projectCode, projectName);
         Map<String, Long> siteIdMap = ensureSites(logicalStoreId, referenceStoreCode, siteSeeds, ownerUserId);
+        Map<String, String> siteCodeMap = siteCodeByStoreCode(siteSeeds);
         boolean classificationDictionaryReady = ensureClassificationDictionaryTablesReady(warnings);
         for (ProductMasterSeed productSeed : productSeeds) {
             if (!StringUtils.hasText(productSeed.getSkuParent())) {
@@ -169,7 +170,7 @@ public class ProductProjectionPersistenceService {
                 productManagementMapper.deleteProductMasterDraftByProductMasterId(productMasterId);
             }
             persistIssues(productMasterId, productSeed.getIssueTags(), ownerUserId);
-            persistRepresentativeOffer(logicalStoreId, productMasterId, siteIdMap, productSeed, ownerUserId);
+            persistRepresentativeOffer(logicalStoreId, productMasterId, siteIdMap, siteCodeMap, productSeed, ownerUserId);
         }
     }
 
@@ -243,11 +244,11 @@ public class ProductProjectionPersistenceService {
                 recoverableEditableOffersByStoreCode(productMasterId);
         for (Map<String, Object> siteOffer : snapshot.getSiteOffers()) {
             String storeCode = text(siteOffer.get("storeCode"));
-            Long siteId = siteIdMap.get(storeCode);
+            String normalizedStoreCode = normalize(storeCode);
+            Long siteId = siteIdMap.get(normalizedStoreCode);
             if (siteId == null) {
                 continue;
             }
-            String normalizedStoreCode = normalize(storeCode);
             Map<String, Object> existingOffer = existingProjectionOffers.get(normalizedStoreCode);
             preserveListOnlyProjectionFields(siteOffer, existingOffer);
             preserveEditableOfferFieldsForIncompleteFetch(
@@ -255,7 +256,21 @@ public class ProductProjectionPersistenceService {
                     existingOffer,
                     historicalEditableOffers.get(normalizedStoreCode)
             );
-            upsertSiteOffer(variantId, siteId, siteOffer, lastSyncedAt, ownerUserId);
+            String siteCode = normalize(firstNonBlank(
+                    text(siteOffer.get("site")),
+                    text(siteOffer.get("siteCode"))
+            ));
+            upsertSiteOffer(
+                    productMasterId,
+                    logicalStoreId,
+                    partnerSku,
+                    variantId,
+                    siteId,
+                    siteCode,
+                    siteOffer,
+                    lastSyncedAt,
+                    ownerUserId
+            );
             wroteSiteOffer = true;
         }
 
@@ -1294,14 +1309,38 @@ public class ProductProjectionPersistenceService {
         return siteIdMap;
     }
 
+    private Map<String, String> siteCodeByStoreCode(List<SiteSeed> siteSeeds) {
+        Map<String, String> siteCodes = new LinkedHashMap<>();
+        if (siteSeeds == null) {
+            return siteCodes;
+        }
+        for (SiteSeed siteSeed : siteSeeds) {
+            if (siteSeed == null) {
+                continue;
+            }
+            String storeCode = normalize(siteSeed.getStoreCode());
+            String siteCode = normalize(siteSeed.getSite());
+            if (StringUtils.hasText(storeCode) && StringUtils.hasText(siteCode)) {
+                siteCodes.put(storeCode, siteCode);
+            }
+        }
+        return siteCodes;
+    }
+
     private Long upsertProductMaster(Long logicalStoreId, Long updatedBy, ProductMasterSeed seed) {
-        Long existingId = productManagementMapper.selectProductMasterId(logicalStoreId, normalize(seed.getSkuParent()));
+        String partnerSku = normalize(seed.getPartnerSku());
+        String currentZCode = normalize(seed.getSkuParent());
+        Long existingId = StringUtils.hasText(partnerSku)
+                ? productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, partnerSku)
+                : productManagementMapper.selectProductMasterId(logicalStoreId, currentZCode);
         Long id = existingId != null ? existingId : productManagementMapper.nextProductMasterId();
         productManagementMapper.upsertProductMaster(
                 id,
                 logicalStoreId,
-                normalize(seed.getSkuParent()),
-                ProductSourceTypeSupport.resolve(seed.getProductSourceType(), seed.getChildSku(), seed.getSkuParent()),
+                partnerSku,
+                currentZCode,
+                currentZCode,
+                ProductSourceTypeSupport.resolve(seed.getProductSourceType(), seed.getChildSku(), currentZCode),
                 normalize(seed.getBrandCache()),
                 normalize(seed.getTitleCache()),
                 normalize(seed.getTitleCnCache()),
@@ -1318,7 +1357,9 @@ public class ProductProjectionPersistenceService {
                 parseDateTime(seed.getLastSyncedAt()),
                 updatedBy
         );
-        return productManagementMapper.selectProductMasterId(logicalStoreId, normalize(seed.getSkuParent()));
+        return StringUtils.hasText(partnerSku)
+                ? productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, partnerSku)
+                : productManagementMapper.selectProductMasterId(logicalStoreId, currentZCode);
     }
 
     private void upsertClassificationDictionaries(
@@ -1797,6 +1838,7 @@ public class ProductProjectionPersistenceService {
             Long logicalStoreId,
             Long productMasterId,
             Map<String, Long> siteIdMap,
+            Map<String, String> siteCodeMap,
             ProductMasterSeed seed,
             Long updatedBy
     ) {
@@ -1814,12 +1856,15 @@ public class ProductProjectionPersistenceService {
         }
         Map<String, Map<String, Object>> existingProjectionOffers = existingProjectionOffersByStoreCode(productMasterId);
         for (SiteOfferSeed offerSeed : seed.getSiteOffers()) {
-            Long siteId = siteIdMap.get(normalize(offerSeed.getStoreCode()));
+            String storeCode = normalize(offerSeed.getStoreCode());
+            Long siteId = siteIdMap.get(storeCode);
             if (siteId == null) {
                 continue;
             }
-            Map<String, Object> existingOffer = existingProjectionOffers.get(normalize(offerSeed.getStoreCode()));
+            String siteCode = siteCodeMap == null ? null : siteCodeMap.get(storeCode);
+            Map<String, Object> existingOffer = existingProjectionOffers.get(storeCode);
             Map<String, Object> siteOffer = new LinkedHashMap<>();
+            putIfNotBlank(siteOffer, "site", siteCode);
             putIfNotBlank(siteOffer, "pskuCode", offerSeed.getPskuCode());
             putIfNotBlank(siteOffer, "offerCode", offerSeed.getOfferCode());
             putIfNotBlank(siteOffer, "currency", offerSeed.getCurrency());
@@ -1844,13 +1889,27 @@ public class ProductProjectionPersistenceService {
             putIfNotNull(siteOffer, "supermallStock", offerSeed.getSupermallStock());
             putIfNotNull(siteOffer, "fbpStock", offerSeed.getFbpStock());
             preserveMissingEditableOfferFields(siteOffer, existingOffer);
-            upsertSiteOffer(variantId, siteId, siteOffer, seed.getLastSyncedAt(), updatedBy);
+            upsertSiteOffer(
+                    productMasterId,
+                    logicalStoreId,
+                    normalize(seed.getPartnerSku()),
+                    variantId,
+                    siteId,
+                    siteCode,
+                    siteOffer,
+                    seed.getLastSyncedAt(),
+                    updatedBy
+            );
         }
     }
 
     private void upsertSiteOffer(
+            Long productMasterId,
+            Long logicalStoreId,
+            String partnerSku,
             Long variantId,
             Long siteId,
+            String siteCode,
             Map<String, Object> siteOffer,
             String lastSyncedAt,
             Long updatedBy
@@ -1858,12 +1917,22 @@ public class ProductProjectionPersistenceService {
         if (variantId == null || siteId == null || siteOffer == null) {
             return;
         }
-        Long existingId = productManagementMapper.selectProductSiteOfferId(variantId, siteId);
+        Long existingId = StringUtils.hasText(partnerSku) && StringUtils.hasText(siteCode)
+                ? productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(
+                        logicalStoreId,
+                        normalize(partnerSku),
+                        normalize(siteCode)
+                )
+                : productManagementMapper.selectProductSiteOfferId(variantId, siteId);
         Long id = existingId != null ? existingId : productManagementMapper.nextProductSiteOfferId();
         productManagementMapper.upsertProductSiteOffer(
                 id,
+                productMasterId,
+                logicalStoreId,
+                normalize(partnerSku),
                 variantId,
                 siteId,
+                normalize(siteCode),
                 normalize(text(siteOffer.get("pskuCode"))),
                 normalize(text(siteOffer.get("offerCode"))),
                 normalize(text(siteOffer.get("currency"))),
@@ -3587,6 +3656,9 @@ public class ProductProjectionPersistenceService {
             seed.setVariantCountCache(intValue(snapshot.getIdentity().get("variantCount")));
             seed.setSyncStatus(syncStatus);
             seed.setLastSyncedAt(lastSyncedAt);
+            seed.setPartnerSku(stringValue(snapshot.getIdentity().get("partnerSku")));
+            seed.setChildSku(stringValue(snapshot.getIdentity().get("childSku")));
+            seed.setPskuCode(stringValue(snapshot.getIdentity().get("pskuCode")));
             return seed;
         }
 
