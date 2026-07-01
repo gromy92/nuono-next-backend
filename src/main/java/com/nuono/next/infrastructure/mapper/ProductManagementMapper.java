@@ -736,15 +736,42 @@ public interface ProductManagementMapper {
             @Param("productFulltype") String productFulltype
     );
 
+    default Long selectProductMasterId(Long logicalStoreId, String skuParent) {
+        if (logicalStoreId == null || skuParent == null || skuParent.trim().isEmpty()) {
+            return null;
+        }
+        String normalizedSkuParent = skuParent.trim();
+        Long currentZMatch = selectProductMasterIdByCurrentZCode(logicalStoreId, normalizedSkuParent);
+        if (currentZMatch != null) {
+            return currentZMatch;
+        }
+        return selectProductMasterIdByLegacySkuParent(logicalStoreId, normalizedSkuParent);
+    }
+
     @Select({
             "SELECT id",
             "FROM product_master",
             "WHERE logical_store_id = #{logicalStoreId}",
-            "  AND (current_z_code = #{skuParent} OR sku_parent = #{skuParent})",
+            "  AND current_z_code = #{currentZCode}",
             "  AND is_deleted = 0",
+            "ORDER BY gmt_updated DESC, id DESC",
             "LIMIT 1"
     })
-    Long selectProductMasterId(
+    Long selectProductMasterIdByCurrentZCode(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("currentZCode") String currentZCode
+    );
+
+    @Select({
+            "SELECT id",
+            "FROM product_master",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND sku_parent = #{skuParent}",
+            "  AND is_deleted = 0",
+            "ORDER BY gmt_updated DESC, id DESC",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByLegacySkuParent(
             @Param("logicalStoreId") Long logicalStoreId,
             @Param("skuParent") String skuParent
     );
@@ -762,6 +789,28 @@ public interface ProductManagementMapper {
             @Param("partnerSku") String partnerSku
     );
 
+    default Long selectProductMasterIdByStoreCode(Long ownerUserId, String storeCode, String skuParent) {
+        if (ownerUserId == null || storeCode == null || storeCode.trim().isEmpty()
+                || skuParent == null || skuParent.trim().isEmpty()) {
+            return null;
+        }
+        String normalizedStoreCode = storeCode.trim();
+        String normalizedSkuParent = skuParent.trim();
+        Long currentZMatch = selectProductMasterIdByStoreCodeCurrentZCode(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSkuParent
+        );
+        if (currentZMatch != null) {
+            return currentZMatch;
+        }
+        return selectProductMasterIdByStoreCodeLegacySkuParent(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSkuParent
+        );
+    }
+
     @Select({
             "SELECT pm.id",
             "FROM logical_store ls",
@@ -771,13 +820,36 @@ public interface ProductManagementMapper {
             " AND lss.is_deleted = 0",
             "JOIN product_master pm",
             "  ON pm.logical_store_id = ls.id",
-            " AND (pm.current_z_code = #{skuParent} OR pm.sku_parent = #{skuParent})",
+            " AND pm.current_z_code = #{currentZCode}",
             " AND pm.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
+            "ORDER BY pm.gmt_updated DESC, pm.id DESC",
             "LIMIT 1"
     })
-    Long selectProductMasterIdByStoreCode(
+    Long selectProductMasterIdByStoreCodeCurrentZCode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("currentZCode") String currentZCode
+    );
+
+    @Select({
+            "SELECT pm.id",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss",
+            "  ON lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.sku_parent = #{skuParent}",
+            " AND pm.is_deleted = 0",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = 0",
+            "ORDER BY pm.gmt_updated DESC, pm.id DESC",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByStoreCodeLegacySkuParent(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
             @Param("skuParent") String skuParent
@@ -1207,19 +1279,15 @@ public interface ProductManagementMapper {
                 || partnerSku == null || partnerSku.trim().isEmpty()) {
             return null;
         }
+        Long productMasterId = selectProductMasterIdByStorePartnerSku(logicalStoreId, partnerSku.trim());
+        if (productMasterId == null) {
+            return null;
+        }
         Long ownerUserId = selectLogicalStoreOwnerUserId(logicalStoreId);
         if (ownerUserId == null) {
             return null;
         }
-        String normalizedPartnerSku = partnerSku.trim();
-        for (ProductListProjectionRecord record : selectProductListProjection(ownerUserId, storeCode.trim())) {
-            if (record != null
-                    && record.getPartnerSku() != null
-                    && normalizedPartnerSku.equals(record.getPartnerSku().trim())) {
-                return record;
-            }
-        }
-        return null;
+        return selectProductListProjectionByProductMasterId(ownerUserId, storeCode.trim(), productMasterId);
     }
 
     @Select({
@@ -1440,18 +1508,29 @@ public interface ProductManagementMapper {
             " AND pg_for_member.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "  AND (pm.current_z_code = #{skuParent} OR pm.sku_parent = #{skuParent})",
+            "  AND pm.id = #{productMasterId}",
             "GROUP BY",
             "  pm.id, pm.sku_parent, pm.current_z_code, pm.partner_sku, pm.title_cache, pm.title_cn_cache, pm.brand_cache, pm.cover_image_url,",
             "  pm.product_source_type, pm.product_fulltype_cache, pm.variant_count_cache, pm.group_ref, pm.issue_count,",
             "  pm.sync_status, pm.last_synced_at",
             "LIMIT 1"
     })
-    ProductListProjectionRecord selectProductListProjectionBySkuParent(
+    ProductListProjectionRecord selectProductListProjectionByProductMasterId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
-            @Param("skuParent") String skuParent
+            @Param("productMasterId") Long productMasterId
     );
+
+    default ProductListProjectionRecord selectProductListProjectionBySkuParent(
+            Long ownerUserId,
+            String storeCode,
+            String skuParent
+    ) {
+        Long productMasterId = selectProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent);
+        return productMasterId == null
+                ? null
+                : selectProductListProjectionByProductMasterId(ownerUserId, storeCode.trim(), productMasterId);
+    }
 
     @Select({
             "<script>",
@@ -1573,6 +1652,17 @@ public interface ProductManagementMapper {
             @Param("limit") int limit
     );
 
+    default ProductGroupCandidateContextRecord selectProductGroupCandidateContext(
+            Long ownerUserId,
+            String storeCode,
+            String skuParent
+    ) {
+        Long productMasterId = selectProductMasterIdByStoreCode(ownerUserId, storeCode, skuParent);
+        return productMasterId == null
+                ? null
+                : selectProductGroupCandidateContextByProductMasterId(ownerUserId, storeCode.trim(), productMasterId);
+    }
+
     @Select({
             "SELECT",
             "  COALESCE(NULLIF(pm.current_z_code, ''), pm.sku_parent) AS skuParent,",
@@ -1586,16 +1676,16 @@ public interface ProductManagementMapper {
             " AND anchor.is_deleted = 0",
             "JOIN product_master pm",
             "  ON pm.logical_store_id = ls.id",
-            " AND (pm.current_z_code = #{skuParent} OR pm.sku_parent = #{skuParent})",
+            " AND pm.id = #{productMasterId}",
             " AND pm.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
             "LIMIT 1"
     })
-    ProductGroupCandidateContextRecord selectProductGroupCandidateContext(
+    ProductGroupCandidateContextRecord selectProductGroupCandidateContextByProductMasterId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
-            @Param("skuParent") String skuParent
+            @Param("productMasterId") Long productMasterId
     );
 
     @Select({

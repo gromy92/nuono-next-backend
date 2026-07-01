@@ -1,12 +1,18 @@
 package com.nuono.next.product;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import java.lang.reflect.Method;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.Test;
+import org.mockito.Answers;
+import org.mockito.Mockito;
 
 class ProductPskuProductIdentityMapperSqlTest {
 
@@ -91,6 +97,65 @@ class ProductPskuProductIdentityMapperSqlTest {
                 .contains("logical_store_id = #{logicalStoreId}")
                 .contains("partner_sku = #{partnerSku}")
                 .doesNotContain("sku_parent = #{skuParent}");
+    }
+
+    @Test
+    void legacyProductMasterResolverPrefersCurrentZBeforeSkuParentFallback() {
+        ProductManagementMapper mapper = Mockito.mock(ProductManagementMapper.class, Answers.CALLS_REAL_METHODS);
+        when(mapper.selectProductMasterIdByCurrentZCode(50003L, "ZCURRENT001")).thenReturn(52001L);
+
+        Long productMasterId = mapper.selectProductMasterId(50003L, " ZCURRENT001 ");
+
+        assertThat(productMasterId).isEqualTo(52001L);
+        verify(mapper).selectProductMasterIdByCurrentZCode(50003L, "ZCURRENT001");
+        verify(mapper, never()).selectProductMasterIdByLegacySkuParent(any(), any());
+    }
+
+    @Test
+    void legacyProductMasterResolverFallsBackToSkuParentAfterCurrentZMiss() {
+        ProductManagementMapper mapper = Mockito.mock(ProductManagementMapper.class, Answers.CALLS_REAL_METHODS);
+        when(mapper.selectProductMasterIdByCurrentZCode(50003L, "ZLEGACY001")).thenReturn(null);
+        when(mapper.selectProductMasterIdByLegacySkuParent(50003L, "ZLEGACY001")).thenReturn(52002L);
+
+        Long productMasterId = mapper.selectProductMasterId(50003L, "ZLEGACY001");
+
+        assertThat(productMasterId).isEqualTo(52002L);
+        verify(mapper).selectProductMasterIdByCurrentZCode(50003L, "ZLEGACY001");
+        verify(mapper).selectProductMasterIdByLegacySkuParent(50003L, "ZLEGACY001");
+    }
+
+    @Test
+    void partnerSkuProjectionResolverUsesSingleProductProjectionInsteadOfStoreScan() {
+        ProductManagementMapper mapper = Mockito.mock(ProductManagementMapper.class, Answers.CALLS_REAL_METHODS);
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        when(mapper.selectProductMasterIdByStorePartnerSku(50003L, "SGGRB113")).thenReturn(52001L);
+        when(mapper.selectLogicalStoreOwnerUserId(50003L)).thenReturn(307L);
+        when(mapper.selectProductListProjectionByProductMasterId(307L, "STR245027-NSA", 52001L)).thenReturn(record);
+
+        ProductListProjectionRecord resolved = mapper.selectProductListProjectionByStorePartnerSku(
+                50003L,
+                " STR245027-NSA ",
+                " SGGRB113 "
+        );
+
+        assertThat(resolved).isSameAs(record);
+        verify(mapper, never()).selectProductListProjection(any(), any());
+    }
+
+    @Test
+    void singleProductProjectionSqlTargetsProductMasterId() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "selectProductListProjectionByProductMasterId",
+                Long.class,
+                String.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("pm.id = #{productMasterId}")
+                .doesNotContain("pm.current_z_code = #{skuParent} OR pm.sku_parent = #{skuParent}");
     }
 
     @Test
