@@ -74,14 +74,110 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
         Method method = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
                 "nextAppointmentRetrySeconds",
                 int.class,
-                AppointmentRecord.class
+                AppointmentRecord.class,
+                String.class,
+                String.class,
+                String.class
         );
         method.setAccessible(true);
 
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(null))).isEqualTo(10);
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(0))).isEqualTo(10);
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(1))).isEqualTo(20);
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(2))).isEqualTo(40);
+        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(null), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
+                .isEqualTo(10);
+        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(0), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
+                .isEqualTo(10);
+        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(1), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
+                .isEqualTo(20);
+        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(2), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
+                .isEqualTo(40);
+    }
+
+    @Test
+    void noCapacityRetryUsesShortBusinessCooldownEvenAfterManyAttempts() throws Exception {
+        Method method = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
+                "nextAppointmentRetrySeconds",
+                int.class,
+                AppointmentRecord.class,
+                String.class,
+                String.class,
+                String.class
+        );
+        method.setAccessible(true);
+
+        assertThat(method.invoke(
+                null,
+                5,
+                appointmentWithAttemptCount(32),
+                "SCHEDULE",
+                "NO_CAPACITY",
+                "没有匹配的 Noon 可约仓日期或时段。"
+        ))
+                .isEqualTo(300);
+    }
+
+    @Test
+    void noonAccessFailureRetryIsCappedAndClassified() throws Exception {
+        Method retryMethod = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
+                "nextAppointmentRetrySeconds",
+                int.class,
+                AppointmentRecord.class,
+                String.class,
+                String.class,
+                String.class
+        );
+        retryMethod.setAccessible(true);
+        Method failureTypeMethod = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
+                "appointmentRetryFailureType",
+                String.class,
+                String.class,
+                String.class
+        );
+        failureTypeMethod.setAccessible(true);
+
+        assertThat(failureTypeMethod.invoke(null, "NOON_CALL", "IllegalStateException", "HTTP 407 empty response"))
+                .isEqualTo("NOON_ACCESS_BLOCKED");
+        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure("NOON_ACCESS_BLOCKED"))
+                .isTrue();
+        assertThat(retryMethod.invoke(
+                null,
+                5,
+                appointmentWithAttemptCount(32),
+                "NOON_CALL",
+                "NOON_ACCESS_BLOCKED",
+                "HTTP 407 empty response"
+        ))
+                .isEqualTo(1800);
+    }
+
+    @Test
+    void transientHttpServerErrorIsRetryableNoonAccessFailure() throws Exception {
+        Method failureTypeMethod = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
+                "appointmentRetryFailureType",
+                String.class,
+                String.class,
+                String.class
+        );
+        failureTypeMethod.setAccessible(true);
+
+        assertThat(failureTypeMethod.invoke(null, "NOON_CALL", "IllegalStateException", "HTTP 500 empty response"))
+                .isEqualTo("NOON_ACCESS_FAILURE");
+        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure("NOON_ACCESS_FAILURE"))
+                .isTrue();
+    }
+
+    @Test
+    void genericNoonCallExceptionIsNotRetriedAsAccessFailure() throws Exception {
+        Method failureTypeMethod = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
+                "appointmentRetryFailureType",
+                String.class,
+                String.class,
+                String.class
+        );
+        failureTypeMethod.setAccessible(true);
+
+        assertThat(failureTypeMethod.invoke(null, "NOON_CALL", "IllegalArgumentException", "缺少 Noon 绑定。"))
+                .isEqualTo("IllegalArgumentException");
+        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure("IllegalArgumentException"))
+                .isFalse();
     }
 
     private AppointmentRecord appointmentWithAttemptCount(Integer attemptCount) {

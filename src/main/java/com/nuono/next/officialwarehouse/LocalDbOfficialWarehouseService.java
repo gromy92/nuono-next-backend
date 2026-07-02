@@ -71,6 +71,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
 
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
     private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
+    private static final int APPOINTMENT_NO_CAPACITY_RETRY_SECONDS = 300;
+    private static final int APPOINTMENT_RETRY_CAP_SECONDS = 1800;
     private static final int DEFAULT_SEAL_CHECK_ATTEMPTS = 8;
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
     private static final int DEFAULT_ASN_LIST_SYNC_PER_PAGE = 50;
@@ -1365,11 +1367,19 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                         operatorId
                 );
             } else if (allowRetry && shouldRetryAppointment(appointment, result.failureType)) {
+                String retryFailureType = appointmentRetryFailureType("SCHEDULE", result.failureType, result.errorMessage);
+                String retryErrorStage = appointmentRetryErrorStage("SCHEDULE", retryFailureType);
                 mapper.markAppointmentPendingRetry(
                         appointment.id,
-                        nextAppointmentRetrySeconds(safeRetryBaseSeconds(), appointment),
-                        "SCHEDULE",
-                        result.failureType,
+                        nextAppointmentRetrySeconds(
+                                safeRetryBaseSeconds(),
+                                appointment,
+                                retryErrorStage,
+                                retryFailureType,
+                                result.errorMessage
+                        ),
+                        retryErrorStage,
+                        retryFailureType,
                         result.errorMessage,
                         operatorId
                 );
@@ -1385,20 +1395,28 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         } catch (Exception exception) {
             persistResolvedWarehouseFrom(appointment, task, operatorId);
             String message = shrinkMessage(exception);
-            if (allowRetry && shouldRetryAppointment(appointment, "NOON_CALL")) {
+            String retryFailureType = appointmentRetryFailureType("NOON_CALL", exception.getClass().getSimpleName(), message);
+            String retryErrorStage = appointmentRetryErrorStage("NOON_CALL", retryFailureType);
+            if (allowRetry && isRetryableNoonCallFailure(retryFailureType) && shouldRetryAppointment(appointment, retryFailureType)) {
                 mapper.markAppointmentPendingRetry(
                         appointment.id,
-                        nextAppointmentRetrySeconds(safeRetryBaseSeconds(), appointment),
-                        "NOON_CALL",
-                        exception.getClass().getSimpleName(),
+                        nextAppointmentRetrySeconds(
+                                safeRetryBaseSeconds(),
+                                appointment,
+                                retryErrorStage,
+                                retryFailureType,
+                                message
+                        ),
+                        retryErrorStage,
+                        retryFailureType,
                         message,
                         operatorId
                 );
             } else {
                 mapper.markAppointmentFailed(
                         appointment.id,
-                        "NOON_CALL",
-                        exception.getClass().getSimpleName(),
+                        retryErrorStage,
+                        retryFailureType,
                         message,
                         operatorId
                 );
@@ -1497,6 +1515,19 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     static int nextAppointmentRetrySeconds(int baseRetrySeconds, AppointmentRecord appointment) {
+        return nextAppointmentRetrySeconds(baseRetrySeconds, appointment, "SCHEDULE", "SCHEDULE_APPOINTMENT", null);
+    }
+
+    static int nextAppointmentRetrySeconds(
+            int baseRetrySeconds,
+            AppointmentRecord appointment,
+            String errorStage,
+            String failureType,
+            String errorMessage
+    ) {
+        if (isNoCapacityFailure(failureType)) {
+            return APPOINTMENT_NO_CAPACITY_RETRY_SECONDS;
+        }
         int safeBase = baseRetrySeconds <= 0 ? DEFAULT_APPOINTMENT_RETRY_SECONDS : baseRetrySeconds;
         int previousAttemptCount = appointment == null || appointment.attemptCount == null
                 ? 0
@@ -1504,7 +1535,70 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         int failedAttemptsAfterCurrentRun = previousAttemptCount + 1;
         long multiplier = 1L << Math.min(30, failedAttemptsAfterCurrentRun);
         long seconds = (long) safeBase * multiplier;
-        return seconds > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) seconds;
+        return (int) Math.min(seconds, APPOINTMENT_RETRY_CAP_SECONDS);
+    }
+
+    static String appointmentRetryFailureType(String errorStage, String failureType, String errorMessage) {
+        if (isNoonAccessBlocked(errorStage, failureType, errorMessage)) {
+            return "NOON_ACCESS_BLOCKED";
+        }
+        if (isNoonAccessFailure(errorStage, failureType, errorMessage)) {
+            return "NOON_ACCESS_FAILURE";
+        }
+        return failureType;
+    }
+
+    static boolean isRetryableNoonCallFailure(String retryFailureType) {
+        return isNoonAccessFailureType(retryFailureType);
+    }
+
+    private static String appointmentRetryErrorStage(String fallbackStage, String retryFailureType) {
+        return isNoonAccessFailureType(retryFailureType) ? "NOON_ACCESS" : fallbackStage;
+    }
+
+    private static boolean isNoCapacityFailure(String failureType) {
+        return "NO_CAPACITY".equalsIgnoreCase(trimToNull(failureType));
+    }
+
+    private static boolean isNoonAccessBlocked(String errorStage, String failureType, String errorMessage) {
+        String combined = retryText(errorStage, failureType, errorMessage);
+        return combined.contains("http 407")
+                || combined.contains("proxy authentication")
+                || combined.contains("tunnel failed");
+    }
+
+    private static boolean isNoonAccessFailure(String errorStage, String failureType, String errorMessage) {
+        if (isNoonAccessBlocked(errorStage, failureType, errorMessage)) {
+            return true;
+        }
+        String combined = retryText(errorStage, failureType, errorMessage);
+        return combined.contains("io_exception")
+                || combined.contains("connection reset")
+                || combined.contains("connection refused")
+                || combined.contains("connect timed out")
+                || combined.contains("request timed out")
+                || combined.contains("read timed out")
+                || combined.contains("no route to host")
+                || combined.contains("header parser received no bytes")
+                || combined.contains("eof reached")
+                || combined.contains("unexpected end")
+                || combined.contains("connection closed")
+                || combined.contains("closed channel")
+                || combined.contains("http 408")
+                || combined.contains("http 500")
+                || combined.contains("http 502")
+                || combined.contains("http 503")
+                || combined.contains("http 504");
+    }
+
+    private static boolean isNoonAccessFailureType(String retryFailureType) {
+        return "NOON_ACCESS_BLOCKED".equalsIgnoreCase(trimToNull(retryFailureType))
+                || "NOON_ACCESS_FAILURE".equalsIgnoreCase(trimToNull(retryFailureType));
+    }
+
+    private static String retryText(String errorStage, String failureType, String errorMessage) {
+        return (String.valueOf(errorStage) + " " + String.valueOf(failureType) + " " + String.valueOf(errorMessage))
+                .toLowerCase(Locale.ROOT);
     }
 
     private Long schedulerOperatorUserId(AppointmentRecord appointment) {

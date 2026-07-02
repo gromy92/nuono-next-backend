@@ -179,7 +179,7 @@ public class InTransitPluginSyncService {
         accessScopeService.requireWritableBatchScope(resolved.getAccessContext(), batchCommand);
         BatchView savedBatch = batchService.saveBatch(batchCommand);
         List<String> syncedBoxNos = syncedBoxNos(batch);
-        List<String> syncedLineKeys = syncedLineKeys(batch);
+        List<String> syncedLineKeys = syncedLineKeys(ownerUserId, batch);
         if (shouldReconcileSyncedDetails(
                 batch,
                 sourceExpectationMap.get(normalizeCode(batchNo)),
@@ -210,16 +210,25 @@ public class InTransitPluginSyncService {
                 continue;
             }
             for (PluginSyncLine line : itemPackage.getLines()) {
-                String psku = clean(line.getPsku());
-                if (!StringUtils.hasText(psku)) {
+                String barcode = sourceBarcode(line);
+                if (!StringUtils.hasText(barcode)) {
                     continue;
                 }
-                LineRow existingLine = mapper.selectLineByBoxNoAndPsku(ownerUserId, savedBatch.getBatchId(), boxNo, psku);
+                String psku = requirePartnerSkuFromBarcode(ownerUserId, barcode);
+                LineRow existingLine = selectExistingLineForResolvedPsku(
+                        ownerUserId,
+                        savedBatch.getBatchId(),
+                        boxNo,
+                        psku,
+                        barcode
+                );
                 SaveLineCommand lineCommand = toLineCommand(
                         resolved,
                         savedBatch.getBatchId(),
                         itemPackage,
                         line,
+                        barcode,
+                        psku,
                         existingLine
                 );
                 accessScopeService.requireWritableLineScope(resolved.getAccessContext(), lineCommand);
@@ -406,24 +415,28 @@ public class InTransitPluginSyncService {
                     issues.add(PluginSyncIssueView.error(batchNo, boxNo, null, "boxNo", "同一批次内箱号不能重复。"));
                 }
                 for (PluginSyncLine line : itemPackage.getLines()) {
-                    String psku = clean(line.getPsku());
+                    String barcode = sourceBarcode(line);
                     lineCount += 1;
                     batchView.setLineCount(batchView.getLineCount() + 1);
                     validateLine(batchNo, boxNo, line, issues);
                     if (line.getShippedQuantity() != null && line.getShippedQuantity() >= 0) {
                         batchShippedQuantity += line.getShippedQuantity();
                     }
+                    if (!StringUtils.hasText(barcode)) {
+                        continue;
+                    }
+                    String psku = resolvePartnerSkuFromBarcode(ownerUserId, batchNo, boxNo, barcode, issues);
                     if (!StringUtils.hasText(psku)) {
                         continue;
                     }
                     String lineKey = batchNo + "\n" + boxNo + "\n" + psku;
                     if (!lineKeys.add(lineKey)) {
-                        issues.add(PluginSyncIssueView.error(batchNo, boxNo, psku, "psku", "同一批次同一箱号内 PSKU 重复。"));
+                        issues.add(PluginSyncIssueView.error(batchNo, boxNo, psku, "barcode", "同一批次同一箱号内 barcode 解析后的 PSKU 重复。"));
                         continue;
                     }
                     LineRow existingLine = existingBatch == null
                             ? null
-                            : mapper.selectLineByBoxNoAndPsku(ownerUserId, existingBatch.getId(), boxNo, psku);
+                            : selectExistingLineForResolvedPsku(ownerUserId, existingBatch.getId(), boxNo, psku, barcode);
                     if (existingLine == null) {
                         newLineCount += 1;
                     } else {
@@ -490,7 +503,7 @@ public class InTransitPluginSyncService {
         return new ArrayList<>(result);
     }
 
-    private List<String> syncedLineKeys(PluginSyncBatch batch) {
+    private List<String> syncedLineKeys(Long ownerUserId, PluginSyncBatch batch) {
         Set<String> result = new LinkedHashSet<>();
         for (PluginSyncPackage itemPackage : batch.getPackages()) {
             String boxNo = clean(itemPackage.getBoxNo());
@@ -498,7 +511,10 @@ public class InTransitPluginSyncService {
                 continue;
             }
             for (PluginSyncLine line : itemPackage.getLines()) {
-                String psku = clean(line.getPsku());
+                String barcode = sourceBarcode(line);
+                String psku = StringUtils.hasText(barcode)
+                        ? requirePartnerSkuFromBarcode(ownerUserId, barcode)
+                        : null;
                 if (StringUtils.hasText(psku)) {
                     result.add(boxNo + "\n" + psku);
                 }
@@ -862,6 +878,8 @@ public class InTransitPluginSyncService {
             Long batchId,
             PluginSyncPackage itemPackage,
             PluginSyncLine line,
+            String barcode,
+            String psku,
             LineRow existingLine
     ) {
         SaveLineCommand result = new SaveLineCommand();
@@ -887,9 +905,9 @@ public class InTransitPluginSyncService {
         result.setPackageStatus(clean(itemPackage.getPackageStatus()));
         result.setLogisticsStatus(clean(itemPackage.getLogisticsStatus()));
         result.setPackageSnapshotAuthoritative(true);
-        result.setSku(firstText(line.getSku(), line.getPsku()));
+        result.setSku(clean(barcode));
         result.setMsku(clean(line.getMsku()));
-        result.setPsku(clean(line.getPsku()));
+        result.setPsku(clean(psku));
         result.setProductName(clean(line.getProductName()));
         result.setStoreCode(clean(line.getStoreCode()));
         result.setSiteCode(clean(line.getSiteCode()));
@@ -988,21 +1006,67 @@ public class InTransitPluginSyncService {
     }
 
     private void validateLine(String batchNo, String boxNo, PluginSyncLine line, List<PluginSyncIssueView> issues) {
-        String psku = clean(line.getPsku());
-        if (!StringUtils.hasText(psku)) {
-            issues.add(PluginSyncIssueView.error(batchNo, boxNo, null, "psku", "PSKU不能为空。"));
+        String barcode = sourceBarcode(line);
+        if (!StringUtils.hasText(barcode)) {
+            issues.add(PluginSyncIssueView.error(batchNo, boxNo, null, "barcode", "物流商品 barcode 不能为空。"));
         }
         if (line.getShippedQuantity() != null && line.getShippedQuantity() < 0) {
-            issues.add(PluginSyncIssueView.error(batchNo, boxNo, psku, "shippedQuantity", "发货数量不能为负数。"));
+            issues.add(PluginSyncIssueView.error(batchNo, boxNo, barcode, "shippedQuantity", "发货数量不能为负数。"));
         }
         if (line.getReceivedQuantity() != null && line.getReceivedQuantity() < 0) {
-            issues.add(PluginSyncIssueView.error(batchNo, boxNo, psku, "receivedQuantity", "已入仓数量不能为负数。"));
+            issues.add(PluginSyncIssueView.error(batchNo, boxNo, barcode, "receivedQuantity", "已入仓数量不能为负数。"));
         }
         if (line.getShippedQuantity() != null
                 && line.getReceivedQuantity() != null
                 && line.getReceivedQuantity() > line.getShippedQuantity()) {
-            issues.add(PluginSyncIssueView.error(batchNo, boxNo, psku, "receivedQuantity", "已入仓数量不能大于发货数量。"));
+            issues.add(PluginSyncIssueView.error(batchNo, boxNo, barcode, "receivedQuantity", "已入仓数量不能大于发货数量。"));
         }
+    }
+
+    private String sourceBarcode(PluginSyncLine line) {
+        return line == null ? null : firstText(line.getPsku(), line.getSku());
+    }
+
+    private String resolvePartnerSkuFromBarcode(
+            Long ownerUserId,
+            String batchNo,
+            String boxNo,
+            String barcode,
+            List<PluginSyncIssueView> issues
+    ) {
+        String partnerSku = mapper.selectPartnerSkuByBarcode(ownerUserId, clean(barcode));
+        if (!StringUtils.hasText(partnerSku)) {
+            issues.add(PluginSyncIssueView.error(
+                    batchNo,
+                    boxNo,
+                    barcode,
+                    "barcode",
+                    "物流商品 barcode 未匹配到系统商品：" + clean(barcode)
+            ));
+        }
+        return partnerSku;
+    }
+
+    private String requirePartnerSkuFromBarcode(Long ownerUserId, String barcode) {
+        String partnerSku = mapper.selectPartnerSkuByBarcode(ownerUserId, clean(barcode));
+        if (!StringUtils.hasText(partnerSku)) {
+            throw new IllegalStateException("物流商品 barcode 未匹配到系统商品：" + clean(barcode));
+        }
+        return partnerSku;
+    }
+
+    private LineRow selectExistingLineForResolvedPsku(
+            Long ownerUserId,
+            Long batchId,
+            String boxNo,
+            String resolvedPsku,
+            String barcode
+    ) {
+        LineRow existingLine = mapper.selectLineByBoxNoAndPsku(ownerUserId, batchId, boxNo, resolvedPsku);
+        if (existingLine != null || sameIdentifier(resolvedPsku, barcode)) {
+            return existingLine;
+        }
+        return mapper.selectLineByBoxNoAndPsku(ownerUserId, batchId, boxNo, barcode);
     }
 
     private ParsedNode parseNode(String sourceSystem, String batchNo, PluginSyncNode node) {
