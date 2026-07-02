@@ -37,7 +37,8 @@ class LocalDbBootstrapStatusServiceTest {
                         "classpath:db/init/145_procurement_purchase_order_logistics_quote_confirmation.sql",
                         "classpath:db/init/146_procurement_shipping_order.sql",
                         "classpath:db/init/147_product_forwarder_declaration_attribute.sql",
-                        "classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql"
+                        "classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql",
+                        "classpath:db/init/159_product_image_logical_store_scope.sql"
                 );
     }
 }

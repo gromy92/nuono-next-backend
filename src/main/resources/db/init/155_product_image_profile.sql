@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS `product_image_profile` (
   `id` BIGINT NOT NULL AUTO_INCREMENT,
   `owner_user_id` BIGINT NOT NULL,
   `store_code` VARCHAR(64) NOT NULL,
+  `logical_store_id` BIGINT DEFAULT NULL,
   `psku_code` VARCHAR(100) NOT NULL,
   `product_identity_key` VARCHAR(120) NOT NULL,
   `product_master_id` BIGINT DEFAULT NULL,
@@ -27,6 +28,8 @@ CREATE TABLE IF NOT EXISTS `product_image_profile` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_product_image_profile_identity` (`owner_user_id`, `store_code`, `psku_code`, `product_identity_key`, `active_unique_key`),
   KEY `idx_product_image_profile_scope` (`owner_user_id`, `store_code`, `deleted`, `updated_at`),
+  KEY `idx_product_image_profile_logical_scope` (`owner_user_id`, `logical_store_id`, `deleted`, `updated_at`),
+  KEY `idx_product_image_profile_logical_identity` (`owner_user_id`, `logical_store_id`, `psku_code`, `product_identity_key`, `deleted`),
   KEY `idx_product_image_profile_variant` (`product_variant_id`),
   KEY `idx_product_image_profile_master` (`product_master_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -55,6 +58,11 @@ CREATE TABLE IF NOT EXISTS `product_image_profile_asset` (
   `size_bytes` BIGINT DEFAULT NULL,
   `width_px` INT DEFAULT NULL,
   `height_px` INT DEFAULT NULL,
+  `source_store_code` VARCHAR(64) DEFAULT NULL,
+  `source_site_code` VARCHAR(32) DEFAULT NULL,
+  `source_snapshot_id` BIGINT DEFAULT NULL,
+  `source_field` VARCHAR(120) DEFAULT NULL,
+  `source_kind` VARCHAR(120) DEFAULT NULL,
   `image_role` VARCHAR(32) NOT NULL DEFAULT 'MAIN',
   `sort_order` INT NOT NULL DEFAULT 0,
   `asset_status` VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
@@ -63,7 +71,8 @@ CREATE TABLE IF NOT EXISTS `product_image_profile_asset` (
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_product_image_profile_asset_profile` (`profile_id`, `asset_status`, `sort_order`, `id`)
+  KEY `idx_product_image_profile_asset_profile` (`profile_id`, `asset_status`, `sort_order`, `id`),
+  KEY `idx_product_image_profile_asset_source` (`source_store_code`, `source_site_code`, `source_snapshot_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET @product_image_profile_asset_add_content_type := (

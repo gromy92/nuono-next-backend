@@ -6,6 +6,7 @@ public class ProductImageProfileRecord {
     private Long id;
     private Long ownerUserId;
     private String storeCode;
+    private Long logicalStoreId;
     private String pskuCode;
     private String productIdentityKey;
     private Long productMasterId;
@@ -46,6 +47,14 @@ public class ProductImageProfileRecord {
 
     public void setStoreCode(String storeCode) {
         this.storeCode = storeCode;
+    }
+
+    public Long getLogicalStoreId() {
+        return logicalStoreId;
+    }
+
+    public void setLogicalStoreId(Long logicalStoreId) {
+        this.logicalStoreId = logicalStoreId;
     }
 
     public String getPskuCode() {
