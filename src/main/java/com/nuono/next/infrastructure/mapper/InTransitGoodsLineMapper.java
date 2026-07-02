@@ -46,6 +46,29 @@ public interface InTransitGoodsLineMapper extends InTransitGoodsSequenceMapper {
     );
 
     @Select({
+            "SELECT pv.partner_sku",
+            "FROM product_barcode pb",
+            "JOIN product_variant pv",
+            "  ON pv.id = pb.variant_id",
+            " AND pv.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.id = pv.product_master_id",
+            " AND pm.logical_store_id = pv.logical_store_id",
+            " AND pm.is_deleted = b'0'",
+            "JOIN logical_store ls",
+            "  ON ls.id = pv.logical_store_id",
+            " AND ls.owner_user_id = #{ownerUserId}",
+            " AND ls.is_deleted = b'0'",
+            "WHERE pb.barcode = #{barcode}",
+            "  AND pb.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    String selectPartnerSkuByBarcode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("barcode") String barcode
+    );
+
+    @Select({
             PACKAGE_SELECT,
             "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND box_no = #{boxNo} AND is_deleted = b'0' LIMIT 1"
     })

@@ -66,6 +66,11 @@ class InTransitPluginSyncServiceTest {
     void setUp() {
         service = new InTransitPluginSyncService(mapper, batchService, accessScopeService);
         lenient().when(mapper.acquirePluginSyncBatchLock(anyString(), anyInt())).thenReturn(1);
+        lenient().when(mapper.selectPartnerSkuByBarcode(any(), anyString()))
+                .thenAnswer(invocation -> {
+                    String barcode = invocation.getArgument(1, String.class);
+                    return "PAPERSAYSB031".equals(barcode) ? "PAPERSAYS031" : barcode;
+                });
     }
 
     @Test
@@ -504,13 +509,79 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
+    void shouldResolvePluginBarcodeToSystemPskuBeforeSavingLine() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        line.setPsku("PAPERSAYSB031");
+        line.setSku("PAPERSAYSB031");
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        SaveLineCommand savedLine = lineCaptor.getAllValues().get(0);
+        assertEquals("PAPERSAYSB031", savedLine.getSku());
+        assertEquals("PAPERSAYS031", savedLine.getPsku());
+    }
+
+    @Test
+    void shouldReuseLegacyBarcodePskuLineWhenResolvedPskuDoesNotExistYet() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        line.setPsku("PAPERSAYSB031");
+        line.setSku("PAPERSAYSB031");
+        BatchRow existingBatch = batch(53001L);
+        LineRow legacyLine = line(54031L);
+        legacyLine.setPsku("PAPERSAYSB031");
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53001L);
+        when(mapper.selectBatchByReferenceNo(10002L, "XGGEKSA04075")).thenReturn(existingBatch);
+        lenient().when(mapper.selectLineByBoxNoAndPsku(10002L, 53001L, "NO1-1", "PAPERSAYS031")).thenReturn(null);
+        lenient().when(mapper.selectLineByBoxNoAndPsku(10002L, 53001L, "NO1-1", "PAPERSAYSB031")).thenReturn(legacyLine);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        SaveLineCommand savedLine = lineCaptor.getAllValues().get(0);
+        assertEquals(54031L, savedLine.getLineId());
+        assertEquals("PAPERSAYSB031", savedLine.getSku());
+        assertEquals("PAPERSAYS031", savedLine.getPsku());
+    }
+
+    @Test
     void shouldRejectCommitWhenPreviewContainsErrors() {
         PluginSyncCommand command = sampleCommand();
         command.getBatches().get(0).getPackages().get(0).getLines().get(0).setPsku("");
+        command.getBatches().get(0).getPackages().get(0).getLines().get(0).setSku("");
 
         IllegalStateException exception = assertThrows(IllegalStateException.class, () -> service.commit(command));
 
         assertEquals("插件同步预览存在错误，不能落库。", exception.getMessage());
+        verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
+        verify(batchService, never()).saveLine(any(SaveLineCommand.class));
+    }
+
+    @Test
+    void shouldRejectPluginBarcodeWhenNoSystemProductMatches() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        line.setPsku("UNKNOWN-BARCODE");
+        line.setSku("UNKNOWN-BARCODE");
+        when(mapper.selectPartnerSkuByBarcode(10002L, "UNKNOWN-BARCODE")).thenReturn(null);
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertEquals(false, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "barcode".equals(issue.getField())
+                        && issue.getMessage().contains("未匹配到系统商品")
+        ));
+        assertThrows(IllegalStateException.class, () -> service.commit(command));
         verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
         verify(batchService, never()).saveLine(any(SaveLineCommand.class));
     }
