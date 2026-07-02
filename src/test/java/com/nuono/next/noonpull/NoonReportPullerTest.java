@@ -45,12 +45,14 @@ class NoonReportPullerTest {
         assertEquals(List.of("create", "poll", "download"), provider.calls);
         assertNotNull(result.getFileDigestSha256());
         assertTrue(persistedTask.getSourceBatchId().startsWith("noon-report-sales-"));
+        assertEquals(1, persistedTask.getProcessedItemCount());
+        assertEquals(1, persistedTask.getRequestCount());
         assertTrue(persistedTask.getDiagnosticSummary().contains("productviewsandsalesdata"));
         assertTrue(persistedTask.getDiagnosticSummary().contains("digest="));
     }
 
     @Test
-    void shouldFailWithTypedFailureForMissingDownloadUrlFailedExportAndTimeout() {
+    void shouldFailWithTypedFailureForMissingDownloadUrlAndFailedExport() {
         NoonPullTaskRecord missingUrlTask = createSalesTask("sales:missing-url");
         NoonReportPullResult missingUrl = puller.execute(
                 missingUrlTask.getId(),
@@ -73,16 +75,40 @@ class NoonReportPullerTest {
         assertEquals(NoonPullTaskStatus.FAILED, failedExport.getStatus());
         assertEquals("provider_unavailable", repository.selectTask(failedExportTask.getId()).getFailureType());
 
-        NoonPullTaskRecord timeoutTask = createSalesTask("sales:timeout");
-        NoonReportPullResult timeout = puller.execute(
-                timeoutTask.getId(),
+    }
+
+    @Test
+    void shouldKeepPendingReportExportRunningAndResumeFromCheckpoint() {
+        NoonPullTaskRecord task = createSalesTask("sales:resume-export");
+        FakeReportProvider provider = FakeReportProvider.pending();
+
+        NoonReportPullResult pending = puller.execute(
+                task.getId(),
                 salesRequest(),
-                FakeReportProvider.pending(),
+                provider,
                 (file) -> NoonReportProcessResult.succeeded(0, 0)
         );
+        NoonPullTaskRecord pendingTask = repository.selectTask(task.getId());
 
-        assertEquals(NoonPullTaskStatus.FAILED, timeout.getStatus());
-        assertEquals("timeout", repository.selectTask(timeoutTask.getId()).getFailureType());
+        assertEquals(NoonPullTaskStatus.RUNNING, pending.getStatus());
+        assertEquals(NoonPullTaskStatus.RUNNING, pendingTask.getStatus());
+        assertEquals("report-export:EXP-1", pendingTask.getCheckpointCursor());
+        assertEquals("export_pending", pendingTask.getReadinessState());
+        assertEquals(List.of("create", "poll", "poll"), provider.calls);
+
+        provider.calls.clear();
+        provider.pollStatus = NoonReportExportStatus.ready("https://download.test/sales.csv");
+        NoonReportPullResult resumed = puller.execute(
+                task.getId(),
+                salesRequest(),
+                provider,
+                (file) -> NoonReportProcessResult.succeeded(1, 0)
+        );
+        NoonPullTaskRecord completedTask = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, resumed.getStatus());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, completedTask.getStatus());
+        assertEquals(List.of("poll", "download"), provider.calls);
     }
 
     @Test
@@ -149,7 +175,7 @@ class NoonReportPullerTest {
 
     private static final class FakeReportProvider implements NoonReportProvider {
         private final List<String> calls = new ArrayList<>();
-        private final NoonReportExportStatus pollStatus;
+        private NoonReportExportStatus pollStatus;
         private final byte[] content;
 
         private FakeReportProvider(NoonReportExportStatus pollStatus, String content) {

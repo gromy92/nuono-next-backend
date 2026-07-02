@@ -1,5 +1,8 @@
 package com.nuono.next.nooncompleteness;
 
+import com.nuono.next.noonpull.NoonPullScheduledExecutionResult;
+import com.nuono.next.noonpull.NoonPullScheduledExecutionService;
+import com.nuono.next.noonpull.NoonPullTaskRecord;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -19,15 +22,19 @@ public class NoonGapPatrolActionService {
     private final NoonDataCompletenessRepository repository;
     private final NoonGapPatrolPlanner planner;
     private final NoonDataAuditService auditService;
+    private final NoonPullScheduledExecutionService immediateExecutor;
+    private final NoonGapTaskOutcomeReducer outcomeReducer;
     private final Clock clock;
 
     @Autowired
     public NoonGapPatrolActionService(
             NoonDataCompletenessRepository repository,
             NoonGapPatrolPlanner planner,
-            NoonDataAuditService auditService
+            NoonDataAuditService auditService,
+            NoonPullScheduledExecutionService immediateExecutor,
+            NoonGapTaskOutcomeReducer outcomeReducer
     ) {
-        this(repository, planner, auditService, Clock.systemUTC());
+        this(repository, planner, auditService, immediateExecutor, outcomeReducer, Clock.systemUTC());
     }
 
     public NoonGapPatrolActionService(
@@ -36,9 +43,32 @@ public class NoonGapPatrolActionService {
             NoonDataAuditService auditService,
             Clock clock
     ) {
+        this(repository, planner, auditService, null, null, clock);
+    }
+
+    public NoonGapPatrolActionService(
+            NoonDataCompletenessRepository repository,
+            NoonGapPatrolPlanner planner,
+            NoonDataAuditService auditService,
+            NoonPullScheduledExecutionService immediateExecutor,
+            Clock clock
+    ) {
+        this(repository, planner, auditService, immediateExecutor, null, clock);
+    }
+
+    public NoonGapPatrolActionService(
+            NoonDataCompletenessRepository repository,
+            NoonGapPatrolPlanner planner,
+            NoonDataAuditService auditService,
+            NoonPullScheduledExecutionService immediateExecutor,
+            NoonGapTaskOutcomeReducer outcomeReducer,
+            Clock clock
+    ) {
         this.repository = repository;
         this.planner = planner;
         this.auditService = auditService;
+        this.immediateExecutor = immediateExecutor;
+        this.outcomeReducer = outcomeReducer;
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
@@ -145,7 +175,7 @@ public class NoonGapPatrolActionService {
         result.setPlannedTaskIds(plannerResult.getPlannedTasks().stream()
                 .map((task) -> task.getId())
                 .collect(Collectors.toList()));
-        result.setMessage(result.getPlannedTaskCount() > 0 ? "已提交同步任务。" : "没有可提交的同步任务。");
+        executePlannedTasks(result);
         return result;
     }
 
@@ -190,6 +220,42 @@ public class NoonGapPatrolActionService {
                 .filter((gap) -> Objects.equals(gap.getId(), gapId))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("数据缺口不存在：" + gapId));
+    }
+
+    private void executePlannedTasks(NoonGapPatrolActionResult result) {
+        if (result == null || result.getPlannedTaskIds().isEmpty()) {
+            if (result != null) {
+                result.setMessage("没有可提交的同步任务。");
+            }
+            return;
+        }
+        if (immediateExecutor == null) {
+            result.setMessage("已提交同步任务。");
+            return;
+        }
+        NoonPullScheduledExecutionResult executionResult = immediateExecutor.executeTaskIds(result.getPlannedTaskIds());
+        reduceTaskOutcomes(executionResult);
+        result.setExecutedTaskCount(executionResult.getExecutedTaskCount());
+        result.setFailedTaskCount(executionResult.getFailedTaskCount());
+        result.setSkippedTaskCount(executionResult.getSkippedTaskCount());
+        if (executionResult.getFailedTaskCount() > 0) {
+            result.setMessage("已立即执行同步任务，部分任务失败。");
+            return;
+        }
+        if (executionResult.getExecutedTaskCount() > 0) {
+            result.setMessage("已立即执行同步任务。");
+            return;
+        }
+        result.setMessage("同步任务已存在，当前没有可立即执行的队列任务。");
+    }
+
+    private void reduceTaskOutcomes(NoonPullScheduledExecutionResult executionResult) {
+        if (outcomeReducer == null || executionResult == null) {
+            return;
+        }
+        for (NoonPullTaskRecord task : executionResult.getTaskOutcomes()) {
+            outcomeReducer.reduce(task);
+        }
     }
 
     private NoonDataCompletenessRecord requireCompleteness(

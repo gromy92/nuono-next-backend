@@ -60,6 +60,8 @@ public class NoonSessionGateway {
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/project/list";
     private static final String DEFAULT_IDENTITY_SESSION_CREATE_URL =
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/session/create";
+    private static final String DEFAULT_PLATFORM_PROJECT_LIST_URL =
+            "https://toolbar.noon.partners/_svc/mp-partner-platform/project/list";
     private static final String NOON_WEB_CLIENT_CODE = "web";
     private static final int MAX_RATE_LIMIT_RETRIES = 4;
     private static final long INITIAL_RATE_LIMIT_DELAY_MILLIS = 2000L;
@@ -88,6 +90,7 @@ public class NoonSessionGateway {
     private final String identityValidateUrl;
     private final String identityProjectListUrl;
     private final String identitySessionCreateUrl;
+    private final String platformProjectListUrl;
     private final boolean proxyEnabled;
     private final String proxyType;
     private final String proxyHost;
@@ -116,6 +119,7 @@ public class NoonSessionGateway {
             @Value("${nuono.noon.urls.identity-validate:}") String identityValidateUrl,
             @Value("${nuono.noon.urls.identity-project-list:}") String identityProjectListUrl,
             @Value("${nuono.noon.urls.identity-session-create:}") String identitySessionCreateUrl,
+            @Value("${nuono.noon.urls.platform-project-list:}") String platformProjectListUrl,
             @Value("${nuono.noon.proxy.enabled:false}") boolean proxyEnabled,
             @Value("${nuono.noon.proxy.type:HTTP}") String proxyType,
             @Value("${nuono.noon.proxy.host:}") String proxyHost,
@@ -144,6 +148,7 @@ public class NoonSessionGateway {
         this.identityValidateUrl = defaultIfBlank(identityValidateUrl, DEFAULT_IDENTITY_VALIDATE_URL);
         this.identityProjectListUrl = defaultIfBlank(identityProjectListUrl, DEFAULT_IDENTITY_PROJECT_LIST_URL);
         this.identitySessionCreateUrl = defaultIfBlank(identitySessionCreateUrl, DEFAULT_IDENTITY_SESSION_CREATE_URL);
+        this.platformProjectListUrl = defaultIfBlank(platformProjectListUrl, DEFAULT_PLATFORM_PROJECT_LIST_URL);
         this.proxyEnabled = proxyEnabled;
         this.proxyType = StringUtils.hasText(proxyType) ? proxyType.trim().toUpperCase(Locale.ROOT) : "HTTP";
         this.proxyHost = StringUtils.hasText(proxyHost) ? proxyHost.trim() : null;
@@ -330,7 +335,7 @@ public class NoonSessionGateway {
                         projectCode,
                         storeCode
                 );
-                persistCookie(ownerUserId, state.exportAuthCookieHeader());
+                persistCookie(ownerUserId, projectCode, state.exportAuthCookieHeader());
                 return state;
             } catch (IllegalStateException exception) {
                 partnerIdentityFailure = exception;
@@ -347,7 +352,7 @@ public class NoonSessionGateway {
                         projectCode,
                         storeCode
                 );
-                persistCookie(ownerUserId, state.exportAuthCookieHeader());
+                persistCookie(ownerUserId, projectCode, state.exportAuthCookieHeader());
                 return state;
             } catch (IllegalStateException exception) {
                 AuthSessionState fallbackState = createChromeFallbackState(
@@ -358,7 +363,7 @@ public class NoonSessionGateway {
                         exception
                 );
                 if (fallbackState != null) {
-                    persistCookie(ownerUserId, fallbackState.exportAuthCookieHeader());
+                    persistCookie(ownerUserId, projectCode, fallbackState.exportAuthCookieHeader());
                     return fallbackState;
                 }
                 signinFailure = exception;
@@ -476,9 +481,36 @@ public class NoonSessionGateway {
             state.importCookieHeader(persistedCookie);
             state.applyContextCookies(projectCode, storeCode);
             state.getJson(projectCode, storeCode, whoamiUrl, false, null);
+            if (!cookieCanAccessProject(state, projectCode, storeCode)) {
+                return null;
+            }
             return state;
         } catch (Exception ignored) {
             return null;
+        }
+    }
+
+    private boolean cookieCanAccessProject(AuthSessionState state, String projectCode, String storeCode) {
+        String normalizedProjectCode = normalize(projectCode);
+        if (!StringUtils.hasText(normalizedProjectCode)) {
+            return true;
+        }
+        try {
+            ObjectNode body = objectMapper.createObjectNode();
+            JsonNode root = state.postJson(projectCode, storeCode, platformProjectListUrl, body, false, null);
+            JsonNode projects = root == null ? MissingNode.getInstance() : root.path("projects");
+            if (!projects.isArray()) {
+                return false;
+            }
+            for (JsonNode project : projects) {
+                String candidateCode = firstText(project, "projectCode", "project_code");
+                if (normalizedProjectCode.equalsIgnoreCase(candidateCode)) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (RuntimeException exception) {
+            return false;
         }
     }
 
@@ -746,11 +778,11 @@ public class NoonSessionGateway {
         return normalized.length() > 220 ? normalized.substring(0, 220) + "..." : normalized;
     }
 
-    private void persistCookie(Long ownerUserId, String cookieHeader) {
-        if (ownerUserId == null || !StringUtils.hasText(cookieHeader)) {
+    private void persistCookie(Long ownerUserId, String projectCode, String cookieHeader) {
+        if (ownerUserId == null || !StringUtils.hasText(projectCode) || !StringUtils.hasText(cookieHeader)) {
             return;
         }
-        storeSyncMapper.updateOwnerSessionCookie(ownerUserId, cookieHeader, ownerUserId);
+        storeSyncMapper.updateOwnerSessionCookie(ownerUserId, projectCode, cookieHeader, ownerUserId);
     }
 
     private HttpClient newHttpClient(CookieManager cookieManager) {
@@ -959,6 +991,7 @@ public class NoonSessionGateway {
                 || message.contains("connect timed out")
                 || message.contains("request timed out")
                 || message.contains("read timed out")
+                || message.contains("httptimeoutexception")
                 || message.contains("unexpected end")
                 || message.contains("closed")
                 || message.contains("http 407")
@@ -968,7 +1001,7 @@ public class NoonSessionGateway {
                 || message.contains("http 504");
     }
 
-    private String throwableMessage(Throwable throwable) {
+    private static String throwableMessage(Throwable throwable) {
         StringBuilder builder = new StringBuilder();
         Throwable current = throwable;
         while (current != null) {
@@ -977,6 +1010,11 @@ public class NoonSessionGateway {
                     builder.append(" | ");
                 }
                 builder.append(current.getMessage());
+            } else {
+                if (builder.length() > 0) {
+                    builder.append(" | ");
+                }
+                builder.append(current.getClass().getSimpleName());
             }
             current = current.getCause();
         }
@@ -1267,7 +1305,7 @@ public class NoonSessionGateway {
                     return objectMapper.readTree(responseBody);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
-                    throw new IllegalStateException("请求 Noon 失败：" + exception.getMessage(), exception);
+                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
                 } catch (IOException exception) {
                     attempt++;
                     if (shouldRetryTransientException(retryTransientReadFailures, attempt)) {
@@ -1277,12 +1315,12 @@ public class NoonSessionGateway {
                         } catch (InterruptedException interruptedException) {
                             Thread.currentThread().interrupt();
                             throw new IllegalStateException(
-                                    "请求 Noon 失败：" + interruptedException.getMessage(),
+                                    "请求 Noon 失败：" + throwableMessage(interruptedException),
                                     interruptedException
                             );
                         }
                     }
-                    throw new IllegalStateException("请求 Noon 失败：" + exception.getMessage(), exception);
+                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
                 }
             }
         }
@@ -1319,7 +1357,7 @@ public class NoonSessionGateway {
                     return responseBody;
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
-                    throw new IllegalStateException("请求 Noon 失败：" + exception.getMessage(), exception);
+                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
                 } catch (IOException exception) {
                     attempt++;
                     if (shouldRetryTransientException(retryTransientReadFailures, attempt)) {
@@ -1329,12 +1367,12 @@ public class NoonSessionGateway {
                         } catch (InterruptedException interruptedException) {
                             Thread.currentThread().interrupt();
                             throw new IllegalStateException(
-                                    "请求 Noon 失败：" + interruptedException.getMessage(),
+                                    "请求 Noon 失败：" + throwableMessage(interruptedException),
                                     interruptedException
                             );
                         }
                     }
-                    throw new IllegalStateException("请求 Noon 失败：" + exception.getMessage(), exception);
+                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
                 }
             }
         }

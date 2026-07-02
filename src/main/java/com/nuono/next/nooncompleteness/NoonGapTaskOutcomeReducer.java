@@ -7,6 +7,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -132,7 +133,9 @@ public class NoonGapTaskOutcomeReducer {
         updated.setUpdatedAt(now());
 
         if (gap.getStatus() == NoonDataGapStatus.SUCCEEDED && rowOrItemCount(task) > 0) {
-            if (gap.getWindowType() == NoonDataGapWindowType.LATEST_DAILY) {
+            if (gap.getWindowType() == NoonDataGapWindowType.LATEST_DAILY
+                    || gap.getWindowType() == NoonDataGapWindowType.PRODUCT_BASELINE
+                    || gap.getWindowType() == NoonDataGapWindowType.PRODUCT_DETAIL_BASELINE) {
                 updated.setLatestStatus(NoonDataLatestStatus.READY);
                 updated.setLatestDataDate(gap.getDateTo());
             } else if (gap.getWindowType() == NoonDataGapWindowType.HISTORY_BACKFILL) {
@@ -236,6 +239,11 @@ public class NoonGapTaskOutcomeReducer {
             return NoonDataCategory.SALES_ORDER;
         }
         if (task.getDataDomain() == NoonPullDataDomain.PRODUCT) {
+            String targetIdentity = task.getTargetIdentity();
+            if (targetIdentity != null
+                    && targetIdentity.toLowerCase(Locale.ROOT).startsWith("product-detail:")) {
+                return NoonDataCategory.PRODUCT_DETAIL;
+            }
             return NoonDataCategory.PRODUCT_LIST;
         }
         return NoonDataCategory.SALES_PRODUCT_VIEWS;

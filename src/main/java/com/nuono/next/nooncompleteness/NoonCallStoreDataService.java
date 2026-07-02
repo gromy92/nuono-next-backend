@@ -109,6 +109,9 @@ public class NoonCallStoreDataService {
         boolean manualAction = gaps.stream()
                 .filter((gap) -> sameScope(record, gap) && record.getCategory() == gap.getCategory())
                 .anyMatch((gap) -> Boolean.TRUE.equals(gap.getRequiresManualAction()));
+        if (latestTask != null && Boolean.TRUE.equals(latestTask.getRequiresManualAction())) {
+            manualAction = true;
+        }
         NoonCallStoreDataView.CategoryCell cell = new NoonCallStoreDataView.CategoryCell();
         cell.setCategory(record.getCategory());
         cell.setLabel(label(record.getCategory()));

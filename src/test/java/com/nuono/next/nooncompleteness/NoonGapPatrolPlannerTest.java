@@ -148,6 +148,58 @@ class NoonGapPatrolPlannerTest {
         assertEquals(0, unsafePull.tasks.size());
     }
 
+    @Test
+    void manualSyncCanCreateFreshTaskAfterProviderConfigurationWasFixed() {
+        InMemoryCompletenessRepository completenessRepository = new InMemoryCompletenessRepository();
+        InMemoryPullRepository pullRepository = new InMemoryPullRepository();
+        NoonPullFoundationService foundationService = new NoonPullFoundationService(pullRepository, FIXED_CLOCK);
+        NoonGapPatrolPlanner planner = new NoonGapPatrolPlanner(
+                completenessRepository,
+                foundationService,
+                FIXED_CLOCK,
+                (plan) -> true
+        );
+        completenessRepository.insertGapWindow(gap(
+                1L,
+                NoonDataCategory.PRODUCT_LIST,
+                NoonDataGapWindowType.PRODUCT_BASELINE,
+                NoonDataGapStatus.PENDING
+        ));
+        NoonPullTaskRecord firstTask = planner.planManualSyncGaps(new NoonDataGapQuery(), 10)
+                .getPlannedTasks()
+                .get(0);
+        foundationService.markFailedWithPolicy(
+                firstTask.getId(),
+                "provider not configured: scheduled product interface provider is disabled",
+                1
+        );
+
+        NoonGapPatrolPlanner.Result manualRetry = planner.planManualSyncGaps(new NoonDataGapQuery(), 10);
+
+        assertEquals(1, manualRetry.getPlannedTasks().size());
+        assertTrue(manualRetry.getPlannedTasks().get(0).getId() > firstTask.getId());
+        assertEquals("product-list:2026-05-24..2026-05-24", manualRetry.getPlannedTasks().get(0).getTargetIdentity());
+    }
+
+    @Test
+    void productDetailPlansDefaultToBoundedDetailBatchSize() {
+        InMemoryCompletenessRepository completenessRepository = new InMemoryCompletenessRepository();
+        InMemoryPullRepository pullRepository = new InMemoryPullRepository();
+        NoonGapPatrolPlanner planner = planner(completenessRepository, pullRepository, (plan) -> true);
+        completenessRepository.insertGapWindow(gap(
+                1L,
+                NoonDataCategory.PRODUCT_DETAIL,
+                NoonDataGapWindowType.PRODUCT_DETAIL_BASELINE,
+                NoonDataGapStatus.PENDING
+        ));
+
+        NoonGapPatrolPlanner.Result result = planner.planManualSyncGaps(new NoonDataGapQuery(), 10);
+
+        assertEquals(1, result.getPlannedTasks().size());
+        NoonPullPlanRecord plan = pullRepository.plans.values().iterator().next();
+        assertEquals(10, plan.getMaxDetailFetchesPerRun());
+    }
+
     private static NoonGapPatrolPlanner planner(
             InMemoryCompletenessRepository completenessRepository,
             InMemoryPullRepository pullRepository,

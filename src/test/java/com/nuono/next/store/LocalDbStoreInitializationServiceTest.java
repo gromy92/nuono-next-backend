@@ -71,6 +71,7 @@ class LocalDbStoreInitializationServiceTest {
                 "",
                 "",
                 "",
+                "",
                 false,
                 "HTTP",
                 "",
