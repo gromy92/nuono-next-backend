@@ -71,7 +71,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
 
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
     private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
-    private static final int APPOINTMENT_NO_CAPACITY_RETRY_SECONDS = 300;
     private static final int APPOINTMENT_RETRY_CAP_SECONDS = 1800;
     private static final int DEFAULT_SEAL_CHECK_ATTEMPTS = 8;
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
@@ -1526,7 +1525,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             String errorMessage
     ) {
         if (isNoCapacityFailure(failureType)) {
-            return APPOINTMENT_NO_CAPACITY_RETRY_SECONDS;
+            return 0;
         }
         int safeBase = baseRetrySeconds <= 0 ? DEFAULT_APPOINTMENT_RETRY_SECONDS : baseRetrySeconds;
         int previousAttemptCount = appointment == null || appointment.attemptCount == null
