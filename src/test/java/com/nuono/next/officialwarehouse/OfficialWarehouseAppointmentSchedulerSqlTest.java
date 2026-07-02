@@ -92,7 +92,7 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     }
 
     @Test
-    void noCapacityRetryUsesShortBusinessCooldownEvenAfterManyAttempts() throws Exception {
+    void noCapacityRetryIsImmediatelyEligibleEvenAfterManyAttempts() throws Exception {
         Method method = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
                 "nextAppointmentRetrySeconds",
                 int.class,
@@ -111,7 +111,7 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
                 "NO_CAPACITY",
                 "没有匹配的 Noon 可约仓日期或时段。"
         ))
-                .isEqualTo(300);
+                .isEqualTo(0);
     }
 
     @Test
