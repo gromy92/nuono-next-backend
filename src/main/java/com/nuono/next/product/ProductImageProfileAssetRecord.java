@@ -10,6 +10,11 @@ public class ProductImageProfileAssetRecord {
     private Long sizeBytes;
     private Integer widthPx;
     private Integer heightPx;
+    private String sourceStoreCode;
+    private String sourceSiteCode;
+    private Long sourceSnapshotId;
+    private String sourceField;
+    private String sourceKind;
     private ProductImageRole imageRole;
     private Integer sortOrder;
     private ProductImageAssetStatus assetStatus;
@@ -72,6 +77,46 @@ public class ProductImageProfileAssetRecord {
 
     public void setHeightPx(Integer heightPx) {
         this.heightPx = heightPx;
+    }
+
+    public String getSourceStoreCode() {
+        return sourceStoreCode;
+    }
+
+    public void setSourceStoreCode(String sourceStoreCode) {
+        this.sourceStoreCode = sourceStoreCode;
+    }
+
+    public String getSourceSiteCode() {
+        return sourceSiteCode;
+    }
+
+    public void setSourceSiteCode(String sourceSiteCode) {
+        this.sourceSiteCode = sourceSiteCode;
+    }
+
+    public Long getSourceSnapshotId() {
+        return sourceSnapshotId;
+    }
+
+    public void setSourceSnapshotId(Long sourceSnapshotId) {
+        this.sourceSnapshotId = sourceSnapshotId;
+    }
+
+    public String getSourceField() {
+        return sourceField;
+    }
+
+    public void setSourceField(String sourceField) {
+        this.sourceField = sourceField;
+    }
+
+    public String getSourceKind() {
+        return sourceKind;
+    }
+
+    public void setSourceKind(String sourceKind) {
+        this.sourceKind = sourceKind;
     }
 
     public ProductImageRole getImageRole() {

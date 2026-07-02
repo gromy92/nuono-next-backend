@@ -162,6 +162,7 @@ public class ProductImageProfileService {
         record.setId(existing.getId());
         record.setOwnerUserId(existing.getOwnerUserId());
         record.setStoreCode(existing.getStoreCode());
+        record.setLogicalStoreId(existing.getLogicalStoreId());
         record.setPskuCode(existing.getPskuCode());
         record.setProductIdentityKey(existing.getProductIdentityKey());
         record.setProductMasterId(candidate.getProductMasterId());

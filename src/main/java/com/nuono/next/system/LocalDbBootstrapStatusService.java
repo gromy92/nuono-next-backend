@@ -145,7 +145,13 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/149_product_variant_psku_identity.sql",
                 "classpath:db/init/150_sales_product_psku_identity.sql",
                 "classpath:db/init/152_psku_product_model_realignment.sql",
-                "classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql"
+                "classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql",
+                "classpath:db/init/154_operations_image_skin_management.sql",
+                "classpath:db/init/155_product_image_profile.sql",
+                "classpath:db/init/156_product_image_asset_metadata.sql",
+                "classpath:db/init/157_product_image_profile_fact_text.sql",
+                "classpath:db/init/158_product_image_ai_suite_draft.sql",
+                "classpath:db/init/159_product_image_logical_store_scope.sql"
             ));
         return payload;
     }
