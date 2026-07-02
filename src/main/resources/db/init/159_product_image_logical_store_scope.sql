@@ -20,7 +20,8 @@ DEALLOCATE PREPARE stmt;
 
 UPDATE product_image_profile p
 JOIN logical_store_site lss
-  ON lss.store_code = p.store_code
+  ON CONVERT(lss.store_code USING utf8mb4) COLLATE utf8mb4_unicode_ci
+   = CONVERT(p.store_code USING utf8mb4) COLLATE utf8mb4_unicode_ci
  AND lss.is_deleted = b'0'
 JOIN logical_store ls
   ON ls.id = lss.logical_store_id

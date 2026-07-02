@@ -117,6 +117,8 @@ class ProductImageProfileMapperSqlTest {
         assertThat(sql)
                 .contains("ADD COLUMN `logical_store_id`")
                 .contains("UPDATE product_image_profile p")
+                .contains("CONVERT(lss.store_code USING utf8mb4) COLLATE utf8mb4_unicode_ci")
+                .contains("CONVERT(p.store_code USING utf8mb4) COLLATE utf8mb4_unicode_ci")
                 .contains("ADD INDEX `idx_product_image_profile_logical_scope`")
                 .contains("ADD INDEX `idx_product_image_profile_logical_identity`")
                 .contains("ADD COLUMN `source_store_code`")
