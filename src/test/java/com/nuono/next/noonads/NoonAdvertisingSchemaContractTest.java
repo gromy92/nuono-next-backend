@@ -13,7 +13,7 @@ class NoonAdvertisingSchemaContractTest {
     @Test
     void migrationDefinesReadOnlyAdvertisingFacts() throws IOException {
         String sql = Files.readString(Path.of(
-                "src", "main", "resources", "db", "init", "159_noon_advertising_read_model.sql"
+                "src", "main", "resources", "db", "init", "160_noon_advertising_read_model.sql"
         ));
 
         assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `noon_ad_report_batch`"));

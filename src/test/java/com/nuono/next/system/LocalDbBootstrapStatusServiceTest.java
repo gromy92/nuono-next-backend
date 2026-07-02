@@ -4,8 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.CoreTableStatusMapper;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -38,7 +43,27 @@ class LocalDbBootstrapStatusServiceTest {
                         "classpath:db/init/146_procurement_shipping_order.sql",
                         "classpath:db/init/147_product_forwarder_declaration_attribute.sql",
                         "classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql",
-                        "classpath:db/init/159_product_image_logical_store_scope.sql"
+                        "classpath:db/init/159_product_image_logical_store_scope.sql",
+                        "classpath:db/init/160_noon_advertising_read_model.sql"
                 );
+    }
+
+    @Test
+    void releaseMigrationNumbersFrom149OnwardAreUnique() throws IOException {
+        Map<String, List<String>> scriptsByNumber;
+        try (Stream<Path> paths = Files.list(Path.of("src/main/resources/db/init"))) {
+            scriptsByNumber = paths
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> name.matches("\\d+_.*\\.sql"))
+                    .filter(name -> Integer.parseInt(name.substring(0, name.indexOf('_'))) >= 149)
+                    .collect(Collectors.groupingBy(name -> name.substring(0, name.indexOf('_'))));
+        }
+
+        List<String> duplicateNumbers = scriptsByNumber.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1)
+                .map(entry -> entry.getKey() + "=" + entry.getValue())
+                .collect(Collectors.toList());
+
+        assertThat(duplicateNumbers).isEmpty();
     }
 }
