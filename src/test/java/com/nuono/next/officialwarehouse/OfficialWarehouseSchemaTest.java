@@ -103,6 +103,7 @@ class OfficialWarehouseSchemaTest {
                 .contains("official_warehouse_appointment scheduledAppointment")
                 .contains("scheduledAppointment.status = 'SCHEDULED'")
                 .contains("remainingQuantity")
+                .contains("COALESCE(linked.scheduledAppointmentQuantity, 0), 0), 0)), 0) AS remainingQuantity")
                 .contains("COUNT(DISTINCT COALESCE(NULLIF(line.psku, ''), NULLIF(line.sku, ''), NULLIF(line.msku, ''))) AS skuCount")
                 .contains("alreadyAppointed")
                 .contains("batchUsedByAsn")
@@ -139,6 +140,22 @@ class OfficialWarehouseSchemaTest {
                 .contains("listShippingBatchSourceAllocations(")
                 .contains("batchAvailableQuantity");
         assertThat(views).contains("public Integer batchAvailableQuantity;");
+    }
+
+    @Test
+    void officialWarehouseShippingBatchProductCandidatesUseScheduledQuantityAsAppointmentConsumed() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+        String sourceAllocationQuery = mapper.substring(
+                mapper.indexOf("\"SELECT NULL AS shippingBatchId,"),
+                mapper.indexOf("List<ShippingBatchSourceAllocationRecord> listShippingBatchSourceAllocations")
+        );
+
+        assertThat(sourceAllocationQuery)
+                .contains("scheduledAppointmentQuantity")
+                .contains("official_warehouse_appointment scheduledAppointment")
+                .contains("scheduledAppointment.status = 'SCHEDULED'")
+                .contains("GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.scheduledAppointmentQuantity, 0), 0), 0) AS quantity")
+                .doesNotContain("GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.linkedQuantity, 0), 0), 0) AS quantity");
     }
 
     @Test
