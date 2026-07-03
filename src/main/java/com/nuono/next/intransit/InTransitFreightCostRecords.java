@@ -14,6 +14,7 @@ public final class InTransitFreightCostRecords {
         private Long id;
         private Long ownerUserId;
         private Long batchId;
+        private String batchReferenceNo;
         private Long standardForwarderId;
         private String forwarderCode;
         private String forwarderName;
@@ -49,6 +50,8 @@ public final class InTransitFreightCostRecords {
         public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
         public Long getBatchId() { return batchId; }
         public void setBatchId(Long batchId) { this.batchId = batchId; }
+        public String getBatchReferenceNo() { return batchReferenceNo; }
+        public void setBatchReferenceNo(String batchReferenceNo) { this.batchReferenceNo = batchReferenceNo; }
         public Long getStandardForwarderId() { return standardForwarderId; }
         public void setStandardForwarderId(Long standardForwarderId) { this.standardForwarderId = standardForwarderId; }
         public String getForwarderCode() { return forwarderCode; }
@@ -118,6 +121,7 @@ public final class InTransitFreightCostRecords {
         private String psku;
         private String transportMode;
         private String destinationCode;
+        private String storeCode;
         private String targetSiteCode;
         private String rawFeeName;
         private String standardFeeType;
@@ -158,6 +162,8 @@ public final class InTransitFreightCostRecords {
         public void setTransportMode(String transportMode) { this.transportMode = transportMode; }
         public String getDestinationCode() { return destinationCode; }
         public void setDestinationCode(String destinationCode) { this.destinationCode = destinationCode; }
+        public String getStoreCode() { return storeCode; }
+        public void setStoreCode(String storeCode) { this.storeCode = storeCode; }
         public String getTargetSiteCode() { return targetSiteCode; }
         public void setTargetSiteCode(String targetSiteCode) { this.targetSiteCode = targetSiteCode; }
         public String getRawFeeName() { return rawFeeName; }

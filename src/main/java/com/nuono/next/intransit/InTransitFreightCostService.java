@@ -7,6 +7,7 @@ import com.nuono.next.infrastructure.mapper.InTransitFreightCostMapper;
 import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
+import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
 import com.nuono.next.intransit.InTransitBatchRecords.PackageRow;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightBillCommand;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightComponentCommand;
@@ -427,6 +428,7 @@ public class InTransitFreightCostService {
         ActualFreightBillRow row = existing == null ? new ActualFreightBillRow() : existing;
         row.setOwnerUserId(command.getOwnerUserId());
         row.setBatchId(batch.getId());
+        row.setBatchReferenceNo(defaultText(clean(batch.getBatchReferenceNo()), clean(bill.getBatchReferenceNo())));
         row.setStandardForwarderId(batch.getStandardForwarderId());
         row.setForwarderCode(clean(batch.getStandardForwarderCode()));
         row.setForwarderName(clean(batch.getStandardForwarderName()));
@@ -481,7 +483,21 @@ public class InTransitFreightCostService {
         row.setPsku(clean(component.getPsku()));
         row.setTransportMode(clean(batch.getTransportMode()));
         row.setDestinationCode(clean(batch.getTargetStoreCode()));
-        row.setTargetSiteCode(resolveTargetSiteCode(batch));
+        LineRow lineScope = resolveActualComponentLineScope(
+                command.getOwnerUserId(),
+                batch.getId(),
+                row.getPackageId(),
+                row.getBoxNo(),
+                row.getExternalBoxNo(),
+                row.getPsku()
+        );
+        String lineStoreCode = lineScope == null ? null : clean(lineScope.getStoreCode());
+        String targetSiteCode = firstText(
+                lineScope == null ? null : normalizeCode(lineScope.getSiteCode()),
+                resolveTargetSiteCode(batch)
+        );
+        row.setStoreCode(lineStoreCode);
+        row.setTargetSiteCode(targetSiteCode);
         row.setRawFeeName(clean(component.getRawFeeName()));
         row.setStandardFeeType(requireStandardFeeType(component.getStandardFeeType()));
         row.setChargeQuantity(component.getChargeQuantity());
@@ -501,6 +517,31 @@ public class InTransitFreightCostService {
         row.setCreatedBy(command.getOperatorUserId());
         row.setUpdatedBy(command.getOperatorUserId());
         return row;
+    }
+
+    private LineRow resolveActualComponentLineScope(
+            Long ownerUserId,
+            Long batchId,
+            Long packageId,
+            String boxNo,
+            String externalBoxNo,
+            String psku
+    ) {
+        if (!StringUtils.hasText(psku)) {
+            return null;
+        }
+        List<LineRow> scopes = freightCostMapper.selectActualComponentLineScopes(
+                ownerUserId,
+                batchId,
+                packageId,
+                clean(boxNo),
+                clean(externalBoxNo),
+                clean(psku)
+        );
+        if (scopes == null || scopes.size() != 1) {
+            return null;
+        }
+        return scopes.get(0);
     }
 
     private Long requireOwnerUserId(Long ownerUserId) {
@@ -560,6 +601,10 @@ public class InTransitFreightCostService {
 
     private String defaultText(String value, String fallback) {
         return StringUtils.hasText(value) ? value : fallback;
+    }
+
+    private String firstText(String first, String second) {
+        return StringUtils.hasText(first) ? first : second;
     }
 
     private BigDecimal defaultRate(BigDecimal value) {

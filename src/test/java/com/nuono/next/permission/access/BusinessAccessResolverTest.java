@@ -119,6 +119,19 @@ class BusinessAccessResolverTest {
     }
 
     @Test
+    void productLogisticsCostCapabilityUsesInTransitBusinessAccess() {
+        BusinessAccessContext pagePath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/purchase/product-logistics-costs"))
+                .build();
+        BusinessAccessContext apiPath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/product-logistics-costs/current"))
+                .build();
+
+        assertThat(pagePath.hasCapability(BusinessCapability.IN_TRANSIT_GOODS)).isTrue();
+        assertThat(apiPath.hasCapability(BusinessCapability.IN_TRANSIT_GOODS)).isTrue();
+    }
+
+    @Test
     void exposedCollectionsAreImmutable() {
         BusinessAccessContext context = BusinessAccessContext.builder()
                 .storeCodes(Set.of("STR-A"))

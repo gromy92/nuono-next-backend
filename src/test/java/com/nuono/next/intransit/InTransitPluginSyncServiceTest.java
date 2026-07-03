@@ -868,6 +868,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals("PAPERSAYSB293", line.getSku());
         assertEquals("PAPERSAYSB293", line.getMsku());
         assertEquals("粉盒马克笔24支48色", line.getProductName());
+        assertNull(line.getStoreCode());
+        assertEquals("SA", line.getSiteCode());
         assertEquals(48, line.getShippedQuantity());
         assertEquals(0, line.getReceivedQuantity());
         assertEquals("已完结", line.getPackageStatus());

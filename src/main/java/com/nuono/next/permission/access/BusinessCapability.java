@@ -23,7 +23,12 @@ public enum BusinessCapability {
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),
     WAREHOUSE_DISPATCH(List.of("/warehouse/dispatch", "/api/warehouse/dispatch")),
     OFFICIAL_WAREHOUSE(List.of("/warehouse/official-warehouse", "/api/warehouse/official-warehouse")),
-    IN_TRANSIT_GOODS(List.of("/purchase/in-transit-goods", "/api/in-transit-goods")),
+    IN_TRANSIT_GOODS(List.of(
+            "/purchase/in-transit-goods",
+            "/api/in-transit-goods",
+            "/purchase/product-logistics-costs",
+            "/api/product-logistics-costs"
+    )),
     PROFIT(List.of("/api/sku/cost"));
 
     private final List<String> menuPathPrefixes;
