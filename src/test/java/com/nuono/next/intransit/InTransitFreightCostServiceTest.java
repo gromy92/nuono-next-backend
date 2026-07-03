@@ -11,6 +11,7 @@ import com.nuono.next.infrastructure.mapper.InTransitFreightCostMapper;
 import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
+import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
 import com.nuono.next.intransit.InTransitBatchRecords.PackageRow;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightBillCommand;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightComponentCommand;
@@ -125,6 +126,18 @@ class InTransitFreightCostServiceTest {
         itemPackage.setExternalBoxNo("X25011446217");
         when(freightCostMapper.selectPackageByAnyBoxNo(307L, 53069L, null, "X25011446217"))
                 .thenReturn(itemPackage);
+        LineRow lineScope = new LineRow();
+        lineScope.setId(54001L);
+        lineScope.setStoreCode("STR245027-NSA");
+        lineScope.setSiteCode("SA");
+        when(freightCostMapper.selectActualComponentLineScopes(
+                307L,
+                53069L,
+                58001L,
+                "5-1",
+                "X25011446217",
+                "SGGRB148"
+        )).thenReturn(List.of(lineScope));
         when(freightCostMapper.selectActualBillBySource(307L, "YITONG", "AR25012055917", 53069L))
                 .thenReturn(null);
         when(freightCostMapper.nextActualBillId()).thenReturn(59001L);
@@ -157,6 +170,7 @@ class InTransitFreightCostServiceTest {
         assertEquals("X25011446217", componentCaptor.getValue().getExternalBoxNo());
         assertEquals("SEA", componentCaptor.getValue().getTransportMode());
         assertEquals("RUH", componentCaptor.getValue().getDestinationCode());
+        assertEquals("STR245027-NSA", componentCaptor.getValue().getStoreCode());
         assertEquals("SA", componentCaptor.getValue().getTargetSiteCode());
         assertEquals(new BigDecimal("0.061317"), componentCaptor.getValue().getChargeableWeightKg());
     }

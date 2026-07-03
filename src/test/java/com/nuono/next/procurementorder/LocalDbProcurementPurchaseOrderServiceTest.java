@@ -418,35 +418,21 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         assertThat(rowCaptor.getValue().currency).isEqualTo("RMB");
         assertThat(rowCaptor.getValue().unitPrice).isEqualByComparingTo("12.50");
         assertThat(rowCaptor.getValue().estimatedAmount).isEqualByComparingTo("250.00");
-        ArgumentCaptor<ProductForwarderChannelQuoteRecord> quoteCaptor =
-                ArgumentCaptor.forClass(ProductForwarderChannelQuoteRecord.class);
-        verify(mapper).markHistoricalProductForwarderChannelQuote(
-                307L,
-                "STR69486-NSA",
-                301L,
-                "SGGRB115",
-                320001L,
-                "ET",
-                "SA",
-                "ET-SA-AIR",
-                "ET-AIR-202606",
-                "KG",
-                307L
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never()).markHistoricalProductForwarderChannelQuote(
+                anyLong(),
+                any(),
+                anyLong(),
+                any(),
+                anyLong(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyLong()
         );
-        verify(mapper).insertProductForwarderChannelQuote(quoteCaptor.capture(), eq(307L));
-        assertThat(quoteCaptor.getValue().ownerUserId).isEqualTo(307L);
-        assertThat(quoteCaptor.getValue().logicalStoreId).isEqualTo(301L);
-        assertThat(quoteCaptor.getValue().sourceStoreCode).isEqualTo("STR69486-NSA");
-        assertThat(quoteCaptor.getValue().partnerSku).isEqualTo("SGGRB115");
-        assertThat(quoteCaptor.getValue().productVariantId).isEqualTo(320001L);
-        assertThat(quoteCaptor.getValue().barcode).isEqualTo("BARCODE-115");
-        assertThat(quoteCaptor.getValue().forwarderCode).isEqualTo("ET");
-        assertThat(quoteCaptor.getValue().routeCode).isEqualTo("ET-SA-AIR");
-        assertThat(quoteCaptor.getValue().serviceCode).isEqualTo("ET-AIR-202606");
-        assertThat(quoteCaptor.getValue().unitPrice).isEqualByComparingTo("12.50");
-        assertThat(quoteCaptor.getValue().estimatedAmount).isEqualByComparingTo("250.00");
-        assertThat(quoteCaptor.getValue().sourceType).isEqualTo("SHIPPING_ORDER_QUOTE");
-        assertThat(quoteCaptor.getValue().sourceQuoteLineId).isEqualTo(280001L);
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never())
+                .insertProductForwarderChannelQuote(any(), anyLong());
     }
 
     @Test
@@ -773,7 +759,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
-    void generateShippingOrderExpectedBillAppliesCurrentProductChannelQuote() {
+    void generateShippingOrderExpectedBillRejectsUnconfirmedLegacyProductChannelQuoteFallback() {
         ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
         PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
         line.shippingOrderId = 290001L;
@@ -785,35 +771,16 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         line.routeName = "义特沙特海运双清包税 + FBN利雅得送仓";
         line.serviceCode = "YT-SAU-SEA-FBN-RUH";
         line.serviceName = "义特沙特海运双清包税 + FBN利雅得送仓";
-        ProductForwarderChannelQuoteRecord currentQuote = productForwarderChannelQuote();
 
         when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
         when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
-        when(mapper.selectCurrentProductForwarderChannelQuote(
-                307L,
-                "STR69486-NSA",
-                301L,
-                "SGGRB115",
-                320001L,
-                "YT",
-                "SA",
-                "YT-SAU-SEA-FBN-RUH",
-                "YT-SAU-SEA-FBN-RUH"
-        )).thenReturn(currentQuote);
 
-        LogisticsBillView view = service.generateShippingOrderExpectedBill(access(), "290001");
-
-        assertThat(view.expectedTotalAmount).isEqualByComparingTo("280.00");
-        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> quoteLineCaptor =
-                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
-        verify(mapper).confirmLogisticsQuoteLine(quoteLineCaptor.capture(), eq(307L));
-        assertThat(quoteLineCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
-        assertThat(quoteLineCaptor.getValue().unitPrice).isEqualByComparingTo("14.00");
-        assertThat(quoteLineCaptor.getValue().estimatedAmount).isEqualByComparingTo("280.00");
-        assertThat(quoteLineCaptor.getValue().remark).isEqualTo("商品渠道历史报价自动确认");
-        verify(mapper).refreshShippingOrderQuoteState(eq(290001L), any(PurchaseOrderLogisticsQuoteLineRecord.class), eq(307L));
-        verify(mapper).insertLogisticsExpectedBill(any(), eq(307L));
-        verify(mapper).insertLogisticsBillReconciliation(any(), eq(307L));
+        assertThatThrownBy(() -> service.generateShippingOrderExpectedBill(access(), "290001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("物流报价未确认");
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never()).confirmLogisticsQuoteLine(any(), anyLong());
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never()).insertLogisticsExpectedBill(any(), anyLong());
+        org.mockito.Mockito.verify(mapper, org.mockito.Mockito.never()).insertLogisticsBillReconciliation(any(), anyLong());
     }
 
     @Test

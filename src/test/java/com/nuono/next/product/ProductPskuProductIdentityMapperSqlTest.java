@@ -264,6 +264,8 @@ class ProductPskuProductIdentityMapperSqlTest {
                 Boolean.class,
                 String.class,
                 String.class,
+                java.time.LocalDateTime.class,
+                String.class,
                 Integer.class,
                 Integer.class,
                 Integer.class,

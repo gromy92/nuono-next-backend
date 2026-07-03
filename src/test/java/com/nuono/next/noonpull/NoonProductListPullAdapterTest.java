@@ -115,6 +115,34 @@ class NoonProductListPullAdapterTest {
         );
     }
 
+    @Test
+    void shouldPreserveCamelCasePskuCodeFromProductListPayload() {
+        CapturingProjectionWriter writer = new CapturingProjectionWriter();
+        NoonProductListPullAdapter adapter = new NoonProductListPullAdapter(writer);
+        NoonProductListApplyCommand command = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .projectCode("PRJ245027")
+                .projectName("Xingyao")
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .sourceBatchId("noon-interface-product-130003")
+                .items(List.of(
+                        Map.of(
+                                "sku_parent", "ZPARENT-4",
+                                "sku", "ZCHILD-4",
+                                "partner_sku", "PARTNER-4",
+                                "pskuCode", "PSKU-CAMEL-4"
+                        )
+                ))
+                .build();
+
+        adapter.apply(command);
+
+        ProductProjectionPersistenceService.ProductMasterSeed seed = writer.command.getProductSeeds().get(0);
+        assertEquals("PSKU-CAMEL-4", seed.getPskuCode());
+        assertEquals("PSKU-CAMEL-4", seed.getSiteOffers().get(0).getPskuCode());
+    }
+
     private static final class CapturingProjectionWriter implements NoonProductProjectionWriter {
         private NoonProductProjectionWriteCommand command;
 

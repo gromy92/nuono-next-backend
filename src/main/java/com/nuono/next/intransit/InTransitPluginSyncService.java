@@ -225,6 +225,7 @@ public class InTransitPluginSyncService {
                 SaveLineCommand lineCommand = toLineCommand(
                         resolved,
                         savedBatch.getBatchId(),
+                        batch,
                         itemPackage,
                         line,
                         barcode,
@@ -876,6 +877,7 @@ public class InTransitPluginSyncService {
     private SaveLineCommand toLineCommand(
             PluginSyncCommand command,
             Long batchId,
+            PluginSyncBatch batch,
             PluginSyncPackage itemPackage,
             PluginSyncLine line,
             String barcode,
@@ -905,12 +907,13 @@ public class InTransitPluginSyncService {
         result.setPackageStatus(clean(itemPackage.getPackageStatus()));
         result.setLogisticsStatus(clean(itemPackage.getLogisticsStatus()));
         result.setPackageSnapshotAuthoritative(true);
+        String siteCode = firstText(line.getSiteCode(), siteCodeFromBatch(batch));
         result.setSku(clean(barcode));
         result.setMsku(clean(line.getMsku()));
         result.setPsku(clean(psku));
         result.setProductName(clean(line.getProductName()));
         result.setStoreCode(clean(line.getStoreCode()));
-        result.setSiteCode(clean(line.getSiteCode()));
+        result.setSiteCode(clean(siteCode));
         result.setShippedQuantity(line.getShippedQuantity());
         result.setReceivedQuantity(line.getReceivedQuantity());
         result.setCartonCount(line.getCartonCount() == null ? 1 : line.getCartonCount());
@@ -918,6 +921,20 @@ public class InTransitPluginSyncService {
         result.setCartonWeightKg(line.getCartonWeightKg());
         result.setCartonVolumeCbm(line.getCartonVolumeCbm());
         return result;
+    }
+
+    private String siteCodeFromBatch(PluginSyncBatch batch) {
+        if (batch == null) {
+            return null;
+        }
+        String destinationCode = resolveDestination(batch.getBatchNo(), batch.getDestination(), batch.getTargetWarehouseName());
+        if ("RUH".equals(destinationCode)) {
+            return "SA";
+        }
+        if ("DB".equals(destinationCode)) {
+            return "AE";
+        }
+        return null;
     }
 
     private SavePackageCommand toPackageCommand(

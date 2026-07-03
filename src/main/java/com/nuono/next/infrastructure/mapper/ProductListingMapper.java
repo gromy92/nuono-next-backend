@@ -2,6 +2,7 @@ package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.productlisting.ProductListingDraftRecord;
 import com.nuono.next.productlisting.ProductListingTaskRecord;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -112,14 +113,16 @@ public interface ProductListingMapper {
     @Insert({
             "INSERT INTO product_listing_task (",
             "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
-            "  input_snapshot_json, validation_json, failure_code, failure_message,",
-            "  submitted_by, submitted_at, completed_at, gmt_create, gmt_updated",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
             ") VALUES (",
             "  #{task.id}, #{task.draftId}, #{task.ownerUserId}, #{task.storeCode},",
             "  #{task.taskNo}, #{task.mode}, #{task.status},",
-            "  #{task.inputSnapshotJson}, #{task.validationJson}, #{task.failureCode},",
-            "  #{task.failureMessage}, #{task.submittedBy}, #{task.submittedAt},",
-            "  #{task.completedAt}, NOW(), NOW()",
+            "  #{task.sourceTaskId}, #{task.inputSnapshotJson}, #{task.validationJson},",
+            "  #{task.confirmationJson}, #{task.noonResultJson}, #{task.failureCategory},",
+            "  #{task.failureCode}, #{task.failureMessage}, #{task.submittedBy},",
+            "  #{task.submittedAt}, #{task.startedAt}, #{task.completedAt}, NOW(), NOW()",
             ")"
     })
     int insertTask(@Param("task") ProductListingTaskRecord task);
@@ -127,8 +130,9 @@ public interface ProductListingMapper {
     @Select({
             "SELECT",
             "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
-            "  input_snapshot_json, validation_json, failure_code, failure_message,",
-            "  submitted_by, submitted_at, completed_at, gmt_create, gmt_updated",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
             "FROM product_listing_task",
             "WHERE id = #{taskId}",
             "  AND owner_user_id = #{ownerUserId}",
@@ -142,8 +146,21 @@ public interface ProductListingMapper {
     @Select({
             "SELECT",
             "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
-            "  input_snapshot_json, validation_json, failure_code, failure_message,",
-            "  submitted_by, submitted_at, completed_at, gmt_create, gmt_updated",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE id = #{taskId}",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectTaskByIdForWorker(@Param("taskId") Long taskId);
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
             "FROM product_listing_task",
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND store_code = #{storeCode}",
@@ -155,4 +172,51 @@ public interface ProductListingMapper {
             @Param("storeCode") String storeCode,
             @Param("limit") int limit
     );
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND source_task_id = #{sourceTaskId}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status IN ('running', 'submitted', 'succeeded', 'failed', 'written_verify_failed')",
+            "ORDER BY submitted_at DESC",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("sourceTaskId") Long sourceTaskId
+    );
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET status = 'running',",
+            "    started_at = #{startedAt},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status = 'submitted'"
+    })
+    int markTaskRunning(
+            @Param("taskId") Long taskId,
+            @Param("startedAt") LocalDateTime startedAt
+    );
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET status = #{task.status},",
+            "    noon_result_json = #{task.noonResultJson},",
+            "    failure_category = #{task.failureCategory},",
+            "    failure_code = #{task.failureCode},",
+            "    failure_message = #{task.failureMessage},",
+            "    completed_at = #{task.completedAt},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{task.id}",
+            "  AND owner_user_id = #{task.ownerUserId}"
+    })
+    int updateTaskResult(@Param("task") ProductListingTaskRecord task);
 }

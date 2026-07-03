@@ -438,6 +438,11 @@ class NoonRealProviderBehaviorTest {
         }
 
         @Override
+        public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
+            return postJson(url, body, withProject, extraHeaders);
+        }
+
+        @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
             downloadUrl = url;
             downloadWithProject = withProject;

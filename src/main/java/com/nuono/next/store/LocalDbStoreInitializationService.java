@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreInitializationSnapshotMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.product.NoonProductListFieldSupport;
 import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
@@ -290,7 +291,7 @@ public class LocalDbStoreInitializationService {
                         entry.partnerSku = text(hitNode, "partner_sku");
                     }
                     if (!StringUtils.hasText(entry.pskuCode)) {
-                        entry.pskuCode = text(hitNode, "psku_code");
+                        entry.pskuCode = NoonProductListFieldSupport.pskuCode(hitNode);
                     }
                     if (!StringUtils.hasText(entry.offerCode)) {
                         entry.offerCode = text(hitNode, "offer_code");
@@ -335,7 +336,10 @@ public class LocalDbStoreInitializationService {
                             normalize(projectSite.getStoreCode()),
                             ignored -> new ProductSiteOfferEntry(projectSite.getStoreCode())
                     );
-                    siteOfferEntry.pskuCode = firstNonBlank(siteOfferEntry.pskuCode, text(hitNode, "psku_code"));
+                    siteOfferEntry.pskuCode = firstNonBlank(
+                            siteOfferEntry.pskuCode,
+                            NoonProductListFieldSupport.pskuCode(hitNode)
+                    );
                     siteOfferEntry.offerCode = firstNonBlank(siteOfferEntry.offerCode, text(hitNode, "offer_code"));
                     siteOfferEntry.currency = firstNonBlank(siteOfferEntry.currency, text(hitNode, "currency"));
                     siteOfferEntry.barcode = firstNonBlank(
@@ -948,6 +952,8 @@ public class LocalDbStoreInitializationService {
             item.setGroupRef(normalize(summary.getGroupRef()));
             item.setLiveStatus(firstNonBlank(summary.getLiveStatus(), item.getLiveStatus()));
             item.setStatusCode(firstNonBlank(summary.getStatusCode(), item.getStatusCode()));
+            item.setListingStartedAt(firstNonBlank(summary.getListingStartedAt(), item.getListingStartedAt()));
+            item.setListingStartedSource(firstNonBlank(summary.getListingStartedSource(), item.getListingStartedSource()));
             item.setIsActive(firstNonNull(summary.getIsActive(), item.getIsActive()));
             item.setSyncStatus(firstNonBlank(summary.getSyncStatus(), item.getSyncStatus()));
             item.setLastSyncedAt(firstNonBlank(summary.getLastSyncedAt(), item.getLastSyncedAt()));
@@ -1218,7 +1224,7 @@ public class LocalDbStoreInitializationService {
                 entry.partnerSku = text(hitNode, "partner_sku");
             }
             if (!StringUtils.hasText(entry.pskuCode)) {
-                entry.pskuCode = text(hitNode, "psku_code");
+                entry.pskuCode = NoonProductListFieldSupport.pskuCode(hitNode);
             }
             if (!StringUtils.hasText(entry.offerCode)) {
                 entry.offerCode = text(hitNode, "offer_code");
@@ -1254,7 +1260,10 @@ public class LocalDbStoreInitializationService {
                     normalize(projectSite.getStoreCode()),
                     ignored -> new ProductSiteOfferEntry(projectSite.getStoreCode())
             );
-            siteOfferEntry.pskuCode = firstNonBlank(siteOfferEntry.pskuCode, text(hitNode, "psku_code"));
+            siteOfferEntry.pskuCode = firstNonBlank(
+                    siteOfferEntry.pskuCode,
+                    NoonProductListFieldSupport.pskuCode(hitNode)
+            );
             siteOfferEntry.offerCode = firstNonBlank(siteOfferEntry.offerCode, text(hitNode, "offer_code"));
             int supermallStock = supermallOfferStock(hitNode);
             siteOfferEntry.supermallStock += supermallStock;
@@ -2331,6 +2340,8 @@ public class LocalDbStoreInitializationService {
             target.setGroupRef(source.getGroupRef());
             target.setLiveStatus(source.getLiveStatus());
             target.setStatusCode(source.getStatusCode());
+            target.setListingStartedAt(source.getListingStartedAt());
+            target.setListingStartedSource(source.getListingStartedSource());
             target.setIsActive(source.getIsActive());
             target.setSyncStatus(source.getSyncStatus());
             target.setLastSyncedAt(source.getLastSyncedAt());
@@ -3024,6 +3035,8 @@ public class LocalDbStoreInitializationService {
         private String groupRefCanonical;
         private String liveStatus;
         private String statusCode;
+        private String listingStartedAt;
+        private String listingStartedSource;
         private Boolean isActive;
         private String syncStatus;
         private String lastSyncedAt;
@@ -3235,6 +3248,22 @@ public class LocalDbStoreInitializationService {
 
         public void setStatusCode(String statusCode) {
             this.statusCode = statusCode;
+        }
+
+        public String getListingStartedAt() {
+            return listingStartedAt;
+        }
+
+        public void setListingStartedAt(String listingStartedAt) {
+            this.listingStartedAt = listingStartedAt;
+        }
+
+        public String getListingStartedSource() {
+            return listingStartedSource;
+        }
+
+        public void setListingStartedSource(String listingStartedSource) {
+            this.listingStartedSource = listingStartedSource;
         }
 
         public Boolean getIsActive() {

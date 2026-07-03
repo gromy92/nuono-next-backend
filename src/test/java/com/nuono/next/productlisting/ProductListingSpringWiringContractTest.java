@@ -21,6 +21,7 @@ class ProductListingSpringWiringContractTest {
     void productListingComponentsAreSpringBeans() {
         assertNotNull(ProductListingValidator.class.getAnnotation(Component.class));
         assertNotNull(ProductListingService.class.getAnnotation(Service.class));
+        assertNotNull(ProductListingRealRunTaskListener.class.getAnnotation(Component.class));
         assertNotNull(ProductListingController.class.getAnnotation(RestController.class));
     }
 
@@ -30,6 +31,8 @@ class ProductListingSpringWiringContractTest {
                 .withBean(ProductListingMapper.class, () -> mock(ProductListingMapper.class))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(BusinessAccessResolver.class, () -> mock(BusinessAccessResolver.class))
+                .withBean(ProductListingRealWriteProperties.class, ProductListingRealWriteProperties::new)
+                .withBean(ProductListingNoonWriteAdapter.class, UnavailableProductListingNoonWriteAdapter::new)
                 .withUserConfiguration(ProductListingWiringConfig.class)
                 .run(context -> {
                     assertTrue(
@@ -45,6 +48,7 @@ class ProductListingSpringWiringContractTest {
     @Import({
             ProductListingValidator.class,
             ProductListingService.class,
+            ProductListingRealRunTaskListener.class,
             ProductListingController.class
     })
     static class ProductListingWiringConfig {

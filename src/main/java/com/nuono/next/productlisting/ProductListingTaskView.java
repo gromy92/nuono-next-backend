@@ -11,12 +11,17 @@ public class ProductListingTaskView {
     private Long draftId;
     private Long ownerUserId;
     private String storeCode;
+    private String partnerSku;
     private String mode;
     private String status;
+    private Long sourceTaskId;
     private List<ProductListingValidationIssue> validationIssues = new ArrayList<>();
+    private String failureCategory;
     private String failureCode;
     private String failureMessage;
+    private ProductListingNoonWriteResult noonResult;
     private LocalDateTime submittedAt;
+    private LocalDateTime startedAt;
     private LocalDateTime completedAt;
 
     public Long getTaskId() {
@@ -59,6 +64,14 @@ public class ProductListingTaskView {
         this.storeCode = storeCode;
     }
 
+    public String getPartnerSku() {
+        return partnerSku;
+    }
+
+    public void setPartnerSku(String partnerSku) {
+        this.partnerSku = partnerSku;
+    }
+
     public String getMode() {
         return mode;
     }
@@ -75,12 +88,28 @@ public class ProductListingTaskView {
         this.status = status;
     }
 
+    public Long getSourceTaskId() {
+        return sourceTaskId;
+    }
+
+    public void setSourceTaskId(Long sourceTaskId) {
+        this.sourceTaskId = sourceTaskId;
+    }
+
     public List<ProductListingValidationIssue> getValidationIssues() {
         return validationIssues;
     }
 
     public void setValidationIssues(List<ProductListingValidationIssue> validationIssues) {
         this.validationIssues = validationIssues == null ? new ArrayList<>() : validationIssues;
+    }
+
+    public String getFailureCategory() {
+        return failureCategory;
+    }
+
+    public void setFailureCategory(String failureCategory) {
+        this.failureCategory = failureCategory;
     }
 
     public String getFailureCode() {
@@ -99,12 +128,28 @@ public class ProductListingTaskView {
         this.failureMessage = failureMessage;
     }
 
+    public ProductListingNoonWriteResult getNoonResult() {
+        return noonResult;
+    }
+
+    public void setNoonResult(ProductListingNoonWriteResult noonResult) {
+        this.noonResult = noonResult;
+    }
+
     public LocalDateTime getSubmittedAt() {
         return submittedAt;
     }
 
     public void setSubmittedAt(LocalDateTime submittedAt) {
         this.submittedAt = submittedAt;
+    }
+
+    public LocalDateTime getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(LocalDateTime startedAt) {
+        this.startedAt = startedAt;
     }
 
     public LocalDateTime getCompletedAt() {

@@ -152,7 +152,9 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/157_product_image_profile_fact_text.sql",
                 "classpath:db/init/158_product_image_ai_suite_draft.sql",
                 "classpath:db/init/159_product_image_logical_store_scope.sql",
-                "classpath:db/init/160_noon_advertising_read_model.sql"
+                "classpath:db/init/160_noon_advertising_read_model.sql",
+                "classpath:db/init/162_product_listing_real_run.sql",
+                "classpath:db/init/163_product_logistics_cost_ledger.sql"
             ));
         return payload;
     }

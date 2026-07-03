@@ -58,6 +58,191 @@ class ProductListingServiceTest {
     }
 
     @Test
+    void dryRunWarnsWhenOfferPriceOrSplitFieldsAreDisabledButDoesNotBlockValidation() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand listing = validCommand();
+        listing.setPriceMin(new BigDecimal("45.00"));
+        listing.setPriceMax(new BigDecimal("59.00"));
+        listing.setSalePrice(new BigDecimal("47.50"));
+        listing.setSaleStart("2026-07-01");
+        listing.setSaleEnd("2026-07-07");
+        listing.setIsActive(Boolean.TRUE);
+        listing.setOfferNote("Launch stock prepared.");
+        ProductListingDraftView draft = service.saveDraft(context, listing);
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertWarning(task, "offerPrice", "offer_price_not_written");
+        assertWarning(task, "offerSplit", "offer_note_active_not_written");
+        assertWarning(task, "warehouseStock", "warehouse_stock_not_written");
+        assertTrue(mapper.insertedTask().getValidationJson().contains("offer_price_not_written"));
+        assertTrue(mapper.insertedTask().getValidationJson().contains("offer_note_active_not_written"));
+        assertTrue(mapper.insertedTask().getValidationJson().contains("warehouse_stock_not_written"));
+    }
+
+    @Test
+    void dryRunOmitsSupportedOfferWarningsWhenSplitOfferWriteIsEnabled() {
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setOfferUpsertEnabled(true);
+        properties.setOfferSplitWriteEnabled(true);
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand listing = validCommand();
+        listing.setFbp(null);
+        listing.setWarehouseId(null);
+        listing.setWarehouseCode(null);
+        listing.setQuantity(null);
+        listing.setPriceMin(new BigDecimal("45.00"));
+        listing.setPriceMax(new BigDecimal("59.00"));
+        listing.setSalePrice(new BigDecimal("47.50"));
+        listing.setSaleStart("2026-07-01");
+        listing.setSaleEnd("2026-07-07");
+        listing.setIsActive(Boolean.TRUE);
+        listing.setOfferNote("Launch note.");
+        ProductListingDraftView draft = service.saveDraft(context, listing);
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertNoWarning(task, "offer_price_not_written");
+        assertNoWarning(task, "offer_note_active_not_written");
+        assertNoWarning(task, "warehouse_stock_not_written");
+        assertNoWarning(task, "offer_stock_not_written");
+    }
+
+    @Test
+    void dryRunKeepsWarehouseStockWarningEvenWhenSplitOfferWriteIsEnabled() {
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setOfferUpsertEnabled(true);
+        properties.setOfferSplitWriteEnabled(true);
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertWarning(task, "warehouseStock", "warehouse_stock_not_written");
+        assertNoWarning(task, "offer_price_not_written");
+        assertNoWarning(task, "offer_note_active_not_written");
+    }
+
+    @Test
+    void saveDraftPreservesDetailedAttributesInDryRunSnapshot() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        Map<String, Object> baseMaterial = new LinkedHashMap<>();
+        baseMaterial.put("code", "base_material");
+        baseMaterial.put("labelEn", "Base Material");
+        baseMaterial.put("commonValue", "metal");
+        baseMaterial.put("enValue", "Metal");
+        command.setKeyAttributes(List.of(baseMaterial));
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        service.submitDryRun(context, dryRunCommand);
+
+        assertEquals("metal", draft.getDraft().getKeyAttributes().get(0).get("commonValue"));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"base_material\""));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"base_material\""));
+    }
+
+    @Test
+    void saveDraftPreservesContentCopyInDryRunSnapshot() throws Exception {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        String json = "{"
+                + "\"storeCode\":\"STR245027-NAE\","
+                + "\"psku\":\"NN-CONTENT-PSKU\","
+                + "\"idProductFullType\":3066,"
+                + "\"productFullType\":\"home_decor-lighting-table_lamps\","
+                + "\"productBrand\":\"Generic\","
+                + "\"productBrandCode\":\"generic\","
+                + "\"productTitleCn\":\"Ceramic lamp CN draft\","
+                + "\"productTitleEn\":\"Ceramic bedside lamp\","
+                + "\"productTitleAr\":\"Arabic ceramic lamp title\","
+                + "\"productDescriptionCn\":\"Chinese description draft\","
+                + "\"productDescriptionEn\":\"English long description for Noon listing.\","
+                + "\"productDescriptionAr\":\"Arabic long description for Noon listing.\","
+                + "\"productHighlightsCn\":[\"Soft lighting CN draft\"],"
+                + "\"productHighlightsEn\":[\"Soft ambient lighting\"],"
+                + "\"productHighlightsAr\":[\"Soft ambient lighting AR\"],"
+                + "\"imageUrls\":[\"https://example.test/images/sku-main.jpg\"],"
+                + "\"price\":49.90,"
+                + "\"purchasePrice\":19.90,"
+                + "\"supplyEvidenceType\":\"1688_OFFER\","
+                + "\"supplyEvidenceRefId\":43101,"
+                + "\"fbp\":true,"
+                + "\"warehouseId\":\"W00752151SA\","
+                + "\"quantity\":100,"
+                + "\"idWarranty\":24,"
+                + "\"barcode\":\"6290000000001\""
+                + "}";
+        ProductListingDraftCommand command = new ObjectMapper().readValue(json, ProductListingDraftCommand.class);
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        service.submitDryRun(context, dryRunCommand);
+
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"productDescriptionEn\":\"English long description for Noon listing.\""));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"productHighlightsEn\":[\"Soft ambient lighting\"]"));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"productDescriptionAr\":\"Arabic long description for Noon listing.\""));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"productHighlightsAr\":[\"Soft ambient lighting AR\"]"));
+    }
+
+    @Test
+    void saveDraftPersistsSourceLineageFromCommand() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setSourceType("manual_selection_group");
+        command.setSourceRefId(91002L);
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+
+        assertEquals("manual_selection_group", mapper.insertedDraft().getSourceType());
+        assertEquals(91002L, mapper.insertedDraft().getSourceRefId());
+        assertEquals("manual_selection_group", draft.getDraft().getSourceType());
+        assertEquals(91002L, draft.getDraft().getSourceRefId());
+    }
+
+    @Test
+    void saveDraftPreservesOfferFieldsInDryRunSnapshot() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setPriceMin(new BigDecimal("45.00"));
+        command.setPriceMax(new BigDecimal("59.00"));
+        command.setSalePrice(new BigDecimal("47.50"));
+        command.setSaleStart("2026-06-24");
+        command.setSaleEnd("2026-07-01");
+        command.setIsActive(Boolean.TRUE);
+        command.setOfferNote("选品池: CAND-9001 / 物流 默认货代");
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        service.submitDryRun(context, dryRunCommand);
+
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"salePrice\":47.50"));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"offerNote\":\"选品池: CAND-9001 / 物流 默认货代\""));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"priceMin\":45.00"));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"isActive\":true"));
+    }
+
+    @Test
     void dryRunTaskFailsWhenHardIssuesExist() {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand invalid = validCommand();
@@ -191,6 +376,19 @@ class ProductListingServiceTest {
                 .build();
     }
 
+    private void assertWarning(ProductListingTaskView task, String fieldKey, String code) {
+        assertTrue(task.getValidationIssues().stream().anyMatch(issue ->
+                        fieldKey.equals(issue.getFieldKey())
+                                && code.equals(issue.getCode())
+                                && "warning".equals(issue.getSeverity())),
+                "Expected warning " + fieldKey + "/" + code);
+    }
+
+    private void assertNoWarning(ProductListingTaskView task, String code) {
+        assertTrue(task.getValidationIssues().stream().noneMatch(issue -> code.equals(issue.getCode())),
+                "Unexpected warning " + code);
+    }
+
     private static class FakeProductListingMapper implements ProductListingMapper {
 
         private long nextDraftId = 10001L;
@@ -261,6 +459,11 @@ class ProductListingServiceTest {
         }
 
         @Override
+        public ProductListingTaskRecord selectTaskByIdForWorker(Long taskId) {
+            return tasks.get(taskId);
+        }
+
+        @Override
         public List<ProductListingTaskRecord> selectRecentTasks(Long ownerUserId, String storeCode, int limit) {
             List<ProductListingTaskRecord> result = new ArrayList<>();
             for (ProductListingTaskRecord task : tasks.values()) {
@@ -269,6 +472,43 @@ class ProductListingServiceTest {
                 }
             }
             return result;
+        }
+
+        @Override
+        public ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(Long ownerUserId, Long sourceTaskId) {
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (ownerUserId.equals(task.getOwnerUserId())
+                        && sourceTaskId.equals(task.getSourceTaskId())
+                        && "REAL_RUN".equals(task.getMode())
+                        && ("running".equals(task.getStatus())
+                        || "submitted".equals(task.getStatus())
+                        || "succeeded".equals(task.getStatus())
+                        || "failed".equals(task.getStatus())
+                        || "written_verify_failed".equals(task.getStatus()))) {
+                    return task;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public int updateTaskResult(ProductListingTaskRecord task) {
+            tasks.put(task.getId(), task);
+            return 1;
+        }
+
+        @Override
+        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !"REAL_RUN".equals(task.getMode())
+                    || !"submitted".equals(task.getStatus())) {
+                return 0;
+            }
+            task.setStatus("running");
+            task.setStartedAt(startedAt);
+            tasks.put(taskId, task);
+            return 1;
         }
 
         private ProductListingDraftRecord insertedDraft() {

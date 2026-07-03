@@ -1127,7 +1127,6 @@ public class LocalDbProcurementPurchaseOrderService {
             applyLogisticsQuoteChannel(line, selectedOption.candidate);
             mapper.assignLogisticsQuoteLineChannel(line, operatorUserId);
         }
-        applyCurrentProductForwarderChannelQuotes(matchingLines, operatorUserId);
         mapper.refreshShippingOrderQuoteState(shippingOrder.id, matchingLines.get(0), operatorUserId);
 
         List<PurchaseOrderLogisticsQuoteLineRecord> exportLines = matchingLines.stream()
@@ -1351,13 +1350,6 @@ public class LocalDbProcurementPurchaseOrderService {
         if (quoteLines.isEmpty()) {
             throw new IllegalArgumentException("发货单没有可生成账单的报价行。");
         }
-        if (applyCurrentProductForwarderChannelQuotes(quoteLines, operatorUserId) > 0) {
-            PurchaseOrderLogisticsQuoteLineRecord sample = quoteLines.stream()
-                    .filter(line -> LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
-                    .findFirst()
-                    .orElse(quoteLines.get(0));
-            mapper.refreshShippingOrderQuoteState(shippingOrder.id, sample, operatorUserId);
-        }
         List<PurchaseOrderLogisticsQuoteLineRecord> confirmedLines = new ArrayList<>();
         for (PurchaseOrderLogisticsQuoteLineRecord line : quoteLines) {
             if (!LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus))) {
@@ -1464,63 +1456,6 @@ public class LocalDbProcurementPurchaseOrderService {
             return line.unitPrice.multiply(BigDecimal.valueOf(line.quantity.longValue()));
         }
         throw new IllegalArgumentException("报价行缺少确认金额或单价，不能生成预估账单。");
-    }
-
-    private int applyCurrentProductForwarderChannelQuotes(
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            Long operatorUserId
-    ) {
-        int applied = 0;
-        for (PurchaseOrderLogisticsQuoteLineRecord line : emptyIfNull(lines)) {
-            if (applyCurrentProductForwarderChannelQuote(line, operatorUserId)) {
-                applied += 1;
-            }
-        }
-        return applied;
-    }
-
-    private boolean applyCurrentProductForwarderChannelQuote(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            Long operatorUserId
-    ) {
-        if (line == null
-                || line.id == null
-                || line.ownerUserId == null
-                || line.productVariantId == null
-                || LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus))
-                || !StringUtils.hasText(line.forwarderCode)
-                || !StringUtils.hasText(line.routeCode)) {
-            return false;
-        }
-        ProductForwarderChannelQuoteRecord quote = mapper.selectCurrentProductForwarderChannelQuote(
-                line.ownerUserId,
-                line.sourceStoreCode,
-                line.logicalStoreId,
-                line.partnerSku,
-                line.productVariantId,
-                line.forwarderCode,
-                line.siteCode,
-                line.routeCode,
-                line.serviceCode
-        );
-        if (quote == null || (quote.unitPrice == null && quote.estimatedAmount == null)) {
-            return false;
-        }
-        line.forwarderCode = defaultText(quote.forwarderCode, line.forwarderCode);
-        line.forwarderName = defaultText(quote.forwarderName, line.forwarderName);
-        line.routeCode = defaultText(quote.routeCode, line.routeCode);
-        line.routeName = defaultText(quote.routeName, line.routeName);
-        line.serviceCode = defaultText(quote.serviceCode, line.serviceCode);
-        line.serviceName = defaultText(quote.serviceName, line.serviceName);
-        line.currency = defaultText(quote.currency, line.currency);
-        line.unitPrice = quote.unitPrice;
-        line.billingUnit = quote.billingUnit;
-        line.estimatedAmount = quote.estimatedAmount;
-        line.remark = "商品渠道历史报价自动确认";
-        line.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
-        line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
-        mapper.confirmLogisticsQuoteLine(line, operatorUserId);
-        return true;
     }
 
     private String logisticsExpectedBillSnapshot(
@@ -2912,7 +2847,6 @@ public class LocalDbProcurementPurchaseOrderService {
         line.estimatedAmount = estimatedAmount == null ? line.estimatedAmount : estimatedAmount;
         line.remark = defaultText(readTextCell(row, ET_HIDDEN_REMARK_COLUMN), etPackingRemark(row));
         mapper.confirmLogisticsQuoteLine(line, operatorUserId);
-        persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename);
         view.updatedRows += 1;
     }
 
@@ -3068,7 +3002,6 @@ public class LocalDbProcurementPurchaseOrderService {
             line.estimatedAmount = estimatedAmount;
             line.remark = defaultText(readTextCell(row, YITE_HIDDEN_REMARK_COLUMN), "义特模板回传确认");
             mapper.confirmLogisticsQuoteLine(line, operatorUserId);
-            persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename);
         }
         view.updatedRows += 1;
     }
@@ -3191,10 +3124,11 @@ public class LocalDbProcurementPurchaseOrderService {
         line.estimatedAmount = estimatedAmount;
         line.remark = readTextCell(row, 26);
         mapper.confirmLogisticsQuoteLine(line, operatorUserId);
-        persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename);
         view.updatedRows += 1;
     }
 
+    // Legacy product quote projection retained for migration compatibility.
+    // Product logistics cost facts are curated by AI/data correction jobs and displayed from productlogisticscost.
     private void persistProductForwarderChannelQuote(
             PurchaseOrderLogisticsQuoteLineRecord line,
             Long operatorUserId,

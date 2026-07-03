@@ -1,6 +1,7 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.intransit.InTransitBatchRecords.PackageRow;
+import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
 import com.nuono.next.intransit.InTransitFreightCostRecords.ActualFreightBillRow;
 import com.nuono.next.intransit.InTransitFreightCostRecords.ActualFreightComponentRow;
 import com.nuono.next.intransit.InTransitFreightCostRecords.EstimateComponentRow;
@@ -40,6 +41,38 @@ public interface InTransitFreightCostMapper extends InTransitFreightCostSupportM
             @Param("batchId") Long batchId,
             @Param("boxNo") String boxNo,
             @Param("externalBoxNo") String externalBoxNo
+    );
+
+    @Select({
+            "<script>",
+            "SELECT line.id AS id, line.owner_user_id AS ownerUserId, line.batch_id AS batchId,",
+            "line.package_id AS packageId, line.box_no AS boxNo, line.psku AS psku,",
+            "line.store_code AS storeCode, line.site_code AS siteCode",
+            "FROM in_transit_goods_line line",
+            "LEFT JOIN in_transit_package pkg ON pkg.owner_user_id = line.owner_user_id",
+            "AND pkg.batch_id = line.batch_id AND pkg.id = line.package_id AND pkg.is_deleted = b'0'",
+            "WHERE line.owner_user_id = #{ownerUserId} AND line.batch_id = #{batchId} AND line.is_deleted = b'0'",
+            "AND #{psku} IS NOT NULL AND #{psku} != '' AND line.psku = #{psku}",
+            "AND (",
+            "  (#{packageId} IS NOT NULL AND line.package_id = #{packageId})",
+            "  OR (#{boxNo} IS NOT NULL AND #{boxNo} != '' AND line.box_no = #{boxNo})",
+            "  OR (#{externalBoxNo} IS NOT NULL AND #{externalBoxNo} != '' AND pkg.external_box_no = #{externalBoxNo})",
+            "  OR (#{packageId} IS NULL",
+            "      AND (#{boxNo} IS NULL OR #{boxNo} = '')",
+            "      AND (#{externalBoxNo} IS NULL OR #{externalBoxNo} = ''))",
+            ")",
+            "ORDER BY CASE WHEN line.package_id = #{packageId} THEN 0 ELSE 1 END,",
+            "CASE WHEN line.box_no = #{boxNo} THEN 0 ELSE 1 END, line.id ASC",
+            "LIMIT 2",
+            "</script>"
+    })
+    List<LineRow> selectActualComponentLineScopes(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchId") Long batchId,
+            @Param("packageId") Long packageId,
+            @Param("boxNo") String boxNo,
+            @Param("externalBoxNo") String externalBoxNo,
+            @Param("psku") String psku
     );
 
     @Select({
@@ -106,13 +139,13 @@ public interface InTransitFreightCostMapper extends InTransitFreightCostSupportM
     @Insert({
             "INSERT INTO in_transit_freight_actual_component (",
             "id, owner_user_id, actual_bill_id, batch_id, package_id, box_no, external_box_no, psku,",
-            "transport_mode, destination_code, target_site_code, raw_fee_name, standard_fee_type,",
+            "transport_mode, destination_code, store_code, target_site_code, raw_fee_name, standard_fee_type,",
             "charge_quantity, charge_unit, unit_price, currency_code, exchange_rate_to_cny, original_amount, cny_amount, quantity,",
             "measured_weight_kg, measured_volume_cbm, volume_weight_kg, chargeable_weight_kg, allocation_basis, raw_payload_json,",
             "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.ownerUserId}, #{row.actualBillId}, #{row.batchId}, #{row.packageId}, #{row.boxNo},",
-            "#{row.externalBoxNo}, #{row.psku}, #{row.transportMode}, #{row.destinationCode}, #{row.targetSiteCode},",
+            "#{row.externalBoxNo}, #{row.psku}, #{row.transportMode}, #{row.destinationCode}, #{row.storeCode}, #{row.targetSiteCode},",
             "#{row.rawFeeName}, #{row.standardFeeType}, #{row.chargeQuantity},",
             "#{row.chargeUnit}, #{row.unitPrice}, #{row.currencyCode}, #{row.exchangeRateToCny}, #{row.originalAmount},",
             "#{row.cnyAmount}, #{row.quantity}, #{row.measuredWeightKg}, #{row.measuredVolumeCbm}, #{row.volumeWeightKg},",

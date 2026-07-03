@@ -38,7 +38,7 @@ class ProductListingValidatorTest {
 
         assertIssue(issues, "storeCode", "required");
         assertIssue(issues, "psku", "required");
-        assertIssue(issues, "idProductFullType", "required");
+        assertIssue(issues, "productFullType", "required");
         assertIssue(issues, "productTitleEn", "required");
         assertIssue(issues, "imageUrls", "required");
         assertIssue(issues, "price", "required");
@@ -58,11 +58,25 @@ class ProductListingValidatorTest {
         assertIssue(issues, "quantity", "invalid_number");
     }
 
+    @Test
+    void validateWithWarningsDoesNotDecideRuntimeNoonWriteCapability() {
+        ProductListingDraftCommand command = validCommand();
+        command.setSalePrice(new BigDecimal("47.50"));
+        command.setSaleStart("2026-07-01");
+        command.setSaleEnd("2026-07-07");
+        command.setOfferNote("Launch quantity prepared by operator.");
+
+        List<ProductListingValidationIssue> issues = validator.validateWithWarnings(command);
+
+        assertTrue(issues.stream().noneMatch(issue -> "offer_stock_not_written".equals(issue.getCode())),
+                "Runtime Noon write warnings should be added by ProductListingService with real-write properties.");
+    }
+
     private ProductListingDraftCommand validCommand() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
         command.setStoreCode("STR240053-NSA");
         command.setPsku("NN-TEST-PSKU");
-        command.setIdProductFullType(3066L);
+        command.setProductFullType("electronic_accessories-headphones-wired_headphones");
         command.setProductTitleEn("Wired headphones with microphone");
         command.setImageUrls(List.of("https://example.test/images/sku-main.jpg"));
         command.setPrice(new BigDecimal("49.90"));
@@ -78,6 +92,16 @@ class ProductListingValidatorTest {
                 issues.stream().anyMatch(issue ->
                         fieldKey.equals(issue.getFieldKey()) && code.equals(issue.getCode())),
                 "Expected issue " + fieldKey + "/" + code + " in " + describe(issues)
+        );
+    }
+
+    private void assertIssue(List<ProductListingValidationIssue> issues, String fieldKey, String code, String severity) {
+        assertTrue(
+                issues.stream().anyMatch(issue ->
+                        fieldKey.equals(issue.getFieldKey())
+                                && code.equals(issue.getCode())
+                                && severity.equals(issue.getSeverity())),
+                "Expected issue " + fieldKey + "/" + code + "/" + severity + " in " + describe(issues)
         );
     }
 

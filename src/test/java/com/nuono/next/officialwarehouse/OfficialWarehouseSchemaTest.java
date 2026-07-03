@@ -89,13 +89,42 @@ class OfficialWarehouseSchemaTest {
     }
 
     @Test
-    void officialWarehouseShippingBatchCandidatesUseRemainingUnlinkedQuantity() throws Exception {
+    void officialWarehouseShippingBatchCandidatesKeepAppointedBatchesVisibleAfterAvailableBatches() throws Exception {
         String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+        String records = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseRecords.java"));
+        String views = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseViews.java"));
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
 
         assertThat(mapper)
                 .contains("official_warehouse_asn_shipping_batch_link")
+                .contains("JOIN official_warehouse_asn linkedAsn")
+                .contains("UPPER(COALESCE(linkedAsn.status, '')) NOT IN ('FAILED', 'CANCELED', 'CANCELLED')")
+                .contains("scheduledAppointmentQuantity")
+                .contains("official_warehouse_appointment scheduledAppointment")
+                .contains("scheduledAppointment.status = 'SCHEDULED'")
                 .contains("remainingQuantity")
-                .contains("HAVING remainingQuantity &gt; 0");
+                .contains("COUNT(DISTINCT COALESCE(NULLIF(line.psku, ''), NULLIF(line.sku, ''), NULLIF(line.msku, ''))) AS skuCount")
+                .contains("alreadyAppointed")
+                .contains("batchUsedByAsn")
+                .contains("batchUsageLabel")
+                .contains("ORDER BY batchUsedByAsn ASC, b.gmt_updated DESC, b.id DESC")
+                .doesNotContain("HAVING remainingQuantity &gt; 0");
+        assertThat(records)
+                .contains("public Boolean alreadyAppointed;")
+                .contains("public Integer scheduledAppointmentQuantity;")
+                .contains("public Boolean batchUsedByAsn;")
+                .contains("public String batchUsageLabel;");
+        assertThat(views)
+                .contains("public Boolean alreadyAppointed;")
+                .contains("public Integer scheduledAppointmentQuantity;")
+                .contains("public Boolean batchUsedByAsn;")
+                .contains("public String batchUsageLabel;");
+        assertThat(service)
+                .contains("view.alreadyAppointed = row.alreadyAppointed")
+                .contains("view.batchUsedByAsn = row.batchUsedByAsn")
+                .contains("view.scheduledAppointmentQuantity = row.scheduledAppointmentQuantity;")
+                .contains("view.batchUsageLabel = firstNonBlank(")
+                .contains("row.batchUsageLabel");
     }
 
     @Test
@@ -128,6 +157,24 @@ class OfficialWarehouseSchemaTest {
 
         assertThat(mapper)
                 .contains("COALESCE(NULLIF(TRIM(official.noon_partner_psku_code), ''), NULLIF(TRIM(pso.psku_code), '')) AS pskuCode");
+    }
+
+    @Test
+    void officialWarehouseProductCandidatesFallbackToProductSpecSourcesWhenOfficialDimensionsAreMissing() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+
+        assertThat(mapper)
+                .contains("LEFT JOIN product_variant_spec_source warehouseSpec")
+                .contains("warehouseSpec.source_type = 'warehouse'")
+                .contains("LEFT JOIN product_variant_spec_source ali1688Spec")
+                .contains("ali1688Spec.source_type = 'ali1688'")
+                .contains("COALESCE(official.product_length_cm, effective.product_length_cm, warehouseSpec.product_length_cm, ali1688Spec.product_length_cm, pvs.product_length_cm) AS productLengthCm")
+                .contains("COALESCE(official.product_width_cm, effective.product_width_cm, warehouseSpec.product_width_cm, ali1688Spec.product_width_cm, pvs.product_width_cm) AS productWidthCm")
+                .contains("COALESCE(official.product_height_cm, effective.product_height_cm, warehouseSpec.product_height_cm, ali1688Spec.product_height_cm, pvs.product_height_cm) AS productHeightCm");
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
+        assertThat(service)
+                .contains("view.missingTags.add(\"缺尺寸\")")
+                .doesNotContain("缺官方尺寸");
     }
 
     @Test

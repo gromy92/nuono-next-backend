@@ -273,6 +273,8 @@ public class ProductReadModelService {
         item.setGroupRefCanonical(mergeCurrentZValue(item.getGroupRefCanonical(), summary.getGroupRefCanonical(), currentZRow));
         item.setLiveStatus(mergeCurrentZValue(item.getLiveStatus(), summary.getLiveStatus(), currentZRow));
         item.setStatusCode(mergeCurrentZValue(item.getStatusCode(), summary.getStatusCode(), currentZRow));
+        item.setListingStartedAt(mergeCurrentZValue(item.getListingStartedAt(), summary.getListingStartedAt(), currentZRow));
+        item.setListingStartedSource(mergeCurrentZValue(item.getListingStartedSource(), summary.getListingStartedSource(), currentZRow));
         item.setIsActive(mergeCurrentZValue(item.getIsActive(), summary.getIsActive(), currentZRow));
         item.setSyncStatus(mergeCurrentZValue(item.getSyncStatus(), summary.getSyncStatus(), currentZRow));
         item.setLastSyncedAt(mergeCurrentZValue(item.getLastSyncedAt(), summary.getLastSyncedAt(), currentZRow));

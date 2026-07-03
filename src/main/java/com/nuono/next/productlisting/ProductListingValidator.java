@@ -14,7 +14,7 @@ public class ProductListingValidator {
 
         requireText(issues, "storeCode", safeCommand.getStoreCode());
         requireText(issues, "psku", safeCommand.getPsku());
-        requireLong(issues, "idProductFullType", safeCommand.getIdProductFullType());
+        requireText(issues, "productFullType", safeCommand.getProductFullType());
         requireText(issues, "productTitleEn", safeCommand.getProductTitleEn());
         requireImages(issues, safeCommand.getImageUrls());
         requireAmount(issues, "price", safeCommand.getPrice());

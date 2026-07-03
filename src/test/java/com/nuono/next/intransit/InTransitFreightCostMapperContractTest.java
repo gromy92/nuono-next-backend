@@ -40,4 +40,15 @@ class InTransitFreightCostMapperContractTest {
         assertTrue(source.contains("component.psku = #{psku}"));
         assertTrue(source.contains("component.target_site_code = #{targetSiteCode}"));
     }
+
+    @Test
+    void actualComponentMapperPersistsBusinessStoreCodeAndResolvesItFromGoodsLine() throws IOException {
+        String source = Files.readString(MAPPER);
+
+        assertTrue(source.contains("selectActualComponentLineScopes"));
+        assertTrue(source.contains("line.store_code AS storeCode"));
+        assertTrue(source.contains("line.site_code AS siteCode"));
+        assertTrue(source.contains("store_code"));
+        assertTrue(source.contains("#{row.storeCode}"));
+    }
 }

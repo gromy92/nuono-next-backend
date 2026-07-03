@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.product.NoonProductListFieldSupport;
 import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.product.ProductSourceTypeSupport;
@@ -76,7 +77,7 @@ public class NoonProductListPullAdapter {
         seed.setProductSourceType(ProductSourceTypeSupport.resolve(null, childSku, skuParent));
         seed.setChildSku(childSku);
         seed.setPartnerSku(text(item, "partner_sku"));
-        seed.setPskuCode(text(item, "psku_code"));
+        seed.setPskuCode(NoonProductListFieldSupport.pskuCode(item));
         seed.setOfferCode(text(item, "offer_code"));
         seed.setReferenceStoreCode(command.getStoreCode());
         seed.setTitleCache(firstNonBlank(text(content, "title"), text(item, "title")));

@@ -2,11 +2,14 @@ package com.nuono.next.productlisting;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 public class ProductListingDraftCommand {
 
     private Long draftId;
     private String storeCode;
+    private String sourceType;
+    private Long sourceRefId;
     private String psku;
     private Long idProductFullType;
     private String productFullType;
@@ -15,18 +18,34 @@ public class ProductListingDraftCommand {
     private String productSubType;
     private String productBrand;
     private String productBrandCode;
+    private String productTitleCn;
     private String productTitleEn;
     private String productTitleAr;
+    private String productDescriptionCn;
+    private String productDescriptionEn;
+    private String productDescriptionAr;
+    private List<String> productHighlightsCn;
+    private List<String> productHighlightsEn;
+    private List<String> productHighlightsAr;
+    private List<Map<String, Object>> keyAttributes;
     private List<String> imageUrls;
     private BigDecimal price;
+    private BigDecimal priceMin;
+    private BigDecimal priceMax;
+    private BigDecimal salePrice;
+    private String saleStart;
+    private String saleEnd;
     private BigDecimal purchasePrice;
     private String supplyEvidenceType;
     private Long supplyEvidenceRefId;
     private Long optionalPurchaseOrderId;
     private Boolean fbp;
     private String warehouseId;
+    private String warehouseCode;
     private Integer quantity;
     private Integer idWarranty;
+    private Boolean isActive;
+    private String offerNote;
     private String barcode;
 
     public Long getDraftId() {
@@ -43,6 +62,22 @@ public class ProductListingDraftCommand {
 
     public void setStoreCode(String storeCode) {
         this.storeCode = storeCode;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
+    public Long getSourceRefId() {
+        return sourceRefId;
+    }
+
+    public void setSourceRefId(Long sourceRefId) {
+        this.sourceRefId = sourceRefId;
     }
 
     public String getPsku() {
@@ -109,6 +144,14 @@ public class ProductListingDraftCommand {
         this.productBrandCode = productBrandCode;
     }
 
+    public String getProductTitleCn() {
+        return productTitleCn;
+    }
+
+    public void setProductTitleCn(String productTitleCn) {
+        this.productTitleCn = productTitleCn;
+    }
+
     public String getProductTitleEn() {
         return productTitleEn;
     }
@@ -125,6 +168,62 @@ public class ProductListingDraftCommand {
         this.productTitleAr = productTitleAr;
     }
 
+    public String getProductDescriptionCn() {
+        return productDescriptionCn;
+    }
+
+    public void setProductDescriptionCn(String productDescriptionCn) {
+        this.productDescriptionCn = productDescriptionCn;
+    }
+
+    public String getProductDescriptionEn() {
+        return productDescriptionEn;
+    }
+
+    public void setProductDescriptionEn(String productDescriptionEn) {
+        this.productDescriptionEn = productDescriptionEn;
+    }
+
+    public String getProductDescriptionAr() {
+        return productDescriptionAr;
+    }
+
+    public void setProductDescriptionAr(String productDescriptionAr) {
+        this.productDescriptionAr = productDescriptionAr;
+    }
+
+    public List<String> getProductHighlightsCn() {
+        return productHighlightsCn;
+    }
+
+    public void setProductHighlightsCn(List<String> productHighlightsCn) {
+        this.productHighlightsCn = productHighlightsCn;
+    }
+
+    public List<String> getProductHighlightsEn() {
+        return productHighlightsEn;
+    }
+
+    public void setProductHighlightsEn(List<String> productHighlightsEn) {
+        this.productHighlightsEn = productHighlightsEn;
+    }
+
+    public List<String> getProductHighlightsAr() {
+        return productHighlightsAr;
+    }
+
+    public void setProductHighlightsAr(List<String> productHighlightsAr) {
+        this.productHighlightsAr = productHighlightsAr;
+    }
+
+    public List<Map<String, Object>> getKeyAttributes() {
+        return keyAttributes;
+    }
+
+    public void setKeyAttributes(List<Map<String, Object>> keyAttributes) {
+        this.keyAttributes = keyAttributes;
+    }
+
     public List<String> getImageUrls() {
         return imageUrls;
     }
@@ -139,6 +238,46 @@ public class ProductListingDraftCommand {
 
     public void setPrice(BigDecimal price) {
         this.price = price;
+    }
+
+    public BigDecimal getPriceMin() {
+        return priceMin;
+    }
+
+    public void setPriceMin(BigDecimal priceMin) {
+        this.priceMin = priceMin;
+    }
+
+    public BigDecimal getPriceMax() {
+        return priceMax;
+    }
+
+    public void setPriceMax(BigDecimal priceMax) {
+        this.priceMax = priceMax;
+    }
+
+    public BigDecimal getSalePrice() {
+        return salePrice;
+    }
+
+    public void setSalePrice(BigDecimal salePrice) {
+        this.salePrice = salePrice;
+    }
+
+    public String getSaleStart() {
+        return saleStart;
+    }
+
+    public void setSaleStart(String saleStart) {
+        this.saleStart = saleStart;
+    }
+
+    public String getSaleEnd() {
+        return saleEnd;
+    }
+
+    public void setSaleEnd(String saleEnd) {
+        this.saleEnd = saleEnd;
     }
 
     public BigDecimal getPurchasePrice() {
@@ -189,6 +328,14 @@ public class ProductListingDraftCommand {
         this.warehouseId = warehouseId;
     }
 
+    public String getWarehouseCode() {
+        return warehouseCode;
+    }
+
+    public void setWarehouseCode(String warehouseCode) {
+        this.warehouseCode = warehouseCode;
+    }
+
     public Integer getQuantity() {
         return quantity;
     }
@@ -203,6 +350,22 @@ public class ProductListingDraftCommand {
 
     public void setIdWarranty(Integer idWarranty) {
         this.idWarranty = idWarranty;
+    }
+
+    public Boolean getIsActive() {
+        return isActive;
+    }
+
+    public void setIsActive(Boolean isActive) {
+        this.isActive = isActive;
+    }
+
+    public String getOfferNote() {
+        return offerNote;
+    }
+
+    public void setOfferNote(String offerNote) {
+        this.offerNote = offerNote;
     }
 
     public String getBarcode() {
