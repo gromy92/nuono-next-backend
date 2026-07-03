@@ -102,6 +102,88 @@ public class CompetitorAnalysisService {
                 .collect(Collectors.toList());
     }
 
+    public CompetitorDashboardView dashboard(
+            BusinessAccessContext context,
+            String storeCode,
+            String siteCode,
+            Integer days,
+            String rankDirection
+    ) {
+        String normalizedStoreCode = requireText(storeCode, "COMPETITOR_STORE_REQUIRED").toUpperCase(Locale.ROOT);
+        String normalizedSiteCode = requireText(siteCode, "COMPETITOR_SITE_REQUIRED").toUpperCase(Locale.ROOT);
+        requireStoreInContext(context, normalizedStoreCode);
+        Long ownerUserId = ownerUserId(context, normalizedStoreCode);
+        int normalizedDays = normalizeDashboardDays(days);
+        String normalizedRankDirection = normalizeRankDirection(rankDirection);
+        LocalDate today = LocalDate.now();
+        LocalDate fromDate = today.minusDays(normalizedDays - 1L);
+        LocalDate requestedRankToDate = normalizedDays == 1 ? today : today.minusDays(1L);
+        LocalDate latestRankFactDate = mapper.selectLatestRankFactDate(
+                ownerUserId,
+                normalizedStoreCode,
+                normalizedSiteCode,
+                requestedRankToDate
+        );
+        LocalDate rankToDate = latestRankFactDate == null ? requestedRankToDate : latestRankFactDate;
+        LocalDate rankFromDate = normalizedDays == 1 ? rankToDate.minusDays(1L) : rankToDate.minusDays(normalizedDays - 1L);
+        LocalDate detailChangeFromDate = normalizedDays == 1 ? today.minusDays(1L) : fromDate;
+        int targetCompetitorCount = 3;
+        int topLimit = 10;
+        int selfRankChangeLimit = 100;
+        int competitorRankChangeLimit = 100;
+
+        List<CompetitorDashboardSummaryRow> issueSummary = List.of(
+                summary(
+                        CompetitorDashboardIssueType.PENDING_CANDIDATE,
+                        "待确认候选",
+                        mapper.countPendingCandidates(ownerUserId, normalizedStoreCode, normalizedSiteCode)
+                ),
+                summary(
+                        CompetitorDashboardIssueType.MONITORING_SHORTAGE,
+                        "监控不足",
+                        mapper.countMonitoringShortageProducts(
+                                ownerUserId,
+                                normalizedStoreCode,
+                                normalizedSiteCode,
+                                targetCompetitorCount
+                        )
+                ),
+                summary(
+                        CompetitorDashboardIssueType.RANK_ANOMALY,
+                        "排名异常",
+                        mapper.countRankAnomalyProducts(ownerUserId, normalizedStoreCode, normalizedSiteCode, fromDate)
+                ),
+                summary(
+                        CompetitorDashboardIssueType.COMPETITOR_CHANGE,
+                        "竞品详情变化",
+                        mapper.countCompetitorChangeProducts(ownerUserId, normalizedStoreCode, normalizedSiteCode, fromDate)
+                )
+        );
+
+        return CompetitorDashboardView.of(
+                normalizedStoreCode,
+                normalizedSiteCode,
+                normalizedDays,
+                issueSummary,
+                mapper.listDashboardIssueTrend(ownerUserId, normalizedStoreCode, normalizedSiteCode, fromDate),
+                mapper.listCoverageTopProducts(
+                        ownerUserId,
+                        normalizedStoreCode,
+                        normalizedSiteCode,
+                        targetCompetitorCount,
+                        topLimit
+                ),
+                mapper.listRankIssueTopProducts(ownerUserId, normalizedStoreCode, normalizedSiteCode, fromDate, topLimit),
+                mapper.listChangeTypeDistribution(ownerUserId, normalizedStoreCode, normalizedSiteCode, fromDate),
+                mapper.listChangedProductTop(ownerUserId, normalizedStoreCode, normalizedSiteCode, fromDate, topLimit),
+                mapper.listRankChanges(ownerUserId, normalizedStoreCode, normalizedSiteCode, "SELF", rankFromDate, rankToDate, normalizedRankDirection, selfRankChangeLimit),
+                mapper.listRankChanges(ownerUserId, normalizedStoreCode, normalizedSiteCode, "COMPETITOR", rankFromDate, rankToDate, normalizedRankDirection, competitorRankChangeLimit),
+                detailChangeFromDate,
+                mapper.countCompetitorAttributeSnapshots(ownerUserId, normalizedStoreCode, normalizedSiteCode, detailChangeFromDate),
+                mapper.listCompetitorAttributeChanges(ownerUserId, normalizedStoreCode, normalizedSiteCode, detailChangeFromDate, 30)
+        );
+    }
+
     public CompetitorWatchProductDetailView addKeyword(
             BusinessAccessContext context,
             Long watchProductId,
@@ -278,7 +360,7 @@ public class CompetitorAnalysisService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_PRODUCT_OPTION_NOT_FOUND");
         }
 
-        String selfCode = normalizeNoonCode(option.getPskuCode());
+        String selfCode = resolveSelfNoonProductCode(option);
         String selfCodeType = resolveNoonCodeType(selfCode);
         if (selfCodeType == null) {
             throw badRequest("COMPETITOR_SELF_CODE_REQUIRED");
@@ -289,6 +371,25 @@ public class CompetitorAnalysisService {
         }
         String partnerSku = requireText(option.getPartnerSku(), "COMPETITOR_PARTNER_SKU_REQUIRED");
 
+        CompetitorWatchProductRow existingWatchProduct = mapper.selectReusableWatchProductByProductIdentity(
+                ownerUserId,
+                storeCode,
+                siteCode,
+                option.getLogicalStoreId(),
+                option.getProductSiteOfferId(),
+                partnerSku
+        );
+        if (existingWatchProduct != null) {
+            mapper.updateWatchProductCurrentBinding(
+                    existingWatchProduct.getId(),
+                    option,
+                    selfCode,
+                    selfCodeType,
+                    actorUserId(context)
+            );
+            return detail(context, existingWatchProduct.getId());
+        }
+
         CompetitorWatchProductRow existing = mapper.selectWatchProductByBusinessKey(
                 ownerUserId,
                 storeCode,
@@ -297,7 +398,7 @@ public class CompetitorAnalysisService {
                 selfCode
         );
         if (existing != null) {
-            mapper.updateWatchProductCurrentBinding(existing.getId(), option, actorUserId(context));
+            mapper.updateWatchProductCurrentBinding(existing.getId(), option, selfCode, selfCodeType, actorUserId(context));
             return detail(context, existing.getId());
         }
 
@@ -463,7 +564,7 @@ public class CompetitorAnalysisService {
     }
 
     private CompetitorProductOptionView toProductOptionView(CompetitorProductOptionRow row) {
-        String noonCode = normalizeNoonCode(row == null ? null : row.getPskuCode());
+        String noonCode = resolveSelfNoonProductCode(row);
         String codeType = resolveNoonCodeType(noonCode);
         if (codeType == null) {
             return null;
@@ -674,6 +775,14 @@ public class CompetitorAnalysisService {
         return normalizeKeywordDisplay(keyword).toLowerCase(Locale.ROOT);
     }
 
+    private String resolveSelfNoonProductCode(CompetitorProductOptionRow option) {
+        String pskuCode = normalizeNoonCode(option == null ? null : option.getPskuCode());
+        if (resolveNoonCodeType(pskuCode) != null) {
+            return pskuCode;
+        }
+        return normalizeNoonCode(option == null ? null : option.getSkuParent());
+    }
+
     private ParsedNoonCode parseNoonCode(String input) {
         String normalized = normalizeText(input);
         if (normalized == null) {
@@ -715,6 +824,7 @@ public class CompetitorAnalysisService {
         command.setSkuParent(normalizeText(option.getSkuParent()));
         command.setPartnerSku(requireText(option.getPartnerSku(), "COMPETITOR_PARTNER_SKU_REQUIRED"));
         command.setChildSku(normalizeText(option.getChildSku()));
+        command.setPskuCode(normalizeText(option.getPskuCode()));
         command.setSelfNoonProductCode(selfCode);
         command.setSelfCodeType(selfCodeType);
         command.setTitleSnapshot(normalizeText(option.getTitle()));
@@ -775,6 +885,42 @@ public class CompetitorAnalysisService {
             return 30;
         }
         return Math.min(rangeDays, 365);
+    }
+
+    private int normalizeDashboardDays(Integer days) {
+        if (days == null) {
+            return 7;
+        }
+        if (days == 1) {
+            return 1;
+        }
+        if (days <= 7) {
+            return 7;
+        }
+        if (days <= 14) {
+            return 14;
+        }
+        return 30;
+    }
+
+    private String normalizeRankDirection(String rankDirection) {
+        String normalized = normalizeText(rankDirection);
+        if (normalized == null) {
+            return null;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        if ("UP".equals(upper) || "DOWN".equals(upper)) {
+            return upper;
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "COMPETITOR_RANK_DIRECTION_INVALID");
+    }
+
+    private CompetitorDashboardSummaryRow summary(String issueType, String label, Long value) {
+        CompetitorDashboardSummaryRow row = new CompetitorDashboardSummaryRow();
+        row.setIssueType(issueType);
+        row.setLabel(label);
+        row.setValue(value == null ? 0L : value);
+        return row;
     }
 
     private Long actorUserId(BusinessAccessContext context) {

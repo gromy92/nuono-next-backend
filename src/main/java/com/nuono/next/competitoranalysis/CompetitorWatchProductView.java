@@ -12,6 +12,7 @@ public class CompetitorWatchProductView {
     private String skuParent;
     private String partnerSku;
     private String childSku;
+    private String pskuCode;
     private String selfNoonProductCode;
     private String selfCodeType;
     private String title;
@@ -37,6 +38,7 @@ public class CompetitorWatchProductView {
         view.setSkuParent(row.getSkuParent());
         view.setPartnerSku(row.getPartnerSku());
         view.setChildSku(row.getChildSku());
+        view.setPskuCode(row.getPskuCode());
         view.setSelfNoonProductCode(row.getSelfNoonProductCode());
         view.setSelfCodeType(row.getSelfCodeType());
         view.setTitle(row.getTitleSnapshot());
@@ -67,6 +69,8 @@ public class CompetitorWatchProductView {
     public void setPartnerSku(String partnerSku) { this.partnerSku = partnerSku; }
     public String getChildSku() { return childSku; }
     public void setChildSku(String childSku) { this.childSku = childSku; }
+    public String getPskuCode() { return pskuCode; }
+    public void setPskuCode(String pskuCode) { this.pskuCode = pskuCode; }
     public String getSelfNoonProductCode() { return selfNoonProductCode; }
     public void setSelfNoonProductCode(String selfNoonProductCode) { this.selfNoonProductCode = selfNoonProductCode; }
     public String getSelfCodeType() { return selfCodeType; }

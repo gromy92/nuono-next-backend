@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.StringJoiner;
+import java.util.concurrent.TimeUnit;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.SecretKey;
@@ -41,6 +42,7 @@ public final class ChromeNoonCookieSupport {
     private static final byte[] SALT = "saltysalt".getBytes(StandardCharsets.UTF_8);
     private static final byte[] IV = "                ".getBytes(StandardCharsets.UTF_8);
     private static final Duration CACHE_TTL = Duration.ofMinutes(2);
+    private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(10);
     private static final List<String> REQUIRED_COOKIE_NAMES = List.of("_npsid", "_nprtnetid");
     private static final long CHROME_EPOCH_OFFSET_MICROS = 11_644_473_600_000_000L;
 
@@ -99,11 +101,6 @@ public final class ChromeNoonCookieSupport {
         }
 
         try {
-            String safeStorageValue = loadSafeStorageValue();
-            if (!StringUtils.hasText(safeStorageValue)) {
-                throw new IllegalStateException("没有拿到 Chrome Safe Storage 密钥。");
-            }
-
             Path tempDb = Files.createTempFile("nuono-chrome-noon-frontend-cookies", ".db");
             try {
                 Files.copy(CHROME_COOKIE_DB, tempDb, StandardCopyOption.REPLACE_EXISTING);
@@ -113,7 +110,14 @@ public final class ChromeNoonCookieSupport {
                         + "and (expires_utc = 0 or expires_utc > " + nowChromeMicros + ") "
                         + "order by length(host_key) desc, length(path) desc, creation_utc desc";
                 String rawRows = runCommand(List.of("sqlite3", "-separator", "\t", tempDb.toString(), query));
-                Map<String, String> cookies = decryptCookieRowsWithPlainValue(rawRows, safeStorageValue);
+                Map<String, String> cookies = decryptCookieRowsWithPlainValue(rawRows, null);
+                if (cookies.isEmpty() && hasEncryptedCookieRows(rawRows)) {
+                    String safeStorageValue = loadSafeStorageValue();
+                    if (!StringUtils.hasText(safeStorageValue)) {
+                        throw new IllegalStateException("没有拿到 Chrome Safe Storage 密钥。");
+                    }
+                    cookies = decryptCookieRowsWithPlainValue(rawRows, safeStorageValue);
+                }
                 if (cookies.isEmpty()) {
                     throw new IllegalStateException("Chrome 缺少 www.noon.com 前台 Cookie，请先用 Chrome 打开 Noon 前台搜索页。");
                 }
@@ -194,13 +198,16 @@ public final class ChromeNoonCookieSupport {
             return cookies;
         }
 
-        SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-        KeySpec spec = new PBEKeySpec(safeStorageValue.toCharArray(), SALT, 1003, 128);
-        SecretKey tmp = factory.generateSecret(spec);
-        SecretKeySpec secretKey = new SecretKeySpec(tmp.getEncoded(), "AES");
+        Cipher cipher = null;
+        if (StringUtils.hasText(safeStorageValue)) {
+            SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
+            KeySpec spec = new PBEKeySpec(safeStorageValue.toCharArray(), SALT, 1003, 128);
+            SecretKey tmp = factory.generateSecret(spec);
+            SecretKeySpec secretKey = new SecretKeySpec(tmp.getEncoded(), "AES");
 
-        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, new IvParameterSpec(IV));
+            cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, new IvParameterSpec(IV));
+        }
 
         String[] lines = rawRows.split("\\R");
         for (String line : lines) {
@@ -219,7 +226,7 @@ public final class ChromeNoonCookieSupport {
             }
 
             String value = plainValue;
-            if (!StringUtils.hasText(value) && StringUtils.hasText(encryptedHex)) {
+            if (!StringUtils.hasText(value) && StringUtils.hasText(encryptedHex) && cipher != null) {
                 value = decryptCookieValue(cipher, encryptedHex);
             }
             if (StringUtils.hasText(value)) {
@@ -227,6 +234,23 @@ public final class ChromeNoonCookieSupport {
             }
         }
         return cookies;
+    }
+
+    private static boolean hasEncryptedCookieRows(String rawRows) {
+        if (!StringUtils.hasText(rawRows)) {
+            return false;
+        }
+        String[] lines = rawRows.split("\\R");
+        for (String line : lines) {
+            if (!StringUtils.hasText(line)) {
+                continue;
+            }
+            String[] fields = line.split("\\t", -1);
+            if (fields.length >= 3 && StringUtils.hasText(fields[2])) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String decryptCookieValue(Cipher cipher, String encryptedHex) throws GeneralSecurityException {
@@ -263,13 +287,18 @@ public final class ChromeNoonCookieSupport {
         Process process = new ProcessBuilder(new ArrayList<>(command)).start();
         byte[] stdout;
         byte[] stderr;
-        try (InputStream inputStream = process.getInputStream();
-             InputStream errorStream = process.getErrorStream()) {
-            stdout = readAllBytes(inputStream);
-            stderr = readAllBytes(errorStream);
-        }
         try {
-            int exitCode = process.waitFor();
+            boolean finished = process.waitFor(COMMAND_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new IOException("命令执行超时");
+            }
+            try (InputStream inputStream = process.getInputStream();
+                 InputStream errorStream = process.getErrorStream()) {
+                stdout = readAllBytes(inputStream);
+                stderr = readAllBytes(errorStream);
+            }
+            int exitCode = process.exitValue();
             if (exitCode != 0) {
                 String errorText = new String(stderr, StandardCharsets.UTF_8).trim();
                 throw new IOException(StringUtils.hasText(errorText) ? errorText : "命令执行失败");

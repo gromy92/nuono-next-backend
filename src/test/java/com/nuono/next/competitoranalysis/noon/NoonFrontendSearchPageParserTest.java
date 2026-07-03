@@ -189,7 +189,7 @@ class NoonFrontendSearchPageParserTest {
 
         NoonSearchPage page = parser.parseCatalogJson(
                 json,
-                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=Qili&limit=20",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=Qili&limit=100",
                 200
         );
 

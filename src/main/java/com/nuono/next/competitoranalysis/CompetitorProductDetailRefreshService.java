@@ -65,6 +65,7 @@ public class CompetitorProductDetailRefreshService {
             return 0;
         }
         String selfCode = normalizeCode(watchProduct.getSelfNoonProductCode());
+        int refreshed = refreshSelfDetail(watchProduct, selfCode, searchRunId, taskId, actorUserId);
         List<CompetitorProductRow> confirmedProducts =
                 mapper.listConfirmedCompetitorProductsByWatchProductId(watchProduct.getId());
         Map<String, CompetitorProductRow> productsByCode = new LinkedHashMap<>();
@@ -76,7 +77,6 @@ public class CompetitorProductDetailRefreshService {
             productsByCode.putIfAbsent(code, product);
         }
 
-        int refreshed = 0;
         for (Map.Entry<String, CompetitorProductRow> entry : productsByCode.entrySet()) {
             String code = entry.getKey();
             CompetitorProductRow product = entry.getValue();
@@ -105,6 +105,37 @@ public class CompetitorProductDetailRefreshService {
             }
         }
         return refreshed;
+    }
+
+    private int refreshSelfDetail(
+            CompetitorWatchProductRow watchProduct,
+            String selfCode,
+            Long searchRunId,
+            Long taskId,
+            Long actorUserId
+    ) {
+        if (!StringUtils.hasText(selfCode) || NoonProductCodeSupport.codeType(selfCode).isEmpty()) {
+            return 0;
+        }
+        try {
+            NoonProductDetail detail = detailAdapter.fetch(buildRequest(watchProduct, null, selfCode));
+            if (detail == null) {
+                return 0;
+            }
+            normalizeDetail(detail, selfCode, null);
+            snapshotService.recordProductDetailSnapshot(watchProduct, null, detail, searchRunId, actorUserId);
+            return 1;
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "competitor self product detail refresh failed watchProductId={} noonProductCode={} taskId={} error={}",
+                    watchProduct == null ? null : watchProduct.getId(),
+                    selfCode,
+                    taskId,
+                    exception.getMessage(),
+                    exception
+            );
+            return 0;
+        }
     }
 
     private boolean recordFallbackSnapshot(

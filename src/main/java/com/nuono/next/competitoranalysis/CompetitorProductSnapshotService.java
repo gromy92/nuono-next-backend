@@ -155,22 +155,31 @@ public class CompetitorProductSnapshotService {
             Long sourceRunId,
             Long actorUserId
     ) {
-        if (watchProduct == null || product == null || detail == null) {
+        if (watchProduct == null || detail == null) {
             return null;
         }
-        String noonCode = normalizeCode(firstNonBlank(detail.getNoonProductCode(), product.getNoonProductCode()));
+        String selfCode = normalizeCode(watchProduct.getSelfNoonProductCode());
+        String productCode = product == null ? null : product.getNoonProductCode();
+        String noonCode = normalizeCode(firstNonBlank(detail.getNoonProductCode(), productCode, selfCode));
         if (!StringUtils.hasText(noonCode)) {
             return null;
         }
+        if (product == null && (!StringUtils.hasText(selfCode) || !selfCode.equals(noonCode))) {
+            return null;
+        }
+        boolean selfSnapshot = product == null || noonCode.equals(selfCode);
         LocalDateTime capturedAt = detail.getCapturedAt() == null ? LocalDateTime.now() : detail.getCapturedAt();
         CompetitorProductSnapshotCommand command = new CompetitorProductSnapshotCommand();
         command.setOwnerUserId(watchProduct.getOwnerUserId());
         command.setWatchProductId(watchProduct.getId());
-        command.setCompetitorProductId(product.getId());
-        command.setSubjectType("COMPETITOR");
+        command.setCompetitorProductId(selfSnapshot ? null : product.getId());
+        command.setSubjectType(selfSnapshot ? "SELF" : "COMPETITOR");
         command.setSiteCode(normalizeText(watchProduct.getSiteCode()));
         command.setNoonProductCode(noonCode);
-        command.setCodeType(NoonProductCodeSupport.codeType(noonCode).orElse(firstNonBlank(detail.getCodeType(), product.getCodeType())));
+        command.setCodeType(NoonProductCodeSupport.codeType(noonCode).orElse(firstNonBlank(
+                detail.getCodeType(),
+                product == null ? null : product.getCodeType()
+        )));
         command.setFactDate(capturedAt.toLocalDate());
         command.setCapturedAt(capturedAt);
         command.setSourceRunId(sourceRunId);

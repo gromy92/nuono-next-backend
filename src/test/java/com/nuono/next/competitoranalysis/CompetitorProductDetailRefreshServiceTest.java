@@ -50,7 +50,7 @@ class CompetitorProductDetailRefreshServiceTest {
     }
 
     @Test
-    void refreshesDetailOnceForConfirmedCompetitorSkusOnly() {
+    void refreshesSelfAndConfirmedCompetitorDetailsOncePerCode() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorProductRow confirmed = confirmedProduct(200010L, "zcomp001", "https://www.noon.com/saudi-en/sample/ZCOMP001/p/");
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L))
@@ -59,19 +59,22 @@ class CompetitorProductDetailRefreshServiceTest {
                         confirmedProduct(200011L, "ZCOMP001", "https://www.noon.com/saudi-en/duplicate/ZCOMP001/p/"),
                         confirmedProduct(200012L, "ZSELF001", "https://www.noon.com/saudi-en/self/ZSELF001/p/")
                 ));
-        NoonProductDetail detail = detail("ZCOMP001");
-        when(detailAdapter.fetch(any(NoonProductDetailRequest.class))).thenReturn(detail);
+        when(detailAdapter.fetch(any(NoonProductDetailRequest.class))).thenAnswer((invocation) -> {
+            NoonProductDetailRequest request = invocation.getArgument(0);
+            return detail(request.getNoonProductCode());
+        });
 
         int refreshed = service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
-        assertEquals(1, refreshed);
+        assertEquals(2, refreshed);
         ArgumentCaptor<NoonProductDetailRequest> requestCaptor =
                 ArgumentCaptor.forClass(NoonProductDetailRequest.class);
-        verify(detailAdapter).fetch(requestCaptor.capture());
-        assertEquals("SA", requestCaptor.getValue().getSiteCode());
-        assertEquals("en-SA", requestCaptor.getValue().getLocale());
-        assertEquals("ZCOMP001", requestCaptor.getValue().getNoonProductCode());
-        assertEquals("https://www.noon.com/saudi-en/sample/ZCOMP001/p/", requestCaptor.getValue().getCanonicalUrl());
+        verify(detailAdapter, times(2)).fetch(requestCaptor.capture());
+        assertEquals("SA", requestCaptor.getAllValues().get(0).getSiteCode());
+        assertEquals("en-SA", requestCaptor.getAllValues().get(0).getLocale());
+        assertEquals("ZSELF001", requestCaptor.getAllValues().get(0).getNoonProductCode());
+        assertEquals("ZCOMP001", requestCaptor.getAllValues().get(1).getNoonProductCode());
+        assertEquals("https://www.noon.com/saudi-en/sample/ZCOMP001/p/", requestCaptor.getAllValues().get(1).getCanonicalUrl());
 
         verify(mapper).updateCompetitorProductFromDetail(argThat((command) ->
                 Long.valueOf(200010L).equals(command.getId())
@@ -80,8 +83,20 @@ class CompetitorProductDetailRefreshServiceTest {
                         && "Detail title".equals(command.getTitleSnapshot())
                         && new BigDecimal("12.34").compareTo(command.getPriceAmountSnapshot()) == 0
         ));
-        verify(snapshotService).recordProductDetailSnapshot(watchProduct, confirmed, detail, 220123L, 601L);
-        verify(detailAdapter, times(1)).fetch(any(NoonProductDetailRequest.class));
+        verify(snapshotService).recordProductDetailSnapshot(
+                org.mockito.ArgumentMatchers.eq(watchProduct),
+                org.mockito.ArgumentMatchers.isNull(),
+                argThat((detail) -> "ZSELF001".equals(detail.getNoonProductCode())),
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
+        verify(snapshotService).recordProductDetailSnapshot(
+                org.mockito.ArgumentMatchers.eq(watchProduct),
+                org.mockito.ArgumentMatchers.eq(confirmed),
+                argThat((detail) -> "ZCOMP001".equals(detail.getNoonProductCode())),
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
     }
 
     @Test

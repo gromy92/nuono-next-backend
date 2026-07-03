@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +62,62 @@ class CompetitorAnalysisServiceTest {
         verify(mapper).insertWatchProduct(captor.capture());
         assertEquals("Z6122BASKETSA", captor.getValue().getSelfNoonProductCode());
         assertEquals("Z_CODE", captor.getValue().getSelfCodeType());
+    }
+
+    @Test
+    void createWatchProductFallsBackToSkuParentWhenOfferPskuIsNotNoonCode() {
+        CompetitorWatchProductCreateCommand command = createCommand(" z6122basketsa ");
+        CompetitorProductOptionRow option = productOption("a19dc53c023bc493963d0fae19dfd9ba");
+        option.setSkuParent("Z6122BASKETSA");
+        when(mapper.selectProductOptionByOfferId(501L, "STR108065-NSA", "SA", 91001L))
+                .thenReturn(option);
+        when(mapper.nextWatchProductId()).thenReturn(180124L);
+        when(mapper.insertWatchProduct(any())).thenReturn(1);
+        when(mapper.selectWatchProductById(501L, 180124L)).thenReturn(watchProduct(180124L, "Z6122BASKETSA"));
+        when(mapper.listKeywordsByWatchProductId(180124L)).thenReturn(List.of());
+        when(mapper.listProductsByWatchProductId(180124L)).thenReturn(List.of());
+        when(mapper.listKeywordProductRelationsByWatchProductId(180124L)).thenReturn(List.of());
+        when(mapper.listLatestRankPointsByWatchProductId(180124L)).thenReturn(List.of());
+
+        CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
+
+        assertEquals(180124L, view.getWatchProduct().getId());
+        ArgumentCaptor<CompetitorWatchProductInsertCommand> captor =
+                ArgumentCaptor.forClass(CompetitorWatchProductInsertCommand.class);
+        verify(mapper).insertWatchProduct(captor.capture());
+        assertEquals("Z6122BASKETSA", captor.getValue().getSelfNoonProductCode());
+        assertEquals("Z_CODE", captor.getValue().getSelfCodeType());
+    }
+
+    @Test
+    void createWatchProductReusesExistingPartnerSkuBindingBeforeInsert() {
+        CompetitorWatchProductCreateCommand command = createCommand(" z6122basketsa ");
+        CompetitorProductOptionRow option = productOption("a19dc53c023bc493963d0fae19dfd9ba");
+        option.setSkuParent("Z6122BASKETSA");
+        CompetitorWatchProductRow existingWatchProduct = watchProduct(180472L, "Z6122BASKETSA");
+        existingWatchProduct.setProductSiteOfferId(55202L);
+        when(mapper.selectProductOptionByOfferId(501L, "STR108065-NSA", "SA", 91001L))
+                .thenReturn(option);
+        when(mapper.selectReusableWatchProductByProductIdentity(
+                501L,
+                "STR108065-NSA",
+                "SA",
+                701L,
+                91001L,
+                "BASKET-SA-001-BLUE"
+        )).thenReturn(existingWatchProduct);
+        when(mapper.selectWatchProductById(501L, 180472L)).thenReturn(existingWatchProduct);
+        when(mapper.listKeywordsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listProductsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listKeywordProductRelationsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listLatestRankPointsByWatchProductId(180472L)).thenReturn(List.of());
+
+        CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
+
+        assertEquals(180472L, view.getWatchProduct().getId());
+        verify(mapper).updateWatchProductCurrentBinding(180472L, option, "Z6122BASKETSA", "Z_CODE", 601L);
+        verify(mapper, never()).nextWatchProductId();
+        verify(mapper, never()).insertWatchProduct(any());
     }
 
     @Test
@@ -118,7 +175,7 @@ class CompetitorAnalysisServiceTest {
         CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
 
         assertEquals(180123L, view.getWatchProduct().getId());
-        verify(mapper).updateWatchProductCurrentBinding(180123L, option, 601L);
+        verify(mapper).updateWatchProductCurrentBinding(180123L, option, "Z6122BASKETSA", "Z_CODE", 601L);
         verify(mapper, never()).nextWatchProductId();
         verify(mapper, never()).insertWatchProduct(any());
     }
@@ -146,8 +203,45 @@ class CompetitorAnalysisServiceTest {
         CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
 
         assertEquals(180123L, view.getWatchProduct().getId());
-        verify(mapper).updateWatchProductCurrentBinding(180123L, option, 601L);
+        verify(mapper).updateWatchProductCurrentBinding(180123L, option, "Z6122BASKETSA", "Z_CODE", 601L);
         verify(mapper, never()).selectWatchProductByProductSiteOfferId(any(), any(), any(), any());
+        verify(mapper, never()).nextWatchProductId();
+        verify(mapper, never()).insertWatchProduct(any());
+    }
+
+    @Test
+    void createWatchProductRefreshesCurrentBindingWhenOfferAndSelfCodeChangedButPartnerSkuSame() {
+        CompetitorWatchProductCreateCommand command = createCommand("ZNEWBASKETSA");
+        CompetitorProductOptionRow option = productOption("ZNEWBASKETSA");
+        option.setProductVariantId(99002L);
+        option.setProductSiteOfferId(99003L);
+        option.setSkuParent("ZNEWBASKETSA");
+        option.setPskuCode("a-new-noon-psku-code");
+        CompetitorWatchProductRow existingWatchProduct = watchProduct(180472L, "ZOLDBASKETSA");
+        existingWatchProduct.setProductVariantId(901L);
+        existingWatchProduct.setProductSiteOfferId(91001L);
+        existingWatchProduct.setPskuCode("old-noon-psku-code");
+        when(mapper.selectProductOptionByOfferId(501L, "STR108065-NSA", "SA", 91001L))
+                .thenReturn(option);
+        when(mapper.selectReusableWatchProductByProductIdentity(
+                501L,
+                "STR108065-NSA",
+                "SA",
+                701L,
+                99003L,
+                "BASKET-SA-001-BLUE"
+        )).thenReturn(existingWatchProduct);
+        when(mapper.selectWatchProductById(501L, 180472L)).thenReturn(existingWatchProduct);
+        when(mapper.listKeywordsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listProductsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listKeywordProductRelationsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listLatestRankPointsByWatchProductId(180472L)).thenReturn(List.of());
+
+        CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
+
+        assertEquals(180472L, view.getWatchProduct().getId());
+        verify(mapper).updateWatchProductCurrentBinding(180472L, option, "ZNEWBASKETSA", "Z_CODE", 601L);
+        verify(mapper, never()).selectWatchProductByBusinessKey(any(), any(), any(), any(), any());
         verify(mapper, never()).nextWatchProductId();
         verify(mapper, never()).insertWatchProduct(any());
     }
@@ -168,6 +262,26 @@ class CompetitorAnalysisServiceTest {
         assertEquals(1, options.size());
         assertEquals("N51004211A", options.get(0).getNoonProductCode());
         assertEquals("N_CODE", options.get(0).getCodeType());
+    }
+
+    @Test
+    void productOptionsKeepPskuBindingSeparateFromNoonCode() {
+        CompetitorProductOptionRow option = productOption("a19dc53c023bc493963d0fae19dfd9ba");
+        option.setSkuParent("Z6122BASKETSA");
+        when(mapper.listProductOptions(501L, "STR108065-NSA", "SA", "basket", 20))
+                .thenReturn(List.of(option));
+
+        List<CompetitorProductOptionView> options = service.productOptions(
+                operatorContext(),
+                "STR108065-NSA",
+                "SA",
+                "basket",
+                20
+        );
+
+        assertEquals(1, options.size());
+        assertEquals("Z6122BASKETSA", options.get(0).getNoonProductCode());
+        assertEquals("Z_CODE", options.get(0).getCodeType());
     }
 
     @Test
@@ -264,6 +378,163 @@ class CompetitorAnalysisServiceTest {
         assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
         assertEquals("COMPETITOR_STORE_SCOPE_REQUIRED", error.getReason());
         verify(mapper, never()).countWatchProducts(any(), any(), any());
+    }
+
+    @Test
+    void dashboardNormalizesScopeAndDays() {
+        when(mapper.countPendingCandidates(501L, "STR108065-NSA", "SA")).thenReturn(4L);
+        when(mapper.countMonitoringShortageProducts(501L, "STR108065-NSA", "SA", 3)).thenReturn(2L);
+        when(mapper.countRankAnomalyProducts(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(3L);
+        when(mapper.countCompetitorChangeProducts(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(5L);
+        when(mapper.listDashboardIssueTrend(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(mapper.listCoverageTopProducts(501L, "STR108065-NSA", "SA", 3, 10)).thenReturn(List.of());
+        when(mapper.listRankIssueTopProducts(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class), eq(10)))
+                .thenReturn(List.of());
+        when(mapper.listChangeTypeDistribution(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(mapper.listChangedProductTop(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class), eq(10)))
+                .thenReturn(List.of());
+        ArgumentCaptor<LocalDate> rankFromDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> rankToDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        when(mapper.listRankChanges(
+                eq(501L),
+                eq("STR108065-NSA"),
+                eq("SA"),
+                eq("SELF"),
+                rankFromDateCaptor.capture(),
+                rankToDateCaptor.capture(),
+                eq("DOWN"),
+                eq(100)
+        ))
+                .thenReturn(List.of(rankChange("SELF", 18, 11)));
+        when(mapper.listRankChanges(eq(501L), eq("STR108065-NSA"), eq("SA"), eq("COMPETITOR"), any(LocalDate.class), any(LocalDate.class), eq("DOWN"), eq(100)))
+                .thenReturn(List.of(rankChange("COMPETITOR", 10, 7)));
+        ArgumentCaptor<LocalDate> attributeChangeFromDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        when(mapper.listCompetitorAttributeChanges(eq(501L), eq("STR108065-NSA"), eq("SA"), attributeChangeFromDateCaptor.capture(), eq(30)))
+                .thenReturn(List.of(attributeChange()));
+        when(mapper.countCompetitorAttributeSnapshots(eq(501L), eq("STR108065-NSA"), eq("SA"), attributeChangeFromDateCaptor.capture()))
+                .thenReturn(9L);
+
+        CompetitorDashboardView view = service.dashboard(operatorContext(), " str108065-nsa ", " sa ", 99, "down");
+
+        assertEquals("STR108065-NSA", view.getStoreCode());
+        assertEquals("SA", view.getSiteCode());
+        assertEquals(30, view.getDays());
+        assertEquals(4, view.getIssueSummary().size());
+        assertEquals(4L, view.getIssueSummary().get(0).getValue());
+        assertEquals(CompetitorDashboardIssueType.PENDING_CANDIDATE, view.getIssueSummary().get(0).getIssueType());
+        assertEquals("竞品详情变化", view.getIssueSummary().get(3).getLabel());
+        assertEquals(1, view.getSelfRankChanges().size());
+        assertEquals(7, view.getCompetitorRankChanges().get(0).getRankNo());
+        assertEquals("PRICE", view.getCompetitorAttributeChanges().get(0).getChangeType());
+        assertEquals("sticky notes", view.getCompetitorAttributeChanges().get(0).getSelfLatestRankKeyword());
+        assertEquals(8, view.getCompetitorAttributeChanges().get(0).getChangeDateRankNo());
+        assertEquals("RANKED", view.getCompetitorAttributeChanges().get(0).getSelfLatestRankStatus());
+        assertEquals(3, view.getCompetitorAttributeChanges().get(0).getSelfLatestRankNo());
+        assertEquals(100, view.getCompetitorAttributeChanges().get(0).getSelfLatestScanDepth());
+        assertEquals(LocalDate.now().minusDays(29L), view.getCompetitorAttributeChangeDate());
+        assertEquals(9L, view.getCompetitorAttributeSnapshotCount());
+        assertEquals(LocalDate.now().minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(0));
+        assertEquals(LocalDate.now().minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(1));
+        assertEquals(LocalDate.now().minusDays(30L), rankFromDateCaptor.getValue());
+        assertEquals(LocalDate.now().minusDays(1L), rankToDateCaptor.getValue());
+    }
+
+    @Test
+    void dashboardUsesYesterdayToTodayRankWindowWhenDaysIsOne() {
+        when(mapper.countPendingCandidates(501L, "STR108065-NSA", "SA")).thenReturn(4L);
+        when(mapper.countMonitoringShortageProducts(501L, "STR108065-NSA", "SA", 3)).thenReturn(2L);
+        when(mapper.countRankAnomalyProducts(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(3L);
+        when(mapper.countCompetitorChangeProducts(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(5L);
+        when(mapper.listDashboardIssueTrend(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(mapper.listCoverageTopProducts(501L, "STR108065-NSA", "SA", 3, 10)).thenReturn(List.of());
+        when(mapper.listRankIssueTopProducts(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class), eq(10)))
+                .thenReturn(List.of());
+        when(mapper.listChangeTypeDistribution(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(mapper.listChangedProductTop(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class), eq(10)))
+                .thenReturn(List.of());
+        ArgumentCaptor<LocalDate> rankFromDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> rankToDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        when(mapper.listRankChanges(
+                eq(501L),
+                eq("STR108065-NSA"),
+                eq("SA"),
+                eq("SELF"),
+                rankFromDateCaptor.capture(),
+                rankToDateCaptor.capture(),
+                eq("UP"),
+                eq(100)
+        ))
+                .thenReturn(List.of(rankChange("SELF", 18, 11)));
+        when(mapper.listRankChanges(eq(501L), eq("STR108065-NSA"), eq("SA"), eq("COMPETITOR"), any(LocalDate.class), any(LocalDate.class), eq("UP"), eq(100)))
+                .thenReturn(List.of(rankChange("COMPETITOR", 18, 11)));
+        when(mapper.listCompetitorAttributeChanges(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class), eq(30)))
+                .thenReturn(List.of());
+        when(mapper.countCompetitorAttributeSnapshots(eq(501L), eq("STR108065-NSA"), eq("SA"), any(LocalDate.class)))
+                .thenReturn(0L);
+
+        CompetitorDashboardView view = service.dashboard(operatorContext(), "STR108065-NSA", "SA", 1, "up");
+
+        assertEquals(1, view.getDays());
+        assertEquals(LocalDate.now().minusDays(1L), rankFromDateCaptor.getValue());
+        assertEquals(LocalDate.now(), rankToDateCaptor.getValue());
+    }
+
+    @Test
+    void dashboardUsesLatestAvailableRankDateWhenRequestedEndpointHasNoRankFacts() {
+        LocalDate latestRankDate = LocalDate.now().minusDays(2L);
+        when(mapper.selectLatestRankFactDate(
+                eq(501L),
+                eq("STR108065-NSA"),
+                eq("SA"),
+                eq(LocalDate.now().minusDays(1L))
+        )).thenReturn(latestRankDate);
+        ArgumentCaptor<LocalDate> rankFromDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> rankToDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        when(mapper.listRankChanges(
+                eq(501L),
+                eq("STR108065-NSA"),
+                eq("SA"),
+                eq("SELF"),
+                rankFromDateCaptor.capture(),
+                rankToDateCaptor.capture(),
+                eq("DOWN"),
+                eq(100)
+        )).thenReturn(List.of());
+        when(mapper.listRankChanges(
+                eq(501L),
+                eq("STR108065-NSA"),
+                eq("SA"),
+                eq("COMPETITOR"),
+                any(LocalDate.class),
+                any(LocalDate.class),
+                eq("DOWN"),
+                eq(100)
+        )).thenReturn(List.of());
+
+        service.dashboard(operatorContext(), "STR108065-NSA", "SA", 7, "down");
+
+        assertEquals(latestRankDate.minusDays(6L), rankFromDateCaptor.getValue());
+        assertEquals(latestRankDate, rankToDateCaptor.getValue());
+    }
+
+    @Test
+    void dashboardRejectsStoreOutsideScope() {
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> service.dashboard(operatorContext(), "STR-OTHER-NSA", "SA", 7, null)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
+        assertEquals("COMPETITOR_STORE_SCOPE_REQUIRED", error.getReason());
+        verify(mapper, never()).countPendingCandidates(any(), any(), any());
     }
 
     @Test
@@ -393,6 +664,33 @@ class CompetitorAnalysisServiceTest {
         command.setProductSiteOfferId(91001L);
         command.setSelfNoonProductCode(selfNoonProductCode);
         return command;
+    }
+
+    private static CompetitorDashboardRankChangeRow rankChange(String trackedProductType, Integer previousRankNo, Integer rankNo) {
+        CompetitorDashboardRankChangeRow row = new CompetitorDashboardRankChangeRow();
+        row.setTrackedProductType(trackedProductType);
+        row.setPreviousRankNo(previousRankNo);
+        row.setRankNo(rankNo);
+        row.setRankDelta(previousRankNo - rankNo);
+        row.setPartnerSku("SKU-1");
+        row.setKeyword("sticky notes");
+        return row;
+    }
+
+    private static CompetitorDashboardAttributeChangeRow attributeChange() {
+        CompetitorDashboardAttributeChangeRow row = new CompetitorDashboardAttributeChangeRow();
+        row.setChangeType("PRICE");
+        row.setLabel("价格变化");
+        row.setPreviousValue("12.90");
+        row.setCurrentValue("10.90");
+        row.setPartnerSku("SKU-1");
+        row.setLatestRankKeyword("sticky notes");
+        row.setChangeDateRankNo(8);
+        row.setSelfLatestRankKeyword("sticky notes");
+        row.setSelfLatestRankStatus("RANKED");
+        row.setSelfLatestRankNo(3);
+        row.setSelfLatestScanDepth(100);
+        return row;
     }
 
     private static CompetitorProductOptionRow productOption(String pskuCode) {
