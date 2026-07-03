@@ -119,6 +119,10 @@ public final class OfficialWarehouseRecords {
         public Integer storeSiteQuantity;
         public Integer linkedQuantity;
         public Integer remainingQuantity;
+        public Integer scheduledAppointmentQuantity;
+        public Boolean alreadyAppointed;
+        public Boolean batchUsedByAsn;
+        public String batchUsageLabel;
         public Integer skuCount;
         public Integer purchaseOrderCount;
         public String storeSummaryJson;

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreInitializationSnapshotMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.product.NoonProductListFieldSupport;
 import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
@@ -290,7 +291,7 @@ public class LocalDbStoreInitializationService {
                         entry.partnerSku = text(hitNode, "partner_sku");
                     }
                     if (!StringUtils.hasText(entry.pskuCode)) {
-                        entry.pskuCode = text(hitNode, "psku_code");
+                        entry.pskuCode = NoonProductListFieldSupport.pskuCode(hitNode);
                     }
                     if (!StringUtils.hasText(entry.offerCode)) {
                         entry.offerCode = text(hitNode, "offer_code");
@@ -335,7 +336,10 @@ public class LocalDbStoreInitializationService {
                             normalize(projectSite.getStoreCode()),
                             ignored -> new ProductSiteOfferEntry(projectSite.getStoreCode())
                     );
-                    siteOfferEntry.pskuCode = firstNonBlank(siteOfferEntry.pskuCode, text(hitNode, "psku_code"));
+                    siteOfferEntry.pskuCode = firstNonBlank(
+                            siteOfferEntry.pskuCode,
+                            NoonProductListFieldSupport.pskuCode(hitNode)
+                    );
                     siteOfferEntry.offerCode = firstNonBlank(siteOfferEntry.offerCode, text(hitNode, "offer_code"));
                     siteOfferEntry.currency = firstNonBlank(siteOfferEntry.currency, text(hitNode, "currency"));
                     siteOfferEntry.barcode = firstNonBlank(
@@ -1218,7 +1222,7 @@ public class LocalDbStoreInitializationService {
                 entry.partnerSku = text(hitNode, "partner_sku");
             }
             if (!StringUtils.hasText(entry.pskuCode)) {
-                entry.pskuCode = text(hitNode, "psku_code");
+                entry.pskuCode = NoonProductListFieldSupport.pskuCode(hitNode);
             }
             if (!StringUtils.hasText(entry.offerCode)) {
                 entry.offerCode = text(hitNode, "offer_code");
@@ -1254,7 +1258,10 @@ public class LocalDbStoreInitializationService {
                     normalize(projectSite.getStoreCode()),
                     ignored -> new ProductSiteOfferEntry(projectSite.getStoreCode())
             );
-            siteOfferEntry.pskuCode = firstNonBlank(siteOfferEntry.pskuCode, text(hitNode, "psku_code"));
+            siteOfferEntry.pskuCode = firstNonBlank(
+                    siteOfferEntry.pskuCode,
+                    NoonProductListFieldSupport.pskuCode(hitNode)
+            );
             siteOfferEntry.offerCode = firstNonBlank(siteOfferEntry.offerCode, text(hitNode, "offer_code"));
             int supermallStock = supermallOfferStock(hitNode);
             siteOfferEntry.supermallStock += supermallStock;

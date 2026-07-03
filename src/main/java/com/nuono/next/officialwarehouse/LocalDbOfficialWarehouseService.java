@@ -1972,7 +1972,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             view.missingTags.add("缺 Noon SKU");
         }
         if (view.cubicFeet == null) {
-            view.missingTags.add("缺官方尺寸");
+            view.missingTags.add("缺尺寸");
         }
         return view;
     }
@@ -1993,6 +1993,13 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         view.storeSiteQuantity = row.storeSiteQuantity;
         view.linkedQuantity = row.linkedQuantity;
         view.remainingQuantity = row.remainingQuantity;
+        view.scheduledAppointmentQuantity = row.scheduledAppointmentQuantity;
+        view.alreadyAppointed = row.alreadyAppointed != null && row.alreadyAppointed;
+        view.batchUsedByAsn = row.batchUsedByAsn != null && row.batchUsedByAsn;
+        view.batchUsageLabel = firstNonBlank(
+                row.batchUsageLabel,
+                view.alreadyAppointed ? "已约仓" : view.batchUsedByAsn ? "已建ASN" : "可约仓"
+        );
         view.skuCount = row.skuCount;
         view.purchaseOrderCount = row.purchaseOrderCount;
         view.updatedAt = row.updatedAt;
