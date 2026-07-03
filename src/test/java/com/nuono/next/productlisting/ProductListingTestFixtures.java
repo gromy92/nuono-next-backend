@@ -68,7 +68,8 @@ final class ProductListingTestFixtures {
         command.setSupplyEvidenceRefId(43101L);
         command.setOptionalPurchaseOrderId(70001L);
         command.setFbp(true);
-        command.setWarehouseId("W00752151SA");
+        command.setWarehouseId("73001");
+        command.setWarehouseCode("W00752151SA");
         command.setQuantity(100);
         command.setIdWarranty(24);
         command.setBarcode("6290000000001");
@@ -100,11 +101,36 @@ final class ProductListingTestFixtures {
     static class TrackingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
 
         private final ProductListingNoonWriteResult result;
+        private final ProductListingNoonWriteResult continuationResult;
+        private final ProductListingNoonWriteStepResult readBackStep;
         private int callCount;
+        private int continueAfterCreateCallCount;
+        private int verifyReadBackCallCount;
         private ProductListingNoonWriteRequest lastRequest;
+        private String lastContinueSkuParent;
+        private String lastContinuePskuCode;
+        private String lastReadBackSkuParent;
+        private String lastReadBackPskuCode;
 
         TrackingNoonWriteAdapter(ProductListingNoonWriteResult result) {
+            this(result, null, null);
+        }
+
+        TrackingNoonWriteAdapter(
+                ProductListingNoonWriteResult result,
+                ProductListingNoonWriteStepResult readBackStep
+        ) {
+            this(result, null, readBackStep);
+        }
+
+        TrackingNoonWriteAdapter(
+                ProductListingNoonWriteResult result,
+                ProductListingNoonWriteResult continuationResult,
+                ProductListingNoonWriteStepResult readBackStep
+        ) {
             this.result = result;
+            this.continuationResult = continuationResult;
+            this.readBackStep = readBackStep;
         }
 
         @Override
@@ -114,8 +140,59 @@ final class ProductListingTestFixtures {
             return result;
         }
 
+        @Override
+        public ProductListingNoonWriteResult continueAfterCreate(
+                ProductListingNoonWriteRequest request,
+                String skuParent,
+                String pskuCode
+        ) {
+            continueAfterCreateCallCount++;
+            lastRequest = request;
+            lastContinueSkuParent = skuParent;
+            lastContinuePskuCode = pskuCode;
+            return continuationResult;
+        }
+
+        @Override
+        public ProductListingNoonWriteStepResult verifyReadBack(
+                ProductListingNoonWriteRequest request,
+                String skuParent,
+                String pskuCode,
+                List<String> expectedImageValues
+        ) {
+            verifyReadBackCallCount++;
+            lastRequest = request;
+            lastReadBackSkuParent = skuParent;
+            lastReadBackPskuCode = pskuCode;
+            return readBackStep;
+        }
+
         int callCount() {
             return callCount;
+        }
+
+        int continueAfterCreateCallCount() {
+            return continueAfterCreateCallCount;
+        }
+
+        int verifyReadBackCallCount() {
+            return verifyReadBackCallCount;
+        }
+
+        String lastContinueSkuParent() {
+            return lastContinueSkuParent;
+        }
+
+        String lastContinuePskuCode() {
+            return lastContinuePskuCode;
+        }
+
+        String lastReadBackSkuParent() {
+            return lastReadBackSkuParent;
+        }
+
+        String lastReadBackPskuCode() {
+            return lastReadBackPskuCode;
         }
 
         ProductListingNoonWriteRequest lastRequest() {
@@ -190,6 +267,11 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public ProductListingTaskRecord selectTaskByIdForWorker(Long taskId) {
+            return tasks.get(taskId);
+        }
+
+        @Override
         public List<ProductListingTaskRecord> selectRecentTasks(Long ownerUserId, String storeCode, int limit) {
             List<ProductListingTaskRecord> result = new ArrayList<>();
             for (ProductListingTaskRecord task : tasks.values()) {
@@ -209,7 +291,8 @@ final class ProductListingTestFixtures {
                         && ("running".equals(task.getStatus())
                         || "submitted".equals(task.getStatus())
                         || "succeeded".equals(task.getStatus())
-                        || "failed".equals(task.getStatus()))) {
+                        || "failed".equals(task.getStatus())
+                        || "written_verify_failed".equals(task.getStatus()))) {
                     return task;
                 }
             }
@@ -220,6 +303,20 @@ final class ProductListingTestFixtures {
         public int updateTaskResult(ProductListingTaskRecord task) {
             updatedTask = task;
             tasks.put(task.getId(), task);
+            return 1;
+        }
+
+        @Override
+        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !"REAL_RUN".equals(task.getMode())
+                    || !"submitted".equals(task.getStatus())) {
+                return 0;
+            }
+            task.setStatus("running");
+            task.setStartedAt(startedAt);
+            tasks.put(taskId, task);
             return 1;
         }
 

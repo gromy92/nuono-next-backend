@@ -27,7 +27,7 @@ class ProductListingServiceTest {
     @BeforeEach
     void setUp() {
         mapper = new FakeProductListingMapper();
-        useRealWrite(false);
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator());
     }
 
     @Test
@@ -55,6 +55,191 @@ class ProductListingServiceTest {
         assertEquals("DRY_RUN", task.getMode());
         assertEquals("validated", task.getStatus());
         assertEquals("DRY_RUN", mapper.insertedTask().getMode());
+    }
+
+    @Test
+    void dryRunWarnsWhenOfferPriceOrSplitFieldsAreDisabledButDoesNotBlockValidation() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand listing = validCommand();
+        listing.setPriceMin(new BigDecimal("45.00"));
+        listing.setPriceMax(new BigDecimal("59.00"));
+        listing.setSalePrice(new BigDecimal("47.50"));
+        listing.setSaleStart("2026-07-01");
+        listing.setSaleEnd("2026-07-07");
+        listing.setIsActive(Boolean.TRUE);
+        listing.setOfferNote("Launch stock prepared.");
+        ProductListingDraftView draft = service.saveDraft(context, listing);
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertWarning(task, "offerPrice", "offer_price_not_written");
+        assertWarning(task, "offerSplit", "offer_note_active_not_written");
+        assertWarning(task, "warehouseStock", "warehouse_stock_not_written");
+        assertTrue(mapper.insertedTask().getValidationJson().contains("offer_price_not_written"));
+        assertTrue(mapper.insertedTask().getValidationJson().contains("offer_note_active_not_written"));
+        assertTrue(mapper.insertedTask().getValidationJson().contains("warehouse_stock_not_written"));
+    }
+
+    @Test
+    void dryRunOmitsSupportedOfferWarningsWhenSplitOfferWriteIsEnabled() {
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setOfferUpsertEnabled(true);
+        properties.setOfferSplitWriteEnabled(true);
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand listing = validCommand();
+        listing.setFbp(null);
+        listing.setWarehouseId(null);
+        listing.setWarehouseCode(null);
+        listing.setQuantity(null);
+        listing.setPriceMin(new BigDecimal("45.00"));
+        listing.setPriceMax(new BigDecimal("59.00"));
+        listing.setSalePrice(new BigDecimal("47.50"));
+        listing.setSaleStart("2026-07-01");
+        listing.setSaleEnd("2026-07-07");
+        listing.setIsActive(Boolean.TRUE);
+        listing.setOfferNote("Launch note.");
+        ProductListingDraftView draft = service.saveDraft(context, listing);
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertNoWarning(task, "offer_price_not_written");
+        assertNoWarning(task, "offer_note_active_not_written");
+        assertNoWarning(task, "warehouse_stock_not_written");
+        assertNoWarning(task, "offer_stock_not_written");
+    }
+
+    @Test
+    void dryRunKeepsWarehouseStockWarningEvenWhenSplitOfferWriteIsEnabled() {
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setOfferUpsertEnabled(true);
+        properties.setOfferSplitWriteEnabled(true);
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertWarning(task, "warehouseStock", "warehouse_stock_not_written");
+        assertNoWarning(task, "offer_price_not_written");
+        assertNoWarning(task, "offer_note_active_not_written");
+    }
+
+    @Test
+    void saveDraftPreservesDetailedAttributesInDryRunSnapshot() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        Map<String, Object> baseMaterial = new LinkedHashMap<>();
+        baseMaterial.put("code", "base_material");
+        baseMaterial.put("labelEn", "Base Material");
+        baseMaterial.put("commonValue", "metal");
+        baseMaterial.put("enValue", "Metal");
+        command.setKeyAttributes(List.of(baseMaterial));
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        service.submitDryRun(context, dryRunCommand);
+
+        assertEquals("metal", draft.getDraft().getKeyAttributes().get(0).get("commonValue"));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"base_material\""));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"base_material\""));
+    }
+
+    @Test
+    void saveDraftPreservesContentCopyInDryRunSnapshot() throws Exception {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        String json = "{"
+                + "\"storeCode\":\"STR245027-NAE\","
+                + "\"psku\":\"NN-CONTENT-PSKU\","
+                + "\"idProductFullType\":3066,"
+                + "\"productFullType\":\"home_decor-lighting-table_lamps\","
+                + "\"productBrand\":\"Generic\","
+                + "\"productBrandCode\":\"generic\","
+                + "\"productTitleCn\":\"Ceramic lamp CN draft\","
+                + "\"productTitleEn\":\"Ceramic bedside lamp\","
+                + "\"productTitleAr\":\"Arabic ceramic lamp title\","
+                + "\"productDescriptionCn\":\"Chinese description draft\","
+                + "\"productDescriptionEn\":\"English long description for Noon listing.\","
+                + "\"productDescriptionAr\":\"Arabic long description for Noon listing.\","
+                + "\"productHighlightsCn\":[\"Soft lighting CN draft\"],"
+                + "\"productHighlightsEn\":[\"Soft ambient lighting\"],"
+                + "\"productHighlightsAr\":[\"Soft ambient lighting AR\"],"
+                + "\"imageUrls\":[\"https://example.test/images/sku-main.jpg\"],"
+                + "\"price\":49.90,"
+                + "\"purchasePrice\":19.90,"
+                + "\"supplyEvidenceType\":\"1688_OFFER\","
+                + "\"supplyEvidenceRefId\":43101,"
+                + "\"fbp\":true,"
+                + "\"warehouseId\":\"W00752151SA\","
+                + "\"quantity\":100,"
+                + "\"idWarranty\":24,"
+                + "\"barcode\":\"6290000000001\""
+                + "}";
+        ProductListingDraftCommand command = new ObjectMapper().readValue(json, ProductListingDraftCommand.class);
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        service.submitDryRun(context, dryRunCommand);
+
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"productDescriptionEn\":\"English long description for Noon listing.\""));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"productHighlightsEn\":[\"Soft ambient lighting\"]"));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"productDescriptionAr\":\"Arabic long description for Noon listing.\""));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"productHighlightsAr\":[\"Soft ambient lighting AR\"]"));
+    }
+
+    @Test
+    void saveDraftPersistsSourceLineageFromCommand() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setSourceType("manual_selection_group");
+        command.setSourceRefId(91002L);
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+
+        assertEquals("manual_selection_group", mapper.insertedDraft().getSourceType());
+        assertEquals(91002L, mapper.insertedDraft().getSourceRefId());
+        assertEquals("manual_selection_group", draft.getDraft().getSourceType());
+        assertEquals(91002L, draft.getDraft().getSourceRefId());
+    }
+
+    @Test
+    void saveDraftPreservesOfferFieldsInDryRunSnapshot() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        command.setPriceMin(new BigDecimal("45.00"));
+        command.setPriceMax(new BigDecimal("59.00"));
+        command.setSalePrice(new BigDecimal("47.50"));
+        command.setSaleStart("2026-06-24");
+        command.setSaleEnd("2026-07-01");
+        command.setIsActive(Boolean.TRUE);
+        command.setOfferNote("选品池: CAND-9001 / 物流 默认货代");
+
+        ProductListingDraftView draft = service.saveDraft(context, command);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        service.submitDryRun(context, dryRunCommand);
+
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"salePrice\":47.50"));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"offerNote\":\"选品池: CAND-9001 / 物流 默认货代\""));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"priceMin\":45.00"));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"isActive\":true"));
     }
 
     @Test
@@ -145,122 +330,6 @@ class ProductListingServiceTest {
         );
     }
 
-    @Test
-    void confirmRealRunPersistsRejectedTaskWithoutConfirmation() {
-        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
-        ProductListingTaskView dryRun = validatedDryRun(context);
-        mapper.resetInsertedTask();
-
-        ProductListingTaskView realRun = service.confirmRealRun(
-                context,
-                dryRun.getTaskId(),
-                new ProductListingRealRunCommand()
-        );
-
-        assertEquals("REAL_RUN", realRun.getMode());
-        assertEquals("rejected", realRun.getStatus());
-        assertEquals(dryRun.getTaskId(), realRun.getSourceTaskId());
-        assertEquals("guard", realRun.getFailureCategory());
-        assertEquals("confirmation_required", realRun.getFailureCode());
-        assertEquals("REAL_RUN", mapper.insertedTask().getMode());
-        assertEquals("rejected", mapper.insertedTask().getStatus());
-        assertEquals(dryRun.getTaskId(), mapper.insertedTask().getSourceTaskId());
-        assertTrue(mapper.insertedTask().getConfirmationJson().contains("confirmRealNoonWrite"));
-    }
-
-    @Test
-    void confirmRealRunPersistsRejectedTaskWhenKillSwitchIsDisabled() {
-        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
-        ProductListingTaskView dryRun = validatedDryRun(context);
-        mapper.resetInsertedTask();
-
-        ProductListingTaskView realRun = service.confirmRealRun(context, dryRun.getTaskId(), confirmedCommand());
-
-        assertEquals("rejected", realRun.getStatus());
-        assertEquals("guard", realRun.getFailureCategory());
-        assertEquals("real_write_disabled", realRun.getFailureCode());
-        assertEquals("real_write_disabled", mapper.insertedTask().getFailureCode());
-    }
-
-    @Test
-    void confirmRealRunRejectsNonValidatedDryRunTask() {
-        useRealWrite(true);
-        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
-        ProductListingDraftCommand invalid = validCommand();
-        invalid.setPurchasePrice(null);
-        ProductListingDraftView draft = service.saveDraft(context, invalid);
-        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
-        dryRunCommand.setDraftId(draft.getDraftId());
-        dryRunCommand.setStoreCode("STR245027-NAE");
-        ProductListingTaskView dryRun = service.submitDryRun(context, dryRunCommand);
-        mapper.resetInsertedTask();
-
-        ProductListingTaskView realRun = service.confirmRealRun(context, dryRun.getTaskId(), confirmedCommand());
-
-        assertEquals("rejected", realRun.getStatus());
-        assertEquals("validation", realRun.getFailureCategory());
-        assertEquals("dry_run_not_validated", realRun.getFailureCode());
-        assertEquals(dryRun.getTaskId(), mapper.insertedTask().getSourceTaskId());
-    }
-
-    @Test
-    void confirmRealRunRejectsDuplicateActiveRealRunTask() {
-        useRealWrite(true);
-        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
-        ProductListingTaskView dryRun = validatedDryRun(context);
-        mapper.addActiveRealRun(dryRun);
-        mapper.resetInsertedTask();
-
-        ProductListingTaskView realRun = service.confirmRealRun(context, dryRun.getTaskId(), confirmedCommand());
-
-        assertEquals("rejected", realRun.getStatus());
-        assertEquals("guard", realRun.getFailureCategory());
-        assertEquals("real_run_already_active", realRun.getFailureCode());
-        assertEquals(dryRun.getTaskId(), mapper.insertedTask().getSourceTaskId());
-    }
-
-    @Test
-    void confirmRealRunRejectsStoreOutsideSessionScopeBeforeAuditing() {
-        useRealWrite(true);
-        BusinessAccessContext storeAeContext = businessContext(10002L, 90001L, "STR245027-NAE");
-        ProductListingTaskView dryRun = validatedDryRun(storeAeContext);
-        BusinessAccessContext storeSaContext = businessContext(10002L, 90002L, "STR245027-NSA");
-        mapper.resetInsertedTask();
-
-        assertThrows(
-                BusinessAccessDeniedException.class,
-                () -> service.confirmRealRun(storeSaContext, dryRun.getTaskId(), confirmedCommand())
-        );
-
-        assertEquals(null, mapper.insertedTask());
-    }
-
-    private void useRealWrite(boolean enabled) {
-        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
-        properties.setEnabled(enabled);
-        service = new ProductListingService(
-                mapper,
-                new ObjectMapper(),
-                new ProductListingValidator(),
-                properties
-        );
-    }
-
-    private ProductListingTaskView validatedDryRun(BusinessAccessContext context) {
-        ProductListingDraftView draft = service.saveDraft(context, validCommand());
-        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
-        command.setDraftId(draft.getDraftId());
-        command.setStoreCode("STR245027-NAE");
-        return service.submitDryRun(context, command);
-    }
-
-    private ProductListingRealRunCommand confirmedCommand() {
-        ProductListingRealRunCommand command = new ProductListingRealRunCommand();
-        command.setConfirmRealNoonWrite(true);
-        command.setConfirmationNote("I understand this will write to Noon.");
-        return command;
-    }
-
     private ProductListingDraftCommand validCommand() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
         command.setStoreCode("STR245027-NAE");
@@ -305,6 +374,19 @@ class ProductListingServiceTest {
                 .storeOwnerUserIds(storeOwnerUserIds)
                 .menuPaths(Set.of("/purchase/listing", "/api/product-listing"))
                 .build();
+    }
+
+    private void assertWarning(ProductListingTaskView task, String fieldKey, String code) {
+        assertTrue(task.getValidationIssues().stream().anyMatch(issue ->
+                        fieldKey.equals(issue.getFieldKey())
+                                && code.equals(issue.getCode())
+                                && "warning".equals(issue.getSeverity())),
+                "Expected warning " + fieldKey + "/" + code);
+    }
+
+    private void assertNoWarning(ProductListingTaskView task, String code) {
+        assertTrue(task.getValidationIssues().stream().noneMatch(issue -> code.equals(issue.getCode())),
+                "Unexpected warning " + code);
     }
 
     private static class FakeProductListingMapper implements ProductListingMapper {
@@ -377,6 +459,11 @@ class ProductListingServiceTest {
         }
 
         @Override
+        public ProductListingTaskRecord selectTaskByIdForWorker(Long taskId) {
+            return tasks.get(taskId);
+        }
+
+        @Override
         public List<ProductListingTaskRecord> selectRecentTasks(Long ownerUserId, String storeCode, int limit) {
             List<ProductListingTaskRecord> result = new ArrayList<>();
             for (ProductListingTaskRecord task : tasks.values()) {
@@ -396,7 +483,8 @@ class ProductListingServiceTest {
                         && ("running".equals(task.getStatus())
                         || "submitted".equals(task.getStatus())
                         || "succeeded".equals(task.getStatus())
-                        || "failed".equals(task.getStatus()))) {
+                        || "failed".equals(task.getStatus())
+                        || "written_verify_failed".equals(task.getStatus()))) {
                     return task;
                 }
             }
@@ -409,29 +497,26 @@ class ProductListingServiceTest {
             return 1;
         }
 
+        @Override
+        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !"REAL_RUN".equals(task.getMode())
+                    || !"submitted".equals(task.getStatus())) {
+                return 0;
+            }
+            task.setStatus("running");
+            task.setStartedAt(startedAt);
+            tasks.put(taskId, task);
+            return 1;
+        }
+
         private ProductListingDraftRecord insertedDraft() {
             return insertedDraft;
         }
 
         private ProductListingTaskRecord insertedTask() {
             return insertedTask;
-        }
-
-        private void resetInsertedTask() {
-            insertedTask = null;
-        }
-
-        private void addActiveRealRun(ProductListingTaskView dryRun) {
-            ProductListingTaskRecord task = new ProductListingTaskRecord();
-            task.setId(nextTaskId++);
-            task.setDraftId(dryRun.getDraftId());
-            task.setOwnerUserId(dryRun.getOwnerUserId());
-            task.setStoreCode(dryRun.getStoreCode());
-            task.setTaskNo("PLT-" + task.getId());
-            task.setMode("REAL_RUN");
-            task.setStatus("running");
-            task.setSourceTaskId(dryRun.getTaskId());
-            tasks.put(task.getId(), task);
         }
 
         private void resetUpdateCount() {

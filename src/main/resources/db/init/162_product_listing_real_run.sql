@@ -97,11 +97,30 @@ SET @add_product_listing_real_write_attempt_source_task_id = IF(
       AND column_name = 'real_write_attempt_source_task_id'
   ),
   'SELECT ''product_listing_real_write_attempt_source_task_id_exists'' AS stage',
-  'ALTER TABLE product_listing_task ADD COLUMN real_write_attempt_source_task_id BIGINT GENERATED ALWAYS AS (CASE WHEN `mode` = ''REAL_RUN'' AND `status` IN (''running'', ''submitted'', ''succeeded'', ''failed'') THEN `source_task_id` ELSE NULL END) STORED AFTER completed_at'
+  'ALTER TABLE product_listing_task ADD COLUMN real_write_attempt_source_task_id BIGINT GENERATED ALWAYS AS (CASE WHEN `mode` = ''REAL_RUN'' AND `status` IN (''running'', ''submitted'', ''succeeded'', ''failed'', ''written_verify_failed'') THEN `source_task_id` ELSE NULL END) STORED AFTER completed_at'
 );
 PREPARE add_product_listing_real_write_attempt_source_task_id_stmt FROM @add_product_listing_real_write_attempt_source_task_id;
 EXECUTE add_product_listing_real_write_attempt_source_task_id_stmt;
 DEALLOCATE PREPARE add_product_listing_real_write_attempt_source_task_id_stmt;
+
+SET @drop_product_listing_real_write_attempt_index = IF(
+  EXISTS (
+    SELECT 1
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = 'product_listing_task'
+      AND index_name = 'uk_product_listing_real_write_attempt'
+  ),
+  'ALTER TABLE product_listing_task DROP INDEX uk_product_listing_real_write_attempt',
+  'SELECT ''product_listing_real_write_attempt_index_missing_before_refresh'' AS stage'
+);
+PREPARE drop_product_listing_real_write_attempt_index_stmt FROM @drop_product_listing_real_write_attempt_index;
+EXECUTE drop_product_listing_real_write_attempt_index_stmt;
+DEALLOCATE PREPARE drop_product_listing_real_write_attempt_index_stmt;
+
+ALTER TABLE product_listing_task
+  MODIFY COLUMN real_write_attempt_source_task_id BIGINT
+  GENERATED ALWAYS AS (CASE WHEN `mode` = 'REAL_RUN' AND `status` IN ('running', 'submitted', 'succeeded', 'failed', 'written_verify_failed') THEN `source_task_id` ELSE NULL END) STORED;
 
 SET @add_product_listing_real_write_attempt_index = IF(
   EXISTS (

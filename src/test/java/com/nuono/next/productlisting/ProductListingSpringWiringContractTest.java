@@ -8,9 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.stereotype.Component;
@@ -23,6 +21,7 @@ class ProductListingSpringWiringContractTest {
     void productListingComponentsAreSpringBeans() {
         assertNotNull(ProductListingValidator.class.getAnnotation(Component.class));
         assertNotNull(ProductListingService.class.getAnnotation(Service.class));
+        assertNotNull(ProductListingRealRunTaskListener.class.getAnnotation(Component.class));
         assertNotNull(ProductListingController.class.getAnnotation(RestController.class));
     }
 
@@ -32,6 +31,8 @@ class ProductListingSpringWiringContractTest {
                 .withBean(ProductListingMapper.class, () -> mock(ProductListingMapper.class))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(BusinessAccessResolver.class, () -> mock(BusinessAccessResolver.class))
+                .withBean(ProductListingRealWriteProperties.class, ProductListingRealWriteProperties::new)
+                .withBean(ProductListingNoonWriteAdapter.class, UnavailableProductListingNoonWriteAdapter::new)
                 .withUserConfiguration(ProductListingWiringConfig.class)
                 .run(context -> {
                     assertTrue(
@@ -43,38 +44,13 @@ class ProductListingSpringWiringContractTest {
                 });
     }
 
-    @Test
-    void productListingComponentScanProvidesDefaultNoonWriteAdapter() {
-        new ApplicationContextRunner()
-                .withBean(ProductListingMapper.class, () -> mock(ProductListingMapper.class))
-                .withBean(ObjectMapper.class, ObjectMapper::new)
-                .withBean(BusinessAccessResolver.class, () -> mock(BusinessAccessResolver.class))
-                .withUserConfiguration(ProductListingComponentScanConfig.class)
-                .run(context -> {
-                    assertTrue(
-                            context.getStartupFailure() == null,
-                            () -> String.valueOf(context.getStartupFailure())
-                    );
-                    assertTrue(context.getBean(ProductListingNoonWriteAdapter.class)
-                            instanceof UnavailableProductListingNoonWriteAdapter);
-                    assertNotNull(context.getBean(ProductListingService.class));
-                });
-    }
-
     @Configuration
-    @EnableConfigurationProperties(ProductListingRealWriteProperties.class)
     @Import({
             ProductListingValidator.class,
-            UnavailableProductListingNoonWriteAdapter.class,
             ProductListingService.class,
+            ProductListingRealRunTaskListener.class,
             ProductListingController.class
     })
     static class ProductListingWiringConfig {
-    }
-
-    @Configuration
-    @EnableConfigurationProperties(ProductListingRealWriteProperties.class)
-    @ComponentScan(basePackageClasses = ProductListingService.class)
-    static class ProductListingComponentScanConfig {
     }
 }

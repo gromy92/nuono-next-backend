@@ -11,6 +11,7 @@ public class ProductListingTaskView {
     private Long draftId;
     private Long ownerUserId;
     private String storeCode;
+    private String partnerSku;
     private String mode;
     private String status;
     private Long sourceTaskId;
@@ -18,6 +19,7 @@ public class ProductListingTaskView {
     private String failureCategory;
     private String failureCode;
     private String failureMessage;
+    private ProductListingNoonWriteResult noonResult;
     private LocalDateTime submittedAt;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
@@ -60,6 +62,14 @@ public class ProductListingTaskView {
 
     public void setStoreCode(String storeCode) {
         this.storeCode = storeCode;
+    }
+
+    public String getPartnerSku() {
+        return partnerSku;
+    }
+
+    public void setPartnerSku(String partnerSku) {
+        this.partnerSku = partnerSku;
     }
 
     public String getMode() {
@@ -116,6 +126,14 @@ public class ProductListingTaskView {
 
     public void setFailureMessage(String failureMessage) {
         this.failureMessage = failureMessage;
+    }
+
+    public ProductListingNoonWriteResult getNoonResult() {
+        return noonResult;
+    }
+
+    public void setNoonResult(ProductListingNoonWriteResult noonResult) {
+        this.noonResult = noonResult;
     }
 
     public LocalDateTime getSubmittedAt() {

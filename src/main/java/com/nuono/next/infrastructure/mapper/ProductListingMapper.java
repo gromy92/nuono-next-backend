@@ -2,6 +2,7 @@ package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.productlisting.ProductListingDraftRecord;
 import com.nuono.next.productlisting.ProductListingTaskRecord;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -149,6 +150,18 @@ public interface ProductListingMapper {
             "  noon_result_json, failure_category, failure_code, failure_message,",
             "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
             "FROM product_listing_task",
+            "WHERE id = #{taskId}",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectTaskByIdForWorker(@Param("taskId") Long taskId);
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND store_code = #{storeCode}",
             "ORDER BY submitted_at DESC",
@@ -170,13 +183,27 @@ public interface ProductListingMapper {
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND source_task_id = #{sourceTaskId}",
             "  AND mode = 'REAL_RUN'",
-            "  AND status IN ('running', 'submitted', 'succeeded', 'failed')",
+            "  AND status IN ('running', 'submitted', 'succeeded', 'failed', 'written_verify_failed')",
             "ORDER BY submitted_at DESC",
             "LIMIT 1"
     })
     ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("sourceTaskId") Long sourceTaskId
+    );
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET status = 'running',",
+            "    started_at = #{startedAt},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status = 'submitted'"
+    })
+    int markTaskRunning(
+            @Param("taskId") Long taskId,
+            @Param("startedAt") LocalDateTime startedAt
     );
 
     @Update({

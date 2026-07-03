@@ -2212,6 +2212,8 @@ public class ProductProjectionPersistenceService {
             putIfNotBlank(siteOffer, "salesCurrency", firstNonBlank(offerSeed.getSalesCurrency(), seed.getSalesCurrency()));
             putIfNotBlank(siteOffer, "liveStatus", offerSeed.getLiveStatus());
             putIfNotBlank(siteOffer, "statusCode", offerSeed.getStatusCode());
+            putIfNotBlank(siteOffer, "listingStartedAt", offerSeed.getListingStartedAt());
+            putIfNotBlank(siteOffer, "listingStartedSource", offerSeed.getListingStartedSource());
             putIfNotNull(siteOffer, "isActive", offerSeed.getIsActive());
             putIfNotNull(siteOffer, "fbnStock", offerSeed.getFbnStock());
             putIfNotNull(siteOffer, "supermallStock", offerSeed.getSupermallStock());
@@ -2298,6 +2300,8 @@ public class ProductProjectionPersistenceService {
                 asBoolean(siteOffer.get("isActive")),
                 normalize(text(siteOffer.get("liveStatus"))),
                 normalize(text(siteOffer.get("statusCode"))),
+                parseDateTime(text(siteOffer.get("listingStartedAt"))),
+                normalize(text(siteOffer.get("listingStartedSource"))),
                 asInteger(siteOffer.get("fbnStock")),
                 asInteger(siteOffer.get("supermallStock")),
                 asInteger(siteOffer.get("fbpStock")),
@@ -4006,6 +4010,8 @@ public class ProductProjectionPersistenceService {
         private String salesCurrency;
         private String liveStatus;
         private String statusCode;
+        private String listingStartedAt;
+        private String listingStartedSource;
         private Boolean isActive;
         private Integer fbnStock;
         private Integer supermallStock;
@@ -4373,6 +4379,22 @@ public class ProductProjectionPersistenceService {
             this.statusCode = statusCode;
         }
 
+        public String getListingStartedAt() {
+            return listingStartedAt;
+        }
+
+        public void setListingStartedAt(String listingStartedAt) {
+            this.listingStartedAt = listingStartedAt;
+        }
+
+        public String getListingStartedSource() {
+            return listingStartedSource;
+        }
+
+        public void setListingStartedSource(String listingStartedSource) {
+            this.listingStartedSource = listingStartedSource;
+        }
+
         public Boolean getIsActive() {
             return isActive;
         }
@@ -4490,6 +4512,8 @@ public class ProductProjectionPersistenceService {
         private String salesCurrency;
         private String liveStatus;
         private String statusCode;
+        private String listingStartedAt;
+        private String listingStartedSource;
         private Boolean isActive;
         private Integer fbnStock;
         private Integer supermallStock;
@@ -4513,6 +4537,8 @@ public class ProductProjectionPersistenceService {
             siteOfferSeed.setSalesCurrency(seed.getSalesCurrency());
             siteOfferSeed.setLiveStatus(seed.getLiveStatus());
             siteOfferSeed.setStatusCode(seed.getStatusCode());
+            siteOfferSeed.setListingStartedAt(seed.getListingStartedAt());
+            siteOfferSeed.setListingStartedSource(seed.getListingStartedSource());
             siteOfferSeed.setIsActive(seed.getIsActive());
             siteOfferSeed.setFbnStock(seed.getFbnStock());
             siteOfferSeed.setSupermallStock(seed.getSupermallStock());
@@ -4678,6 +4704,22 @@ public class ProductProjectionPersistenceService {
 
         public void setStatusCode(String statusCode) {
             this.statusCode = statusCode;
+        }
+
+        public String getListingStartedAt() {
+            return listingStartedAt;
+        }
+
+        public void setListingStartedAt(String listingStartedAt) {
+            this.listingStartedAt = listingStartedAt;
+        }
+
+        public String getListingStartedSource() {
+            return listingStartedSource;
+        }
+
+        public void setListingStartedSource(String listingStartedSource) {
+            this.listingStartedSource = listingStartedSource;
         }
 
         public Boolean getIsActive() {

@@ -952,6 +952,8 @@ public class LocalDbStoreInitializationService {
             item.setGroupRef(normalize(summary.getGroupRef()));
             item.setLiveStatus(firstNonBlank(summary.getLiveStatus(), item.getLiveStatus()));
             item.setStatusCode(firstNonBlank(summary.getStatusCode(), item.getStatusCode()));
+            item.setListingStartedAt(firstNonBlank(summary.getListingStartedAt(), item.getListingStartedAt()));
+            item.setListingStartedSource(firstNonBlank(summary.getListingStartedSource(), item.getListingStartedSource()));
             item.setIsActive(firstNonNull(summary.getIsActive(), item.getIsActive()));
             item.setSyncStatus(firstNonBlank(summary.getSyncStatus(), item.getSyncStatus()));
             item.setLastSyncedAt(firstNonBlank(summary.getLastSyncedAt(), item.getLastSyncedAt()));
@@ -2338,6 +2340,8 @@ public class LocalDbStoreInitializationService {
             target.setGroupRef(source.getGroupRef());
             target.setLiveStatus(source.getLiveStatus());
             target.setStatusCode(source.getStatusCode());
+            target.setListingStartedAt(source.getListingStartedAt());
+            target.setListingStartedSource(source.getListingStartedSource());
             target.setIsActive(source.getIsActive());
             target.setSyncStatus(source.getSyncStatus());
             target.setLastSyncedAt(source.getLastSyncedAt());
@@ -3031,6 +3035,8 @@ public class LocalDbStoreInitializationService {
         private String groupRefCanonical;
         private String liveStatus;
         private String statusCode;
+        private String listingStartedAt;
+        private String listingStartedSource;
         private Boolean isActive;
         private String syncStatus;
         private String lastSyncedAt;
@@ -3242,6 +3248,22 @@ public class LocalDbStoreInitializationService {
 
         public void setStatusCode(String statusCode) {
             this.statusCode = statusCode;
+        }
+
+        public String getListingStartedAt() {
+            return listingStartedAt;
+        }
+
+        public void setListingStartedAt(String listingStartedAt) {
+            this.listingStartedAt = listingStartedAt;
+        }
+
+        public String getListingStartedSource() {
+            return listingStartedSource;
+        }
+
+        public void setListingStartedSource(String listingStartedSource) {
+            this.listingStartedSource = listingStartedSource;
         }
 
         public Boolean getIsActive() {

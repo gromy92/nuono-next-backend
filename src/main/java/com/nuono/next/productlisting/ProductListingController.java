@@ -124,6 +124,42 @@ public class ProductListingController {
         }
     }
 
+    @PostMapping("/tasks/{realRunTaskId}/verify-readback")
+    public ProductListingTaskView verifyRealRunReadBack(
+            @PathVariable Long realRunTaskId,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING
+            );
+            return service.verifyRealRunReadBack(context, realRunTaskId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/tasks/{realRunTaskId}/continue-after-create")
+    public ProductListingTaskView continueRealRunAfterCreate(
+            @PathVariable Long realRunTaskId,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING
+            );
+            return service.continueRealRunAfterCreate(context, realRunTaskId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @GetMapping("/tasks/recent")
     public List<ProductListingTaskView> recentTasks(
             @RequestParam String storeCode,

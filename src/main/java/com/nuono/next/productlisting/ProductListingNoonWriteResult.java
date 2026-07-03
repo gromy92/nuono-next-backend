@@ -11,10 +11,6 @@ public class ProductListingNoonWriteResult {
     private String failureMessage;
     private List<ProductListingNoonWriteStepResult> steps = new ArrayList<>();
 
-    public static ProductListingNoonWriteResult succeeded() {
-        return succeeded(List.of());
-    }
-
     public static ProductListingNoonWriteResult succeeded(List<ProductListingNoonWriteStepResult> steps) {
         ProductListingNoonWriteResult result = new ProductListingNoonWriteResult();
         result.setSuccess(true);
