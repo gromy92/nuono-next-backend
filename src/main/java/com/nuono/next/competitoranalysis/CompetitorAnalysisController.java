@@ -47,6 +47,24 @@ public class CompetitorAnalysisController {
         this(service, null, businessAccessResolver);
     }
 
+    @GetMapping("/dashboard")
+    public CompetitorDashboardView dashboard(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            @RequestParam(required = false) Integer days,
+            @RequestParam(required = false) String rankDirection,
+            HttpServletRequest request
+    ) {
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        String normalizedSiteCode = requireSiteCode(siteCode);
+        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                normalizedStoreCode
+        );
+        return service.dashboard(context, normalizedStoreCode, normalizedSiteCode, days, rankDirection);
+    }
+
     @GetMapping("/watch-products")
     public CompetitorWatchProductListView watchProducts(
             @RequestParam(required = false) String storeCode,

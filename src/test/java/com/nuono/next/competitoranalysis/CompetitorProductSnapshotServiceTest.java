@@ -1,10 +1,12 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.competitoranalysis.noon.NoonSearchPage;
 import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
 import com.nuono.next.infrastructure.mapper.CompetitorProductSnapshotMapper;
@@ -64,6 +66,31 @@ class CompetitorProductSnapshotServiceTest {
         verify(mapper).softDeleteChangeEventsBySnapshotId(260123L, 601L);
     }
 
+    @Test
+    void recordsSelfProductDetailSnapshotWithoutCompetitorProductReference() {
+        CompetitorProductSnapshotService service = new CompetitorProductSnapshotService(mapper);
+        when(mapper.nextProductSnapshotId()).thenReturn(260124L);
+
+        int changed = service.recordProductDetailSnapshot(
+                context().getWatchProduct(),
+                null,
+                selfDetail(),
+                220123L,
+                601L
+        );
+
+        assertEquals(0, changed);
+        ArgumentCaptor<CompetitorProductSnapshotCommand> snapshotCaptor =
+                ArgumentCaptor.forClass(CompetitorProductSnapshotCommand.class);
+        verify(mapper).insertProductSnapshot(snapshotCaptor.capture());
+        assertEquals(260124L, snapshotCaptor.getValue().getId());
+        assertEquals("SELF", snapshotCaptor.getValue().getSubjectType());
+        assertNull(snapshotCaptor.getValue().getCompetitorProductId());
+        assertEquals("ZSELF001", snapshotCaptor.getValue().getNoonProductCode());
+        assertEquals(new BigDecimal("35.50"), snapshotCaptor.getValue().getPriceAmount());
+        verify(mapper).selectPreviousSnapshot(180123L, "SELF", "ZSELF001", LocalDate.parse("2026-06-08"));
+    }
+
     private static CompetitorKeywordRefreshContext context() {
         CompetitorWatchProductRow watchProduct = new CompetitorWatchProductRow();
         watchProduct.setId(180123L);
@@ -108,5 +135,21 @@ class CompetitorProductSnapshotServiceTest {
         row.setCurrencyCode("SAR");
         row.setMainImageAssetKey("N51360862A.jpg");
         return row;
+    }
+
+    private static NoonProductDetail selfDetail() {
+        NoonProductDetail detail = new NoonProductDetail();
+        detail.setNoonProductCode("ZSELF001");
+        detail.setCodeType("Z_CODE");
+        detail.setDetailUrl("https://www.noon.com/saudi-en/self/ZSELF001/p/");
+        detail.setTitleEn("Self basket");
+        detail.setBrand("Papersay");
+        detail.setPriceAmount(new BigDecimal("35.50"));
+        detail.setCurrencyCode("SAR");
+        detail.setMainImageUrlRaw("https://f.nooncdn.com/p/ZSELF001.jpg?width=240");
+        detail.setMainImageUrlNormalized("https://f.nooncdn.com/p/ZSELF001.jpg?width=240");
+        detail.setRawDetailJson("{\"sku\":\"ZSELF001\"}");
+        detail.setCapturedAt(LocalDateTime.parse("2026-06-08T08:00:00"));
+        return detail;
     }
 }

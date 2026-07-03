@@ -12,6 +12,8 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.permission.access.BusinessCapability;
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +62,44 @@ class CompetitorAnalysisControllerAccessTest {
         );
 
         assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
+    }
+
+    @Test
+    void dashboardRequiresStoreAccess() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = operatorContext();
+        CompetitorDashboardView dashboard = CompetitorDashboardView.of(
+                "STR108065-NSA",
+                "SA",
+                7,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                LocalDate.now().minusDays(1L),
+                0L,
+                List.of()
+        );
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        )).thenReturn(context);
+        when(service.dashboard(context, "STR108065-NSA", "SA", 7, "DOWN")).thenReturn(dashboard);
+
+        CompetitorDashboardView result = controller.dashboard(" str108065-nsa ", " sa ", 7, "DOWN", request);
+
+        assertEquals("STR108065-NSA", result.getStoreCode());
+        verify(businessAccessResolver).requireStoreAccess(
+                request,
+                BusinessCapability.OPERATIONS_COMPETITOR_ANALYSIS,
+                "STR108065-NSA"
+        );
+        verify(service).dashboard(context, "STR108065-NSA", "SA", 7, "DOWN");
     }
 
     @Test

@@ -13,32 +13,22 @@ import org.junit.jupiter.api.Test;
 class HttpNoonFrontendSearchAdapterTest {
 
     @Test
-    void buildsLocalizedNoonSearchUrl() {
-        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
-                new NoonFrontendSearchPageParser(new ObjectMapper()),
-                Duration.ofSeconds(3),
-                Duration.ofSeconds(9),
-                "https://www.noon.com",
-                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
-                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u"
-        );
+    void buildsLocalizedNoonSearchUrlWithTop100Limit() {
+        HttpNoonFrontendSearchAdapter adapter = adapter();
 
         String url = adapter.buildSearchUrl(NoonSearchRequest.builder()
                 .siteCode("SA")
                 .locale("en-SA")
                 .keyword("laundry basket")
-                .limit(20)
+                .limit(100)
                 .build());
 
-        assertEquals("https://www.noon.com/saudi-en/search?q=laundry+basket&limit=20", url);
+        assertEquals("https://www.noon.com/saudi-en/search?q=laundry+basket&limit=100", url);
     }
 
     @Test
     void buildsLocalizedNoonCatalogSearchUrl() {
-        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
-                new NoonFrontendSearchPageParser(new ObjectMapper()),
-                Duration.ofSeconds(3),
-                Duration.ofSeconds(9),
+        HttpNoonFrontendSearchAdapter adapter = adapter(
                 "https://www.noon.com",
                 "https://noon-catalog.noon.partners/_svc/catalog/api/u/",
                 "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/"
@@ -60,31 +50,36 @@ class HttpNoonFrontendSearchAdapterTest {
                 new NoonFrontendSearchPageParser(new ObjectMapper()),
                 Duration.ofSeconds(3),
                 Duration.ofSeconds(9),
-                "https://www.noon.com",
-                "https://noon-catalog.noon.partners/_svc/catalog/api/u/",
-                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/"
+                "https://www.noon.com"
         );
 
         String url = adapter.buildCustomerCatalogV3SearchUrl(NoonSearchRequest.builder()
                 .siteCode("SA")
                 .locale("en-SA")
-                .keyword("Qili")
-                .limit(30)
+                .keyword("name tag")
+                .limit(100)
                 .build());
 
-        assertEquals("https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=Qili&limit=30", url);
+        assertEquals("https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=name+tag&limit=100", url);
+    }
+
+    @Test
+    void capsSearchLimitAtTop100() {
+        HttpNoonFrontendSearchAdapter adapter = adapter();
+
+        String url = adapter.buildCustomerCatalogV3SearchUrl(NoonSearchRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .keyword("name tag")
+                .limit(200)
+                .build());
+
+        assertEquals("https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=name+tag&limit=100", url);
     }
 
     @Test
     void mapsRateLimitStatusToProviderException() {
-        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
-                new NoonFrontendSearchPageParser(new ObjectMapper()),
-                Duration.ofSeconds(3),
-                Duration.ofSeconds(9),
-                "https://www.noon.com",
-                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
-                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u"
-        );
+        HttpNoonFrontendSearchAdapter adapter = adapter();
 
         NoonSearchProviderException error = assertThrows(
                 NoonSearchProviderException.class,
@@ -183,5 +178,49 @@ class HttpNoonFrontendSearchAdapterTest {
 
         assertEquals("visitor_id=configured-visitor; nguestv2=configured-session", cookieHeader);
         assertEquals(false, supplierCalled.get());
+    }
+
+    @Test
+    void throwsProviderExceptionWhenChromeCookieIsUnavailable() {
+        HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
+                new NoonFrontendSearchPageParser(new ObjectMapper()),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(9),
+                "https://www.noon.com",
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u",
+                true,
+                () -> {
+                    throw new IllegalStateException("keychain unavailable");
+                },
+                true
+        );
+
+        NoonSearchProviderException error = assertThrows(
+                NoonSearchProviderException.class,
+                () -> adapter.loadFrontendCookieHeader("https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=name+tag&limit=100")
+        );
+
+        assertEquals("PROVIDER_UNAVAILABLE", error.getErrorCode());
+        assertTrue(error.getMessage().contains("缺少浏览器会话"));
+    }
+
+    private HttpNoonFrontendSearchAdapter adapter() {
+        return adapter(
+                "https://www.noon.com",
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u"
+        );
+    }
+
+    private HttpNoonFrontendSearchAdapter adapter(String baseUrl, String catalogBaseUrl, String customerCatalogV3BaseUrl) {
+        return new HttpNoonFrontendSearchAdapter(
+                new NoonFrontendSearchPageParser(new ObjectMapper()),
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(9),
+                baseUrl,
+                catalogBaseUrl,
+                customerCatalogV3BaseUrl
+        );
     }
 }

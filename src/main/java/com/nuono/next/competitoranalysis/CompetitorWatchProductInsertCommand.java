@@ -12,6 +12,7 @@ public class CompetitorWatchProductInsertCommand {
     private String skuParent;
     private String partnerSku;
     private String childSku;
+    private String pskuCode;
     private String selfNoonProductCode;
     private String selfCodeType;
     private String titleSnapshot;
@@ -43,6 +44,8 @@ public class CompetitorWatchProductInsertCommand {
     public void setPartnerSku(String partnerSku) { this.partnerSku = partnerSku; }
     public String getChildSku() { return childSku; }
     public void setChildSku(String childSku) { this.childSku = childSku; }
+    public String getPskuCode() { return pskuCode; }
+    public void setPskuCode(String pskuCode) { this.pskuCode = pskuCode; }
     public String getSelfNoonProductCode() { return selfNoonProductCode; }
     public void setSelfNoonProductCode(String selfNoonProductCode) { this.selfNoonProductCode = selfNoonProductCode; }
     public String getSelfCodeType() { return selfCodeType; }

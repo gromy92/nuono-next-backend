@@ -23,6 +23,9 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter {
+    private static final int DEFAULT_SEARCH_LIMIT = 30;
+    private static final int MAX_SEARCH_LIMIT = 100;
+
     private final NoonFrontendSearchPageParser parser;
     private final HttpClient httpClient;
     private final Duration requestTimeout;
@@ -57,6 +60,22 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 chromeFrontendCookieEnabled,
                 ChromeNoonCookieSupport::loadNoonFrontendCookieHeader,
                 curlEnabled
+        );
+    }
+
+    HttpNoonFrontendSearchAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String baseUrl
+    ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                baseUrl,
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u"
         );
     }
 
@@ -258,6 +277,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         Process process = new ProcessBuilder(
                 "curl",
                 "-sS",
+                "--http1.1",
                 "--compressed",
                 "--max-time",
                 String.valueOf(maxTimeSeconds),
@@ -454,7 +474,9 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     String buildSearchUrl(NoonSearchRequest request) {
         String path = marketPath(request == null ? null : request.getSiteCode(), request == null ? null : request.getLocale());
         String keyword = request == null ? "" : trim(request.getKeyword());
-        int limit = request == null || request.getLimit() == null ? 20 : Math.max(1, Math.min(request.getLimit(), 20));
+        int limit = request == null || request.getLimit() == null
+                ? DEFAULT_SEARCH_LIMIT
+                : Math.max(1, Math.min(request.getLimit(), MAX_SEARCH_LIMIT));
         return baseUrl
                 + path
                 + "/search?q="
@@ -466,7 +488,9 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     String buildCatalogSearchUrl(NoonSearchRequest request) {
         String path = marketPath(request == null ? null : request.getSiteCode(), request == null ? null : request.getLocale());
         String keyword = request == null ? "" : trim(request.getKeyword());
-        int limit = request == null || request.getLimit() == null ? 20 : Math.max(1, Math.min(request.getLimit(), 20));
+        int limit = request == null || request.getLimit() == null
+                ? DEFAULT_SEARCH_LIMIT
+                : Math.max(1, Math.min(request.getLimit(), MAX_SEARCH_LIMIT));
         return catalogBaseUrl
                 + path
                 + "/search?q="
@@ -477,7 +501,9 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
 
     String buildCustomerCatalogV3SearchUrl(NoonSearchRequest request) {
         String keyword = request == null ? "" : trim(request.getKeyword());
-        int limit = request == null || request.getLimit() == null ? 20 : Math.max(1, Math.min(request.getLimit(), 30));
+        int limit = request == null || request.getLimit() == null
+                ? DEFAULT_SEARCH_LIMIT
+                : Math.max(1, Math.min(request.getLimit(), MAX_SEARCH_LIMIT));
         return customerCatalogV3BaseUrl
                 + "/search?q="
                 + URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8)

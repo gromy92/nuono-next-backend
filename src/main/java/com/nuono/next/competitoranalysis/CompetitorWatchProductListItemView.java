@@ -24,6 +24,7 @@ public class CompetitorWatchProductListItemView extends CompetitorWatchProductVi
         view.setSkuParent(row.getSkuParent());
         view.setPartnerSku(row.getPartnerSku());
         view.setChildSku(row.getChildSku());
+        view.setPskuCode(row.getPskuCode());
         view.setSelfNoonProductCode(row.getSelfNoonProductCode());
         view.setSelfCodeType(row.getSelfCodeType());
         view.setTitle(row.getTitleSnapshot());
@@ -63,10 +64,19 @@ public class CompetitorWatchProductListItemView extends CompetitorWatchProductVi
                 .map(String::trim)
                 .filter(item -> !item.isEmpty())
                 .map(item -> {
-                    String[] parts = item.split("\\t", 2);
+                    String[] parts = item.split("\\t", -1);
                     String keyword = parts.length > 0 ? parts[0].trim() : "";
                     int monitoredCount = parts.length > 1 ? parseCount(parts[1]) : 0;
-                    return CompetitorKeywordCountView.of(keyword, monitoredCount);
+                    return CompetitorKeywordCountView.of(
+                            keyword,
+                            monitoredCount,
+                            textPart(parts, 2),
+                            integerPart(parts, 3),
+                            textPart(parts, 4),
+                            textPart(parts, 5),
+                            integerPart(parts, 6),
+                            textPart(parts, 7)
+                    );
                 })
                 .filter(item -> item.getKeyword() != null && !item.getKeyword().isBlank())
                 .collect(Collectors.toList());
@@ -83,6 +93,29 @@ public class CompetitorWatchProductListItemView extends CompetitorWatchProductVi
             return Integer.parseInt(value == null ? "0" : value.trim());
         } catch (NumberFormatException ignored) {
             return 0;
+        }
+    }
+
+    private static String textPart(String[] parts, int index) {
+        if (parts == null || index >= parts.length) {
+            return null;
+        }
+        String value = parts[index] == null ? null : parts[index].trim();
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static Integer integerPart(String[] parts, int index) {
+        if (parts == null || index >= parts.length) {
+            return null;
+        }
+        String value = parts[index] == null ? "" : parts[index].trim();
+        if (value.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 
