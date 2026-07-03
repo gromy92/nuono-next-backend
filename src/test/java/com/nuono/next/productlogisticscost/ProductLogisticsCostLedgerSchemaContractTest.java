@@ -15,7 +15,7 @@ class ProductLogisticsCostLedgerSchemaContractTest {
             "resources",
             "db",
             "init",
-            "151_product_logistics_cost_ledger.sql"
+            "163_product_logistics_cost_ledger.sql"
     );
 
     @Test
