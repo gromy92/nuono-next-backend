@@ -126,6 +126,39 @@ class CompetitorAnalysisMapperSqlTest {
     }
 
     @Test
+    void productBaselineListNormalizesTitleCollationForProductionMysql() throws NoSuchMethodException {
+        String productBaselinesSql = selectSql(
+                "listProductBaselines",
+                Long.class,
+                String.class,
+                String.class,
+                CompetitorWatchProductQuery.class
+        );
+        String countProductBaselinesSql = selectSql(
+                "countProductBaselines",
+                Long.class,
+                String.class,
+                String.class,
+                CompetitorWatchProductQuery.class
+        );
+
+        for (String sql : java.util.List.of(productBaselinesSql, countProductBaselinesSql)) {
+            assertThat(sql)
+                    .contains("convert(json_unquote(json_extract(pmd.draft_json, '$.content.titleen')) using utf8mb4) collate utf8mb4_unicode_ci")
+                    .contains("convert(json_unquote(json_extract(pms.snapshot_json, '$.content.titleen')) using utf8mb4) collate utf8mb4_unicode_ci")
+                    .contains("convert(json_unquote(json_extract(pmd.draft_json, '$.content.titlecn')) using utf8mb4) collate utf8mb4_unicode_ci")
+                    .contains("convert(json_unquote(json_extract(pmd.draft_json, '$.content.titlezh')) using utf8mb4) collate utf8mb4_unicode_ci")
+                    .contains("convert(json_unquote(json_extract(pms.snapshot_json, '$.content.titlecn')) using utf8mb4) collate utf8mb4_unicode_ci")
+                    .contains("convert(json_unquote(json_extract(pms.snapshot_json, '$.content.titlezh')) using utf8mb4) collate utf8mb4_unicode_ci")
+                    .contains("pm.title_cache collate utf8mb4_unicode_ci")
+                    .contains("pm.title_cn_cache collate utf8mb4_unicode_ci")
+                    .contains("cast(#{query.productsearch} as char character set utf8mb4) collate utf8mb4_unicode_ci");
+        }
+        assertThat(productBaselinesSql)
+                .contains("coalesce(wp.self_noon_product_code collate utf8mb4_unicode_ci, pso.psku_code collate utf8mb4_unicode_ci, '')");
+    }
+
+    @Test
     void watchProductNaturalKeyUsesStoreSitePartnerSkuAndSelfNoonCode() throws NoSuchMethodException {
         String sql = selectSql(
                 "selectWatchProductByBusinessKey",
