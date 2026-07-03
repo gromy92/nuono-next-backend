@@ -235,8 +235,8 @@ public interface ProductImageProfileMapper {
             "SELECT",
             "  pm.id AS product_master_id,",
             "  NULL AS product_variant_id,",
-            "  COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''), NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent) AS psku_code,",
-            "  CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''), NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent)) AS product_identity_key,",
+            "  COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), '')) AS psku_code,",
+            "  CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''))) AS product_identity_key,",
             "  pm.title_cache AS product_title,",
             "  pm.brand_cache AS brand,",
             "  pm.cover_image_url AS cover_image_url",
@@ -254,7 +254,6 @@ public interface ProductImageProfileMapper {
             " AND pso.is_deleted = b'0'",
             "WHERE request_lss.store_code = #{storeCode}",
             "  AND request_lss.is_deleted = b'0'",
-            "  AND COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(pm.current_z_code, ''), pm.sku_parent) IS NOT NULL",
             "<if test='keyword != null and keyword != \"\"'>",
             "  AND (",
             "    pm.partner_sku LIKE CONCAT('%', #{keyword}, '%')",
@@ -267,6 +266,7 @@ public interface ProductImageProfileMapper {
             "  )",
             "</if>",
             "GROUP BY pm.id, pm.partner_sku, pm.current_z_code, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url, pm.gmt_updated",
+            "HAVING psku_code IS NOT NULL",
             "ORDER BY pm.gmt_updated DESC, pm.id DESC",
             "LIMIT 200",
             "</script>"
@@ -282,8 +282,8 @@ public interface ProductImageProfileMapper {
             "SELECT",
             "  pm.id AS product_master_id,",
             "  NULL AS product_variant_id,",
-            "  COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''), NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent) AS psku_code,",
-            "  CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''), NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent)) AS product_identity_key,",
+            "  COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), '')) AS psku_code,",
+            "  CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''))) AS product_identity_key,",
             "  pm.title_cache AS product_title,",
             "  pm.brand_cache AS brand,",
             "  pm.cover_image_url AS cover_image_url",
@@ -301,8 +301,8 @@ public interface ProductImageProfileMapper {
             " AND pso.is_deleted = b'0'",
             "WHERE request_lss.store_code = #{storeCode}",
             "  AND request_lss.is_deleted = b'0'",
-            "  AND COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(pm.current_z_code, ''), pm.sku_parent) IS NOT NULL",
             "GROUP BY pm.id, pm.partner_sku, pm.current_z_code, pm.sku_parent, pm.title_cache, pm.brand_cache, pm.cover_image_url, pm.gmt_updated",
+            "HAVING psku_code IS NOT NULL",
             "ORDER BY pm.gmt_updated DESC, pm.id DESC"
     })
     List<ProductImageProductCandidateRecord> selectAllProductCandidatesForStore(

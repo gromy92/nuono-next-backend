@@ -28,6 +28,27 @@ class ProductPublicDetailMapperSqlContractTest {
         assertSyncableSiteStatusCondition("countCandidates", Long.class, String.class, String.class);
     }
 
+    @Test
+    void latestUsableSnapshotLookupAcceptsSystemPsku() throws NoSuchMethodException {
+        Method method = ProductPublicDetailMapper.class.getMethod(
+                "selectLatestUsableSnapshotBySkuParent",
+                Long.class,
+                String.class,
+                String.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(
+                sql.contains("partner_sku = #{skuParent}"),
+                "Product image profiles pass system PSKU into the public-detail fallback lookup."
+        );
+        assertTrue(
+                sql.contains("sku_parent = #{skuParent} OR noon_product_code = #{skuParent}"),
+                "Legacy Z-code and Noon-code fallback should remain available for existing callers."
+        );
+    }
+
     private static void assertSyncableSiteStatusCondition(String methodName, Class<?>... parameterTypes)
             throws NoSuchMethodException {
         Method method = ProductPublicDetailMapper.class.getMethod(methodName, parameterTypes);

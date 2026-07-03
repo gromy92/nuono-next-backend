@@ -279,7 +279,7 @@ public interface ProductPublicDetailMapper {
             "FROM product_public_detail_snapshot",
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND UPPER(store_code) = UPPER(#{storeCode})",
-            "  AND (sku_parent = #{skuParent} OR noon_product_code = #{skuParent})",
+            "  AND (partner_sku = #{skuParent} OR sku_parent = #{skuParent} OR noon_product_code = #{skuParent})",
             "  AND source_platform = 'NOON'",
             "  AND sync_status IN ('SUCCEEDED', 'PARTIAL')",
             "  AND is_latest = b'1'",

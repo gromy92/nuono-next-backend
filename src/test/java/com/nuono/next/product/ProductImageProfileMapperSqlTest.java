@@ -71,10 +71,30 @@ class ProductImageProfileMapperSqlTest {
                 .contains("FROM logical_store_site request_lss")
                 .contains("pm.logical_store_id = ls.id")
                 .contains("pso.logical_store_id = ls.id")
+                .contains("COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), '')) AS psku_code")
+                .contains("CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''))) AS product_identity_key")
+                .contains("HAVING psku_code IS NOT NULL")
                 .doesNotContain("pso.site_id = request_lss.id")
-                .doesNotContain("pso.site_code = request_lss.site");
+                .doesNotContain("pso.site_code = request_lss.site")
+                .doesNotContain("NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent");
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
+    }
+
+    @Test
+    void allProductCandidatesUseOnlySystemPskuForIdentity() throws Exception {
+        Method method = ProductImageProfileMapper.class.getMethod(
+                "selectAllProductCandidatesForStore",
+                Long.class,
+                String.class
+        );
+        String sql = annotationSql(method.getAnnotation(Select.class));
+
+        assertThat(sql)
+                .contains("COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), '')) AS psku_code")
+                .contains("CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''))) AS product_identity_key")
+                .contains("HAVING psku_code IS NOT NULL")
+                .doesNotContain("NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent");
     }
 
     @Test
