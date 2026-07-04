@@ -2247,14 +2247,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             String appointmentWarehouseFrom
     ) {
         LinkedHashSet<String> warehouses = new LinkedHashSet<>();
-        if (partnerWarehouses != null) {
-            for (String warehouse : partnerWarehouses) {
-                String normalized = trimToNull(warehouse);
-                if (normalized != null) {
-                    warehouses.add(normalized);
-                }
-            }
-        }
         String detailWarehouseFrom = asnDetail == null ? null : trimToNull(asnDetail.warehouseFrom);
         if (detailWarehouseFrom != null) {
             warehouses.add(detailWarehouseFrom);
@@ -2262,6 +2254,14 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         String existingAppointmentWarehouseFrom = trimToNull(appointmentWarehouseFrom);
         if (existingAppointmentWarehouseFrom != null) {
             warehouses.add(existingAppointmentWarehouseFrom);
+        }
+        if (partnerWarehouses != null) {
+            for (String warehouse : partnerWarehouses) {
+                String normalized = trimToNull(warehouse);
+                if (normalized != null) {
+                    warehouses.add(normalized);
+                }
+            }
         }
         return new ArrayList<>(warehouses);
     }

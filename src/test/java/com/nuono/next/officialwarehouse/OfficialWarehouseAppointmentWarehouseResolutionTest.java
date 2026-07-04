@@ -37,4 +37,15 @@ class OfficialWarehouseAppointmentWarehouseResolutionTest {
 
         assertThat(warehouses).containsExactly("69486-1");
     }
+
+    @Test
+    void currentAsnWarehouseFromIsTheDefaultBeforeGenericPartnerWarehouseList() {
+        List<String> warehouses = LocalDbOfficialWarehouseService.resolveAppointmentWarehouseFromOptions(
+                List.of("GENERAL-1", "GENERAL-2"),
+                new OfficialWarehouseAppointmentRunner.AsnDetail("sealed", "ASN-CURRENT", "W00055867A"),
+                null
+        );
+
+        assertThat(warehouses).containsExactly("ASN-CURRENT", "GENERAL-1", "GENERAL-2");
+    }
 }
