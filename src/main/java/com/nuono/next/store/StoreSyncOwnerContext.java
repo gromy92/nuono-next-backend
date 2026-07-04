@@ -20,6 +20,8 @@ public class StoreSyncOwnerContext {
 
     private String noonPartnerPwd;
 
+    private String noonPartnerMailAuthCode;
+
     private String noonPartnerCookie;
 
     private LocalDateTime cookieGenerateTime;
@@ -88,6 +90,14 @@ public class StoreSyncOwnerContext {
 
     public void setNoonPartnerPwd(String noonPartnerPwd) {
         this.noonPartnerPwd = noonPartnerPwd;
+    }
+
+    public String getNoonPartnerMailAuthCode() {
+        return noonPartnerMailAuthCode;
+    }
+
+    public void setNoonPartnerMailAuthCode(String noonPartnerMailAuthCode) {
+        this.noonPartnerMailAuthCode = noonPartnerMailAuthCode;
     }
 
     public String getNoonPartnerCookie() {

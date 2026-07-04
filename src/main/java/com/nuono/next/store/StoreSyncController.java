@@ -62,7 +62,7 @@ public class StoreSyncController {
         overview.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取店铺管理视图。");
         overview.setSyncedRules(List.of(
                 "店铺管理按当前登录账号自己的 user_store 范围读取。",
-                "老板可绑定 Noon 账号、测试连通和绑定新店铺，非老板只读查看。",
+                "老板可绑定 Noon 商家后台登录邮箱和密码、测试连通和绑定新店铺，非老板只读查看。",
                 "店铺负责人继续按当前店铺编码聚合，避免协同成员被拆散。",
                 "后续补分配/重分配写操作时，必须保留既有 isAuthorized，不能把 Noon 绑定状态覆盖掉。"
         ));
@@ -85,8 +85,12 @@ public class StoreSyncController {
                 command.setOwnerUserId(resolveOwnerUserId(session, command.getOwnerUserId()));
             }
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("success", true);
-            payload.put("message", storeSyncService.bindStore(command));
+            StoreBindingResult result = storeSyncService.bindStore(command);
+            payload.put("success", result.isSuccess());
+            payload.put("message", result.getMessage());
+            if (!result.getProjectList().isEmpty()) {
+                payload.put("projectList", result.getProjectList());
+            }
             return payload;
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
@@ -109,8 +113,12 @@ public class StoreSyncController {
                 command.setOwnerUserId(resolveOwnerUserId(session, command.getOwnerUserId()));
             }
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("success", true);
-            payload.put("message", storeSyncService.createStore(command));
+            StoreBindingResult result = storeSyncService.createStore(command);
+            payload.put("success", result.isSuccess());
+            payload.put("message", result.getMessage());
+            if (!result.getProjectList().isEmpty()) {
+                payload.put("projectList", result.getProjectList());
+            }
             return payload;
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);

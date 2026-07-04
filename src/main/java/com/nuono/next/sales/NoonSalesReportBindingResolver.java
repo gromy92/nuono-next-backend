@@ -4,6 +4,8 @@ import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.Locale;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -11,9 +13,23 @@ import org.springframework.util.StringUtils;
 public class NoonSalesReportBindingResolver {
 
     private final StoreSyncMapper storeSyncMapper;
+    private final String configuredMerchantEmail;
+    private final boolean configuredMerchantEmailLoginAvailable;
+
+    @Autowired
+    public NoonSalesReportBindingResolver(
+            StoreSyncMapper storeSyncMapper,
+            @Value("${nuono.noon.auth.email-otp.email:}") String configuredMerchantEmail,
+            @Value("${nuono.noon.auth.email-otp.mail-auth-code:}") String configuredMerchantMailAuthCode
+    ) {
+        this.storeSyncMapper = storeSyncMapper;
+        this.configuredMerchantEmail = normalize(configuredMerchantEmail);
+        this.configuredMerchantEmailLoginAvailable = StringUtils.hasText(normalize(configuredMerchantEmail))
+                && StringUtils.hasText(normalize(configuredMerchantMailAuthCode));
+    }
 
     public NoonSalesReportBindingResolver(StoreSyncMapper storeSyncMapper) {
-        this.storeSyncMapper = storeSyncMapper;
+        this(storeSyncMapper, null, null);
     }
 
     public NoonSalesReportBinding resolve(NoonSalesReportRequest request) {
@@ -35,10 +51,15 @@ public class NoonSalesReportBindingResolver {
         String siteCode = firstNonBlank(request.getSiteCode(), store.getSite(), deriveSiteCode(storeCode));
         String partnerId = firstNonBlank(store.getNoonPartnerId(), owner == null ? null : owner.getNoonPartnerId(), derivePartnerId(projectCode));
         String noonUser = firstNonBlank(
-                store.getNoonPartnerProjectUser(),
                 store.getNoonPartnerUser(),
+                store.getNoonPartnerProjectUser(),
+                owner == null ? null : owner.getNoonPartnerUser(),
                 owner == null ? null : owner.getNoonPartnerProjectUser(),
-                owner == null ? null : owner.getNoonPartnerUser()
+                configuredMerchantEmailLoginAvailable ? configuredMerchantEmail : null
+        );
+        String noonEmailAuthCode = firstNonBlank(
+                store.getNoonPartnerMailAuthCode(),
+                owner == null ? null : owner.getNoonPartnerMailAuthCode()
         );
         String noonPassword = firstNonBlank(
                 store.getNoonPartnerPwd(),
@@ -51,7 +72,7 @@ public class NoonSalesReportBindingResolver {
         requireText(siteCode, "当前店铺缺少 Noon siteCode，不能同步销量报表。");
         requireText(partnerId, "当前店铺缺少 Noon partnerId，不能同步销量报表。");
         requireText(noonUser, "当前店铺缺少 Noon 登录账号，不能同步销量报表。");
-        requireText(noonPassword, "当前店铺缺少 Noon 登录密码，不能同步销量报表。");
+        requireNoonLoginCredential(noonEmailAuthCode, noonPassword, configuredMerchantEmailLoginAvailable);
 
         return new NoonSalesReportBinding(
                 request.getOwnerUserId(),
@@ -62,6 +83,7 @@ public class NoonSalesReportBindingResolver {
                 partnerId,
                 noonUser,
                 noonPassword,
+                noonEmailAuthCode,
                 persistedCookie
         );
     }
@@ -132,6 +154,18 @@ public class NoonSalesReportBindingResolver {
     private static void requireText(String value, String message) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalStateException(message);
+        }
+    }
+
+    private static void requireNoonLoginCredential(
+            String noonEmailAuthCode,
+            String noonPassword,
+            boolean configuredMerchantEmailLoginAvailable
+    ) {
+        if (!StringUtils.hasText(noonEmailAuthCode)
+                && !configuredMerchantEmailLoginAvailable
+                && !StringUtils.hasText(noonPassword)) {
+            throw new IllegalStateException("当前店铺缺少 Noon 邮箱授权码或历史登录密码，不能同步销量报表。");
         }
     }
 }

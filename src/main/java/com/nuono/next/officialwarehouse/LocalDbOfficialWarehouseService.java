@@ -148,14 +148,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
-        NoonSession session = noonSessionGateway.login(
-                ownerUserId,
-                binding.getNoonUser(),
-                binding.getNoonPassword(),
-                binding.getPersistedCookie(),
-                binding.getProjectCode(),
-                binding.getStoreCode()
-        );
+        NoonSession session = openNoonSession(ownerUserId, binding);
 
         AsnListSyncView result = new AsnListSyncView();
         int page = 1;
@@ -215,14 +208,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
-        NoonSession session = noonSessionGateway.login(
-                ownerUserId,
-                binding.getNoonUser(),
-                binding.getNoonPassword(),
-                binding.getPersistedCookie(),
-                binding.getProjectCode(),
-                binding.getStoreCode()
-        );
+        NoonSession session = openNoonSession(ownerUserId, binding);
 
         AsnListSyncView result = new AsnListSyncView();
         for (String asnNumber : normalizeAsnNumbers(asnNumbers)) {
@@ -532,14 +518,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                     LocalDate.now()
             ));
             mapper.updateAsnBinding(asnId, binding.getProjectCode(), binding.getPartnerId(), access.getSessionUserId());
-            NoonSession session = noonSessionGateway.login(
-                    ownerUserId,
-                    binding.getNoonUser(),
-                    binding.getNoonPassword(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
+            NoonSession session = openNoonSession(ownerUserId, binding);
 
             NoonCallContext asnCallContext = NoonCallContext.asn(asnId, localAsnNo);
             JsonNode createResponse = noonInboundClient.createAsn(session, binding, asnCallContext, totalQuantity);
@@ -1123,14 +1102,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         AsnRecord asnRecord = mapper.selectAsn(ownerUserId, parseLongId(asn.id, "官方仓 ASN 不存在。"));
         AppointmentTask task = toAppointmentTask(asn, command);
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, asnRecord.logicalStoreId, asn.storeCode, asn.siteCode);
-        NoonSession session = noonSessionGateway.login(
-                ownerUserId,
-                binding.getNoonUser(),
-                binding.getNoonPassword(),
-                binding.getPersistedCookie(),
-                binding.getProjectCode(),
-                binding.getStoreCode()
-        );
+        NoonSession session = openNoonSession(ownerUserId, binding);
         return appointmentRunner.queryAvailability(
                         task,
                         noonInboundClient.appointmentClient(
@@ -1156,14 +1128,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         Long ownerUserId = requireOwnerUserId(access, asn.storeCode);
         AsnRecord asnRecord = mapper.selectAsn(ownerUserId, parseLongId(asn.id, "官方仓 ASN 不存在。"));
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, asnRecord.logicalStoreId, asn.storeCode, asn.siteCode);
-        NoonSession session = noonSessionGateway.login(
-                ownerUserId,
-                binding.getNoonUser(),
-                binding.getNoonPassword(),
-                binding.getPersistedCookie(),
-                binding.getProjectCode(),
-                binding.getStoreCode()
-        );
+        NoonSession session = openNoonSession(ownerUserId, binding);
         NoonCallContext context = NoonCallContext.asn(asnRecord.id, asnRecord.localAsnNo);
         List<String> partnerWarehouses = List.of();
         RuntimeException partnerWarehouseFailure = null;
@@ -1344,14 +1309,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         try {
             task = toAppointmentTask(appointment);
             NoonSalesReportBinding binding = resolveBinding(appointment);
-            NoonSession session = noonSessionGateway.login(
-                    appointment.ownerUserId,
-                    binding.getNoonUser(),
-                    binding.getNoonPassword(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
+            NoonSession session = openNoonSession(appointment.ownerUserId, binding);
             RunResult result = appointmentRunner.runOnce(
                     task,
                     noonInboundClient.appointmentClient(
@@ -1445,14 +1403,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         try {
             task = toAppointmentTask(appointment);
             NoonSalesReportBinding binding = resolveBinding(appointment);
-            NoonSession session = noonSessionGateway.login(
-                    appointment.ownerUserId,
-                    binding.getNoonUser(),
-                    binding.getNoonPassword(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
+            NoonSession session = openNoonSession(appointment.ownerUserId, binding);
             RunResult result = appointmentRunner.scheduleSelectedSlot(
                     task,
                     noonInboundClient.appointmentClient(
@@ -1663,6 +1614,35 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 LocalDate.now(),
                 LocalDate.now()
         ));
+    }
+
+    private NoonSession openNoonSession(Long ownerUserId, NoonSalesReportBinding binding) {
+        if (StringUtils.hasText(binding.getNoonEmailAuthCode())) {
+            return noonSessionGateway.loginWithEmailAuthCode(
+                    ownerUserId,
+                    binding.getNoonUser(),
+                    binding.getNoonEmailAuthCode(),
+                    binding.getPersistedCookie(),
+                    binding.getProjectCode(),
+                    binding.getStoreCode()
+            );
+        }
+        if (noonSessionGateway.hasConfiguredMerchantEmailLogin()) {
+            return noonSessionGateway.loginWithConfiguredEmailAuthCode(
+                    ownerUserId,
+                    binding.getPersistedCookie(),
+                    binding.getProjectCode(),
+                    binding.getStoreCode()
+            );
+        }
+        return noonSessionGateway.login(
+                ownerUserId,
+                binding.getNoonUser(),
+                binding.getNoonPassword(),
+                binding.getPersistedCookie(),
+                binding.getProjectCode(),
+                binding.getStoreCode()
+        );
     }
 
     private String resolveNoonUser(AsnRecord row) {

@@ -240,17 +240,27 @@ class ProductSiteOfferFetcherTest {
                     "",
                     "",
                     "",
+                    "",
                     false,
                     "",
                     "",
                     0,
                     ""
             );
-            Constructor<?> constructor = NoonSession.class.getDeclaredConstructors()[0];
+            Constructor<?> constructor = legacyNoonSessionConstructor();
             constructor.setAccessible(true);
             return (NoonSession) constructor.newInstance(gateway, 10001L, "tester", "password", null, "PRJ108065", storeCode);
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("无法创建测试 NoonSession", exception);
         }
+    }
+
+    private Constructor<?> legacyNoonSessionConstructor() {
+        for (Constructor<?> constructor : NoonSession.class.getDeclaredConstructors()) {
+            if (constructor.getParameterCount() == 7) {
+                return constructor;
+            }
+        }
+        throw new IllegalStateException("未找到测试 NoonSession 构造器");
     }
 }

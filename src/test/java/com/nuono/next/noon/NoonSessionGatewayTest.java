@@ -1,6 +1,7 @@
 package com.nuono.next.noon;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -53,6 +54,17 @@ class NoonSessionGatewayTest {
                 () -> NoonSessionGateway.extractPartnerIdentityUser(root)
         );
         assertTrue(exception.getMessage().contains("密码登录"));
+    }
+
+    @Test
+    void shouldParsePartnerIdentityLookupEmailOtpChannel() throws Exception {
+        JsonNode root = objectMapper.readTree(
+                "[{\"userCode\":\"prd-user@idp.noon.partners\",\"channels\":[{\"channelCode\":\"emailotp\"}]}]"
+        );
+
+        NoonSessionGateway.PartnerIdentityUser user = NoonSessionGateway.extractPartnerIdentityEmailOtpUser(root);
+
+        assertEquals("prd-user@idp.noon.partners", user.getUserCode());
     }
 
     @Test
@@ -180,6 +192,107 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldReturnProjectChoicesWithoutCreatingSessionWhenMerchantLoginHasMultipleProjects() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":["
+                        + "{\"projectCode\":\"PRJ7001\",\"projectName\":\"新店铺\",\"orgCode\":\"ORG7001\",\"orgName\":\"新组织\"},"
+                        + "{\"projectCode\":\"PRJ8001\",\"projectName\":\"另一个店铺\",\"orgCode\":\"ORG8001\",\"orgName\":\"另一个组织\"}"
+                        + "]}",
+                "sid=new; Path=/"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+
+            NoonSessionGateway.MerchantAuthorization result = gateway.authorizeMerchantLogin(
+                    10001L,
+                    "merchant@example.com",
+                    "password",
+                    null,
+                    null
+            );
+
+            assertFalse(result.isSuccess());
+            assertTrue(result.isProjectSelectionRequired());
+            assertEquals(2, result.getProjectList().size());
+            assertEquals("PRJ7001", result.getProjectList().get(0).getProjectCode());
+            assertEquals("ORG7001", result.getProjectList().get(0).getOrgCode());
+            assertEquals(0, server.sessionCreateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
+    void shouldCreateMerchantSessionForSelectedProjectAndPersistCookie() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":["
+                        + "{\"projectCode\":\"PRJ7001\",\"projectName\":\"新店铺\",\"orgCode\":\"ORG7001\",\"orgName\":\"新组织\"},"
+                        + "{\"projectCode\":\"PRJ8001\",\"projectName\":\"另一个店铺\",\"orgCode\":\"ORG8001\",\"orgName\":\"另一个组织\"}"
+                        + "]}",
+                "sid=selected; Path=/"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+
+            NoonSessionGateway.MerchantAuthorization result = gateway.authorizeMerchantLogin(
+                    10001L,
+                    "merchant@example.com",
+                    "password",
+                    "PRJ8001",
+                    "STR8001-NAE"
+            );
+
+            assertTrue(result.isSuccess());
+            assertEquals("PRJ8001", result.getSelectedProject().getProjectCode());
+            assertTrue(result.getCookie().contains("sid=selected"));
+            assertEquals(1, server.sessionCreateCount());
+            verify(mapper).updateProjectSessionCookie(
+                    eq(10001L),
+                    eq("PRJ8001"),
+                    argThat(cookie -> cookie != null && cookie.contains("sid=selected")),
+                    eq(10001L)
+            );
+        }
+    }
+
+    @Test
+    void shouldCreateMerchantEmailOtpSessionForSelectedProjectAndPersistCookie() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":[{\"projectCode\":\"PRJ7001\",\"projectName\":\"新店铺\",\"orgCode\":\"ORG7001\",\"orgName\":\"新组织\"}]}",
+                "sid=email-otp; Path=/"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setEmailOtpReader((email, mailAuthCode) -> {
+                assertEquals("merchant@example.com", email);
+                assertEquals("imap-secret", mailAuthCode);
+                return "654321";
+            });
+
+            NoonSessionGateway.MerchantAuthorization result = gateway.authorizeMerchantEmailLogin(
+                    10001L,
+                    "merchant@example.com",
+                    "imap-secret",
+                    "PRJ7001",
+                    "STR7001-NAE"
+            );
+
+            assertTrue(result.isSuccess());
+            assertEquals("PRJ7001", result.getSelectedProject().getProjectCode());
+            assertTrue(result.getCookie().contains("sid=email-otp"));
+            assertEquals(1, server.generateCount());
+            assertEquals("emailotp", server.lastValidateBody().path("channel_code").asText());
+            assertEquals("merchant@example.com", server.lastValidateBody().path("channel_identifier").asText());
+            assertEquals("654321", server.lastValidateBody().path("channel_credential").asText());
+            verify(mapper).updateProjectSessionCookie(
+                    eq(10001L),
+                    eq("PRJ7001"),
+                    argThat(cookie -> cookie != null && cookie.contains("sid=email-otp")),
+                    eq(10001L)
+            );
+        }
+    }
+
+    @Test
     void shouldSkipPersistingCookieWhenProjectCodeIsMissing() {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         NoonSessionGateway gateway = gateway(mapper, "");
@@ -213,6 +326,7 @@ class NoonSessionGatewayTest {
                 "",
                 "",
                 "",
+                "",
                 true,
                 "HTTP",
                 "",
@@ -236,6 +350,7 @@ class NoonSessionGatewayTest {
                 true,
                 "http://noon.test/signin",
                 "http://noon.test/whoami",
+                "",
                 "",
                 "",
                 "",
@@ -266,6 +381,7 @@ class NoonSessionGatewayTest {
                 server.url("/whoami"),
                 server.url("/lookup"),
                 server.url("/pkce"),
+                server.url("/generate"),
                 server.url("/validate"),
                 server.url("/projects"),
                 server.url("/session-create"),
@@ -279,8 +395,19 @@ class NoonSessionGatewayTest {
 
     private static final class AuthRefreshServer implements AutoCloseable {
         private final HttpServer server;
+        private final String projectsBody;
+        private final String sessionCookie;
+        private final AtomicInteger sessionCreateCount = new AtomicInteger();
+        private final AtomicInteger generateCount = new AtomicInteger();
+        private volatile JsonNode lastValidateBody;
 
         private AuthRefreshServer() throws IOException {
+            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/");
+        }
+
+        private AuthRefreshServer(String projectsBody, String sessionCookie) throws IOException {
+            this.projectsBody = projectsBody;
+            this.sessionCookie = sessionCookie;
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
             server.createContext("/", (exchange) -> {
                 String path = exchange.getRequestURI().getPath();
@@ -301,7 +428,7 @@ class NoonSessionGatewayTest {
                     sendJson(
                             exchange,
                             200,
-                            "[{\"userCode\":\"merchant@example.com\",\"channels\":[{\"channelCode\":\"password\"}]}]",
+                            "[{\"userCode\":\"merchant@example.com\",\"channels\":[{\"channelCode\":\"password\"},{\"channelCode\":\"emailotp\"}]}]",
                             null
                     );
                     return;
@@ -311,15 +438,22 @@ class NoonSessionGatewayTest {
                     return;
                 }
                 if ("/validate".equals(path)) {
+                    lastValidateBody = new ObjectMapper().readTree(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
                     sendJson(exchange, 200, "{\"success\":true,\"access_token\":\"token-1\"}", null);
                     return;
                 }
+                if ("/generate".equals(path)) {
+                    generateCount.incrementAndGet();
+                    sendJson(exchange, 200, "{\"emailotp\":\"ok\"}", null);
+                    return;
+                }
                 if ("/projects".equals(path)) {
-                    sendJson(exchange, 200, "{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", null);
+                    sendJson(exchange, 200, this.projectsBody, null);
                     return;
                 }
                 if ("/session-create".equals(path)) {
-                    sendJson(exchange, 200, "{\"success\":true}", "sid=new; Path=/");
+                    sessionCreateCount.incrementAndGet();
+                    sendJson(exchange, 200, "{\"success\":true}", this.sessionCookie);
                     return;
                 }
                 sendJson(exchange, 404, "{\"message\":\"not found\"}", null);
@@ -329,6 +463,18 @@ class NoonSessionGatewayTest {
 
         private String url(String path) {
             return "http://127.0.0.1:" + server.getAddress().getPort() + path;
+        }
+
+        private int sessionCreateCount() {
+            return sessionCreateCount.get();
+        }
+
+        private int generateCount() {
+            return generateCount.get();
+        }
+
+        private JsonNode lastValidateBody() {
+            return lastValidateBody == null ? new ObjectMapper().createObjectNode() : lastValidateBody;
         }
 
         @Override

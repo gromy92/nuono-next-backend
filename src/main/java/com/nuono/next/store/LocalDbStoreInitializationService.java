@@ -139,18 +139,25 @@ public class LocalDbStoreInitializationService {
 
         String noonUser = resolveNoonUser(context);
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
+        String noonEmailAuthCode = resolveNoonEmailAuthCode(context);
         String noonPassword = firstNonBlank(
                 normalize(command.getNoonPassword()),
                 resolveNoonPassword(context)
         );
-        requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
+        requireNoonLoginCredential(noonEmailAuthCode, noonPassword, "当前店铺还没有 Noon 邮箱授权码或历史登录密码，请先完成店铺绑定。");
 
         InitializationState state = new InitializationState(buildIdleView(context));
         state.markRunning("开始初始化", 5, 1, 8, "正在识别项目和站点结构...");
         stateMap.put(key, state);
         persistSnapshot(command.getOwnerUserId(), storeCode, state.snapshot());
 
-        noonAccountTaskQueue.submit(noonUser, () -> runInitialization(state, context, noonUser, noonPassword));
+        noonAccountTaskQueue.submit(noonUser, () -> runInitialization(
+                state,
+                context,
+                noonUser,
+                noonEmailAuthCode,
+                noonPassword
+        ));
         return state.snapshot();
     }
 
@@ -170,11 +177,12 @@ public class LocalDbStoreInitializationService {
         StoreContext context = resolveContext(command.getOwnerUserId(), storeCode);
         String noonUser = resolveNoonUser(context);
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
+        String noonEmailAuthCode = resolveNoonEmailAuthCode(context);
         String noonPassword = firstNonBlank(
                 normalize(command.getNoonPassword()),
                 resolveNoonPassword(context)
         );
-        requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
+        requireNoonLoginCredential(noonEmailAuthCode, noonPassword, "当前店铺还没有 Noon 邮箱授权码或历史登录密码，请先完成店铺绑定。");
 
         String localProjectCode = firstNonBlank(context.referenceStore.getProjectCode(), context.owner.getNoonPartnerId());
         requireText(localProjectCode, "当前店铺缺少 Noon projectCode，暂时无法执行初始化预检。");
@@ -182,9 +190,10 @@ public class LocalDbStoreInitializationService {
         StoreInitializationPreflightView view = buildPreflightView(context, localProjectCode);
         NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
         try {
-            NoonSession session = noonSessionGateway.login(
-                    null,
+            NoonSession session = openInitializationNoonSession(
+                    requestOwnerId(context),
                     noonUser,
+                    noonEmailAuthCode,
                     noonPassword,
                     resolveNoonCookie(context),
                     localProjectCode,
@@ -223,6 +232,7 @@ public class LocalDbStoreInitializationService {
             InitializationState state,
             StoreContext context,
             String noonUser,
+            String noonEmailAuthCode,
             String noonPassword
     ) {
         NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
@@ -230,9 +240,10 @@ public class LocalDbStoreInitializationService {
             String localProjectCode = firstNonBlank(context.referenceStore.getProjectCode(), context.owner.getNoonPartnerId());
             requireText(localProjectCode, "当前店铺缺少 Noon projectCode，暂时无法初始化。");
 
-            NoonSession session = noonSessionGateway.login(
+            NoonSession session = openInitializationNoonSession(
                     context.owner.getId(),
                     noonUser,
+                    noonEmailAuthCode,
                     noonPassword,
                     resolveNoonCookie(context),
                     localProjectCode,
@@ -1607,10 +1618,19 @@ public class LocalDbStoreInitializationService {
         StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
         StoreSyncOwnerContext owner = context == null ? null : context.owner;
         return firstNonBlank(
-                referenceStore == null ? null : referenceStore.getNoonPartnerProjectUser(),
                 referenceStore == null ? null : referenceStore.getNoonPartnerUser(),
-                owner == null ? null : owner.getNoonPartnerProjectUser(),
-                owner == null ? null : owner.getNoonPartnerUser()
+                referenceStore == null ? null : referenceStore.getNoonPartnerProjectUser(),
+                owner == null ? null : owner.getNoonPartnerUser(),
+                owner == null ? null : owner.getNoonPartnerProjectUser()
+        );
+    }
+
+    private String resolveNoonEmailAuthCode(StoreContext context) {
+        StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
+        StoreSyncOwnerContext owner = context == null ? null : context.owner;
+        return firstNonBlank(
+                referenceStore == null ? null : referenceStore.getNoonPartnerMailAuthCode(),
+                owner == null ? null : owner.getNoonPartnerMailAuthCode()
         );
     }
 
@@ -1630,6 +1650,56 @@ public class LocalDbStoreInitializationService {
                 referenceStore == null ? null : referenceStore.getNoonPartnerCookie(),
                 owner == null ? null : owner.getNoonPartnerCookie()
         );
+    }
+
+    private NoonSession openInitializationNoonSession(
+            Long ownerUserId,
+            String noonUser,
+            String noonEmailAuthCode,
+            String noonPassword,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        if (StringUtils.hasText(noonEmailAuthCode)) {
+            return noonSessionGateway.loginWithEmailAuthCode(
+                    ownerUserId,
+                    noonUser,
+                    noonEmailAuthCode,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+        }
+        if (noonSessionGateway.hasConfiguredMerchantEmailLogin()) {
+            return noonSessionGateway.loginWithConfiguredEmailAuthCode(
+                    ownerUserId,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+        }
+        requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
+        return noonSessionGateway.login(
+                ownerUserId,
+                noonUser,
+                noonPassword,
+                persistedCookie,
+                projectCode,
+                storeCode
+        );
+    }
+
+    private void requireNoonLoginCredential(String noonEmailAuthCode, String noonPassword, String message) {
+        if (!StringUtils.hasText(noonEmailAuthCode)
+                && !noonSessionGateway.hasConfiguredMerchantEmailLogin()
+                && !StringUtils.hasText(noonPassword)) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
+    private Long requestOwnerId(StoreContext context) {
+        return context == null || context.owner == null ? null : context.owner.getId();
     }
 
     private String resolveImageUrl(String rawImagePath) {

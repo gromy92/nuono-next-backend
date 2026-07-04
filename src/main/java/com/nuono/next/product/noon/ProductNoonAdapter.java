@@ -43,6 +43,50 @@ public class ProductNoonAdapter {
         }
     }
 
+    public NoonSession loginWithEmailAuthCode(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        try {
+            return noonSessionGateway.loginWithEmailAuthCode(
+                    ownerUserId,
+                    noonEmail,
+                    mailAuthCode,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+        } catch (RuntimeException exception) {
+            throw noonProductGateway.toException(exception);
+        }
+    }
+
+    public NoonSession loginWithConfiguredEmailAuthCode(
+            Long ownerUserId,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        try {
+            return noonSessionGateway.loginWithConfiguredEmailAuthCode(
+                    ownerUserId,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+        } catch (RuntimeException exception) {
+            throw noonProductGateway.toException(exception);
+        }
+    }
+
+    public boolean hasConfiguredMerchantEmailLogin() {
+        return noonSessionGateway.hasConfiguredMerchantEmailLogin();
+    }
+
     public NoonSessionGateway.RequestCountScope openRequestCountScope() {
         return noonSessionGateway.openRequestCountScope();
     }

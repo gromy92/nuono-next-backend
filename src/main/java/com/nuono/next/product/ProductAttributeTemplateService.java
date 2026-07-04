@@ -255,10 +255,14 @@ public class ProductAttributeTemplateService {
             StoreSyncStoreRecord store = storeSyncMapper.selectOwnerStore(candidate.getOwnerUserId(), candidate.getStoreCode());
             StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(candidate.getOwnerUserId());
             String noonUser = firstNonBlank(
-                    store != null ? store.getNoonPartnerProjectUser() : null,
                     store != null ? store.getNoonPartnerUser() : null,
-                    owner != null ? owner.getNoonPartnerProjectUser() : null,
-                    owner != null ? owner.getNoonPartnerUser() : null
+                    store != null ? store.getNoonPartnerProjectUser() : null,
+                    owner != null ? owner.getNoonPartnerUser() : null,
+                    owner != null ? owner.getNoonPartnerProjectUser() : null
+            );
+            String noonEmailAuthCode = firstNonBlank(
+                    store != null ? store.getNoonPartnerMailAuthCode() : null,
+                    owner != null ? owner.getNoonPartnerMailAuthCode() : null
             );
             String noonPassword = firstNonBlank(
                     store != null ? store.getNoonPartnerPwd() : null,
@@ -268,7 +272,23 @@ public class ProductAttributeTemplateService {
                     store != null ? store.getNoonPartnerCookie() : null,
                     owner != null ? owner.getNoonPartnerCookie() : null
             );
-            NoonSession session = productNoonAdapter.login(
+            NoonSession session = StringUtils.hasText(noonEmailAuthCode)
+                    ? productNoonAdapter.loginWithEmailAuthCode(
+                    candidate.getOwnerUserId(),
+                    noonUser,
+                    noonEmailAuthCode,
+                    cookie,
+                    candidate.getProjectCode(),
+                    candidate.getStoreCode()
+            )
+                    : productNoonAdapter.hasConfiguredMerchantEmailLogin()
+                    ? productNoonAdapter.loginWithConfiguredEmailAuthCode(
+                    candidate.getOwnerUserId(),
+                    cookie,
+                    candidate.getProjectCode(),
+                    candidate.getStoreCode()
+            )
+                    : productNoonAdapter.login(
                     candidate.getOwnerUserId(),
                     noonUser,
                     noonPassword,

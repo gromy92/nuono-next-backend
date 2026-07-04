@@ -20,16 +20,13 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthController {
 
     private final ObjectProvider<LocalDbAuthService> localDbAuthServiceProvider;
-    private final ObjectProvider<AuthEmailCodeService> emailCodeServiceProvider;
     private final AuthSessionTokenService sessionTokenService;
 
     public AuthController(
             ObjectProvider<LocalDbAuthService> localDbAuthServiceProvider,
-            ObjectProvider<AuthEmailCodeService> emailCodeServiceProvider,
             AuthSessionTokenService sessionTokenService
     ) {
         this.localDbAuthServiceProvider = localDbAuthServiceProvider;
-        this.emailCodeServiceProvider = emailCodeServiceProvider;
         this.sessionTokenService = sessionTokenService;
     }
 
@@ -39,25 +36,22 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
-        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "账号密码登录已关闭，请使用邮箱验证码登录。");
+        LocalDbAuthService authService = localDbAuthServiceProvider.getIfAvailable();
+        if (authService == null) {
+            throw new IllegalStateException("当前仍在无数据库骨架模式，不能执行本地样本登录。");
+        }
+
+        try {
+            AuthLoginResult result = authService.login(command);
+            return issueSession(result, request, response);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
     }
 
     @PostMapping("/email-code/request")
     public Map<String, Object> requestEmailCode(@RequestBody AuthEmailCodeRequestCommand command) {
-        AuthEmailCodeService emailCodeService = emailCodeServiceProvider.getIfAvailable();
-        if (emailCodeService == null) {
-            throw new IllegalStateException("当前仍在无数据库骨架模式，不能发送邮箱验证码。");
-        }
-
-        try {
-            emailCodeService.requestLoginCode(command);
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("success", true);
-            payload.put("message", "验证码已发送");
-            return payload;
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        }
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "邮箱验证码登录不用于诺诺管家入口，请使用账号密码登录。");
     }
 
     @PostMapping("/email-code/login")
@@ -66,17 +60,7 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
-        AuthEmailCodeService emailCodeService = emailCodeServiceProvider.getIfAvailable();
-        if (emailCodeService == null) {
-            throw new IllegalStateException("当前仍在无数据库骨架模式，不能执行邮箱验证码登录。");
-        }
-
-        try {
-            AuthLoginResult result = emailCodeService.login(command);
-            return issueSession(result, request, response);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        }
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "邮箱验证码登录不用于诺诺管家入口，请使用账号密码登录。");
     }
 
     @PostMapping("/change-password")
