@@ -3,6 +3,7 @@ package com.nuono.next.auth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -27,7 +28,13 @@ class AuthControllerTest {
     private ObjectProvider<LocalDbAuthService> authServiceProvider;
 
     @Mock
+    private ObjectProvider<AuthEmailCodeService> emailCodeServiceProvider;
+
+    @Mock
     private LocalDbAuthService authService;
+
+    @Mock
+    private AuthEmailCodeService emailCodeService;
 
     @Mock
     private AuthSessionTokenService sessionTokenService;
@@ -36,27 +43,56 @@ class AuthControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AuthController(authServiceProvider, sessionTokenService);
+        controller = new AuthController(authServiceProvider, emailCodeServiceProvider, sessionTokenService);
     }
 
     @Test
-    void shouldSetSessionCookieAfterLogin() {
+    void shouldClosePasswordLoginEndpoint() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
         AuthLoginCommand command = new AuthLoginCommand();
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.login(command, request, response)
+        );
+
+        assertEquals(HttpStatus.NOT_FOUND, error.getStatus());
+        assertEquals("账号密码登录已关闭，请使用邮箱验证码登录。", error.getReason());
+        verify(authServiceProvider, never()).getIfAvailable();
+    }
+
+    @Test
+    void shouldRequestEmailCode() {
+        AuthEmailCodeRequestCommand command = new AuthEmailCodeRequestCommand();
+        command.setEmail("login@example.com");
+        when(emailCodeServiceProvider.getIfAvailable()).thenReturn(emailCodeService);
+
+        Map<String, Object> payload = controller.requestEmailCode(command);
+
+        assertEquals(Boolean.TRUE, payload.get("success"));
+        assertEquals("验证码已发送", payload.get("message"));
+        verify(emailCodeService).requestLoginCode(command);
+    }
+
+    @Test
+    void shouldSetSessionCookieAfterEmailCodeLogin() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AuthEmailCodeLoginCommand command = new AuthEmailCodeLoginCommand();
         AuthLoginResult login = new AuthLoginResult();
         login.setUserId(10001L);
 
-        when(authServiceProvider.getIfAvailable()).thenReturn(authService);
-        when(authService.login(command)).thenReturn(login);
-        when(sessionTokenService.issue(login)).thenReturn("signed-token");
+        when(emailCodeServiceProvider.getIfAvailable()).thenReturn(emailCodeService);
+        when(emailCodeService.login(command)).thenReturn(login);
+        when(sessionTokenService.issue(login)).thenReturn("signed-email-token");
         when(sessionTokenService.getTtlSeconds()).thenReturn(600L);
 
-        Map<String, Object> payload = controller.login(command, request, response);
+        Map<String, Object> payload = controller.loginWithEmailCode(command, request, response);
 
         assertEquals(Boolean.TRUE, payload.get("success"));
         assertEquals(login, payload.get("session"));
-        assertTrue(response.getHeader(HttpHeaders.SET_COOKIE).contains(AuthSessionTokenService.COOKIE_NAME + "=signed-token"));
+        assertTrue(response.getHeader(HttpHeaders.SET_COOKIE).contains(AuthSessionTokenService.COOKIE_NAME + "=signed-email-token"));
     }
 
     @Test

@@ -22,6 +22,21 @@ nuono:
   auth:
     session-secret: ${NUONO_NEXT_AUTH_SESSION_SECRET:}
     session-ttl-seconds: ${NUONO_NEXT_AUTH_SESSION_TTL_SECONDS:28800}
+    email-code:
+      allowed-email: ${NUONO_AUTH_EMAIL_CODE_ALLOWED_EMAIL:}
+      login-account-no: ${NUONO_AUTH_EMAIL_CODE_LOGIN_ACCOUNT_NO:}
+      ttl-seconds: ${NUONO_AUTH_EMAIL_CODE_TTL_SECONDS:300}
+      cooldown-seconds: ${NUONO_AUTH_EMAIL_CODE_COOLDOWN_SECONDS:60}
+      max-attempts: ${NUONO_AUTH_EMAIL_CODE_MAX_ATTEMPTS:5}
+      code-length: ${NUONO_AUTH_EMAIL_CODE_LENGTH:6}
+      subject: ${NUONO_AUTH_EMAIL_CODE_SUBJECT:Nuono 登录验证码}
+      smtp:
+        port: ${NUONO_AUTH_EMAIL_CODE_SMTP_PORT:465}
+        ssl-enabled: ${NUONO_AUTH_EMAIL_CODE_SMTP_SSL_ENABLED:true}
+        starttls-enabled: ${NUONO_AUTH_EMAIL_CODE_SMTP_STARTTLS_ENABLED:false}
+        connection-timeout-ms: ${NUONO_AUTH_EMAIL_CODE_SMTP_CONNECTION_TIMEOUT_MS:10000}
+        timeout-ms: ${NUONO_AUTH_EMAIL_CODE_SMTP_TIMEOUT_MS:10000}
+        write-timeout-ms: ${NUONO_AUTH_EMAIL_CODE_SMTP_WRITE_TIMEOUT_MS:10000}
     api-protection:
       enabled: ${NUONO_NEXT_AUTH_API_PROTECTION_ENABLED:true}
   ai:

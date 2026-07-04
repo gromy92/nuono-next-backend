@@ -35,6 +35,23 @@ public class LocalDbAuthService {
                 && !LegacyPasswordCodec.matchesStoredPassword(command.getPassword(), account.getStoredPassword())) {
             throw new IllegalArgumentException("账号或密码不正确。");
         }
+        return buildLoginResult(account);
+    }
+
+    public AuthLoginResult loginByEmailCode(String email, String loginAccountNo) {
+        AuthLoginAccount account;
+        if (StringUtils.hasText(loginAccountNo)) {
+            account = authMapper.selectLoginAccount(loginAccountNo.trim());
+        } else {
+            account = authMapper.selectLoginAccountByEmail(email);
+        }
+        if (account == null) {
+            throw new IllegalArgumentException("当前邮箱没有可登录账号。");
+        }
+        return buildLoginResult(account);
+    }
+
+    private AuthLoginResult buildLoginResult(AuthLoginAccount account) {
         if (!isWithinEffectiveWindow(account)) {
             throw new IllegalArgumentException("当前账号未在有效期内，暂时不能登录。");
         }

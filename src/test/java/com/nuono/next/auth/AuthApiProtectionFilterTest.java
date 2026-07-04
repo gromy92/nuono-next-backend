@@ -47,6 +47,20 @@ class AuthApiProtectionFilterTest {
     }
 
     @Test
+    void shouldAllowEmailCodeAuthEndpointsWithoutSession() throws ServletException, IOException {
+        for (String path : new String[] {"/api/auth/email-code/request", "/api/auth/email-code/login"}) {
+            MockHttpServletRequest request = request("POST", path);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            AtomicBoolean called = new AtomicBoolean(false);
+
+            filter.doFilter(request, response, chain(called));
+
+            assertTrue(called.get(), path);
+            assertEquals(200, response.getStatus(), path);
+        }
+    }
+
+    @Test
     void shouldAllowPluginAuthEndpointsWithoutSession() throws ServletException, IOException {
         for (String path : new String[] {"/api/plugin/auth/login", "/api/plugin/auth/logout"}) {
             MockHttpServletRequest request = request("POST", path);

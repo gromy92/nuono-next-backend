@@ -20,13 +20,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthController {
 
     private final ObjectProvider<LocalDbAuthService> localDbAuthServiceProvider;
+    private final ObjectProvider<AuthEmailCodeService> emailCodeServiceProvider;
     private final AuthSessionTokenService sessionTokenService;
 
     public AuthController(
             ObjectProvider<LocalDbAuthService> localDbAuthServiceProvider,
+            ObjectProvider<AuthEmailCodeService> emailCodeServiceProvider,
             AuthSessionTokenService sessionTokenService
     ) {
         this.localDbAuthServiceProvider = localDbAuthServiceProvider;
+        this.emailCodeServiceProvider = emailCodeServiceProvider;
         this.sessionTokenService = sessionTokenService;
     }
 
@@ -36,19 +39,41 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
-        LocalDbAuthService authService = localDbAuthServiceProvider.getIfAvailable();
-        if (authService == null) {
-            throw new IllegalStateException("当前仍在无数据库骨架模式，不能执行本地样本登录。");
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "账号密码登录已关闭，请使用邮箱验证码登录。");
+    }
+
+    @PostMapping("/email-code/request")
+    public Map<String, Object> requestEmailCode(@RequestBody AuthEmailCodeRequestCommand command) {
+        AuthEmailCodeService emailCodeService = emailCodeServiceProvider.getIfAvailable();
+        if (emailCodeService == null) {
+            throw new IllegalStateException("当前仍在无数据库骨架模式，不能发送邮箱验证码。");
         }
 
         try {
-            AuthLoginResult result = authService.login(command);
-            String token = sessionTokenService.issue(result);
-            response.addHeader(HttpHeaders.SET_COOKIE, createSessionCookie(token, request).toString());
+            emailCodeService.requestLoginCode(command);
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("success", true);
-            payload.put("session", result);
+            payload.put("message", "验证码已发送");
             return payload;
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/email-code/login")
+    public Map<String, Object> loginWithEmailCode(
+            @RequestBody AuthEmailCodeLoginCommand command,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        AuthEmailCodeService emailCodeService = emailCodeServiceProvider.getIfAvailable();
+        if (emailCodeService == null) {
+            throw new IllegalStateException("当前仍在无数据库骨架模式，不能执行邮箱验证码登录。");
+        }
+
+        try {
+            AuthLoginResult result = emailCodeService.login(command);
+            return issueSession(result, request, response);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         }
@@ -110,5 +135,18 @@ public class AuthController {
                 .path("/")
                 .maxAge(0)
                 .build();
+    }
+
+    private Map<String, Object> issueSession(
+            AuthLoginResult result,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        String token = sessionTokenService.issue(result);
+        response.addHeader(HttpHeaders.SET_COOKIE, createSessionCookie(token, request).toString());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("success", true);
+        payload.put("session", result);
+        return payload;
     }
 }

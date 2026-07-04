@@ -11,6 +11,8 @@ public class AuthApiProtectionProperties {
 
     private List<String> publicPaths = new ArrayList<>(List.of(
             "/api/auth/login",
+            "/api/auth/email-code/request",
+            "/api/auth/email-code/login",
             "/api/auth/logout",
             "/api/auth/sample-accounts",
             "/api/plugin/auth/login",
