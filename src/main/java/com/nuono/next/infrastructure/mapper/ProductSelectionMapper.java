@@ -3,6 +3,7 @@ package com.nuono.next.infrastructure.mapper;
 import com.nuono.next.productselection.ProductSelectionSourceCollectionRow;
 import com.nuono.next.productselection.ProductSelectionStoreScope;
 import com.nuono.next.productselection.ProductSelectionUserContext;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -455,12 +456,14 @@ public interface ProductSelectionMapper {
             "  source.failure_code,",
             "  source.failure_message,",
             "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  DATE_FORMAT(source.next_run_at, '%Y-%m-%d %H:%i') AS next_run_at,",
             "  source.created_by,",
             "  source.updated_by",
             "FROM product_selection_source_collection source",
             "WHERE source.status = 'running'",
             "  AND source.source_type = 'marketplace-url'",
             "  AND source.is_deleted = b'0'",
+            "  AND (source.next_run_at IS NULL OR source.next_run_at <= NOW())",
             "  AND (source.locked_at IS NULL OR source.locked_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE))",
             "ORDER BY source.collected_at ASC, source.id ASC",
             "LIMIT #{limit}"
@@ -477,6 +480,7 @@ public interface ProductSelectionMapper {
             "  AND status = 'running'",
             "  AND source_type = 'marketplace-url'",
             "  AND is_deleted = b'0'",
+            "  AND (next_run_at IS NULL OR next_run_at <= NOW())",
             "  AND (locked_at IS NULL OR locked_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE))"
     })
     int claimSourceCollection(
@@ -518,6 +522,7 @@ public interface ProductSelectionMapper {
             "  source.failure_code,",
             "  source.failure_message,",
             "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  DATE_FORMAT(source.next_run_at, '%Y-%m-%d %H:%i') AS next_run_at,",
             "  source.created_by,",
             "  source.updated_by,",
             "  COALESCE(NULLIF(TRIM(operator.real_name), ''), operator.account_no, '') AS created_by_name,",
@@ -567,6 +572,7 @@ public interface ProductSelectionMapper {
             "    failure_message = NULL,",
             "    locked_at = NULL,",
             "    locked_by = NULL,",
+            "    next_run_at = NULL,",
             "    collected_at = NOW(),",
             "    updated_by = #{row.updatedBy},",
             "    gmt_updated = NOW()",
@@ -587,6 +593,7 @@ public interface ProductSelectionMapper {
             "    failure_message = #{failureMessage},",
             "    locked_at = NULL,",
             "    locked_by = NULL,",
+            "    next_run_at = NULL,",
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE id = #{id}",
@@ -604,12 +611,36 @@ public interface ProductSelectionMapper {
 
     @Update({
             "UPDATE product_selection_source_collection",
+            "SET failure_code = #{failureCode},",
+            "    failure_message = #{failureMessage},",
+            "    locked_at = NULL,",
+            "    locked_by = NULL,",
+            "    next_run_at = #{nextRunAt},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND status = 'running'",
+            "  AND locked_by = #{lockedBy}",
+            "  AND is_deleted = b'0'"
+    })
+    int markSourceCollectionRiskBackoff(
+            @Param("id") Long id,
+            @Param("failureCode") String failureCode,
+            @Param("failureMessage") String failureMessage,
+            @Param("updatedBy") Long updatedBy,
+            @Param("lockedBy") String lockedBy,
+            @Param("nextRunAt") LocalDateTime nextRunAt
+    );
+
+    @Update({
+            "UPDATE product_selection_source_collection",
             "SET status = 'running',",
             "    failure_code = NULL,",
             "    failure_message = NULL,",
             "    locked_at = NULL,",
             "    locked_by = NULL,",
             "    attempt_count = 0,",
+            "    next_run_at = NULL,",
             "    collected_at = NOW(),",
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",

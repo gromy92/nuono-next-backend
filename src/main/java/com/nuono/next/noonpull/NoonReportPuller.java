@@ -4,6 +4,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Optional;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -13,9 +16,36 @@ public class NoonReportPuller {
     private static final Duration EMPTY_CONFIRMATION_POLL_DELAY = Duration.ofHours(6);
 
     private final NoonPullFoundationService foundationService;
+    private final NoonRiskBackoffGuard riskBackoffGuard;
+    private final NoonPullFailurePolicy failurePolicy;
+
+    @Autowired
+    public NoonReportPuller(
+            NoonPullFoundationService foundationService,
+            ObjectProvider<NoonRiskBackoffGuard> riskBackoffGuard,
+            ObjectProvider<NoonPullFailurePolicy> failurePolicy
+    ) {
+        this(
+                foundationService,
+                riskBackoffGuard == null
+                        ? NoonRiskBackoffGuard.disabled()
+                        : riskBackoffGuard.getIfAvailable(NoonRiskBackoffGuard::disabled),
+                failurePolicy == null ? new NoonPullFailurePolicy() : failurePolicy.getIfAvailable(NoonPullFailurePolicy::new)
+        );
+    }
 
     public NoonReportPuller(NoonPullFoundationService foundationService) {
+        this(foundationService, NoonRiskBackoffGuard.disabled(), new NoonPullFailurePolicy());
+    }
+
+    NoonReportPuller(
+            NoonPullFoundationService foundationService,
+            NoonRiskBackoffGuard riskBackoffGuard,
+            NoonPullFailurePolicy failurePolicy
+    ) {
         this.foundationService = foundationService;
+        this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
+        this.failurePolicy = failurePolicy == null ? new NoonPullFailurePolicy() : failurePolicy;
     }
 
     public NoonReportPullResult execute(
@@ -26,6 +56,16 @@ public class NoonReportPuller {
     ) {
         NoonPullTaskRecord task = foundationService.markRunning(taskId, "noon-report-puller");
         NoonReportPullResult result = new NoonReportPullResult();
+        Optional<NoonRiskBackoffHold> activeHold = riskBackoffGuard.currentHold(NoonRiskBackoffScope.report(request));
+        if (activeHold.isPresent()) {
+            NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
+                    taskId,
+                    activeHold.get(),
+                    request.descriptor()
+            );
+            result.setStatus(delayed.getStatus());
+            return result;
+        }
         String exportId = task.getReportExportId();
         int pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
         try {
@@ -44,6 +84,16 @@ public class NoonReportPuller {
             try {
                 status = provider.pollExport(request, exportId);
             } catch (RuntimeException exception) {
+                Optional<NoonRiskBackoffHold> hold = recordRiskBackoffIfNeeded(request, taskId, safeMessage(exception));
+                if (hold.isPresent()) {
+                    NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
+                            taskId,
+                            hold.get(),
+                            request.descriptor()
+                    );
+                    result.setStatus(delayed.getStatus());
+                    return result;
+                }
                 NoonPullTaskRecord retrying = foundationService.recordReportExportTransientFailure(
                         taskId,
                         exportId,
@@ -65,8 +115,9 @@ public class NoonReportPuller {
             );
 
             if (status.isFailed()) {
-                NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
+                NoonPullTaskRecord failed = markFailedOrRiskBackoff(
                         taskId,
+                        request,
                         "provider unavailable: report export failed " + status.getMessage(),
                         pollAttempts
                 );
@@ -98,6 +149,16 @@ public class NoonReportPuller {
             try {
                 content = provider.download(request, status.getDownloadUrl());
             } catch (RuntimeException exception) {
+                Optional<NoonRiskBackoffHold> hold = recordRiskBackoffIfNeeded(request, taskId, safeMessage(exception));
+                if (hold.isPresent()) {
+                    NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
+                            taskId,
+                            hold.get(),
+                            request.descriptor()
+                    );
+                    result.setStatus(delayed.getStatus());
+                    return result;
+                }
                 NoonPullTaskRecord retrying = foundationService.recordReportExportTransientFailure(
                         taskId,
                         exportId,
@@ -161,6 +222,16 @@ public class NoonReportPuller {
             result.setStatus(failed.getStatus());
             return result;
         } catch (RuntimeException exception) {
+            Optional<NoonRiskBackoffHold> hold = recordRiskBackoffIfNeeded(request, taskId, safeMessage(exception));
+            if (hold.isPresent()) {
+                NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
+                        taskId,
+                        hold.get(),
+                        request.descriptor()
+                );
+                result.setStatus(delayed.getStatus());
+                return result;
+            }
             if (StringUtils.hasText(exportId)) {
                 NoonPullTaskRecord retrying = foundationService.recordReportExportTransientFailure(
                         taskId,
@@ -171,15 +242,62 @@ public class NoonReportPuller {
                 );
                 result.setStatus(retrying.getStatus());
             } else {
-                NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
-                        taskId,
-                        safeMessage(exception),
-                        1
-                );
+                NoonPullTaskRecord failed = markFailedOrRiskBackoff(taskId, request, safeMessage(exception), 1);
                 result.setStatus(failed.getStatus());
             }
             return result;
         }
+    }
+
+    private NoonPullTaskRecord markFailedOrRiskBackoff(
+            Long taskId,
+            NoonReportPullRequest request,
+            String rawFailure,
+            int attempt
+    ) {
+        NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
+        if (!isRiskBackoffFailure(failureType)) {
+            return foundationService.markFailedWithPolicy(taskId, rawFailure, attempt);
+        }
+        NoonRiskBackoffHold hold = riskBackoffGuard.recordRiskSignal(
+                NoonRiskBackoffScope.report(request),
+                failureType.code(),
+                sourceDomain(request),
+                taskId,
+                null,
+                rawFailure
+        );
+        return foundationService.recordReportRiskBackoffDelay(taskId, hold, request.descriptor());
+    }
+
+    private Optional<NoonRiskBackoffHold> recordRiskBackoffIfNeeded(
+            NoonReportPullRequest request,
+            Long taskId,
+            String rawFailure
+    ) {
+        NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
+        if (!isRiskBackoffFailure(failureType)) {
+            return Optional.empty();
+        }
+        NoonRiskBackoffHold hold = riskBackoffGuard.recordRiskSignal(
+                NoonRiskBackoffScope.report(request),
+                failureType.code(),
+                sourceDomain(request),
+                taskId,
+                null,
+                rawFailure
+        );
+        return Optional.of(hold);
+    }
+
+    private boolean isRiskBackoffFailure(NoonPullFailureType failureType) {
+        return failureType == NoonPullFailureType.RATE_LIMITED
+                || failureType == NoonPullFailureType.CAPTCHA_REQUIRED
+                || failureType == NoonPullFailureType.BLOCKED_BY_RISK_CONTROL;
+    }
+
+    private String sourceDomain(NoonReportPullRequest request) {
+        return request == null || request.getDataDomain() == null ? null : request.getDataDomain().name();
     }
 
     private String sourceBatchId(NoonReportPullRequest request, Long taskId, String digest) {

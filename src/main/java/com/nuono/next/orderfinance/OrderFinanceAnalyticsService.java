@@ -5,21 +5,18 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class OrderFinanceAnalyticsService {
     private final NoonFinanceTransactionMapper mapper;
-    private final AtomicBoolean schemaEnsured = new AtomicBoolean(false);
 
     public OrderFinanceAnalyticsService(NoonFinanceTransactionMapper mapper) {
         this.mapper = mapper;
     }
 
     public OrderFinanceSkuSummaryView skuSummary(OrderFinanceQuery query) {
-        ensureSchema();
         OrderFinanceSummaryView summary = mapper.selectOverallSummary(query);
         if (summary == null) {
             summary = new OrderFinanceSummaryView(null, false);
@@ -34,7 +31,6 @@ public class OrderFinanceAnalyticsService {
     }
 
     public List<OrderFinanceOrderGroup> skuOrders(OrderFinanceQuery query) {
-        ensureSchema();
         List<OrderFinanceTransactionLine> lines = mapper.selectSkuOrderTransactionLines(query);
         Map<String, OrderFinanceOrderGroup> groups = new LinkedHashMap<>();
         for (OrderFinanceTransactionLine line : lines) {
@@ -66,21 +62,5 @@ public class OrderFinanceAnalyticsService {
             mixed.addCounts(summary);
         }
         return mixed;
-    }
-
-    private void ensureSchema() {
-        if (schemaEnsured.get()) {
-            return;
-        }
-        synchronized (this) {
-            if (schemaEnsured.get()) {
-                return;
-            }
-            mapper.ensureIdSequenceTable();
-            mapper.ensureFactSequence();
-            mapper.ensureFactTable();
-            mapper.ensureFactNaturalUniqueKey();
-            schemaEnsured.set(true);
-        }
     }
 }

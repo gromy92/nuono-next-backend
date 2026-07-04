@@ -9,6 +9,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import com.nuono.next.noonpull.NoonRiskBackoffGuard;
+import com.nuono.next.noonpull.NoonRiskBackoffHold;
+import com.nuono.next.noonpull.NoonRiskBackoffRepository;
+import com.nuono.next.noonpull.NoonRiskBackoffScope;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.system.task.OperationalTask;
@@ -291,6 +295,135 @@ class CompetitorAnalysisRefreshServiceTest {
     }
 
     @Test
+    void scheduledMonitoringStopsBeforeSubmittingWhenNoonScopeIsInRiskBackoff() {
+        NoonRiskBackoffGuard riskBackoffGuard = riskBackoffGuardWithGlobalHold();
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                riskBackoffGuard
+        );
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> service.requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA")
+        );
+
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, error.getStatus());
+        assertEquals("NOON_RISK_BACKOFF", error.getReason());
+        verify(mapper, never()).listRefreshableWatchProducts(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt()
+        );
+        assertTrue(submittedTasks.isEmpty());
+    }
+
+    @Test
+    void scheduledRankMonitoringRecordsRiskBackoffAndStopsAfterRateLimitFailure() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorKeywordRow rateLimitedKeyword = keyword(190001L, "laundry basket");
+        CompetitorKeywordRow skippedKeyword = keyword(190002L, "storage basket");
+        CapturingRiskBackoffRepository riskRepository = new CapturingRiskBackoffRepository();
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                new NoonRiskBackoffGuard(riskRepository)
+        );
+        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
+                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        when(mapper.listActiveKeywordsByWatchProductId(180123L))
+                .thenReturn(List.of(rateLimitedKeyword, skippedKeyword));
+        when(mapper.nextSearchRunId()).thenReturn(220123L);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
+        when(keywordRefreshRunner.runKeyword(220123L, watchProduct, rateLimitedKeyword, null))
+                .thenReturn(CompetitorKeywordRefreshResult.failure("RATE_LIMITED", "Noon 前台搜索返回 HTTP 429。"));
+
+        CompetitorTaskView view = service.requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA");
+        submittedTasks.get(0).run();
+        submittedTasks.get(1).run();
+
+        OperationalTask productTask = taskRepository.selectById(view.getTaskId() + 1);
+        assertEquals(OperationalTaskStatus.FAILED, productTask.getStatus());
+        assertEquals("COMPETITOR_RISK_BACKOFF", productTask.getErrorCode());
+        assertEquals("rate_limited", riskRepository.selectLatestHold(
+                NoonRiskBackoffScope.publicSearch(501L, "STR108065-NSA", "SA").getScopeKey()
+        ).getRiskType());
+        assertEquals("rate_limited", riskRepository.selectLatestHold(
+                NoonRiskBackoffScope.allNoon(501L, "STR108065-NSA", "SA").getScopeKey()
+        ).getRiskType());
+        verify(keywordRefreshRunner, times(1)).runKeyword(220123L, watchProduct, rateLimitedKeyword, null);
+        verify(keywordRefreshRunner, never()).runKeyword(220123L, watchProduct, skippedKeyword, null);
+    }
+
+    @Test
+    void queuedProductRefreshStopsBeforeCallingNoonWhenEarlierProductRecordsRiskBackoff() {
+        CompetitorWatchProductRow first = watchProduct(180123L, "ZSELF001");
+        CompetitorWatchProductRow second = watchProduct(180124L, "ZSELF002");
+        CompetitorKeywordRow rateLimitedKeyword = keyword(190001L, "laundry basket");
+        CompetitorKeywordRow blockedByBackoffKeyword = keyword(190002L, "storage basket");
+        blockedByBackoffKeyword.setWatchProductId(180124L);
+        CapturingRiskBackoffRepository riskRepository = new CapturingRiskBackoffRepository();
+        service = new CompetitorAnalysisRefreshService(
+                mapper,
+                new OperationalTaskService(
+                        taskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                ),
+                (accountKey, task) -> submittedTasks.add(task),
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                new NoonRiskBackoffGuard(
+                        riskRepository,
+                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
+                )
+        );
+        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
+                .thenReturn(List.of(first, second), List.of(first, second));
+        when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(rateLimitedKeyword));
+        when(mapper.listActiveKeywordsByWatchProductId(180124L)).thenReturn(List.of(blockedByBackoffKeyword));
+        when(mapper.nextSearchRunId()).thenReturn(220123L, 220124L);
+        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(first);
+        when(mapper.selectWatchProductForRefresh(180124L)).thenReturn(second);
+        when(keywordRefreshRunner.runKeyword(220123L, first, rateLimitedKeyword, null))
+                .thenReturn(CompetitorKeywordRefreshResult.failure("RATE_LIMITED", "Noon 前台搜索返回 HTTP 429。"));
+
+        CompetitorTaskView view = service.requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA");
+        submittedTasks.get(0).run();
+        submittedTasks.get(1).run();
+        submittedTasks.get(2).run();
+
+        OperationalTask firstProductTask = taskRepository.selectById(view.getTaskId() + 1);
+        OperationalTask secondProductTask = taskRepository.selectById(view.getTaskId() + 2);
+        assertEquals(OperationalTaskStatus.FAILED, firstProductTask.getStatus());
+        assertEquals("COMPETITOR_RISK_BACKOFF", firstProductTask.getErrorCode());
+        assertEquals(OperationalTaskStatus.FAILED, secondProductTask.getStatus());
+        assertEquals("COMPETITOR_RISK_BACKOFF", secondProductTask.getErrorCode());
+        verify(keywordRefreshRunner, times(1)).runKeyword(220123L, first, rateLimitedKeyword, null);
+        verify(keywordRefreshRunner, never()).runKeyword(220124L, second, blockedByBackoffKeyword, null);
+        verify(mapper).markSearchRunFailed(
+                org.mockito.ArgumentMatchers.eq(220124L),
+                org.mockito.ArgumentMatchers.eq("COMPETITOR_RISK_BACKOFF"),
+                org.mockito.ArgumentMatchers.contains("rate_limited")
+        );
+    }
+
+    @Test
     void retriesRecentTransientScheduledRankKeywordFailuresWithoutRefreshingWholeProduct() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorKeywordRow failedKeyword = keyword(190002L, "storage basket");
@@ -538,6 +671,20 @@ class CompetitorAnalysisRefreshServiceTest {
                 .build();
     }
 
+    private static NoonRiskBackoffGuard riskBackoffGuardWithGlobalHold() {
+        CapturingRiskBackoffRepository repository = new CapturingRiskBackoffRepository();
+        NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository);
+        guard.recordRiskSignal(
+                NoonRiskBackoffScope.allNoon(501L, "STR108065-NSA", "SA"),
+                "blocked_by_risk_control",
+                "REPORT",
+                130001L,
+                LocalDateTime.now().plusMinutes(5),
+                "blocked"
+        );
+        return guard;
+    }
+
     private static final class InMemoryOperationalTaskRepository implements OperationalTaskRepository {
         private long nextId = 150000L;
         private final Map<Long, OperationalTask> tasks = new LinkedHashMap<>();
@@ -606,6 +753,30 @@ class CompetitorAnalysisRefreshServiceTest {
                     .limit(limit)
                     .map(OperationalTask::copy)
                     .collect(Collectors.toList());
+        }
+    }
+
+    private static final class CapturingRiskBackoffRepository implements NoonRiskBackoffRepository {
+        private final Map<String, NoonRiskBackoffHold> holds = new LinkedHashMap<>();
+
+        @Override
+        public void upsert(NoonRiskBackoffHold hold) {
+            holds.put(hold.getScopeKey(), hold.copy());
+        }
+
+        @Override
+        public NoonRiskBackoffHold selectActiveHold(String scopeKey, LocalDateTime now) {
+            NoonRiskBackoffHold hold = holds.get(scopeKey);
+            if (hold == null || hold.getBlockedUntil() == null || !hold.getBlockedUntil().isAfter(now)) {
+                return null;
+            }
+            return hold.copy();
+        }
+
+        @Override
+        public NoonRiskBackoffHold selectLatestHold(String scopeKey) {
+            NoonRiskBackoffHold hold = holds.get(scopeKey);
+            return hold == null ? null : hold.copy();
         }
     }
 }

@@ -211,4 +211,51 @@ class NoonFrontendSearchPageParserTest {
         assertEquals("N51360862A", third.getNoonProductCode());
         assertEquals(3, third.getPosition());
     }
+
+    @Test
+    void parsesSearchLocalizedTitlesAndTagsFromCustomerCatalogV3Payload() {
+        NoonFrontendSearchPageParser parser = new NoonFrontendSearchPageParser(new ObjectMapper());
+        String json = String.join("\n",
+                "{",
+                "  \"data\": {",
+                "    \"hits\": [",
+                "      {",
+                "        \"_source\": {",
+                "          \"sku\": \"ZLOCALIZED01\",",
+                "          \"name_en\": \"English competitor title\",",
+                "          \"name_ar\": \"عنوان المنافس\",",
+                "          \"sale_price\": 42.75,",
+                "          \"badges\": [{\"label\": \"Best Seller\"}],",
+                "          \"labels\": [{\"text\": \"Free Delivery\"}],",
+                "          \"flags\": [\"supermall\"]",
+                "        }",
+                "      }",
+                "    ]",
+                "  }",
+                "}"
+        );
+
+        NoonSearchPage page = parser.parseCatalogJson(
+                json,
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=localized&limit=100",
+                200
+        );
+
+        NoonSearchResult result = page.getResults().get(0);
+        assertEquals("English competitor title", readString(result, "getTitle"));
+        assertEquals("English competitor title", readString(result, "getTitleEn"));
+        assertEquals("عنوان المنافس", readString(result, "getTitleAr"));
+        String tagsJson = readString(result, "getTagsJson");
+        assertTrue(tagsJson.contains("Best Seller"));
+        assertTrue(tagsJson.contains("Free Delivery"));
+        assertTrue(tagsJson.contains("supermall"));
+    }
+
+    private static String readString(Object target, String methodName) {
+        try {
+            return (String) target.getClass().getMethod(methodName).invoke(target);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Missing search result accessor " + methodName, exception);
+        }
+    }
 }

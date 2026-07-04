@@ -1,0 +1,15 @@
+package com.nuono.next.noonpull;
+
+import java.time.LocalDateTime;
+
+public interface NoonRiskBackoffRepository {
+    void upsert(NoonRiskBackoffHold hold);
+
+    NoonRiskBackoffHold selectActiveHold(String scopeKey, LocalDateTime now);
+
+    default NoonRiskBackoffHold selectActiveAccountWideHold(Long ownerUserId, String storeCode, String siteCode, LocalDateTime now) {
+        return null;
+    }
+
+    NoonRiskBackoffHold selectLatestHold(String scopeKey);
+}

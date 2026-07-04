@@ -169,6 +169,28 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     }
 
     private NoonPublicProductDetailResult mapProviderException(String code, NoonSearchProviderException exception) {
+        if (exception != null && exception.getProviderHttpStatus() != null && exception.getProviderHttpStatus() == 429) {
+            return failed(
+                    code,
+                    "RATE_LIMITED",
+                    exception.getMessage(),
+                    exception.getProviderHttpStatus(),
+                    exception.getSourceUrl(),
+                    exception.getResponseHash(),
+                    null
+            );
+        }
+        if (exception != null && exception.getProviderHttpStatus() != null && exception.getProviderHttpStatus() == 403) {
+            return failed(
+                    code,
+                    "BLOCKED_BY_RISK_CONTROL",
+                    exception.getMessage(),
+                    exception.getProviderHttpStatus(),
+                    exception.getSourceUrl(),
+                    exception.getResponseHash(),
+                    null
+            );
+        }
         if ("PARSE_FAILED".equals(exception.getErrorCode())) {
             return failedOrNotFound(
                     ProductPublicDetailSyncStatus.NOT_FOUND,
@@ -370,6 +392,9 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     private NoonSearchProviderException mapUnsuccessfulStatus(int statusCode, String url) {
         if (statusCode == 429) {
             return new NoonSearchProviderException("RATE_LIMITED", "Noon 前台公开搜索返回 HTTP 429。", statusCode, url, null);
+        }
+        if (statusCode == 403) {
+            return new NoonSearchProviderException("BLOCKED_BY_RISK_CONTROL", "Noon 前台公开搜索返回 HTTP 403。", statusCode, url, null);
         }
         if (statusCode >= 500) {
             return new NoonSearchProviderException("PROVIDER_UNAVAILABLE", "Noon 前台公开搜索返回 HTTP " + statusCode + "。", statusCode, url, null);

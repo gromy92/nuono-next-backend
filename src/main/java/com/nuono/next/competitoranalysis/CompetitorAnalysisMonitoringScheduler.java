@@ -41,7 +41,7 @@ public class CompetitorAnalysisMonitoringScheduler {
     }
 
     @Scheduled(
-            cron = "${nuono.competitor-analysis.monitor.scheduler.rank-cron:0 0 8 * * *}",
+            cron = "${nuono.competitor-analysis.monitor.scheduler.rank-cron:0 0 0,6,12,18 * * *}",
             zone = "${nuono.competitor-analysis.monitor.scheduler.zone:Asia/Shanghai}"
     )
     public void runScheduledRankMonitoring() {
@@ -56,7 +56,7 @@ public class CompetitorAnalysisMonitoringScheduler {
     }
 
     @Scheduled(
-            cron = "${nuono.competitor-analysis.monitor.scheduler.detail-cron:0 0 0/2 * * *}",
+            cron = "${nuono.competitor-analysis.monitor.scheduler.detail-cron:0 0 2 * * *}",
             zone = "${nuono.competitor-analysis.monitor.scheduler.zone:Asia/Shanghai}"
     )
     public void runScheduledDetailMonitoring() {

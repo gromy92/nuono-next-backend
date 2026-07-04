@@ -107,17 +107,17 @@ class CompetitorAnalysisMonitoringSchedulerTest {
     }
 
     @Test
-    void scheduledAnnotationsUseDailyRankAndTwoHourDetailDefaults() throws Exception {
+    void scheduledAnnotationsUseFourDailyRankAndDailyDetailDefaults() throws Exception {
         Method rankMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledRankMonitoring");
         Method detailMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledDetailMonitoring");
         Method compensationMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledRankFailureCompensation");
 
         assertEquals(
-                "${nuono.competitor-analysis.monitor.scheduler.rank-cron:0 0 8 * * *}",
+                "${nuono.competitor-analysis.monitor.scheduler.rank-cron:0 0 0,6,12,18 * * *}",
                 rankMethod.getAnnotation(Scheduled.class).cron()
         );
         assertEquals(
-                "${nuono.competitor-analysis.monitor.scheduler.detail-cron:0 0 0/2 * * *}",
+                "${nuono.competitor-analysis.monitor.scheduler.detail-cron:0 0 2 * * *}",
                 detailMethod.getAnnotation(Scheduled.class).cron()
         );
         assertEquals(

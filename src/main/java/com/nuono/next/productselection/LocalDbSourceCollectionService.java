@@ -4,10 +4,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
+import com.nuono.next.noonpull.NoonRiskBackoffGuard;
+import com.nuono.next.noonpull.NoonRiskBackoffHold;
+import com.nuono.next.noonpull.NoonRiskBackoffScope;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -32,6 +37,7 @@ public class LocalDbSourceCollectionService {
     private final SourceCollectionCompletenessCalculator completenessCalculator;
     private final LocalDbAli1688CollectionService ali1688CollectionService;
     private final ObjectMapper objectMapper;
+    private final NoonRiskBackoffGuard noonRiskBackoffGuard;
 
     @Value("${nuono.product-selection.source-collection.scheduler.enabled:false}")
     private boolean sourceCollectionSchedulerEnabled;
@@ -46,7 +52,8 @@ public class LocalDbSourceCollectionService {
             ProductSelectionSourceCollectionLocalizer sourceCollectionLocalizer,
             SourceCollectionCompletenessCalculator completenessCalculator,
             LocalDbAli1688CollectionService ali1688CollectionService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            NoonRiskBackoffGuard noonRiskBackoffGuard
     ) {
         this.productSelectionMapper = productSelectionMapper;
         this.permissionGuard = permissionGuard;
@@ -55,6 +62,7 @@ public class LocalDbSourceCollectionService {
         this.completenessCalculator = completenessCalculator;
         this.ali1688CollectionService = ali1688CollectionService;
         this.objectMapper = objectMapper;
+        this.noonRiskBackoffGuard = noonRiskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : noonRiskBackoffGuard;
     }
 
     public List<ProductSelectionSourceCollectionView> listSourceCollections(
@@ -294,6 +302,11 @@ public class LocalDbSourceCollectionService {
     }
 
     private void collectSourceCollection(ProductSelectionSourceCollectionRow row, String lockOwner) {
+        Optional<NoonRiskBackoffHold> activeNoonHold = currentNoonRiskHold(row);
+        if (activeNoonHold.isPresent()) {
+            markSourceCollectionRiskBackoff(row, lockOwner, activeNoonHold.get(), "Noon 风控冷却中，源头采集延后。");
+            return;
+        }
         try {
             ProductSelectionSourceCollectionResult result = sourceCollectionLocalizer.localize(
                     row,
@@ -328,6 +341,18 @@ public class LocalDbSourceCollectionService {
             ProductSelectionSourceCollectionRow updated = productSelectionMapper.selectSourceCollectionById(row.getId());
             ali1688CollectionService.markSourceCollectionSucceeded(updated == null ? updateRow : updated);
         } catch (Exception exception) {
+            if (isNoonSourceCollection(row) && isNoonRiskException(exception)) {
+                NoonRiskBackoffHold hold = noonRiskBackoffGuard.recordRiskSignal(
+                        NoonRiskBackoffScope.sourceCollection(row.getOwnerUserId(), row.getStoreCode(), null),
+                        noonRiskType(exception),
+                        "SOURCE_COLLECTION",
+                        row.getId(),
+                        null,
+                        shrink(defaultText(exception.getMessage(), "Noon 源头采集触发风控。"), 480)
+                );
+                markSourceCollectionRiskBackoff(row, lockOwner, hold, exception.getMessage());
+                return;
+            }
             productSelectionMapper.markSourceCollectionFailed(
                     row.getId(),
                     "source_collect_failed",
@@ -337,6 +362,62 @@ public class LocalDbSourceCollectionService {
             );
             ali1688CollectionService.markSourceCollectionFailed(row.getId(), exception.getMessage(), row.getUpdatedBy());
         }
+    }
+
+    private Optional<NoonRiskBackoffHold> currentNoonRiskHold(ProductSelectionSourceCollectionRow row) {
+        if (!isNoonSourceCollection(row)) {
+            return Optional.empty();
+        }
+        return noonRiskBackoffGuard.currentHold(NoonRiskBackoffScope.sourceCollection(row.getOwnerUserId(), row.getStoreCode(), null));
+    }
+
+    private void markSourceCollectionRiskBackoff(
+            ProductSelectionSourceCollectionRow row,
+            String lockOwner,
+            NoonRiskBackoffHold hold,
+            String reason
+    ) {
+        LocalDateTime nextRunAt = hold == null ? LocalDateTime.now().plusMinutes(2) : hold.getBlockedUntil();
+        productSelectionMapper.markSourceCollectionRiskBackoff(
+                row.getId(),
+                "noon_risk_backoff",
+                shrink(defaultText(reason, "Noon 源头采集触发风控，等待冷却后重试。"), 480),
+                row.getUpdatedBy(),
+                lockOwner,
+                nextRunAt
+        );
+    }
+
+    private boolean isNoonSourceCollection(ProductSelectionSourceCollectionRow row) {
+        if (row == null) {
+            return false;
+        }
+        String platform = defaultText(row.getSourcePlatform(), inferSourcePlatform(defaultText(row.getPageUrl(), row.getSourceUrl())));
+        return "Noon".equalsIgnoreCase(platform);
+    }
+
+    private boolean isNoonRiskException(Exception exception) {
+        String message = exception == null ? "" : defaultText(exception.getMessage(), exception.toString()).toLowerCase(Locale.ROOT);
+        return message.contains("captcha")
+                || message.contains("status=403")
+                || message.contains("http 403")
+                || message.contains(" 403")
+                || message.contains("status=429")
+                || message.contains("http 429")
+                || message.contains(" 429")
+                || message.contains("rate_limited")
+                || message.contains("rate limited");
+    }
+
+    private String noonRiskType(Exception exception) {
+        String message = exception == null ? "" : defaultText(exception.getMessage(), exception.toString()).toLowerCase(Locale.ROOT);
+        if (message.contains("captcha")) {
+            return "captcha_required";
+        }
+        if (message.contains("429") || message.contains("rate_limited") || message.contains("rate limited")) {
+            return "rate_limited";
+        }
+        return "blocked_by_risk_control";
     }
 
     private boolean isSuperAdmin(ProductSelectionUserContext user) {

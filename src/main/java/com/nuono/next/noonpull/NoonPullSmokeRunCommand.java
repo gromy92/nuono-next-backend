@@ -16,6 +16,12 @@ public class NoonPullSmokeRunCommand {
     private NoonSalesSmokeSource salesSource;
     private LocalDate orderDateFrom;
     private LocalDate orderDateTo;
+    private LocalDate financeDateFrom;
+    private LocalDate financeDateTo;
+    private LocalDate advertisingDateFrom;
+    private LocalDate advertisingDateTo;
+    private LocalDate officialWarehouseFbnDateFrom;
+    private LocalDate officialWarehouseFbnDateTo;
     private List<NoonPullDataDomain> dataDomains;
     private String rollbackOrGlobalPauseStrategy;
 
@@ -113,6 +119,54 @@ public class NoonPullSmokeRunCommand {
 
     public void setOrderDateTo(LocalDate orderDateTo) {
         this.orderDateTo = orderDateTo;
+    }
+
+    public LocalDate getFinanceDateFrom() {
+        return financeDateFrom;
+    }
+
+    public void setFinanceDateFrom(LocalDate financeDateFrom) {
+        this.financeDateFrom = financeDateFrom;
+    }
+
+    public LocalDate getFinanceDateTo() {
+        return financeDateTo;
+    }
+
+    public void setFinanceDateTo(LocalDate financeDateTo) {
+        this.financeDateTo = financeDateTo;
+    }
+
+    public LocalDate getAdvertisingDateFrom() {
+        return advertisingDateFrom;
+    }
+
+    public void setAdvertisingDateFrom(LocalDate advertisingDateFrom) {
+        this.advertisingDateFrom = advertisingDateFrom;
+    }
+
+    public LocalDate getAdvertisingDateTo() {
+        return advertisingDateTo;
+    }
+
+    public void setAdvertisingDateTo(LocalDate advertisingDateTo) {
+        this.advertisingDateTo = advertisingDateTo;
+    }
+
+    public LocalDate getOfficialWarehouseFbnDateFrom() {
+        return officialWarehouseFbnDateFrom;
+    }
+
+    public void setOfficialWarehouseFbnDateFrom(LocalDate officialWarehouseFbnDateFrom) {
+        this.officialWarehouseFbnDateFrom = officialWarehouseFbnDateFrom;
+    }
+
+    public LocalDate getOfficialWarehouseFbnDateTo() {
+        return officialWarehouseFbnDateTo;
+    }
+
+    public void setOfficialWarehouseFbnDateTo(LocalDate officialWarehouseFbnDateTo) {
+        this.officialWarehouseFbnDateTo = officialWarehouseFbnDateTo;
     }
 
     public List<NoonPullDataDomain> getDataDomains() {

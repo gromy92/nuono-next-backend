@@ -260,6 +260,48 @@ class CompetitorSearchRefreshRunnerTest {
         assertTrue(productCaptor.getValue().getTitleSnapshot().length() <= 500);
     }
 
+    @Test
+    void writesLocalizedTitlesAndTagsFromKeywordRankingSearch() {
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorKeywordRow keyword = keyword();
+        NoonSearchResult localized = result(1, "Z11111111AD", false, "English competitor title");
+        setString(localized, "setTitleEn", "English competitor title");
+        setString(localized, "setTitleAr", "عنوان المنافس");
+        setString(localized, "setTagsJson", "[{\"label\":\"Best Seller\"},{\"text\":\"Free Delivery\"}]");
+        NoonSearchPage page = page(localized);
+        when(adapter.search(any(NoonSearchRequest.class))).thenReturn(page);
+        when(mapper.selectCompetitorProductByCode(180123L, "Z11111111AD")).thenReturn(null);
+        when(mapper.nextCompetitorProductId()).thenReturn(200012L);
+        when(mapper.nextKeywordProductId()).thenReturn(210001L);
+        when(mapper.nextSearchResultId()).thenReturn(240001L);
+        when(mapper.nextRankFactId()).thenReturn(250001L);
+        when(mapper.listConfirmedCompetitorProductsByKeywordId(190001L)).thenReturn(List.of());
+
+        runner.refresh(CompetitorKeywordRefreshContext.builder()
+                .searchRunId(220123L)
+                .keywordRunId(230123L)
+                .keyword(keyword)
+                .watchProduct(watchProduct)
+                .actorUserId(601L)
+                .build());
+
+        ArgumentCaptor<CompetitorSearchResultInsertCommand> searchCaptor =
+                ArgumentCaptor.forClass(CompetitorSearchResultInsertCommand.class);
+        verify(mapper).insertSearchResult(searchCaptor.capture());
+        assertEquals("English competitor title", readString(searchCaptor.getValue(), "getTitleSnapshot"));
+        assertEquals("English competitor title", readString(searchCaptor.getValue(), "getTitleEnSnapshot"));
+        assertEquals("عنوان المنافس", readString(searchCaptor.getValue(), "getTitleArSnapshot"));
+        assertTrue(readString(searchCaptor.getValue(), "getTagsJson").contains("Best Seller"));
+
+        ArgumentCaptor<CompetitorProductInsertCommand> productCaptor =
+                ArgumentCaptor.forClass(CompetitorProductInsertCommand.class);
+        verify(mapper).insertCompetitorProduct(productCaptor.capture());
+        assertEquals("English competitor title", readString(productCaptor.getValue(), "getTitleSnapshot"));
+        assertEquals("English competitor title", readString(productCaptor.getValue(), "getTitleEnSnapshot"));
+        assertEquals("عنوان المنافس", readString(productCaptor.getValue(), "getTitleArSnapshot"));
+        assertTrue(readString(productCaptor.getValue(), "getTagsSnapshotJson").contains("Free Delivery"));
+    }
+
     private static NoonSearchPage page(NoonSearchResult... results) {
         NoonSearchPage page = new NoonSearchPage();
         page.setSourceUrl("https://www.noon.com/saudi-en/search?q=laundry+basket");
@@ -287,6 +329,22 @@ class CompetitorSearchRefreshRunnerTest {
         result.setSponsored(sponsored);
         result.setRawResultJson("{\"sku\":\"" + code + "\"}");
         return result;
+    }
+
+    private static void setString(Object target, String methodName, String value) {
+        try {
+            target.getClass().getMethod(methodName, String.class).invoke(target, value);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Missing setter " + methodName, exception);
+        }
+    }
+
+    private static String readString(Object target, String methodName) {
+        try {
+            return (String) target.getClass().getMethod(methodName).invoke(target);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError("Missing accessor " + methodName, exception);
+        }
     }
 
     private static CompetitorWatchProductRow watchProduct() {

@@ -243,10 +243,15 @@ public class NoonFrontendSearchPageParser {
         }
 
         NoonSearchResult result = new NoonSearchResult();
+        String titleEn = resolveTitleEn(node);
+        String titleAr = resolveTitleAr(node);
+        String title = firstNonBlank(titleEn, titleAr, textAny(node, "name", "title", "product_title", "productTitle"));
         result.setNoonProductCode(code);
         result.setCodeType(codeType);
         result.setCanonicalUrl(resolveUrl(sourceUrl, textAny(node, "url", "href", "canonicalUrl", "productUrl")));
-        result.setTitle(firstNonBlank(textAny(node, "name", "title", "product_title", "productTitle"), null));
+        result.setTitle(title);
+        result.setTitleEn(titleEn);
+        result.setTitleAr(titleAr);
         result.setBrand(resolveBrand(node.path("brand")));
         result.setImageUrl(resolveImage(node));
         result.setPriceAmount(resolvePrice(node));
@@ -257,6 +262,7 @@ public class NoonFrontendSearchPageParser {
         ));
         result.setRating(resolveRating(node));
         result.setReviewCount(resolveReviewCount(node));
+        result.setTagsJson(resolveTagsJson(node));
         result.setSponsored(resolveSponsored(node));
         result.setRawResultJson(node.toString());
         return result;
@@ -280,10 +286,15 @@ public class NoonFrontendSearchPageParser {
         }
 
         NoonSearchResult result = new NoonSearchResult();
+        String titleEn = resolveTitleEn(payload);
+        String titleAr = resolveTitleAr(payload);
+        String title = firstNonBlank(titleEn, titleAr, textAny(payload, "name", "title", "product_title", "productTitle"));
         result.setNoonProductCode(code);
         result.setCodeType(codeType);
         result.setCanonicalUrl(catalogCanonicalUrl(sourceUrl, payload, code));
-        result.setTitle(firstNonBlank(textAny(payload, "name", "title", "product_title", "productTitle", "name_en", "title_en"), null));
+        result.setTitle(title);
+        result.setTitleEn(titleEn);
+        result.setTitleAr(titleAr);
         result.setBrand(resolveBrand(payload.path("brand")));
         result.setImageUrl(resolveImage(payload));
         result.setPriceAmount(resolvePrice(payload));
@@ -294,6 +305,7 @@ public class NoonFrontendSearchPageParser {
         ));
         result.setRating(resolveRating(payload));
         result.setReviewCount(resolveReviewCount(payload));
+        result.setTagsJson(resolveTagsJson(payload));
         result.setSponsored(resolveSponsored(node) || resolveSponsored(payload));
         result.setRawResultJson(node == payload ? payload.toString() : node.toString());
         return result;
@@ -355,6 +367,7 @@ public class NoonFrontendSearchPageParser {
             result.setCodeType(NoonProductCodeSupport.codeType(code).orElse(null));
             result.setCanonicalUrl(resolveUrl(sourceUrl, element.attr("href")));
             result.setTitle(compact(firstNonBlank(element.attr("title"), element.text())));
+            result.setTitleEn(result.getTitle());
             result.setSponsored(containsIgnoreCase(element.className(), "sponsored")
                     || containsIgnoreCase(element.attr("data-sponsored"), "true")
                     || containsIgnoreCase(element.text(), "sponsored"));
@@ -420,6 +433,69 @@ public class NoonFrontendSearchPageParser {
             return compact(brandNode.asText());
         }
         return firstNonBlank(textAny(brandNode, "name", "brand", "label"), null);
+    }
+
+    private String resolveTitleEn(JsonNode node) {
+        String explicit = firstNonBlank(
+                textAny(node, "name_en", "title_en", "nameEnglish", "titleEnglish", "english_title"),
+                textAny(node.path("name"), "en", "english"),
+                textAny(node.path("title"), "en", "english")
+        );
+        return firstNonBlank(explicit, textAny(node, "name", "title", "product_title", "productTitle"));
+    }
+
+    private String resolveTitleAr(JsonNode node) {
+        return firstNonBlank(
+                textAny(node, "name_ar", "title_ar", "nameArabic", "titleArabic", "arabic_title"),
+                textAny(node.path("name"), "ar", "arabic"),
+                textAny(node.path("title"), "ar", "arabic")
+        );
+    }
+
+    private String resolveTagsJson(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        Map<String, JsonNode> tags = new LinkedHashMap<>();
+        for (String field : List.of(
+                "badges",
+                "labels",
+                "flags",
+                "tags",
+                "tag",
+                "promo_tags",
+                "promotion_tags",
+                "logistics_tags"
+        )) {
+            JsonNode value = node.path(field);
+            if (hasTagContent(value)) {
+                tags.put(field, value);
+            }
+        }
+        if (tags.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(tags);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private boolean hasTagContent(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return false;
+        }
+        if (node.isArray()) {
+            return node.size() > 0;
+        }
+        if (node.isObject()) {
+            return node.size() > 0;
+        }
+        if (node.isTextual()) {
+            return StringUtils.hasText(compact(node.asText()));
+        }
+        return node.isNumber() || node.isBoolean();
     }
 
     private String resolveImage(JsonNode node) {

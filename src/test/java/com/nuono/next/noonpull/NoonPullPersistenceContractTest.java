@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.nuono.next.infrastructure.mapper.NoonPullMapper;
+import com.nuono.next.infrastructure.mapper.NoonRiskBackoffMapper;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -161,5 +162,54 @@ class NoonPullPersistenceContractTest {
         assertTrue(sql.contains("COLUMN_NAME = 'report_poll_attempts'"));
         assertTrue(sql.contains("idx_noon_pull_task_report_export"));
         assertTrue(sql.contains("idx_noon_pull_task_next_poll"));
+    }
+
+    @Test
+    void riskBackoffMapperShouldPersistAndLookupActiveReportScopeHolds() {
+        Method upsert = Arrays.stream(NoonRiskBackoffMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "upsert".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Method selectActiveHold = Arrays.stream(NoonRiskBackoffMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectActiveHold".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Method selectLatestHold = Arrays.stream(NoonRiskBackoffMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectLatestHold".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        String insertSql = String.join(" ", upsert.getAnnotation(Insert.class).value()).replaceAll("\\s+", " ");
+        String activeSql = String.join(" ", selectActiveHold.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        String latestSql = String.join(" ", selectLatestHold.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+
+        assertTrue(insertSql.contains("noon_risk_backoff_state"));
+        assertTrue(insertSql.contains("scope_key"));
+        assertTrue(insertSql.contains("risk_type"));
+        assertTrue(insertSql.contains("source_domain"));
+        assertTrue(insertSql.contains("source_task_id"));
+        assertTrue(insertSql.contains("blocked_until"));
+        assertTrue(insertSql.contains("attempt_count"));
+        assertTrue(activeSql.contains("scope_key = #{scopeKey}"));
+        assertTrue(activeSql.contains("blocked_until > #{now}"));
+        assertTrue(activeSql.contains("is_deleted = b'0'"));
+        assertTrue(latestSql.contains("ORDER BY gmt_updated DESC"));
+    }
+
+    @Test
+    void migrationShouldCreateRiskBackoffStateTableWithAttemptCount() throws Exception {
+        String sql = Files.readString(
+                Path.of("src/main/resources/db/init/169_noon_risk_backoff_state.sql"),
+                StandardCharsets.UTF_8
+        );
+
+        assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS `noon_risk_backoff_state`"));
+        assertTrue(sql.contains("`scope_key`"));
+        assertTrue(sql.contains("`risk_type`"));
+        assertTrue(sql.contains("`source_domain`"));
+        assertTrue(sql.contains("`source_task_id`"));
+        assertTrue(sql.contains("`blocked_until`"));
+        assertTrue(sql.contains("`attempt_count`"));
+        assertTrue(sql.contains("KEY `idx_noon_risk_backoff_active`"));
+        assertTrue(sql.contains("KEY `idx_noon_risk_backoff_latest`"));
     }
 }

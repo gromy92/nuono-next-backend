@@ -974,6 +974,22 @@ public interface OfficialWarehouseMapper {
 
     @Update({
             "UPDATE official_warehouse_appointment",
+            "SET status = 'PENDING', next_attempt_at = NOW(),",
+            "    error_stage = 'SCHEDULE', failure_type = 'NO_CAPACITY',",
+            "    error_message = COALESCE(NULLIF(error_message, ''), '没有匹配的 Noon 可约仓日期或时段。'),",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE is_deleted = b'0'",
+            "  AND status = 'RUNNING'",
+            "  AND failure_type = 'NO_CAPACITY'",
+            "  AND gmt_updated <= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)"
+    })
+    int markStaleNoCapacityAppointmentsPending(
+            @Param("staleMinutes") int staleMinutes,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
             "SET status = 'FAILED', next_attempt_at = NULL, error_stage = #{errorStage}, failure_type = #{failureType},",
             "    error_message = #{errorMessage}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",

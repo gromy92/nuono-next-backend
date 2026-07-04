@@ -7,11 +7,17 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
+import com.nuono.next.noonpull.NoonPullFailurePolicy;
+import com.nuono.next.noonpull.NoonRiskBackoffGuard;
+import com.nuono.next.noonpull.NoonRiskBackoffHold;
+import com.nuono.next.noonpull.NoonRiskBackoffRepository;
+import com.nuono.next.noonpull.NoonRiskBackoffScope;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailAdapter;
 import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailRequest;
@@ -95,11 +101,6 @@ class ProductPublicDetailSyncServiceTest {
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(failedResult());
-        ProductPublicDetailSnapshot existing = new ProductPublicDetailSnapshot();
-        existing.setId(300002L);
-        existing.setLatest(Boolean.TRUE);
-        existing.setSyncStatus(ProductPublicDetailSyncStatus.PARTIAL);
-        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(existing);
 
         service.submitManual(context(), "CANMAN", "SA");
 
@@ -110,26 +111,128 @@ class ProductPublicDetailSyncServiceTest {
     }
 
     @Test
-    void failedResultInsertsNonLatestDailySnapshotWhenNoExistingSnapshot() {
+    void failedResultDoesNotWriteSnapshotWhenNoExistingDetail() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
         when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(failedResult());
-        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
-        when(mapper.nextSnapshotId()).thenReturn(300003L);
 
         service.submitManual(context(), "CANMAN", "SA");
 
-        ArgumentCaptor<ProductPublicDetailSnapshot> snapshotCaptor = ArgumentCaptor.forClass(ProductPublicDetailSnapshot.class);
-        verify(mapper).insertSnapshot(snapshotCaptor.capture());
-        ProductPublicDetailSnapshot snapshot = snapshotCaptor.getValue();
-        assertEquals(300003L, snapshot.getId());
-        assertEquals(ProductPublicDetailSyncStatus.FAILED, snapshot.getSyncStatus());
-        assertEquals("RATE_LIMITED", snapshot.getFailureCode());
-        assertEquals(Boolean.FALSE, snapshot.getLatest());
+        verify(mapper, never()).insertSnapshot(any(ProductPublicDetailSnapshot.class));
+        verify(mapper, never()).updateSnapshotPreservingTrustedData(any(ProductPublicDetailSnapshot.class));
         verify(mapper, never()).clearLatestForProduct(any(), any(), any(), any(), any(), any());
         verify(mapper, never()).markLatest(any(), any());
+    }
+
+    @Test
+    void notFoundResultDoesNotWriteSnapshotWhenNoExistingDetail() {
+        when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(List.of(candidate()));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(notFoundResult());
+
+        service.submitManual(context(), "CANMAN", "SA");
+
+        verify(mapper, never()).insertSnapshot(any(ProductPublicDetailSnapshot.class));
+        verify(mapper, never()).updateSnapshotPreservingTrustedData(any(ProductPublicDetailSnapshot.class));
+        verify(mapper, never()).clearLatestForProduct(any(), any(), any(), any(), any(), any());
+        verify(mapper, never()).markLatest(any(), any());
+    }
+
+    @Test
+    void riskFailureRecordsBackoffAndStopsCurrentScope() {
+        InMemoryRiskBackoffRepository riskRepository = new InMemoryRiskBackoffRepository();
+        ProductPublicDetailSyncService riskAwareService = new ProductPublicDetailSyncService(
+                mapper,
+                new OperationalTaskService(taskRepository, fixedClock()),
+                () -> adapter,
+                (accountKey, task) -> task.run(),
+                new ObjectMapper(),
+                fixedClock(),
+                100,
+                1,
+                12,
+                new NoonRiskBackoffGuard(riskRepository),
+                new NoonPullFailurePolicy(fixedClock())
+        );
+        when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
+        ProductPublicDetailCandidate first = candidate();
+        ProductPublicDetailCandidate second = candidate();
+        second.setProductMasterId(1002L);
+        second.setProductVariantId(2002L);
+        second.setProductSiteOfferId(2502L);
+        second.setPartnerSku("CANMAN-SKU-2");
+        second.setSkuParent("ZCANMAN13");
+        second.setNoonProductCode("ZCANMAN13");
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(List.of(first, second));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(blockedResult());
+
+        ProductPublicDetailTaskView task = riskAwareService.submitScheduled(501L, "CANMAN", "SA");
+
+        assertEquals("FAILED", taskRepository.selectById(task.getId()).getStatus().name());
+        assertEquals("PRODUCT_PUBLIC_DETAIL_RISK_BACKOFF", taskRepository.selectById(task.getId()).getErrorCode());
+        verify(adapter, times(1)).fetch(any(NoonPublicProductDetailRequest.class));
+        NoonRiskBackoffHold hold = riskRepository.selectLatestHold(
+                NoonRiskBackoffScope.publicDetail(501L, "CANMAN", "SA").getScopeKey()
+        );
+        assertEquals("blocked_by_risk_control", hold.getRiskType());
+        assertEquals("PUBLIC_DETAIL", hold.getOperationGroup());
+    }
+
+    @Test
+    void runningTaskStopsBeforeNextCandidateWhenAccountWideNoonBackoffAppears() {
+        InMemoryRiskBackoffRepository riskRepository = new InMemoryRiskBackoffRepository();
+        NoonRiskBackoffGuard riskBackoffGuard = new NoonRiskBackoffGuard(riskRepository, fixedClock());
+        ProductPublicDetailSyncService riskAwareService = new ProductPublicDetailSyncService(
+                mapper,
+                new OperationalTaskService(taskRepository, fixedClock()),
+                () -> adapter,
+                (accountKey, task) -> task.run(),
+                new ObjectMapper(),
+                fixedClock(),
+                100,
+                1,
+                12,
+                riskBackoffGuard,
+                new NoonPullFailurePolicy(fixedClock())
+        );
+        when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
+        ProductPublicDetailCandidate first = candidate();
+        ProductPublicDetailCandidate second = candidate();
+        second.setProductMasterId(1002L);
+        second.setProductVariantId(2002L);
+        second.setProductSiteOfferId(2502L);
+        second.setPartnerSku("CANMAN-SKU-2");
+        second.setSkuParent("ZCANMAN13");
+        second.setNoonProductCode("ZCANMAN13");
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+                .thenReturn(List.of(first, second));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenAnswer(invocation -> {
+            riskBackoffGuard.recordRiskSignal(
+                    NoonRiskBackoffScope.allNoon(501L, "CANMAN", "SA"),
+                    "blocked_by_risk_control",
+                    "REPORT",
+                    130001L,
+                    null,
+                    "Sales report hit Noon risk control"
+            );
+            return partialResult();
+        });
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300001L);
+
+        ProductPublicDetailTaskView task = riskAwareService.submitScheduled(501L, "CANMAN", "SA");
+
+        assertEquals("FAILED", taskRepository.selectById(task.getId()).getStatus().name());
+        assertEquals("PRODUCT_PUBLIC_DETAIL_RISK_BACKOFF", taskRepository.selectById(task.getId()).getErrorCode());
+        verify(adapter, times(1)).fetch(any(NoonPublicProductDetailRequest.class));
+        verify(mapper).insertSnapshot(any(ProductPublicDetailSnapshot.class));
     }
 
     private static BusinessAccessContext context() {
@@ -194,8 +297,56 @@ class ProductPublicDetailSyncServiceTest {
         return result;
     }
 
+    private static NoonPublicProductDetailResult notFoundResult() {
+        NoonPublicProductDetailResult result = new NoonPublicProductDetailResult();
+        result.setStatus(ProductPublicDetailSyncStatus.NOT_FOUND);
+        result.setFailureCode("PUBLIC_DETAIL_NOT_FOUND");
+        result.setFailureMessage("Noon 前台公开详情未找到。");
+        result.setNoonProductCode("ZCANMAN12");
+        result.setCodeType("Z_CODE");
+        result.setProviderHttpStatus(404);
+        result.setFetchedAt(LocalDateTime.parse("2026-06-15T08:05:00"));
+        return result;
+    }
+
+    private static NoonPublicProductDetailResult blockedResult() {
+        NoonPublicProductDetailResult result = new NoonPublicProductDetailResult();
+        result.setStatus(ProductPublicDetailSyncStatus.FAILED);
+        result.setFailureCode("BLOCKED_BY_RISK_CONTROL");
+        result.setFailureMessage("Noon 前台公开搜索返回 HTTP 403。");
+        result.setNoonProductCode("ZCANMAN12");
+        result.setCodeType("Z_CODE");
+        result.setProviderHttpStatus(403);
+        result.setFetchedAt(LocalDateTime.parse("2026-06-15T08:05:00"));
+        return result;
+    }
+
     private static Clock fixedClock() {
         return Clock.fixed(Instant.parse("2026-06-15T00:00:00Z"), ZoneOffset.UTC);
+    }
+
+    private static final class InMemoryRiskBackoffRepository implements NoonRiskBackoffRepository {
+        private final Map<String, NoonRiskBackoffHold> holds = new LinkedHashMap<>();
+
+        @Override
+        public void upsert(NoonRiskBackoffHold hold) {
+            holds.put(hold.getScopeKey(), hold.copy());
+        }
+
+        @Override
+        public NoonRiskBackoffHold selectActiveHold(String scopeKey, LocalDateTime now) {
+            NoonRiskBackoffHold hold = holds.get(scopeKey);
+            if (hold == null || hold.getBlockedUntil() == null || hold.getBlockedUntil().isBefore(now)) {
+                return null;
+            }
+            return hold.copy();
+        }
+
+        @Override
+        public NoonRiskBackoffHold selectLatestHold(String scopeKey) {
+            NoonRiskBackoffHold hold = holds.get(scopeKey);
+            return hold == null ? null : hold.copy();
+        }
     }
 
     private static final class InMemoryOperationalTaskRepository implements OperationalTaskRepository {

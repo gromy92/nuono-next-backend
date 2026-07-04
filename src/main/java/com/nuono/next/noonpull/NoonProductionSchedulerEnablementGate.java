@@ -215,6 +215,16 @@ public class NoonProductionSchedulerEnablementGate {
                 specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.SALES));
             } else if (domain == NoonPullDataDomain.ORDER) {
                 specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.ORDER));
+            } else if (domain == NoonPullDataDomain.FINANCE_TRANSACTION) {
+                specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.FINANCE_TRANSACTION));
+            } else if (domain == NoonPullDataDomain.NOON_ADVERTISING) {
+                specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.NOON_ADVERTISING));
+            } else if (domain == NoonPullDataDomain.PRODUCT) {
+                specs.add(new ScheduledPlanSpec(NoonPullType.INTERFACE, NoonPullDataDomain.PRODUCT));
+            } else if (domain == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY) {
+                specs.add(new ScheduledPlanSpec(NoonPullType.INTERFACE, NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY));
+            } else if (domain == NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED) {
+                specs.add(new ScheduledPlanSpec(NoonPullType.REPORT, NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED));
             }
         }
         return specs;
@@ -226,7 +236,13 @@ public class NoonProductionSchedulerEnablementGate {
                 ? List.of(NoonPullDataDomain.SALES, NoonPullDataDomain.ORDER)
                 : command.getEnabledDomains();
         for (NoonPullDataDomain domain : requested) {
-            if (domain == NoonPullDataDomain.SALES || domain == NoonPullDataDomain.ORDER) {
+            if (domain == NoonPullDataDomain.SALES
+                    || domain == NoonPullDataDomain.ORDER
+                    || domain == NoonPullDataDomain.FINANCE_TRANSACTION
+                    || domain == NoonPullDataDomain.NOON_ADVERTISING
+                    || domain == NoonPullDataDomain.PRODUCT
+                    || domain == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY
+                    || domain == NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED) {
                 domains.add(domain);
             }
         }

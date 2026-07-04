@@ -111,6 +111,100 @@ class NoonInterfacePullerTest {
         assertEquals(Boolean.TRUE, unavailableRecord.getRetryable());
     }
 
+    @Test
+    void shouldRecordProductRiskBackoffAndDelaySameProductScopeWithoutCallingProvider() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T05:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonRiskBackoffRepository riskRepository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard riskBackoffGuard = new NoonRiskBackoffGuard(riskRepository, clock);
+        puller = new NoonInterfacePuller(foundationService, riskBackoffGuard, new NoonPullFailurePolicy(clock));
+        NoonPullTaskRecord riskTask = createProductTask("catalog:list:risk");
+
+        NoonInterfacePullResult riskResult = puller.execute(
+                riskTask.getId(),
+                productListRequest().targetIdentity("catalog:list:risk").build(),
+                FakeProvider.failing("429 too many requests")
+        );
+
+        NoonPullTaskRecord delayedRiskTask = repository.selectTask(riskTask.getId());
+        assertEquals(NoonPullTaskStatus.FAILED, riskResult.getStatus());
+        assertEquals("rate_limited", delayedRiskTask.getFailureType());
+        assertEquals("DELAY", delayedRiskTask.getRetryAction());
+        assertEquals(Boolean.TRUE, delayedRiskTask.getRetryable());
+        assertEquals(Boolean.FALSE, delayedRiskTask.getRequiresManualAction());
+        assertEquals("risk_backoff", delayedRiskTask.getReadinessState());
+        assertEquals("rate_limited", riskRepository.selectLatestHold(
+                NoonRiskBackoffScope.productInterface(307L, "STR245027", "AE").getScopeKey()
+        ).getRiskType());
+        assertEquals(1, riskRepository.selectLatestHold(
+                NoonRiskBackoffScope.productInterface(307L, "STR245027", "AE").getScopeKey()
+        ).getAttemptCount());
+
+        NoonPullTaskRecord heldTask = createProductTask("catalog:list:held");
+        FakeProvider heldProvider = new FakeProvider(List.of(NoonInterfacePullPage.builder()
+                .items(List.of(Map.of("sku_parent", "ZP-HELD")))
+                .pageNumber(1)
+                .totalItems(1)
+                .hasNextPage(false)
+                .requestCount(1)
+                .build()));
+
+        NoonInterfacePullResult heldResult = puller.execute(
+                heldTask.getId(),
+                productListRequest().targetIdentity("catalog:list:held").build(),
+                heldProvider
+        );
+
+        NoonPullTaskRecord delayedHeldTask = repository.selectTask(heldTask.getId());
+        assertEquals(NoonPullTaskStatus.FAILED, heldResult.getStatus());
+        assertEquals("rate_limited", delayedHeldTask.getFailureType());
+        assertEquals("risk_backoff", delayedHeldTask.getReadinessState());
+        assertEquals(0, heldProvider.callCount);
+    }
+
+    @Test
+    void shouldApplyProductRiskHoldToSalesPageQueryInterfacePull() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T05:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonRiskBackoffRepository riskRepository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard riskBackoffGuard = new NoonRiskBackoffGuard(riskRepository, clock);
+        riskBackoffGuard.recordRiskSignal(
+                NoonRiskBackoffScope.productInterface(307L, "STR245027", "AE"),
+                "rate_limited",
+                "PRODUCT",
+                130001L,
+                null,
+                "product risk"
+        );
+        puller = new NoonInterfacePuller(foundationService, riskBackoffGuard, new NoonPullFailurePolicy(clock));
+        NoonPullTaskRecord task = createSalesPageQueryTask();
+        FakeProvider provider = new FakeProvider(List.of(NoonInterfacePullPage.builder()
+                .items(List.of(Map.of("sku", "SKU-1")))
+                .pageNumber(1)
+                .totalItems(1)
+                .hasNextPage(false)
+                .requestCount(1)
+                .build()));
+
+        NoonInterfacePullResult result = puller.execute(
+                task.getId(),
+                NoonInterfacePullRequest.builder()
+                        .ownerUserId(307L)
+                        .storeCode("STR245027")
+                        .siteCode("AE")
+                        .dataDomain(NoonPullDataDomain.SALES)
+                        .requestName("sales-page-query")
+                        .targetIdentity("sales-page-query:2026-05-21..2026-05-21")
+                        .timeoutSeconds(30)
+                        .build(),
+                provider
+        );
+
+        NoonPullTaskRecord delayedTask = repository.selectTask(task.getId());
+        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
+        assertEquals("rate_limited", delayedTask.getFailureType());
+        assertEquals("risk_backoff", delayedTask.getReadinessState());
+        assertEquals(0, provider.callCount);
+    }
+
     private NoonPullTaskRecord createProductTask() {
         return createProductTask("catalog:list");
     }
@@ -136,6 +230,27 @@ class NoonInterfacePullerTest {
                 .build()).orElseThrow();
     }
 
+    private NoonPullTaskRecord createSalesPageQueryTask() {
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR245027")
+                .siteCode("AE")
+                .pullType(NoonPullType.PAGE_QUERY)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily")
+                .build());
+        return foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR245027")
+                .siteCode("AE")
+                .pullType(NoonPullType.PAGE_QUERY)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .targetIdentity("sales-page-query:2026-05-21..2026-05-21")
+                .build()).orElseThrow();
+    }
+
     private NoonInterfacePullRequest.Builder productListRequest() {
         return NoonInterfacePullRequest.builder()
                 .ownerUserId(307L)
@@ -150,6 +265,7 @@ class NoonInterfacePullerTest {
     private static final class FakeProvider implements NoonInterfacePullProvider {
         private final List<NoonInterfacePullPage> pages;
         private final RuntimeException failure;
+        private int callCount;
 
         private FakeProvider(List<NoonInterfacePullPage> pages, RuntimeException failure) {
             this.pages = pages;
@@ -166,6 +282,7 @@ class NoonInterfacePullerTest {
 
         @Override
         public NoonInterfacePullPage fetchPage(NoonInterfacePullRequest request, int pageNumber) {
+            callCount++;
             if (failure != null) {
                 throw failure;
             }
