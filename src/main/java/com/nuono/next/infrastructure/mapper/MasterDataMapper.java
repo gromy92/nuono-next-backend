@@ -393,7 +393,7 @@ public interface MasterDataMapper {
             "SELECT",
             "  id,",
             "  name,",
-            "  parent_id,",
+            "  CASE WHEN parent_id REGEXP '^[0-9]+$' THEN CAST(parent_id AS UNSIGNED) ELSE NULL END AS parent_id,",
             "  url_path",
             "FROM menu",
             "WHERE id = #{menuId}",
