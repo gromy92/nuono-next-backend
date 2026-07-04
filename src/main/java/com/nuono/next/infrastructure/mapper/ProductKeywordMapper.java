@@ -1,8 +1,10 @@
 package com.nuono.next.infrastructure.mapper;
 
+import com.nuono.next.noonads.NoonAdvertisingQueryFact;
 import com.nuono.next.productkeyword.ProductKeywordListQuery;
 import com.nuono.next.productkeyword.ProductKeywordRecord;
 import com.nuono.next.productkeyword.ProductKeywordUsageEventRecord;
+import java.time.LocalDate;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -205,6 +207,86 @@ public interface ProductKeywordMapper {
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode,
             @Param("partnerSku") String partnerSku,
+            @Param("limit") Integer limit
+    );
+
+    @Select({
+            "SELECT COUNT(1) > 0",
+            "FROM INFORMATION_SCHEMA.TABLES",
+            "WHERE TABLE_SCHEMA = DATABASE()",
+            "  AND TABLE_NAME = 'noon_ad_query_fact'"
+    })
+    boolean adsQueryFactTableExists();
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  q.id,",
+            "  q.batch_id AS batchId,",
+            "  q.source_system AS sourceSystem,",
+            "  q.owner_user_id AS ownerUserId,",
+            "  q.project_code AS projectCode,",
+            "  q.store_code AS storeCode,",
+            "  q.site_code AS siteCode,",
+            "  q.report_date_from AS reportDateFrom,",
+            "  q.report_date_to AS reportDateTo,",
+            "  q.campaign_code AS campaignCode,",
+            "  q.campaign_name AS campaignName,",
+            "  q.ad_sku_code AS adSkuCode,",
+            "  COALESCE(NULLIF(q.partner_sku, ''), ow.partner_sku, pp.partner_sku) AS partnerSku,",
+            "  q.query_text AS queryText,",
+            "  q.query_hash AS queryHash,",
+            "  q.query_kind AS queryKind,",
+            "  q.views,",
+            "  q.clicks,",
+            "  q.orders_count AS ordersCount,",
+            "  q.assisted_orders AS assistedOrders,",
+            "  q.atc_count AS atcCount,",
+            "  COALESCE(q.spend_amount, 0) AS spendAmount,",
+            "  COALESCE(q.ad_revenue, 0) AS adRevenue,",
+            "  COALESCE(q.ctr_percentage, 0) AS ctrPercentage,",
+            "  COALESCE(q.roas, 0) AS roas,",
+            "  COALESCE(q.cpc, 0) AS cpc,",
+            "  COALESCE(q.cps, 0) AS cps,",
+            "  COALESCE(q.cvr_percentage, 0) AS cvrPercentage,",
+            "  q.raw_payload_json AS rawPayloadJson",
+            "FROM noon_ad_query_fact q",
+            "LEFT JOIN (",
+            "  SELECT store_code, site_code, noon_sku, MIN(partner_sku) AS partner_sku",
+            "  FROM official_warehouse_inventory_snapshot_line",
+            "  WHERE COALESCE(partner_sku, '') != ''",
+            "    AND COALESCE(noon_sku, '') != ''",
+            "  GROUP BY store_code, site_code, noon_sku",
+            ") ow ON ow.store_code = q.store_code",
+            "  AND ow.site_code = q.site_code",
+            "  AND UPPER(TRIM(ow.noon_sku)) = UPPER(TRIM(q.ad_sku_code))",
+            "LEFT JOIN (",
+            "  SELECT store_code, site_code, noon_product_code, MIN(partner_sku) AS partner_sku",
+            "  FROM product_public_detail_snapshot pp",
+            "  WHERE pp.is_latest = b'1'",
+            "    AND pp.is_deleted = b'0'",
+            "    AND COALESCE(partner_sku, '') != ''",
+            "    AND COALESCE(noon_product_code, '') != ''",
+            "  GROUP BY store_code, site_code, noon_product_code",
+            ") pp ON pp.store_code = q.store_code",
+            "  AND pp.site_code = q.site_code",
+            "  AND UPPER(TRIM(pp.noon_product_code)) = UPPER(TRIM(SUBSTRING_INDEX(q.ad_sku_code, '-', 1)))",
+            "WHERE q.owner_user_id = #{ownerUserId}",
+            "  AND q.store_code = #{storeCode}",
+            "  AND q.site_code = #{siteCode}",
+            "  AND q.report_date_from &gt;= #{dateFrom}",
+            "  AND q.report_date_to &lt;= #{dateTo}",
+            "  AND COALESCE(q.query_text, '') != ''",
+            "ORDER BY q.report_date_to DESC, q.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<NoonAdvertisingQueryFact> listAdsQueryFactsForKeywordIndexing(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
             @Param("limit") Integer limit
     );
 }

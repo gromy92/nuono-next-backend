@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.ProductKeywordMapper;
+import com.nuono.next.noonads.NoonAdvertisingQueryFact;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -195,6 +197,23 @@ class ProductKeywordCompetitorIndexerTest {
                 Integer limit
         ) {
             return new ArrayList<>(events.values());
+        }
+
+        @Override
+        public boolean adsQueryFactTableExists() {
+            return false;
+        }
+
+        @Override
+        public List<NoonAdvertisingQueryFact> listAdsQueryFactsForKeywordIndexing(
+                Long ownerUserId,
+                String storeCode,
+                String siteCode,
+                LocalDate dateFrom,
+                LocalDate dateTo,
+                Integer limit
+        ) {
+            return List.of();
         }
 
         private static String scopeKey(
