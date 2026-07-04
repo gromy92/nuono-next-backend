@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.function.Supplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ public class AuthEmailCodeService {
     private final Supplier<String> codeSupplier;
     private final Supplier<String> saltSupplier;
 
+    @Autowired
     public AuthEmailCodeService(
             AuthEmailCodeChallengeMapper challengeMapper,
             AuthEmailCodeSender sender,

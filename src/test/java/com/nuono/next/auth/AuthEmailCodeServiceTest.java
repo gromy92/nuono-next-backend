@@ -3,17 +3,20 @@ package com.nuono.next.auth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.AuthEmailCodeChallengeMapper;
 import com.nuono.next.infrastructure.mapper.AuthMapper;
+import java.lang.reflect.Constructor;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +61,18 @@ class AuthEmailCodeServiceTest {
                 () -> "123456",
                 () -> "fixed-salt"
         );
+    }
+
+    @Test
+    void shouldMarkProductionConstructorForSpringInjection() throws NoSuchMethodException {
+        Constructor<AuthEmailCodeService> constructor = AuthEmailCodeService.class.getConstructor(
+                AuthEmailCodeChallengeMapper.class,
+                AuthEmailCodeSender.class,
+                LocalDbAuthService.class,
+                AuthEmailCodeProperties.class
+        );
+
+        assertTrue(constructor.isAnnotationPresent(Autowired.class));
     }
 
     @Test
