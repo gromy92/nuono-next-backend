@@ -80,6 +80,36 @@ class NoonRealProviderBehaviorTest {
     }
 
     @Test
+    void bindingResolverShouldAllowConfiguredEmailCredentialWhenStoreRowHasNoLegacySecret() {
+        StoreSyncStoreRecord store = boundStore();
+        store.setNoonPartnerProjectUser(null);
+        store.setNoonPartnerUser(null);
+        store.setNoonPartnerPwd(null);
+        store.setNoonPartnerMailAuthCode(null);
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
+        session.enqueuePostResponse(objectMapper.createObjectNode()
+                .set("data", objectMapper.createObjectNode()
+                        .put("total", 0)
+                        .set("hits", objectMapper.createArrayNode())));
+        RecordingGatewaySessionFactory sessionFactory = new RecordingGatewaySessionFactory(session);
+        RealNoonProductInterfaceSmokeProvider provider = new RealNoonProductInterfaceSmokeProvider(
+                objectMapper,
+                new NoonPullStoreBindingResolver(storeSyncMapper, "unified@example.com", "mail-auth-code"),
+                sessionFactory,
+                OFFER_LIST_URL,
+                100
+        );
+
+        NoonInterfacePullPage page = provider.fetchPage(productRequest(), 1);
+
+        assertEquals(0, page.getItems().size());
+        assertEquals("unified@example.com", sessionFactory.lastBinding.getNoonUser());
+        assertEquals(null, sessionFactory.lastBinding.getNoonEmailAuthCode());
+        assertEquals(null, sessionFactory.lastBinding.getNoonPassword());
+    }
+
+    @Test
     void salesReportProviderShouldCreatePollAndDownloadThroughGatewaySession() throws Exception {
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(boundStore());
         RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);

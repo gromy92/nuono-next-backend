@@ -47,7 +47,7 @@ class AuthApiProtectionFilterTest {
     }
 
     @Test
-    void shouldAllowEmailCodeAuthEndpointsWithoutSession() throws ServletException, IOException {
+    void shouldProtectEmailCodeAuthEndpointsWithoutSession() throws ServletException, IOException {
         for (String path : new String[] {"/api/auth/email-code/request", "/api/auth/email-code/login"}) {
             MockHttpServletRequest request = request("POST", path);
             MockHttpServletResponse response = new MockHttpServletResponse();
@@ -55,8 +55,9 @@ class AuthApiProtectionFilterTest {
 
             filter.doFilter(request, response, chain(called));
 
-            assertTrue(called.get(), path);
-            assertEquals(200, response.getStatus(), path);
+            assertFalse(called.get(), path);
+            assertEquals(401, response.getStatus(), path);
+            assertTrue(response.getContentAsString().contains("请先登录"), path);
         }
     }
 

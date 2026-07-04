@@ -37,6 +37,7 @@ class RealNoonAdvertisingReportProviderTest {
                 "69486",
                 "seller@example.com",
                 "secret",
+                "mail-auth-code",
                 "cookie=value"
         );
         RecordingGatewaySession session = new RecordingGatewaySession();

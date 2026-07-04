@@ -2,8 +2,10 @@ package com.nuono.next.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
@@ -94,31 +96,141 @@ class LocalDbStoreSyncServiceTest {
     }
 
     @Test
-    void shouldCreateStoreUsingNoonLoginPartnerIdAsProjectCode() {
+    void shouldBindStoreOnlyAfterNoonMerchantLoginSucceedsAndPersistCookie() {
+        StoreBindCommand command = new StoreBindCommand();
+        command.setOwnerUserId(307L);
+        command.setStoreCode("PRJ7001");
+
+        when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
+        when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(
+                project(7000L, "新店铺", "PRJ7001", true, null, 0)
+        );
+        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
+                307L,
+                "PRJ7001",
+                "PRJ7001"
+        )).thenReturn(NoonSessionGateway.MerchantAuthorization.authorized(
+                new NoonSessionGateway.MerchantProject("PRJ7001", "新店铺", "ORG7001", "新组织"),
+                "sid=project-session"
+        ));
+        when(noonSessionGateway.configuredMerchantEmail()).thenReturn("unified@example.com");
+        when(noonSessionGateway.configuredMerchantMailAuthCode()).thenReturn("mail-auth-code");
+        when(storeSyncMapper.listOwnerProjectSites(307L, List.of("PRJ7001"))).thenReturn(List.of(
+                store(7001L, "新店铺", "STR7001-NAE", "AE", true, "PRJ7001")
+        ));
+
+        StoreBindingResult result = service.bindStore(command);
+
+        assertEquals(true, result.isSuccess());
+        assertEquals("店铺 新店铺 已完成 Noon 商家后台绑定，已同步覆盖 1 个站点。", result.getMessage());
+        verify(storeSyncMapper).updateProjectEmailBinding(
+                eq(7000L),
+                eq(307L),
+                eq("unified@example.com"),
+                eq("mail-auth-code"),
+                eq("7001"),
+                eq(307L)
+        );
+        verify(storeSyncMapper).updateProjectConnectionSuccess(7000L, 307L, "sid=project-session", 307L);
+    }
+
+    @Test
+    void shouldReturnProjectChoicesBeforeCreatingStoreWhenNoonAccountHasMultipleProjects() {
         StoreCreateCommand command = new StoreCreateCommand();
         command.setOwnerUserId(307L);
         command.setProjectName("新店铺");
-        command.setNoonUser("boss@p7001.idp.noon.partners");
-        command.setNoonPassword("secret");
+        command.setStoreCode("STR7001-NAE");
+        command.setSite("AE");
 
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
+        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
+                307L,
+                null,
+                "STR7001-NAE"
+        )).thenReturn(NoonSessionGateway.MerchantAuthorization.projectSelectionRequired(List.of(
+                new NoonSessionGateway.MerchantProject("PRJ7001", "新店铺", "ORG7001", "新组织"),
+                new NoonSessionGateway.MerchantProject("PRJ8001", "另一个店铺", "ORG8001", "另一个组织")
+        )));
 
-        String result = service.createStore(command);
+        StoreBindingResult result = service.createStore(command);
 
-        assertEquals("店铺 新店铺 已绑定到当前账号视图。", result);
+        assertEquals(false, result.isSuccess());
+        assertEquals(2, result.getProjectList().size());
+        assertEquals("PRJ7001", result.getProjectList().get(0).getProjectCode());
+        assertEquals("该 Noon 商家后台账号可访问多个 Project，请选择要绑定的店铺。", result.getMessage());
+        verify(storeSyncMapper).selectOwnerContext(307L);
+        verifyNoMoreInteractions(storeSyncMapper);
+    }
+
+    @Test
+    void shouldCreateStoreAfterNoonMerchantProjectIsSelected() {
+        StoreCreateCommand command = new StoreCreateCommand();
+        command.setOwnerUserId(307L);
+        command.setProjectName("新店铺");
+        command.setProjectCode("PRJ7001");
+        command.setStoreCode("STR7001-NAE");
+        command.setSite("AE");
+        command.setOrgCode("ORG7001");
+        command.setOrgName("新组织");
+
+        when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
+        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
+                307L,
+                "PRJ7001",
+                "STR7001-NAE"
+        )).thenReturn(NoonSessionGateway.MerchantAuthorization.authorized(
+                new NoonSessionGateway.MerchantProject("PRJ7001", "Noon 新店铺", "ORG7001", "新组织"),
+                "sid=project-session"
+        ));
+        when(noonSessionGateway.configuredMerchantEmail()).thenReturn("unified@example.com");
+        when(noonSessionGateway.configuredMerchantMailAuthCode()).thenReturn("mail-auth-code");
+        when(storeSyncMapper.nextStoreId()).thenReturn(7010L);
+
+        StoreBindingResult result = service.createStore(command);
+
+        assertEquals(true, result.isSuccess());
+        assertEquals("店铺 新店铺 已绑定到当前账号视图。", result.getMessage());
         verify(storeSyncMapper).insertOwnerProject(
                 eq(307L),
-                eq(null),
-                eq("诺诺商家"),
+                eq("ORG7001"),
+                eq("新组织"),
                 eq("PRJ7001"),
                 eq("新店铺"),
-                eq("boss@p7001.idp.noon.partners"),
-                eq("boss@p7001.idp.noon.partners"),
-                eq("secret"),
+                eq("unified@example.com"),
+                eq("mail-auth-code"),
                 eq("7001"),
                 eq(true),
                 eq(true)
         );
+        verify(storeSyncMapper).updateProjectSessionCookie(307L, "PRJ7001", "sid=project-session", 307L);
+        verify(storeSyncMapper).insertOwnerSiteStore(
+                eq(7010L),
+                eq(307L),
+                eq("ORG7001"),
+                eq("新组织"),
+                eq("PRJ7001"),
+                eq("新店铺"),
+                eq("STR7001-NAE"),
+                eq("AE"),
+                eq(true)
+        );
+    }
+
+    @Test
+    void shouldSurfaceConfiguredNoonMerchantCredentialErrorWhenCreateStoreMissingConfig() {
+        StoreCreateCommand command = new StoreCreateCommand();
+        command.setOwnerUserId(307L);
+        command.setProjectName("新店铺");
+        command.setStoreCode("STR7001-NAE");
+        command.setSite("AE");
+
+        when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
+        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(307L, null, "STR7001-NAE"))
+                .thenThrow(new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。"));
+
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.createStore(command));
+
+        assertEquals("未配置统一 Noon 商家后台邮箱和邮箱授权码。", error.getMessage());
     }
 
     private StoreSyncOwnerOption ownerOption(Long id, String name) {

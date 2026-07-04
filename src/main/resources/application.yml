@@ -105,6 +105,10 @@ nuono:
           stale-running-minutes: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_STALE_RUNNING_MINUTES:120}
           system-operator-user-id: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_OPERATOR_USER_ID:10003}
   noon:
+    auth:
+      email-otp:
+        email: ${NUONO_NOON_MERCHANT_EMAIL_OTP_EMAIL:}
+        mail-auth-code: ${NUONO_NOON_MERCHANT_EMAIL_OTP_MAIL_AUTH_CODE:}
     pull:
       scheduler:
         enabled: ${NUONO_NOON_PULL_SCHEDULER_ENABLED:false}

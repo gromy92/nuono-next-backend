@@ -25,6 +25,10 @@ class ProductNoonCredentialResolver {
                         owner == null ? null : owner.getNoonPartnerPwd()
                 ),
                 firstNonBlank(
+                        store == null ? null : store.getNoonPartnerMailAuthCode(),
+                        owner == null ? null : owner.getNoonPartnerMailAuthCode()
+                ),
+                firstNonBlank(
                         store == null ? null : store.getNoonPartnerCookie(),
                         owner == null ? null : owner.getNoonPartnerCookie()
                 ),

@@ -3,7 +3,6 @@ package com.nuono.next.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
@@ -76,6 +75,7 @@ class LocalDbStoreInitializationServiceTest {
                 "",
                 "",
                 "",
+                "",
                 false,
                 "HTTP",
                 "",
@@ -135,7 +135,7 @@ class LocalDbStoreInitializationServiceTest {
         service.preflight(command);
 
         verify(noonSessionGateway).login(
-                isNull(),
+                eq(307L),
                 eq("xingyao-project-user"),
                 eq("xingyao-password"),
                 eq("xingyao-cookie"),

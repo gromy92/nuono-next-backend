@@ -22,6 +22,8 @@ public class StoreSyncStoreRecord {
 
     private String noonPartnerPwd;
 
+    private String noonPartnerMailAuthCode;
+
     private String noonPartnerCookie;
 
     private LocalDateTime cookieGenerateTime;
@@ -100,6 +102,14 @@ public class StoreSyncStoreRecord {
 
     public void setNoonPartnerPwd(String noonPartnerPwd) {
         this.noonPartnerPwd = noonPartnerPwd;
+    }
+
+    public String getNoonPartnerMailAuthCode() {
+        return noonPartnerMailAuthCode;
+    }
+
+    public void setNoonPartnerMailAuthCode(String noonPartnerMailAuthCode) {
+        this.noonPartnerMailAuthCode = noonPartnerMailAuthCode;
     }
 
     public String getNoonPartnerCookie() {

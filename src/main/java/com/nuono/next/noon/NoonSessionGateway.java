@@ -26,8 +26,10 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.StringJoiner;
@@ -57,6 +59,8 @@ public class NoonSessionGateway {
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/lookup";
     private static final String DEFAULT_IDENTITY_PKCE_URL =
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/client/pkce";
+    private static final String DEFAULT_IDENTITY_GENERATE_URL =
+            "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/credential/generate";
     private static final String DEFAULT_IDENTITY_VALIDATE_URL =
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/validate";
     private static final String DEFAULT_IDENTITY_PROJECT_LIST_URL =
@@ -88,6 +92,7 @@ public class NoonSessionGateway {
     private final String whoamiUrl;
     private final String identityUserLookupUrl;
     private final String identityPkceUrl;
+    private final String identityGenerateUrl;
     private final String identityValidateUrl;
     private final String identityProjectListUrl;
     private final String identitySessionCreateUrl;
@@ -100,6 +105,11 @@ public class NoonSessionGateway {
     private final ConcurrentMap<String, Object> accountLocks = new ConcurrentHashMap<>();
     private final ThreadLocal<LinkedHashMap<String, Integer>> requestCountScope = new ThreadLocal<>();
     private NoonHttpCallLogService noonHttpCallLogService;
+    private NoonEmailOtpReader emailOtpReader;
+    @Value("${nuono.noon.auth.email-otp.email:}")
+    private String configuredMerchantEmail;
+    @Value("${nuono.noon.auth.email-otp.mail-auth-code:}")
+    private String configuredMerchantMailAuthCode;
 
     public NoonSessionGateway(
             ObjectMapper objectMapper,
@@ -117,6 +127,7 @@ public class NoonSessionGateway {
             @Value("${nuono.noon.urls.whoami:}") String whoamiUrl,
             @Value("${nuono.noon.urls.identity-user-lookup:}") String identityUserLookupUrl,
             @Value("${nuono.noon.urls.identity-pkce:}") String identityPkceUrl,
+            @Value("${nuono.noon.urls.identity-generate:}") String identityGenerateUrl,
             @Value("${nuono.noon.urls.identity-validate:}") String identityValidateUrl,
             @Value("${nuono.noon.urls.identity-project-list:}") String identityProjectListUrl,
             @Value("${nuono.noon.urls.identity-session-create:}") String identitySessionCreateUrl,
@@ -145,6 +156,7 @@ public class NoonSessionGateway {
         this.whoamiUrl = defaultIfBlank(whoamiUrl, DEFAULT_WHOAMI_URL);
         this.identityUserLookupUrl = defaultIfBlank(identityUserLookupUrl, DEFAULT_IDENTITY_USER_LOOKUP_URL);
         this.identityPkceUrl = defaultIfBlank(identityPkceUrl, DEFAULT_IDENTITY_PKCE_URL);
+        this.identityGenerateUrl = defaultIfBlank(identityGenerateUrl, DEFAULT_IDENTITY_GENERATE_URL);
         this.identityValidateUrl = defaultIfBlank(identityValidateUrl, DEFAULT_IDENTITY_VALIDATE_URL);
         this.identityProjectListUrl = defaultIfBlank(identityProjectListUrl, DEFAULT_IDENTITY_PROJECT_LIST_URL);
         this.identitySessionCreateUrl = defaultIfBlank(identitySessionCreateUrl, DEFAULT_IDENTITY_SESSION_CREATE_URL);
@@ -158,6 +170,16 @@ public class NoonSessionGateway {
     @Autowired(required = false)
     public void setNoonHttpCallLogService(NoonHttpCallLogService noonHttpCallLogService) {
         this.noonHttpCallLogService = noonHttpCallLogService;
+    }
+
+    @Autowired(required = false)
+    public void setEmailOtpReader(NoonEmailOtpReader emailOtpReader) {
+        this.emailOtpReader = emailOtpReader;
+    }
+
+    void setConfiguredMerchantEmailOtpCredential(String email, String mailAuthCode) {
+        this.configuredMerchantEmail = email;
+        this.configuredMerchantMailAuthCode = mailAuthCode;
     }
 
     public NoonSession login(
@@ -185,6 +207,168 @@ public class NoonSessionGateway {
                 false
         );
         return new NoonSession(ownerUserId, normalizedUser, noonPassword, state, normalize(projectCode), normalize(storeCode));
+    }
+
+    public NoonSession loginWithEmailAuthCode(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        String normalizedEmail = normalizeUser(noonEmail);
+        if (!StringUtils.hasText(normalizedEmail)) {
+            throw new IllegalArgumentException("缺少 Noon 商家后台登录邮箱。");
+        }
+        String normalizedMailAuthCode = normalize(mailAuthCode);
+        if (!StringUtils.hasText(normalizedMailAuthCode)) {
+            throw new IllegalArgumentException("缺少邮箱授权码。");
+        }
+        String normalizedProjectCode = normalize(projectCode);
+        if (!StringUtils.hasText(normalizedProjectCode)) {
+            throw new IllegalArgumentException("缺少 Noon Project，无法使用邮箱登录。");
+        }
+        AuthSessionState state = getOrCreateEmailOtpState(
+                ownerUserId,
+                normalizedEmail,
+                normalizedMailAuthCode,
+                normalizeCookie(persistedCookie),
+                normalizedProjectCode,
+                normalize(storeCode),
+                false
+        );
+        return new NoonSession(
+                ownerUserId,
+                normalizedEmail,
+                normalizedMailAuthCode,
+                state,
+                normalizedProjectCode,
+                normalize(storeCode),
+                true
+        );
+    }
+
+    public NoonSession loginWithConfiguredEmailAuthCode(
+            Long ownerUserId,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        return loginWithEmailAuthCode(
+                ownerUserId,
+                configuredMerchantEmail(),
+                configuredMerchantMailAuthCode(),
+                persistedCookie,
+                projectCode,
+                storeCode
+        );
+    }
+
+    public MerchantAuthorization authorizeMerchantLogin(
+            Long ownerUserId,
+            String noonUser,
+            String noonPassword,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        String normalizedUser = normalizeUser(noonUser);
+        if (!StringUtils.hasText(normalizedUser)) {
+            throw new IllegalArgumentException("缺少 Noon 登录账号。");
+        }
+        if (!StringUtils.hasText(noonPassword)) {
+            throw new IllegalArgumentException("缺少 Noon 登录密码。");
+        }
+
+        String normalizedProjectCode = normalize(requestedProjectCode);
+        String normalizedStoreCode = normalize(storeCode);
+        if (partnerIdentityLoginEnabled) {
+            return authorizePartnerIdentityMerchantLogin(
+                    ownerUserId,
+                    normalizedUser,
+                    noonPassword,
+                    normalizedProjectCode,
+                    normalizedStoreCode
+            );
+        }
+
+        if (!StringUtils.hasText(normalizedProjectCode)) {
+            throw new IllegalStateException("Noon login-alt 未启用时无法读取 Project 列表，请先选择 Project。");
+        }
+        NoonSession session = login(
+                ownerUserId,
+                normalizedUser,
+                noonPassword,
+                null,
+                normalizedProjectCode,
+                normalizedStoreCode
+        );
+        return MerchantAuthorization.authorized(
+                new MerchantProject(normalizedProjectCode, normalizedProjectCode, null, null),
+                session.exportAuthCookieHeader()
+        );
+    }
+
+    public MerchantAuthorization authorizeMerchantEmailLogin(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        String normalizedEmail = normalizeUser(noonEmail);
+        if (!StringUtils.hasText(normalizedEmail)) {
+            throw new IllegalArgumentException("缺少 Noon 商家后台登录邮箱。");
+        }
+        String normalizedMailAuthCode = normalize(mailAuthCode);
+        if (!StringUtils.hasText(normalizedMailAuthCode)) {
+            throw new IllegalArgumentException("缺少邮箱授权码。");
+        }
+        if (!partnerIdentityLoginEnabled) {
+            throw new IllegalStateException("Noon 邮箱登录需要启用 login-alt 身份链路。");
+        }
+        return authorizePartnerIdentityEmailOtpLogin(
+                ownerUserId,
+                normalizedEmail,
+                normalizedMailAuthCode,
+                normalize(requestedProjectCode),
+                normalize(storeCode)
+        );
+    }
+
+    public MerchantAuthorization authorizeConfiguredMerchantEmailLogin(
+            Long ownerUserId,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        return authorizeMerchantEmailLogin(
+                ownerUserId,
+                configuredMerchantEmail(),
+                configuredMerchantMailAuthCode(),
+                requestedProjectCode,
+                storeCode
+        );
+    }
+
+    public boolean hasConfiguredMerchantEmailLogin() {
+        return StringUtils.hasText(normalizeUser(configuredMerchantEmail))
+                && StringUtils.hasText(normalize(configuredMerchantMailAuthCode));
+    }
+
+    public String configuredMerchantEmail() {
+        String normalizedEmail = normalizeUser(configuredMerchantEmail);
+        if (!StringUtils.hasText(normalizedEmail) || !StringUtils.hasText(normalize(configuredMerchantMailAuthCode))) {
+            throw new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。");
+        }
+        return normalizedEmail;
+    }
+
+    public String configuredMerchantMailAuthCode() {
+        String normalizedMailAuthCode = normalize(configuredMerchantMailAuthCode);
+        if (!StringUtils.hasText(normalizeUser(configuredMerchantEmail)) || !StringUtils.hasText(normalizedMailAuthCode)) {
+            throw new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。");
+        }
+        return normalizedMailAuthCode;
     }
 
     public JsonNode whoamiWithCookie(
@@ -272,6 +456,9 @@ public class NoonSessionGateway {
         if (url.contains("/public/client/pkce")) {
             return "auth.identity.pkce";
         }
+        if (url.contains("/public/user/credential/generate")) {
+            return "auth.identity.generate";
+        }
         if (url.contains("/public/user/validate")) {
             return "auth.identity.validate";
         }
@@ -327,6 +514,35 @@ public class NoonSessionGateway {
                     storeCode
             );
             sessionCache.put(noonUser, created);
+            return created;
+        }
+    }
+
+    private AuthSessionState getOrCreateEmailOtpState(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String persistedCookie,
+            String projectCode,
+            String storeCode,
+            boolean forceRefresh
+    ) {
+        String cacheKey = "emailotp:" + noonEmail + ":" + normalize(projectCode);
+        synchronized (accountLocks.computeIfAbsent(cacheKey, key -> new Object())) {
+            AuthSessionState existing = sessionCache.get(cacheKey);
+            if (!forceRefresh && existing != null && !existing.isExpired() && existing.matchesPassword(mailAuthCode)) {
+                return existing;
+            }
+
+            AuthSessionState created = createEmailOtpAuthenticatedState(
+                    ownerUserId,
+                    noonEmail,
+                    mailAuthCode,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+            sessionCache.put(cacheKey, created);
             return created;
         }
     }
@@ -411,6 +627,43 @@ public class NoonSessionGateway {
         throw new IllegalStateException("Noon 登录失败：未启用可用的登录方式。");
     }
 
+    private AuthSessionState createEmailOtpAuthenticatedState(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        AuthSessionState cookieState = tryCreateStateFromPersistedCookie(
+                noonEmail,
+                mailAuthCode,
+                persistedCookie,
+                projectCode,
+                storeCode
+        );
+        if (cookieState != null) {
+            return cookieState;
+        }
+        if (!partnerIdentityLoginEnabled) {
+            throw new IllegalStateException("Noon 邮箱登录需要启用 login-alt 身份链路。");
+        }
+        try {
+            AuthSessionState state = createPartnerIdentityEmailOtpState(
+                    noonEmail,
+                    mailAuthCode,
+                    projectCode,
+                    storeCode
+            );
+            persistCookie(ownerUserId, projectCode, state.exportAuthCookieHeader());
+            return state;
+        } catch (IllegalStateException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("Noon 邮箱登录失败：" + exception.getMessage(), exception);
+        }
+    }
+
     private AuthSessionState createSigninState(
             Long ownerUserId,
             String noonUser,
@@ -454,6 +707,123 @@ public class NoonSessionGateway {
             throw exception;
         } catch (Exception exception) {
             throw new IllegalStateException("Noon login-alt 登录失败：" + exception.getMessage(), exception);
+        }
+    }
+
+    private AuthSessionState createPartnerIdentityEmailOtpState(
+            String noonEmail,
+            String mailAuthCode,
+            String projectCode,
+            String storeCode
+    ) {
+        AuthSessionState state = newSessionState(noonEmail, mailAuthCode);
+        PartnerIdentityUser user = lookupPartnerIdentityEmailOtpUser(state, noonEmail);
+        PkcePair pkce = createPkcePair(state);
+        generatePartnerIdentityEmailOtp(state, user.getUserCode(), pkce);
+        String otpCode = readEmailOtp(noonEmail, mailAuthCode);
+        String accessToken = validatePartnerIdentityEmailOtp(
+                state,
+                user.getUserCode(),
+                noonEmail,
+                otpCode,
+                pkce
+        );
+        List<MerchantProject> projects = listPartnerIdentityProjects(state, user.getUserCode(), accessToken);
+        MerchantProject selectedProject = StringUtils.hasText(projectCode)
+                ? selectMerchantProject(projects, projectCode)
+                : projects.get(0);
+        createPartnerIdentitySession(
+                state,
+                user.getUserCode(),
+                accessToken,
+                selectedProject.getProjectCode(),
+                pkce
+        );
+        state.applyContextCookies(selectedProject.getProjectCode(), storeCode);
+        return state;
+    }
+
+    private MerchantAuthorization authorizePartnerIdentityMerchantLogin(
+            Long ownerUserId,
+            String noonUser,
+            String noonPassword,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        try {
+            AuthSessionState state = newSessionState(noonUser, noonPassword);
+            PartnerIdentityUser user = lookupPartnerIdentityUser(state, noonUser);
+            PkcePair pkce = createPkcePair(state);
+            String accessToken = validatePartnerIdentityPassword(state, user.getUserCode(), noonUser, noonPassword, pkce);
+            List<MerchantProject> projects = listPartnerIdentityProjects(state, user.getUserCode(), accessToken);
+            if (!StringUtils.hasText(requestedProjectCode) && projects.size() > 1) {
+                return MerchantAuthorization.projectSelectionRequired(projects);
+            }
+
+            MerchantProject selectedProject = StringUtils.hasText(requestedProjectCode)
+                    ? selectMerchantProject(projects, requestedProjectCode)
+                    : projects.get(0);
+            createPartnerIdentitySession(
+                    state,
+                    user.getUserCode(),
+                    accessToken,
+                    selectedProject.getProjectCode(),
+                    pkce
+            );
+            state.applyContextCookies(selectedProject.getProjectCode(), storeCode);
+            String cookie = state.exportAuthCookieHeader();
+            persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
+            return MerchantAuthorization.authorized(selectedProject, cookie);
+        } catch (IllegalStateException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("Noon login-alt 登录失败：" + exception.getMessage(), exception);
+        }
+    }
+
+    private MerchantAuthorization authorizePartnerIdentityEmailOtpLogin(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        try {
+            AuthSessionState state = newSessionState(noonEmail, "");
+            PartnerIdentityUser user = lookupPartnerIdentityEmailOtpUser(state, noonEmail);
+            PkcePair pkce = createPkcePair(state);
+            generatePartnerIdentityEmailOtp(state, user.getUserCode(), pkce);
+            String otpCode = readEmailOtp(noonEmail, mailAuthCode);
+            String accessToken = validatePartnerIdentityEmailOtp(
+                    state,
+                    user.getUserCode(),
+                    noonEmail,
+                    otpCode,
+                    pkce
+            );
+            List<MerchantProject> projects = listPartnerIdentityProjects(state, user.getUserCode(), accessToken);
+            if (!StringUtils.hasText(requestedProjectCode) && projects.size() > 1) {
+                return MerchantAuthorization.projectSelectionRequired(projects);
+            }
+
+            MerchantProject selectedProject = StringUtils.hasText(requestedProjectCode)
+                    ? selectMerchantProject(projects, requestedProjectCode)
+                    : projects.get(0);
+            createPartnerIdentitySession(
+                    state,
+                    user.getUserCode(),
+                    accessToken,
+                    selectedProject.getProjectCode(),
+                    pkce
+            );
+            state.applyContextCookies(selectedProject.getProjectCode(), storeCode);
+            String cookie = state.exportAuthCookieHeader();
+            persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
+            return MerchantAuthorization.authorized(selectedProject, cookie);
+        } catch (IllegalStateException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalStateException("Noon 邮箱登录失败：" + exception.getMessage(), exception);
         }
     }
 
@@ -522,6 +892,14 @@ public class NoonSessionGateway {
         return extractPartnerIdentityUser(root);
     }
 
+    private PartnerIdentityUser lookupPartnerIdentityEmailOtpUser(AuthSessionState state, String noonEmail) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("channelIdentifier", noonEmail);
+        body.put("client_code", NOON_WEB_CLIENT_CODE);
+        JsonNode root = state.postJson(null, null, identityUserLookupUrl, body, false, null);
+        return extractPartnerIdentityEmailOtpUser(root);
+    }
+
     private PkcePair createPkcePair(AuthSessionState state) {
         String codeVerifier = generateCodeVerifier();
         ObjectNode body = objectMapper.createObjectNode();
@@ -567,6 +945,64 @@ public class NoonSessionGateway {
         return accessToken;
     }
 
+    private void generatePartnerIdentityEmailOtp(
+            AuthSessionState state,
+            String userCode,
+            PkcePair pkce
+    ) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("channelCode", "emailotp");
+        body.put("client_code", NOON_WEB_CLIENT_CODE);
+        body.put("userCode", userCode);
+        body.put("code_verifier", pkce.getCodeVerifier());
+        body.put("pkce_key", pkce.getPkceKey());
+        JsonNode root = state.postJson(null, null, identityGenerateUrl, body, false, null);
+        if (root == null || !"ok".equalsIgnoreCase(root.path("emailotp").asText(null))) {
+            throw new IllegalStateException("Noon emailotp 发送失败：" + text(root, "err"));
+        }
+    }
+
+    private String readEmailOtp(String noonEmail, String mailAuthCode) {
+        NoonEmailOtpReader reader = this.emailOtpReader;
+        if (reader == null) {
+            throw new IllegalStateException("未配置邮箱 OTP 读取器，无法完成 Noon 邮箱登录。");
+        }
+        String otpCode = normalize(reader.readOtp(noonEmail, mailAuthCode));
+        if (!StringUtils.hasText(otpCode)) {
+            throw new IllegalStateException("未能从邮箱读取 Noon 验证码。");
+        }
+        return otpCode;
+    }
+
+    private String validatePartnerIdentityEmailOtp(
+            AuthSessionState state,
+            String userCode,
+            String noonEmail,
+            String otpCode,
+            PkcePair pkce
+    ) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("channel_code", "emailotp");
+        body.put("client_code", NOON_WEB_CLIENT_CODE);
+        body.put("user_code", userCode);
+        body.put("channel_identifier", noonEmail);
+        body.put("channel_credential", otpCode);
+        body.put("code_verifier", pkce.getCodeVerifier());
+        body.put("pkce_key", pkce.getPkceKey());
+        JsonNode root = state.postJson(null, null, identityValidateUrl, body, false, null);
+        if (root == null || !root.path("success").asBoolean(false)) {
+            String error = root != null && root.path("err").isArray() && root.path("err").size() > 0
+                    ? root.path("err").get(0).asText()
+                    : text(root, "err");
+            throw new IllegalStateException("Noon emailotp validate 失败：" + error);
+        }
+        String accessToken = text(root, "access_token");
+        if (!StringUtils.hasText(accessToken)) {
+            throw new IllegalStateException("Noon emailotp validate 失败：缺少 access_token。");
+        }
+        return accessToken;
+    }
+
     private String resolvePartnerIdentityProjectCode(
             AuthSessionState state,
             String userCode,
@@ -578,6 +1014,18 @@ public class NoonSessionGateway {
         body.put("accessToken", accessToken);
         JsonNode root = state.postJson(null, null, identityProjectListUrl, body, false, null);
         return selectPartnerIdentityProjectCode(root, requestedProjectCode);
+    }
+
+    private List<MerchantProject> listPartnerIdentityProjects(
+            AuthSessionState state,
+            String userCode,
+            String accessToken
+    ) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("userCode", userCode);
+        body.put("accessToken", accessToken);
+        JsonNode root = state.postJson(null, null, identityProjectListUrl, body, false, null);
+        return extractPartnerIdentityProjects(root);
     }
 
     private void createPartnerIdentitySession(
@@ -647,6 +1095,18 @@ public class NoonSessionGateway {
     }
 
     static PartnerIdentityUser extractPartnerIdentityUser(JsonNode root) {
+        return extractPartnerIdentityUser(root, "password", "请先在 Noon 后台为该账号启用密码登录。");
+    }
+
+    static PartnerIdentityUser extractPartnerIdentityEmailOtpUser(JsonNode root) {
+        return extractPartnerIdentityUser(root, "emailotp", "该 Noon 商家后台账号未启用邮箱验证码登录。");
+    }
+
+    private static PartnerIdentityUser extractPartnerIdentityUser(
+            JsonNode root,
+            String requiredChannel,
+            String missingChannelMessage
+    ) {
         if (root == null || !root.isArray() || root.size() == 0) {
             throw new IllegalStateException("Noon 账号不存在或 lookup 响应为空。");
         }
@@ -656,44 +1116,61 @@ public class NoonSessionGateway {
             throw new IllegalStateException("Noon lookup 响应缺少 userCode。");
         }
         JsonNode channels = user.path("channels");
-        boolean passwordEnabled = false;
+        boolean channelEnabled = false;
         if (channels.isArray()) {
             for (JsonNode channel : channels) {
                 String channelCode = firstText(channel, "channelCode", "channel_code");
-                if ("password".equalsIgnoreCase(channelCode)) {
-                    passwordEnabled = true;
+                if (requiredChannel.equalsIgnoreCase(channelCode)) {
+                    channelEnabled = true;
                     break;
                 }
             }
         }
-        if (!passwordEnabled) {
-            throw new IllegalStateException("请先在 Noon 后台为该账号启用密码登录。");
+        if (!channelEnabled) {
+            throw new IllegalStateException(missingChannelMessage);
         }
         return new PartnerIdentityUser(userCode);
     }
 
     static String selectPartnerIdentityProjectCode(JsonNode root, String requestedProjectCode) {
-        JsonNode projects = root == null ? MissingNode.getInstance() : root.path("projects");
-        if (!projects.isArray() || projects.size() == 0) {
-            throw new IllegalStateException("Noon 账号没有可用 Project。");
-        }
-
+        List<MerchantProject> projects = extractPartnerIdentityProjects(root);
         String normalizedRequested = normalize(requestedProjectCode);
         if (StringUtils.hasText(normalizedRequested)) {
-            for (JsonNode project : projects) {
-                String projectCode = firstText(project, "projectCode", "project_code");
-                if (normalizedRequested.equalsIgnoreCase(projectCode)) {
-                    return projectCode;
-                }
-            }
-            throw new IllegalStateException("Noon 账号不包含当前项目：" + normalizedRequested);
+            return selectMerchantProject(projects, normalizedRequested).getProjectCode();
         }
+        return projects.get(0).getProjectCode();
+    }
 
-        String firstProjectCode = firstText(projects.get(0), "projectCode", "project_code");
-        if (!StringUtils.hasText(firstProjectCode)) {
-            throw new IllegalStateException("Noon project/list 响应缺少 projectCode。");
+    static List<MerchantProject> extractPartnerIdentityProjects(JsonNode root) {
+        JsonNode projectsNode = root == null ? MissingNode.getInstance() : root.path("projects");
+        if (!projectsNode.isArray() || projectsNode.size() == 0) {
+            throw new IllegalStateException("Noon 账号没有可用 Project。");
         }
-        return firstProjectCode;
+        List<MerchantProject> projects = new ArrayList<>();
+        for (JsonNode project : projectsNode) {
+            String projectCode = firstText(project, "projectCode", "project_code");
+            if (!StringUtils.hasText(projectCode)) {
+                throw new IllegalStateException("Noon project/list 响应缺少 projectCode。");
+            }
+            projects.add(new MerchantProject(
+                    projectCode,
+                    firstText(project, "projectName", "project_name"),
+                    firstText(project, "orgCode", "org_code"),
+                    firstText(project, "orgName", "org_name")
+            ));
+        }
+        return projects;
+    }
+
+    private static MerchantProject selectMerchantProject(List<MerchantProject> projects, String requestedProjectCode) {
+        String normalizedRequested = normalize(requestedProjectCode);
+        for (MerchantProject project : projects) {
+            if (StringUtils.hasText(project.getProjectCode())
+                    && project.getProjectCode().equalsIgnoreCase(normalizedRequested)) {
+                return project;
+            }
+        }
+        throw new IllegalStateException("Noon 账号不包含当前项目：" + normalizedRequested);
     }
 
     static String generateCodeVerifier() {
@@ -854,6 +1331,7 @@ public class NoonSessionGateway {
         private volatile AuthSessionState state;
         private final String projectCode;
         private final String storeCode;
+        private final boolean emailOtpSession;
 
         private NoonSession(
                 Long ownerUserId,
@@ -863,20 +1341,49 @@ public class NoonSessionGateway {
                 String projectCode,
                 String storeCode
         ) {
+            this(ownerUserId, noonUser, noonPassword, state, projectCode, storeCode, false);
+        }
+
+        private NoonSession(
+                Long ownerUserId,
+                String noonUser,
+                String noonPassword,
+                AuthSessionState state,
+                String projectCode,
+                String storeCode,
+                boolean emailOtpSession
+        ) {
             this.ownerUserId = ownerUserId;
             this.noonUser = noonUser;
             this.noonPassword = noonPassword;
             this.state = state;
             this.projectCode = projectCode;
             this.storeCode = storeCode;
+            this.emailOtpSession = emailOtpSession;
         }
 
         public NoonSession withProjectCode(String nextProjectCode) {
-            return new NoonSession(ownerUserId, noonUser, noonPassword, state, normalize(nextProjectCode), storeCode);
+            return new NoonSession(
+                    ownerUserId,
+                    noonUser,
+                    noonPassword,
+                    state,
+                    normalize(nextProjectCode),
+                    storeCode,
+                    emailOtpSession
+            );
         }
 
         public NoonSession withStoreCode(String nextStoreCode) {
-            return new NoonSession(ownerUserId, noonUser, noonPassword, state, projectCode, normalize(nextStoreCode));
+            return new NoonSession(
+                    ownerUserId,
+                    noonUser,
+                    noonPassword,
+                    state,
+                    projectCode,
+                    normalize(nextStoreCode),
+                    emailOtpSession
+            );
         }
 
         public String getProjectCode() {
@@ -967,19 +1474,11 @@ public class NoonSessionGateway {
                     if (authRefreshed) {
                         throw exception;
                     }
-                    state = getOrCreateState(ownerUserId, noonUser, noonPassword, null, projectCode, storeCode, true);
+                    state = refreshAuthenticatedState(null, true);
                     authRefreshed = true;
                 } catch (IllegalStateException exception) {
                     if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
-                        state = getOrCreateState(
-                                ownerUserId,
-                                noonUser,
-                                noonPassword,
-                                state.exportAuthCookieHeader(),
-                                projectCode,
-                                storeCode,
-                                true
-                        );
+                        state = refreshAuthenticatedState(state.exportAuthCookieHeader(), true);
                         transportRefreshed = true;
                         continue;
                     }
@@ -998,19 +1497,11 @@ public class NoonSessionGateway {
                     if (authRefreshed) {
                         throw exception;
                     }
-                    state = getOrCreateState(ownerUserId, noonUser, noonPassword, null, projectCode, storeCode, true);
+                    state = refreshAuthenticatedState(null, true);
                     authRefreshed = true;
                 } catch (IllegalStateException exception) {
                     if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
-                        state = getOrCreateState(
-                                ownerUserId,
-                                noonUser,
-                                noonPassword,
-                                state.exportAuthCookieHeader(),
-                                projectCode,
-                                storeCode,
-                                true
-                        );
+                        state = refreshAuthenticatedState(state.exportAuthCookieHeader(), true);
                         transportRefreshed = true;
                         continue;
                     }
@@ -1029,25 +1520,40 @@ public class NoonSessionGateway {
                     if (authRefreshed) {
                         throw exception;
                     }
-                    state = getOrCreateState(null, noonUser, noonPassword, null, projectCode, storeCode, true);
+                    state = refreshAuthenticatedState(null, true);
                     authRefreshed = true;
                 } catch (IllegalStateException exception) {
                     if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
-                        state = getOrCreateState(
-                                null,
-                                noonUser,
-                                noonPassword,
-                                state.exportAuthCookieHeader(),
-                                projectCode,
-                                storeCode,
-                                true
-                        );
+                        state = refreshAuthenticatedState(state.exportAuthCookieHeader(), true);
                         transportRefreshed = true;
                         continue;
                     }
                     throw exception;
                 }
             }
+        }
+
+        private AuthSessionState refreshAuthenticatedState(String persistedCookie, boolean forceRefresh) {
+            if (emailOtpSession) {
+                return getOrCreateEmailOtpState(
+                        ownerUserId,
+                        noonUser,
+                        noonPassword,
+                        persistedCookie,
+                        projectCode,
+                        storeCode,
+                        forceRefresh
+                );
+            }
+            return getOrCreateState(
+                    ownerUserId,
+                    noonUser,
+                    noonPassword,
+                    persistedCookie,
+                    projectCode,
+                    storeCode,
+                    forceRefresh
+            );
         }
     }
 
@@ -1119,6 +1625,83 @@ public class NoonSessionGateway {
 
         String getUserCode() {
             return userCode;
+        }
+    }
+
+    public static final class MerchantProject {
+        private final String projectCode;
+        private final String projectName;
+        private final String orgCode;
+        private final String orgName;
+
+        public MerchantProject(String projectCode, String projectName, String orgCode, String orgName) {
+            this.projectCode = projectCode;
+            this.projectName = projectName;
+            this.orgCode = orgCode;
+            this.orgName = orgName;
+        }
+
+        public String getProjectCode() {
+            return projectCode;
+        }
+
+        public String getProjectName() {
+            return projectName;
+        }
+
+        public String getOrgCode() {
+            return orgCode;
+        }
+
+        public String getOrgName() {
+            return orgName;
+        }
+    }
+
+    public static final class MerchantAuthorization {
+        private final boolean success;
+        private final MerchantProject selectedProject;
+        private final String cookie;
+        private final List<MerchantProject> projectList;
+
+        private MerchantAuthorization(
+                boolean success,
+                MerchantProject selectedProject,
+                String cookie,
+                List<MerchantProject> projectList
+        ) {
+            this.success = success;
+            this.selectedProject = selectedProject;
+            this.cookie = cookie;
+            this.projectList = projectList == null ? List.of() : List.copyOf(projectList);
+        }
+
+        public static MerchantAuthorization authorized(MerchantProject selectedProject, String cookie) {
+            return new MerchantAuthorization(true, selectedProject, cookie, List.of());
+        }
+
+        public static MerchantAuthorization projectSelectionRequired(List<MerchantProject> projectList) {
+            return new MerchantAuthorization(false, null, null, projectList);
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public boolean isProjectSelectionRequired() {
+            return !success && !projectList.isEmpty();
+        }
+
+        public MerchantProject getSelectedProject() {
+            return selectedProject;
+        }
+
+        public String getCookie() {
+            return cookie;
+        }
+
+        public List<MerchantProject> getProjectList() {
+            return projectList;
         }
     }
 

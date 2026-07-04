@@ -3,7 +3,6 @@ package com.nuono.next.auth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -28,13 +27,7 @@ class AuthControllerTest {
     private ObjectProvider<LocalDbAuthService> authServiceProvider;
 
     @Mock
-    private ObjectProvider<AuthEmailCodeService> emailCodeServiceProvider;
-
-    @Mock
     private LocalDbAuthService authService;
-
-    @Mock
-    private AuthEmailCodeService emailCodeService;
 
     @Mock
     private AuthSessionTokenService sessionTokenService;
@@ -43,56 +36,56 @@ class AuthControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AuthController(authServiceProvider, emailCodeServiceProvider, sessionTokenService);
+        controller = new AuthController(authServiceProvider, sessionTokenService);
     }
 
     @Test
-    void shouldClosePasswordLoginEndpoint() {
+    void shouldSetSessionCookieAfterPasswordLogin() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
         AuthLoginCommand command = new AuthLoginCommand();
+        AuthLoginResult login = new AuthLoginResult();
+        login.setUserId(10001L);
 
-        ResponseStatusException error = assertThrows(
-                ResponseStatusException.class,
-                () -> controller.login(command, request, response)
-        );
+        when(authServiceProvider.getIfAvailable()).thenReturn(authService);
+        when(authService.login(command)).thenReturn(login);
+        when(sessionTokenService.issue(login)).thenReturn("signed-token");
+        when(sessionTokenService.getTtlSeconds()).thenReturn(600L);
 
-        assertEquals(HttpStatus.NOT_FOUND, error.getStatus());
-        assertEquals("账号密码登录已关闭，请使用邮箱验证码登录。", error.getReason());
-        verify(authServiceProvider, never()).getIfAvailable();
+        Map<String, Object> payload = controller.login(command, request, response);
+
+        assertEquals(Boolean.TRUE, payload.get("success"));
+        assertEquals(login, payload.get("session"));
+        assertTrue(response.getHeader(HttpHeaders.SET_COOKIE).contains(AuthSessionTokenService.COOKIE_NAME + "=signed-token"));
     }
 
     @Test
     void shouldRequestEmailCode() {
         AuthEmailCodeRequestCommand command = new AuthEmailCodeRequestCommand();
         command.setEmail("login@example.com");
-        when(emailCodeServiceProvider.getIfAvailable()).thenReturn(emailCodeService);
 
-        Map<String, Object> payload = controller.requestEmailCode(command);
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.requestEmailCode(command)
+        );
 
-        assertEquals(Boolean.TRUE, payload.get("success"));
-        assertEquals("验证码已发送", payload.get("message"));
-        verify(emailCodeService).requestLoginCode(command);
+        assertEquals(HttpStatus.NOT_FOUND, error.getStatus());
+        assertEquals("邮箱验证码登录不用于诺诺管家入口，请使用账号密码登录。", error.getReason());
     }
 
     @Test
-    void shouldSetSessionCookieAfterEmailCodeLogin() {
+    void shouldCloseEmailCodeLoginEndpointForManagerLogin() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
         AuthEmailCodeLoginCommand command = new AuthEmailCodeLoginCommand();
-        AuthLoginResult login = new AuthLoginResult();
-        login.setUserId(10001L);
 
-        when(emailCodeServiceProvider.getIfAvailable()).thenReturn(emailCodeService);
-        when(emailCodeService.login(command)).thenReturn(login);
-        when(sessionTokenService.issue(login)).thenReturn("signed-email-token");
-        when(sessionTokenService.getTtlSeconds()).thenReturn(600L);
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.loginWithEmailCode(command, request, response)
+        );
 
-        Map<String, Object> payload = controller.loginWithEmailCode(command, request, response);
-
-        assertEquals(Boolean.TRUE, payload.get("success"));
-        assertEquals(login, payload.get("session"));
-        assertTrue(response.getHeader(HttpHeaders.SET_COOKIE).contains(AuthSessionTokenService.COOKIE_NAME + "=signed-email-token"));
+        assertEquals(HttpStatus.NOT_FOUND, error.getStatus());
+        assertEquals("邮箱验证码登录不用于诺诺管家入口，请使用账号密码登录。", error.getReason());
     }
 
     @Test

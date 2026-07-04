@@ -3,6 +3,8 @@ package com.nuono.next.store;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
+import com.nuono.next.noon.NoonSessionGateway.MerchantAuthorization;
+import com.nuono.next.noon.NoonSessionGateway.MerchantProject;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
 import java.util.ArrayList;
@@ -10,8 +12,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,12 +23,10 @@ public class LocalDbStoreSyncService {
 
     private static final List<String> SYNCED_RULES = List.of(
             "店铺管理按最新老系统 user_project 项目级店铺读取，user_store 只作为站点明细。",
-            "老板可绑定 Noon 账号、测试连通和绑定新店铺，非老板仅查看列表。",
+            "老板可绑定 Noon 商家后台登录邮箱和邮箱授权码、测试连通和绑定新店铺，非老板仅查看列表。",
             "负责人映射按 user_project_access 项目授权聚合，不再按站点行重复展示。",
             "店铺绑定状态写入 user_project，避免把同一项目的多个站点拆成多家店。"
     );
-    private static final Pattern NOON_PARTNER_LOGIN_PATTERN =
-            Pattern.compile("^[^@\\s]+@p([A-Za-z0-9_-]+)\\.idp\\.noon\\.partners$", Pattern.CASE_INSENSITIVE);
 
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
@@ -133,7 +131,7 @@ public class LocalDbStoreSyncService {
     }
 
     @Transactional
-    public String bindStore(StoreBindCommand command) {
+    public StoreBindingResult bindStore(StoreBindCommand command) {
         if (command == null || command.getOwnerUserId() == null) {
             throw new IllegalArgumentException("缺少老板上下文，无法写入店铺绑定。");
         }
@@ -151,51 +149,47 @@ public class LocalDbStoreSyncService {
             throw new IllegalArgumentException("当前店铺不在选中的老板名下。");
         }
 
-        ParsedNoonLogin parsedLogin = parseNoonLogin(firstNonBlank(command.getNoonProjectUser(), command.getNoonUser()));
-        String noonUser = normalize(command.getNoonUser());
-        String noonProjectUser = normalize(command.getNoonProjectUser());
-        String noonPassword = normalize(command.getNoonPassword());
-        String noonPartnerId = parsedLogin.getPartnerId();
+        MerchantAuthorization authorization = noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
+                command.getOwnerUserId(),
+                project.getProjectCode(),
+                project.getStoreCode()
+        );
+        MerchantProject authorizedProject = requireAuthorizedProject(authorization);
+        String noonPartnerId = firstNonBlank(derivePartnerId(authorizedProject.getProjectCode()), project.getNoonPartnerId());
+        String noonUser = noonSessionGateway.configuredMerchantEmail();
+        String mailAuthCode = noonSessionGateway.configuredMerchantMailAuthCode();
 
-        if (!StringUtils.hasText(noonUser)) {
-            noonUser = parsedLogin.getLoginAccount();
-        }
-        if (!StringUtils.hasText(noonProjectUser)) {
-            noonProjectUser = noonUser;
-        }
-        if (!StringUtils.hasText(noonPassword)) {
-            noonPassword = firstNonBlank(project.getNoonPartnerPwd(), owner.getNoonPartnerPwd());
-        }
-        if (!StringUtils.hasText(noonPassword)) {
-            throw new IllegalArgumentException("请输入 Noon 密码。");
-        }
-        String currentPartnerId = firstNonBlank(project.getNoonPartnerId(), derivePartnerId(project.getProjectCode()));
-        if (StringUtils.hasText(currentPartnerId) && !currentPartnerId.equalsIgnoreCase(noonPartnerId)) {
-            throw new IllegalArgumentException("Noon 登录账号中的店铺ID与当前店铺不一致，请确认后重新填写。");
-        }
-
-        storeSyncMapper.updateProjectBinding(
+        storeSyncMapper.updateProjectEmailBinding(
                 project.getId(),
                 command.getOwnerUserId(),
                 noonUser,
-                noonProjectUser,
-                noonPassword,
+                mailAuthCode,
                 noonPartnerId,
                 command.getOwnerUserId()
         );
+        if (StringUtils.hasText(authorization.getCookie())) {
+            storeSyncMapper.updateProjectConnectionSuccess(
+                    project.getId(),
+                    command.getOwnerUserId(),
+                    authorization.getCookie(),
+                    command.getOwnerUserId()
+            );
+        }
 
         int siteCount = loadSiteMap(List.of(project), command.getOwnerUserId())
                 .getOrDefault(project.getProjectCode(), List.of())
                 .size();
-        return "店铺 "
-                + resolveProjectLabel(project)
-                + " 已完成 Noon 账号绑定，已同步覆盖 "
-                + siteCount
-                + " 个站点。";
+        return StoreBindingResult.succeeded(
+                "店铺 "
+                        + resolveProjectLabel(project)
+                        + " 已完成 Noon 商家后台绑定，已同步覆盖 "
+                        + siteCount
+                        + " 个站点。"
+        );
     }
 
     @Transactional
-    public String createStore(StoreCreateCommand command) {
+    public StoreBindingResult createStore(StoreCreateCommand command) {
         if (command == null || command.getOwnerUserId() == null) {
             throw new IllegalArgumentException("缺少老板上下文，无法新增店铺。");
         }
@@ -208,50 +202,62 @@ public class LocalDbStoreSyncService {
         }
 
         String projectName = command.getProjectName().trim();
-        ParsedNoonLogin parsedLogin = parseNoonLogin(firstNonBlank(command.getNoonProjectUser(), command.getNoonUser()));
-        String projectCode = "PRJ" + parsedLogin.getPartnerId();
         String siteStoreCode = normalize(command.getStoreCode());
         String site = normalize(command.getSite());
+        requireText(siteStoreCode, "请输入站点店铺 Code。");
+        requireText(site, "请选择站点。");
+        boolean authorized = true;
+
+        MerchantAuthorization authorization = noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
+                command.getOwnerUserId(),
+                normalize(command.getProjectCode()),
+                siteStoreCode
+        );
+        if (authorization.isProjectSelectionRequired()) {
+            return StoreBindingResult.projectSelectionRequired(
+                    authorization.getProjectList(),
+                    "该 Noon 商家后台账号可访问多个 Project，请选择要绑定的店铺。"
+            );
+        }
+        MerchantProject authorizedProject = requireAuthorizedProject(authorization);
+        String projectCode = authorizedProject.getProjectCode();
+        String noonPartnerId = derivePartnerId(projectCode);
+        String noonUser = noonSessionGateway.configuredMerchantEmail();
+        String mailAuthCode = noonSessionGateway.configuredMerchantMailAuthCode();
+        String orgCode = firstNonBlank(command.getOrgCode(), authorizedProject.getOrgCode());
+        String orgName = firstNonBlank(command.getOrgName(), authorizedProject.getOrgName(), owner.getCompanyName());
         if (storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), projectCode) != null
                 || (StringUtils.hasText(siteStoreCode)
                 && storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), siteStoreCode) != null)) {
             throw new IllegalArgumentException("该老板名下已存在相同店铺。");
         }
 
-        String noonUser = normalize(command.getNoonUser());
-        String noonProjectUser = normalize(command.getNoonProjectUser());
-        String noonPassword = normalize(command.getNoonPassword());
-        String noonPartnerId = parsedLogin.getPartnerId();
-        boolean authorized = true;
-        if (!StringUtils.hasText(noonPassword)) {
-            throw new IllegalArgumentException("绑定新店铺时请输入 Noon 密码。");
-        }
-        if (!StringUtils.hasText(noonUser)) {
-            noonUser = parsedLogin.getLoginAccount();
-        }
-        if (!StringUtils.hasText(noonProjectUser)) {
-            noonProjectUser = noonUser;
-        }
-
         storeSyncMapper.insertOwnerProject(
                 command.getOwnerUserId(),
-                null,
-                owner.getCompanyName(),
+                orgCode,
+                orgName,
                 projectCode,
                 projectName,
                 noonUser,
-                noonProjectUser,
-                noonPassword,
+                mailAuthCode,
                 noonPartnerId,
                 authorized,
                 authorized
         );
+        if (StringUtils.hasText(authorization.getCookie())) {
+            storeSyncMapper.updateProjectSessionCookie(
+                    command.getOwnerUserId(),
+                    projectCode,
+                    authorization.getCookie(),
+                    command.getOwnerUserId()
+            );
+        }
         if (StringUtils.hasText(siteStoreCode)) {
             storeSyncMapper.insertOwnerSiteStore(
                     storeSyncMapper.nextStoreId(),
                     command.getOwnerUserId(),
-                    null,
-                    owner.getCompanyName(),
+                    orgCode,
+                    orgName,
                     projectCode,
                     projectName,
                     siteStoreCode,
@@ -260,7 +266,7 @@ public class LocalDbStoreSyncService {
             );
         }
 
-        return "店铺 " + projectName + " 已绑定到当前账号视图。";
+        return StoreBindingResult.succeeded("店铺 " + projectName + " 已绑定到当前账号视图。");
     }
 
     @Transactional
@@ -302,23 +308,8 @@ public class LocalDbStoreSyncService {
                 if (owner == null) {
                     owner = storeSyncMapper.selectOwnerContext(ownerUserId);
                 }
-                NoonSessionGateway.NoonSession session = noonSessionGateway.login(
-                        ownerUserId,
-                        firstNonBlank(
-                                project.getNoonPartnerProjectUser(),
-                                project.getNoonPartnerUser(),
-                                owner != null ? owner.getNoonPartnerProjectUser() : null,
-                                owner != null ? owner.getNoonPartnerUser() : null
-                        ),
-                        firstNonBlank(
-                                project.getNoonPartnerPwd(),
-                                owner != null ? owner.getNoonPartnerPwd() : null
-                        ),
-                        null,
-                        project.getProjectCode(),
-                        project.getStoreCode()
-                );
-                effectiveCookie = session.exportAuthCookieHeader();
+                MerchantAuthorization authorization = refreshProjectAuthorization(ownerUserId, project, owner);
+                effectiveCookie = authorization.getCookie();
                 connected = StringUtils.hasText(effectiveCookie);
             }
             if (connected) {
@@ -451,10 +442,10 @@ public class LocalDbStoreSyncService {
     }
 
     private String resolveNoonUser(StoreSyncStoreRecord project) {
-        if (StringUtils.hasText(project.getNoonPartnerProjectUser())) {
-            return project.getNoonPartnerProjectUser();
+        if (StringUtils.hasText(project.getNoonPartnerUser())) {
+            return project.getNoonPartnerUser();
         }
-        return project.getNoonPartnerUser();
+        return project.getNoonPartnerProjectUser();
     }
 
     private String resolveNoonPartnerId(StoreSyncStoreRecord project) {
@@ -492,21 +483,15 @@ public class LocalDbStoreSyncService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private ParsedNoonLogin parseNoonLogin(String value) {
-        String normalized = normalize(value);
-        if (!StringUtils.hasText(normalized)) {
-            throw new IllegalArgumentException("请输入 Noon 登录账号。");
+    private void requireText(String value, String message) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalArgumentException(message);
         }
-        Matcher matcher = NOON_PARTNER_LOGIN_PATTERN.matcher(normalized);
-        if (!matcher.matches()) {
-            throw new IllegalArgumentException("Noon 登录账号格式应为 名称@p店铺ID.idp.noon.partners。");
-        }
-        return new ParsedNoonLogin(normalized, matcher.group(1));
     }
 
     private boolean isConnectionReady(StoreSyncStoreRecord project) {
-        boolean hasCredential = StringUtils.hasText(project.getNoonPartnerProjectUser())
-                || StringUtils.hasText(project.getNoonPartnerUser());
+        boolean hasCredential = StringUtils.hasText(project.getNoonPartnerUser())
+                || StringUtils.hasText(project.getNoonPartnerProjectUser());
         boolean bound = project.getBindStatus() != null && project.getBindStatus() == 1;
         return Boolean.TRUE.equals(project.getOwnerAuthorized()) && hasCredential && bound;
     }
@@ -521,12 +506,71 @@ public class LocalDbStoreSyncService {
         return store.getStoreCode();
     }
 
+    private MerchantProject requireAuthorizedProject(MerchantAuthorization authorization) {
+        if (authorization == null || !authorization.isSuccess() || authorization.getSelectedProject() == null) {
+            throw new IllegalStateException("Noon 商家后台授权未返回可绑定 Project。");
+        }
+        return authorization.getSelectedProject();
+    }
+
     private String derivePartnerId(String projectCode) {
         String normalized = normalize(projectCode);
         if (normalized != null && normalized.startsWith("PRJ") && normalized.length() > 3) {
             return normalized.substring(3);
         }
         return normalized;
+    }
+
+    private MerchantAuthorization refreshProjectAuthorization(
+            Long ownerUserId,
+            StoreSyncStoreRecord project,
+            StoreSyncOwnerContext owner
+    ) {
+        String noonEmail = firstNonBlank(
+                project.getNoonPartnerUser(),
+                owner != null ? owner.getNoonPartnerUser() : null
+        );
+        String mailAuthCode = firstNonBlank(
+                project.getNoonPartnerMailAuthCode(),
+                owner != null ? owner.getNoonPartnerMailAuthCode() : null
+        );
+        if (StringUtils.hasText(noonEmail) && StringUtils.hasText(mailAuthCode)) {
+            return noonSessionGateway.authorizeMerchantEmailLogin(
+                    ownerUserId,
+                    noonEmail,
+                    mailAuthCode,
+                    project.getProjectCode(),
+                    project.getStoreCode()
+            );
+        }
+        if (noonSessionGateway.hasConfiguredMerchantEmailLogin()) {
+            return noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
+                    ownerUserId,
+                    project.getProjectCode(),
+                    project.getStoreCode()
+            );
+        }
+
+        NoonSessionGateway.NoonSession session = noonSessionGateway.login(
+                ownerUserId,
+                firstNonBlank(
+                        project.getNoonPartnerProjectUser(),
+                        project.getNoonPartnerUser(),
+                        owner != null ? owner.getNoonPartnerProjectUser() : null,
+                        owner != null ? owner.getNoonPartnerUser() : null
+                ),
+                firstNonBlank(
+                        project.getNoonPartnerPwd(),
+                        owner != null ? owner.getNoonPartnerPwd() : null
+                ),
+                null,
+                project.getProjectCode(),
+                project.getStoreCode()
+        );
+        return MerchantAuthorization.authorized(
+                new MerchantProject(project.getProjectCode(), project.getProjectName(), null, null),
+                session.exportAuthCookieHeader()
+        );
     }
 
     private String firstNonBlank(String... values) {
@@ -540,25 +584,6 @@ public class LocalDbStoreSyncService {
             }
         }
         return null;
-    }
-
-    private static class ParsedNoonLogin {
-        private final String loginAccount;
-
-        private final String partnerId;
-
-        ParsedNoonLogin(String loginAccount, String partnerId) {
-            this.loginAccount = loginAccount;
-            this.partnerId = partnerId;
-        }
-
-        String getLoginAccount() {
-            return loginAccount;
-        }
-
-        String getPartnerId() {
-            return partnerId;
-        }
     }
 
     public static class StoreConnectionTestResult {
