@@ -2,8 +2,10 @@ package com.nuono.next.productkeyword;
 
 import java.text.Normalizer;
 import java.util.Locale;
+import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+@Component
 public class ProductKeywordNormalizer {
 
     public String normalize(String value) {
