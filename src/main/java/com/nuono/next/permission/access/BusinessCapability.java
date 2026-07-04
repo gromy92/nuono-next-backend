@@ -29,6 +29,7 @@ public enum BusinessCapability {
             "/purchase/product-logistics-costs",
             "/api/product-logistics-costs"
     )),
+    PRE_ORDER_PROFIT(List.of("/purchase/pre-order-profit", "/api/pre-order-profit")),
     PROFIT(List.of("/api/sku/cost"));
 
     private final List<String> menuPathPrefixes;
