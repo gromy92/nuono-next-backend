@@ -47,6 +47,113 @@ public class ProductKeywordService {
         );
     }
 
+    public ProductKeywordViews.KeywordListView listKeywords(
+            BusinessAccessContext context,
+            ProductKeywordListQuery query
+    ) {
+        ProductKeywordListQuery normalized = normalizeQuery(context, query);
+        List<ProductKeywordViews.KeywordItemView> items = mapper.listKeywords(normalized).stream()
+                .map(ProductKeywordViews::keyword)
+                .collect(Collectors.toList());
+        return new ProductKeywordViews.KeywordListView(items);
+    }
+
+    public ProductKeywordViews.ProductKeywordPanelView productKeywords(
+            BusinessAccessContext context,
+            String storeCode,
+            String siteCode,
+            String partnerSku
+    ) {
+        ProductKeywordListQuery query = new ProductKeywordListQuery();
+        query.setStoreCode(storeCode);
+        query.setSiteCode(siteCode);
+        query.setPartnerSku(partnerSku);
+        query.setLimit(100);
+        ProductKeywordListQuery normalized = normalizeQuery(context, query);
+        List<ProductKeywordViews.KeywordItemView> keywords = mapper.listKeywords(normalized).stream()
+                .map(ProductKeywordViews::keyword)
+                .collect(Collectors.toList());
+        List<ProductKeywordViews.EventItemView> events = mapper.listEvents(
+                        normalized.getOwnerUserId(),
+                        normalized.getStoreCode(),
+                        normalized.getSiteCode(),
+                        normalized.getPartnerSku(),
+                        100
+                ).stream()
+                .map(ProductKeywordViews::event)
+                .collect(Collectors.toList());
+        return new ProductKeywordViews.ProductKeywordPanelView(
+                normalized.getStoreCode(),
+                normalized.getSiteCode(),
+                normalized.getPartnerSku(),
+                keywords,
+                events
+        );
+    }
+
+    public ProductKeywordRecord updateKeyword(
+            BusinessAccessContext context,
+            Long keywordId,
+            ProductKeywordCommand command
+    ) {
+        if (keywordId == null) {
+            throw new IllegalArgumentException("关键词 ID 不能为空");
+        }
+        ProductKeywordScope scope = resolveScope(context, command);
+        ProductKeywordRecord existing = mapper.selectById(scope.getOwnerUserId(), keywordId);
+        if (existing == null) {
+            throw new IllegalArgumentException("关键词不存在或无权访问");
+        }
+        if (!existing.getStoreCode().equals(scope.getStoreCode())
+                || !existing.getSiteCode().equals(scope.getSiteCode())
+                || !existing.getPartnerSku().equals(scope.getPartnerSku())) {
+            throw new IllegalArgumentException("关键词所属商品范围不能通过编辑修改");
+        }
+        String displayKeyword = StringUtils.hasText(command.getKeyword()) ? command.getKeyword().trim() : existing.getKeyword();
+        String keywordNorm = normalizer.normalize(displayKeyword);
+        if (!StringUtils.hasText(keywordNorm)) {
+            throw new IllegalArgumentException("关键词不能为空");
+        }
+        List<String> tags = normalizeTags(command.getIntentTags());
+        validateWildcardScope(scope, tags);
+
+        existing.setStoreCode(scope.getStoreCode());
+        existing.setSiteCode(scope.getSiteCode());
+        existing.setPartnerSku(scope.getPartnerSku());
+        existing.setKeyword(displayKeyword);
+        existing.setKeywordNorm(keywordNorm);
+        existing.setLocale(trimToNull(command.getLocale()));
+        existing.setIntentTagsJson(tagsJson(tags));
+        existing.setLastSeenAt(LocalDateTime.now());
+        existing.setUpdatedBy(context.getSessionUserId());
+        mapper.upsertKeyword(existing);
+        ProductKeywordUsageEventRecord event = buildUsageEvent(
+                context,
+                existing,
+                ProductKeywordSourceType.MANUAL,
+                ProductKeywordEventStatus.ADDED,
+                existing.getLastSeenAt(),
+                tags,
+                displayKeyword,
+                keywordNorm
+        );
+        mapper.upsertUsageEvent(event);
+        return existing;
+    }
+
+    public ProductKeywordViews.RebuildIndexResultView rebuildIndex(
+            BusinessAccessContext context,
+            ProductKeywordListQuery query
+    ) {
+        ProductKeywordListQuery normalized = normalizeQuery(context, query);
+        return new ProductKeywordViews.RebuildIndexResultView(
+                normalized.getStoreCode(),
+                normalized.getSiteCode(),
+                normalized.getPartnerSku(),
+                "QUEUED"
+        );
+    }
+
     private ProductKeywordRecord upsertKeywordWithEvent(
             BusinessAccessContext context,
             ProductKeywordCommand command,
@@ -164,6 +271,31 @@ public class ProductKeywordService {
         return new ProductKeywordScope(ownerUserId, storeCode, siteCode, partnerSku);
     }
 
+    private ProductKeywordListQuery normalizeQuery(BusinessAccessContext context, ProductKeywordListQuery query) {
+        if (context == null) {
+            throw new IllegalArgumentException("缺少业务上下文");
+        }
+        ProductKeywordListQuery normalized = new ProductKeywordListQuery();
+        normalized.setStoreCode(normalizeStoreCode(query == null ? null : query.getStoreCode()));
+        normalized.setSiteCode(normalizeSiteCode(query == null ? null : query.getSiteCode()));
+        normalized.setPartnerSku(trimToNull(query == null ? null : query.getPartnerSku()));
+        if (!context.canAccessStore(normalized.getStoreCode())) {
+            throw new IllegalArgumentException("无权访问店铺：" + normalized.getStoreCode());
+        }
+        Long ownerUserId = context.resolveOwnerUserIdForStore(normalized.getStoreCode());
+        if (ownerUserId == null) {
+            ownerUserId = context.getBusinessOwnerUserId();
+        }
+        if (ownerUserId == null) {
+            throw new IllegalArgumentException("无法解析业务 owner");
+        }
+        normalized.setOwnerUserId(ownerUserId);
+        normalized.setKeywordNorm(trimToNull(query == null ? null : query.getKeywordNorm()));
+        normalized.setStatus(normalizeOptionalUpper(query == null ? null : query.getStatus()));
+        normalized.setLimit(limitOrDefault(query == null ? null : query.getLimit()));
+        return normalized;
+    }
+
     private void validateWildcardScope(ProductKeywordScope scope, List<String> tags) {
         if (!"*".equals(scope.getSiteCode())) {
             return;
@@ -208,6 +340,17 @@ public class ProductKeywordService {
     private String normalizeSiteCode(String value) {
         String siteCode = requireText(value, "站点不能为空");
         return "*".equals(siteCode) ? "*" : siteCode.toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeOptionalUpper(String value) {
+        return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : null;
+    }
+
+    private Integer limitOrDefault(Integer limit) {
+        if (limit == null || limit <= 0) {
+            return 100;
+        }
+        return Math.min(limit, 500);
     }
 
     private String requireText(String value, String message) {

@@ -58,6 +58,22 @@ public interface ProductKeywordMapper {
             @Param("keywordNorm") String keywordNorm
     );
 
+    @Select({
+            "SELECT id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "partner_sku AS partnerSku, keyword, keyword_norm AS keywordNorm, locale, status,",
+            "intent_tags_json AS intentTagsJson, source_summary_json AS sourceSummaryJson,",
+            "first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, created_by AS createdBy, updated_by AS updatedBy",
+            "FROM product_keyword",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND id = #{keywordId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    ProductKeywordRecord selectById(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("keywordId") Long keywordId
+    );
+
     @Insert({
             "INSERT INTO product_keyword (",
             "id, owner_user_id, store_code, site_code, partner_sku, keyword, keyword_norm, locale, status,",

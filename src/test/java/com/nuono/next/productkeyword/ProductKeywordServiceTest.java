@@ -122,6 +122,36 @@ class ProductKeywordServiceTest {
         assertThat(titleTarget.getSiteCode()).isEqualTo("*");
     }
 
+    @Test
+    void updateKeywordPreservesScopeAndWritesManualEvent() {
+        FakeProductKeywordMapper mapper = new FakeProductKeywordMapper();
+        ProductKeywordService service = new ProductKeywordService(mapper, new ProductKeywordNormalizer());
+        ProductKeywordRecord active = service.addManualKeyword(
+                context(),
+                command("STR108065-NSA", "SA", "PSKU-1", "Milk Bottle", List.of("CORE"))
+        );
+
+        ProductKeywordRecord updated = service.updateKeyword(
+                context(),
+                active.getId(),
+                command("STR108065-NSA", "SA", "PSKU-1", "Milk Cup", List.of("TITLE_TARGET"))
+        );
+
+        assertThat(updated.getId()).isEqualTo(active.getId());
+        assertThat(updated.getKeyword()).isEqualTo("Milk Cup");
+        assertThat(updated.getKeywordNorm()).isEqualTo("milk cup");
+        assertThat(updated.getStatus()).isEqualTo("ACTIVE");
+        assertThat(mapper.events).hasSize(2);
+        assertThat(mapper.events.values())
+                .anySatisfy(event -> assertThat(event.getEventNaturalKey()).contains("MANUAL", "Milk Cup".toLowerCase()));
+
+        assertThatThrownBy(() -> service.updateKeyword(
+                context(),
+                active.getId(),
+                command("STR108065-NSA", "AE", "PSKU-1", "Milk Cup", List.of("TITLE_TARGET"))
+        )).isInstanceOf(IllegalArgumentException.class);
+    }
+
     private static BusinessAccessContext context() {
         return BusinessAccessContext.builder()
                 .sessionUserId(7L)
@@ -178,6 +208,15 @@ class ProductKeywordServiceTest {
                 String keywordNorm
         ) {
             return keywords.get(scopeKey(ownerUserId, storeCode, siteCode, partnerSku, keywordNorm));
+        }
+
+        @Override
+        public ProductKeywordRecord selectById(Long ownerUserId, Long keywordId) {
+            return keywords.values().stream()
+                    .filter(keyword -> ownerUserId.equals(keyword.getOwnerUserId()))
+                    .filter(keyword -> keywordId.equals(keyword.getId()))
+                    .findFirst()
+                    .orElse(null);
         }
 
         @Override
