@@ -2,6 +2,7 @@ package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.productkeyword.ProductKeywordCompetitorIndexer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -12,6 +13,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,11 +24,13 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class CompetitorAnalysisService {
 
+    private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisService.class);
     private static final Pattern COLLAPSED_WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern NOON_CODE_PATTERN = Pattern.compile("(?i)(^|/)([ZN][A-Z0-9]{4,79})(/|\\?|$)");
 
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorProductChangeService productChangeService;
+    private ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer;
 
     @Autowired
     public CompetitorAnalysisService(
@@ -38,6 +43,11 @@ public class CompetitorAnalysisService {
 
     public CompetitorAnalysisService(CompetitorAnalysisMapper mapper) {
         this(mapper, null);
+    }
+
+    @Autowired(required = false)
+    public void setProductKeywordCompetitorIndexer(ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer) {
+        this.productKeywordCompetitorIndexer = productKeywordCompetitorIndexer;
     }
 
     public CompetitorWatchProductListView listWatchProducts(
@@ -193,18 +203,30 @@ public class CompetitorAnalysisService {
         String keyword = normalizeKeywordDisplay(command == null ? null : command.getKeyword());
         String keywordNorm = normalizeKeywordNorm(keyword);
         CompetitorKeywordRow existing = mapper.selectKeywordByNorm(watchProduct.getId(), keywordNorm);
+        CompetitorKeywordRow indexedKeyword = existing;
+        Long actorUserId = actorUserId(context);
         if (existing == null) {
+            Long keywordId = mapper.nextKeywordId();
             CompetitorKeywordInsertCommand insert = new CompetitorKeywordInsertCommand();
-            insert.setId(mapper.nextKeywordId());
+            insert.setId(keywordId);
             insert.setWatchProductId(watchProduct.getId());
             insert.setKeyword(keyword);
             insert.setKeywordNorm(keywordNorm);
             insert.setLocale(normalizeText(command == null ? null : command.getLocale()));
             insert.setStatus("ACTIVE");
             insert.setDisplayOrder(command == null || command.getDisplayOrder() == null ? 0 : command.getDisplayOrder());
-            insert.setActorUserId(actorUserId(context));
+            insert.setActorUserId(actorUserId);
             mapper.insertKeyword(insert);
+            indexedKeyword = new CompetitorKeywordRow();
+            indexedKeyword.setId(keywordId);
+            indexedKeyword.setWatchProductId(watchProduct.getId());
+            indexedKeyword.setKeyword(keyword);
+            indexedKeyword.setKeywordNorm(keywordNorm);
+            indexedKeyword.setLocale(insert.getLocale());
+            indexedKeyword.setStatus("ACTIVE");
+            indexedKeyword.setDisplayOrder(insert.getDisplayOrder());
         }
+        indexCompetitorKeyword(watchProduct, indexedKeyword, actorUserId);
         return detail(context, watchProduct.getId());
     }
 
@@ -227,8 +249,12 @@ public class CompetitorAnalysisService {
             update.setStatus(normalizeStatus(command.getStatus()));
             update.setDisplayOrder(command.getDisplayOrder());
         }
-        update.setActorUserId(actorUserId(context));
+        Long actorUserId = actorUserId(context);
+        update.setActorUserId(actorUserId);
         mapper.updateKeyword(update);
+        if (productKeywordCompetitorIndexer != null) {
+            indexCompetitorKeyword(scope, mapper.selectKeywordById(keywordId), actorUserId);
+        }
         return detail(context, scope.getWatchProductId());
     }
 
@@ -418,6 +444,77 @@ public class CompetitorAnalysisService {
             throw badRequest("COMPETITOR_PARTNER_SKU_REQUIRED");
         }
         return mapper.selectProductOptionByPartnerSku(ownerUserId, storeCode, siteCode, partnerSku);
+    }
+
+    private void indexCompetitorKeyword(
+            CompetitorWatchProductRow watchProduct,
+            CompetitorKeywordRow keyword,
+            Long actorUserId
+    ) {
+        if (watchProduct == null) {
+            return;
+        }
+        indexCompetitorKeyword(
+                watchProduct.getOwnerUserId(),
+                watchProduct.getId(),
+                watchProduct.getStoreCode(),
+                watchProduct.getSiteCode(),
+                watchProduct.getPartnerSku(),
+                keyword,
+                actorUserId
+        );
+    }
+
+    private void indexCompetitorKeyword(
+            CompetitorKeywordScopeRow scope,
+            CompetitorKeywordRow keyword,
+            Long actorUserId
+    ) {
+        if (scope == null) {
+            return;
+        }
+        indexCompetitorKeyword(
+                scope.getOwnerUserId(),
+                scope.getWatchProductId(),
+                scope.getStoreCode(),
+                scope.getSiteCode(),
+                scope.getPartnerSku(),
+                keyword,
+                actorUserId
+        );
+    }
+
+    private void indexCompetitorKeyword(
+            Long ownerUserId,
+            Long watchProductId,
+            String storeCode,
+            String siteCode,
+            String partnerSku,
+            CompetitorKeywordRow keyword,
+            Long actorUserId
+    ) {
+        if (productKeywordCompetitorIndexer == null || keyword == null) {
+            return;
+        }
+        try {
+            productKeywordCompetitorIndexer.indexKeyword(
+                    new ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand(
+                            ownerUserId,
+                            watchProductId,
+                            keyword.getId(),
+                            storeCode,
+                            siteCode,
+                            partnerSku,
+                            keyword.getKeyword(),
+                            keyword.getStatus(),
+                            LocalDateTime.now(),
+                            actorUserId
+                    )
+            );
+        } catch (RuntimeException exception) {
+            // 关键词索引只用于运营分析回溯，不能阻断竞品关键词维护主链路。
+            log.warn("Product keyword competitor index failed for competitor keyword {}", keyword.getId(), exception);
+        }
     }
 
     public CompetitorWatchProductScopeRow requireWatchProductScope(Long watchProductId) {

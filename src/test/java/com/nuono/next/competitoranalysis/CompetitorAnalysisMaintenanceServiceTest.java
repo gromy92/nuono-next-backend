@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.productkeyword.ProductKeywordCompetitorIndexer;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -28,11 +29,15 @@ class CompetitorAnalysisMaintenanceServiceTest {
     @Mock
     private CompetitorAnalysisMapper mapper;
 
+    @Mock
+    private ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer;
+
     private CompetitorAnalysisService service;
 
     @BeforeEach
     void setUp() {
         service = new CompetitorAnalysisService(mapper);
+        service.setProductKeywordCompetitorIndexer(productKeywordCompetitorIndexer);
     }
 
     @Test
@@ -68,6 +73,58 @@ class CompetitorAnalysisMaintenanceServiceTest {
         assertEquals("Foldable Hamper", captor.getValue().getKeyword());
         assertEquals("foldable hamper", captor.getValue().getKeywordNorm());
         assertEquals("en-SA", captor.getValue().getLocale());
+    }
+
+    @Test
+    void addKeywordIndexesActiveKeywordIntoProductKeywordHistory() {
+        CompetitorKeywordCommand command = new CompetitorKeywordCommand();
+        command.setKeyword(" Milk Bottle ");
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct("ZSELF001"));
+        when(mapper.selectKeywordByNorm(180123L, "milk bottle")).thenReturn(null);
+        when(mapper.nextKeywordId()).thenReturn(190123L);
+        mockDetail();
+
+        service.addKeyword(operatorContext(), 180123L, command);
+
+        ArgumentCaptor<ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand> captor =
+                ArgumentCaptor.forClass(ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand.class);
+        verify(productKeywordCompetitorIndexer).indexKeyword(captor.capture());
+        assertEquals(501L, captor.getValue().getOwnerUserId());
+        assertEquals(180123L, captor.getValue().getWatchProductId());
+        assertEquals(190123L, captor.getValue().getKeywordId());
+        assertEquals("STR108065-NSA", captor.getValue().getStoreCode());
+        assertEquals("SA", captor.getValue().getSiteCode());
+        assertEquals("BASKET-SA-001-BLUE", captor.getValue().getPartnerSku());
+        assertEquals("Milk Bottle", captor.getValue().getKeyword());
+        assertEquals("ACTIVE", captor.getValue().getStatus());
+        assertEquals(601L, captor.getValue().getActorUserId());
+    }
+
+    @Test
+    void updateKeywordIndexesLatestPersistedKeywordIntoProductKeywordHistory() {
+        CompetitorKeywordCommand command = new CompetitorKeywordCommand();
+        command.setKeyword(" Milk Bottle ");
+        CompetitorKeywordRow updated = keyword(190001L, "milk bottle");
+        updated.setKeyword("Milk Bottle");
+        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
+        when(mapper.selectKeywordById(190001L)).thenReturn(updated);
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct("ZSELF001"));
+        mockDetail();
+
+        service.updateKeyword(operatorContext(), 190001L, command);
+
+        ArgumentCaptor<ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand> captor =
+                ArgumentCaptor.forClass(ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand.class);
+        verify(productKeywordCompetitorIndexer).indexKeyword(captor.capture());
+        assertEquals(501L, captor.getValue().getOwnerUserId());
+        assertEquals(180123L, captor.getValue().getWatchProductId());
+        assertEquals(190001L, captor.getValue().getKeywordId());
+        assertEquals("STR108065-NSA", captor.getValue().getStoreCode());
+        assertEquals("SA", captor.getValue().getSiteCode());
+        assertEquals("BASKET-SA-001-BLUE", captor.getValue().getPartnerSku());
+        assertEquals("Milk Bottle", captor.getValue().getKeyword());
+        assertEquals("ACTIVE", captor.getValue().getStatus());
+        assertEquals(601L, captor.getValue().getActorUserId());
     }
 
     @Test
@@ -214,6 +271,7 @@ class CompetitorAnalysisMaintenanceServiceTest {
         row.setOwnerUserId(501L);
         row.setStoreCode("STR108065-NSA");
         row.setSiteCode("SA");
+        row.setPartnerSku("BASKET-SA-001-BLUE");
         row.setStatus("ACTIVE");
         return row;
     }

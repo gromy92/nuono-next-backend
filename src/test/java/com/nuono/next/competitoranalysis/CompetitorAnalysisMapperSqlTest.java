@@ -179,6 +179,17 @@ class CompetitorAnalysisMapperSqlTest {
     }
 
     @Test
+    void keywordScopeSelectIncludesPartnerSkuForProductKeywordIndexing() throws NoSuchMethodException {
+        String sql = selectSql("selectKeywordScopeById", Long.class);
+
+        assertThat(sql)
+                .contains("wp.partner_sku as partnersku")
+                .contains("wp.owner_user_id as owneruserid")
+                .contains("wp.store_code as storecode")
+                .contains("wp.site_code as sitecode");
+    }
+
+    @Test
     void productListsExposeRecentSevenDayCompetitorChangeCount() throws NoSuchMethodException {
         String productBaselinesSql = selectSql(
                 "listProductBaselines",

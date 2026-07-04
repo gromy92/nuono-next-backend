@@ -6,6 +6,7 @@ public class CompetitorKeywordScopeRow {
     private Long ownerUserId;
     private String storeCode;
     private String siteCode;
+    private String partnerSku;
     private String status;
 
     public Long getKeywordId() { return keywordId; }
@@ -18,6 +19,8 @@ public class CompetitorKeywordScopeRow {
     public void setStoreCode(String storeCode) { this.storeCode = storeCode; }
     public String getSiteCode() { return siteCode; }
     public void setSiteCode(String siteCode) { this.siteCode = siteCode; }
+    public String getPartnerSku() { return partnerSku; }
+    public void setPartnerSku(String partnerSku) { this.partnerSku = partnerSku; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 }

@@ -1525,6 +1525,7 @@ public interface CompetitorAnalysisMapper {
             "SELECT",
             "  kw.id AS keywordId, kw.watch_product_id AS watchProductId,",
             "  wp.owner_user_id AS ownerUserId, wp.store_code AS storeCode, wp.site_code AS siteCode,",
+            "  wp.partner_sku AS partnerSku,",
             "  kw.status AS status",
             "FROM operations_competitor_keyword kw",
             "JOIN operations_competitor_watch_product wp",
