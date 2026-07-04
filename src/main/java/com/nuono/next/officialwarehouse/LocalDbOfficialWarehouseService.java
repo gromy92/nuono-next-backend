@@ -94,6 +94,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     @Value("${nuono.official-warehouse.appointment.scheduler.retry-base-seconds:5}")
     private int appointmentRetryBaseSeconds;
 
+    @Value("${nuono.official-warehouse.appointment.scheduler.stale-no-capacity-minutes:15}")
+    private int appointmentStaleNoCapacityMinutes;
+
     @Value("${nuono.official-warehouse.appointment.scheduler.system-operator-user-id:0}")
     private long appointmentSystemOperatorUserId;
 
@@ -1319,6 +1322,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         if (!appointmentSchedulerEnabled) {
             return;
         }
+        mapper.markStaleNoCapacityAppointmentsPending(
+                Math.max(1, appointmentStaleNoCapacityMinutes),
+                appointmentSystemOperatorUserId
+        );
         List<AppointmentRecord> dueAppointments = mapper.listDueAppointments(Math.max(1, appointmentSchedulerMaxItems));
         for (AppointmentRecord appointment : dueAppointments) {
             try {

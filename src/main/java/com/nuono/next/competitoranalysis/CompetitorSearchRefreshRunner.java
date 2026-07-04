@@ -182,13 +182,16 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setNoonProductCode(result.getNoonProductCode());
         command.setCodeType(result.getCodeType());
         command.setCanonicalUrl(normalizeText(result.getCanonicalUrl()));
-        command.setTitleSnapshot(normalizeTitleSnapshot(result.getTitle()));
+        command.setTitleSnapshot(normalizeTitleSnapshot(displayTitle(result)));
+        command.setTitleEnSnapshot(normalizeTitleSnapshot(result.getTitleEn()));
+        command.setTitleArSnapshot(normalizeTitleSnapshot(result.getTitleAr()));
         command.setBrandSnapshot(normalizeText(result.getBrand()));
         command.setImageUrlSnapshot(normalizeText(result.getImageUrl()));
         command.setPriceAmountSnapshot(result.getPriceAmount());
         command.setCurrencyCodeSnapshot(normalizeText(result.getCurrencyCode()));
         command.setRatingSnapshot(result.getRating());
         command.setReviewCountSnapshot(result.getReviewCount());
+        command.setTagsSnapshotJson(normalizeText(result.getTagsJson()));
         command.setSourceType("SEARCH_DISCOVERY");
         command.setReviewStatus("PENDING");
         command.setActorUserId(context.getActorUserId());
@@ -230,7 +233,9 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setNoonProductCode(result.getNoonProductCode());
         command.setCodeType(result.getCodeType());
         command.setCanonicalUrl(normalizeText(result.getCanonicalUrl()));
-        command.setTitleSnapshot(normalizeTitleSnapshot(result.getTitle()));
+        command.setTitleSnapshot(normalizeTitleSnapshot(displayTitle(result)));
+        command.setTitleEnSnapshot(normalizeTitleSnapshot(result.getTitleEn()));
+        command.setTitleArSnapshot(normalizeTitleSnapshot(result.getTitleAr()));
         command.setBrandSnapshot(normalizeText(result.getBrand()));
         command.setImageUrlSnapshot(normalizeText(result.getImageUrl()));
         command.setPriceAmount(result.getPriceAmount());
@@ -238,6 +243,7 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setRating(result.getRating());
         command.setReviewCount(result.getReviewCount());
         command.setSponsored(result.isSponsored());
+        command.setTagsJson(normalizeText(result.getTagsJson()));
         command.setRawResultJson(normalizeText(result.getRawResultJson()));
         command.setCapturedAt(page.getCapturedAt());
         command.setActorUserId(context.getActorUserId());
@@ -297,5 +303,21 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
             return normalized;
         }
         return normalized.substring(0, MAX_TITLE_SNAPSHOT_LENGTH);
+    }
+
+    private String displayTitle(NoonSearchResult result) {
+        if (result == null) {
+            return null;
+        }
+        return firstNonBlank(result.getTitle(), result.getTitleEn(), result.getTitleAr());
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 }

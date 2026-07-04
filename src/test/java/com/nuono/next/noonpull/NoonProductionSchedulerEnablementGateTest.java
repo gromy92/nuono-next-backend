@@ -92,6 +92,129 @@ class NoonProductionSchedulerEnablementGateTest {
     }
 
     @Test
+    void shouldEnableProductDailyScheduleWhenProductSmokeEvidenceIsReadyAndApproved() {
+        smokeRunRepository.savedRuns.add(smokeRun(140103L, true, readyEvidence()));
+        NoonProductionSchedulerEnablementCommand productOnly = command();
+        productOnly.setEnabledDomains(List.of(NoonPullDataDomain.PRODUCT));
+        productOnly.setScheduleBoundaries("product list daily, one interface task per scheduler tick");
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(productOnly, 10001L);
+
+        assertTrue(result.isEnabled());
+        assertEquals(List.of("PRODUCT"), result.getEnabledDomains());
+        List<NoonPullPlanRecord> scheduledPlans = scheduledPlans();
+        assertEquals(1, scheduledPlans.size());
+        NoonPullPlanRecord productPlan = scheduledPlans.get(0);
+        assertEquals(NoonPullDataDomain.PRODUCT, productPlan.getDataDomain());
+        assertEquals(NoonPullType.INTERFACE, productPlan.getPullType());
+        assertEquals(NoonPullTriggerMode.SCHEDULED_DAILY, productPlan.getTriggerMode());
+        assertEquals(1, result.getPlanIds().size());
+    }
+
+    @Test
+    void shouldEnableFinanceTransactionDailyScheduleWhenFinanceSmokeEvidenceIsReadyAndApproved() {
+        smokeRunRepository.savedRuns.add(smokeRun(
+                140104L,
+                true,
+                List.of(evidence("FINANCE_TRANSACTION", NoonPullTaskStatus.SUCCEEDED.name(), "ready", null))
+        ));
+        NoonProductionSchedulerEnablementCommand financeOnly = command();
+        financeOnly.setEnabledDomains(List.of(NoonPullDataDomain.FINANCE_TRANSACTION));
+        financeOnly.setScheduleBoundaries("finance transaction T-1 daily after 22:30 Asia/Shanghai");
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(financeOnly, 10001L);
+
+        assertTrue(result.isEnabled());
+        assertEquals(List.of("FINANCE_TRANSACTION"), result.getEnabledDomains());
+        List<NoonPullPlanRecord> scheduledPlans = scheduledPlans();
+        assertEquals(1, scheduledPlans.size());
+        NoonPullPlanRecord financePlan = scheduledPlans.get(0);
+        assertEquals(NoonPullDataDomain.FINANCE_TRANSACTION, financePlan.getDataDomain());
+        assertEquals(NoonPullType.REPORT, financePlan.getPullType());
+        assertEquals(NoonPullTriggerMode.SCHEDULED_DAILY, financePlan.getTriggerMode());
+        assertEquals("finance transaction T-1 daily after 22:30 Asia/Shanghai", financePlan.getScheduleExpression());
+        assertEquals(1, result.getPlanIds().size());
+    }
+
+    @Test
+    void shouldEnableNoonAdvertisingDailyScheduleWhenSmokeEvidenceIsReadyAndApproved() {
+        smokeRunRepository.savedRuns.add(smokeRun(
+                140107L,
+                true,
+                List.of(evidence("NOON_ADVERTISING", NoonPullTaskStatus.SUCCEEDED.name(), "ready", null))
+        ));
+        NoonProductionSchedulerEnablementCommand advertisingOnly = command();
+        advertisingOnly.setEnabledDomains(List.of(NoonPullDataDomain.NOON_ADVERTISING));
+        advertisingOnly.setScheduleBoundaries("noon ads T-1 daily after 08:00 Asia/Shanghai");
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(advertisingOnly, 10001L);
+
+        assertTrue(result.isEnabled());
+        assertEquals(List.of("NOON_ADVERTISING"), result.getEnabledDomains());
+        List<NoonPullPlanRecord> scheduledPlans = scheduledPlans();
+        assertEquals(1, scheduledPlans.size());
+        NoonPullPlanRecord advertisingPlan = scheduledPlans.get(0);
+        assertEquals(NoonPullDataDomain.NOON_ADVERTISING, advertisingPlan.getDataDomain());
+        assertEquals(NoonPullType.REPORT, advertisingPlan.getPullType());
+        assertEquals(NoonPullTriggerMode.SCHEDULED_DAILY, advertisingPlan.getTriggerMode());
+        assertEquals("noon ads T-1 daily after 08:00 Asia/Shanghai", advertisingPlan.getScheduleExpression());
+        assertEquals(1, result.getPlanIds().size());
+    }
+
+    @Test
+    void shouldEnableOfficialWarehouseInventoryDailyScheduleWhenSmokeEvidenceIsReadyAndApproved() {
+        smokeRunRepository.savedRuns.add(smokeRun(
+                140105L,
+                true,
+                List.of(evidence("OFFICIAL_WAREHOUSE_INVENTORY", NoonPullTaskStatus.SUCCEEDED.name(), "ready", null))
+        ));
+        NoonProductionSchedulerEnablementCommand inventoryOnly = command();
+        inventoryOnly.setEnabledDomains(List.of(NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY));
+        inventoryOnly.setScheduleBoundaries("official warehouse inventory daily after 23:00 Asia/Shanghai");
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(inventoryOnly, 10001L);
+
+        assertTrue(result.isEnabled());
+        assertEquals(List.of("OFFICIAL_WAREHOUSE_INVENTORY"), result.getEnabledDomains());
+        List<NoonPullPlanRecord> scheduledPlans = scheduledPlans();
+        assertEquals(1, scheduledPlans.size());
+        NoonPullPlanRecord inventoryPlan = scheduledPlans.get(0);
+        assertEquals(NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY, inventoryPlan.getDataDomain());
+        assertEquals(NoonPullType.INTERFACE, inventoryPlan.getPullType());
+        assertEquals(NoonPullTriggerMode.SCHEDULED_DAILY, inventoryPlan.getTriggerMode());
+        assertEquals("official warehouse inventory daily after 23:00 Asia/Shanghai", inventoryPlan.getScheduleExpression());
+        assertEquals(1, result.getPlanIds().size());
+    }
+
+    @Test
+    void shouldEnableOfficialWarehouseFbnReceivedDailyScheduleWhenSmokeEvidenceIsReadyAndApproved() {
+        smokeRunRepository.savedRuns.add(smokeRun(
+                140106L,
+                true,
+                List.of(evidence("OFFICIAL_WAREHOUSE_FBN_RECEIVED", NoonPullTaskStatus.SUCCEEDED.name(), "ready", null))
+        ));
+        NoonProductionSchedulerEnablementCommand fbnReceivedOnly = command();
+        fbnReceivedOnly.setEnabledDomains(List.of(NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED));
+        fbnReceivedOnly.setScheduleBoundaries("official warehouse FBN received report T-1 daily after 23:30 Asia/Shanghai");
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(fbnReceivedOnly, 10001L);
+
+        assertTrue(result.isEnabled());
+        assertEquals(List.of("OFFICIAL_WAREHOUSE_FBN_RECEIVED"), result.getEnabledDomains());
+        List<NoonPullPlanRecord> scheduledPlans = scheduledPlans();
+        assertEquals(1, scheduledPlans.size());
+        NoonPullPlanRecord fbnReceivedPlan = scheduledPlans.get(0);
+        assertEquals(NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED, fbnReceivedPlan.getDataDomain());
+        assertEquals(NoonPullType.REPORT, fbnReceivedPlan.getPullType());
+        assertEquals(NoonPullTriggerMode.SCHEDULED_DAILY, fbnReceivedPlan.getTriggerMode());
+        assertEquals(
+                "official warehouse FBN received report T-1 daily after 23:30 Asia/Shanghai",
+                fbnReceivedPlan.getScheduleExpression()
+        );
+        assertEquals(1, result.getPlanIds().size());
+    }
+
+    @Test
     void shouldEnableProductionTargetWhenSmokeEvidenceIsReadyAndApproved() {
         NoonPullSmokeRunRecord smokeRun = smokeRun(140101L, true, readyEvidence());
         smokeRun.setTargetEnvironment("production");

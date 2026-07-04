@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 class NoonAdvertisingSchemaContractTest {
@@ -35,5 +37,38 @@ class NoonAdvertisingSchemaContractTest {
         assertTrue(sql.contains("SET @noon_ads_menu_id = 9803"));
         assertFalse(sql.contains("`sku` VARCHAR(160)"));
         assertFalse(sql.contains("(9802, '广告投放经营台'"));
+    }
+
+    @Test
+    void noonAdvertisingPackageAllowsReadOnlyReportPullButNoWriteOperations() throws IOException {
+        Path packagePath = Path.of("src", "main", "java", "com", "nuono", "next", "noonads");
+        String source;
+        try (Stream<Path> paths = Files.walk(packagePath)) {
+            source = paths
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .sorted()
+                    .map(this::readUnchecked)
+                    .collect(Collectors.joining("\n"));
+        }
+
+        assertFalse(source.contains("@Scheduled"));
+        assertFalse(source.contains("NoonInterfacePuller"));
+        assertFalse(source.contains("NoonPullScheduler"));
+        assertFalse(source.contains("HttpClient"));
+        assertFalse(source.contains("RestTemplate"));
+        assertFalse(source.contains("WebClient"));
+        assertFalse(source.contains("setBudget"));
+        assertFalse(source.contains("setBid"));
+        assertFalse(source.contains("pauseCampaign"));
+        assertFalse(source.contains("createCampaign"));
+        assertFalse(source.contains("updateCampaign"));
+    }
+
+    private String readUnchecked(Path path) {
+        try {
+            return Files.readString(path);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to read " + path, exception);
+        }
     }
 }

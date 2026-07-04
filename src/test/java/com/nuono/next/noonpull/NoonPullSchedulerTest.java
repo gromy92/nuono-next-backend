@@ -31,7 +31,7 @@ class NoonPullSchedulerTest {
     }
 
     @Test
-    void shouldCreateDueSalesAndOrderTasksButNeverDefaultDailyProductTask() {
+    void shouldCreateDueOrderAndProductDailyTasksButWaitForLateSalesReportWindow() {
         createPlan(NoonPullType.REPORT, NoonPullDataDomain.SALES, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
         createPlan(NoonPullType.REPORT, NoonPullDataDomain.ORDER, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
         createPlan(NoonPullType.INTERFACE, NoonPullDataDomain.PRODUCT, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
@@ -40,18 +40,21 @@ class NoonPullSchedulerTest {
 
         assertEquals(2, result.getCreatedTaskCount());
         List<NoonPullTaskRecord> tasks = repository.listTasks();
-        assertTrue(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.SALES
-                && "sales:2026-05-20".equals(task.getTargetIdentity())));
         assertFalse(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.SALES
-                && "sales:2026-05-21".equals(task.getTargetIdentity())));
+                && task.getPullType() == NoonPullType.REPORT));
         assertTrue(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.ORDER
                 && "orders:2026-05-21..2026-05-21".equals(task.getTargetIdentity())));
-        assertFalse(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.PRODUCT
-                && task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY));
+        assertTrue(tasks.stream().anyMatch((task) -> task.getDataDomain() == NoonPullDataDomain.PRODUCT
+                && task.getPullType() == NoonPullType.INTERFACE
+                && task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY
+                && "product-list:2026-05-22..2026-05-22".equals(task.getTargetIdentity())));
     }
 
     @Test
     void shouldNotRecreateCompletedSalesDailyTargetsOnRepeatedTicks() {
+        clock = Clock.fixed(Instant.parse("2026-05-22T12:01:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
         createPlan(NoonPullType.REPORT, NoonPullDataDomain.SALES, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
         NoonPullScheduler scheduler = scheduler();
 
@@ -62,14 +65,15 @@ class NoonPullSchedulerTest {
         NoonPullSchedulerResult secondRun = scheduler.runDuePlans();
 
         assertEquals(1, firstRun.getCreatedTaskCount());
-        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-20".equals(task.getTargetIdentity())));
+        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-04-22..2026-05-21".equals(task.getTargetIdentity())));
+        assertFalse(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-20".equals(task.getTargetIdentity())));
         assertFalse(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-21".equals(task.getTargetIdentity())));
         assertEquals(0, secondRun.getCreatedTaskCount());
         assertEquals(1, repository.listTasks().size());
     }
 
     @Test
-    void shouldCreateLatestSalesReportTaskOnlyAfterLateReadyTime() {
+    void shouldCreateSalesRollingWindowReportOnlyAfterLateReadyTime() {
         Clock afterLatestReady = Clock.fixed(Instant.parse("2026-05-22T12:01:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();
         foundationService = new NoonPullFoundationService(repository, afterLatestReady, new NoonPullFailurePolicy(afterLatestReady));
@@ -86,9 +90,13 @@ class NoonPullSchedulerTest {
 
         NoonPullSchedulerResult result = scheduler.runDuePlans();
 
-        assertEquals(2, result.getCreatedTaskCount());
-        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-20".equals(task.getTargetIdentity())));
-        assertTrue(repository.listTasks().stream().anyMatch((task) -> "sales:2026-05-21".equals(task.getTargetIdentity())));
+        assertEquals(1, result.getCreatedTaskCount());
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+        assertEquals("sales:2026-04-22..2026-05-21", task.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 4, 22), task.getTargetDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 21), task.getTargetDateTo());
+        assertFalse(repository.listTasks().stream().anyMatch((candidate) -> "sales:2026-05-20".equals(candidate.getTargetIdentity())));
+        assertFalse(repository.listTasks().stream().anyMatch((candidate) -> "sales:2026-05-21".equals(candidate.getTargetIdentity())));
     }
 
     @Test
@@ -116,6 +124,210 @@ class NoonPullSchedulerTest {
         assertEquals("sales-page-query:2026-05-23..2026-05-23", task.getTargetIdentity());
         assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateFrom());
         assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateTo());
+    }
+
+    @Test
+    void shouldCreateFinanceTransactionDailyTaskAfterLateFinanceWindow() {
+        Clock afterFinanceWindow = Clock.fixed(Instant.parse("2026-05-24T14:31:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, afterFinanceWindow, new NoonPullFailurePolicy(afterFinanceWindow));
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.FINANCE_TRANSACTION, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily finance transaction after 22:30 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                afterFinanceWindow,
+                new NoonOrderReportSchedulePolicy(afterFinanceWindow),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(afterFinanceWindow),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+        assertEquals(NoonPullDataDomain.FINANCE_TRANSACTION, task.getDataDomain());
+        assertEquals(NoonPullType.REPORT, task.getPullType());
+        assertEquals("finance-transactions:2026-05-23..2026-05-23", task.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateTo());
+    }
+
+    @Test
+    void shouldNotCreateFinanceTransactionDailyTaskBeforeLateFinanceWindow() {
+        Clock beforeFinanceWindow = Clock.fixed(Instant.parse("2026-05-24T14:29:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, beforeFinanceWindow, new NoonPullFailurePolicy(beforeFinanceWindow));
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.FINANCE_TRANSACTION, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily finance transaction after 22:30 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                beforeFinanceWindow,
+                new NoonOrderReportSchedulePolicy(beforeFinanceWindow),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(beforeFinanceWindow),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(0, repository.listTasks().size());
+    }
+
+    @Test
+    void shouldCreateOfficialWarehouseInventoryDailyTaskAfterNightWindow() {
+        Clock afterInventoryWindow = Clock.fixed(Instant.parse("2026-05-24T15:01:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, afterInventoryWindow, new NoonPullFailurePolicy(afterInventoryWindow));
+        createPlan(NoonPullType.INTERFACE, NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily official warehouse inventory after 23:00 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                afterInventoryWindow,
+                new NoonOrderReportSchedulePolicy(afterInventoryWindow),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(afterInventoryWindow),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+        assertEquals(NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY, task.getDataDomain());
+        assertEquals(NoonPullType.INTERFACE, task.getPullType());
+        assertEquals("official-warehouse-inventory:2026-05-24", task.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 24), task.getTargetDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 24), task.getTargetDateTo());
+    }
+
+    @Test
+    void shouldNotCreateOfficialWarehouseInventoryDailyTaskBeforeNightWindow() {
+        Clock beforeInventoryWindow = Clock.fixed(Instant.parse("2026-05-24T14:59:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, beforeInventoryWindow, new NoonPullFailurePolicy(beforeInventoryWindow));
+        createPlan(NoonPullType.INTERFACE, NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily official warehouse inventory after 23:00 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                beforeInventoryWindow,
+                new NoonOrderReportSchedulePolicy(beforeInventoryWindow),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(beforeInventoryWindow),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(0, repository.listTasks().size());
+    }
+
+    @Test
+    void shouldCreateOfficialWarehouseFbnReceivedDailyTaskAfterNightWindow() {
+        Clock afterFbnWindow = Clock.fixed(Instant.parse("2026-05-24T15:31:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, afterFbnWindow, new NoonPullFailurePolicy(afterFbnWindow));
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily FBN received report after 23:30 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                afterFbnWindow,
+                new NoonOrderReportSchedulePolicy(afterFbnWindow),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(afterFbnWindow),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+        assertEquals(NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED, task.getDataDomain());
+        assertEquals(NoonPullType.REPORT, task.getPullType());
+        assertEquals("official-warehouse-fbn-received:2026-05-23..2026-05-23", task.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateTo());
+    }
+
+    @Test
+    void shouldNotCreateOfficialWarehouseFbnReceivedDailyTaskBeforeNightWindow() {
+        Clock beforeFbnWindow = Clock.fixed(Instant.parse("2026-05-24T15:29:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, beforeFbnWindow, new NoonPullFailurePolicy(beforeFbnWindow));
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily FBN received report after 23:30 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                beforeFbnWindow,
+                new NoonOrderReportSchedulePolicy(beforeFbnWindow),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(beforeFbnWindow),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(0, repository.listTasks().size());
+    }
+
+    @Test
+    void shouldCreateNoonAdvertisingDailyTaskAfterReadyWindow() {
+        Clock afterReady = Clock.fixed(Instant.parse("2026-05-24T00:01:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, afterReady, new NoonPullFailurePolicy(afterReady));
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.NOON_ADVERTISING, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "noon ads T-1 daily after 08:00 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                afterReady,
+                new NoonOrderReportSchedulePolicy(afterReady),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(afterReady),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+        assertEquals(NoonPullDataDomain.NOON_ADVERTISING, task.getDataDomain());
+        assertEquals(NoonPullType.REPORT, task.getPullType());
+        assertEquals("ads:2026-05-23..2026-05-23", task.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateTo());
+    }
+
+    @Test
+    void shouldNotCreateNoonAdvertisingDailyTaskBeforeReadyWindow() {
+        Clock beforeReady = Clock.fixed(Instant.parse("2026-05-23T23:59:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, beforeReady, new NoonPullFailurePolicy(beforeReady));
+        createPlan(NoonPullType.REPORT, NoonPullDataDomain.NOON_ADVERTISING, NoonPullTriggerMode.SCHEDULED_DAILY,
+                "noon ads T-1 daily after 08:00 Asia/Shanghai");
+
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                beforeReady,
+                new NoonOrderReportSchedulePolicy(beforeReady),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(beforeReady),
+                (plan) -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(0, repository.listTasks().size());
     }
 
     @Test

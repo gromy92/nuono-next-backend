@@ -15,6 +15,30 @@ import org.apache.ibatis.annotations.Update;
 public interface ProductPublicDetailMapper {
     String SYNCABLE_SITE_STATUS_CONDITION =
             "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')";
+    String SINGLE_PUBLIC_DETAIL_SITE_CONDITION =
+            "  AND NOT EXISTS ("
+                    + " SELECT 1"
+                    + " FROM logical_store_site preferred_lss"
+                    + " JOIN product_site_offer preferred_pso"
+                    + "   ON preferred_pso.site_id = preferred_lss.id"
+                    + "  AND preferred_pso.variant_id = pv.id"
+                    + " WHERE preferred_lss.logical_store_id = lss.logical_store_id"
+                    + "   AND UPPER(preferred_lss.store_code) = UPPER(lss.store_code)"
+                    + "   AND preferred_lss.is_deleted = b'0'"
+                    + "   AND preferred_pso.is_deleted = b'0'"
+                    + "   AND COALESCE(preferred_lss.is_mounted, b'1') = b'1'"
+                    + "   AND COALESCE(preferred_pso.is_active, b'0') = b'1'"
+                    + "   AND UPPER(COALESCE(preferred_lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')"
+                    + "   AND ("
+                    + "     CASE WHEN UPPER(preferred_lss.site) = 'SA' THEN 0 ELSE 1 END"
+                    + "       &lt; CASE WHEN UPPER(lss.site) = 'SA' THEN 0 ELSE 1 END"
+                    + "     OR ("
+                    + "       CASE WHEN UPPER(preferred_lss.site) = 'SA' THEN 0 ELSE 1 END"
+                    + "         = CASE WHEN UPPER(lss.site) = 'SA' THEN 0 ELSE 1 END"
+                    + "       AND preferred_lss.id &lt; lss.id"
+                    + "     )"
+                    + "   )"
+                    + ")";
 
     @Insert({
             "INSERT INTO product_public_detail_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -83,6 +107,7 @@ public interface ProductPublicDetailMapper {
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
+            SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
             "  AND (latest.id IS NULL OR latest.fetched_at &lt; DATE_SUB(NOW(), INTERVAL #{staleDays} DAY))",
             "  AND NOT EXISTS (",
             "      SELECT 1 FROM product_public_detail_snapshot fail",
@@ -143,6 +168,7 @@ public interface ProductPublicDetailMapper {
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
+            SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
             "  <if test='onlyDue'>",
             "  AND (latest.id IS NULL OR latest.fetched_at &lt; DATE_SUB(NOW(), INTERVAL #{staleDays} DAY))",
             "  AND NOT EXISTS (",
@@ -171,6 +197,7 @@ public interface ProductPublicDetailMapper {
     );
 
     @Select({
+            "<script>",
             "SELECT COUNT(1)",
             "FROM logical_store ls",
             "JOIN logical_store_site lss ON lss.logical_store_id = ls.id",
@@ -189,7 +216,9 @@ public interface ProductPublicDetailMapper {
             SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
-            "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL"
+            "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
+            SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
+            "</script>"
     })
     int countCandidates(
             @Param("ownerUserId") Long ownerUserId,

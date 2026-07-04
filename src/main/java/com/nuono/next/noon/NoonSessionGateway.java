@@ -899,6 +899,10 @@ public class NoonSessionGateway {
             return executeTextWithRefresh(() -> state.postText(projectCode, storeCode, url, body, withProject, extraHeaders));
         }
 
+        public byte[] postBytes(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
+            return executeBytesWithRefresh(() -> state.postBytes(projectCode, storeCode, url, body, withProject, extraHeaders));
+        }
+
         public JsonNode postJson(String url, JsonNode body, boolean withProject) {
             return postJson(url, body, withProject, null);
         }
@@ -1014,6 +1018,37 @@ public class NoonSessionGateway {
                 }
             }
         }
+
+        private byte[] executeBytesWithRefresh(BytesSessionCall sessionCall) {
+            boolean authRefreshed = false;
+            boolean transportRefreshed = false;
+            while (true) {
+                try {
+                    return sessionCall.execute();
+                } catch (SessionExpiredException exception) {
+                    if (authRefreshed) {
+                        throw exception;
+                    }
+                    state = getOrCreateState(null, noonUser, noonPassword, null, projectCode, storeCode, true);
+                    authRefreshed = true;
+                } catch (IllegalStateException exception) {
+                    if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
+                        state = getOrCreateState(
+                                null,
+                                noonUser,
+                                noonPassword,
+                                state.exportAuthCookieHeader(),
+                                projectCode,
+                                storeCode,
+                                true
+                        );
+                        transportRefreshed = true;
+                        continue;
+                    }
+                    throw exception;
+                }
+            }
+        }
     }
 
     private boolean shouldRefreshAfterTransientTransportFailure(IllegalStateException exception) {
@@ -1111,6 +1146,10 @@ public class NoonSessionGateway {
 
     private interface TextSessionCall {
         String execute();
+    }
+
+    private interface BytesSessionCall {
+        byte[] execute();
     }
 
     private interface HttpCallRecorder {
@@ -1291,6 +1330,39 @@ public class NoonSessionGateway {
                     applyDefaultHeaders(builder, uri);
                     applyHeaders(builder, extraHeaders);
                     return sendText(builder.build(), true);
+                } catch (IOException exception) {
+                    throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
+                }
+            }
+        }
+
+        private byte[] postBytes(
+                String projectCode,
+                String storeCode,
+                String url,
+                JsonNode body,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            synchronized (requestMutex) {
+                try {
+                    applyContextCookies(projectCode, storeCode);
+                    throttleIfNeeded();
+                    URI uri = buildUri(url, withProject, projectCode);
+                    HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                            .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                            .timeout(REQUEST_TIMEOUT)
+                            .setHeader("Content-Type", "application/json")
+                            .setHeader(
+                                    "Accept",
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream,*/*"
+                            );
+                    if (withProject && StringUtils.hasText(projectCode)) {
+                        builder.setHeader("X-Project", projectCode);
+                    }
+                    applyDefaultHeaders(builder, uri);
+                    applyHeaders(builder, extraHeaders);
+                    return sendBytes(builder.build(), true);
                 } catch (IOException exception) {
                     throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
                 }
@@ -1558,6 +1630,89 @@ public class NoonSessionGateway {
             }
         }
 
+        private byte[] sendBytes(HttpRequest request, boolean retryTransientReadFailures) {
+            int attempt = 0;
+            while (true) {
+                long startedNanos = System.nanoTime();
+                try {
+                    if (requestRecorder != null) {
+                        requestRecorder.accept(request.uri().toString());
+                    }
+                    HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                    lastRequestAtMillis = System.currentTimeMillis();
+                    byte[] responseBody = decodeResponseBytes(response);
+                    if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                        String responseText = new String(responseBody, StandardCharsets.UTF_8);
+                        attempt++;
+                        if (shouldRetryRateLimit(response.statusCode(), responseText, attempt)) {
+                            sleepForRateLimit(attempt);
+                            continue;
+                        }
+                        if (isAuthExpiredResponse(response.statusCode(), responseText)) {
+                            recordAttempt(
+                                    request,
+                                    response.statusCode(),
+                                    responseText,
+                                    startedNanos,
+                                    "FAILED",
+                                    "AUTH_EXPIRED",
+                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
+                            );
+                            throw new SessionExpiredException(
+                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
+                            );
+                        }
+                        if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
+                            sleepForTransientFailure(attempt);
+                            continue;
+                        }
+                        recordAttempt(
+                                request,
+                                response.statusCode(),
+                                responseText,
+                                startedNanos,
+                                "FAILED",
+                                "HTTP_STATUS",
+                                "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
+                        );
+                        throw new IllegalStateException(
+                                "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
+                        );
+                    }
+                    recordAttempt(
+                            request,
+                            response.statusCode(),
+                            "binary response bytes=" + responseBody.length,
+                            startedNanos,
+                            "SUCCESS",
+                            null,
+                            null
+                    );
+                    return responseBody;
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    recordAttempt(request, null, null, startedNanos, "FAILED", "INTERRUPTED", throwableMessage(exception));
+                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
+                } catch (IOException exception) {
+                    attempt++;
+                    if (shouldRetryTransientException(retryTransientReadFailures, attempt)) {
+                        try {
+                            sleepForTransientFailure(attempt);
+                            continue;
+                        } catch (InterruptedException interruptedException) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(
+                                    "请求 Noon 失败：" + interruptedException.getMessage(),
+                                    interruptedException
+                            );
+                        }
+                    }
+                    recordAttempt(request, null, null, startedNanos, "FAILED", "IO_EXCEPTION", throwableMessage(exception));
+                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
+                }
+            }
+        }
+
         private void recordAttempt(
                 HttpRequest request,
                 Integer responseStatusCode,
@@ -1649,20 +1804,28 @@ public class NoonSessionGateway {
         }
 
         private String decodeResponseBody(HttpResponse<byte[]> response) throws IOException {
-            byte[] body = response.body();
+            byte[] body = decodeResponseBytes(response);
             if (body == null || body.length == 0) {
                 return "";
             }
 
+            return new String(body, StandardCharsets.UTF_8);
+        }
+
+        private byte[] decodeResponseBytes(HttpResponse<byte[]> response) throws IOException {
+            byte[] body = response.body();
+            if (body == null || body.length == 0) {
+                return new byte[0];
+            }
             String contentEncoding = response.headers().firstValue("content-encoding").orElse("");
             boolean gzipEncoded = contentEncoding.toLowerCase(Locale.ROOT).contains("gzip")
                     || looksLikeGzip(body);
             if (!gzipEncoded) {
-                return new String(body, StandardCharsets.UTF_8);
+                return body;
             }
 
             try (InputStream inputStream = new GZIPInputStream(new ByteArrayInputStream(body))) {
-                return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                return inputStream.readAllBytes();
             }
         }
 

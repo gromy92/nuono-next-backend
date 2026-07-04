@@ -25,6 +25,25 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     }
 
     @Test
+    void staleRunningRecoveryOnlyRequeuesNoCapacityAppointments() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "markStaleNoCapacityAppointmentsPending",
+                int.class,
+                Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("status = 'RUNNING'");
+        assertThat(sql).contains("failure_type = 'NO_CAPACITY'");
+        assertThat(sql).contains("gmt_updated <= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)");
+        assertThat(sql).contains("status = 'PENDING'");
+        assertThat(sql).contains("next_attempt_at = NOW()");
+        assertThat(sql).doesNotContain("failure_type IN");
+        assertThat(sql).doesNotContain("status IN ('RUNNING'");
+    }
+
+    @Test
     void schedulerRunsEveryFiveSecondsByDefault() throws Exception {
         Method method = LocalDbOfficialWarehouseService.class.getMethod("runAppointmentScheduler");
         Scheduled scheduled = method.getAnnotation(Scheduled.class);

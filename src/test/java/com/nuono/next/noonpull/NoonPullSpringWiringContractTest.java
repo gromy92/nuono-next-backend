@@ -34,6 +34,7 @@ class NoonPullSpringWiringContractTest {
                     assertThat(context).hasSingleBean(NoonPullFoundationService.class);
                     assertThat(context).hasSingleBean(NoonPullScheduler.class);
                     assertThat(context).hasSingleBean(NoonBusinessReadinessService.class);
+                    assertThat(context).hasSingleBean(NoonRiskBackoffGuard.class);
                     assertThat(context).hasSingleBean(NoonReportPuller.class);
                     assertThat(context).hasSingleBean(NoonSalesPageQueryPullService.class);
                     assertThat(context).hasSingleBean(NoonPullScheduledExecutionService.class);
@@ -127,6 +128,7 @@ class NoonPullSpringWiringContractTest {
             NoonPullFoundationService.class,
             NoonPullScheduler.class,
             NoonBusinessReadinessService.class,
+            NoonRiskBackoffGuard.class,
             NoonReportPuller.class,
             NoonInterfacePuller.class,
             NoonProductListPullAdapter.class,

@@ -294,6 +294,80 @@ public class NoonPullFoundationService {
         return task;
     }
 
+    public NoonPullTaskRecord recordReportRiskBackoffDelay(
+            Long taskId,
+            NoonRiskBackoffHold hold,
+            String diagnosticPrefix
+    ) {
+        if (hold == null) {
+            throw new IllegalArgumentException("Noon risk backoff hold is required.");
+        }
+        String riskType = StringUtils.hasText(hold.getRiskType())
+                ? hold.getRiskType()
+                : NoonPullFailureType.BLOCKED_BY_RISK_CONTROL.code();
+        NoonPullTaskRecord task = updateReportExportTask(
+                taskId,
+                NoonPullTaskStatus.RUNNING,
+                null,
+                null,
+                null,
+                null,
+                null,
+                hold.getBlockedUntil(),
+                null,
+                riskType,
+                NoonPullRetryAction.DELAY.name(),
+                Boolean.TRUE,
+                Boolean.FALSE,
+                riskBackoffSummary(hold, diagnosticPrefix),
+                "risk_backoff",
+                false
+        );
+
+        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        LocalDateTime now = now();
+        plan.setLatestFailureAt(now);
+        plan.setLatestFailureType(riskType);
+        plan.setNextRetryAt(hold.getBlockedUntil());
+        plan.setUpdatedAt(now);
+        repository.updatePlan(plan);
+        return task;
+    }
+
+    public NoonPullTaskRecord recordInterfaceRiskBackoffDelay(
+            Long taskId,
+            NoonRiskBackoffHold hold,
+            String diagnosticPrefix
+    ) {
+        if (hold == null) {
+            throw new IllegalArgumentException("Noon risk backoff hold is required.");
+        }
+        String riskType = StringUtils.hasText(hold.getRiskType())
+                ? hold.getRiskType()
+                : NoonPullFailureType.BLOCKED_BY_RISK_CONTROL.code();
+        NoonPullTaskRecord task = requireTask(taskId);
+        LocalDateTime now = now();
+        task.setStatus(NoonPullTaskStatus.FAILED);
+        task.setFailureType(riskType);
+        task.setRetryAction(NoonPullRetryAction.DELAY.name());
+        task.setRetryable(Boolean.TRUE);
+        task.setRequiresManualAction(Boolean.FALSE);
+        task.setDiagnosticSummary(redact(riskBackoffSummary(hold, diagnosticPrefix)));
+        task.setReadinessState("risk_backoff");
+        task.setReportNextPollAt(hold.getBlockedUntil());
+        task.setFinishedAt(now);
+        task.setUpdatedAt(now);
+        repository.updateTask(task);
+
+        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        plan.setLatestFailureAt(now);
+        plan.setLatestFailureType(riskType);
+        plan.setNextRetryAt(hold.getBlockedUntil());
+        plan.setUpdatedAt(now);
+        repository.updatePlan(plan);
+        return task.copy();
+    }
+
     public NoonPullTaskRecord markReportExportPendingConfirmation(
             Long taskId,
             String sourceBatchId,
@@ -638,6 +712,23 @@ public class NoonPullFoundationService {
                 ? Duration.ofMinutes(15)
                 : delay;
         return now().plus(safeDelay);
+    }
+
+    private String riskBackoffSummary(NoonRiskBackoffHold hold, String diagnosticPrefix) {
+        StringBuilder summary = new StringBuilder();
+        if (StringUtils.hasText(diagnosticPrefix)) {
+            summary.append(diagnosticPrefix).append("; ");
+        }
+        summary.append("noon risk backoff active")
+                .append("; riskType=").append(hold.getRiskType())
+                .append("; attemptCount=").append(hold.getAttemptCount())
+                .append("; blockedUntil=").append(hold.getBlockedUntil())
+                .append("; sourceDomain=").append(hold.getSourceDomain())
+                .append("; sourceTaskId=").append(hold.getSourceTaskId());
+        if (StringUtils.hasText(hold.getDiagnosticSummary())) {
+            summary.append("; ").append(hold.getDiagnosticSummary());
+        }
+        return summary.toString();
     }
 
     private void requirePlanDraft(NoonPullPlanDraft draft) {

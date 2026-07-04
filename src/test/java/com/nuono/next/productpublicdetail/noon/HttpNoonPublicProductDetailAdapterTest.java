@@ -77,6 +77,35 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
+    void http403DoesNotLookLikeRealPublicDetailNotFound() {
+        StubAdapter adapter = new StubAdapter(null, false, "");
+        adapter.failure = new NoonSearchProviderException(
+                "PARSE_FAILED",
+                "Noon 前台公开搜索返回 HTTP 403。",
+                403,
+                "https://www.noon.com/_vs/nc/search",
+                null
+        );
+        adapter.catalogFailure = new NoonSearchProviderException(
+                "PARSE_FAILED",
+                "Noon catalog partner 公开搜索返回 HTTP 403。",
+                403,
+                "https://noon-catalog.noon.partners/_svc/catalog/api/u/saudi-en/search",
+                null
+        );
+
+        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .noonProductCode("ZABCDEF12")
+                .build());
+
+        assertEquals(ProductPublicDetailSyncStatus.FAILED, detail.getStatus());
+        assertEquals("BLOCKED_BY_RISK_CONTROL", detail.getFailureCode());
+        assertEquals(403, detail.getProviderHttpStatus());
+    }
+
+    @Test
     void fallsBackToCatalogPartnerWhenCustomerCatalogIsUnavailable() {
         StubAdapter adapter = new StubAdapter(null, false, "");
         adapter.failure = new NoonSearchProviderException(
@@ -165,6 +194,7 @@ class HttpNoonPublicProductDetailAdapterTest {
     private static final class StubAdapter extends HttpNoonPublicProductDetailAdapter {
         private final NoonSearchPage page;
         private NoonSearchProviderException failure;
+        private NoonSearchProviderException catalogFailure;
         private RuntimeException runtimeFailure;
         private NoonSearchPage catalogFallbackPage;
         private RuntimeException catalogRuntimeFailure;
@@ -185,6 +215,9 @@ class HttpNoonPublicProductDetailAdapterTest {
         @Override
         NoonSearchPage fetchSearchPageWithHttp(NoonSearchRequest request, String url, String frontendCookieHeader) {
             if (url.contains("noon-catalog.noon.partners")) {
+                if (catalogFailure != null) {
+                    throw catalogFailure;
+                }
                 if (catalogRuntimeFailure != null) {
                     throw catalogRuntimeFailure;
                 }

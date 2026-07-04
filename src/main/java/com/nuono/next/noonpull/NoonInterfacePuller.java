@@ -4,15 +4,45 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class NoonInterfacePuller {
     private final NoonPullFoundationService foundationService;
+    private final NoonRiskBackoffGuard riskBackoffGuard;
+    private final NoonPullFailurePolicy failurePolicy;
+
+    @Autowired
+    public NoonInterfacePuller(
+            NoonPullFoundationService foundationService,
+            ObjectProvider<NoonRiskBackoffGuard> riskBackoffGuard,
+            ObjectProvider<NoonPullFailurePolicy> failurePolicy
+    ) {
+        this(
+                foundationService,
+                riskBackoffGuard == null
+                        ? NoonRiskBackoffGuard.disabled()
+                        : riskBackoffGuard.getIfAvailable(NoonRiskBackoffGuard::disabled),
+                failurePolicy == null ? new NoonPullFailurePolicy() : failurePolicy.getIfAvailable(NoonPullFailurePolicy::new)
+        );
+    }
 
     public NoonInterfacePuller(NoonPullFoundationService foundationService) {
+        this(foundationService, NoonRiskBackoffGuard.disabled(), new NoonPullFailurePolicy());
+    }
+
+    NoonInterfacePuller(
+            NoonPullFoundationService foundationService,
+            NoonRiskBackoffGuard riskBackoffGuard,
+            NoonPullFailurePolicy failurePolicy
+    ) {
         this.foundationService = foundationService;
+        this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
+        this.failurePolicy = failurePolicy == null ? new NoonPullFailurePolicy() : failurePolicy;
     }
 
     public NoonInterfacePullResult execute(
@@ -22,6 +52,16 @@ public class NoonInterfacePuller {
     ) {
         if (taskId == null || request == null || provider == null) {
             throw new IllegalArgumentException("Noon interface pull task, request and provider are required.");
+        }
+        Optional<NoonRiskBackoffScope> riskScope = riskScope(request);
+        Optional<NoonRiskBackoffHold> activeHold = riskScope.flatMap(riskBackoffGuard::currentHold);
+        if (activeHold.isPresent()) {
+            NoonPullTaskRecord delayed = foundationService.recordInterfaceRiskBackoffDelay(
+                    taskId,
+                    activeHold.get(),
+                    request.safeDescriptor()
+            );
+            return NoonInterfacePullResult.failed(delayed);
         }
         foundationService.markRunning(taskId, "noon-interface-puller");
         List<Map<String, Object>> items = new ArrayList<>();
@@ -93,9 +133,51 @@ public class NoonInterfacePuller {
                     requestCount
             );
         } catch (RuntimeException exception) {
-            NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(taskId, failureMessage(request, exception), 1);
+            String failureMessage = failureMessage(request, exception);
+            NoonPullTaskRecord failed = markFailedOrRiskBackoff(taskId, request, failureMessage);
             return NoonInterfacePullResult.failed(failed);
         }
+    }
+
+    private NoonPullTaskRecord markFailedOrRiskBackoff(
+            Long taskId,
+            NoonInterfacePullRequest request,
+            String rawFailure
+    ) {
+        NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
+        Optional<NoonRiskBackoffScope> riskScope = riskScope(request);
+        if (riskScope.isEmpty() || !isRiskBackoffFailure(failureType)) {
+            return foundationService.markFailedWithPolicy(taskId, rawFailure, 1);
+        }
+        NoonRiskBackoffHold hold = riskBackoffGuard.recordRiskSignal(
+                riskScope.get(),
+                failureType.code(),
+                sourceDomain(request),
+                taskId,
+                null,
+                rawFailure
+        );
+        return foundationService.recordInterfaceRiskBackoffDelay(taskId, hold, request.safeDescriptor());
+    }
+
+    private boolean isRiskBackoffFailure(NoonPullFailureType failureType) {
+        return failureType == NoonPullFailureType.RATE_LIMITED
+                || failureType == NoonPullFailureType.CAPTCHA_REQUIRED
+                || failureType == NoonPullFailureType.BLOCKED_BY_RISK_CONTROL;
+    }
+
+    private String sourceDomain(NoonInterfacePullRequest request) {
+        return request == null || request.getDataDomain() == null ? null : request.getDataDomain().name();
+    }
+
+    private Optional<NoonRiskBackoffScope> riskScope(NoonInterfacePullRequest request) {
+        if (request == null || request.getDataDomain() == null) {
+            return Optional.empty();
+        }
+        if (request.getDataDomain() == NoonPullDataDomain.PRODUCT) {
+            return Optional.of(NoonRiskBackoffScope.productInterface(request));
+        }
+        return Optional.of(NoonRiskBackoffScope.interfacePull(request));
     }
 
     private boolean budgetExhausted(

@@ -4,13 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,13 +24,18 @@ class NoonReportPullerTest {
     private InMemoryNoonPullRepository repository;
     private NoonPullFoundationService foundationService;
     private NoonReportPuller puller;
+    private MutableClock clock;
 
     @BeforeEach
     void setUp() {
-        Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
+        clock = new MutableClock(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
         repository = new InMemoryNoonPullRepository();
         foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
-        puller = new NoonReportPuller(foundationService);
+        puller = new NoonReportPuller(
+                foundationService,
+                new NoonRiskBackoffGuard(new InMemoryNoonRiskBackoffRepository(), clock),
+                new NoonPullFailurePolicy(clock)
+        );
     }
 
     @Test
@@ -159,6 +165,79 @@ class NoonReportPullerTest {
     }
 
     @Test
+    void shouldRecordReportRiskBackoffWhenSalesPollHitsNoonRiskControl() {
+        NoonPullTaskRecord task = createSalesTask("sales:risk-control");
+        FakeReportProvider provider = FakeReportProvider.throwingOnPoll("blocked by risk control");
+
+        NoonReportPullResult result = puller.execute(
+                task.getId(),
+                salesRequest(),
+                provider,
+                (file) -> NoonReportProcessResult.succeeded(1, 0)
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertEquals(List.of("create", "poll:EXP-1"), provider.calls);
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
+        assertEquals("blocked_by_risk_control", persisted.getFailureType());
+        assertEquals(NoonPullRetryAction.DELAY.name(), persisted.getRetryAction());
+        assertEquals(Boolean.TRUE, persisted.getRetryable());
+        assertEquals(Boolean.FALSE, persisted.getRequiresManualAction());
+        assertEquals("risk_backoff", stringProperty(persisted, "readinessState"));
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), property(persisted, "reportNextPollAt"));
+        assertTrue(persisted.getDiagnosticSummary().contains("blocked by risk control"));
+    }
+
+    @Test
+    void shouldEscalateReportRiskBackoffByScopeFromTwoToFourToEightToSixteenMinutes() {
+        NoonPullTaskRecord task = createSalesTask("sales:risk-escalation");
+
+        executeRiskFailure(task, "blocked by risk control");
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), property(repository.selectTask(task.getId()), "reportNextPollAt"));
+
+        clock.setInstant(Instant.parse("2026-05-22T09:02:01Z"));
+        executeRiskFailure(task, "blocked by risk control");
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 6, 1), property(repository.selectTask(task.getId()), "reportNextPollAt"));
+
+        clock.setInstant(Instant.parse("2026-05-22T09:06:02Z"));
+        executeRiskFailure(task, "blocked by risk control");
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 14, 2), property(repository.selectTask(task.getId()), "reportNextPollAt"));
+
+        clock.setInstant(Instant.parse("2026-05-22T09:14:03Z"));
+        executeRiskFailure(task, "blocked by risk control");
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 30, 3), property(repository.selectTask(task.getId()), "reportNextPollAt"));
+
+        clock.setInstant(Instant.parse("2026-05-22T09:30:04Z"));
+        executeRiskFailure(task, "blocked by risk control");
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 46, 4), property(repository.selectTask(task.getId()), "reportNextPollAt"));
+    }
+
+    @Test
+    void shouldDelayOrderReportWithoutCallingProviderWhileReportScopeIsInRiskBackoff() {
+        NoonPullTaskRecord salesTask = createSalesTask("sales:risk-blocks-order");
+        executeRiskFailure(salesTask, "blocked by risk control");
+
+        NoonPullTaskRecord orderTask = createOrderTask("orders:2026-05-21..2026-05-21");
+        FakeReportProvider orderProvider = FakeReportProvider.ready("order_nr,item_nr\nO-1,I-1\n");
+
+        NoonReportPullResult result = puller.execute(
+                orderTask.getId(),
+                orderRequest(),
+                orderProvider,
+                (file) -> NoonReportProcessResult.succeeded(1, 0)
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(orderTask.getId());
+
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertTrue(orderProvider.calls.isEmpty());
+        assertEquals("blocked_by_risk_control", persisted.getFailureType());
+        assertEquals(NoonPullRetryAction.DELAY.name(), persisted.getRetryAction());
+        assertEquals("risk_backoff", stringProperty(persisted, "readinessState"));
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), property(persisted, "reportNextPollAt"));
+    }
+
+    @Test
     void shouldRecordProofForEmptySalesReportPendingConfirmation() {
         NoonPullTaskRecord task = createSalesTask("sales:empty-report");
         FakeReportProvider provider = FakeReportProvider.ready(
@@ -249,6 +328,29 @@ class NoonReportPullerTest {
                 .build();
     }
 
+    private NoonReportPullRequest orderRequest() {
+        return NoonReportPullRequest.builder()
+                .ownerUserId(307L)
+                .storeCode("STR245027")
+                .siteCode("AE")
+                .dataDomain(NoonPullDataDomain.ORDER)
+                .reportType("orderreport")
+                .dateFrom(LocalDate.of(2026, 5, 21))
+                .dateTo(LocalDate.of(2026, 5, 21))
+                .maxPollAttempts(2)
+                .build();
+    }
+
+    private void executeRiskFailure(NoonPullTaskRecord task, String message) {
+        NoonReportPullResult result = puller.execute(
+                task.getId(),
+                salesRequest(),
+                FakeReportProvider.throwingOnPoll(message),
+                (file) -> NoonReportProcessResult.succeeded(1, 0)
+        );
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+    }
+
     private NoonPullTaskRecord createSalesTask() {
         return createSalesTask("sales:2026-05-21");
     }
@@ -269,6 +371,29 @@ class NoonReportPullerTest {
                 .siteCode("AE")
                 .pullType(NoonPullType.REPORT)
                 .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .targetIdentity(target)
+                .targetDateFrom(LocalDate.of(2026, 5, 21))
+                .targetDateTo(LocalDate.of(2026, 5, 21))
+                .build()).orElseThrow();
+    }
+
+    private NoonPullTaskRecord createOrderTask(String target) {
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR245027")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.ORDER)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily")
+                .build());
+        return foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR245027")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.ORDER)
                 .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
                 .targetIdentity(target)
                 .targetDateFrom(LocalDate.of(2026, 5, 21))
@@ -368,5 +493,34 @@ class NoonReportPullerTest {
             return ((Number) value).intValue();
         }
         throw new AssertionError("Expected numeric property: " + propertyName + ", got " + value);
+    }
+
+    private static final class MutableClock extends Clock {
+        private Instant instant;
+        private final ZoneId zone;
+
+        private MutableClock(Instant instant, ZoneId zone) {
+            this.instant = instant;
+            this.zone = zone;
+        }
+
+        void setInstant(Instant instant) {
+            this.instant = instant;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return zone;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return new MutableClock(instant, zone);
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
     }
 }

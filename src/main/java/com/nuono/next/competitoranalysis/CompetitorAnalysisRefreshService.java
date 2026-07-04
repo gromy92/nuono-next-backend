@@ -2,6 +2,9 @@ package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.noonpull.NoonRiskBackoffGuard;
+import com.nuono.next.noonpull.NoonRiskBackoffHold;
+import com.nuono.next.noonpull.NoonRiskBackoffScope;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskPayload;
@@ -12,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -42,12 +46,17 @@ public class CompetitorAnalysisRefreshService {
     private static final int STALE_RECOVERY_LIMIT = 1000;
     private static final int MAX_ERROR_MESSAGE_LENGTH = 1024;
     private static final String PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE";
+    private static final String RATE_LIMITED = "RATE_LIMITED";
+    private static final String BLOCKED_BY_RISK_CONTROL = "BLOCKED_BY_RISK_CONTROL";
+    private static final String CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED";
+    private static final String COMPETITOR_RISK_BACKOFF = "COMPETITOR_RISK_BACKOFF";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final TaskSubmitter taskSubmitter;
     private final CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner;
     private final CompetitorProductDetailRefreshService productDetailRefreshService;
+    private final NoonRiskBackoffGuard riskBackoffGuard;
     private final Clock clock;
 
     @Autowired
@@ -56,7 +65,8 @@ public class CompetitorAnalysisRefreshService {
             OperationalTaskService operationalTaskService,
             ObjectProvider<NoonAccountTaskQueue> noonAccountTaskQueueProvider,
             CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner,
-            ObjectProvider<CompetitorProductDetailRefreshService> productDetailRefreshServiceProvider
+            ObjectProvider<CompetitorProductDetailRefreshService> productDetailRefreshServiceProvider,
+            ObjectProvider<NoonRiskBackoffGuard> riskBackoffGuardProvider
     ) {
         this(
                 mapper,
@@ -64,7 +74,10 @@ public class CompetitorAnalysisRefreshService {
                 queueSubmitter(noonAccountTaskQueueProvider == null ? null : noonAccountTaskQueueProvider.getIfAvailable()),
                 keywordRefreshRunner,
                 productDetailRefreshServiceProvider == null ? null : productDetailRefreshServiceProvider.getIfAvailable(),
-                Clock.systemUTC()
+                Clock.systemUTC(),
+                riskBackoffGuardProvider == null
+                        ? NoonRiskBackoffGuard.disabled()
+                        : riskBackoffGuardProvider.getIfAvailable(NoonRiskBackoffGuard::disabled)
         );
     }
 
@@ -80,7 +93,8 @@ public class CompetitorAnalysisRefreshService {
                 taskSubmitter,
                 new CompetitorKeywordRefreshTransactionRunner(mapper, new NoopCompetitorKeywordRefreshRunner()),
                 null,
-                clock
+                clock,
+                NoonRiskBackoffGuard.disabled()
         );
     }
 
@@ -91,7 +105,7 @@ public class CompetitorAnalysisRefreshService {
             CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner,
             Clock clock
     ) {
-        this(mapper, operationalTaskService, taskSubmitter, keywordRefreshRunner, null, clock);
+        this(mapper, operationalTaskService, taskSubmitter, keywordRefreshRunner, null, clock, NoonRiskBackoffGuard.disabled());
     }
 
     CompetitorAnalysisRefreshService(
@@ -102,11 +116,32 @@ public class CompetitorAnalysisRefreshService {
             CompetitorProductDetailRefreshService productDetailRefreshService,
             Clock clock
     ) {
+        this(
+                mapper,
+                operationalTaskService,
+                taskSubmitter,
+                keywordRefreshRunner,
+                productDetailRefreshService,
+                clock,
+                NoonRiskBackoffGuard.disabled()
+        );
+    }
+
+    CompetitorAnalysisRefreshService(
+            CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            TaskSubmitter taskSubmitter,
+            CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner,
+            CompetitorProductDetailRefreshService productDetailRefreshService,
+            Clock clock,
+            NoonRiskBackoffGuard riskBackoffGuard
+    ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.taskSubmitter = taskSubmitter == null ? (accountKey, task) -> task.run() : taskSubmitter;
         this.keywordRefreshRunner = keywordRefreshRunner;
         this.productDetailRefreshService = productDetailRefreshService;
+        this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
@@ -273,6 +308,7 @@ public class CompetitorAnalysisRefreshService {
             Long actorUserId,
             RefreshExecutionMode executionMode
     ) {
+        rejectIfNoonRiskBackoffActive(ownerUserId, storeCode, siteCode);
         List<CompetitorWatchProductRow> watchProducts = mapper.listRefreshableWatchProducts(
                 ownerUserId,
                 storeCode,
@@ -331,6 +367,11 @@ public class CompetitorAnalysisRefreshService {
         if (activeTask != null) {
             releaseStaleTask(activeTask);
         }
+        rejectIfNoonRiskBackoffActive(
+                watchProduct.getOwnerUserId(),
+                watchProduct.getStoreCode(),
+                watchProduct.getSiteCode()
+        );
 
         List<CompetitorKeywordRow> activeKeywords = safeMode.runsRank()
                 ? mapper.listActiveKeywordsByWatchProductId(watchProduct.getId())
@@ -486,6 +527,14 @@ public class CompetitorAnalysisRefreshService {
             if (watchProduct == null) {
                 throw new IllegalStateException("监控商品不存在或已删除。");
             }
+            Optional<NoonRiskBackoffHold> activeRiskBackoff = currentNoonRiskBackoff(watchProduct);
+            if (activeRiskBackoff.isPresent()) {
+                String message = riskBackoffMessage(activeRiskBackoff.get());
+                safeMarkRunFailed(runId, COMPETITOR_RISK_BACKOFF, message);
+                safeUpdateWatchLatestRun(watchProductId, runId, "FAILED", actorUserId);
+                safeFailTask(taskId, COMPETITOR_RISK_BACKOFF, message);
+                return;
+            }
             if (safeMode.runsDetail()) {
                 refreshConfirmedCompetitorDetails(taskId, runId, watchProduct, actorUserId);
             }
@@ -496,6 +545,7 @@ public class CompetitorAnalysisRefreshService {
             List<KeywordRetryCandidate> retryCandidates = new ArrayList<>();
             int keywordRetried = 0;
             int keywordRetryRecovered = 0;
+            NoonRiskBackoffHold riskBackoffHold = null;
             for (CompetitorKeywordRow keyword : keywords) {
                 CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(runId, watchProduct, keyword, actorUserId);
                 if (result.isSuccess()) {
@@ -504,6 +554,18 @@ public class CompetitorAnalysisRefreshService {
                     rankFactWrittenCount += result.getRankFactWrittenCount();
                 } else {
                     failed++;
+                    if (isRiskBackoffFailure(result.getErrorCode())) {
+                        riskBackoffHold = recordRiskBackoff(
+                                watchProduct,
+                                taskId,
+                                result.getErrorCode(),
+                                result.getErrorMessage()
+                        );
+                        firstErrorCode = firstNonBlank(firstErrorCode, result.getErrorCode());
+                        firstErrorMessage = firstNonBlank(firstErrorMessage, result.getErrorMessage());
+                        updateProgress(taskId, total, success + failed);
+                        break;
+                    }
                     if (shouldRetryTransientKeywordFailure(safeMode, result)) {
                         retryCandidates.add(new KeywordRetryCandidate(keyword, result));
                     } else {
@@ -554,6 +616,10 @@ public class CompetitorAnalysisRefreshService {
                     actorUserId
             );
             mapper.updateWatchProductLatestRun(watchProductId, runId, status, actorUserId);
+            if (riskBackoffHold != null) {
+                operationalTaskService.fail(taskId, COMPETITOR_RISK_BACKOFF, riskBackoffMessage(riskBackoffHold));
+                return;
+            }
             if ("FAILED".equals(status)) {
                 operationalTaskService.fail(taskId, firstNonBlank(firstErrorCode, "REFRESH_FAILED"), message);
             } else {
@@ -577,6 +643,81 @@ public class CompetitorAnalysisRefreshService {
                     exception
             );
         }
+    }
+
+    private void rejectIfNoonRiskBackoffActive(Long ownerUserId, String storeCode, String siteCode) {
+        Optional<NoonRiskBackoffHold> activeHold = riskBackoffGuard.currentHold(competitorRiskScope(
+                ownerUserId,
+                storeCode,
+                siteCode
+        ));
+        if (activeHold.isPresent()) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "NOON_RISK_BACKOFF");
+        }
+    }
+
+    private Optional<NoonRiskBackoffHold> currentNoonRiskBackoff(CompetitorWatchProductRow watchProduct) {
+        if (watchProduct == null) {
+            return Optional.empty();
+        }
+        return riskBackoffGuard.currentHold(competitorRiskScope(
+                watchProduct.getOwnerUserId(),
+                watchProduct.getStoreCode(),
+                watchProduct.getSiteCode()
+        ));
+    }
+
+    private NoonRiskBackoffHold recordRiskBackoff(
+            CompetitorWatchProductRow watchProduct,
+            Long taskId,
+            String errorCode,
+            String errorMessage
+    ) {
+        return riskBackoffGuard.recordRiskSignal(
+                competitorRiskScope(
+                        watchProduct == null ? null : watchProduct.getOwnerUserId(),
+                        watchProduct == null ? null : watchProduct.getStoreCode(),
+                        watchProduct == null ? null : watchProduct.getSiteCode()
+                ),
+                riskType(errorCode),
+                "PUBLIC_SEARCH",
+                taskId,
+                null,
+                firstNonBlank(errorMessage, errorCode)
+        );
+    }
+
+    private NoonRiskBackoffScope competitorRiskScope(Long ownerUserId, String storeCode, String siteCode) {
+        return NoonRiskBackoffScope.publicSearch(ownerUserId, storeCode, siteCode);
+    }
+
+    private boolean isRiskBackoffFailure(String errorCode) {
+        String normalized = normalize(errorCode);
+        return RATE_LIMITED.equals(normalized)
+                || BLOCKED_BY_RISK_CONTROL.equals(normalized)
+                || CAPTCHA_REQUIRED.equals(normalized);
+    }
+
+    private String riskType(String errorCode) {
+        String normalized = normalize(errorCode);
+        if (RATE_LIMITED.equals(normalized)) {
+            return "rate_limited";
+        }
+        if (BLOCKED_BY_RISK_CONTROL.equals(normalized)) {
+            return "blocked_by_risk_control";
+        }
+        if (CAPTCHA_REQUIRED.equals(normalized)) {
+            return "captcha_required";
+        }
+        return normalized == null ? "risk_control" : normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private String riskBackoffMessage(NoonRiskBackoffHold hold) {
+        return "竞品监控触发 Noon 风控退避："
+                + (hold == null ? "unknown" : hold.getRiskType())
+                + "，冷却至 "
+                + (hold == null ? "unknown" : hold.getBlockedUntil())
+                + "。";
     }
 
     private void refreshConfirmedCompetitorDetails(

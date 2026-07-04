@@ -6,6 +6,28 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.nuono.next.noonads.NoonAdvertisingCampaignFact;
+import com.nuono.next.noonads.NoonAdvertisingImportRepository;
+import com.nuono.next.noonads.NoonAdvertisingImportService;
+import com.nuono.next.noonads.NoonAdvertisingQueryFact;
+import com.nuono.next.noonads.NoonAdvertisingReportAdapter;
+import com.nuono.next.noonads.NoonAdvertisingReportBatch;
+import com.nuono.next.noonads.NoonAdvertisingReportDescriptor;
+import com.nuono.next.noonads.NoonAdvertisingReportProvider;
+import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportQueryService;
+import com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportService;
+import com.nuono.next.officialwarehouse.OfficialWarehouseInventorySyncService;
+import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnExportCreateCommand;
+import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnReceivedImportCommand;
+import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.InventorySyncCommand;
+import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnExportCreateView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnExportStatusView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnReceivedImportResultView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.InventorySyncResultView;
+import com.nuono.next.orderfinance.NoonFinanceTransactionFact;
+import com.nuono.next.orderfinance.NoonFinanceTransactionFactWriter;
+import com.nuono.next.orderfinance.NoonFinanceTransactionReportAdapter;
+import com.nuono.next.permission.access.BusinessAccessContext;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +49,8 @@ class NoonPullSmokeRunnerTest {
     private RecordingProductWriter productWriter;
     private RecordingSalesFactWriter salesWriter;
     private RecordingOrderFactWriter orderWriter;
+    private RecordingFinanceTransactionFactWriter financeWriter;
+    private RecordingNoonAdvertisingImportRepository advertisingRepository;
     private RecordingSmokeRunRepository smokeRunRepository;
 
     @BeforeEach
@@ -37,6 +61,8 @@ class NoonPullSmokeRunnerTest {
         productWriter = new RecordingProductWriter();
         salesWriter = new RecordingSalesFactWriter();
         orderWriter = new RecordingOrderFactWriter();
+        financeWriter = new RecordingFinanceTransactionFactWriter();
+        advertisingRepository = new RecordingNoonAdvertisingImportRepository();
         smokeRunRepository = new RecordingSmokeRunRepository();
     }
 
@@ -234,6 +260,187 @@ class NoonPullSmokeRunnerTest {
         assertEquals(NoonPullTriggerMode.MANUAL_BACKFILL, task.getTriggerMode());
     }
 
+    @Test
+    void shouldRunOnlyRequestedFinanceTransactionDomainAndExposeReportDigest() {
+        NoonPullSmokeRunner runner = runner(
+                true,
+                successProductProvider(),
+                successSalesProvider(),
+                successOrderProvider(),
+                null,
+                successFinanceProvider()
+        );
+        NoonPullSmokeRunCommand command = command("global pause is the rollback switch");
+        command.setStoreCode("STR108065-NSA");
+        command.setSiteCode("SA");
+        command.setDataDomains(List.of(NoonPullDataDomain.FINANCE_TRANSACTION));
+        command.setFinanceDateFrom(LocalDate.of(2026, 5, 21));
+        command.setFinanceDateTo(LocalDate.of(2026, 5, 21));
+
+        NoonPullSmokeRunResult result = runner.run(command);
+        NoonPullSmokeEvidenceView evidence = result.getEvidence().get(0);
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+
+        assertFalse(result.isProductionSchedulingAllowed());
+        assertEquals(1, result.getEvidence().size());
+        assertEquals("FINANCE_TRANSACTION", evidence.getDataDomain());
+        assertEquals("finance-transactions:2026-05-21..2026-05-21", evidence.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getDateTo());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED.name(), evidence.getStatus());
+        assertEquals("ready", evidence.getQualityState());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getLatestFactDate());
+        assertEquals(1, evidence.getRowOrItemCount());
+        assertEquals(financeCsvDigest(), evidence.getFileDigestSha256());
+        assertTrue(evidence.getSourceBatchId().contains(financeCsvDigest().substring(0, 8)));
+        assertEquals(1, financeWriter.facts.size());
+        assertEquals("PAPERSAYSB359", financeWriter.facts.get(0).getPartnerSku());
+        assertEquals(NoonPullDataDomain.FINANCE_TRANSACTION, task.getDataDomain());
+        assertEquals(NoonPullType.REPORT, task.getPullType());
+        assertEquals(NoonPullTriggerMode.MANUAL_BACKFILL, task.getTriggerMode());
+    }
+
+    @Test
+    void shouldRunOnlyRequestedNoonAdvertisingDomainAndExposeReportDigest() {
+        NoonPullSmokeRunner runner = runner(
+                true,
+                successProductProvider(),
+                successSalesProvider(),
+                successOrderProvider(),
+                null,
+                null,
+                successAdvertisingProvider(),
+                null,
+                null,
+                null
+        );
+        NoonPullSmokeRunCommand command = command("global pause is the rollback switch");
+        command.setStoreCode("STR69486-NSA");
+        command.setSiteCode("SA");
+        command.setDataDomains(List.of(NoonPullDataDomain.NOON_ADVERTISING));
+        command.setAdvertisingDateFrom(LocalDate.of(2026, 5, 21));
+        command.setAdvertisingDateTo(LocalDate.of(2026, 5, 21));
+
+        NoonPullSmokeRunResult result = runner.run(command);
+        NoonPullSmokeEvidenceView evidence = result.getEvidence().get(0);
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+
+        assertFalse(result.isProductionSchedulingAllowed());
+        assertEquals(1, result.getEvidence().size());
+        assertEquals("NOON_ADVERTISING", evidence.getDataDomain());
+        assertEquals("ads:2026-05-21..2026-05-21", evidence.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getDateTo());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED.name(), evidence.getStatus());
+        assertEquals("ready", evidence.getQualityState());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getLatestFactDate());
+        assertEquals(2, evidence.getRowOrItemCount());
+        assertEquals(advertisingCsvDigest(), evidence.getFileDigestSha256());
+        assertTrue(evidence.getSourceBatchId().contains(advertisingCsvDigest().substring(0, 8)));
+        assertEquals(1, advertisingRepository.campaignFacts.size());
+        assertEquals(1, advertisingRepository.queryFacts.size());
+        assertEquals("notebook", advertisingRepository.queryFacts.get(0).getQueryText());
+        assertEquals(NoonPullDataDomain.NOON_ADVERTISING, task.getDataDomain());
+        assertEquals(NoonPullType.REPORT, task.getPullType());
+        assertEquals(NoonPullTriggerMode.MANUAL_BACKFILL, task.getTriggerMode());
+    }
+
+    @Test
+    void shouldRunOnlyRequestedOfficialWarehouseInventoryDomain() {
+        CapturingOfficialWarehouseInventorySyncService inventorySyncService =
+                new CapturingOfficialWarehouseInventorySyncService();
+        NoonPullSmokeRunner runner = runner(
+                true,
+                successProductProvider(),
+                successSalesProvider(),
+                successOrderProvider(),
+                null,
+                null,
+                null,
+                inventorySyncService,
+                null,
+                null
+        );
+        NoonPullSmokeRunCommand command = command("global pause is the rollback switch");
+        command.setStoreCode("STR108065-NSA");
+        command.setSiteCode("SA");
+        command.setDataDomains(List.of(NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY));
+
+        NoonPullSmokeRunResult result = runner.run(command);
+        NoonPullSmokeEvidenceView evidence = result.getEvidence().get(0);
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+
+        assertFalse(result.isProductionSchedulingAllowed());
+        assertEquals(1, result.getEvidence().size());
+        assertEquals("OFFICIAL_WAREHOUSE_INVENTORY", evidence.getDataDomain());
+        assertEquals("official-warehouse-inventory:2026-05-22", evidence.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 22), evidence.getDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 22), evidence.getDateTo());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED.name(), evidence.getStatus());
+        assertEquals("ready", evidence.getQualityState());
+        assertEquals(3, evidence.getRowOrItemCount());
+        assertEquals("official-warehouse-inventory-" + task.getId() + "-INV-SMOKE", evidence.getSourceBatchId());
+        assertEquals(NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY, task.getDataDomain());
+        assertEquals(NoonPullType.INTERFACE, task.getPullType());
+        assertEquals(NoonPullTriggerMode.MANUAL_REFRESH, task.getTriggerMode());
+        assertEquals(10002L, inventorySyncService.access.getBusinessOwnerUserId());
+        assertEquals("STR108065-NSA", inventorySyncService.command.storeCode);
+        assertEquals("SA", inventorySyncService.command.siteCode);
+        assertEquals(1, inventorySyncService.command.maxPages);
+    }
+
+    @Test
+    void shouldRunOnlyRequestedOfficialWarehouseFbnReceivedDomain() {
+        CapturingOfficialWarehouseFbnExportQueryService fbnExportQueryService =
+                new CapturingOfficialWarehouseFbnExportQueryService();
+        CapturingOfficialWarehouseFbnReceivedImportService fbnReceivedImportService =
+                new CapturingOfficialWarehouseFbnReceivedImportService();
+        NoonPullSmokeRunner runner = runner(
+                true,
+                successProductProvider(),
+                successSalesProvider(),
+                successOrderProvider(),
+                null,
+                null,
+                null,
+                null,
+                fbnExportQueryService,
+                fbnReceivedImportService
+        );
+        NoonPullSmokeRunCommand command = command("global pause is the rollback switch");
+        command.setStoreCode("STR108065-NSA");
+        command.setSiteCode("SA");
+        command.setDataDomains(List.of(NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED));
+        command.setOfficialWarehouseFbnDateFrom(LocalDate.of(2026, 5, 21));
+        command.setOfficialWarehouseFbnDateTo(LocalDate.of(2026, 5, 21));
+
+        NoonPullSmokeRunResult result = runner.run(command);
+        NoonPullSmokeEvidenceView evidence = result.getEvidence().get(0);
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+
+        assertFalse(result.isProductionSchedulingAllowed());
+        assertEquals(1, result.getEvidence().size());
+        assertEquals("OFFICIAL_WAREHOUSE_FBN_RECEIVED", evidence.getDataDomain());
+        assertEquals("official-warehouse-fbn-received:2026-05-21..2026-05-21", evidence.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getDateFrom());
+        assertEquals(LocalDate.of(2026, 5, 21), evidence.getDateTo());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED.name(), evidence.getStatus());
+        assertEquals("ready", evidence.getQualityState());
+        assertEquals(2, evidence.getRowOrItemCount());
+        assertEquals("EXP-FBN-SMOKE", task.getReportExportId());
+        assertEquals("READY", task.getReportExportStatus());
+        assertEquals("official-warehouse-fbn-received-" + task.getId() + "-IMP-SMOKE", evidence.getSourceBatchId());
+        assertEquals(NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED, task.getDataDomain());
+        assertEquals(NoonPullType.REPORT, task.getPullType());
+        assertEquals(NoonPullTriggerMode.MANUAL_BACKFILL, task.getTriggerMode());
+        assertEquals("fbn_inbound_fbnreceivedreport", fbnExportQueryService.createCommand.exportCategoryCode);
+        assertEquals("2026-05-21", fbnExportQueryService.createCommand.fromDate);
+        assertEquals("2026-05-21", fbnExportQueryService.createCommand.toDate);
+        assertEquals("EXP-FBN-SMOKE", fbnReceivedImportService.exportCode);
+        assertEquals("STR108065-NSA", fbnReceivedImportService.command.storeCode);
+        assertEquals("SA", fbnReceivedImportService.command.siteCode);
+    }
+
     private NoonPullSmokeRunner runner(
             boolean providerEnabled,
             NoonProductInterfaceSmokeProvider productProvider,
@@ -249,6 +456,43 @@ class NoonPullSmokeRunnerTest {
             NoonSalesReportSmokeProvider salesProvider,
             NoonOrderReportSmokeProvider orderProvider,
             NoonSalesPageQueryProvider salesPageQueryProvider
+    ) {
+        return runner(providerEnabled, productProvider, salesProvider, orderProvider, salesPageQueryProvider, null);
+    }
+
+    private NoonPullSmokeRunner runner(
+            boolean providerEnabled,
+            NoonProductInterfaceSmokeProvider productProvider,
+            NoonSalesReportSmokeProvider salesProvider,
+            NoonOrderReportSmokeProvider orderProvider,
+            NoonSalesPageQueryProvider salesPageQueryProvider,
+            NoonFinanceTransactionReportProvider financeProvider
+    ) {
+        return runner(
+                providerEnabled,
+                productProvider,
+                salesProvider,
+                orderProvider,
+                salesPageQueryProvider,
+                financeProvider,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    private NoonPullSmokeRunner runner(
+            boolean providerEnabled,
+            NoonProductInterfaceSmokeProvider productProvider,
+            NoonSalesReportSmokeProvider salesProvider,
+            NoonOrderReportSmokeProvider orderProvider,
+            NoonSalesPageQueryProvider salesPageQueryProvider,
+            NoonFinanceTransactionReportProvider financeProvider,
+            NoonAdvertisingReportProvider advertisingProvider,
+            OfficialWarehouseInventorySyncService officialWarehouseInventorySyncService,
+            OfficialWarehouseFbnExportQueryService officialWarehouseFbnExportQueryService,
+            OfficialWarehouseFbnReceivedReportImportService officialWarehouseFbnReceivedReportImportService
     ) {
         NoonProductListInitializationService productService = new NoonProductListInitializationService(
                 foundationService,
@@ -276,10 +520,18 @@ class NoonPullSmokeRunnerTest {
                 salesService,
                 salesPageQueryService,
                 orderService,
+                new NoonReportPuller(foundationService),
+                new NoonFinanceTransactionReportAdapter(financeWriter),
+                new NoonAdvertisingReportAdapter(new NoonAdvertisingImportService(advertisingRepository)),
                 productProvider,
                 salesProvider,
                 salesPageQueryProvider,
                 orderProvider,
+                financeProvider,
+                advertisingProvider,
+                officialWarehouseInventorySyncService,
+                officialWarehouseFbnExportQueryService,
+                officialWarehouseFbnReceivedReportImportService,
                 providerEnabled,
                 Clock.fixed(Instant.parse("2026-05-22T02:00:00Z"), ZoneOffset.UTC),
                 smokeRunRepository
@@ -378,6 +630,48 @@ class NoonPullSmokeRunnerTest {
         };
     }
 
+    private NoonFinanceTransactionReportProvider successFinanceProvider() {
+        String csv = financeCsv();
+        return new NoonFinanceTransactionReportProvider() {
+            @Override
+            public String createExport(NoonReportPullRequest request) {
+                assertEquals(NoonFinanceTransactionReportDescriptor.DEFAULT_REPORT_TYPE, request.getReportType());
+                return "EXP-FINANCE-SMOKE";
+            }
+
+            @Override
+            public NoonReportExportStatus pollExport(NoonReportPullRequest request, String exportId) {
+                return NoonReportExportStatus.ready("https://download.test/finance-smoke.csv");
+            }
+
+            @Override
+            public byte[] download(NoonReportPullRequest request, String downloadUrl) {
+                return csv.getBytes(StandardCharsets.UTF_8);
+            }
+        };
+    }
+
+    private NoonAdvertisingReportProvider successAdvertisingProvider() {
+        String csv = advertisingCsv();
+        return new NoonAdvertisingReportProvider() {
+            @Override
+            public String createExport(NoonReportPullRequest request) {
+                assertEquals(NoonAdvertisingReportDescriptor.DEFAULT_REPORT_TYPE, request.getReportType());
+                return "EXP-ADS-SMOKE";
+            }
+
+            @Override
+            public NoonReportExportStatus pollExport(NoonReportPullRequest request, String exportId) {
+                return NoonReportExportStatus.ready("https://download.test/ads-smoke.csv");
+            }
+
+            @Override
+            public byte[] download(NoonReportPullRequest request, String downloadUrl) {
+                return csv.getBytes(StandardCharsets.UTF_8);
+            }
+        };
+    }
+
     private NoonSalesReportSmokeProvider reportProvider(String csv) {
         return new NoonSalesReportSmokeProvider() {
             @Override
@@ -416,6 +710,48 @@ class NoonPullSmokeRunnerTest {
         }
     }
 
+    private String financeCsv() {
+        return "Contract,Contract Title,Reference Nr,Order Nr,Item Nr,Order Date,Transaction Date,Title,SKUs,Partner SKUs,Transaction Type,Currency,Net Proceeds,Referral Fee including VAT,Fullfilment & Logistics Fees including VAT,Shipping Credits including VAT,Other Order Fees including VAT,Order Subsidies including VAT,Non-Order Fees including VAT,Non-Order Subsidies including VAT,Others including VAT,Total\n"
+                + "NOON-SA,Saudi Contract,REF-1,ORDER-1,ITEM-1,2026-05-21,2026-05-21,Paper,SKU-1,PAPERSAYSB359,Order,SAR,12.34,-1.23,-2.34,0,0,0,0,0,0,8.77\n";
+    }
+
+    private String financeCsvDigest() {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(financeCsv().getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte value : hash) {
+                builder.append(String.format("%02x", value));
+            }
+            return builder.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private String advertisingCsv() {
+        return "row_type,project_code,campaign_code,campaign_name,ad_sku_code,partner_sku,query_text,"
+                + "query_kind,campaign_status,views,clicks,orders_count,spend_amount,ad_revenue\n"
+                + "campaign,PRJ69486,C_ADS_001,Summer core exact,ZADS001-1,PAPER001,,,active,"
+                + "1200,80,12,150.59,450.10\n"
+                + "query,PRJ69486,C_ADS_001,Summer core exact,ZADS001-1,PAPER001,notebook,exact,,"
+                + "90,10,2,21.57,82.30\n";
+    }
+
+    private String advertisingCsvDigest() {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(advertisingCsv().getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder();
+            for (byte value : hash) {
+                builder.append(String.format("%02x", value));
+            }
+            return builder.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
     private static final class RecordingProductWriter implements NoonProductProjectionWriter {
         private int writeCount;
 
@@ -440,6 +776,161 @@ class NoonPullSmokeRunnerTest {
         @Override
         public void upsertLine(NoonOrderLineFact fact) {
             facts.put(fact.naturalKey(), fact);
+        }
+    }
+
+    private static final class RecordingFinanceTransactionFactWriter implements NoonFinanceTransactionFactWriter {
+        private final List<NoonFinanceTransactionFact> facts = new java.util.ArrayList<>();
+
+        @Override
+        public void upsert(NoonFinanceTransactionFact fact) {
+            facts.add(fact);
+        }
+    }
+
+    private static final class RecordingNoonAdvertisingImportRepository implements NoonAdvertisingImportRepository {
+        private final List<NoonAdvertisingReportBatch> insertedBatches = new java.util.ArrayList<>();
+        private final List<NoonAdvertisingCampaignFact> campaignFacts = new java.util.ArrayList<>();
+        private final List<NoonAdvertisingQueryFact> queryFacts = new java.util.ArrayList<>();
+
+        @Override
+        public Long nextReportBatchId() {
+            return 200001L + insertedBatches.size();
+        }
+
+        @Override
+        public Long nextCampaignFactId() {
+            return 210001L + campaignFacts.size();
+        }
+
+        @Override
+        public Long nextQueryFactId() {
+            return 220001L + queryFacts.size();
+        }
+
+        @Override
+        public Long findReportBatchId(NoonAdvertisingReportBatch batch) {
+            return null;
+        }
+
+        @Override
+        public void insertReportBatch(NoonAdvertisingReportBatch batch) {
+            insertedBatches.add(batch);
+        }
+
+        @Override
+        public void upsertCampaignFact(NoonAdvertisingCampaignFact fact) {
+            campaignFacts.add(fact);
+        }
+
+        @Override
+        public void upsertQueryFact(NoonAdvertisingQueryFact fact) {
+            queryFacts.add(fact);
+        }
+    }
+
+    private static final class CapturingOfficialWarehouseInventorySyncService
+            extends OfficialWarehouseInventorySyncService {
+        private BusinessAccessContext access;
+        private InventorySyncCommand command;
+
+        private CapturingOfficialWarehouseInventorySyncService() {
+            super(null, null, null);
+        }
+
+        @Override
+        public InventorySyncResultView sync(BusinessAccessContext access, InventorySyncCommand command) {
+            this.access = access;
+            this.command = command;
+            InventorySyncResultView result = new InventorySyncResultView();
+            result.syncBatchId = "INV-SMOKE";
+            result.storeCode = command.storeCode;
+            result.siteCode = command.siteCode;
+            result.pageCount = 1;
+            result.fetchedRows = 3;
+            result.insertedRows = 3;
+            result.sourceType = "FBN_INVENTORY_API";
+            return result;
+        }
+    }
+
+    private static final class CapturingOfficialWarehouseFbnExportQueryService
+            extends OfficialWarehouseFbnExportQueryService {
+        private FbnExportCreateCommand createCommand;
+        private String statusExportCode;
+
+        private CapturingOfficialWarehouseFbnExportQueryService() {
+            super(null);
+        }
+
+        @Override
+        public FbnExportCreateView createExport(BusinessAccessContext access, FbnExportCreateCommand command) {
+            this.createCommand = command;
+            FbnExportCreateView view = new FbnExportCreateView();
+            view.storeCode = command.storeCode;
+            view.siteCode = command.siteCode;
+            view.exportCode = "EXP-FBN-SMOKE";
+            view.status = "CREATED";
+            view.reportType = command.exportCategoryCode;
+            view.fromDate = command.fromDate;
+            view.toDate = command.toDate;
+            view.sourceType = "FBN_REPORT_EXPORT_API";
+            return view;
+        }
+
+        @Override
+        public FbnExportStatusView exportStatus(
+                BusinessAccessContext access,
+                String storeCode,
+                String siteCode,
+                String exportCode,
+                Boolean log
+        ) {
+            this.statusExportCode = exportCode;
+            FbnExportStatusView view = new FbnExportStatusView();
+            view.storeCode = storeCode;
+            view.siteCode = siteCode;
+            view.exportCode = exportCode;
+            view.status = "COMPLETE";
+            view.fileName = "fbn-received-smoke.csv";
+            view.downloadUrl = "https://download.test/fbn-received-smoke.csv";
+            view.totalRows = 2;
+            view.sourceType = "FBN_REPORT_EXPORT_API";
+            return view;
+        }
+    }
+
+    private static final class CapturingOfficialWarehouseFbnReceivedImportService
+            extends OfficialWarehouseFbnReceivedReportImportService {
+        private String exportCode;
+        private FbnReceivedImportCommand command;
+
+        private CapturingOfficialWarehouseFbnReceivedImportService() {
+            super(null, null, null, null);
+        }
+
+        @Override
+        public FbnReceivedImportResultView importByExportCode(
+                BusinessAccessContext access,
+                String exportCode,
+                FbnReceivedImportCommand command
+        ) {
+            this.exportCode = exportCode;
+            this.command = command;
+            FbnReceivedImportResultView view = new FbnReceivedImportResultView();
+            view.importId = "IMP-SMOKE";
+            view.storeCode = command.storeCode;
+            view.siteCode = command.siteCode;
+            view.exportCode = exportCode;
+            view.reportType = OfficialWarehouseFbnReceivedReportImportService.REPORT_TYPE;
+            view.status = "IMPORTED";
+            view.totalRows = 2;
+            view.validRows = 2;
+            view.warningRows = 0;
+            view.errorRows = 0;
+            view.insertedReceiptLines = 2;
+            view.sourceType = "FBN_REPORT_EXPORT_API";
+            return view;
         }
     }
 

@@ -176,7 +176,8 @@ public class CompetitorProductDetailRefreshService {
         detail.setNoonProductCode(firstNonBlank(product.getNoonProductCode(), code));
         detail.setCodeType(product.getCodeType());
         detail.setDetailUrl(normalizeText(product.getCanonicalUrl()));
-        detail.setTitleEn(normalizeText(product.getTitleSnapshot()));
+        detail.setTitleEn(normalizeText(firstNonBlank(product.getTitleEnSnapshot(), product.getTitleSnapshot())));
+        detail.setTitleAr(normalizeText(product.getTitleArSnapshot()));
         detail.setBrand(normalizeText(product.getBrandSnapshot()));
         detail.setPriceAmount(product.getPriceAmountSnapshot());
         detail.setCurrencyCode(normalizeText(product.getCurrencyCodeSnapshot()));
@@ -249,12 +250,15 @@ public class CompetitorProductDetailRefreshService {
         command.setCodeType(detail.getCodeType());
         command.setCanonicalUrl(detail.getDetailUrl());
         command.setTitleSnapshot(firstNonBlank(detail.getTitleEn(), detail.getTitleAr()));
+        command.setTitleEnSnapshot(detail.getTitleEn());
+        command.setTitleArSnapshot(detail.getTitleAr());
         command.setBrandSnapshot(detail.getBrand());
         command.setImageUrlSnapshot(firstNonBlank(detail.getMainImageUrlNormalized(), detail.getMainImageUrlRaw()));
         command.setPriceAmountSnapshot(detail.getPriceAmount());
         command.setCurrencyCodeSnapshot(detail.getCurrencyCode());
         command.setRatingSnapshot(detail.getRating());
         command.setReviewCountSnapshot(detail.getReviewCount());
+        command.setTagsSnapshotJson(firstNonBlank(detail.getBadgesJson(), detail.getLogisticsTagsJson()));
         command.setSourceType("PRODUCT_DETAIL");
         command.setActorUserId(actorUserId);
         return command;

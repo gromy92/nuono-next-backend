@@ -512,6 +512,9 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     }
 
     NoonSearchProviderException mapUnsuccessfulStatus(int statusCode, String url) {
+        if (statusCode == 403) {
+            throw new NoonSearchProviderException("BLOCKED_BY_RISK_CONTROL", "Noon 前台搜索返回 HTTP 403。", statusCode, url, null);
+        }
         if (statusCode == 429) {
             throw new NoonSearchProviderException("RATE_LIMITED", "Noon 前台搜索返回 HTTP 429。", statusCode, url, null);
         }

@@ -34,6 +34,14 @@ class CompetitorAnalysisSchemaContractTest {
             "init",
             "104_operations_competitor_rank_fact_channel_scan_depth.sql"
     );
+    private static final Path RANK_SEARCH_METADATA_SCHEMA_PATH = Path.of(
+            "src",
+            "main",
+            "resources",
+            "db",
+            "init",
+            "171_operations_competitor_rank_search_metadata.sql"
+    );
 
     @Test
     void competitorAnalysisSchemaDefinesFirstPhaseTablesAndStatusSeparation() throws IOException {
@@ -111,6 +119,19 @@ class CompetitorAnalysisSchemaContractTest {
         assertTrue(sql.contains("drop index uk_ops_comp_rank_fact_run_product"));
         assertTrue(sql.contains("uk_ops_comp_rank_fact_run_product_channel"));
         assertTrue(sql.contains("keyword_run_id, tracked_product_type, noon_product_code, rank_channel"));
+    }
+
+    @Test
+    void rankSearchMetadataMigrationPersistsLocalizedTitlesAndTags() throws IOException {
+        assertTrue(Files.exists(RANK_SEARCH_METADATA_SCHEMA_PATH), "rank search metadata migration must exist");
+        String sql = normalizedSql(RANK_SEARCH_METADATA_SCHEMA_PATH);
+
+        assertTrue(sql.contains("operations_competitor_search_result"));
+        assertTrue(sql.contains("operations_competitor_product"));
+        assertTrue(sql.contains("title_en_snapshot"));
+        assertTrue(sql.contains("title_ar_snapshot"));
+        assertTrue(sql.contains("tags_json"));
+        assertTrue(sql.contains("tags_snapshot_json"));
     }
 
     private static String normalizedSql(Path path) throws IOException {

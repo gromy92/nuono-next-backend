@@ -92,6 +92,20 @@ class HttpNoonFrontendSearchAdapterTest {
     }
 
     @Test
+    void mapsForbiddenStatusToRiskControlException() {
+        HttpNoonFrontendSearchAdapter adapter = adapter();
+
+        NoonSearchProviderException error = assertThrows(
+                NoonSearchProviderException.class,
+                () -> adapter.mapUnsuccessfulStatus(403, "https://www.noon.com/saudi-en/search?q=x")
+        );
+
+        assertEquals("BLOCKED_BY_RISK_CONTROL", error.getErrorCode());
+        assertEquals(403, error.getProviderHttpStatus());
+        assertTrue(error.getMessage().contains("403"));
+    }
+
+    @Test
     void buildsCustomerCatalogV3RequestWithNoonFrontendCookieAndBrowserHeaders() {
         HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
                 new NoonFrontendSearchPageParser(new ObjectMapper()),

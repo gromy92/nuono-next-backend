@@ -8,12 +8,15 @@ public class NoonSearchResult {
     private String codeType;
     private String canonicalUrl;
     private String title;
+    private String titleEn;
+    private String titleAr;
     private String brand;
     private String imageUrl;
     private BigDecimal priceAmount;
     private String currencyCode;
     private BigDecimal rating;
     private Integer reviewCount;
+    private String tagsJson;
     private boolean sponsored;
     private String rawResultJson;
 
@@ -27,6 +30,10 @@ public class NoonSearchResult {
     public void setCanonicalUrl(String canonicalUrl) { this.canonicalUrl = canonicalUrl; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+    public String getTitleEn() { return titleEn; }
+    public void setTitleEn(String titleEn) { this.titleEn = titleEn; }
+    public String getTitleAr() { return titleAr; }
+    public void setTitleAr(String titleAr) { this.titleAr = titleAr; }
     public String getBrand() { return brand; }
     public void setBrand(String brand) { this.brand = brand; }
     public String getImageUrl() { return imageUrl; }
@@ -39,6 +46,8 @@ public class NoonSearchResult {
     public void setRating(BigDecimal rating) { this.rating = rating; }
     public Integer getReviewCount() { return reviewCount; }
     public void setReviewCount(Integer reviewCount) { this.reviewCount = reviewCount; }
+    public String getTagsJson() { return tagsJson; }
+    public void setTagsJson(String tagsJson) { this.tagsJson = tagsJson; }
     public boolean isSponsored() { return sponsored; }
     public void setSponsored(boolean sponsored) { this.sponsored = sponsored; }
     public String getRawResultJson() { return rawResultJson; }

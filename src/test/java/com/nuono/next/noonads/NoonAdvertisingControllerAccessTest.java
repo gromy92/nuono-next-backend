@@ -14,6 +14,7 @@ import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.permission.access.BusinessCapability;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -25,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -50,6 +52,17 @@ class NoonAdvertisingControllerAccessTest {
     @Test
     void noonAdvertisingControllerIsRestController() {
         assertNotNull(NoonAdvertisingController.class.getAnnotation(RestController.class));
+    }
+
+    @Test
+    void onlyPostEndpointIsManualNormalizedReportImport() {
+        PostMapping[] postMappings = Arrays.stream(NoonAdvertisingController.class.getDeclaredMethods())
+                .map(method -> method.getAnnotation(PostMapping.class))
+                .filter(mapping -> mapping != null)
+                .toArray(PostMapping[]::new);
+
+        assertEquals(1, postMappings.length);
+        assertEquals("/reports/import", postMappings[0].value()[0]);
     }
 
     @Test

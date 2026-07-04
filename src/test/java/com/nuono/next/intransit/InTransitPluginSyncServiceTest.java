@@ -129,6 +129,7 @@ class InTransitPluginSyncServiceTest {
         assertEquals("2026-06-04 16:00-18:00", batchCaptor.getValue().getDeliveryAppointmentText());
         assertEquals("AIR", batchCaptor.getValue().getTransportMode());
         assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
+        assertEquals("SA", batchCaptor.getValue().getTargetSiteCode());
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
         verify(batchService, org.mockito.Mockito.times(2)).saveLine(lineCaptor.capture());
@@ -151,6 +152,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals("已封箱", firstLine.getPackageStatus());
         assertEquals("发往海外", firstLine.getLogisticsStatus());
         assertEquals("SGGRB219", firstLine.getPsku());
+        assertEquals("RUH", firstLine.getStoreCode());
+        assertEquals("SA", firstLine.getSiteCode());
         assertNull(firstLine.getCartonWeightKg());
         assertNull(firstLine.getCartonVolumeCbm());
 
@@ -327,6 +330,7 @@ class InTransitPluginSyncServiceTest {
         assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
         assertEquals("SEA", batchCaptor.getValue().getTransportMode());
         assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
+        assertEquals("SA", batchCaptor.getValue().getTargetSiteCode());
         assertEquals("ETRUH01整箱仓", batchCaptor.getValue().getTargetWarehouseName());
     }
 
@@ -580,6 +584,34 @@ class InTransitPluginSyncServiceTest {
         assertTrue(preview.getIssues().stream().anyMatch(issue ->
                 "barcode".equals(issue.getField())
                         && issue.getMessage().contains("未匹配到系统商品")
+        ));
+        assertThrows(IllegalStateException.class, () -> service.commit(command));
+        verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
+        verify(batchService, never()).saveLine(any(SaveLineCommand.class));
+    }
+
+    @Test
+    void shouldRejectPluginLineWhenStoreSiteCannotBeResolved() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchNo("NO-ROUTE-001");
+        batch.setDestination("");
+        batch.setTargetWarehouseName("");
+        batch.getPackages().get(0).getLines().forEach(line -> {
+            line.setStoreCode("");
+            line.setSiteCode("");
+        });
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertEquals(false, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "storeCode".equals(issue.getField())
+                        && issue.getMessage().contains("目的地店铺")
+        ));
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "siteCode".equals(issue.getField())
+                        && issue.getMessage().contains("站点")
         ));
         assertThrows(IllegalStateException.class, () -> service.commit(command));
         verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
@@ -868,7 +900,7 @@ class InTransitPluginSyncServiceTest {
         assertEquals("PAPERSAYSB293", line.getSku());
         assertEquals("PAPERSAYSB293", line.getMsku());
         assertEquals("粉盒马克笔24支48色", line.getProductName());
-        assertNull(line.getStoreCode());
+        assertEquals("RUH", line.getStoreCode());
         assertEquals("SA", line.getSiteCode());
         assertEquals(48, line.getShippedQuantity());
         assertEquals(0, line.getReceivedQuantity());

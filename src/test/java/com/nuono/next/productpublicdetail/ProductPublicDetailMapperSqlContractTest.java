@@ -49,6 +49,56 @@ class ProductPublicDetailMapperSqlContractTest {
         );
     }
 
+    @Test
+    void publicDetailCandidatesUseSinglePreferredSitePerProductWithSaFirst() throws NoSuchMethodException {
+        Method method = ProductPublicDetailMapper.class.getMethod(
+                "listCandidates",
+                Long.class,
+                String.class,
+                String.class,
+                int.class,
+                int.class,
+                int.class,
+                boolean.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(
+                sql.contains("preferred_lss"),
+                "Candidate selection must compare against other live sites for the same product."
+        );
+        assertTrue(
+                sql.contains("UPPER(preferred_lss.site) = 'SA'"),
+                "SA must be the preferred public-detail site when the product is live there."
+        );
+        assertTrue(
+                sql.contains("preferred_lss.id &lt; lss.id") || sql.contains("preferred_lss.id < lss.id"),
+                "When SA is not available, one deterministic fallback site should be selected."
+        );
+    }
+
+    @Test
+    void publicDetailCandidateCountUsesScriptSqlForEscapedPreferredSiteComparison() throws NoSuchMethodException {
+        Method method = ProductPublicDetailMapper.class.getMethod(
+                "countCandidates",
+                Long.class,
+                String.class,
+                String.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ").trim();
+
+        assertTrue(
+                sql.startsWith("<script>"),
+                "countCandidates reuses preferred-site comparison with XML-escaped '<', so it must be a MyBatis script."
+        );
+        assertTrue(
+                sql.contains("preferred_lss.id &lt; lss.id"),
+                "Preferred-site fallback comparison should stay XML-escaped inside the MyBatis script."
+        );
+    }
+
     private static void assertSyncableSiteStatusCondition(String methodName, Class<?>... parameterTypes)
             throws NoSuchMethodException {
         Method method = ProductPublicDetailMapper.class.getMethod(methodName, parameterTypes);

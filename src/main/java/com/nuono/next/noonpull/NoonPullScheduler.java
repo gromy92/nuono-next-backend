@@ -24,6 +24,10 @@ public class NoonPullScheduler {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private static final LocalTime SALES_READY_AFTER = LocalTime.of(8, 0);
     private static final LocalTime SALES_LATEST_DAY_READY_AFTER = LocalTime.of(20, 0);
+    private static final LocalTime ADS_READY_AFTER = LocalTime.of(8, 0);
+    private static final LocalTime FINANCE_TRANSACTION_READY_AFTER = LocalTime.of(22, 30);
+    private static final LocalTime OFFICIAL_WAREHOUSE_INVENTORY_READY_AFTER = LocalTime.of(23, 0);
+    private static final LocalTime OFFICIAL_WAREHOUSE_FBN_RECEIVED_READY_AFTER = LocalTime.of(23, 30);
     private static final Duration STALE_RUNNING_TASK_MAX_AGE = Duration.ofHours(2);
     private static final Duration STALE_QUEUED_TASK_MAX_AGE = Duration.ofMinutes(30);
 
@@ -148,6 +152,8 @@ public class NoonPullScheduler {
     private void createTasksForPlan(NoonPullPlanRecord plan) {
         if (plan.getDataDomain() == NoonPullDataDomain.PRODUCT
                 && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY) {
+            LocalDate targetDate = LocalDate.now(clock);
+            createTask(plan, "product-list:" + targetDate + ".." + targetDate, targetDate, targetDate);
             return;
         }
         if (plan.getDataDomain() == NoonPullDataDomain.SALES
@@ -161,11 +167,11 @@ public class NoonPullScheduler {
                 return;
             }
             if (plan.getPullType() == NoonPullType.REPORT) {
-                LocalDate stableDate = targetDate.minusDays(1);
-                createTask(plan, "sales:" + stableDate, stableDate, stableDate);
-                if (isSalesLatestDayReportReadyWindow()) {
-                    createTask(plan, "sales:" + targetDate, targetDate, targetDate);
+                if (!isSalesLatestDayReportReadyWindow()) {
+                    return;
                 }
+                LocalDate targetFrom = targetDate.minusDays(29);
+                createTask(plan, "sales:" + targetFrom + ".." + targetDate, targetFrom, targetDate);
             }
             return;
         }
@@ -191,6 +197,46 @@ public class NoonPullScheduler {
             }
             LocalDate targetDate = dailyPlan.getTargetDate();
             createTask(plan, "orders:" + targetDate + ".." + targetDate, targetDate, targetDate);
+            return;
+        }
+        if (plan.getDataDomain() == NoonPullDataDomain.FINANCE_TRANSACTION
+                && plan.getPullType() == NoonPullType.REPORT
+                && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY) {
+            if (!isFinanceTransactionReportReadyWindow()) {
+                return;
+            }
+            LocalDate targetDate = latestAvailableDate();
+            createTask(plan, "finance-transactions:" + targetDate + ".." + targetDate, targetDate, targetDate);
+            return;
+        }
+        if (plan.getDataDomain() == NoonPullDataDomain.NOON_ADVERTISING
+                && plan.getPullType() == NoonPullType.REPORT
+                && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY) {
+            if (!isAdsReportReadyWindow()) {
+                return;
+            }
+            LocalDate targetDate = latestAvailableDate();
+            createTask(plan, "ads:" + targetDate + ".." + targetDate, targetDate, targetDate);
+            return;
+        }
+        if (plan.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY
+                && plan.getPullType() == NoonPullType.INTERFACE
+                && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY) {
+            if (!isOfficialWarehouseInventoryReadyWindow()) {
+                return;
+            }
+            LocalDate targetDate = LocalDate.now(clock);
+            createTask(plan, "official-warehouse-inventory:" + targetDate, targetDate, targetDate);
+            return;
+        }
+        if (plan.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED
+                && plan.getPullType() == NoonPullType.REPORT
+                && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY) {
+            if (!isOfficialWarehouseFbnReceivedReadyWindow()) {
+                return;
+            }
+            LocalDate targetDate = latestAvailableDate();
+            createTask(plan, "official-warehouse-fbn-received:" + targetDate + ".." + targetDate, targetDate, targetDate);
             return;
         }
         if (plan.getDataDomain() == NoonPullDataDomain.ORDER
@@ -259,6 +305,22 @@ public class NoonPullScheduler {
 
     private boolean isSalesLatestDayReportReadyWindow() {
         return !LocalTime.now(clock).isBefore(SALES_LATEST_DAY_READY_AFTER);
+    }
+
+    private boolean isFinanceTransactionReportReadyWindow() {
+        return !LocalTime.now(clock).isBefore(FINANCE_TRANSACTION_READY_AFTER);
+    }
+
+    private boolean isAdsReportReadyWindow() {
+        return !LocalTime.now(clock).isBefore(ADS_READY_AFTER);
+    }
+
+    private boolean isOfficialWarehouseInventoryReadyWindow() {
+        return !LocalTime.now(clock).isBefore(OFFICIAL_WAREHOUSE_INVENTORY_READY_AFTER);
+    }
+
+    private boolean isOfficialWarehouseFbnReceivedReadyWindow() {
+        return !LocalTime.now(clock).isBefore(OFFICIAL_WAREHOUSE_FBN_RECEIVED_READY_AFTER);
     }
 
     private Duration safeMaxAge(Duration maxAge, Duration fallback) {

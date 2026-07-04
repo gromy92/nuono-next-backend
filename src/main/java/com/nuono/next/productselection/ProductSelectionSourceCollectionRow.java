@@ -34,6 +34,7 @@ public class ProductSelectionSourceCollectionRow {
     private String failureCode;
     private String failureMessage;
     private String collectedAt;
+    private String nextRunAt;
     private Long createdBy;
     private Long updatedBy;
     private String createdByName;
@@ -294,6 +295,14 @@ public class ProductSelectionSourceCollectionRow {
 
     public void setCollectedAt(String collectedAt) {
         this.collectedAt = collectedAt;
+    }
+
+    public String getNextRunAt() {
+        return nextRunAt;
+    }
+
+    public void setNextRunAt(String nextRunAt) {
+        this.nextRunAt = nextRunAt;
     }
 
     public Long getCreatedBy() {

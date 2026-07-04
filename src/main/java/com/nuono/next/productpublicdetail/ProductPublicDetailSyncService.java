@@ -5,6 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.noonpull.NoonPullFailurePolicy;
+import com.nuono.next.noonpull.NoonPullFailureType;
+import com.nuono.next.noonpull.NoonRiskBackoffGuard;
+import com.nuono.next.noonpull.NoonRiskBackoffHold;
+import com.nuono.next.noonpull.NoonRiskBackoffScope;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailAdapter;
 import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailRequest;
@@ -23,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +53,8 @@ public class ProductPublicDetailSyncService {
     private final int maxProductsPerTask;
     private final int staleDays;
     private final int failureCooldownHours;
+    private final NoonRiskBackoffGuard riskBackoffGuard;
+    private final NoonPullFailurePolicy failurePolicy;
 
     @Autowired
     public ProductPublicDetailSyncService(
@@ -54,6 +62,8 @@ public class ProductPublicDetailSyncService {
             OperationalTaskService operationalTaskService,
             ObjectProvider<NoonAccountTaskQueue> queueProvider,
             ObjectProvider<NoonPublicProductDetailAdapter> adapterProvider,
+            ObjectProvider<NoonRiskBackoffGuard> riskBackoffGuard,
+            ObjectProvider<NoonPullFailurePolicy> failurePolicy,
             ObjectMapper objectMapper,
             @Value("${nuono.product-public-detail.scheduler.max-products-per-task:100}") int maxProductsPerTask,
             @Value("${nuono.product-public-detail.scheduler.stale-days:1}") int staleDays,
@@ -75,7 +85,11 @@ public class ProductPublicDetailSyncService {
                 Clock.systemUTC(),
                 maxProductsPerTask,
                 staleDays,
-                failureCooldownHours
+                failureCooldownHours,
+                riskBackoffGuard == null
+                        ? NoonRiskBackoffGuard.disabled()
+                        : riskBackoffGuard.getIfAvailable(NoonRiskBackoffGuard::disabled),
+                failurePolicy == null ? new NoonPullFailurePolicy() : failurePolicy.getIfAvailable(NoonPullFailurePolicy::new)
         );
     }
 
@@ -87,7 +101,19 @@ public class ProductPublicDetailSyncService {
             ObjectMapper objectMapper,
             Clock clock
     ) {
-        this(mapper, operationalTaskService, () -> adapter, taskSubmitter, objectMapper, clock, 100, 1, 12);
+        this(
+                mapper,
+                operationalTaskService,
+                () -> adapter,
+                taskSubmitter,
+                objectMapper,
+                clock,
+                100,
+                1,
+                12,
+                NoonRiskBackoffGuard.disabled(),
+                new NoonPullFailurePolicy(clock)
+        );
     }
 
     ProductPublicDetailSyncService(
@@ -101,6 +127,34 @@ public class ProductPublicDetailSyncService {
             int staleDays,
             int failureCooldownHours
     ) {
+        this(
+                mapper,
+                operationalTaskService,
+                adapterSupplier,
+                taskSubmitter,
+                objectMapper,
+                clock,
+                maxProductsPerTask,
+                staleDays,
+                failureCooldownHours,
+                NoonRiskBackoffGuard.disabled(),
+                new NoonPullFailurePolicy(clock)
+        );
+    }
+
+    ProductPublicDetailSyncService(
+            ProductPublicDetailMapper mapper,
+            OperationalTaskService operationalTaskService,
+            Supplier<NoonPublicProductDetailAdapter> adapterSupplier,
+            TaskSubmitter taskSubmitter,
+            ObjectMapper objectMapper,
+            Clock clock,
+            int maxProductsPerTask,
+            int staleDays,
+            int failureCooldownHours,
+            NoonRiskBackoffGuard riskBackoffGuard,
+            NoonPullFailurePolicy failurePolicy
+    ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.adapterSupplier = adapterSupplier == null ? () -> null : adapterSupplier;
@@ -110,6 +164,8 @@ public class ProductPublicDetailSyncService {
         this.maxProductsPerTask = Math.max(1, Math.min(maxProductsPerTask, 500));
         this.staleDays = Math.max(1, staleDays);
         this.failureCooldownHours = Math.max(1, failureCooldownHours);
+        this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
+        this.failurePolicy = failurePolicy == null ? new NoonPullFailurePolicy(this.clock) : failurePolicy;
     }
 
     public ProductPublicDetailTaskView submitManual(BusinessAccessContext context, String storeCode, String siteCode) {
@@ -184,6 +240,11 @@ public class ProductPublicDetailSyncService {
             operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_ADAPTER_UNAVAILABLE", "Noon 前台公开详情 adapter 不可用。");
             return;
         }
+        Optional<NoonRiskBackoffHold> activeHold = currentRiskBackoffHold(ownerUserId, storeCode, siteCode);
+        if (activeHold.isPresent()) {
+            failRiskBackoff(taskId, activeHold.get(), null);
+            return;
+        }
         summary.setAdapterVersion(adapter.adapterVersion());
         try {
             List<ProductPublicDetailCandidate> candidates = mapper.listCandidates(
@@ -203,6 +264,12 @@ public class ProductPublicDetailSyncService {
             }
             int index = 0;
             for (ProductPublicDetailCandidate candidate : candidates) {
+                Optional<NoonRiskBackoffHold> currentHold = currentRiskBackoffHold(ownerUserId, storeCode, siteCode);
+                if (currentHold.isPresent()) {
+                    summary.setElapsedMillis(elapsedMillis(startedNanos));
+                    failRiskBackoff(taskId, currentHold.get(), summary);
+                    return;
+                }
                 index++;
                 String code = NoonProductCodeSupport.normalize(candidate.getNoonProductCode());
                 if (!StringUtils.hasText(code) || NoonProductCodeSupport.codeType(code).isEmpty()) {
@@ -221,6 +288,18 @@ public class ProductPublicDetailSyncService {
                     ProductPublicDetailSnapshot snapshot = toSnapshot(candidate, result, actorUserId);
                     upsertSnapshot(snapshot);
                     summary.increment(snapshot.getSyncStatus());
+                    Optional<NoonRiskBackoffHold> hold = recordRiskBackoffIfNeeded(
+                            taskId,
+                            ownerUserId,
+                            storeCode,
+                            siteCode,
+                            snapshot
+                    );
+                    if (hold.isPresent()) {
+                        summary.setElapsedMillis(elapsedMillis(startedNanos));
+                        failRiskBackoff(taskId, hold.get(), summary);
+                        return;
+                    }
                 } catch (Exception exception) {
                     ProductPublicDetailSnapshot snapshot = toSnapshot(
                             candidate,
@@ -237,6 +316,65 @@ public class ProductPublicDetailSyncService {
         } catch (Exception exception) {
             operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_SYNC_FAILED", shrink(exception.getMessage(), 500));
         }
+    }
+
+    private Optional<NoonRiskBackoffHold> recordRiskBackoffIfNeeded(
+            Long taskId,
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            ProductPublicDetailSnapshot snapshot
+    ) {
+        if (snapshot == null || snapshot.getSyncStatus() != ProductPublicDetailSyncStatus.FAILED) {
+            return Optional.empty();
+        }
+        NoonPullFailureType failureType = failurePolicy.classify(riskDiagnostic(snapshot));
+        if (!isRiskBackoffFailure(failureType)) {
+            return Optional.empty();
+        }
+        NoonRiskBackoffHold hold = riskBackoffGuard.recordRiskSignal(
+                publicDetailScope(ownerUserId, storeCode, siteCode),
+                failureType.code(),
+                "PUBLIC_DETAIL",
+                taskId,
+                null,
+                riskDiagnostic(snapshot)
+        );
+        return Optional.of(hold);
+    }
+
+    private void failRiskBackoff(Long taskId, NoonRiskBackoffHold hold, ProductPublicDetailSyncSummary summary) {
+        String message = "商品前台详情触发 Noon 风控退避："
+                + (hold == null ? "unknown" : hold.getRiskType())
+                + "，冷却至 "
+                + (hold == null ? "unknown" : hold.getBlockedUntil())
+                + (summary == null ? "。" : "；本轮已处理 " + summary.getSelected() + " 个候选中的部分商品。");
+        operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_RISK_BACKOFF", message);
+    }
+
+    private boolean isRiskBackoffFailure(NoonPullFailureType failureType) {
+        return failureType == NoonPullFailureType.RATE_LIMITED
+                || failureType == NoonPullFailureType.CAPTCHA_REQUIRED
+                || failureType == NoonPullFailureType.BLOCKED_BY_RISK_CONTROL;
+    }
+
+    private NoonRiskBackoffScope publicDetailScope(Long ownerUserId, String storeCode, String siteCode) {
+        return NoonRiskBackoffScope.publicDetail(ownerUserId, storeCode, siteCode);
+    }
+
+    private Optional<NoonRiskBackoffHold> currentRiskBackoffHold(Long ownerUserId, String storeCode, String siteCode) {
+        return riskBackoffGuard.currentHold(publicDetailScope(ownerUserId, storeCode, siteCode));
+    }
+
+    private String riskDiagnostic(ProductPublicDetailSnapshot snapshot) {
+        if (snapshot == null) {
+            return "";
+        }
+        return String.join(" ",
+                text(snapshot.getFailureCode()),
+                text(snapshot.getFailureMessage()),
+                snapshot.getProviderHttpStatus() == null ? "" : "http " + snapshot.getProviderHttpStatus()
+        ).trim();
     }
 
     private OperationalTask submitTask(Long ownerUserId, String storeCode, String siteCode, Long actorUserId, boolean scheduled) {
@@ -259,6 +397,11 @@ public class ProductPublicDetailSyncService {
     }
 
     private void upsertSnapshot(ProductPublicDetailSnapshot snapshot) {
+        if (snapshot == null
+                || snapshot.getSyncStatus() == null
+                || !snapshot.getSyncStatus().updatesLatestPointer()) {
+            return;
+        }
         ProductPublicDetailSnapshot existing = mapper.selectDailySnapshot(
                 snapshot.getProductMasterId(),
                 snapshot.getProductVariantId(),
@@ -268,7 +411,7 @@ public class ProductPublicDetailSyncService {
         );
         if (existing == null) {
             snapshot.setId(mapper.nextSnapshotId());
-            snapshot.setLatest(snapshot.getSyncStatus() != null && snapshot.getSyncStatus().updatesLatestPointer());
+            snapshot.setLatest(true);
             mapper.insertSnapshot(snapshot);
         } else {
             if (shouldPreserveExistingLatestSuccess(existing, snapshot)) {
@@ -518,6 +661,10 @@ public class ProductPublicDetailSyncService {
 
     private String trim(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private String text(String value) {
+        return StringUtils.hasText(value) ? value.trim() : "";
     }
 
     private String firstText(String first, String fallback) {
