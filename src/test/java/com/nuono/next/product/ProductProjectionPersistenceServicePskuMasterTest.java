@@ -159,6 +159,11 @@ class ProductProjectionPersistenceServicePskuMasterTest {
                 any(),
                 eq(307L)
         );
+        verify(productManagementMapper).markProductSiteOfferLogisticsHistoryByStock(
+                logicalStoreId,
+                "SGGRB113",
+                307L
+        );
     }
 
     @Test

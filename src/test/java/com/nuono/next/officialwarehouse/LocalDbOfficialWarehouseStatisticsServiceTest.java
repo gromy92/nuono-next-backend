@@ -871,6 +871,11 @@ class LocalDbOfficialWarehouseStatisticsServiceTest {
         }
 
         @Override
+        public int markProductSiteOfferLogisticsHistoryByInventorySnapshotLine(Long lineId, Long operatorUserId) {
+            return 1;
+        }
+
+        @Override
         public int deactivatePreviousFbnReceivedReceiptLines(
                 Long ownerUserId,
                 String storeCode,
