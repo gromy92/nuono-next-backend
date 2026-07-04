@@ -179,7 +179,7 @@ class ProductSnapshotGroupFetcherTest {
             );
             Constructor<?> constructor = NoonSession.class.getDeclaredConstructors()[0];
             constructor.setAccessible(true);
-            return (NoonSession) constructor.newInstance(gateway, "tester", "password", null, "PRJ108065", storeCode);
+            return (NoonSession) constructor.newInstance(gateway, 10001L, "tester", "password", null, "PRJ108065", storeCode);
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("无法创建测试 NoonSession", exception);
         }

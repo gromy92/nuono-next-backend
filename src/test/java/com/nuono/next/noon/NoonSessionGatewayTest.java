@@ -3,6 +3,8 @@ package com.nuono.next.noon;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -152,6 +154,32 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldPersistCookieWhenRefreshingExpiredRuntimeSession() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer()) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            NoonSessionGateway.NoonSession session = gateway.login(
+                    10001L,
+                    "merchant@example.com",
+                    "password",
+                    "sid=old",
+                    "PRJ1",
+                    "STORE1"
+            );
+
+            JsonNode response = session.getJson(server.url("/protected"), false);
+
+            assertTrue(response.path("ok").asBoolean(false));
+            verify(mapper).updateProjectSessionCookie(
+                    eq(10001L),
+                    eq("PRJ1"),
+                    argThat(cookie -> cookie != null && cookie.contains("sid=new")),
+                    eq(10001L)
+            );
+        }
+    }
+
+    @Test
     void shouldSkipPersistingCookieWhenProjectCodeIsMissing() {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         NoonSessionGateway gateway = gateway(mapper, "");
@@ -219,6 +247,111 @@ class NoonSessionGatewayTest {
                 0,
                 proxyProviderUrl
         );
+    }
+
+    private NoonSessionGateway identityGateway(StoreSyncMapper mapper, AuthRefreshServer server) {
+        return new NoonSessionGateway(
+                objectMapper,
+                mapper,
+                false,
+                0L,
+                true,
+                "",
+                "",
+                "",
+                "",
+                true,
+                false,
+                "",
+                server.url("/whoami"),
+                server.url("/lookup"),
+                server.url("/pkce"),
+                server.url("/validate"),
+                server.url("/projects"),
+                server.url("/session-create"),
+                false,
+                "HTTP",
+                "",
+                0,
+                ""
+        );
+    }
+
+    private static final class AuthRefreshServer implements AutoCloseable {
+        private final HttpServer server;
+
+        private AuthRefreshServer() throws IOException {
+            server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+            server.createContext("/", (exchange) -> {
+                String path = exchange.getRequestURI().getPath();
+                if ("/whoami".equals(path)) {
+                    sendJson(exchange, 200, "{\"ok\":true}", null);
+                    return;
+                }
+                if ("/protected".equals(path)) {
+                    String cookie = exchange.getRequestHeaders().getFirst("Cookie");
+                    if (cookie != null && cookie.contains("sid=new")) {
+                        sendJson(exchange, 200, "{\"ok\":true}", null);
+                    } else {
+                        sendJson(exchange, 403, "{\"message\":\"invalid session\"}", null);
+                    }
+                    return;
+                }
+                if ("/lookup".equals(path)) {
+                    sendJson(
+                            exchange,
+                            200,
+                            "[{\"userCode\":\"merchant@example.com\",\"channels\":[{\"channelCode\":\"password\"}]}]",
+                            null
+                    );
+                    return;
+                }
+                if ("/pkce".equals(path)) {
+                    sendJson(exchange, 200, "{\"success\":true,\"pkce_key\":\"pkce-1\"}", null);
+                    return;
+                }
+                if ("/validate".equals(path)) {
+                    sendJson(exchange, 200, "{\"success\":true,\"access_token\":\"token-1\"}", null);
+                    return;
+                }
+                if ("/projects".equals(path)) {
+                    sendJson(exchange, 200, "{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", null);
+                    return;
+                }
+                if ("/session-create".equals(path)) {
+                    sendJson(exchange, 200, "{\"success\":true}", "sid=new; Path=/");
+                    return;
+                }
+                sendJson(exchange, 404, "{\"message\":\"not found\"}", null);
+            });
+            server.start();
+        }
+
+        private String url(String path) {
+            return "http://127.0.0.1:" + server.getAddress().getPort() + path;
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
+
+        private static void sendJson(
+                com.sun.net.httpserver.HttpExchange exchange,
+                int status,
+                String body,
+                String setCookie
+        ) throws IOException {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            if (setCookie != null) {
+                exchange.getResponseHeaders().add("Set-Cookie", setCookie);
+            }
+            exchange.sendResponseHeaders(status, bytes.length);
+            try (OutputStream response = exchange.getResponseBody()) {
+                response.write(bytes);
+            }
+        }
     }
 
     private static final class ProxyProviderServer implements AutoCloseable {
