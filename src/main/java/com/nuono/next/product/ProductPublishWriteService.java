@@ -45,10 +45,10 @@ class ProductPublishWriteService {
 
         String noonUser = firstNonBlank(
                 normalize(command.getNoonUser()),
-                normalize(store.getNoonPartnerUser()),
                 normalize(store.getNoonPartnerProjectUser()),
-                owner.getNoonPartnerUser(),
-                owner.getNoonPartnerProjectUser()
+                normalize(store.getNoonPartnerUser()),
+                owner.getNoonPartnerProjectUser(),
+                owner.getNoonPartnerUser()
         );
         String noonEmailAuthCode = firstNonBlank(
                 normalize(store.getNoonPartnerMailAuthCode()),
