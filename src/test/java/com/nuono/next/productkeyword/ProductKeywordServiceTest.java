@@ -252,6 +252,16 @@ class ProductKeywordServiceTest {
         }
 
         @Override
+        public List<ProductKeywordRecord> listActiveTitleTargetKeywords(
+                Long ownerUserId,
+                String storeCode,
+                String siteCode,
+                String partnerSku
+        ) {
+            return List.of();
+        }
+
+        @Override
         public List<ProductKeywordUsageEventRecord> listEvents(
                 Long ownerUserId,
                 String storeCode,

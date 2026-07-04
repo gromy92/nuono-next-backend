@@ -69,6 +69,25 @@ class ProductKeywordMapperSqlTest {
                 .contains("LIMIT #{limit}");
     }
 
+    @Test
+    void titleIndexerReadsOnlyActiveCoreOrTitleTargetKeywordsForSiteAndProductLevelScope() throws Exception {
+        String sql = mapperSql(
+                "listActiveTitleTargetKeywords",
+                Long.class,
+                String.class,
+                String.class,
+                String.class
+        );
+
+        assertThat(sql)
+                .contains("FROM product_keyword")
+                .contains("status = 'ACTIVE'")
+                .contains("site_code IN (#{siteCode}, '*')")
+                .contains("intent_tags_json LIKE '%\"CORE\"%'")
+                .contains("intent_tags_json LIKE '%\"TITLE_TARGET\"%'")
+                .contains("is_deleted = b'0'");
+    }
+
     private static String mapperSql(String methodName, Class<?>... parameterTypes) throws Exception {
         Method method = ProductKeywordMapper.class.getMethod(methodName, parameterTypes);
         Select select = method.getAnnotation(Select.class);

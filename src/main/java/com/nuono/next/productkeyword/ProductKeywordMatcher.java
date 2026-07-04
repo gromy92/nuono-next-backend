@@ -1,7 +1,9 @@
 package com.nuono.next.productkeyword;
 
 import java.util.regex.Pattern;
+import org.springframework.stereotype.Component;
 
+@Component
 public class ProductKeywordMatcher {
     private static final Pattern CJK_PATTERN = Pattern.compile("[\\p{IsHan}]");
 

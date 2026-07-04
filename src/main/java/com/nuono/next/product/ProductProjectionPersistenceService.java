@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.CoreTableStatusMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.product.ProductKeyContentHistoryAssembler.KeyContentHistoryCandidate;
+import com.nuono.next.productkeyword.ProductKeywordTitleIndexer;
 import com.nuono.next.system.BootstrapProperties;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -78,6 +80,7 @@ public class ProductProjectionPersistenceService {
     private final ProductKeyContentHistoryAssembler productKeyContentHistoryAssembler;
     private final ProductGroupProjectionService productGroupProjectionService;
     private final ProductProjectionMergePolicy productProjectionMergePolicy = new ProductProjectionMergePolicy();
+    private ProductKeywordTitleIndexer productKeywordTitleIndexer;
 
     public ProductProjectionPersistenceService(
             ProductManagementMapper productManagementMapper,
@@ -93,6 +96,11 @@ public class ProductProjectionPersistenceService {
         this.objectMapper = objectMapper;
         this.productKeyContentHistoryAssembler = productKeyContentHistoryAssembler;
         this.productGroupProjectionService = productGroupProjectionService;
+    }
+
+    @Autowired(required = false)
+    public void setProductKeywordTitleIndexer(ProductKeywordTitleIndexer productKeywordTitleIndexer) {
+        this.productKeywordTitleIndexer = productKeywordTitleIndexer;
     }
 
     public void hydrateSnapshotGroupFromCurrentProjection(
@@ -1436,16 +1444,18 @@ public class ProductProjectionPersistenceService {
         ProductMasterSnapshotRecord latestBaseline =
                 productManagementMapper.selectLatestProductMasterSnapshot(productMasterId, BASELINE_SNAPSHOT_TYPE);
         LocalDateTime publishedAt = LocalDateTime.now();
+        Long historyId = productManagementMapper.nextProductKeyContentHistoryId();
+        Map<String, Object> summary = candidate.getSummary();
         try {
             productManagementMapper.insertProductKeyContentHistory(
-                    productManagementMapper.nextProductKeyContentHistoryId(),
+                    historyId,
                     productMasterId,
                     latestBaseline != null ? latestBaseline.getId() : null,
                     resolveTargetSiteId(targetSiteCode),
                     "publish-current",
                     "pending",
                     objectMapper.writeValueAsString(candidate.getChangeTypes()),
-                    objectMapper.writeValueAsString(candidate.getSummary()),
+                    objectMapper.writeValueAsString(summary),
                     publishedAt,
                     publishedAt.plusHours(12),
                     null,
@@ -1453,7 +1463,34 @@ public class ProductProjectionPersistenceService {
             );
         } catch (JsonProcessingException exception) {
             addWarningOnce(warnings, "写入关键内容变更历史失败，本轮先只保留发布链路。");
+            return;
         }
+        if (productKeywordTitleIndexer == null) {
+            return;
+        }
+        try {
+            productKeywordTitleIndexer.indexPublishedHistory(new ProductKeywordTitleIndexer.TitleHistoryIndexCommand(
+                    ownerUserId,
+                    productMasterId,
+                    historyId,
+                    titleIndexStoreCode(publishedSnapshot),
+                    targetSiteCode,
+                    text(summary.get("partnerSku")),
+                    summary,
+                    publishedAt,
+                    ownerUserId
+            ));
+        } catch (RuntimeException exception) {
+            addWarningOnce(warnings, "关键词标题索引暂未写入，商品发布历史已保留。");
+        }
+    }
+
+    private String titleIndexStoreCode(ProductMasterSnapshotView snapshot) {
+        if (snapshot == null || snapshot.getStoreContext() == null) {
+            return null;
+        }
+        String storeCode = text(snapshot.getStoreContext().get("storeCode"));
+        return StringUtils.hasText(storeCode) ? storeCode : text(snapshot.getStoreContext().get("projectCode"));
     }
 
     private boolean ensureProductTablesReady(List<String> warnings) {

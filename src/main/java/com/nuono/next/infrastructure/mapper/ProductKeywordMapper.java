@@ -154,6 +154,37 @@ public interface ProductKeywordMapper {
     List<ProductKeywordRecord> listKeywords(@Param("query") ProductKeywordListQuery query);
 
     @Select({
+            "<script>",
+            "SELECT id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "partner_sku AS partnerSku, keyword, keyword_norm AS keywordNorm, locale, status,",
+            "intent_tags_json AS intentTagsJson, source_summary_json AS sourceSummaryJson,",
+            "first_seen_at AS firstSeenAt, last_seen_at AS lastSeenAt, created_by AS createdBy, updated_by AS updatedBy",
+            "FROM product_keyword",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND status = 'ACTIVE'",
+            "  AND is_deleted = b'0'",
+            "<choose>",
+            "  <when test='siteCode == null or siteCode == \"\" or siteCode == \"*\"'>",
+            "    AND site_code = '*'",
+            "  </when>",
+            "  <otherwise>",
+            "    AND site_code IN (#{siteCode}, '*')",
+            "  </otherwise>",
+            "</choose>",
+            "  AND (intent_tags_json LIKE '%\"CORE\"%' OR intent_tags_json LIKE '%\"TITLE_TARGET\"%')",
+            "ORDER BY CASE WHEN site_code = #{siteCode} THEN 0 ELSE 1 END, id ASC",
+            "</script>"
+    })
+    List<ProductKeywordRecord> listActiveTitleTargetKeywords(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("partnerSku") String partnerSku
+    );
+
+    @Select({
             "SELECT id, keyword_id AS keywordId, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
             "partner_sku AS partnerSku, keyword, keyword_norm AS keywordNorm, source_type AS sourceType,",
             "source_ref_type AS sourceRefType, source_ref_id AS sourceRefId, source_ref_key AS sourceRefKey,",
