@@ -143,6 +143,53 @@ public interface Ali1688HistoricalOrderMapper {
     );
 
     @Select({
+            "SELECT",
+            "  id, owner_user_id, provider_code, provider_account_id, account_label, status,",
+            "  scope_summary, access_token_cipher, refresh_token_cipher, expires_at, revoked_at, created_by, updated_by",
+            "FROM procurement_ali1688_order_authorization",
+            "WHERE provider_code = #{providerCode}",
+            "  AND is_deleted = b'0'",
+            "  AND status = 'authorized'",
+            "ORDER BY gmt_updated ASC, id ASC",
+            "LIMIT #{limit}"
+    })
+    List<Ali1688HistoricalOrderAuthorizationRow> listScheduledOpenApiAuthorizations(
+            @Param("providerCode") String providerCode,
+            @Param("limit") Integer limit
+    );
+
+    @Select({
+            "SELECT COUNT(*)",
+            "FROM procurement_ali1688_order_sync_task",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND authorization_id = #{authorizationId}",
+            "  AND status = 'running'",
+            "  AND is_deleted = b'0'",
+            "  AND gmt_updated >= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)"
+    })
+    int countRecentRunningSyncTasks(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("authorizationId") Long authorizationId,
+            @Param("staleMinutes") Integer staleMinutes
+    );
+
+    @Select({
+            "SELECT COUNT(*)",
+            "FROM procurement_ali1688_order_sync_task",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND authorization_id = #{authorizationId}",
+            "  AND task_type = #{taskType}",
+            "  AND is_deleted = b'0'",
+            "  AND gmt_create >= DATE_SUB(NOW(), INTERVAL #{recentDays} DAY)"
+    })
+    int countRecentSyncTasksByType(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("authorizationId") Long authorizationId,
+            @Param("taskType") String taskType,
+            @Param("recentDays") Integer recentDays
+    );
+
+    @Select({
             "<script>",
             "SELECT auth.id",
             "FROM procurement_ali1688_order_authorization auth",

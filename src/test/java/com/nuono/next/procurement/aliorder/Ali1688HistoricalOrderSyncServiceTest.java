@@ -331,6 +331,48 @@ class Ali1688HistoricalOrderSyncServiceTest {
     }
 
     @Test
+    void scheduledWeeklyCreatesOpenApiTaskWithSystemOperator() {
+        FakeAli1688HistoricalOrderProvider provider = FakeAli1688HistoricalOrderProvider.incrementalUpdate();
+        LocalDbAli1688HistoricalOrderService service = new LocalDbAli1688HistoricalOrderService(mapper, provider);
+        Ali1688HistoricalOrderAuthorizationRow authorization = authorizationRow();
+        authorization.setProviderCode("ALI1688_OPEN_API");
+        ArgumentCaptor<Ali1688HistoricalOrderSyncTaskRow> taskCaptor =
+                ArgumentCaptor.forClass(Ali1688HistoricalOrderSyncTaskRow.class);
+
+        when(mapper.selectAuthorizationById(307L, 91001L)).thenReturn(authorization);
+        when(mapper.nextSyncTaskId()).thenReturn(92003L);
+        when(mapper.nextOrderId()).thenReturn(93001L);
+        when(mapper.nextOrderItemId()).thenReturn(94001L);
+
+        Ali1688HistoricalOrderSyncTaskRow task = service.runScheduledWeekly(307L, 91001L, 10003L);
+
+        verify(mapper).insertSyncTask(taskCaptor.capture());
+        verify(mapper).upsertOrder(any());
+        verify(mapper).upsertOrderItem(any());
+        verify(mapper).markSyncTaskSuccess(92003L, 1, 1, 0, "{\"nextCursor\":null}");
+        assertThat(task).isNotNull();
+        assertThat(taskCaptor.getValue().getTaskType()).isEqualTo("scheduled_weekly");
+        assertThat(taskCaptor.getValue().getCreatedBy()).isEqualTo(10003L);
+        assertThat(taskCaptor.getValue().getUpdatedBy()).isEqualTo(10003L);
+    }
+
+    @Test
+    void scheduledWeeklySkipsNonOpenApiAuthorization() {
+        LocalDbAli1688HistoricalOrderService service =
+                new LocalDbAli1688HistoricalOrderService(mapper, new FakeAli1688HistoricalOrderProvider());
+        Ali1688HistoricalOrderAuthorizationRow authorization = authorizationRow();
+        authorization.setProviderCode("ALI1688_EXCEL_UPLOAD");
+
+        when(mapper.selectAuthorizationById(307L, 91001L)).thenReturn(authorization);
+
+        Ali1688HistoricalOrderSyncTaskRow task = service.runScheduledWeekly(307L, 91001L, 10003L);
+
+        assertThat(task).isNull();
+        verify(mapper, never()).insertSyncTask(any());
+        verify(mapper, never()).upsertOrder(any());
+    }
+
+    @Test
     void syncServiceHasNoProcurementDownstreamWriteCollaborators() {
         Set<String> collaboratorTypes = Arrays.stream(LocalDbAli1688HistoricalOrderService.class.getDeclaredFields())
                 .map(field -> field.getType().getSimpleName())

@@ -25,8 +25,12 @@ import org.springframework.web.server.ResponseStatusException;
 public class LocalDbAli1688HistoricalOrderService {
 
     static final String DEV_PROVIDER_CODE = "ALI1688_DEV";
+    static final String OPEN_API_PROVIDER_CODE = Ali1688HistoricalOrderOAuthService.PROVIDER_CODE;
     static final String LOCAL_EXCEL_PROVIDER_CODE = "ALI1688_EXCEL_LOCAL";
     static final String EXCEL_UPLOAD_PROVIDER_CODE = "ALI1688_EXCEL_UPLOAD";
+    static final String INITIAL_BACKFILL_TASK_TYPE = "initial_backfill";
+    static final String MANUAL_REFRESH_TASK_TYPE = "manual_refresh";
+    static final String SCHEDULED_WEEKLY_TASK_TYPE = "scheduled_weekly";
     static final String DEV_ACCOUNT_LABEL = "1688 开发授权账号";
     static final String ORDER_READ_SCOPE = "读取 1688 历史订单，不会付款或创建订单。";
     static final String EXCEL_UPLOAD_SCOPE = "用户上传 1688 历史订单 Excel，只写只读历史订单事实。";
@@ -735,7 +739,7 @@ public class LocalDbAli1688HistoricalOrderService {
             Long ownerUserId,
             Ali1688HistoricalOrderAuthorizationRow authorization
     ) {
-        return createSyncTask(context, ownerUserId, authorization, "initial_backfill");
+        return createSyncTask(context, ownerUserId, authorization, INITIAL_BACKFILL_TASK_TYPE);
     }
 
     private Ali1688HistoricalOrderSyncTaskRow createSyncTask(
@@ -743,6 +747,15 @@ public class LocalDbAli1688HistoricalOrderService {
             Long ownerUserId,
             Ali1688HistoricalOrderAuthorizationRow authorization,
             String taskType
+    ) {
+        return createSyncTask(ownerUserId, authorization, taskType, operatorUserId(context));
+    }
+
+    private Ali1688HistoricalOrderSyncTaskRow createSyncTask(
+            Long ownerUserId,
+            Ali1688HistoricalOrderAuthorizationRow authorization,
+            String taskType,
+            Long operatorUserId
     ) {
         Ali1688HistoricalOrderSyncTaskRow task = new Ali1688HistoricalOrderSyncTaskRow();
         task.setId(mapper.nextSyncTaskId());
@@ -755,8 +768,8 @@ public class LocalDbAli1688HistoricalOrderService {
         task.setFailedCount(0);
         task.setProgressPercent(0);
         task.setCheckpointJson(checkpointJson(null));
-        task.setCreatedBy(operatorUserId(context));
-        task.setUpdatedBy(operatorUserId(context));
+        task.setCreatedBy(operatorUserId);
+        task.setUpdatedBy(operatorUserId);
         mapper.insertSyncTask(task);
         return task;
     }
@@ -775,7 +788,8 @@ public class LocalDbAli1688HistoricalOrderService {
             task = createInitialBackfillTask(context, ownerUserId, authorization);
         }
 
-        return executeProviderSync(context, ownerUserId, authorization, task);
+        executeProviderSync(ownerUserId, authorization, task);
+        return buildWorkbench(context);
     }
 
     public Ali1688HistoricalOrderWorkbenchView runManualRefresh(BusinessAccessContext context) {
@@ -793,13 +807,36 @@ public class LocalDbAli1688HistoricalOrderService {
                 context,
                 ownerUserId,
                 authorization,
-                "manual_refresh"
+                MANUAL_REFRESH_TASK_TYPE
         );
-        return executeProviderSync(context, ownerUserId, authorization, task);
+        executeProviderSync(ownerUserId, authorization, task);
+        return buildWorkbench(context);
     }
 
-    private Ali1688HistoricalOrderWorkbenchView executeProviderSync(
-            BusinessAccessContext context,
+    public Ali1688HistoricalOrderSyncTaskRow runScheduledWeekly(
+            Long ownerUserId,
+            Long authorizationId,
+            Long operatorUserId
+    ) {
+        if (ownerUserId == null || authorizationId == null) {
+            return null;
+        }
+        Ali1688HistoricalOrderAuthorizationRow authorization =
+                mapper.selectAuthorizationById(ownerUserId, authorizationId);
+        if (authorization == null || !OPEN_API_PROVIDER_CODE.equals(authorization.getProviderCode())) {
+            return null;
+        }
+        Ali1688HistoricalOrderSyncTaskRow task = createSyncTask(
+                ownerUserId,
+                authorization,
+                SCHEDULED_WEEKLY_TASK_TYPE,
+                operatorUserId
+        );
+        executeProviderSync(ownerUserId, authorization, task);
+        return task;
+    }
+
+    private void executeProviderSync(
             Long ownerUserId,
             Ali1688HistoricalOrderAuthorizationRow authorization,
             Ali1688HistoricalOrderSyncTaskRow task
@@ -867,7 +904,7 @@ public class LocalDbAli1688HistoricalOrderService {
                             retryable,
                             requiresManualAction
                     );
-                    return buildWorkbench(context);
+                    return;
                 }
                 mapper.markSyncTaskPartialSuccess(
                         task.getId(),
@@ -880,11 +917,11 @@ public class LocalDbAli1688HistoricalOrderService {
                         retryable,
                         requiresManualAction
                 );
-                return buildWorkbench(context);
+                return;
             }
             if (!page.isHasMore()) {
                 mapper.markSyncTaskSuccess(task.getId(), processedCount, importedItemCount, failedCount, checkpointJson);
-                return buildWorkbench(context);
+                return;
             }
             mapper.updateSyncTaskCheckpoint(
                     task.getId(),

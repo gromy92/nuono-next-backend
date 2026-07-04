@@ -203,6 +203,44 @@ class Ali1688HistoricalOrderMapperSqlTest {
     }
 
     @Test
+    void weeklySchedulerSqlOnlySelectsOpenApiAuthorizationsAndUsesRecentTaskGuards() throws Exception {
+        Method listAuthorizationsMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "listScheduledOpenApiAuthorizations",
+                String.class,
+                Integer.class
+        );
+        Method recentRunningMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "countRecentRunningSyncTasks",
+                Long.class,
+                Long.class,
+                Integer.class
+        );
+        Method recentScheduledMethod = Ali1688HistoricalOrderMapper.class.getMethod(
+                "countRecentSyncTasksByType",
+                Long.class,
+                Long.class,
+                String.class,
+                Integer.class
+        );
+
+        String listSql = annotationSql(listAuthorizationsMethod.getAnnotation(Select.class).value());
+        String recentRunningSql = annotationSql(recentRunningMethod.getAnnotation(Select.class).value());
+        String recentScheduledSql = annotationSql(recentScheduledMethod.getAnnotation(Select.class).value());
+
+        assertThat(listSql)
+                .contains("provider_code = #{providerCode}")
+                .contains("status = 'authorized'")
+                .contains("is_deleted = b'0'")
+                .contains("LIMIT #{limit}");
+        assertThat(recentRunningSql)
+                .contains("status = 'running'")
+                .contains("gmt_updated >= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)");
+        assertThat(recentScheduledSql)
+                .contains("task_type = #{taskType}")
+                .contains("gmt_create >= DATE_SUB(NOW(), INTERVAL #{recentDays} DAY)");
+    }
+
+    @Test
     void orderCleanupSqlSoftDeletesFactsAndPreservesAuditColumns() throws Exception {
         Method method = Ali1688HistoricalOrderMapper.class.getMethod(
                 "softDeleteOrderHeader",
