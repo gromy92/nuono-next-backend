@@ -90,6 +90,9 @@ public class ProductKeywordAdsQueryIndexer {
             keywordRecord.setUpdatedBy(null);
             mapper.upsertKeyword(keywordRecord);
         } else if (keywordRecord != null) {
+            if (!candidateTags.isEmpty()) {
+                keywordRecord.setIntentTagsJson(ProductKeywordTagJson.merge(keywordRecord.getIntentTagsJson(), candidateTags));
+            }
             keywordRecord.setLastSeenAt(occurredAt(fact));
             mapper.upsertKeyword(keywordRecord);
         }

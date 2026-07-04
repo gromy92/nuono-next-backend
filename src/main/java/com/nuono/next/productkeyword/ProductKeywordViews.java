@@ -2,9 +2,7 @@ package com.nuono.next.productkeyword;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 public final class ProductKeywordViews {
@@ -31,7 +29,7 @@ public final class ProductKeywordViews {
         if (record == null) {
             return null;
         }
-        Set<String> tags = tags(record.getIntentTagsJson());
+        Set<String> tags = ProductKeywordTagJson.parse(record.getIntentTagsJson());
         return new KeywordItemView(
                 record.getId(),
                 record.getOwnerUserId(),
@@ -52,59 +50,6 @@ public final class ProductKeywordViews {
                 record.getFirstSeenAt(),
                 record.getLastSeenAt()
         );
-    }
-
-    private static Set<String> tags(String tagsJson) {
-        if (tagsJson == null || tagsJson.isBlank()) {
-            return Set.of();
-        }
-        Set<String> tags = new LinkedHashSet<>();
-        StringBuilder token = new StringBuilder();
-        boolean inString = false;
-        boolean escaping = false;
-        for (int index = 0; index < tagsJson.length(); index++) {
-            char current = tagsJson.charAt(index);
-            if (escaping) {
-                token.append(current);
-                escaping = false;
-                continue;
-            }
-            if (current == '\\' && inString) {
-                escaping = true;
-                continue;
-            }
-            if (current == '"') {
-                if (inString) {
-                    addTag(tags, token.toString());
-                    token.setLength(0);
-                }
-                inString = !inString;
-                continue;
-            }
-            if (inString) {
-                token.append(current);
-                continue;
-            }
-            if (Character.isLetterOrDigit(current) || current == '_') {
-                token.append(current);
-                continue;
-            }
-            if (token.length() > 0) {
-                addTag(tags, token.toString());
-                token.setLength(0);
-            }
-        }
-        if (token.length() > 0) {
-            addTag(tags, token.toString());
-        }
-        return tags;
-    }
-
-    private static void addTag(Set<String> tags, String value) {
-        if (value == null || value.isBlank()) {
-            return;
-        }
-        tags.add(value.trim().toUpperCase(Locale.ROOT));
     }
 
     private static List<String> filter(Set<String> tags, Set<String> allowed) {

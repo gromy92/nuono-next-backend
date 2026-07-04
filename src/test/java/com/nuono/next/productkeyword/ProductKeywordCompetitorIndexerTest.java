@@ -105,7 +105,7 @@ class ProductKeywordCompetitorIndexerTest {
         assertThat(mapper.keywords.values()).singleElement().satisfies(keyword -> {
             assertThat(keyword.getId()).isEqualTo(300900L);
             assertThat(keyword.getStatus()).isEqualTo("ACTIVE");
-            assertThat(keyword.getIntentTagsJson()).isEqualTo("[\"CORE\"]");
+            assertThat(keyword.getIntentTagsJson()).contains("CORE", "COMPETITOR_TRACK");
         });
         assertThat(mapper.events.values()).singleElement().satisfies(event -> {
             assertThat(event.getKeywordId()).isEqualTo(300900L);

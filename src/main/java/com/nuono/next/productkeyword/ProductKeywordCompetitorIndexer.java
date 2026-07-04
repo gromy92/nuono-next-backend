@@ -52,6 +52,11 @@ public class ProductKeywordCompetitorIndexer {
             keywordRecord.setSourceSummaryJson(sourceSummaryJson(command));
             keywordRecord.setFirstSeenAt(occurredAt);
             keywordRecord.setCreatedBy(command.actorUserId);
+        } else {
+            keywordRecord.setIntentTagsJson(ProductKeywordTagJson.merge(
+                    keywordRecord.getIntentTagsJson(),
+                    List.of("COMPETITOR_TRACK")
+            ));
         }
         keywordRecord.setLastSeenAt(occurredAt);
         keywordRecord.setUpdatedBy(command.actorUserId);
