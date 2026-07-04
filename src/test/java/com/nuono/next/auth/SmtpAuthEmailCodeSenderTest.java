@@ -6,16 +6,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Constructor;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Properties;
 import javax.mail.Session;
 import javax.mail.internet.MimeMessage;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 
 class SmtpAuthEmailCodeSenderTest {
+
+    @Test
+    void shouldMarkProductionConstructorForSpringInjection() throws NoSuchMethodException {
+        Constructor<SmtpAuthEmailCodeSender> constructor =
+                SmtpAuthEmailCodeSender.class.getConstructor(AuthEmailCodeProperties.class);
+
+        assertTrue(constructor.isAnnotationPresent(Autowired.class));
+    }
 
     @Test
     void shouldSendLoginCodeAsUtf8MimeMessage() throws Exception {

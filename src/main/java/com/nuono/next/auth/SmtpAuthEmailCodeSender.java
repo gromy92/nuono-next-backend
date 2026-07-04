@@ -6,6 +6,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Properties;
 import javax.mail.MessagingException;
 import javax.mail.internet.MimeMessage;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -21,6 +22,7 @@ public class SmtpAuthEmailCodeSender implements AuthEmailCodeSender {
     private final JavaMailSenderImpl mailSender;
     private final AuthEmailCodeProperties properties;
 
+    @Autowired
     public SmtpAuthEmailCodeSender(AuthEmailCodeProperties properties) {
         this(properties, createMailSender(properties.getSmtp()));
     }
