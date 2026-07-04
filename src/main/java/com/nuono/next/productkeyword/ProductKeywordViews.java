@@ -1,9 +1,29 @@
 package com.nuono.next.productkeyword;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 public final class ProductKeywordViews {
+    private static final Set<String> TITLE_TYPES = Set.of(
+            "CORE",
+            "ATTRIBUTE",
+            "SCENE",
+            "AUDIENCE",
+            "SPEC",
+            "TRENDING"
+    );
+    private static final Set<String> TITLE_USAGE_STATES = Set.of(
+            "TITLE_TARGET",
+            "TITLE_COVERED",
+            "TITLE_MISSING",
+            "TITLE_REMOVED",
+            "TITLE_NOT_FIT"
+    );
+
     private ProductKeywordViews() {
     }
 
@@ -11,6 +31,7 @@ public final class ProductKeywordViews {
         if (record == null) {
             return null;
         }
+        Set<String> tags = tags(record.getIntentTagsJson());
         return new KeywordItemView(
                 record.getId(),
                 record.getOwnerUserId(),
@@ -23,9 +44,81 @@ public final class ProductKeywordViews {
                 record.getStatus(),
                 record.getIntentTagsJson(),
                 record.getSourceSummaryJson(),
+                filter(tags, TITLE_TYPES),
+                filter(tags, TITLE_USAGE_STATES),
+                hasAny(tags, "COMPETITOR_TRACK"),
+                hasAny(tags, "ADS_QUERY"),
+                hasAny(tags, "NEGATIVE_CANDIDATE"),
                 record.getFirstSeenAt(),
                 record.getLastSeenAt()
         );
+    }
+
+    private static Set<String> tags(String tagsJson) {
+        if (tagsJson == null || tagsJson.isBlank()) {
+            return Set.of();
+        }
+        Set<String> tags = new LinkedHashSet<>();
+        StringBuilder token = new StringBuilder();
+        boolean inString = false;
+        boolean escaping = false;
+        for (int index = 0; index < tagsJson.length(); index++) {
+            char current = tagsJson.charAt(index);
+            if (escaping) {
+                token.append(current);
+                escaping = false;
+                continue;
+            }
+            if (current == '\\' && inString) {
+                escaping = true;
+                continue;
+            }
+            if (current == '"') {
+                if (inString) {
+                    addTag(tags, token.toString());
+                    token.setLength(0);
+                }
+                inString = !inString;
+                continue;
+            }
+            if (inString) {
+                token.append(current);
+                continue;
+            }
+            if (Character.isLetterOrDigit(current) || current == '_') {
+                token.append(current);
+                continue;
+            }
+            if (token.length() > 0) {
+                addTag(tags, token.toString());
+                token.setLength(0);
+            }
+        }
+        if (token.length() > 0) {
+            addTag(tags, token.toString());
+        }
+        return tags;
+    }
+
+    private static void addTag(Set<String> tags, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        tags.add(value.trim().toUpperCase(Locale.ROOT));
+    }
+
+    private static List<String> filter(Set<String> tags, Set<String> allowed) {
+        List<String> values = new ArrayList<>();
+        for (String tag : tags) {
+            if (allowed.contains(tag)) {
+                values.add(tag);
+            }
+        }
+        return values;
+    }
+
+    private static boolean hasAny(Set<String> tags, String value) {
+        return tags.contains(value);
     }
 
     public static EventItemView event(ProductKeywordUsageEventRecord record) {
@@ -147,6 +240,11 @@ public final class ProductKeywordViews {
         private final String status;
         private final String intentTagsJson;
         private final String sourceSummaryJson;
+        private final List<String> titleTypes;
+        private final List<String> titleUsageStates;
+        private final Boolean competitorEvidence;
+        private final Boolean adsEvidence;
+        private final Boolean negativeCandidate;
         private final LocalDateTime firstSeenAt;
         private final LocalDateTime lastSeenAt;
 
@@ -162,6 +260,11 @@ public final class ProductKeywordViews {
                 String status,
                 String intentTagsJson,
                 String sourceSummaryJson,
+                List<String> titleTypes,
+                List<String> titleUsageStates,
+                Boolean competitorEvidence,
+                Boolean adsEvidence,
+                Boolean negativeCandidate,
                 LocalDateTime firstSeenAt,
                 LocalDateTime lastSeenAt
         ) {
@@ -176,6 +279,11 @@ public final class ProductKeywordViews {
             this.status = status;
             this.intentTagsJson = intentTagsJson;
             this.sourceSummaryJson = sourceSummaryJson;
+            this.titleTypes = titleTypes == null ? List.of() : titleTypes;
+            this.titleUsageStates = titleUsageStates == null ? List.of() : titleUsageStates;
+            this.competitorEvidence = Boolean.TRUE.equals(competitorEvidence);
+            this.adsEvidence = Boolean.TRUE.equals(adsEvidence);
+            this.negativeCandidate = Boolean.TRUE.equals(negativeCandidate);
             this.firstSeenAt = firstSeenAt;
             this.lastSeenAt = lastSeenAt;
         }
@@ -222,6 +330,26 @@ public final class ProductKeywordViews {
 
         public String getSourceSummaryJson() {
             return sourceSummaryJson;
+        }
+
+        public List<String> getTitleTypes() {
+            return titleTypes;
+        }
+
+        public List<String> getTitleUsageStates() {
+            return titleUsageStates;
+        }
+
+        public Boolean getCompetitorEvidence() {
+            return competitorEvidence;
+        }
+
+        public Boolean getAdsEvidence() {
+            return adsEvidence;
+        }
+
+        public Boolean getNegativeCandidate() {
+            return negativeCandidate;
         }
 
         public LocalDateTime getFirstSeenAt() {
