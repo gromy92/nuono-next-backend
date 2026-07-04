@@ -1,11 +1,14 @@
 package com.nuono.next.auth;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Properties;
+import javax.mail.MessagingException;
+import javax.mail.internet.MimeMessage;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -19,23 +22,32 @@ public class SmtpAuthEmailCodeSender implements AuthEmailCodeSender {
     private final AuthEmailCodeProperties properties;
 
     public SmtpAuthEmailCodeSender(AuthEmailCodeProperties properties) {
+        this(properties, createMailSender(properties.getSmtp()));
+    }
+
+    SmtpAuthEmailCodeSender(AuthEmailCodeProperties properties, JavaMailSenderImpl mailSender) {
         this.properties = properties;
-        this.mailSender = createMailSender(properties.getSmtp());
+        this.mailSender = mailSender;
     }
 
     @Override
     public void sendLoginCode(String email, String code, LocalDateTime expiresAt) {
-        SimpleMailMessage message = new SimpleMailMessage();
-        String from = resolveFrom();
-        if (StringUtils.hasText(from)) {
-            message.setFrom(from);
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false, StandardCharsets.UTF_8.name());
+            String from = resolveFrom();
+            if (StringUtils.hasText(from)) {
+                helper.setFrom(from);
+            }
+            helper.setTo(email);
+            helper.setSubject(StringUtils.hasText(properties.getSubject()) ? properties.getSubject() : "Nuono 登录验证码");
+            helper.setText("您的 Nuono 登录验证码是：" + code
+                    + "\n\n验证码将在 " + EXPIRES_AT_FORMATTER.format(expiresAt) + " 前失效。"
+                    + "\n如果不是您本人操作，请忽略本邮件。", false);
+            mailSender.send(message);
+        } catch (MessagingException exception) {
+            throw new IllegalStateException("无法创建邮箱验证码邮件。", exception);
         }
-        message.setTo(email);
-        message.setSubject(StringUtils.hasText(properties.getSubject()) ? properties.getSubject() : "Nuono 登录验证码");
-        message.setText("您的 Nuono 登录验证码是：" + code
-                + "\n\n验证码将在 " + EXPIRES_AT_FORMATTER.format(expiresAt) + " 前失效。"
-                + "\n如果不是您本人操作，请忽略本邮件。");
-        mailSender.send(message);
     }
 
     private String resolveFrom() {
@@ -46,8 +58,9 @@ public class SmtpAuthEmailCodeSender implements AuthEmailCodeSender {
         return StringUtils.hasText(smtp.getUsername()) ? smtp.getUsername().trim() : null;
     }
 
-    private JavaMailSenderImpl createMailSender(AuthEmailCodeProperties.Smtp smtp) {
+    private static JavaMailSenderImpl createMailSender(AuthEmailCodeProperties.Smtp smtp) {
         JavaMailSenderImpl sender = new JavaMailSenderImpl();
+        sender.setDefaultEncoding(StandardCharsets.UTF_8.name());
         sender.setHost(smtp.getHost());
         sender.setPort(smtp.getPort());
         if (StringUtils.hasText(smtp.getUsername())) {
