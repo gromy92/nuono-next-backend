@@ -4,6 +4,7 @@ public class CompetitorWatchProductCreateCommand {
     private String storeCode;
     private String siteCode;
     private Long productSiteOfferId;
+    private String partnerSku;
     private String selfNoonProductCode;
 
     public String getStoreCode() {
@@ -28,6 +29,14 @@ public class CompetitorWatchProductCreateCommand {
 
     public void setProductSiteOfferId(Long productSiteOfferId) {
         this.productSiteOfferId = productSiteOfferId;
+    }
+
+    public String getPartnerSku() {
+        return partnerSku;
+    }
+
+    public void setPartnerSku(String partnerSku) {
+        this.partnerSku = partnerSku;
     }
 
     public String getSelfNoonProductCode() {

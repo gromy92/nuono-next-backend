@@ -559,6 +559,7 @@ class ProductImageProfileServiceTest {
         assertTrue(commandCaptor.getValue().getPrompt().contains("feature_bullets"));
         assertTrue(commandCaptor.getValue().getInstructions().contains("避免图片里重复展示"));
         assertEquals(false, commandCaptor.getValue().getSchema().get("additionalProperties"));
+        verify(productPublicDetailMapper, never()).selectLatestSnapshot(any(), any(), any(), any(), any());
         verify(mapper, never()).updateProfile(any());
         verify(mapper, never()).replaceSectionsAsDeleted(any());
     }

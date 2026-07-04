@@ -257,6 +257,14 @@ public class ProductImageProfileService {
         if (productPublicDetailMapper == null) {
             return null;
         }
+        String pskuCode = trimToNull(profile.getPskuCode());
+        if (pskuCode != null) {
+            ProductPublicDetailSnapshot snapshot =
+                    productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(ownerUserId, storeCode, pskuCode);
+            if (snapshot != null) {
+                return snapshot;
+            }
+        }
         String siteCode = siteCodeFromStoreCode(storeCode);
         if (profile.getProductMasterId() != null && profile.getProductVariantId() != null && siteCode != null) {
             ProductPublicDetailSnapshot snapshot = productPublicDetailMapper.selectLatestSnapshot(
@@ -270,10 +278,7 @@ public class ProductImageProfileService {
                 return snapshot;
             }
         }
-        String pskuCode = trimToNull(profile.getPskuCode());
-        return pskuCode == null
-                ? null
-                : productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(ownerUserId, storeCode, pskuCode);
+        return null;
     }
 
     private String siteCodeFromStoreCode(String storeCode) {

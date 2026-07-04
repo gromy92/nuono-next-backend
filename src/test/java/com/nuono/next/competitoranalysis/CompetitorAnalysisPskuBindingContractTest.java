@@ -115,6 +115,18 @@ class CompetitorAnalysisPskuBindingContractTest {
     }
 
     @Test
+    void createWatchProductCanResolveCurrentOfferByPartnerSkuWithoutUsingNoonPskuCode() throws IOException {
+        String source = Files.readString(MAPPER_PATH).toLowerCase(Locale.ROOT);
+
+        assertTrue(source.contains("competitorproductoptionrow selectproductoptionbypartnersku"),
+                "createWatchProduct needs a stable partnerSku option lookup for rebuilt baselines");
+        assertTrue(source.contains("pv.partner_sku = cast(#{partnersku} as char character set utf8mb4) collate utf8mb4_unicode_ci"),
+                "partnerSku option lookup must use product_variant.partner_sku as system PSKU");
+        assertFalse(source.contains("pso.psku_code = cast(#{partnersku}"),
+                "Noon external pskuCode must not be used as system partnerSku");
+    }
+
+    @Test
     void baselineAvailabilityComesFromPersistedProductMasterSnapshot() throws IOException {
         String source = Files.readString(MAPPER_PATH).toLowerCase(Locale.ROOT);
 

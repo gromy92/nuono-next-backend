@@ -342,6 +342,24 @@ class LocalDbOfficialWarehouseStatisticsServiceTest {
         assertThat(view.sourceCandidates.get(0).relationBasis).isEqualTo("同商品 / 同站点 / 物流批次来源");
     }
 
+    @Test
+    void productInboundHistoryAcceptsPartnerSkuAsStableProductIdentity() {
+        mapper.productInboundHistoryRows.add(inboundHistory(9001L, "A05500001", 12, 11, 1, "QC_FAILED"));
+        mapper.productInboundHistoryRows.add(inboundHistory(9002L, "A05500002", 5, 5, 0, "NORMAL"));
+        mapper.productStockSourceCandidates.add(sourceCandidate("700001", "BATCH-001", "200001", "PO-001", 30));
+
+        ProductInboundHistoryView view = service.productInboundHistory(access(), "STR108065-NSA", "SA", "PAPERSAYSB422");
+
+        assertThat(mapper.historyProductSiteOfferId).isNull();
+        assertThat(mapper.historyPartnerSku).isEqualTo("PAPERSAYSB422");
+        assertThat(view.summary.receiptLineCount).isEqualTo(2);
+        assertThat(view.summary.expectedQuantity).isEqualTo(17);
+        assertThat(view.summary.receivedQuantity).isEqualTo(16);
+        assertThat(view.rows).extracting(row -> row.noonAsnNr).containsExactly("A05500001", "A05500002");
+        assertThat(view.sourceCandidates).hasSize(1);
+        assertThat(view.sourceCandidates.get(0).partnerSku).isEqualTo("PAPERSAYSB422");
+    }
+
     private static BusinessAccessContext access() {
         return BusinessAccessContext.builder()
                 .sessionUserId(307L)
@@ -594,6 +612,7 @@ class LocalDbOfficialWarehouseStatisticsServiceTest {
         private Long rematchImportId;
         private Long rematchOperatorUserId;
         private Long historyProductSiteOfferId;
+        private String historyPartnerSku;
         private int rematchedRows;
 
         @Override
@@ -745,11 +764,15 @@ class LocalDbOfficialWarehouseStatisticsServiceTest {
                 String storeCode,
                 String siteCode,
                 Long productSiteOfferId,
+                String partnerSku,
                 int limit
         ) {
             historyProductSiteOfferId = productSiteOfferId;
+            historyPartnerSku = partnerSku;
             return productInboundHistoryRows.stream()
-                    .filter(row -> productSiteOfferId.equals(row.productSiteOfferId))
+                    .filter(row -> partnerSku == null
+                            ? productSiteOfferId.equals(row.productSiteOfferId)
+                            : partnerSku.equals(row.partnerSku))
                     .collect(java.util.stream.Collectors.toList());
         }
 
@@ -760,9 +783,12 @@ class LocalDbOfficialWarehouseStatisticsServiceTest {
                 String storeCode,
                 String siteCode,
                 Long productSiteOfferId,
+                String partnerSku,
                 int limit
         ) {
-            return productStockSourceCandidates;
+            return productStockSourceCandidates.stream()
+                    .filter(row -> partnerSku == null || partnerSku.equals(row.partnerSku))
+                    .collect(java.util.stream.Collectors.toList());
         }
 
         @Override

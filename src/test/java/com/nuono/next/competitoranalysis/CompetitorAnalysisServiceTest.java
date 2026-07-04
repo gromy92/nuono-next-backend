@@ -247,6 +247,41 @@ class CompetitorAnalysisServiceTest {
     }
 
     @Test
+    void createWatchProductResolvesCurrentOfferByPartnerSkuWhenOfferIdMissing() {
+        CompetitorWatchProductCreateCommand command = createCommand("ZNEWBASKETSA");
+        command.setProductSiteOfferId(null);
+        command.setPartnerSku(" basket-sa-001-blue ");
+        CompetitorProductOptionRow option = productOption("ZNEWBASKETSA");
+        option.setProductVariantId(99002L);
+        option.setProductSiteOfferId(99003L);
+        option.setSkuParent("ZNEWBASKETSA");
+        CompetitorWatchProductRow existingWatchProduct = watchProduct(180472L, "ZOLDBASKETSA");
+        when(mapper.selectProductOptionByPartnerSku(501L, "STR108065-NSA", "SA", "BASKET-SA-001-BLUE"))
+                .thenReturn(option);
+        when(mapper.selectReusableWatchProductByProductIdentity(
+                501L,
+                "STR108065-NSA",
+                "SA",
+                701L,
+                99003L,
+                "BASKET-SA-001-BLUE"
+        )).thenReturn(existingWatchProduct);
+        when(mapper.selectWatchProductById(501L, 180472L)).thenReturn(existingWatchProduct);
+        when(mapper.listKeywordsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listProductsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listKeywordProductRelationsByWatchProductId(180472L)).thenReturn(List.of());
+        when(mapper.listLatestRankPointsByWatchProductId(180472L)).thenReturn(List.of());
+
+        CompetitorWatchProductDetailView view = service.createWatchProduct(operatorContext(), command);
+
+        assertEquals(180472L, view.getWatchProduct().getId());
+        verify(mapper, never()).selectProductOptionByOfferId(any(), any(), any(), any());
+        verify(mapper).updateWatchProductCurrentBinding(180472L, option, "ZNEWBASKETSA", "Z_CODE", 601L);
+        verify(mapper, never()).nextWatchProductId();
+        verify(mapper, never()).insertWatchProduct(any());
+    }
+
+    @Test
     void productOptionsNormalizeScopeAndKeepOnlyNoonZNProducts() {
         when(mapper.listProductOptions(501L, "STR108065-NSA", "SA", "basket", 50))
                 .thenReturn(List.of(productOption("ASIN-BASKET-001"), productOption("N51004211A")));

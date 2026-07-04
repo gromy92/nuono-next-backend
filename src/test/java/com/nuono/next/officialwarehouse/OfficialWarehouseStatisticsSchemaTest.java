@@ -144,4 +144,16 @@ class OfficialWarehouseStatisticsSchemaTest {
                 .doesNotContain("lookupKeys(stockRow.skuParent, stockRow.partnerSku, stockRow.pskuCode, stockRow.noonSku)")
                 .doesNotContain("lookupKeys(product.getSkuParent(), product.getPartnerSku(), product.getPskuCode(), product.getOfferCode())");
     }
+
+    @Test
+    void productInboundHistoryAcceptsPartnerSkuBeforeLegacyOfferId() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java"))
+                .toLowerCase(Locale.ROOT);
+
+        assertThat(mapper)
+                .contains("where l.partner_sku = cast(#{partnersku} as char character set utf8mb4) collate utf8mb4_unicode_ci")
+                .contains("and s.partner_sku = cast(#{partnersku} as char character set utf8mb4) collate utf8mb4_unicode_ci")
+                .contains("where l.product_site_offer_id = #{productsiteofferid}")
+                .contains("where pso.id = #{productsiteofferid}");
+    }
 }

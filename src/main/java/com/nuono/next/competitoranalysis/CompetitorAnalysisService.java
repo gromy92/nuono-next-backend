@@ -346,16 +346,8 @@ public class CompetitorAnalysisService {
         }
         String storeCode = requireText(command.getStoreCode(), "COMPETITOR_STORE_REQUIRED").toUpperCase(Locale.ROOT);
         String siteCode = requireText(command.getSiteCode(), "COMPETITOR_SITE_REQUIRED").toUpperCase(Locale.ROOT);
-        if (command.getProductSiteOfferId() == null) {
-            throw badRequest("COMPETITOR_PRODUCT_SITE_OFFER_REQUIRED");
-        }
         Long ownerUserId = ownerUserId(context, storeCode);
-        CompetitorProductOptionRow option = mapper.selectProductOptionByOfferId(
-                ownerUserId,
-                storeCode,
-                siteCode,
-                command.getProductSiteOfferId()
-        );
+        CompetitorProductOptionRow option = resolveProductOption(ownerUserId, storeCode, siteCode, command);
         if (option == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_PRODUCT_OPTION_NOT_FOUND");
         }
@@ -405,6 +397,27 @@ public class CompetitorAnalysisService {
         Long watchProductId = mapper.nextWatchProductId();
         mapper.insertWatchProduct(buildInsertCommand(watchProductId, ownerUserId, context, option, selfCode, selfCodeType));
         return detail(context, watchProductId);
+    }
+
+    private CompetitorProductOptionRow resolveProductOption(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            CompetitorWatchProductCreateCommand command
+    ) {
+        if (command.getProductSiteOfferId() != null) {
+            return mapper.selectProductOptionByOfferId(
+                    ownerUserId,
+                    storeCode,
+                    siteCode,
+                    command.getProductSiteOfferId()
+            );
+        }
+        String partnerSku = normalizePartnerSku(command.getPartnerSku());
+        if (!StringUtils.hasText(partnerSku)) {
+            throw badRequest("COMPETITOR_PARTNER_SKU_REQUIRED");
+        }
+        return mapper.selectProductOptionByPartnerSku(ownerUserId, storeCode, siteCode, partnerSku);
     }
 
     public CompetitorWatchProductScopeRow requireWatchProductScope(Long watchProductId) {
@@ -968,6 +981,11 @@ public class CompetitorAnalysisService {
     }
 
     private String normalizeNoonCode(String value) {
+        String normalized = normalizeText(value);
+        return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizePartnerSku(String value) {
         String normalized = normalizeText(value);
         return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
     }
