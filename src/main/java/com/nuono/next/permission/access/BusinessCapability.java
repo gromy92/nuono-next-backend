@@ -16,6 +16,7 @@ public enum BusinessCapability {
     SALES_DATA(List.of("/data/sales-analysis", "/data/sales-forecast", "/data/sales", "/data/order-analysis", "/api/sales-forecast", "/api/order-finance")),
     SYSTEM_REPORTS(List.of("/system-reports", "/api/system-reports", "/noon-call", "/api/noon-call")),
     OPERATIONS_COMPETITOR_ANALYSIS(List.of("/operations/competitor-analysis", "/api/competitor-analysis")),
+    PRODUCT_KEYWORD_MANAGEMENT(List.of("/operations/product-keywords", "/api/product-keywords")),
     OPERATIONS_SKIN_MANAGEMENT(List.of("/operations/skin-management", "/api/operations/skin-management")),
     ADVANCED_OPERATIONS_CONFIG(List.of("/operations/config", "/api/operations-config")),
     FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),
