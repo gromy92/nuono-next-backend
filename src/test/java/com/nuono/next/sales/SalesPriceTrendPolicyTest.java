@@ -127,6 +127,11 @@ class SalesPriceTrendPolicyTest {
         }
 
         @Override
+        public int markProductSiteOfferLogisticsHistoryByOrderLineFact(NoonOrderLineFact fact) {
+            return 0;
+        }
+
+        @Override
         public NoonSalesOrderCompletenessAudit auditSalesOrderCompleteness(Long ownerUserId, String storeCode, String siteCode) {
             return NoonSalesOrderCompletenessAudit.notIntegrated("not_integrated");
         }

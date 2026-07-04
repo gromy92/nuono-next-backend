@@ -340,6 +340,7 @@ public class InTransitBatchService {
         } else {
             mapper.updateLine(row);
         }
+        mapper.markProductSiteOfferLogisticsHistoryByLine(ownerUserId, batchId, row.getId(), operatorUserId);
         refreshBatchAggregate(ownerUserId, batchId);
         audit(
                 ownerUserId,

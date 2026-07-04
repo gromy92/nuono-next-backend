@@ -483,6 +483,7 @@ class InTransitBatchServiceTest {
         verify(mapper).insertLine(lineCaptor.capture());
         assertEquals(6, lineCaptor.getValue().getRemainingQuantity());
         assertEquals(new BigDecimal("12.500000"), lineCaptor.getValue().getCartonWeightKg());
+        verify(mapper).markProductSiteOfferLogisticsHistoryByLine(10002L, 53001L, 54001L, 90001L);
 
         ArgumentCaptor<BatchAggregateRow> aggregateCaptor = ArgumentCaptor.forClass(BatchAggregateRow.class);
         verify(mapper).refreshBatchAggregate(eq(10002L), eq(53001L), aggregateCaptor.capture());

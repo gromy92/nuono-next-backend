@@ -36,6 +36,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class OfficialWarehouseInventorySyncServiceTest {
@@ -97,6 +98,8 @@ class OfficialWarehouseInventorySyncServiceTest {
         assertThat(mapper.insertedLines)
                 .extracting(line -> line.stockBucket)
                 .containsExactly("SELLABLE", "RETURNED");
+        assertThat(mapper.markedInventoryLineIds)
+                .containsExactlyElementsOf(mapper.insertedLines.stream().map(line -> line.id).collect(Collectors.toList()));
         assertThat(mapper.insertedLines)
                 .allSatisfy(line -> {
                     assertThat(line.syncBatchId).isEqualTo(batch.id);
@@ -194,6 +197,7 @@ class OfficialWarehouseInventorySyncServiceTest {
         private final List<InventorySyncBatchInsertRecord> insertedBatches = new ArrayList<>();
         private final List<InventorySnapshotLineInsertRecord> insertedLines = new ArrayList<>();
         private final List<String> deactivatedCurrentLines = new ArrayList<>();
+        private final List<Long> markedInventoryLineIds = new ArrayList<>();
         private long nextId = 990000L;
 
         @Override
@@ -439,6 +443,12 @@ class OfficialWarehouseInventorySyncServiceTest {
         @Override
         public int insertInventorySnapshotLine(InventorySnapshotLineInsertRecord record) {
             insertedLines.add(record);
+            return 1;
+        }
+
+        @Override
+        public int markProductSiteOfferLogisticsHistoryByInventorySnapshotLine(Long lineId, Long operatorUserId) {
+            markedInventoryLineIds.add(lineId);
             return 1;
         }
 

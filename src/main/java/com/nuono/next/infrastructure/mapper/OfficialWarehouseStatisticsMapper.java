@@ -1306,6 +1306,50 @@ public interface OfficialWarehouseStatisticsMapper {
     })
     int insertInventorySnapshotLine(InventorySnapshotLineInsertRecord record);
 
+    @Update({
+            "UPDATE product_site_offer pso",
+            "JOIN official_warehouse_inventory_snapshot_line line",
+            "  ON line.id = #{lineId}",
+            " AND line.is_deleted = b'0'",
+            " AND line.is_current = b'1'",
+            " AND COALESCE(line.qty, 0) > 0",
+            " AND line.partner_sku IS NOT NULL",
+            " AND TRIM(line.partner_sku) <> ''",
+            "SET pso.logistics_has_history = b'1',",
+            "    pso.logistics_first_flow_at = CASE",
+            "        WHEN pso.logistics_first_flow_at IS NULL THEN COALESCE(line.inventory_snapshot_at, line.gmt_create, NOW())",
+            "        WHEN COALESCE(line.inventory_snapshot_at, line.gmt_create) IS NULL THEN pso.logistics_first_flow_at",
+            "        WHEN pso.logistics_first_flow_at > COALESCE(line.inventory_snapshot_at, line.gmt_create) THEN COALESCE(line.inventory_snapshot_at, line.gmt_create)",
+            "        ELSE pso.logistics_first_flow_at",
+            "    END,",
+            "    pso.logistics_last_flow_at = CASE",
+            "        WHEN pso.logistics_last_flow_at IS NULL THEN COALESCE(line.inventory_snapshot_at, line.gmt_updated, NOW())",
+            "        WHEN COALESCE(line.inventory_snapshot_at, line.gmt_updated) IS NULL THEN pso.logistics_last_flow_at",
+            "        WHEN pso.logistics_last_flow_at < COALESCE(line.inventory_snapshot_at, line.gmt_updated) THEN COALESCE(line.inventory_snapshot_at, line.gmt_updated)",
+            "        ELSE pso.logistics_last_flow_at",
+            "    END,",
+            "    pso.logistics_history_source = 'OFFICIAL_WAREHOUSE_INVENTORY',",
+            "    pso.updated_by = #{operatorUserId},",
+            "    pso.gmt_updated = NOW()",
+            "WHERE pso.is_deleted = b'0'",
+            "  AND pso.logical_store_id = line.logical_store_id",
+            "  AND pso.partner_sku IS NOT NULL",
+            "  AND TRIM(pso.partner_sku) <> ''",
+            "  AND (",
+            "      CONVERT(UPPER(TRIM(pso.partner_sku)) USING utf8mb4) COLLATE utf8mb4_unicode_ci",
+            "          = CONVERT(UPPER(TRIM(line.partner_sku)) USING utf8mb4) COLLATE utf8mb4_unicode_ci",
+            "      OR (",
+            "          CONVERT(UPPER(TRIM(pso.partner_sku)) USING utf8mb4) COLLATE utf8mb4_unicode_ci REGEXP '[0-9]-[0-9]+$'",
+            "          AND CONVERT(REGEXP_REPLACE(UPPER(TRIM(pso.partner_sku)), '-[0-9]+$', '') USING utf8mb4) COLLATE utf8mb4_unicode_ci",
+            "              = CONVERT(UPPER(TRIM(line.partner_sku)) USING utf8mb4) COLLATE utf8mb4_unicode_ci",
+            "      )",
+            "  )"
+    })
+    int markProductSiteOfferLogisticsHistoryByInventorySnapshotLine(
+            @Param("lineId") Long lineId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
     @Insert({
             "INSERT INTO official_warehouse_stock_correction_event (",
             "id, owner_user_id, logical_store_id, store_code, site_code, project_code, partner_id,",

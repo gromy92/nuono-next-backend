@@ -2317,6 +2317,11 @@ public class ProductProjectionPersistenceService {
                 LocalDateTime.now(),
                 updatedBy
         );
+        productManagementMapper.markProductSiteOfferLogisticsHistoryByStock(
+                logicalStoreId,
+                normalize(partnerSku),
+                updatedBy
+        );
     }
 
     private void persistBarcode(Long variantId, String barcode, Long updatedBy) {

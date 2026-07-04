@@ -584,6 +584,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                     access.getSessionUserId()
             );
             mapper.markLinesCreated(asnId, access.getSessionUserId());
+            mapper.markProductSiteOfferLogisticsHistoryByAsn(asnId, access.getSessionUserId());
             return getAsn(access, String.valueOf(asnId));
         } catch (IllegalArgumentException exception) {
             mapper.markAsnFailed(asnId, "VALIDATION", "VALIDATION", exception.getMessage(), access.getSessionUserId());

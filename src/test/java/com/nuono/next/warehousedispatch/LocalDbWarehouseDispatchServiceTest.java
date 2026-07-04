@@ -17,6 +17,8 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreatePackingL
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingBatchCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.DispatchPlanSourceCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ShippingBatchSourceCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanLineSourceRecord;
+import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentBalanceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PackingListView;
@@ -111,6 +113,23 @@ class LocalDbWarehouseDispatchServiceTest {
         ), eq(307L));
     }
 
+    @Test
+    void logisticsHandoffSuccessOnlyMovesReservedBalance() {
+        DispatchPlanRecord plan = dispatchPlan();
+        DispatchPlanLineSourceRecord source = new DispatchPlanLineSourceRecord();
+        source.dispatchPlanLineId = 350001L;
+        source.fulfillmentBalanceId = 900001L;
+        source.quantity = 5;
+
+        when(mapper.selectDispatchPlanByHandoffRequest("WDH-340001-1")).thenReturn(plan);
+        when(mapper.markDispatchPlanHandoffSuccess("WDH-340001-1", 307L)).thenReturn(1);
+        when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of(source));
+
+        service.markLogisticsHandoffSuccess(access(), "WDH-340001-1");
+
+        verify(mapper).moveReservedToLogisticsHandoff(900001L, 5, 307L);
+    }
+
     private BusinessAccessContext access() {
         return BusinessAccessContext.builder()
                 .sessionUserId(307L)
@@ -144,6 +163,16 @@ class LocalDbWarehouseDispatchServiceTest {
         record.specStatus = "READY";
         record.logisticsQuoteStatus = quoteStatus;
         record.logisticsShippingSubmitStatus = shippingSubmitStatus;
+        return record;
+    }
+
+    private DispatchPlanRecord dispatchPlan() {
+        DispatchPlanRecord record = new DispatchPlanRecord();
+        record.id = 340001L;
+        record.ownerUserId = 307L;
+        record.planNo = "DP-340001";
+        record.status = "READY_FOR_LOGISTICS";
+        record.handoffRequestNo = "WDH-340001-1";
         return record;
     }
 

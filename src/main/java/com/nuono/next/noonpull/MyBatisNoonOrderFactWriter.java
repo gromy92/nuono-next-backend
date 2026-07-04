@@ -18,6 +18,7 @@ public class MyBatisNoonOrderFactWriter implements NoonOrderFactWriter {
         ensureSchema();
         Long id = mapper.nextOrderLineFactId();
         mapper.upsertOrderLineFact(id, fact);
+        mapper.markProductSiteOfferLogisticsHistoryByOrderLineFact(fact);
     }
 
     private void ensureSchema() {

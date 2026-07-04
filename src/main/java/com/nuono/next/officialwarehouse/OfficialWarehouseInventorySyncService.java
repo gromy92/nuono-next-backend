@@ -91,6 +91,7 @@ public class OfficialWarehouseInventorySyncService {
         for (InventoryItem item : items) {
             InventorySnapshotLineInsertRecord line = toLine(scope, batch, item);
             mapper.insertInventorySnapshotLine(line);
+            mapper.markProductSiteOfferLogisticsHistoryByInventorySnapshotLine(line.id, access.getSessionUserId());
             insertedRows += 1;
         }
 

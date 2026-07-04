@@ -117,6 +117,7 @@ class NoonPullSpringWiringContractTest {
                     assertThat(mapper.fact.getOrderLineIdentity()).isEqualTo("NAEI50094671190-1");
                     assertThat(mapper.fact.getOrderIdentity()).isEqualTo("NAEI50094671190");
                     assertThat(mapper.fact.getSourceBatchId()).isEqualTo("noon-report-order-130016-abcdef12");
+                    assertThat(mapper.historyFact).isSameAs(mapper.fact);
                     assertThat(mapper.ensureSequenceCalls).isEqualTo(1);
                     assertThat(mapper.ensureFactSequenceCalls).isEqualTo(1);
                     assertThat(mapper.ensureFactTableCalls).isEqualTo(1);
@@ -205,6 +206,7 @@ class NoonPullSpringWiringContractTest {
 
     private static final class RecordingNoonOrderFactMapper implements NoonOrderFactMapper {
         private NoonOrderLineFact fact;
+        private NoonOrderLineFact historyFact;
         private int ensureSequenceCalls;
         private int ensureFactSequenceCalls;
         private int ensureFactTableCalls;
@@ -233,6 +235,12 @@ class NoonPullSpringWiringContractTest {
         public int upsertOrderLineFact(Long id, NoonOrderLineFact fact) {
             this.fact = fact;
             return 1;
+        }
+
+        @Override
+        public int markProductSiteOfferLogisticsHistoryByOrderLineFact(NoonOrderLineFact fact) {
+            this.historyFact = fact;
+            return 0;
         }
 
         @Override
