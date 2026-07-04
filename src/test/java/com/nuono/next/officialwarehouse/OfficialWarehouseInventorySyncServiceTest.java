@@ -339,6 +339,7 @@ class OfficialWarehouseInventorySyncServiceTest {
                 String storeCode,
                 String siteCode,
                 Long productSiteOfferId,
+                String partnerSku,
                 int limit
         ) {
             return List.of();
@@ -351,6 +352,7 @@ class OfficialWarehouseInventorySyncServiceTest {
                 String storeCode,
                 String siteCode,
                 Long productSiteOfferId,
+                String partnerSku,
                 int limit
         ) {
             return List.of();

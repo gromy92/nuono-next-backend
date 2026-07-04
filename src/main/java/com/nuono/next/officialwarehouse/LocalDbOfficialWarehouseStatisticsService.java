@@ -570,14 +570,13 @@ public class LocalDbOfficialWarehouseStatisticsService {
             BusinessAccessContext access,
             String storeCode,
             String siteCode,
-            String productSiteOfferId
+            String productRef
     ) {
         String normalizedStoreCode = requireText(storeCode, "请选择店铺。");
         String normalizedSiteCode = normalizeSite(requireText(siteCode, "请选择站点。"));
-        Long parsedProductSiteOfferId = parseLong(productSiteOfferId, "商品站点 Offer ID");
-        if (parsedProductSiteOfferId == null) {
-            throw new IllegalArgumentException("请选择商品。");
-        }
+        String normalizedProductRef = requireText(productRef, "请选择商品。");
+        Long parsedProductSiteOfferId = tryParseLong(normalizedProductRef);
+        String partnerSku = parsedProductSiteOfferId == null ? normalize(normalizedProductRef) : null;
         Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
         Collection<String> storeCodes = storeCodes(access, normalizedStoreCode);
         List<InboundReceiptHistoryRecord> records = mapper.listProductInboundReceiptHistory(
@@ -586,6 +585,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
                 normalizedStoreCode,
                 normalizedSiteCode,
                 parsedProductSiteOfferId,
+                partnerSku,
                 200
         );
         ProductInboundHistoryView view = new ProductInboundHistoryView();
@@ -607,6 +607,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
                 normalizedStoreCode,
                 normalizedSiteCode,
                 parsedProductSiteOfferId,
+                partnerSku,
                 50
         );
         for (ProductStockSourceCandidateRecord sourceCandidate : sourceCandidates) {
@@ -1142,6 +1143,17 @@ public class LocalDbOfficialWarehouseStatisticsService {
             return Long.parseLong(value.trim());
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException(fieldName + "格式不正确。");
+        }
+    }
+
+    private Long tryParseLong(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
         }
     }
 

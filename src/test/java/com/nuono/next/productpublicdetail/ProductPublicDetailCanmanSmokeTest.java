@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.nuono.next.NuonoNextApplication;
+import com.nuono.next.auth.AuthEmailCodeSender;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskService;
@@ -18,6 +19,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -42,6 +44,9 @@ class ProductPublicDetailCanmanSmokeTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @MockBean
+    private AuthEmailCodeSender authEmailCodeSender;
 
     @Test
     void smokeOneCanmanProductIntoDailySnapshot() throws Exception {
