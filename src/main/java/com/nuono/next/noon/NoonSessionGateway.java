@@ -184,7 +184,7 @@ public class NoonSessionGateway {
                 normalize(storeCode),
                 false
         );
-        return new NoonSession(normalizedUser, noonPassword, state, normalize(projectCode), normalize(storeCode));
+        return new NoonSession(ownerUserId, normalizedUser, noonPassword, state, normalize(projectCode), normalize(storeCode));
     }
 
     public JsonNode whoamiWithCookie(
@@ -848,6 +848,7 @@ public class NoonSessionGateway {
     }
 
     public final class NoonSession {
+        private final Long ownerUserId;
         private final String noonUser;
         private final String noonPassword;
         private volatile AuthSessionState state;
@@ -855,12 +856,14 @@ public class NoonSessionGateway {
         private final String storeCode;
 
         private NoonSession(
+                Long ownerUserId,
                 String noonUser,
                 String noonPassword,
                 AuthSessionState state,
                 String projectCode,
                 String storeCode
         ) {
+            this.ownerUserId = ownerUserId;
             this.noonUser = noonUser;
             this.noonPassword = noonPassword;
             this.state = state;
@@ -869,11 +872,11 @@ public class NoonSessionGateway {
         }
 
         public NoonSession withProjectCode(String nextProjectCode) {
-            return new NoonSession(noonUser, noonPassword, state, normalize(nextProjectCode), storeCode);
+            return new NoonSession(ownerUserId, noonUser, noonPassword, state, normalize(nextProjectCode), storeCode);
         }
 
         public NoonSession withStoreCode(String nextStoreCode) {
-            return new NoonSession(noonUser, noonPassword, state, projectCode, normalize(nextStoreCode));
+            return new NoonSession(ownerUserId, noonUser, noonPassword, state, projectCode, normalize(nextStoreCode));
         }
 
         public String getProjectCode() {
@@ -960,12 +963,12 @@ public class NoonSessionGateway {
                     if (authRefreshed) {
                         throw exception;
                     }
-                    state = getOrCreateState(null, noonUser, noonPassword, null, projectCode, storeCode, true);
+                    state = getOrCreateState(ownerUserId, noonUser, noonPassword, null, projectCode, storeCode, true);
                     authRefreshed = true;
                 } catch (IllegalStateException exception) {
                     if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
                         state = getOrCreateState(
-                                null,
+                                ownerUserId,
                                 noonUser,
                                 noonPassword,
                                 state.exportAuthCookieHeader(),
@@ -991,12 +994,12 @@ public class NoonSessionGateway {
                     if (authRefreshed) {
                         throw exception;
                     }
-                    state = getOrCreateState(null, noonUser, noonPassword, null, projectCode, storeCode, true);
+                    state = getOrCreateState(ownerUserId, noonUser, noonPassword, null, projectCode, storeCode, true);
                     authRefreshed = true;
                 } catch (IllegalStateException exception) {
                     if (!transportRefreshed && shouldRefreshAfterTransientTransportFailure(exception)) {
                         state = getOrCreateState(
-                                null,
+                                ownerUserId,
                                 noonUser,
                                 noonPassword,
                                 state.exportAuthCookieHeader(),

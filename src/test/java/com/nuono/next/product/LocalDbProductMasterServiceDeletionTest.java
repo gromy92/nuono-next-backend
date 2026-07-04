@@ -793,6 +793,7 @@ class LocalDbProductMasterServiceDeletionTest {
         Class<?> stateClass = Class.forName("com.nuono.next.noon.NoonSessionGateway$AuthSessionState");
         Constructor<NoonSession> constructor = NoonSession.class.getDeclaredConstructor(
                 NoonSessionGateway.class,
+                Long.class,
                 String.class,
                 String.class,
                 stateClass,
@@ -800,7 +801,7 @@ class LocalDbProductMasterServiceDeletionTest {
                 String.class
         );
         constructor.setAccessible(true);
-        return constructor.newInstance(gateway, "nuonuo@example.test", "password", null, "PRJ245027", "STR245027-NAE");
+        return constructor.newInstance(gateway, 307L, "nuonuo@example.test", "password", null, "PRJ245027", "STR245027-NAE");
     }
 
     private static ProductMasterIdentityRecord productIdentity(
