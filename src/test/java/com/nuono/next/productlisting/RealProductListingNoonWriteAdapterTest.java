@@ -34,7 +34,13 @@ class RealProductListingNoonWriteAdapterTest {
                 new FakeImageDownloader()
         );
 
-        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+        ProductListingNoonWriteRequest request = writeRequest();
+        request.getDraft().setProductDescriptionEn("English long description");
+        request.getDraft().setProductDescriptionAr("Arabic long description");
+        request.getDraft().setProductHighlightsEn(List.of("Noise cancelling", "USB-C charging"));
+        request.getDraft().setProductHighlightsAr(List.of("Arabic noise cancelling"));
+
+        ProductListingNoonWriteResult result = adapter.execute(request);
 
         assertTrue(result.isSuccess());
         assertEquals(List.of(
@@ -76,7 +82,16 @@ class RealProductListingNoonWriteAdapterTest {
         JsonNode contentEn = sessionFactory.session.calls.get(3).body;
         assertEquals("en", contentEn.at("/lang").asText());
         assertEquals("Wired headphones with microphone", contentEn.at("/attributes/product_title").asText());
+        assertEquals("English long description", contentEn.at("/attributes/long_description").asText());
+        assertEquals("Noise cancelling", contentEn.at("/attributes/feature_bullet_1").asText());
+        assertEquals("USB-C charging", contentEn.at("/attributes/feature_bullet_2").asText());
         assertEquals("noon-uploaded/sku-main.jpg", contentEn.at("/attributes/image_url_1").asText());
+
+        JsonNode contentAr = sessionFactory.session.calls.get(4).body;
+        assertEquals("ar", contentAr.at("/lang").asText());
+        assertEquals("Arabic wired headphones title", contentAr.at("/attributes/product_title").asText());
+        assertEquals("Arabic long description", contentAr.at("/attributes/long_description").asText());
+        assertEquals("Arabic noise cancelling", contentAr.at("/attributes/feature_bullet_1").asText());
 
         FakeSession.UploadCall uploadImage = sessionFactory.session.uploadCalls.get(0);
         assertEquals(ProductListingRealWriteProperties.Endpoints.DEFAULT_UPLOAD_IMAGE_URL, uploadImage.url);
@@ -102,6 +117,29 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals("NN-TEST-PSKU", barcode.at("/pbarcodeUpsert/0/partnerSku").asText());
         assertEquals("6290000000001", barcode.at("/pbarcodeUpsert/0/partnerBarcode").asText());
         assertTrue(barcode.at("/forceMapping").asBoolean());
+    }
+
+    @Test
+    void realAdapterSkipsBlankRichTextContentFields() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                new ProductListingRealWriteProperties(),
+                new FakeImageDownloader()
+        );
+        ProductListingNoonWriteRequest request = writeRequest();
+        request.getDraft().setProductDescriptionEn("<p><br></p>");
+        request.getDraft().setProductHighlightsEn(List.of("  ", "<p><br></p>", "Valid feature"));
+
+        ProductListingNoonWriteResult result = adapter.execute(request);
+
+        assertTrue(result.isSuccess());
+        JsonNode contentEn = sessionFactory.session.calls.get(3).body;
+        assertTrue(!contentEn.at("/attributes").has("long_description"));
+        assertEquals("Valid feature", contentEn.at("/attributes/feature_bullet_1").asText());
+        assertTrue(!contentEn.at("/attributes").has("feature_bullet_2"));
     }
 
     @Test

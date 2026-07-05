@@ -128,4 +128,92 @@ class LocalDbProductListingProjectionBackfillTest {
         assertEquals("2026-07-03 10:24:03", offer.getListingStartedAt());
         assertEquals("product_listing", offer.getListingStartedSource());
     }
+
+    @Test
+    void shouldPreserveInheritedListingStartedMetadataForProductRebuild() {
+        ProductListingStoreProjectionContext storeContext = new ProductListingStoreProjectionContext();
+        storeContext.setProjectCode("PRJ69486");
+        storeContext.setProjectName("xingyao");
+        storeContext.setStoreCode("STR245027-NAE");
+        storeContext.setSite("SA");
+        when(projectionMapper.selectStoreContext(10002L, "STR245027-NAE"))
+                .thenReturn(storeContext);
+        when(projectionMapper.selectProjectStoreContexts(10002L, "PRJ69486"))
+                .thenReturn(List.of(storeContext));
+
+        ProductListingTaskRecord task = new ProductListingTaskRecord();
+        task.setOwnerUserId(10002L);
+        task.setStoreCode("STR245027-NAE");
+        task.setCompletedAt(LocalDateTime.of(2026, 7, 4, 15, 10, 0));
+        ProductListingDraftCommand draft = ProductListingTestFixtures.validCommand();
+        draft.setRebuildSourceProductMasterId(64001L);
+        draft.setInheritedListingStartedAt("2026-03-12 00:00:00");
+        draft.setInheritedListingStartedSource("pv");
+        ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
+        step.setStepKey("verify_noon_readback");
+        step.setStatus("succeeded");
+        step.setExternalReference("skuParent=ZREBUILD001;pskuCode=PSKU-REBUILD-1");
+
+        backfill.backfillSuccessfulListing(task, draft, ProductListingNoonWriteResult.succeeded(List.of(step)));
+
+        ArgumentCaptor<List> seedCaptor = ArgumentCaptor.forClass(List.class);
+        verify(projectionPersistenceService).persistInitializationProjection(
+                eq(10002L),
+                eq("PRJ69486"),
+                eq("xingyao"),
+                eq("STR245027-NAE"),
+                anyList(),
+                seedCaptor.capture(),
+                anyList(),
+                eq(true)
+        );
+        ProductProjectionPersistenceService.ProductMasterSeed seed =
+                (ProductProjectionPersistenceService.ProductMasterSeed) seedCaptor.getValue().get(0);
+        ProductProjectionPersistenceService.SiteOfferSeed offer = seed.getSiteOffers().get(0);
+        assertEquals("2026-03-12 00:00:00", offer.getListingStartedAt());
+        assertEquals("product_rebuild_inherited:pv", offer.getListingStartedSource());
+    }
+
+    @Test
+    void shouldFitProductRebuildInheritedListingSourceIntoColumnLimit() {
+        ProductListingStoreProjectionContext storeContext = new ProductListingStoreProjectionContext();
+        storeContext.setProjectCode("PRJ69486");
+        storeContext.setProjectName("xingyao");
+        storeContext.setStoreCode("STR245027-NAE");
+        storeContext.setSite("SA");
+        when(projectionMapper.selectStoreContext(10002L, "STR245027-NAE"))
+                .thenReturn(storeContext);
+        when(projectionMapper.selectProjectStoreContexts(10002L, "PRJ69486"))
+                .thenReturn(List.of(storeContext));
+
+        ProductListingTaskRecord task = new ProductListingTaskRecord();
+        task.setOwnerUserId(10002L);
+        task.setStoreCode("STR245027-NAE");
+        ProductListingDraftCommand draft = ProductListingTestFixtures.validCommand();
+        draft.setInheritedListingStartedAt("2026-07-03 10:24:03");
+        draft.setInheritedListingStartedSource("product_listing");
+        ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
+        step.setStepKey("create_product");
+        step.setStatus("succeeded");
+        step.setExternalReference("skuParent=ZREBUILD001;pskuCode=PSKU-REBUILD-1");
+
+        backfill.backfillSuccessfulListing(task, draft, ProductListingNoonWriteResult.succeeded(List.of(step)));
+
+        ArgumentCaptor<List> seedCaptor = ArgumentCaptor.forClass(List.class);
+        verify(projectionPersistenceService).persistInitializationProjection(
+                eq(10002L),
+                eq("PRJ69486"),
+                eq("xingyao"),
+                eq("STR245027-NAE"),
+                anyList(),
+                seedCaptor.capture(),
+                anyList(),
+                eq(true)
+        );
+        ProductProjectionPersistenceService.ProductMasterSeed seed =
+                (ProductProjectionPersistenceService.ProductMasterSeed) seedCaptor.getValue().get(0);
+        ProductProjectionPersistenceService.SiteOfferSeed offer = seed.getSiteOffers().get(0);
+        assertEquals("product_rebuild_inherited:listing", offer.getListingStartedSource());
+        assertTrue(offer.getListingStartedSource().length() <= 40);
+    }
 }

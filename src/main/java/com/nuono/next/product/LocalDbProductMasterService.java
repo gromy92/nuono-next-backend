@@ -17,6 +17,7 @@ import com.nuono.next.product.publish.ProductPublishCommandService;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateCommand;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateResult;
 import com.nuono.next.product.publish.ProductPublishTaskFenceLostException;
+import com.nuono.next.productlisting.ProductListingDraftCommand;
 import com.nuono.next.productpublicdetail.ProductPublicDetailSnapshot;
 import com.nuono.next.store.LocalDbStoreInitializationService;
 import com.nuono.next.store.StoreSyncOwnerContext;
@@ -911,6 +912,52 @@ public class LocalDbProductMasterService {
         return view;
     }
 
+    @Transactional
+    public ProductListDatasetView rebuildProduct(ProductMasterFetchCommand command) {
+        if (command == null || command.getOwnerUserId() == null) {
+            throw new IllegalArgumentException("缺少老板上下文，暂时不能重建商品。");
+        }
+        String storeCode = normalize(command.getStoreCode());
+        requireText(storeCode, "缺少店铺编码，暂时不能重建商品。");
+        String skuParent = normalize(command.getSkuParent());
+        String partnerSku = normalize(command.getPartnerSku());
+        if (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent)) {
+            throw new IllegalArgumentException("缺少商品 PSKU，暂时不能重建商品。");
+        }
+
+        StoreSyncStoreRecord store = resolveProductOwnerStore(
+                command.getOwnerUserId(),
+                storeCode,
+                "当前店铺不在选中的老板名下。"
+        );
+        storeCode = normalize(store.getStoreCode());
+        ProductMasterIdentityRecord identity = resolveCurrentProductIdentity(command, storeCode);
+        if (identity == null || identity.getProductMasterId() == null) {
+            throw new IllegalArgumentException("当前商品不存在或已删除。");
+        }
+        requireText(
+                firstNonBlank(normalize(identity.getPartnerSku()), partnerSku),
+                "当前商品缺少系统 PSKU（partnerSku），暂时不能重建。"
+        );
+
+        requirePublishCommandService().ensureNoForegroundBlockingActiveTask(
+                identity.getProductMasterId(),
+                "当前商品已有后台任务正在执行，请等待完成后再重建商品。"
+        );
+        ProductListingDraftCommand rebuildListingDraft = buildProductRebuildListingDraft(command, store, identity);
+        ProductPublishTaskRecord task = queueProductDeleteTask(command, store, identity, rebuildListingDraft);
+
+        ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
+        reloadCommand.setOwnerUserId(command.getOwnerUserId());
+        reloadCommand.setStoreCode(storeCode);
+        reloadCommand.setNoonUser(command.getNoonUser());
+        reloadCommand.setNoonPassword(command.getNoonPassword());
+        ProductListDatasetView view = loadListDataset(reloadCommand);
+        attachProductDeleteTaskToListDataset(view, identity.getSkuParent(), identity.getPartnerSku(), task);
+        view.setMessage("商品重建已提交后台处理：系统会先删除 Noon 旧商品，确认删除后按当前本地数据重新上架。");
+        return view;
+    }
+
     public ProductHistoryView loadHistory(ProductMasterFetchCommand command) {
         if (command == null || command.getOwnerUserId() == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能读取关键内容历史。");
@@ -1472,6 +1519,15 @@ public class LocalDbProductMasterService {
             StoreSyncStoreRecord store,
             ProductMasterIdentityRecord identity
     ) {
+        return queueProductDeleteTask(command, store, identity, null);
+    }
+
+    private ProductPublishTaskRecord queueProductDeleteTask(
+            ProductMasterFetchCommand command,
+            StoreSyncStoreRecord store,
+            ProductMasterIdentityRecord identity,
+            ProductListingDraftCommand rebuildListingDraft
+    ) {
         ProductMasterSnapshotView snapshot = buildProductDeleteTaskSnapshot(command, store, identity);
         String snapshotJson = writeJson(snapshot);
         String currentSiteCode = normalize(store == null ? null : store.getSite());
@@ -1490,7 +1546,12 @@ public class LocalDbProductMasterService {
         createCommand.setDraftJson(snapshotJson);
         createCommand.setBaselineJson(snapshotJson);
         createCommand.setDraftHash(sha256Hex(snapshotJson));
-        createCommand.setRequestJson(writeJson(buildProductDeleteTaskRequestPayload(command, identity, currentSiteCode)));
+        createCommand.setRequestJson(writeJson(buildProductDeleteTaskRequestPayload(
+                command,
+                identity,
+                currentSiteCode,
+                rebuildListingDraft
+        )));
         createCommand.setIdempotencyKey(
                 "delete:" + productDeleteStoreIdentityKey(identity, createCommand.getStoreCode())
                         + ":" + partnerSku
@@ -1498,6 +1559,105 @@ public class LocalDbProductMasterService {
         );
         ProductPublishTaskCreateResult createResult = requirePublishCommandService().createProductDeleteTask(createCommand);
         return createResult.getTask();
+    }
+
+    private ProductListingDraftCommand buildProductRebuildListingDraft(
+            ProductMasterFetchCommand command,
+            StoreSyncStoreRecord store,
+            ProductMasterIdentityRecord identity
+    ) {
+        if (productProjectionPersistenceService == null) {
+            throw new IllegalStateException("商品本地投影服务尚未初始化，暂时不能重建商品。");
+        }
+        String storeCode = normalize(store == null ? command.getStoreCode() : store.getStoreCode());
+        String partnerSku = firstNonBlank(normalize(identity.getPartnerSku()), normalize(command.getPartnerSku()));
+        String skuParent = firstNonBlank(normalize(identity.getSkuParent()), normalize(command.getSkuParent()));
+        List<String> warnings = new ArrayList<>();
+        ProductMasterSnapshotView baselineSnapshot =
+                productProjectionPersistenceService.loadLatestBaselineSnapshot(
+                        command.getOwnerUserId(),
+                        storeCode,
+                        partnerSku,
+                        skuParent,
+                        warnings
+                );
+        if (baselineSnapshot == null || !baselineSnapshot.isReady()) {
+            throw new IllegalArgumentException("当前商品缺少可用本地基线，暂时不能重建。");
+        }
+        ProductProjectionPersistenceService.PersistedWorkbenchState persistedState =
+                productProjectionPersistenceService.loadPersistedWorkbenchState(
+                        command.getOwnerUserId(),
+                        storeCode,
+                        partnerSku,
+                        skuParent,
+                        warnings
+                );
+        ProductMasterSnapshotView sourceSnapshot = hasActivePersistedDraft(persistedState)
+                ? persistedState.getDraftSnapshot()
+                : baselineSnapshot;
+        hydrateProductRebuildSourceIdentity(sourceSnapshot, identity, partnerSku, skuParent);
+        ProductListingDraftCommand draft = new ProductRebuildDraftBuilder().build(
+                identity.getProductMasterId(),
+                storeCode,
+                sourceSnapshot
+        );
+        if (!StringUtils.hasText(draft.getInheritedListingStartedAt())) {
+            throw new IllegalArgumentException("当前商品缺少旧 PSKU 上架时间，暂时不能重建。");
+        }
+        return draft;
+    }
+
+    private void hydrateProductRebuildSourceIdentity(
+            ProductMasterSnapshotView snapshot,
+            ProductMasterIdentityRecord identity,
+            String partnerSku,
+            String skuParent
+    ) {
+        if (snapshot == null) {
+            return;
+        }
+        Map<String, Object> sourceIdentity = snapshot.getIdentity();
+        String sourceSkuParent = firstNonBlank(
+                normalize(identity == null ? null : identity.getSkuParent()),
+                normalize(skuParent),
+                normalizeValue(sourceIdentity.get("skuParent")),
+                normalizeValue(sourceIdentity.get("currentZCode"))
+        );
+        String sourceProductType = ProductSourceTypeSupport.resolve(
+                firstNonBlank(
+                        normalize(identity == null ? null : identity.getProductSourceType()),
+                        normalizeValue(sourceIdentity.get("productSourceType")),
+                        normalizeValue(sourceIdentity.get("sourceType"))
+                ),
+                null,
+                sourceSkuParent
+        );
+        sourceIdentity.put("productSourceType", sourceProductType);
+        putIfPresent(sourceIdentity, "partnerSku", firstNonBlank(
+                normalize(identity == null ? null : identity.getPartnerSku()),
+                normalize(partnerSku),
+                normalizeValue(sourceIdentity.get("partnerSku"))
+        ));
+        putIfPresent(sourceIdentity, "skuParent", sourceSkuParent);
+        putIfPresent(sourceIdentity, "currentZCode", firstNonBlank(
+                normalize(identity == null ? null : identity.getSkuParent()),
+                normalizeValue(sourceIdentity.get("currentZCode")),
+                sourceSkuParent
+        ));
+        putIfPresent(sourceIdentity, "pskuCode", firstNonBlank(
+                normalize(identity == null ? null : identity.getPskuCode()),
+                normalizeValue(sourceIdentity.get("pskuCode"))
+        ));
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, String value) {
+        if (target != null && StringUtils.hasText(value)) {
+            target.put(key, value.trim());
+        }
+    }
+
+    private String normalizeValue(Object value) {
+        return value == null ? null : normalize(String.valueOf(value));
     }
 
     private String productDeleteStoreIdentityKey(ProductMasterIdentityRecord identity, String storeCode) {
@@ -1558,17 +1718,59 @@ public class LocalDbProductMasterService {
     }
 
     private Map<String, Object> buildProductDeleteListTaskSummary(ProductPublishTaskRecord task) {
+        boolean rebuildTask = isProductRebuildDeleteTask(task);
         Map<String, Object> summary = new LinkedHashMap<>();
         putIfNotNull(summary, "taskId", task.getId());
-        putIfNotBlank(summary, "taskType", normalize(task.getTaskType()));
+        putIfNotBlank(summary, "taskType", rebuildTask ? "product-rebuild" : normalize(task.getTaskType()));
         putIfNotBlank(summary, "status", normalize(task.getStatus()));
-        putIfNotBlank(summary, "statusLabel", productDeleteListStatusLabel(task.getStatus()));
-        putIfNotBlank(summary, "resultText", publishTaskMessage(task));
+        putIfNotBlank(summary, "statusLabel", rebuildTask
+                ? productRebuildDeleteListStatusLabel(task.getStatus())
+                : productDeleteListStatusLabel(task.getStatus()));
+        putIfNotBlank(summary, "resultText", rebuildTask
+                ? productRebuildDeleteListMessage(task)
+                : publishTaskMessage(task));
         putIfNotBlank(summary, "submittedAt", FETCH_TIME_FORMATTER.format(ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))));
         putIfNotBlank(summary, "targetSiteCode", task.getCurrentSiteCode());
         putIfNotBlank(summary, "pskuCode", task.getPskuCode());
         putIfNotBlank(summary, "partnerSku", task.getPartnerSku());
         return summary;
+    }
+
+    private boolean isProductRebuildDeleteTask(ProductPublishTaskRecord task) {
+        JsonNode request = readTaskRequestNode(task);
+        return "product-rebuild".equalsIgnoreCase(text(request, "rebuildAction"))
+                || "product-rebuild".equalsIgnoreCase(text(request, "action"));
+    }
+
+    private String productRebuildDeleteListStatusLabel(String status) {
+        String normalized = normalizeProductDeleteStatus(status);
+        if ("failed".equalsIgnoreCase(normalized)) {
+            return "重建失败";
+        }
+        if ("pending_manual_check".equalsIgnoreCase(normalized)) {
+            return "重建待核对";
+        }
+        if ("cancelled".equalsIgnoreCase(normalized)) {
+            return "已取消";
+        }
+        return "重建中";
+    }
+
+    private String productRebuildDeleteListMessage(ProductPublishTaskRecord task) {
+        String status = task == null ? null : normalizeProductDeleteStatus(task.getStatus());
+        if ("failed".equalsIgnoreCase(status)) {
+            return firstNonBlank(task.getErrorMessage(), "商品重建失败，本地商品未删除。");
+        }
+        if ("pending_manual_check".equalsIgnoreCase(status)) {
+            return "商品重建结果需要人工核对。";
+        }
+        if ("queued".equalsIgnoreCase(status)) {
+            return "商品重建已排队，系统会先删除旧 PSKU。";
+        }
+        if ("synced".equalsIgnoreCase(status)) {
+            return "旧 PSKU 删除已确认，系统正在提交重建上架。";
+        }
+        return "商品重建正在后台处理。";
     }
 
     private String productDeleteListStatusLabel(String status) {
@@ -2948,6 +3150,15 @@ public class LocalDbProductMasterService {
             ProductMasterIdentityRecord identity,
             String currentSiteCode
     ) {
+        return buildProductDeleteTaskRequestPayload(command, identity, currentSiteCode, null);
+    }
+
+    private Map<String, Object> buildProductDeleteTaskRequestPayload(
+            ProductMasterFetchCommand command,
+            ProductMasterIdentityRecord identity,
+            String currentSiteCode,
+            ProductListingDraftCommand rebuildListingDraft
+    ) {
         Map<String, Object> payload = new LinkedHashMap<>();
         String partnerSku = identity == null
                 ? normalize(command.getPartnerSku())
@@ -2962,6 +3173,11 @@ public class LocalDbProductMasterService {
         payload.put("pskuCode", pskuCode);
         payload.put("currentSiteCode", normalize(currentSiteCode));
         payload.put("action", "product-delete");
+        if (rebuildListingDraft != null) {
+            payload.put("rebuildAction", "product-rebuild");
+            payload.put("rebuildSourceProductMasterId", rebuildListingDraft.getRebuildSourceProductMasterId());
+            payload.put("rebuildListingDraft", rebuildListingDraft);
+        }
         return payload;
     }
 

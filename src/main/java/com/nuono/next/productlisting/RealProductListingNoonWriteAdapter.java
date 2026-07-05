@@ -23,7 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
@@ -31,7 +31,6 @@ import org.springframework.util.StringUtils;
 
 @Component
 @Primary
-@ConditionalOnBean(NoonPullGatewaySessionFactory.class)
 @ConditionalOnProperty(prefix = "nuono.product-listing.real-write", name = "enabled", havingValue = "true")
 public class RealProductListingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
     private static final int MAX_IMAGE_UPLOADS = 15;
@@ -50,14 +49,14 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     public RealProductListingNoonWriteAdapter(
             ObjectMapper objectMapper,
             NoonPullStoreBindingResolver bindingResolver,
-            NoonPullGatewaySessionFactory sessionFactory,
+            ObjectProvider<NoonPullGatewaySessionFactory> sessionFactoryProvider,
             ProductListingRealWriteProperties properties,
             ProductListingOfferStockWriteAdapter offerStockWriteAdapter
     ) {
         this(
                 objectMapper,
                 bindingResolver,
-                sessionFactory,
+                sessionFactoryProvider == null ? null : sessionFactoryProvider.getIfAvailable(),
                 properties,
                 new HttpClientProductListingImageDownloader(),
                 offerStockWriteAdapter
@@ -107,7 +106,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         try {
             ProductListingDraftCommand draft = requireDraft(request);
             NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
-            NoonPullGatewaySession session = sessionFactory.login(binding);
+            NoonPullGatewaySession session = requireSessionFactory().login(binding);
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             ProductListingRealWriteProperties.Endpoints endpoints = properties.getEndpoints();
             ProductFullTypeLabels fullTypeLabels = resolveProductFullTypeLabels(session, endpoints, draft, headers);
@@ -153,7 +152,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 throw new IllegalArgumentException("Product listing continuation pskuCode is required.");
             }
             NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
-            NoonPullGatewaySession session = sessionFactory.login(binding);
+            NoonPullGatewaySession session = requireSessionFactory().login(binding);
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             ProductListingRealWriteProperties.Endpoints endpoints = properties.getEndpoints();
             ProductFullTypeLabels fullTypeLabels = resolveProductFullTypeLabels(session, endpoints, draft, headers);
@@ -183,7 +182,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 throw new IllegalArgumentException("Product listing read-back skuParent is required.");
             }
             NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
-            NoonPullGatewaySession session = sessionFactory.login(binding);
+            NoonPullGatewaySession session = requireSessionFactory().login(binding);
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             return verifyNoonReadBack(
                     session,
@@ -519,6 +518,13 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 && normalizedExpected.equals(normalizedActual);
     }
 
+    private NoonPullGatewaySessionFactory requireSessionFactory() {
+        if (sessionFactory == null) {
+            throw new IllegalStateException("Product listing Noon session factory is not available.");
+        }
+        return sessionFactory;
+    }
+
     private String normalizeBrand(String value) {
         if (!StringUtils.hasText(value)) {
             return "";
@@ -801,11 +807,15 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         ObjectNode attributes = root.putObject("attributes");
         if ("ar".equals(lang)) {
             putIfHasText(attributes, "product_title", draft.getProductTitleAr());
+            putIfHasMeaningfulText(attributes, "long_description", draft.getProductDescriptionAr());
+            putFeatureBullets(attributes, draft.getProductHighlightsAr());
             return root;
         }
 
         attributes.put("grade", "new");
         putIfHasText(attributes, "product_title", draft.getProductTitleEn());
+        putIfHasMeaningfulText(attributes, "long_description", draft.getProductDescriptionEn());
+        putFeatureBullets(attributes, draft.getProductHighlightsEn());
         if (imageAttributeValues != null) {
             int index = 1;
             for (String imageUrl : imageAttributeValues) {
@@ -820,6 +830,20 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             }
         }
         return root;
+    }
+
+    private void putFeatureBullets(ObjectNode attributes, List<String> highlights) {
+        if (highlights == null || highlights.isEmpty()) {
+            return;
+        }
+        int index = 1;
+        for (String highlight : highlights) {
+            if (!hasMeaningfulText(highlight)) {
+                continue;
+            }
+            attributes.put("feature_bullet_" + index, highlight.trim());
+            index++;
+        }
     }
 
     private ObjectNode upsertPriceBody(
@@ -1161,6 +1185,25 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         if (StringUtils.hasText(value)) {
             target.put(field, value.trim());
         }
+    }
+
+    private void putIfHasMeaningfulText(ObjectNode target, String field, String value) {
+        if (hasMeaningfulText(value)) {
+            target.put(field, value.trim());
+        }
+    }
+
+    private boolean hasMeaningfulText(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        String plainText = value
+                .replace("&nbsp;", " ")
+                .replace("&#160;", " ")
+                .replaceAll("(?i)<br\\s*/?>", " ")
+                .replaceAll("<[^>]+>", " ")
+                .trim();
+        return StringUtils.hasText(plainText);
     }
 
     private String text(JsonNode node, String field) {

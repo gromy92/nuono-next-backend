@@ -216,6 +216,19 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
+    void productSiteOfferProjectionRowsShouldExposeListingStartedMetadataForRebuildInheritance() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectProductSiteOfferProjectionRows".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("DATE_FORMAT(pso.listing_started_at, '%Y-%m-%d %H:%i:%s') AS listingStartedAt"));
+        assertTrue(sql.contains("pso.listing_started_source AS listingStartedSource"));
+    }
+
+    @Test
     void listingStartedSalesFactRefreshShouldRevisitMissingOrNotListedOffers() {
         Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "refreshProductSiteOfferListingStartedAtBySalesFact".equals(candidate.getName()))

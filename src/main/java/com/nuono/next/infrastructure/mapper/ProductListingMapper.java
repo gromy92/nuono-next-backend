@@ -192,6 +192,31 @@ public interface ProductListingMapper {
             @Param("sourceTaskId") Long sourceTaskId
     );
 
+    @Select({
+            "SELECT",
+            "  t.id, t.draft_id, t.owner_user_id, t.store_code, t.task_no, t.mode, t.status,",
+            "  t.source_task_id, t.input_snapshot_json, t.validation_json, t.confirmation_json,",
+            "  t.noon_result_json, t.failure_category, t.failure_code, t.failure_message,",
+            "  t.submitted_by, t.submitted_at, t.started_at, t.completed_at, t.gmt_create, t.gmt_updated",
+            "FROM product_listing_task t",
+            "JOIN product_listing_draft d",
+            "  ON d.id = t.draft_id",
+            " AND d.owner_user_id = t.owner_user_id",
+            "WHERE d.owner_user_id = #{ownerUserId}",
+            "  AND d.store_code = #{storeCode}",
+            "  AND d.source_type = #{sourceType}",
+            "  AND d.source_ref_id = #{sourceRefId}",
+            "  AND t.mode = 'REAL_RUN'",
+            "ORDER BY t.submitted_at DESC, t.id DESC",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectLatestRealRunTaskByDraftSource(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("sourceType") String sourceType,
+            @Param("sourceRefId") Long sourceRefId
+    );
+
     @Update({
             "UPDATE product_listing_task",
             "SET status = 'running',",

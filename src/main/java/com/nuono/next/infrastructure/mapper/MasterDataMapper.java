@@ -177,13 +177,26 @@ public interface MasterDataMapper {
 
     @Select({
             "SELECT",
-            "  id,",
-            "  name,",
-            "  parent_id,",
-            "  url_path",
-            "FROM menu",
-            "WHERE is_deleted = 0",
-            "ORDER BY parent_id ASC, id ASC"
+            "  m.id,",
+            "  m.name,",
+            "  CASE",
+            "    WHEN m.parent_id REGEXP '^[0-9]+$' THEN CAST(m.parent_id AS UNSIGNED)",
+            "    WHEN parent_menu.id IS NOT NULL THEN parent_menu.id",
+            "    ELSE NULL",
+            "  END AS parent_id,",
+            "  m.url_path",
+            "FROM menu m",
+            "LEFT JOIN menu parent_menu ON parent_menu.is_deleted = 0",
+            "  AND m.parent_id IS NOT NULL",
+            "  AND LOWER(TRIM(m.parent_id)) = LOWER(TRIM(BOTH '/' FROM parent_menu.url_path))",
+            "WHERE m.is_deleted = 0",
+            "ORDER BY",
+            "  CASE",
+            "    WHEN m.parent_id REGEXP '^[0-9]+$' THEN CAST(m.parent_id AS UNSIGNED)",
+            "    WHEN parent_menu.id IS NOT NULL THEN parent_menu.id",
+            "    ELSE NULL",
+            "  END ASC,",
+            "  m.id ASC"
     })
     List<MasterDataMenuView> listMenus();
 

@@ -153,6 +153,34 @@ class ProductListingRealRunServiceTest {
     }
 
     @Test
+    void submitConfirmedRealRunFromDraftUsesSharedDraftDryRunAndRealRunPipeline() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(successResult());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
+        );
+
+        ProductListingRealRunSubmission submission = service.submitConfirmedRealRunFromDraft(
+                context,
+                ProductListingTestFixtures.validCommand(),
+                "confirmed by product rebuild after delete task 77001"
+        );
+
+        assertEquals(10001L, submission.getDraft().getDraftId());
+        assertEquals(20001L, submission.getDryRun().getTaskId());
+        assertEquals("validated", submission.getDryRun().getStatus());
+        assertEquals(20002L, submission.getRealRun().getTaskId());
+        assertEquals("submitted", submission.getRealRun().getStatus());
+        assertEquals(20001L, submission.getRealRun().getSourceTaskId());
+        assertEquals(0, adapter.callCount());
+    }
+
+    @Test
     void killSwitchRejectsConfirmedRealRunWithoutCallingAdapter() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();

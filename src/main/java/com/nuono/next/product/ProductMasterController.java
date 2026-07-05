@@ -192,6 +192,32 @@ public class ProductMasterController {
         }
     }
 
+    @PostMapping("/rebuild")
+    public ProductListDatasetView rebuild(
+            @RequestBody ProductMasterFetchCommand command,
+            HttpServletRequest request
+    ) {
+        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+        if (productMasterService == null) {
+            ProductListDatasetView view = new ProductListDatasetView();
+            view.setReady(false);
+            view.setSource("bootstrap-only");
+            view.setMessage("当前仍在无数据库骨架模式，暂时不能重建商品。");
+            return view;
+        }
+
+        try {
+            applyProductScope(command, request);
+            return productMasterService.rebuildProduct(command);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+        }
+    }
+
     @PostMapping("/history")
     public ProductHistoryView history(
             @RequestBody ProductMasterFetchCommand command,

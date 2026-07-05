@@ -301,6 +301,209 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void listSummariesShouldShowRebuildDeleteTaskAsRebuildInProgress() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setCurrentZCode("ZTEST001");
+        record.setPartnerSku("PARTNER-001");
+        record.setTitle("Amber Burner");
+        record.setDetailBaselineStatus("ready");
+        record.setSyncStatus("synced");
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64002L);
+        task.setProductMasterId(52001L);
+        task.setTaskType("product-delete");
+        task.setStatus("queued");
+        task.setPartnerSku("PARTNER-001");
+        task.setPskuCode("NOON-001");
+        task.setSubmittedAt(LocalDateTime.of(2026, 7, 4, 15, 30));
+        task.setRequestJson("{\"action\":\"product-delete\",\"rebuildAction\":\"product-rebuild\"}");
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR245027-NAE"))
+                .thenReturn(50003L);
+        when(productManagementMapper.selectLatestProductPublishTasksByStorePartnerSkus(
+                eq(50003L),
+                eq(List.of("PARTNER-001"))
+        ))
+                .thenReturn(List.of(task));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        assertNotNull(summaries.get(0).getLastPublishTask());
+        assertEquals("product-rebuild", summaries.get(0).getLastPublishTask().get("taskType"));
+        assertEquals("重建中", summaries.get(0).getLastPublishTask().get("statusLabel"));
+        assertEquals("商品重建已排队，系统会先删除旧 PSKU。", summaries.get(0).getLastPublishTask().get("resultText"));
+    }
+
+    @Test
+    void listSummariesShouldIncludeVisibleRebuildTaskWhenSourceMasterWasDeleted() throws Exception {
+        ProductMasterSnapshotView snapshot = historySnapshot("PIECE title", "عنوان", "Note");
+        snapshot.getIdentity().put("skuParent", "Z85F0FCAE5F7CF01AEC82Z");
+        snapshot.getIdentity().put("partnerSku", "PIECE001");
+        snapshot.getIdentity().put("pskuCode", "a65fefec83a3ec3c1440483579d40c1a");
+        snapshot.getIdentity().put("brand", "xingyao");
+        snapshot.getContent().put("titleEn", "PIECE title");
+        snapshot.getContent().put("titleCn", "PIECE 中文");
+        snapshot.getTaxonomy().put("productFulltype", "Home > Test");
+
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64084L);
+        task.setProductMasterId(53263L);
+        task.setTaskType("product-delete");
+        task.setStatus("synced");
+        task.setSkuParent("Z85F0FCAE5F7CF01AEC82Z");
+        task.setPartnerSku("PIECE001");
+        task.setPskuCode("a65fefec83a3ec3c1440483579d40c1a");
+        task.setCurrentSiteCode("AE");
+        task.setFinishedAt(LocalDateTime.of(2026, 7, 4, 18, 6, 34));
+        task.setBaselineJson(new ObjectMapper().writeValueAsString(snapshot));
+        task.setDraftJson(task.getBaselineJson());
+        task.setRequestJson("{\"action\":\"product-delete\",\"rebuildAction\":\"product-rebuild\"}");
+        task.setResultJson("{\"status\":\"synced\"}");
+
+        when(productManagementMapper.selectProductListProjection(307L, "STR245027-NSA"))
+                .thenReturn(List.of());
+        when(productManagementMapper.selectVisibleProductRebuildTasksByStore(307L, "STR245027-NSA", 50))
+                .thenReturn(List.of(task));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                307L,
+                "STR245027-NSA",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        ProductListSummaryView summary = summaries.get(0);
+        assertTrue(summary.isReady());
+        assertEquals("rebuild-task", summary.getSource());
+        assertEquals("STR245027-NSA", summary.getStoreCode());
+        assertEquals("Z85F0FCAE5F7CF01AEC82Z", summary.getSkuParent());
+        assertEquals("PIECE001", summary.getPartnerSku());
+        assertEquals("SELF_BUILT", summary.getProductSourceType());
+        assertEquals("PIECE 中文", summary.getTitleCn());
+        assertNotNull(summary.getLastPublishTask());
+        assertEquals("product-rebuild", summary.getLastPublishTask().get("taskType"));
+        assertEquals("重建中", summary.getLastPublishTask().get("statusLabel"));
+        assertEquals("旧 PSKU 删除已确认，系统正在提交重建上架。", summary.getLastPublishTask().get("resultText"));
+    }
+
+    @Test
+    void historyShouldFallbackToVisibleRebuildTaskWhenSourceMasterWasDeleted() throws Exception {
+        ProductMasterSnapshotView snapshot = historySnapshot("PIECE title", "عنوان", "Note");
+        snapshot.getIdentity().put("skuParent", "Z85F0FCAE5F7CF01AEC82Z");
+        snapshot.getIdentity().put("partnerSku", "PIECE001");
+        snapshot.getIdentity().put("pskuCode", "a65fefec83a3ec3c1440483579d40c1a");
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64084L);
+        task.setProductMasterId(53263L);
+        task.setTaskType("product-delete");
+        task.setStatus("synced");
+        task.setSkuParent("Z85F0FCAE5F7CF01AEC82Z");
+        task.setPartnerSku("PIECE001");
+        task.setPskuCode("a65fefec83a3ec3c1440483579d40c1a");
+        task.setCurrentSiteCode("AE");
+        task.setFinishedAt(LocalDateTime.of(2026, 7, 4, 18, 6, 34));
+        task.setBaselineJson(new ObjectMapper().writeValueAsString(snapshot));
+        task.setDraftJson(task.getBaselineJson());
+        task.setRequestJson("{\"action\":\"product-delete\",\"rebuildAction\":\"product-rebuild\"}");
+        task.setResultJson("{\"status\":\"synced\"}");
+
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(307L, "STR245027-NSA"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50001L, "PIECE001"))
+                .thenReturn(null);
+        when(productManagementMapper.selectProductMasterIdByStoreCode(307L, "STR245027-NSA", "Z85F0FCAE5F7CF01AEC82Z"))
+                .thenReturn(null);
+        when(productManagementMapper.selectLatestVisibleProductRebuildTaskByStoreIdentity(
+                307L,
+                "STR245027-NSA",
+                "PIECE001",
+                "Z85F0FCAE5F7CF01AEC82Z"
+        )).thenReturn(task);
+
+        ProductHistoryView view = service.loadProductHistoryView(
+                307L,
+                "STR245027-NSA",
+                "PIECE001",
+                "Z85F0FCAE5F7CF01AEC82Z",
+                new ArrayList<>()
+        );
+
+        assertTrue(view.isReady());
+        assertEquals("rebuild-task-history", view.getSource());
+        assertEquals("PIECE001", view.getListSummary().getPartnerSku());
+        assertEquals("重建中", view.getListSummary().getLastPublishTask().get("statusLabel"));
+        assertEquals(1, view.getHistoryItems().size());
+        Map<String, Object> item = view.getHistoryItems().get(0);
+        assertEquals("product-rebuild", item.get("actionType"));
+        assertEquals("重建中", item.get("statusLabel"));
+        assertEquals("旧 PSKU 删除已确认，系统正在提交重建上架。", item.get("message"));
+    }
+
+    @Test
+    void historyShouldIncludeRebuildTaskEvenWhenSnapshotsHaveNoFieldChanges() throws Exception {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZCURRENT001");
+        record.setCurrentZCode("ZCURRENT001");
+        record.setPartnerSku("PARTNER-PSKU-001");
+        record.setTitle("PSKU history product");
+        record.setSyncStatus("synced");
+        ProductMasterSnapshotView snapshot = historySnapshot("Same title", "عنوان", "Same note");
+        String snapshotJson = new ObjectMapper().writeValueAsString(snapshot);
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64002L);
+        task.setProductMasterId(52001L);
+        task.setTaskType("product-delete");
+        task.setStatus("queued");
+        task.setPartnerSku("PARTNER-PSKU-001");
+        task.setPskuCode("NOON-001");
+        task.setSubmittedAt(LocalDateTime.of(2026, 7, 4, 15, 31));
+        task.setBaselineJson(snapshotJson);
+        task.setDraftJson(snapshotJson);
+        task.setRequestJson("{\"action\":\"product-delete\",\"rebuildAction\":\"product-rebuild\"}");
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectProductListProjectionByStorePartnerSku(
+                50001L,
+                "STR245027-NAE",
+                "PARTNER-PSKU-001"
+        )).thenReturn(record);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50001L, "PARTNER-PSKU-001"))
+                .thenReturn(52001L);
+        when(productManagementMapper.selectRecentProductPublishTasks(52001L)).thenReturn(List.of(task));
+        when(productManagementMapper.selectRecentProductActionLogs(52001L)).thenReturn(List.of());
+        when(productManagementMapper.selectPendingProductKeyContentHistories(52001L)).thenReturn(List.of());
+        when(productManagementMapper.selectVisibleProductKeyContentHistories(52001L)).thenReturn(List.of());
+        when(productManagementMapper.countVisibleProductKeyContentHistories(52001L)).thenReturn(0);
+        when(productManagementMapper.countPendingProductKeyContentHistories(52001L)).thenReturn(0);
+
+        ProductHistoryView view = service.loadProductHistoryView(
+                10002L,
+                "STR245027-NAE",
+                "PARTNER-PSKU-001",
+                null,
+                new ArrayList<>()
+        );
+
+        assertTrue(view.isReady());
+        assertEquals(1, view.getHistoryItems().size());
+        Map<String, Object> item = view.getHistoryItems().get(0);
+        assertEquals("modification", item.get("historyKind"));
+        assertEquals("publish_task", item.get("source"));
+        assertEquals("product-rebuild", item.get("actionType"));
+        assertEquals("queued", item.get("resultStatus"));
+        assertEquals("重建中", item.get("statusLabel"));
+        assertEquals("商品重建已排队，系统会先删除旧 PSKU。", item.get("message"));
+        assertFalse(item.containsKey("changes"));
+    }
+
+    @Test
     void shouldPreserveExistingEditableOfferProjectionWhenIncomingOfferOmitsFields() throws Exception {
         Map<String, Object> incoming = new LinkedHashMap<>();
         incoming.put("storeCode", "STR245027-NAE");
@@ -559,6 +762,34 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void shouldHydrateListingStartedMetadataFromProjectionRowsForRebuildInheritance() throws Exception {
+        when(productManagementMapper.selectProductSiteOfferProjectionRows(52006L))
+                .thenReturn(List.of(new LinkedHashMap<>(Map.of(
+                        "storeCode", "STR245027-NSA",
+                        "site", "SA",
+                        "pskuCode", "a65fefec83a3ec3c1440483579d40c1a",
+                        "offerCode", "Z85F0FCAE5F7CF01AEC82Z",
+                        "listingStartedAt", "2026-07-03 10:24:03",
+                        "listingStartedSource", "product_listing"
+                ))));
+
+        ProductMasterSnapshotView current = new ProductMasterSnapshotView();
+        current.getStoreContext().put("storeCode", "STR245027-NSA");
+        current.setPricing(new LinkedHashMap<>());
+        current.setStock(new LinkedHashMap<>());
+        current.setSiteOffers(new ArrayList<>(List.of(new LinkedHashMap<>(Map.of(
+                "storeCode", "STR245027-NSA",
+                "site", "SA"
+        )))));
+
+        invokeHydrateSnapshotFromProjection(52006L, "STR245027-NSA", current);
+
+        Map<String, Object> hydratedOffer = current.getSiteOffers().get(0);
+        assertEquals("2026-07-03 10:24:03", hydratedOffer.get("listingStartedAt"));
+        assertEquals("product_listing", hydratedOffer.get("listingStartedSource"));
+    }
+
+    @Test
     void shouldRejectProjectionSiteSeedWhenStoreCodeBelongsToAnotherLogicalStore() {
         ProductProjectionPersistenceService.ProductMasterSeed productSeed =
                 new ProductProjectionPersistenceService.ProductMasterSeed();
@@ -699,6 +930,21 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         );
         method.setAccessible(true);
         method.invoke(service, productMasterId, snapshot);
+    }
+
+    private void invokeHydrateSnapshotFromProjection(
+            Long productMasterId,
+            String referenceStoreCode,
+            ProductMasterSnapshotView snapshot
+    ) throws Exception {
+        Method method = ProductProjectionPersistenceService.class.getDeclaredMethod(
+                "hydrateSnapshotFromProjection",
+                Long.class,
+                String.class,
+                ProductMasterSnapshotView.class
+        );
+        method.setAccessible(true);
+        method.invoke(service, productMasterId, referenceStoreCode, snapshot);
     }
 
     private LocalDateTime invokeParseDateTime(String value) throws Exception {

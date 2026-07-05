@@ -21,6 +21,8 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
 
     private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int LISTING_STARTED_SOURCE_MAX_LENGTH = 40;
+    private static final String REBUILD_INHERITED_SOURCE_PREFIX = "product_rebuild_inherited:";
 
     private final ProductProjectionPersistenceService projectionPersistenceService;
     private final ProductListingProjectionMapper projectionMapper;
@@ -192,15 +194,46 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
         ProductProjectionPersistenceService.SiteOfferSeed offerSeed =
                 ProductProjectionPersistenceService.SiteOfferSeed.fromRepresentative(seed);
         offerSeed.setCurrency(currencyForSite(storeContext.getSite()));
-        offerSeed.setListingStartedAt(listingStartedAt(task));
-        offerSeed.setListingStartedSource("product_listing");
+        offerSeed.setListingStartedAt(listingStartedAt(task, draft));
+        offerSeed.setListingStartedSource(listingStartedSource(draft));
         seed.setSiteOffers(List.of(offerSeed));
         return seed;
     }
 
-    private String listingStartedAt(ProductListingTaskRecord task) {
+    private String listingStartedAt(ProductListingTaskRecord task, ProductListingDraftCommand draft) {
+        if (draft != null && StringUtils.hasText(draft.getInheritedListingStartedAt())) {
+            return normalize(draft.getInheritedListingStartedAt());
+        }
         LocalDateTime completedAt = task == null ? null : task.getCompletedAt();
         return TIME_FORMATTER.format(completedAt == null ? LocalDateTime.now() : completedAt);
+    }
+
+    private String listingStartedSource(ProductListingDraftCommand draft) {
+        if (draft != null && StringUtils.hasText(draft.getInheritedListingStartedAt())) {
+            String source = inheritedListingSourceAlias(normalize(draft.getInheritedListingStartedSource()));
+            return fitListingStartedSource(StringUtils.hasText(source)
+                    ? REBUILD_INHERITED_SOURCE_PREFIX + source
+                    : "product_rebuild_inherited");
+        }
+        return "product_listing";
+    }
+
+    private String inheritedListingSourceAlias(String source) {
+        if (!StringUtils.hasText(source)) {
+            return null;
+        }
+        if ("product_listing".equalsIgnoreCase(source)) {
+            return "listing";
+        }
+        return source;
+    }
+
+    private String fitListingStartedSource(String source) {
+        String normalized = normalize(source);
+        if (!StringUtils.hasText(normalized) || normalized.length() <= LISTING_STARTED_SOURCE_MAX_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, LISTING_STARTED_SOURCE_MAX_LENGTH);
     }
 
     private ProductMasterSnapshotView draftSnapshot(

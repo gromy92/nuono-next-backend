@@ -160,6 +160,24 @@ public class ProductListingController {
         }
     }
 
+    @PostMapping("/tasks/{realRunTaskId}/replay-projection")
+    public ProductListingTaskView replayRealRunProjectionBackfill(
+            @PathVariable Long realRunTaskId,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING
+            );
+            return service.replaySuccessfulProjectionBackfill(context, realRunTaskId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @GetMapping("/tasks/recent")
     public List<ProductListingTaskView> recentTasks(
             @RequestParam String storeCode,
