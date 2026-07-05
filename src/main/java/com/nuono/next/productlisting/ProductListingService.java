@@ -221,6 +221,28 @@ public class ProductListingService {
         return taskView(task, readIssues(task.getValidationJson()));
     }
 
+    public ProductListingRealRunSubmission submitConfirmedRealRunFromDraft(
+            BusinessAccessContext context,
+            ProductListingDraftCommand draft,
+            String confirmationNote
+    ) {
+        requireContext(context);
+        ProductListingDraftView draftView = saveDraft(context, draft);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draftView.getDraftId());
+        dryRunCommand.setStoreCode(draftView.getStoreCode());
+        ProductListingTaskView dryRun = submitDryRun(context, dryRunCommand);
+        if (dryRun == null || !"validated".equalsIgnoreCase(dryRun.getStatus())) {
+            return new ProductListingRealRunSubmission(draftView, dryRun, null);
+        }
+
+        ProductListingRealRunCommand realRunCommand = new ProductListingRealRunCommand();
+        realRunCommand.setConfirmRealNoonWrite(true);
+        realRunCommand.setConfirmationNote(confirmationNote);
+        ProductListingTaskView realRun = confirmRealRun(context, dryRun.getTaskId(), realRunCommand);
+        return new ProductListingRealRunSubmission(draftView, dryRun, realRun);
+    }
+
     public ProductListingTaskView confirmRealRun(
             BusinessAccessContext context,
             Long dryRunTaskId,
@@ -381,6 +403,27 @@ public class ProductListingService {
         ProductListingNoonWriteResult result = resultWithContinuation(previousResult, continuationResult);
         applyNoonWriteResult(task, result);
         mapper.updateTaskResult(task);
+        return taskView(task, readIssues(task.getValidationJson()));
+    }
+
+    public ProductListingTaskView replaySuccessfulProjectionBackfill(
+            BusinessAccessContext context,
+            Long realRunTaskId
+    ) {
+        requireContext(context);
+        Long ownerUserId = requireOwnerUserId(context);
+        ProductListingTaskRecord task = requireTask(realRunTaskId, ownerUserId);
+        requireStoreAccess(context, task.getStoreCode());
+        if (!REAL_RUN_MODE.equals(task.getMode()) || !"succeeded".equals(task.getStatus())) {
+            throw new IllegalArgumentException("Only succeeded product listing real-run tasks can replay projection backfill.");
+        }
+        ProductListingNoonWriteResult result = readNoonResult(task.getNoonResultJson());
+        if (result == null || !result.isSuccess()) {
+            throw new IllegalArgumentException("Product listing real-run task does not contain a successful Noon write result.");
+        }
+        if (!backfillProductProjection(task, result)) {
+            throw new IllegalStateException("Product listing projection backfill failed.");
+        }
         return taskView(task, readIssues(task.getValidationJson()));
     }
 
@@ -659,12 +702,13 @@ public class ProductListingService {
                 : "Product listing Noon write failed.");
     }
 
-    private void backfillProductProjection(
+    private boolean backfillProductProjection(
             ProductListingTaskRecord task,
             ProductListingNoonWriteResult result
     ) {
         try {
             projectionBackfill.backfillSuccessfulListing(task, readDraft(task.getInputSnapshotJson()), result);
+            return true;
         } catch (RuntimeException exception) {
             LOGGER.warn(
                     "Product listing projection backfill failed: taskId={}, taskNo={}",
@@ -672,6 +716,7 @@ public class ProductListingService {
                     task == null ? null : task.getTaskNo(),
                     exception
             );
+            return false;
         }
     }
 

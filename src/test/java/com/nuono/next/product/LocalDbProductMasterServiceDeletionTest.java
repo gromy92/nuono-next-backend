@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -35,6 +36,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.InOrder;
 import org.junit.jupiter.api.Test;
@@ -124,6 +126,102 @@ class LocalDbProductMasterServiceDeletionTest {
         assertEquals("product-delete", item.getLastPublishTask().get("taskType"));
         assertEquals("删除中", item.getLastPublishTask().get("statusLabel"));
         verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(any(), any(), any());
+        verify(productManagementMapper, never()).markProductMasterDeletedById(any(), any());
+    }
+
+    @Test
+    void productRebuildShouldCreateDeleteTaskWithCurrentLocalListingDraft() throws Exception {
+        ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
+        StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
+        ProductProjectionPersistenceService productProjectionPersistenceService =
+                mock(ProductProjectionPersistenceService.class);
+        ProductPublishCommandService publishCommandService = mock(ProductPublishCommandService.class);
+        ProductReadModelService readModelService = mock(ProductReadModelService.class);
+        LocalDbProductMasterService service = new LocalDbProductMasterService(
+                productManagementMapper,
+                null,
+                null,
+                storeSyncMapper,
+                null,
+                objectMapper,
+                null,
+                productProjectionPersistenceService,
+                null,
+                null,
+                null,
+                null,
+                null,
+                publishCommandService,
+                readModelService,
+                null,
+                null,
+                null,
+                null
+        );
+        StoreSyncStoreRecord store = productStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        when(productManagementMapper.selectProductMasterIdentityByStorePartnerSku(
+                10002L,
+                "STR245027-NAE",
+                "MILKYWAYA17"
+        )).thenReturn(productIdentity(64001L, 50001L, "STR245027-NAE", "AE", "ZOLDPSKU001", "MILKYWAYA17", "PSKU-CURRENT"));
+        when(productProjectionPersistenceService.loadLatestBaselineSnapshot(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("MILKYWAYA17"),
+                eq("ZOLDPSKU001"),
+                anyList()
+        )).thenReturn(productRebuildSnapshot());
+        when(productProjectionPersistenceService.loadPersistedWorkbenchState(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("MILKYWAYA17"),
+                eq("ZOLDPSKU001"),
+                anyList()
+        )).thenReturn(null);
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(77001L);
+        task.setTaskType("product-delete");
+        task.setStatus("queued");
+        task.setSkuParent("ZOLDPSKU001");
+        task.setPartnerSku("MILKYWAYA17");
+        task.setPskuCode("PSKU-CURRENT");
+        task.setRequestJson("{\"action\":\"product-delete\",\"rebuildAction\":\"product-rebuild\"}");
+        when(publishCommandService.createProductDeleteTask(any(ProductPublishTaskCreateCommand.class)))
+                .thenReturn(ProductPublishCommandService.ProductPublishTaskCreateResult.created(task));
+        ProductListDatasetView expected = new ProductListDatasetView();
+        LocalDbStoreInitializationService.StoreInitializationProductListItemView item =
+                new LocalDbStoreInitializationService.StoreInitializationProductListItemView();
+        item.setSkuParent("ZOLDPSKU001");
+        item.setPartnerSku("MILKYWAYA17");
+        expected.setItems(List.of(item));
+        when(readModelService.loadListDataset(any(ProductMasterFetchCommand.class))).thenReturn(expected);
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+        command.setSkuParent("ZOLDPSKU001");
+        command.setPartnerSku("MILKYWAYA17");
+
+        ProductListDatasetView actual = service.rebuildProduct(command);
+
+        assertSame(expected, actual);
+        ArgumentCaptor<ProductPublishTaskCreateCommand> taskCaptor =
+                ArgumentCaptor.forClass(ProductPublishTaskCreateCommand.class);
+        verify(publishCommandService).createProductDeleteTask(taskCaptor.capture());
+        JsonNode request = objectMapper.readTree(taskCaptor.getValue().getRequestJson());
+        assertEquals("product-delete", request.path("action").asText());
+        assertEquals("product-rebuild", request.path("rebuildAction").asText());
+        assertEquals(64001L, request.path("rebuildSourceProductMasterId").asLong());
+        JsonNode listingDraft = request.path("rebuildListingDraft");
+        assertEquals("PRODUCT_REBUILD", listingDraft.path("sourceType").asText());
+        assertEquals(64001L, listingDraft.path("sourceRefId").asLong());
+        assertEquals("MILKYWAYA17", listingDraft.path("psku").asText());
+        assertEquals("2026-03-12 00:00:00", listingDraft.path("inheritedListingStartedAt").asText());
+        assertEquals("pv", listingDraft.path("inheritedListingStartedSource").asText());
+        assertEquals("商品重建已提交后台处理：系统会先删除 Noon 旧商品，确认删除后按当前本地数据重新上架。", actual.getMessage());
+        assertEquals("product-rebuild", item.getLastPublishTask().get("taskType"));
+        assertEquals("重建中", item.getLastPublishTask().get("statusLabel"));
         verify(productManagementMapper, never()).markProductMasterDeletedById(any(), any());
     }
 
@@ -753,6 +851,38 @@ class LocalDbProductMasterServiceDeletionTest {
         return store;
     }
 
+    private static ProductMasterSnapshotView productRebuildSnapshot() {
+        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+        snapshot.setReady(true);
+        snapshot.getIdentity().put("partnerSku", "MILKYWAYA17");
+        snapshot.getIdentity().put("brand", "Generic");
+        snapshot.getIdentity().put("brandCode", "generic");
+        snapshot.getTaxonomy().put("idProductFullType", 3066);
+        snapshot.getTaxonomy().put("productFulltype", "electronic_accessories-headphones-wired_headphones");
+        snapshot.getTaxonomy().put("family", "electronic_accessories");
+        snapshot.getTaxonomy().put("productType", "headphones");
+        snapshot.getTaxonomy().put("productSubtype", "wired_headphones");
+        snapshot.getContent().put("titleCn", "本地中文标题");
+        snapshot.getContent().put("titleEn", "Wired headphones with microphone");
+        snapshot.getContent().put("titleAr", "Arabic wired headphones title");
+        snapshot.getContent().put("descriptionEn", "English description");
+        snapshot.getContent().put("highlightsEn", List.of("Long cable", "Clear voice"));
+        snapshot.getContent().put("images", List.of("https://example.test/image-1.jpg"));
+        snapshot.setKeyAttributes(List.of(Map.of(
+                "code", "barcode",
+                "commonValue", "6290000000001"
+        )));
+        snapshot.getSiteOffers().add(Map.of(
+                "storeCode", "STR245027-NAE",
+                "price", "49.90",
+                "idWarranty", 24,
+                "isActive", true,
+                "listingStartedAt", "2026-03-12 00:00:00",
+                "listingStartedSource", "pv"
+        ));
+        return snapshot;
+    }
+
     private static StoreSyncOwnerContext productOwner() {
         StoreSyncOwnerContext owner = new StoreSyncOwnerContext();
         owner.setId(10002L);
@@ -822,6 +952,7 @@ class LocalDbProductMasterServiceDeletionTest {
         identity.setSkuParent(skuParent);
         identity.setPartnerSku(partnerSku);
         identity.setPskuCode(pskuCode);
+        identity.setProductSourceType("SELF_BUILT");
         return identity;
     }
 }

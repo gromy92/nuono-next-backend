@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
+import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
+import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -44,6 +46,26 @@ class ProductListingSpringWiringContractTest {
                 });
     }
 
+    @Test
+    void realWriteAdapterWinsWhenRealWriteIsEnabledAndSessionFactoryExists() {
+        new ApplicationContextRunner()
+                .withPropertyValues("nuono.product-listing.real-write.enabled=true")
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(ProductListingRealWriteProperties.class, ProductListingRealWriteProperties::new)
+                .withBean(NoonPullStoreBindingResolver.class, () -> mock(NoonPullStoreBindingResolver.class))
+                .withBean(NoonPullGatewaySessionFactory.class, () -> mock(NoonPullGatewaySessionFactory.class))
+                .withBean(ProductListingOfferStockWriteAdapter.class, UnavailableProductListingOfferStockWriteAdapter::new)
+                .withUserConfiguration(ProductListingRealWriteAdapterConfig.class)
+                .run(context -> {
+                    assertTrue(
+                            context.getStartupFailure() == null,
+                            () -> String.valueOf(context.getStartupFailure())
+                    );
+                    assertTrue(context.getBean(ProductListingNoonWriteAdapter.class)
+                            instanceof RealProductListingNoonWriteAdapter);
+                });
+    }
+
     @Configuration
     @Import({
             ProductListingValidator.class,
@@ -52,5 +74,13 @@ class ProductListingSpringWiringContractTest {
             ProductListingController.class
     })
     static class ProductListingWiringConfig {
+    }
+
+    @Configuration
+    @Import({
+            RealProductListingNoonWriteAdapter.class,
+            UnavailableProductListingNoonWriteAdapter.class
+    })
+    static class ProductListingRealWriteAdapterConfig {
     }
 }

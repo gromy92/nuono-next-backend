@@ -484,6 +484,16 @@ public class ProductProjectionPersistenceService {
             return;
         }
         putIfNotBlank(siteOffer, "pskuCode", firstNonBlank(text(siteOffer.get("pskuCode")), text(existingOffer.get("pskuCode"))));
+        putIfNotBlank(
+                siteOffer,
+                "listingStartedAt",
+                firstNonBlank(text(siteOffer.get("listingStartedAt")), text(existingOffer.get("listingStartedAt")))
+        );
+        putIfNotBlank(
+                siteOffer,
+                "listingStartedSource",
+                firstNonBlank(text(siteOffer.get("listingStartedSource")), text(existingOffer.get("listingStartedSource")))
+        );
         putIfNotNull(siteOffer, "fbnStock", firstNonNull(siteOffer.get("fbnStock"), existingOffer.get("fbnStock")));
         putIfNotNull(siteOffer, "supermallStock", firstNonNull(siteOffer.get("supermallStock"), existingOffer.get("supermallStock")));
         putIfNotNull(siteOffer, "fbpStock", firstNonNull(siteOffer.get("fbpStock"), existingOffer.get("fbpStock")));
@@ -598,6 +608,7 @@ public class ProductProjectionPersistenceService {
             hydrateListPublishTaskSummary(summary, latestPublishTasksByPartnerSku);
             summaries.add(summary);
         }
+        appendVisibleRebuildTaskSummaries(ownerUserId, normalizedStoreCode, summaries, warnings);
         return summaries;
     }
 
@@ -645,6 +656,17 @@ public class ProductProjectionPersistenceService {
                 skuParent
         );
         if (record == null) {
+            ProductPublishTaskRecord rebuildTask = selectLatestVisibleRebuildTaskByStoreIdentity(
+                    ownerUserId,
+                    normalizedStoreCode,
+                    partnerSku,
+                    skuParent
+            );
+            if (rebuildTask != null) {
+                ProductListSummaryView rebuildSummary = toRebuildTaskSummary(rebuildTask, normalizedStoreCode, warnings);
+                rebuildSummary.setWarnings(copyWarnings(warnings));
+                return rebuildSummary;
+            }
             summary.setReady(false);
             summary.setSource("missing");
             summary.setMessage("当前商品摘要投影尚未落库，暂时只能继续使用初始化快照兜底。");
@@ -841,6 +863,29 @@ public class ProductProjectionPersistenceService {
                 warnings
         );
         if (productMasterId == null) {
+            ProductPublishTaskRecord rebuildTask = selectLatestVisibleRebuildTaskByStoreIdentity(
+                    ownerUserId,
+                    storeCode,
+                    partnerSku,
+                    skuParent
+            );
+            if (rebuildTask != null) {
+                ProductListSummaryView rebuildSummary = toRebuildTaskSummary(rebuildTask, normalize(storeCode), warnings);
+                Map<String, Object> historyItem = buildPublishTaskHistoryItem(rebuildTask, warnings);
+                List<Map<String, Object>> items = new ArrayList<>();
+                if (historyItem != null) {
+                    items.add(historyItem);
+                }
+                view.setListSummary(rebuildSummary);
+                view.setReady(true);
+                view.setSource("rebuild-task-history");
+                view.setHistoryItems(items);
+                view.setVisibleKeyContentHistoryCount(0);
+                view.setPendingKeyContentHistoryCount(0);
+                view.setMessage(items.isEmpty() ? "已读取商品重建任务状态。" : "已读取商品重建任务历史。");
+                view.setWarnings(copyWarnings(warnings));
+                return view;
+            }
             view.setReady(false);
             view.setSource("missing");
             view.setMessage("当前商品还没有历史读模型，暂时不能读取商品修改历史明细。");
@@ -1034,6 +1079,8 @@ public class ProductProjectionPersistenceService {
         }
         putIfNotBlank(target, "liveStatus", text(row.get("liveStatus")));
         putIfNotBlank(target, "statusCode", text(row.get("statusCode")));
+        putIfNotBlank(target, "listingStartedAt", text(row.get("listingStartedAt")));
+        putIfNotBlank(target, "listingStartedSource", text(row.get("listingStartedSource")));
         putIfNotNull(target, "fbnStock", row.get("fbnStock"));
         putIfNotNull(target, "supermallStock", row.get("supermallStock"));
         putIfNotNull(target, "fbpStock", row.get("fbpStock"));
@@ -1810,6 +1857,89 @@ public class ProductProjectionPersistenceService {
         return view;
     }
 
+    private ProductListSummaryView toRebuildTaskSummary(
+            ProductPublishTaskRecord task,
+            String storeCode,
+            List<String> warnings
+    ) {
+        ProductListSummaryView view = new ProductListSummaryView();
+        view.setReady(task != null);
+        view.setSource(task != null ? "rebuild-task" : "missing");
+        view.setStoreCode(normalize(storeCode));
+        if (task == null) {
+            return view;
+        }
+        ProductMasterSnapshotView snapshot = readHistorySnapshot(
+                firstNonBlank(task.getDraftJson(), task.getBaselineJson()),
+                warnings
+        );
+        Map<String, Object> identity = snapshot == null ? Collections.emptyMap() : snapshot.getIdentity();
+        Map<String, Object> content = snapshot == null ? Collections.emptyMap() : snapshot.getContent();
+        Map<String, Object> taxonomy = snapshot == null ? Collections.emptyMap() : snapshot.getTaxonomy();
+        Map<String, Object> pricing = snapshot == null ? Collections.emptyMap() : snapshot.getPricing();
+        Map<String, Object> stock = snapshot == null ? Collections.emptyMap() : snapshot.getStock();
+        Map<String, Object> group = snapshot == null ? Collections.emptyMap() : snapshot.getGroup();
+        Map<String, Object> request = readTaskRequestMap(task);
+        Map<String, Object> rebuildListingDraft = objectMap(request.get("rebuildListingDraft"));
+
+        String currentZCode = firstNonBlank(
+                task.getSkuParent(),
+                text(identity.get("currentZCode")),
+                text(identity.get("skuParent"))
+        );
+        view.setSkuParent(currentZCode);
+        view.setCurrentZCode(currentZCode);
+        view.setProductSourceType(ProductSourceTypeSupport.resolve(
+                firstNonBlank(text(identity.get("productSourceType")), text(identity.get("sourceType")), "SELF_BUILT"),
+                null,
+                currentZCode
+        ));
+        view.setPartnerSku(firstNonBlank(task.getPartnerSku(), text(identity.get("partnerSku"))));
+        view.setPskuCode(firstNonBlank(task.getPskuCode(), text(identity.get("pskuCode"))));
+        view.setOfferCode(text(identity.get("offerCode")));
+        view.setTitle(firstNonBlank(
+                text(content.get("title")),
+                text(content.get("titleEn")),
+                text(identity.get("title")),
+                text(identity.get("titleEn"))
+        ));
+        view.setTitleCn(firstNonBlank(text(content.get("titleCn")), text(identity.get("titleCn"))));
+        view.setBrand(firstNonBlank(text(identity.get("brand")), text(content.get("brand"))));
+        view.setImageUrl(firstNonBlank(text(identity.get("imageUrl")), text(content.get("imageUrl"))));
+        view.setBarcode(firstNonBlank(text(identity.get("barcode")), text(pricing.get("barcode"))));
+        view.setReferencePrice(firstNonBlank(text(pricing.get("referencePrice")), text(pricing.get("finalPrice")), text(pricing.get("price"))));
+        view.setOriginalPrice(text(pricing.get("price")));
+        view.setSalePrice(text(pricing.get("salePrice")));
+        view.setProductFulltype(firstNonBlank(text(taxonomy.get("productFulltype")), text(taxonomy.get("fullType"))));
+        view.setSkuGroup(text(group.get("skuGroup")));
+        view.setGroupRef(text(group.get("groupRef")));
+        view.setGroupRefCanonical(text(group.get("groupRefCanonical")));
+        view.setSyncStatus("deleted");
+        view.setDetailBaselineStatus("ready");
+        view.setDetailBaselineMessage("详情基线已准备。");
+        view.setProductVariantSpecStatus("missing");
+        view.setListingStartedAt(firstNonBlank(
+                text(rebuildListingDraft.get("inheritedListingStartedAt")),
+                listingStartedAt(snapshot, task.getCurrentSiteCode())
+        ));
+        view.setListingStartedSource(firstNonBlank(
+                text(rebuildListingDraft.get("inheritedListingStartedSource")),
+                listingStartedSource(snapshot, task.getCurrentSiteCode())
+        ));
+        view.setTotalFbnStock(asInteger(stock.get("fbnStock")));
+        view.setTotalSupermallStock(asInteger(stock.get("supermallStock")));
+        view.setTotalFbpStock(asInteger(stock.get("fbpStock")));
+        view.setHistoryMetaReady(true);
+        view.setPendingKeyContentHistoryCount(0);
+        view.setVisibleKeyContentHistoryCount(0);
+        if (StringUtils.hasText(task.getCurrentSiteCode())) {
+            view.setSiteLabels(new ArrayList<>(List.of(task.getCurrentSiteCode())));
+        }
+        view.setLastPublishTask(buildLastPublishTaskSummary(task, warnings));
+        view.setMessage("商品重建任务仍在处理，旧商品主档已删除，当前列表按任务状态展示。");
+        return view;
+    }
+
     private void hydrateHistoryMeta(ProductListSummaryView view, Long ownerUserId, String storeCode) {
         if (view == null) {
             return;
@@ -1895,6 +2025,71 @@ public class ProductProjectionPersistenceService {
         view.setLastPublishTask(buildLastPublishTaskSummary(task, null));
     }
 
+    private void appendVisibleRebuildTaskSummaries(
+            Long ownerUserId,
+            String storeCode,
+            List<ProductListSummaryView> summaries,
+            List<String> warnings
+    ) {
+        if (ownerUserId == null || !StringUtils.hasText(storeCode) || summaries == null) {
+            return;
+        }
+        Map<String, Boolean> existingIdentityKeys = new LinkedHashMap<>();
+        for (ProductListSummaryView summary : summaries) {
+            rememberIdentityKey(existingIdentityKeys, summary == null ? null : summary.getPartnerSku());
+            rememberIdentityKey(existingIdentityKeys, summary == null ? null : summary.getSkuParent());
+            rememberIdentityKey(existingIdentityKeys, summary == null ? null : summary.getCurrentZCode());
+        }
+        List<ProductPublishTaskRecord> rebuildTasks =
+                productManagementMapper.selectVisibleProductRebuildTasksByStore(ownerUserId, storeCode, 50);
+        if (rebuildTasks == null || rebuildTasks.isEmpty()) {
+            return;
+        }
+        for (ProductPublishTaskRecord task : rebuildTasks) {
+            String partnerSkuKey = identityKey(task == null ? null : task.getPartnerSku());
+            String skuParentKey = identityKey(task == null ? null : task.getSkuParent());
+            if ((StringUtils.hasText(partnerSkuKey) && existingIdentityKeys.containsKey(partnerSkuKey))
+                    || (StringUtils.hasText(skuParentKey) && existingIdentityKeys.containsKey(skuParentKey))) {
+                continue;
+            }
+            ProductListSummaryView summary = toRebuildTaskSummary(task, storeCode, warnings);
+            summaries.add(summary);
+            rememberIdentityKey(existingIdentityKeys, summary.getPartnerSku());
+            rememberIdentityKey(existingIdentityKeys, summary.getSkuParent());
+            rememberIdentityKey(existingIdentityKeys, summary.getCurrentZCode());
+        }
+    }
+
+    private void rememberIdentityKey(Map<String, Boolean> identityKeys, String value) {
+        String key = identityKey(value);
+        if (StringUtils.hasText(key)) {
+            identityKeys.putIfAbsent(key, Boolean.TRUE);
+        }
+    }
+
+    private String identityKey(String value) {
+        String normalized = normalize(value);
+        return StringUtils.hasText(normalized) ? normalized.toUpperCase(Locale.ROOT) : null;
+    }
+
+    private ProductPublishTaskRecord selectLatestVisibleRebuildTaskByStoreIdentity(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String skuParent
+    ) {
+        if (ownerUserId == null || !StringUtils.hasText(storeCode)
+                || (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent))) {
+            return null;
+        }
+        return productManagementMapper.selectLatestVisibleProductRebuildTaskByStoreIdentity(
+                ownerUserId,
+                normalize(storeCode),
+                normalize(partnerSku),
+                normalize(skuParent)
+        );
+    }
+
     private Long resolveProductMasterIdForSummary(
             ProductListSummaryView view,
             Long ownerUserId,
@@ -1952,7 +2147,7 @@ public class ProductProjectionPersistenceService {
         ProductMasterSnapshotView draft = readHistorySnapshot(task.getDraftJson(), warnings);
         Map<String, Object> summary = new LinkedHashMap<>();
         putIfNotNull(summary, "taskId", task.getId());
-        putIfNotBlank(summary, "taskType", normalize(task.getTaskType()));
+        putIfNotBlank(summary, "taskType", listTaskType(task));
         putIfNotBlank(summary, "status", normalize(task.getStatus()));
         putIfNotBlank(summary, "statusLabel", statusLabel);
         putIfNotBlank(summary, "resultText", publishTaskHistoryMessage(task));
@@ -1968,10 +2163,17 @@ public class ProductProjectionPersistenceService {
     }
 
     private String publishTaskListStatusLabel(ProductPublishTaskRecord task) {
+        if (isProductRebuildTask(task)) {
+            return productRebuildListStatusLabel(task);
+        }
         if (isProductDeleteTask(task)) {
             return productDeleteListStatusLabel(task.getStatus());
         }
         return publishTaskListStatusLabel(task == null ? null : task.getStatus());
+    }
+
+    private String listTaskType(ProductPublishTaskRecord task) {
+        return isProductRebuildTask(task) ? "product-rebuild" : normalize(task == null ? null : task.getTaskType());
     }
 
     private String publishTaskListStatusLabel(String status) {
@@ -2020,6 +2222,47 @@ public class ProductProjectionPersistenceService {
                 || "verify_timeout".equalsIgnoreCase(normalized)
                 || "write_retry_scheduled".equalsIgnoreCase(normalized)) {
             return "删除中";
+        }
+        return null;
+    }
+
+    private String productRebuildListStatusLabel(ProductPublishTaskRecord task) {
+        Map<String, Object> rebuildState = productRebuildState(task);
+        String rebuildStatus = text(rebuildState.get("status"));
+        String listingStatus = text(rebuildState.get("listingStatus"));
+        if ("listing_failed".equalsIgnoreCase(rebuildStatus)
+                || "listing_validation_failed".equalsIgnoreCase(rebuildStatus)
+                || "failed".equalsIgnoreCase(listingStatus)
+                || "rejected".equalsIgnoreCase(listingStatus)) {
+            return "重建失败";
+        }
+        if ("listing_succeeded".equalsIgnoreCase(rebuildStatus)
+                || "succeeded".equalsIgnoreCase(listingStatus)) {
+            return "重建成功";
+        }
+        String normalized = normalizeProductDeleteStatus(task == null ? null : task.getStatus());
+        if ("failed".equalsIgnoreCase(normalized)) {
+            return "重建失败";
+        }
+        if ("pending_manual_check".equalsIgnoreCase(normalized)) {
+            return "重建待核对";
+        }
+        if ("cancelled".equalsIgnoreCase(normalized)) {
+            return "已取消";
+        }
+        if (!isProductRebuildDeleteTask(task) && "synced".equalsIgnoreCase(normalized)) {
+            return "重建成功";
+        }
+        if ("queued".equalsIgnoreCase(normalized)
+                || "running".equalsIgnoreCase(normalized)
+                || "submitted".equalsIgnoreCase(normalized)
+                || "verifying".equalsIgnoreCase(normalized)
+                || "pending_effective".equalsIgnoreCase(normalized)
+                || "write_unknown".equalsIgnoreCase(normalized)
+                || "verify_timeout".equalsIgnoreCase(normalized)
+                || "write_retry_scheduled".equalsIgnoreCase(normalized)
+                || "synced".equalsIgnoreCase(normalized)) {
+            return "重建中";
         }
         return null;
     }
@@ -2584,34 +2827,45 @@ public class ProductProjectionPersistenceService {
             return history;
         }
         for (ProductPublishTaskRecord task : productManagementMapper.selectRecentProductPublishTasks(productMasterId)) {
-            ProductMasterSnapshotView baseline = readHistorySnapshot(task.getBaselineJson(), warnings);
-            ProductMasterSnapshotView draft = readHistorySnapshot(task.getDraftJson(), warnings);
-            List<Map<String, Object>> changes = buildProductModificationChanges(
-                    baseline,
-                    draft,
-                    task.getCurrentSiteCode()
-            );
-            if (changes.isEmpty()) {
-                continue;
+            Map<String, Object> item = buildPublishTaskHistoryItem(task, warnings);
+            if (item != null) {
+                history.add(item);
             }
-            Map<String, Object> item = new LinkedHashMap<>();
-            putIfNotBlank(item, "historyKind", "modification");
-            putIfNotBlank(item, "source", "publish_task");
-            putIfNotNull(item, "taskId", task.getId());
-            putIfNotBlank(item, "actionType", "publish-current");
-            putIfNotBlank(item, "resultStatus", normalize(task.getStatus()));
-            putIfNotBlank(item, "statusLabel", publishTaskStatusLabel(task.getStatus()));
-            putIfNotBlank(item, "message", publishTaskHistoryMessage(task));
-            putIfNotBlank(item, "targetSiteCode", task.getCurrentSiteCode());
-            putIfNotBlank(item, "pskuCode", task.getPskuCode());
-            putIfNotBlank(item, "partnerSku", task.getPartnerSku());
-            putIfNotBlank(item, "publishedAt", taskHistoryTime(task));
-            putIfNotBlank(item, "visibilityStatus", "modification");
-            putIfNotNull(item, "changes", changes);
-            putIfNotNull(item, "changeTypes", changeTypes(changes));
-            history.add(item);
         }
         return history;
+    }
+
+    private Map<String, Object> buildPublishTaskHistoryItem(ProductPublishTaskRecord task, List<String> warnings) {
+        boolean rebuildTask = isProductRebuildTask(task);
+        boolean deleteTask = isProductDeleteTask(task);
+        ProductMasterSnapshotView baseline = readHistorySnapshot(task == null ? null : task.getBaselineJson(), warnings);
+        ProductMasterSnapshotView draft = readHistorySnapshot(task == null ? null : task.getDraftJson(), warnings);
+        List<Map<String, Object>> changes = buildProductModificationChanges(
+                baseline,
+                draft,
+                task == null ? null : task.getCurrentSiteCode()
+        );
+        if (changes.isEmpty() && !rebuildTask && !deleteTask) {
+            return null;
+        }
+        Map<String, Object> item = new LinkedHashMap<>();
+        putIfNotBlank(item, "historyKind", "modification");
+        putIfNotBlank(item, "source", "publish_task");
+        putIfNotNull(item, "taskId", task == null ? null : task.getId());
+        putIfNotBlank(item, "actionType", rebuildTask ? "product-rebuild" : deleteTask ? "product-delete" : "publish-current");
+        putIfNotBlank(item, "resultStatus", normalize(task == null ? null : task.getStatus()));
+        putIfNotBlank(item, "statusLabel", publishTaskStatusLabel(task));
+        putIfNotBlank(item, "message", publishTaskHistoryMessage(task));
+        putIfNotBlank(item, "targetSiteCode", task == null ? null : task.getCurrentSiteCode());
+        putIfNotBlank(item, "pskuCode", task == null ? null : task.getPskuCode());
+        putIfNotBlank(item, "partnerSku", task == null ? null : task.getPartnerSku());
+        putIfNotBlank(item, "publishedAt", taskHistoryTime(task));
+        putIfNotBlank(item, "visibilityStatus", "modification");
+        if (!changes.isEmpty()) {
+            putIfNotNull(item, "changes", changes);
+            putIfNotNull(item, "changeTypes", changeTypes(changes));
+        }
+        return item;
     }
 
     private List<Map<String, Object>> loadActionHistoryItems(Long productMasterId, List<String> warnings) {
@@ -2761,6 +3015,9 @@ public class ProductProjectionPersistenceService {
     }
 
     private String publishTaskHistoryMessage(ProductPublishTaskRecord task) {
+        if (isProductRebuildTask(task)) {
+            return productRebuildHistoryMessage(task);
+        }
         if (isProductDeleteTask(task)) {
             return productDeleteHistoryMessage(task);
         }
@@ -2815,6 +3072,60 @@ public class ProductProjectionPersistenceService {
         return "商品删除任务已记录。";
     }
 
+    private String productRebuildHistoryMessage(ProductPublishTaskRecord task) {
+        Map<String, Object> rebuildState = productRebuildState(task);
+        String rebuildStatus = text(rebuildState.get("status"));
+        String listingStatus = text(rebuildState.get("listingStatus"));
+        if ("listing_failed".equalsIgnoreCase(rebuildStatus)
+                || "listing_validation_failed".equalsIgnoreCase(rebuildStatus)
+                || "failed".equalsIgnoreCase(listingStatus)
+                || "rejected".equalsIgnoreCase(listingStatus)) {
+            return firstNonBlank(text(rebuildState.get("failureMessage")), "商品重建上架失败。");
+        }
+        if ("listing_succeeded".equalsIgnoreCase(rebuildStatus)
+                || "succeeded".equalsIgnoreCase(listingStatus)) {
+            return "商品重建已完成。";
+        }
+        if ("listing_running".equalsIgnoreCase(rebuildStatus)) {
+            return "旧 PSKU 删除已确认，系统正在提交重建上架。";
+        }
+        if ("listing_submitted".equalsIgnoreCase(rebuildStatus)) {
+            return "重建上架已提交，系统正在等待上架结果。";
+        }
+        if ("listing_already_submitted".equalsIgnoreCase(rebuildStatus)) {
+            return "重建上架任务已存在，系统正在等待上架结果。";
+        }
+        String status = task == null ? null : normalizeProductDeleteStatus(task.getStatus());
+        if ("failed".equalsIgnoreCase(status)) {
+            return firstNonBlank(task.getErrorMessage(), "商品重建失败，本地商品未删除。");
+        }
+        if ("pending_manual_check".equalsIgnoreCase(status)) {
+            return "商品重建结果需要人工核对。";
+        }
+        if ("cancelled".equalsIgnoreCase(status)) {
+            return "商品重建已取消。";
+        }
+        if ("queued".equalsIgnoreCase(status)) {
+            return "商品重建已排队，系统会先删除旧 PSKU。";
+        }
+        if ("running".equalsIgnoreCase(status)
+                || "submitted".equalsIgnoreCase(status)
+                || "verifying".equalsIgnoreCase(status)
+                || "pending_effective".equalsIgnoreCase(status)
+                || "write_unknown".equalsIgnoreCase(status)
+                || "verify_timeout".equalsIgnoreCase(status)
+                || "write_retry_scheduled".equalsIgnoreCase(status)) {
+            return "商品重建正在后台处理。";
+        }
+        if ("synced".equalsIgnoreCase(status) && isProductRebuildDeleteTask(task)) {
+            return "旧 PSKU 删除已确认，系统正在提交重建上架。";
+        }
+        if ("synced".equalsIgnoreCase(status)) {
+            return "商品重建已完成。";
+        }
+        return "商品重建任务已记录。";
+    }
+
     private String normalizeProductDeleteStatus(String status) {
         String normalized = normalize(status);
         if ("product_delete_queued".equalsIgnoreCase(normalized)) {
@@ -2843,6 +3154,107 @@ public class ProductProjectionPersistenceService {
 
     private boolean isProductDeleteTask(ProductPublishTaskRecord task) {
         return task != null && "product-delete".equalsIgnoreCase(normalize(task.getTaskType()));
+    }
+
+    private boolean isProductRebuildTask(ProductPublishTaskRecord task) {
+        if (task == null) {
+            return false;
+        }
+        return "product-rebuild".equalsIgnoreCase(normalize(task.getTaskType()))
+                || isProductRebuildDeleteTask(task);
+    }
+
+    private boolean isProductRebuildDeleteTask(ProductPublishTaskRecord task) {
+        if (!isProductDeleteTask(task)) {
+            return false;
+        }
+        Map<String, Object> request = readTaskRequestMap(task);
+        return "product-rebuild".equalsIgnoreCase(text(request.get("rebuildAction")))
+                || "product-rebuild".equalsIgnoreCase(text(request.get("action")));
+    }
+
+    private Map<String, Object> productRebuildState(ProductPublishTaskRecord task) {
+        Map<String, Object> result = readTaskResultMap(task);
+        return objectMap(result.get("rebuild"));
+    }
+
+    private Map<String, Object> readTaskRequestMap(ProductPublishTaskRecord task) {
+        if (task == null || !StringUtils.hasText(task.getRequestJson())) {
+            return Collections.emptyMap();
+        }
+        try {
+            return objectMapper.readValue(task.getRequestJson(), new TypeReference<Map<String, Object>>() {
+            });
+        } catch (JsonProcessingException exception) {
+            return Collections.emptyMap();
+        }
+    }
+
+    private Map<String, Object> readTaskResultMap(ProductPublishTaskRecord task) {
+        if (task == null || !StringUtils.hasText(task.getResultJson())) {
+            return Collections.emptyMap();
+        }
+        try {
+            return objectMapper.readValue(task.getResultJson(), new TypeReference<Map<String, Object>>() {
+            });
+        } catch (JsonProcessingException exception) {
+            return Collections.emptyMap();
+        }
+    }
+
+    private Map<String, Object> objectMap(Object value) {
+        if (!(value instanceof Map<?, ?>)) {
+            return Collections.emptyMap();
+        }
+        Map<?, ?> raw = (Map<?, ?>) value;
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : raw.entrySet()) {
+            if (entry.getKey() != null) {
+                result.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private String listingStartedAt(ProductMasterSnapshotView snapshot, String targetSiteCode) {
+        return siteOfferValue(snapshot, targetSiteCode, "listingStartedAt");
+    }
+
+    private String listingStartedSource(ProductMasterSnapshotView snapshot, String targetSiteCode) {
+        return siteOfferValue(snapshot, targetSiteCode, "listingStartedSource");
+    }
+
+    private String siteOfferValue(ProductMasterSnapshotView snapshot, String targetSiteCode, String field) {
+        if (snapshot == null || snapshot.getSiteOffers() == null || !StringUtils.hasText(field)) {
+            return null;
+        }
+        Map<String, Object> fallback = null;
+        String normalizedSiteCode = normalize(targetSiteCode);
+        for (Map<String, Object> siteOffer : snapshot.getSiteOffers()) {
+            if (siteOffer == null) {
+                continue;
+            }
+            if (fallback == null) {
+                fallback = siteOffer;
+            }
+            String siteCode = firstNonBlank(text(siteOffer.get("site")), text(siteOffer.get("siteCode")));
+            if (StringUtils.hasText(normalizedSiteCode)
+                    && StringUtils.hasText(siteCode)
+                    && normalizedSiteCode.equalsIgnoreCase(siteCode)) {
+                return text(siteOffer.get(field));
+            }
+        }
+        return fallback == null ? null : text(fallback.get(field));
+    }
+
+    private String publishTaskStatusLabel(ProductPublishTaskRecord task) {
+        if (isProductRebuildTask(task)) {
+            return productRebuildListStatusLabel(task);
+        }
+        if (isProductDeleteTask(task)) {
+            return productDeleteListStatusLabel(task.getStatus());
+        }
+        return publishTaskStatusLabel(task == null ? null : task.getStatus());
     }
 
     private String publishTaskStatusLabel(String status) {

@@ -405,6 +405,101 @@ public interface ProductManagementMapper {
     );
 
     @Select({
+            "SELECT ppt.*",
+            "FROM product_publish_task ppt",
+            "JOIN product_master source_pm",
+            "  ON source_pm.id = ppt.product_master_id",
+            "JOIN logical_store_site requested_site",
+            "  ON requested_site.logical_store_id = source_pm.logical_store_id",
+            " AND requested_site.store_code = #{storeCode}",
+            " AND requested_site.is_deleted = 0",
+            "JOIN logical_store ls",
+            "  ON ls.id = source_pm.logical_store_id",
+            " AND ls.owner_user_id = #{ownerUserId}",
+            " AND ls.is_deleted = 0",
+            "LEFT JOIN product_master active_pm",
+            "  ON active_pm.logical_store_id = source_pm.logical_store_id",
+            " AND active_pm.partner_sku = ppt.partner_sku",
+            " AND active_pm.is_deleted = 0",
+            "WHERE ppt.owner_user_id = #{ownerUserId}",
+            "  AND ppt.is_deleted = 0",
+            "  AND ppt.task_type = 'product-delete'",
+            "  AND JSON_VALID(ppt.request_json)",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(ppt.request_json, '$.rebuildAction')) = 'product-rebuild'",
+            "  AND active_pm.id IS NULL",
+            "  AND ppt.id = (",
+            "    SELECT MAX(latest.id)",
+            "    FROM product_publish_task latest",
+            "    WHERE latest.product_master_id = ppt.product_master_id",
+            "      AND latest.is_deleted = 0",
+            "      AND latest.task_type = 'product-delete'",
+            "      AND JSON_VALID(latest.request_json)",
+            "      AND JSON_UNQUOTE(JSON_EXTRACT(latest.request_json, '$.rebuildAction')) = 'product-rebuild'",
+            "  )",
+            "ORDER BY COALESCE(ppt.finished_at, ppt.verify_finished_at, ppt.submitted_at,",
+            "         ppt.locked_at, ppt.gmt_updated, ppt.gmt_create) DESC, ppt.id DESC",
+            "LIMIT #{limit}"
+    })
+    @ResultMap("ProductPublishTaskRecordMap")
+    List<ProductPublishTaskRecord> selectVisibleProductRebuildTasksByStore(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT ppt.*",
+            "FROM product_publish_task ppt",
+            "JOIN product_master source_pm",
+            "  ON source_pm.id = ppt.product_master_id",
+            "JOIN logical_store_site requested_site",
+            "  ON requested_site.logical_store_id = source_pm.logical_store_id",
+            " AND requested_site.store_code = #{storeCode}",
+            " AND requested_site.is_deleted = 0",
+            "JOIN logical_store ls",
+            "  ON ls.id = source_pm.logical_store_id",
+            " AND ls.owner_user_id = #{ownerUserId}",
+            " AND ls.is_deleted = 0",
+            "LEFT JOIN product_master active_pm",
+            "  ON active_pm.logical_store_id = source_pm.logical_store_id",
+            " AND active_pm.partner_sku = ppt.partner_sku",
+            " AND active_pm.is_deleted = 0",
+            "WHERE ppt.owner_user_id = #{ownerUserId}",
+            "  AND ppt.is_deleted = 0",
+            "  AND ppt.task_type = 'product-delete'",
+            "  AND JSON_VALID(ppt.request_json)",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(ppt.request_json, '$.rebuildAction')) = 'product-rebuild'",
+            "  AND active_pm.id IS NULL",
+            "  <choose>",
+            "    <when test='partnerSku != null and partnerSku != \"\"'>",
+            "      AND (ppt.partner_sku = #{partnerSku} OR source_pm.partner_sku = #{partnerSku})",
+            "    </when>",
+            "    <when test='skuParent != null and skuParent != \"\"'>",
+            "      AND (",
+            "        ppt.sku_parent = #{skuParent}",
+            "        OR source_pm.sku_parent = #{skuParent}",
+            "        OR source_pm.current_z_code = #{skuParent}",
+            "      )",
+            "    </when>",
+            "    <otherwise>",
+            "      AND 1 = 0",
+            "    </otherwise>",
+            "  </choose>",
+            "ORDER BY COALESCE(ppt.finished_at, ppt.verify_finished_at, ppt.submitted_at,",
+            "         ppt.locked_at, ppt.gmt_updated, ppt.gmt_create) DESC, ppt.id DESC",
+            "LIMIT 1",
+            "</script>"
+    })
+    @ResultMap("ProductPublishTaskRecordMap")
+    ProductPublishTaskRecord selectLatestVisibleProductRebuildTaskByStoreIdentity(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("skuParent") String skuParent
+    );
+
+    @Select({
             "<script>",
             "SELECT *",
             "FROM product_publish_task",
@@ -428,6 +523,84 @@ public interface ProductManagementMapper {
     })
     @ResultMap("ProductPublishTaskRecordMap")
     List<ProductPublishTaskRecord> selectRunnableProductPublishTasks(@Param("limit") int limit);
+
+    @Select({
+            "SELECT *",
+            "FROM product_publish_task",
+            "WHERE is_deleted = 0",
+            "  AND task_type = 'product-delete'",
+            "  AND status = 'synced'",
+            "  AND JSON_VALID(request_json)",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(request_json, '$.rebuildAction')) = 'product-rebuild'",
+            "  AND (",
+            "    result_json IS NULL",
+            "    OR NOT JSON_VALID(result_json)",
+            "    OR JSON_EXTRACT(result_json, '$.rebuild.status') IS NULL",
+            "  )",
+            "ORDER BY COALESCE(finished_at, gmt_updated, gmt_create), id",
+            "LIMIT #{limit}"
+    })
+    @ResultMap("ProductPublishTaskRecordMap")
+    List<ProductPublishTaskRecord> selectProductRebuildDeleteTasksReadyForListing(@Param("limit") int limit);
+
+    @Select({
+            "SELECT *",
+            "FROM product_publish_task",
+            "WHERE is_deleted = 0",
+            "  AND task_type = 'product-delete'",
+            "  AND status = 'synced'",
+            "  AND JSON_VALID(request_json)",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(request_json, '$.rebuildAction')) = 'product-rebuild'",
+            "  AND JSON_VALID(result_json)",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(result_json, '$.rebuild.status')) IN (",
+            "    'listing_submitted', 'listing_running', 'listing_already_submitted'",
+            "  )",
+            "ORDER BY COALESCE(gmt_updated, gmt_create), id",
+            "LIMIT #{limit}"
+    })
+    @ResultMap("ProductPublishTaskRecordMap")
+    List<ProductPublishTaskRecord> selectProductRebuildDeleteTasksPendingListingReconciliation(@Param("limit") int limit);
+
+    @Update({
+            "UPDATE product_publish_task",
+            "SET result_json = #{resultJson},",
+            "    updated_by = #{ownerUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND task_type = 'product-delete'",
+            "  AND status = 'synced'",
+            "  AND JSON_VALID(request_json)",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(request_json, '$.rebuildAction')) = 'product-rebuild'",
+            "  AND (",
+            "    result_json IS NULL",
+            "    OR NOT JSON_VALID(result_json)",
+            "    OR JSON_EXTRACT(result_json, '$.rebuild.status') IS NULL",
+            "  )",
+            "  AND is_deleted = 0"
+    })
+    int claimProductRebuildDeleteTaskForListing(
+            @Param("id") Long id,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("resultJson") String resultJson
+    );
+
+    @Update({
+            "UPDATE product_publish_task",
+            "SET result_json = #{resultJson},",
+            "    updated_by = #{ownerUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND task_type = 'product-delete'",
+            "  AND status = 'synced'",
+            "  AND is_deleted = 0"
+    })
+    int updateProductRebuildDeleteTaskResult(
+            @Param("id") Long id,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("resultJson") String resultJson
+    );
 
     @Update({
             "UPDATE product_publish_task t",
@@ -965,6 +1138,7 @@ public interface ProductManagementMapper {
             "  anchor.store_code AS storeCode,",
             "  anchor.site AS siteCode,",
             "  pm.sku_parent AS skuParent,",
+            "  pm.product_source_type AS productSourceType,",
             "  pv.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN pso.site_id = anchor.id THEN pso.psku_code END),",
@@ -988,7 +1162,7 @@ public interface ProductManagementMapper {
             " AND pso.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent, pv.partner_sku",
+            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent, pm.product_source_type, pv.partner_sku",
             "LIMIT 1"
     })
     ProductMasterIdentityRecord selectProductMasterIdentityByStorePartnerSku(
@@ -1004,6 +1178,7 @@ public interface ProductManagementMapper {
             "  anchor.store_code AS storeCode,",
             "  anchor.site AS siteCode,",
             "  pm.sku_parent AS skuParent,",
+            "  pm.product_source_type AS productSourceType,",
             "  MAX(pv.partner_sku) AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN pso.site_id = anchor.id THEN pso.psku_code END),",
@@ -1027,7 +1202,7 @@ public interface ProductManagementMapper {
             " AND pso.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent",
+            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent, pm.product_source_type",
             "LIMIT 1"
     })
     ProductMasterIdentityRecord selectProductMasterIdentityByStoreSkuParent(
@@ -3552,6 +3727,8 @@ public interface ProductManagementMapper {
             "  END AS activeFlag,",
             "  pso.live_status AS liveStatus,",
             "  pso.status_code AS statusCode,",
+            "  DATE_FORMAT(pso.listing_started_at, '%Y-%m-%d %H:%i:%s') AS listingStartedAt,",
+            "  pso.listing_started_source AS listingStartedSource,",
             "  pso.fbn_stock AS fbnStock,",
             "  pso.supermall_stock AS supermallStock,",
             "  pso.fbp_stock AS fbpStock,",

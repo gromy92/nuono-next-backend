@@ -300,6 +300,31 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public ProductListingTaskRecord selectLatestRealRunTaskByDraftSource(
+                Long ownerUserId,
+                String storeCode,
+                String sourceType,
+                Long sourceRefId
+        ) {
+            ProductListingTaskRecord latest = null;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                ProductListingDraftRecord draft = drafts.get(task.getDraftId());
+                if (draft == null
+                        || !ownerUserId.equals(draft.getOwnerUserId())
+                        || !storeCode.equals(draft.getStoreCode())
+                        || !sourceType.equals(draft.getSourceType())
+                        || !sourceRefId.equals(draft.getSourceRefId())
+                        || !"REAL_RUN".equals(task.getMode())) {
+                    continue;
+                }
+                if (latest == null || task.getId() > latest.getId()) {
+                    latest = task;
+                }
+            }
+            return latest;
+        }
+
+        @Override
         public int updateTaskResult(ProductListingTaskRecord task) {
             updatedTask = task;
             tasks.put(task.getId(), task);

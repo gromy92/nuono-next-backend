@@ -10,6 +10,9 @@ public class ProductListingDraftCommand {
     private String storeCode;
     private String sourceType;
     private Long sourceRefId;
+    private Long rebuildSourceProductMasterId;
+    private String inheritedListingStartedAt;
+    private String inheritedListingStartedSource;
     private String psku;
     private Long idProductFullType;
     private String productFullType;
@@ -78,6 +81,30 @@ public class ProductListingDraftCommand {
 
     public void setSourceRefId(Long sourceRefId) {
         this.sourceRefId = sourceRefId;
+    }
+
+    public Long getRebuildSourceProductMasterId() {
+        return rebuildSourceProductMasterId;
+    }
+
+    public void setRebuildSourceProductMasterId(Long rebuildSourceProductMasterId) {
+        this.rebuildSourceProductMasterId = rebuildSourceProductMasterId;
+    }
+
+    public String getInheritedListingStartedAt() {
+        return inheritedListingStartedAt;
+    }
+
+    public void setInheritedListingStartedAt(String inheritedListingStartedAt) {
+        this.inheritedListingStartedAt = inheritedListingStartedAt;
+    }
+
+    public String getInheritedListingStartedSource() {
+        return inheritedListingStartedSource;
+    }
+
+    public void setInheritedListingStartedSource(String inheritedListingStartedSource) {
+        this.inheritedListingStartedSource = inheritedListingStartedSource;
     }
 
     public String getPsku() {

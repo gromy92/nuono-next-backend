@@ -9,6 +9,7 @@ public class ProductMasterIdentityRecord {
     private String skuParent;
     private String partnerSku;
     private String pskuCode;
+    private String productSourceType;
 
     public Long getProductMasterId() {
         return productMasterId;
@@ -64,5 +65,13 @@ public class ProductMasterIdentityRecord {
 
     public void setPskuCode(String pskuCode) {
         this.pskuCode = pskuCode;
+    }
+
+    public String getProductSourceType() {
+        return productSourceType;
+    }
+
+    public void setProductSourceType(String productSourceType) {
+        this.productSourceType = productSourceType;
     }
 }
