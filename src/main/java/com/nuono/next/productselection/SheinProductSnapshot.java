@@ -72,7 +72,11 @@ class SheinProductSnapshot {
     }
 
     void setDescription(String value) {
-        if (!StringUtils.hasText(description) && StringUtils.hasText(value)) {
+        if (!StringUtils.hasText(value)) {
+            return;
+        }
+        if (!StringUtils.hasText(description)
+                || (StringUtils.hasText(title) && title.equals(description) && !title.equals(value))) {
             description = value;
         }
     }
@@ -171,7 +175,14 @@ class SheinProductSnapshot {
             return "";
         }
         String lower = value.toLowerCase(Locale.ROOT);
-        if (lower.startsWith("data:") || lower.endsWith(".svg") || lower.contains("sprite") || lower.contains("logo")) {
+        if (lower.startsWith("data:")
+                || lower.endsWith(".svg")
+                || lower.contains("sprite")
+                || lower.contains("logo")
+                || lower.contains("bg-grey")
+                || lower.contains("lazy-load")
+                || lower.contains("/points/")
+                || lower.contains("{0}")) {
             return "";
         }
         return value;

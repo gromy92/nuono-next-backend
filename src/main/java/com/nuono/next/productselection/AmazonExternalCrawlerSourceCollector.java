@@ -17,6 +17,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jsoup.Jsoup;
+import org.jsoup.Connection;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -82,12 +83,21 @@ public class AmazonExternalCrawlerSourceCollector implements ProductSelectionMar
             if (fallbackToPublicPage) {
                 return htmlParser.collectUrl(pageUrl, "Amazon");
             }
-            throw new IllegalStateException("Amazon 外部爬虫采集失败：" + htmlParser.shrink(exception.getMessage(), 180), exception);
+            String message = htmlParser.shrink(exception.getMessage(), 180);
+            if (message.startsWith("Amazon ")) {
+                throw new IllegalStateException(message, exception);
+            }
+            throw new IllegalStateException("Amazon 外部爬虫采集失败：" + message, exception);
         }
     }
 
     private ProductSelectionSourceCollectionResult collectFromExternalCrawler(String pageUrl) throws Exception {
-        JsonNode data = collectCrawlerData(normalizeAmazonEnglishLanguageUrl(pageUrl));
+        JsonNode data;
+        try {
+            data = collectCrawlerData(normalizeAmazonEnglishLanguageUrl(pageUrl));
+        } catch (Exception exception) {
+            throw enrichEmptyCrawlerDataException(pageUrl, exception);
+        }
         ProductSelectionSourceCollectionResult result = mapCrawlerData(pageUrl, data);
         if (shouldCollectArabicLanguagePage(pageUrl)) {
             try {
@@ -108,6 +118,50 @@ public class AmazonExternalCrawlerSourceCollector implements ProductSelectionMar
             result.setSourceTitle("Amazon 源头商品");
         }
         return result;
+    }
+
+    private Exception enrichEmptyCrawlerDataException(String pageUrl, Exception exception) {
+        String message = exception.getMessage();
+        if (!isEmptyCrawlerData(message)) {
+            return exception;
+        }
+        String unavailableReason = detectAmazonPageUnavailable(pageUrl);
+        if (StringUtils.hasText(unavailableReason)) {
+            return new IllegalStateException(unavailableReason, exception);
+        }
+        return exception;
+    }
+
+    private boolean isEmptyCrawlerData(String message) {
+        String normalized = message == null ? "" : message;
+        return normalized.contains("外部爬虫返回空数据") || normalized.contains("外部爬虫返回空数组");
+    }
+
+    private String detectAmazonPageUnavailable(String pageUrl) {
+        try {
+            Connection.Response response = Jsoup.connect(normalizeAmazonMobileDetailUrl(pageUrl))
+                    .userAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1")
+                    .header("Accept-Language", acceptLanguage(pageUrl))
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .timeout(Math.min(timeoutSeconds, 20) * 1000)
+                    .maxBodySize(512 * 1024)
+                    .followRedirects(true)
+                    .ignoreHttpErrors(true)
+                    .execute();
+            int statusCode = response.statusCode();
+            if (statusCode == 404 || statusCode == 410) {
+                return "Amazon 商品页返回 " + statusCode + "，可能已下架或链接失效，请更换竞品链接后重新采集。";
+            }
+            Document document = response.parse();
+            String title = htmlParser.compactText(document.title()).toLowerCase(Locale.ROOT);
+            String body = htmlParser.compactText(document.text()).toLowerCase(Locale.ROOT);
+            if (title.contains("page not found") || body.contains("page not found")) {
+                return "Amazon 商品页返回下架/不存在页面，请更换竞品链接后重新采集。";
+            }
+            return "";
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private JsonNode collectCrawlerData(String crawlTargetUrl) throws Exception {

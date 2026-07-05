@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -316,7 +317,7 @@ public class LocalDbAli1688CollectionService {
         task.status = "success".equals(sourceCollection.getStatus()) ? "queued" : "waiting_source";
         task.progressPercent = "queued".equals(task.status) ? 5 : 0;
         task.searchMode = "主图图搜";
-        task.sourceImageUrl = sourceCollection.getSourceImageUrl();
+        task.sourceImageUrl = NoonImageUrlNormalizer.normalize(sourceCollection.getSourceImageUrl());
         task.selectedImageCount = readStringListJson(sourceCollection.getImageUrlsJson()).size();
         task.scannedCount = 0;
         task.candidateCount = 0;
@@ -347,7 +348,8 @@ public class LocalDbAli1688CollectionService {
         view.status = toViewStatus(task.status);
         view.progressPercent = task.progressPercent == null ? 0 : task.progressPercent;
         view.searchMode = task.searchMode;
-        view.sourceImageUrl = task.sourceImageUrl;
+        view.sourceImageUrl = NoonImageUrlNormalizer.normalize(task.sourceImageUrl);
+        view.sourceSpecs = sourceSpecsFromHints(task.sourceSpecHintsJson);
         view.selectedImageCount = task.selectedImageCount;
         view.scannedCount = task.scannedCount;
         view.candidateCount = task.candidateCount;
@@ -358,10 +360,31 @@ public class LocalDbAli1688CollectionService {
         view.finishedAt = task.finishedAt;
         view.message = resolveMessage(task);
         view.canGenerateProcurementOrder = false;
-        view.candidates = ali1688CollectionMapper.listCandidatesByTask(task.id).stream()
+        view.candidates = sortCandidatesForView(ali1688CollectionMapper.listCandidatesByTask(task.id)).stream()
                 .map(this::toCandidatePreview)
                 .collect(Collectors.toList());
         return view;
+    }
+
+    private List<Ali1688CollectionRecords.CandidateRecord> sortCandidatesForView(List<Ali1688CollectionRecords.CandidateRecord> candidates) {
+        return candidates.stream()
+                .sorted(Comparator
+                        .comparing((Ali1688CollectionRecords.CandidateRecord item) -> item.selectedRankNo == null ? 1 : 0)
+                        .thenComparing(item -> item.selectedRankNo == null ? Integer.MAX_VALUE : item.selectedRankNo)
+                        .thenComparing(Comparator.comparing(this::candidateViewScore).reversed())
+                        .thenComparing(item -> item.rankNo == null ? Integer.MAX_VALUE : item.rankNo)
+                        .thenComparing(item -> item.id == null ? Long.MAX_VALUE : item.id))
+                .collect(Collectors.toList());
+    }
+
+    private Integer candidateViewScore(Ali1688CollectionRecords.CandidateRecord candidate) {
+        if (candidate == null) {
+            return 0;
+        }
+        if ("final".equals(candidate.scoreStatus) && candidate.totalScore != null) {
+            return candidate.totalScore;
+        }
+        return candidate.ruleScore == null ? 0 : candidate.ruleScore;
     }
 
     private Ali1688CollectionView.Ali1688CandidatePreview toCandidatePreview(Ali1688CollectionRecords.CandidateRecord candidate) {
@@ -379,6 +402,7 @@ public class LocalDbAli1688CollectionService {
         preview.locationText = candidate.locationText;
         preview.imageUrl = candidate.mainImageUrl;
         preview.imageUrls = readStringListJson(candidate.imageUrlsJson);
+        preview.matchedSpecs = matchedSpecsFromSkuSnapshot(candidate.skuSnapshotJson);
         preview.ruleScore = candidate.ruleScore;
         preview.totalScore = candidate.totalScore;
         preview.scoreStatus = candidate.scoreStatus;
@@ -413,7 +437,8 @@ public class LocalDbAli1688CollectionService {
             view.sourceTitleCn = sourceCollection.getSourceTitleCn();
             view.sourceUrl = sourceCollection.getSourceUrl();
             view.pageUrl = sourceCollection.getPageUrl();
-            view.sourceImageUrl = sourceCollection.getSourceImageUrl();
+            view.sourceImageUrl = NoonImageUrlNormalizer.normalize(sourceCollection.getSourceImageUrl());
+            view.sourceSpecs = sourceSpecsFromHints(sourceCollection.getSpecHintsJson());
         }
         return view;
     }
@@ -519,6 +544,118 @@ public class LocalDbAli1688CollectionService {
         } catch (JsonProcessingException exception) {
             return new ArrayList<>();
         }
+    }
+
+    private Map<String, Object> readObjectJson(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {
+            });
+        } catch (JsonProcessingException exception) {
+            return Map.of();
+        }
+    }
+
+    private List<Ali1688CollectionView.SpecValue> sourceSpecsFromHints(String specHintsJson) {
+        List<Ali1688CollectionView.SpecValue> specs = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String hint : readStringListJson(specHintsJson)) {
+            Ali1688CollectionView.SpecValue spec = splitSpecHint(hint);
+            if (spec == null || !isDisplaySourceSpec(spec.name)) {
+                continue;
+            }
+            String key = spec.name + "\n" + spec.value;
+            if (seen.add(key)) {
+                specs.add(spec);
+            }
+        }
+        return specs;
+    }
+
+    private List<Ali1688CollectionView.SpecValue> matchedSpecsFromSkuSnapshot(String skuSnapshotJson) {
+        Map<String, Object> snapshot = readObjectJson(skuSnapshotJson);
+        List<Ali1688CollectionView.SpecValue> specs = specsFromSkuOptions(snapshot.get("skuOptions"));
+        if (!specs.isEmpty()) {
+            return specs;
+        }
+        String specAttrs = textValue(snapshot.get("specAttrs"));
+        if (StringUtils.hasText(specAttrs)) {
+            return List.of(new Ali1688CollectionView.SpecValue("规格", specAttrs));
+        }
+        return List.of();
+    }
+
+    private List<Ali1688CollectionView.SpecValue> specsFromSkuOptions(Object rawOptions) {
+        if (!(rawOptions instanceof List<?>)) {
+            return List.of();
+        }
+        List<Ali1688CollectionView.SpecValue> specs = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (Object rawOption : (List<?>) rawOptions) {
+            if (!(rawOption instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<?, ?> option = (Map<?, ?>) rawOption;
+            String name = defaultText(textValue(option.get("name")), "规格");
+            String value = textValue(option.get("value"));
+            if (!StringUtils.hasText(value)) {
+                value = joinTextValues(option.get("values"));
+            }
+            if (!StringUtils.hasText(value)) {
+                continue;
+            }
+            String key = name + "\n" + value;
+            if (seen.add(key)) {
+                specs.add(new Ali1688CollectionView.SpecValue(name, value));
+            }
+        }
+        return specs;
+    }
+
+    private Ali1688CollectionView.SpecValue splitSpecHint(String hint) {
+        String value = trim(hint);
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        int separator = value.indexOf(':');
+        if (separator < 0) {
+            separator = value.indexOf('：');
+        }
+        if (separator <= 0 || separator >= value.length() - 1) {
+            return new Ali1688CollectionView.SpecValue("规格", value);
+        }
+        return new Ali1688CollectionView.SpecValue(
+                value.substring(0, separator).trim(),
+                value.substring(separator + 1).trim()
+        );
+    }
+
+    private boolean isDisplaySourceSpec(String name) {
+        String normalized = defaultText(name, "").toLowerCase(Locale.ROOT);
+        return normalized.contains("规格")
+                || normalized.contains("尺寸")
+                || normalized.contains("颜色")
+                || normalized.contains("spec")
+                || normalized.contains("size")
+                || normalized.contains("dimension")
+                || normalized.contains("color")
+                || normalized.contains("colour");
+    }
+
+    private String joinTextValues(Object value) {
+        if (!(value instanceof List<?>)) {
+            return textValue(value);
+        }
+        return ((List<?>) value).stream()
+                .map(this::textValue)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining(" / "));
+    }
+
+    private String textValue(Object value) {
+        return value == null ? null : trim(String.valueOf(value));
     }
 
     private String writeJson(Object value) {

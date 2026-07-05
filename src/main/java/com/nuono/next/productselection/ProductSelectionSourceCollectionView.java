@@ -10,7 +10,9 @@ public class ProductSelectionSourceCollectionView {
     private String storeId;
     private String storeName;
     private String storeCode;
+    private String siteCode;
     private String sourceType;
+    private String collectionSource;
     private String sourcePlatform;
     private String sourceUrl;
     private String pageUrl;
@@ -85,12 +87,28 @@ public class ProductSelectionSourceCollectionView {
         this.storeCode = storeCode;
     }
 
+    public String getSiteCode() {
+        return siteCode;
+    }
+
+    public void setSiteCode(String siteCode) {
+        this.siteCode = siteCode;
+    }
+
     public String getSourceType() {
         return sourceType;
     }
 
     public void setSourceType(String sourceType) {
         this.sourceType = sourceType;
+    }
+
+    public String getCollectionSource() {
+        return collectionSource;
+    }
+
+    public void setCollectionSource(String collectionSource) {
+        this.collectionSource = collectionSource;
     }
 
     public String getSourcePlatform() {

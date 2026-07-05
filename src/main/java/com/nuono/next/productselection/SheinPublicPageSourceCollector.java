@@ -3,6 +3,7 @@ package com.nuono.next.productselection;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -131,14 +132,66 @@ public class SheinPublicPageSourceCollector implements ProductSelectionMarketpla
         result.setSourcePlatform("SHEIN");
         result.setSourceUrl(pageUrl);
         result.setPageUrl(pageUrl);
-        result.setSourceTitle(htmlParser.shrink(snapshot.title(), 480));
+        String rawTitle = htmlParser.shrink(snapshot.title(), 480);
+        String urlTitle = htmlParser.shrink(urlFallback.title(pageUrl), 480);
+        result.setSourceTitle(firstNonArabicText(rawTitle, urlTitle));
+        result.setSourceTitleAr(arabicText(rawTitle));
         result.setPriceSummary(snapshot.price());
         List<String> images = snapshot.imageList();
         result.setImageUrls(images);
         result.setSourceImageUrl(images.isEmpty() ? "" : images.get(0));
         result.setSpecHints(snapshot.specList());
-        result.setSourceDescriptionEn(snapshot.description());
-        result.setSourceSellingPointsEn(snapshot.sellingPointList());
-        result.setSelectedText(snapshot.description());
+        String rawDescription = snapshot.description();
+        String englishDescription = nonArabicText(rawDescription);
+        String arabicDescription = arabicText(rawDescription);
+        result.setSourceDescriptionEn(englishDescription);
+        result.setSourceDescriptionAr(arabicDescription);
+        result.setSourceSellingPointsEn(nonArabicList(snapshot.sellingPointList()));
+        result.setSourceSellingPointsAr(arabicList(snapshot.sellingPointList()));
+        result.setSelectedText(englishDescription);
+        result.setSelectedTextAr(arabicDescription);
+    }
+
+    private String firstNonArabicText(String... values) {
+        for (String value : values) {
+            String text = nonArabicText(value);
+            if (StringUtils.hasText(text)) {
+                return text;
+            }
+        }
+        return "";
+    }
+
+    private String nonArabicText(String value) {
+        return containsArabic(value) ? "" : value;
+    }
+
+    private String arabicText(String value) {
+        return containsArabic(value) ? value : "";
+    }
+
+    private List<String> nonArabicList(List<String> values) {
+        return values.stream()
+                .filter(item -> !containsArabic(item))
+                .collect(Collectors.toList());
+    }
+
+    private List<String> arabicList(List<String> values) {
+        return values.stream()
+                .filter(this::containsArabic)
+                .collect(Collectors.toList());
+    }
+
+    private boolean containsArabic(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char current = value.charAt(index);
+            if (current >= '\u0600' && current <= '\u06FF') {
+                return true;
+            }
+        }
+        return false;
     }
 }

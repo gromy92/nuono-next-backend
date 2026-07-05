@@ -1,8 +1,15 @@
 package com.nuono.next.infrastructure.mapper;
 
+import com.nuono.next.productselection.ProductSelectionAnalysisItemRow;
+import com.nuono.next.productselection.ProductSelectionGroupCompetitorRow;
+import com.nuono.next.productselection.ProductSelectionGroupMaterialRow;
+import com.nuono.next.productselection.ProductSelectionGroupProfitSnapshotRow;
+import com.nuono.next.productselection.ProductSelectionGroupProcurementRow;
+import com.nuono.next.productselection.ProductSelectionGroupRow;
 import com.nuono.next.productselection.ProductSelectionSourceCollectionRow;
 import com.nuono.next.productselection.ProductSelectionStoreScope;
 import com.nuono.next.productselection.ProductSelectionUserContext;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
@@ -403,16 +410,36 @@ public interface ProductSelectionMapper {
         return nextProductManagementId("product_selection_source_collection", 86000L);
     }
 
+    default Long nextAnalysisItemId() {
+        return nextProductManagementId("product_selection_analysis_item", 89000L);
+    }
+
+    default Long nextSelectionGroupId() {
+        return nextProductManagementId("product_selection_group", 91000L);
+    }
+
+    default Long nextSelectionGroupMaterialId() {
+        return nextProductManagementId("product_selection_group_material", 92000L);
+    }
+
+    default Long nextSelectionGroupCompetitorId() {
+        return nextProductManagementId("product_selection_group_competitor", 93000L);
+    }
+
+    default Long nextSelectionGroupProfitSnapshotId() {
+        return nextProductManagementId("product_selection_group_profit_snapshot", 94000L);
+    }
+
     @Insert({
             "INSERT INTO product_selection_source_collection (",
-            "  id, owner_user_id, logical_store_id, collection_no, source_type, source_platform, source_url, page_url,",
+            "  id, owner_user_id, logical_store_id, site_code, collection_no, source_type, collection_source, source_platform, source_url, page_url,",
             "  source_title, source_title_cn, source_title_ar, source_image_url, image_urls_json, price_summary, moq_hint, shipping_from,",
             "  brand_name, unit_count, color_name, spec_hints_json, spec_attribute_count, source_description_en, source_description_ar,",
             "  source_selling_points_en_json, source_selling_points_ar_json,",
             "  selected_text, selected_text_ar, notes, status, failure_code, failure_message, collected_at, is_deleted, created_by, updated_by,",
             "  gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.collectionNo}, #{row.sourceType}, #{row.sourcePlatform}, #{row.sourceUrl}, #{row.pageUrl},",
+            "  #{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.siteCode}, #{row.collectionNo}, #{row.sourceType}, #{row.collectionSource}, #{row.sourcePlatform}, #{row.sourceUrl}, #{row.pageUrl},",
             "  #{row.sourceTitle}, #{row.sourceTitleCn}, #{row.sourceTitleAr}, #{row.sourceImageUrl}, #{row.imageUrlsJson}, #{row.priceSummary}, #{row.moqHint}, #{row.shippingFrom},",
             "  #{row.brandName}, #{row.unitCount}, #{row.colorName}, #{row.specHintsJson}, #{row.specAttributeCount}, #{row.sourceDescriptionEn}, #{row.sourceDescriptionAr},",
             "  #{row.sourceSellingPointsEnJson}, #{row.sourceSellingPointsArJson},",
@@ -427,8 +454,10 @@ public interface ProductSelectionMapper {
             "  source.id,",
             "  source.owner_user_id,",
             "  source.logical_store_id,",
+            "  source.site_code,",
             "  source.collection_no,",
             "  source.source_type,",
+            "  source.collection_source,",
             "  source.source_platform,",
             "  source.source_url,",
             "  source.page_url,",
@@ -493,8 +522,10 @@ public interface ProductSelectionMapper {
             "  source.id,",
             "  source.owner_user_id,",
             "  source.logical_store_id,",
+            "  source.site_code,",
             "  source.collection_no,",
             "  source.source_type,",
+            "  source.collection_source,",
             "  source.source_platform,",
             "  source.source_url,",
             "  source.page_url,",
@@ -532,7 +563,8 @@ public interface ProductSelectionMapper {
             "    FROM logical_store_site site",
             "    WHERE site.logical_store_id = source.logical_store_id",
             "      AND site.is_deleted = b'0'",
-            "    ORDER BY site.is_reference_site DESC, site.id ASC",
+            "      AND (source.site_code IS NULL OR source.site_code = '' OR site.site = source.site_code)",
+            "    ORDER BY (site.site = source.site_code) DESC, site.is_reference_site DESC, site.id ASC",
             "    LIMIT 1",
             "  ) AS store_code",
             "FROM product_selection_source_collection source",
@@ -654,8 +686,10 @@ public interface ProductSelectionMapper {
             "  source.id,",
             "  source.owner_user_id,",
             "  source.logical_store_id,",
+            "  source.site_code,",
             "  source.collection_no,",
             "  source.source_type,",
+            "  source.collection_source,",
             "  source.source_platform,",
             "  source.source_url,",
             "  source.page_url,",
@@ -692,19 +726,588 @@ public interface ProductSelectionMapper {
             "    FROM logical_store_site site",
             "    WHERE site.logical_store_id = source.logical_store_id",
             "      AND site.is_deleted = b'0'",
-            "    ORDER BY site.is_reference_site DESC, site.id ASC",
+            "      AND (#{siteCode} IS NULL OR #{siteCode} = '' OR site.site = source.site_code)",
+            "    ORDER BY (site.site = source.site_code) DESC, site.is_reference_site DESC, site.id ASC",
             "    LIMIT 1",
             "  ) AS store_code",
             "FROM product_selection_source_collection source",
             "LEFT JOIN logical_store store ON store.id = source.logical_store_id AND store.is_deleted = b'0'",
             "LEFT JOIN `user` operator ON operator.id = source.created_by AND operator.is_deleted = 0",
             "WHERE source.logical_store_id = #{logicalStoreId}",
+            "  AND (#{siteCode} IS NULL OR #{siteCode} = '' OR source.site_code = #{siteCode})",
             "  AND source.is_deleted = b'0'",
+            "  AND (source.source_type IS NULL OR source.source_type != 'purchase-order-product')",
             "ORDER BY source.collected_at DESC, source.id DESC",
             "LIMIT #{limit}"
     })
     List<ProductSelectionSourceCollectionRow> listSourceCollections(
             @Param("logicalStoreId") Long logicalStoreId,
+            @Param("siteCode") String siteCode,
             @Param("limit") Integer limit
+    );
+
+    @Select({
+            "SELECT",
+            "  grp.id AS group_id,",
+            "  grp.group_no,",
+            "  grp.owner_user_id,",
+            "  grp.logical_store_id,",
+            "  grp.site_code,",
+            "  grp.group_name,",
+            "  grp.status AS group_status,",
+            "  COUNT(source.id) AS material_count,",
+            "  grp.created_by,",
+            "  grp.updated_by",
+            "FROM product_selection_group grp",
+            "LEFT JOIN product_selection_group_material material",
+            "  ON material.group_id = grp.id",
+            " AND material.is_deleted = b'0'",
+            "LEFT JOIN product_selection_source_collection source",
+            "  ON source.id = material.source_collection_id",
+            " AND source.is_deleted = b'0'",
+            "WHERE grp.id = #{groupId}",
+            "  AND grp.is_deleted = b'0'",
+            "GROUP BY grp.id, grp.group_no, grp.owner_user_id, grp.logical_store_id, grp.site_code,",
+            "  grp.group_name, grp.status, grp.created_by, grp.updated_by",
+            "LIMIT 1"
+    })
+    ProductSelectionGroupRow selectGroupById(@Param("groupId") Long groupId);
+
+    @Select({
+            "SELECT",
+            "  grp.id AS group_id,",
+            "  grp.group_no,",
+            "  grp.owner_user_id,",
+            "  grp.logical_store_id,",
+            "  grp.site_code,",
+            "  grp.group_name,",
+            "  grp.status AS group_status,",
+            "  COUNT(source.id) AS material_count,",
+            "  grp.created_by,",
+            "  grp.updated_by",
+            "FROM product_selection_group grp",
+            "LEFT JOIN product_selection_group_material material",
+            "  ON material.group_id = grp.id",
+            " AND material.is_deleted = b'0'",
+            "LEFT JOIN product_selection_source_collection source",
+            "  ON source.id = material.source_collection_id",
+            " AND source.is_deleted = b'0'",
+            "WHERE grp.logical_store_id = #{logicalStoreId}",
+            "  AND (#{siteCode} IS NULL OR #{siteCode} = '' OR grp.site_code = #{siteCode})",
+            "  AND grp.is_deleted = b'0'",
+            "GROUP BY grp.id, grp.group_no, grp.owner_user_id, grp.logical_store_id, grp.site_code,",
+            "  grp.group_name, grp.status, grp.created_by, grp.updated_by",
+            "HAVING COUNT(source.id) > 0",
+            "ORDER BY grp.gmt_create DESC, grp.id DESC",
+            "LIMIT #{limit}"
+    })
+    List<ProductSelectionGroupRow> listSelectionGroups(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("siteCode") String siteCode,
+            @Param("limit") Integer limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  material.id AS material_id,",
+            "  material.group_id,",
+            "  material.source_collection_id,",
+            "  material.status AS material_status,",
+            "  source.id,",
+            "  source.owner_user_id,",
+            "  source.logical_store_id,",
+            "  source.site_code,",
+            "  source.collection_no,",
+            "  source.source_type,",
+            "  source.collection_source,",
+            "  source.source_platform,",
+            "  source.source_url,",
+            "  source.page_url,",
+            "  source.source_title,",
+            "  source.source_title_cn,",
+            "  source.source_title_ar,",
+            "  source.source_image_url,",
+            "  source.image_urls_json,",
+            "  source.price_summary,",
+            "  source.moq_hint,",
+            "  source.shipping_from,",
+            "  source.brand_name,",
+            "  source.unit_count,",
+            "  source.color_name,",
+            "  source.spec_hints_json,",
+            "  source.spec_attribute_count,",
+            "  source.source_description_en,",
+            "  source.source_description_ar,",
+            "  source.source_selling_points_en_json,",
+            "  source.source_selling_points_ar_json,",
+            "  source.selected_text,",
+            "  source.selected_text_ar,",
+            "  source.notes,",
+            "  source.status,",
+            "  source.failure_code,",
+            "  source.failure_message,",
+            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  source.created_by,",
+            "  source.updated_by,",
+            "  COALESCE(NULLIF(TRIM(operator.real_name), ''), operator.account_no, '') AS created_by_name,",
+            "  COALESCE(store.project_name, '') AS store_name,",
+            "  (",
+            "    SELECT site.store_code",
+            "    FROM logical_store_site site",
+            "    WHERE site.logical_store_id = source.logical_store_id",
+            "      AND site.is_deleted = b'0'",
+            "      AND (source.site_code IS NULL OR source.site_code = '' OR site.site = source.site_code)",
+            "    ORDER BY (site.site = source.site_code) DESC, site.is_reference_site DESC, site.id ASC",
+            "    LIMIT 1",
+            "  ) AS store_code",
+            "FROM product_selection_group_material material",
+            "JOIN product_selection_source_collection source",
+            "  ON source.id = material.source_collection_id",
+            " AND source.is_deleted = b'0'",
+            "LEFT JOIN logical_store store ON store.id = source.logical_store_id AND store.is_deleted = b'0'",
+            "LEFT JOIN `user` operator ON operator.id = source.created_by AND operator.is_deleted = 0",
+            "WHERE material.is_deleted = b'0'",
+            "  AND material.group_id IN",
+            "  <foreach collection='groupIds' item='groupId' open='(' separator=',' close=')'>",
+            "    #{groupId}",
+            "  </foreach>",
+            "ORDER BY material.group_id ASC, material.gmt_create ASC, material.id ASC",
+            "</script>"
+    })
+    List<ProductSelectionGroupMaterialRow> listGroupMaterialsByGroupIds(@Param("groupIds") List<Long> groupIds);
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  competitor.id AS competitor_id,",
+            "  competitor.group_id,",
+            "  competitor.competitor_url,",
+            "  competitor.note,",
+            "  competitor.fetch_status,",
+            "  competitor.fetched_payload_json,",
+            "  DATE_FORMAT(competitor.fetched_at, '%Y-%m-%d %H:%i') AS fetched_at,",
+            "  competitor.created_by,",
+            "  competitor.updated_by",
+            "FROM product_selection_group_competitor competitor",
+            "WHERE competitor.is_deleted = b'0'",
+            "  AND competitor.group_id IN",
+            "  <foreach collection='groupIds' item='groupId' open='(' separator=',' close=')'>",
+            "    #{groupId}",
+            "  </foreach>",
+            "ORDER BY competitor.group_id ASC, competitor.id ASC",
+            "</script>"
+    })
+    List<ProductSelectionGroupCompetitorRow> listGroupCompetitorsByGroupIds(@Param("groupIds") List<Long> groupIds);
+
+    @Select({
+            "SELECT",
+            "  competitor.id AS competitor_id,",
+            "  competitor.group_id,",
+            "  competitor.competitor_url,",
+            "  competitor.note,",
+            "  competitor.fetch_status,",
+            "  competitor.fetched_payload_json,",
+            "  DATE_FORMAT(competitor.fetched_at, '%Y-%m-%d %H:%i') AS fetched_at,",
+            "  competitor.created_by,",
+            "  competitor.updated_by",
+            "FROM product_selection_group_competitor competitor",
+            "WHERE competitor.is_deleted = b'0'",
+            "  AND competitor.group_id = #{groupId}",
+            "  AND competitor.id = #{competitorId}",
+            "LIMIT 1"
+    })
+    ProductSelectionGroupCompetitorRow selectGroupCompetitorById(
+            @Param("groupId") Long groupId,
+            @Param("competitorId") Long competitorId
+    );
+
+    @Select({
+            "SELECT",
+            "  material.id AS material_id,",
+            "  material.group_id,",
+            "  material.source_collection_id,",
+            "  material.owner_user_id,",
+            "  material.logical_store_id,",
+            "  material.site_code,",
+            "  material.status AS material_status,",
+            "  material.created_by,",
+            "  material.updated_by",
+            "FROM product_selection_group_material material",
+            "WHERE material.source_collection_id = #{sourceCollectionId}",
+            "  AND material.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    ProductSelectionGroupMaterialRow selectActiveGroupMaterialBySourceCollectionId(
+            @Param("sourceCollectionId") Long sourceCollectionId
+    );
+
+    @Insert({
+            "INSERT INTO product_selection_group (",
+            "  id, owner_user_id, logical_store_id, site_code, group_no, group_name, status, is_deleted,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{row.groupId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.siteCode}, #{row.groupNo}, #{row.groupName}, #{row.groupStatus}, b'0',",
+            "  #{row.createdBy}, #{row.updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertSelectionGroup(@Param("row") ProductSelectionGroupRow row);
+
+    @Insert({
+            "INSERT INTO product_selection_group_material (",
+            "  id, group_id, source_collection_id, owner_user_id, logical_store_id, site_code, status, is_deleted,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{row.materialId}, #{row.groupId}, #{row.sourceCollectionId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.siteCode}, #{row.materialStatus}, b'0',",
+            "  #{row.createdBy}, #{row.updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertSelectionGroupMaterial(@Param("row") ProductSelectionGroupMaterialRow row);
+
+    @Update({
+            "UPDATE product_selection_group",
+            "SET group_name = #{groupName},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateSelectionGroupName(
+            @Param("groupId") Long groupId,
+            @Param("groupName") String groupName,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_group_competitor",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE group_id = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSelectionGroupCompetitors(
+            @Param("groupId") Long groupId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_group_competitor",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE group_id = #{groupId}",
+            "  AND id = #{competitorId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSelectionGroupCompetitor(
+            @Param("groupId") Long groupId,
+            @Param("competitorId") Long competitorId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Insert({
+            "INSERT INTO product_selection_group_competitor (",
+            "  id, group_id, competitor_url, note, fetch_status, fetched_payload_json, fetched_at,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{row.competitorId}, #{row.groupId}, #{row.competitorUrl}, #{row.note}, #{row.fetchStatus}, #{row.fetchedPayloadJson},",
+            "  CASE WHEN #{row.fetchedAt} IS NULL OR #{row.fetchedAt} = '' THEN NULL ELSE STR_TO_DATE(#{row.fetchedAt}, '%Y-%m-%d %H:%i') END,",
+            "  b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertSelectionGroupCompetitor(@Param("row") ProductSelectionGroupCompetitorRow row);
+
+    @Update({
+            "UPDATE product_selection_group_competitor",
+            "SET competitor_url = #{row.competitorUrl},",
+            "    note = #{row.note},",
+            "    fetch_status = #{row.fetchStatus},",
+            "    fetched_payload_json = #{row.fetchedPayloadJson},",
+            "    fetched_at = CASE WHEN #{row.fetchedAt} IS NULL OR #{row.fetchedAt} = '' THEN NULL ELSE STR_TO_DATE(#{row.fetchedAt}, '%Y-%m-%d %H:%i') END,",
+            "    updated_by = #{row.updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{row.competitorId}",
+            "  AND group_id = #{row.groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateSelectionGroupCompetitorSnapshot(@Param("row") ProductSelectionGroupCompetitorRow row);
+
+    @Select({
+            "SELECT",
+            "  group_id,",
+            "  ali1688_purchase_url,",
+            "  purchase_price_rmb,",
+            "  status AS procurement_status,",
+            "  created_by,",
+            "  updated_by",
+            "FROM product_selection_group_procurement",
+            "WHERE group_id = #{groupId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    ProductSelectionGroupProcurementRow selectGroupProcurementByGroupId(@Param("groupId") Long groupId);
+
+    @Insert({
+            "INSERT INTO product_selection_group_procurement (",
+            "  group_id, ali1688_purchase_url, purchase_price_rmb, status, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{groupId}, #{ali1688PurchaseUrl}, #{purchasePrice}, 'active', b'0', #{updatedBy}, #{updatedBy}, NOW(), NOW()",
+            ")",
+            "ON DUPLICATE KEY UPDATE",
+            "  ali1688_purchase_url = VALUES(ali1688_purchase_url),",
+            "  purchase_price_rmb = VALUES(purchase_price_rmb),",
+            "  status = 'active',",
+            "  is_deleted = b'0',",
+            "  updated_by = VALUES(updated_by),",
+            "  gmt_updated = NOW()"
+    })
+    int upsertSelectionGroupProcurement(
+            @Param("groupId") Long groupId,
+            @Param("ali1688PurchaseUrl") String ali1688PurchaseUrl,
+            @Param("purchasePrice") BigDecimal purchasePrice,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT",
+            "  id AS snapshot_id,",
+            "  group_id,",
+            "  currency_code,",
+            "  profit_amount,",
+            "  profit_margin,",
+            "  snapshot_json,",
+            "  status,",
+            "  DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS created_at,",
+            "  created_by,",
+            "  updated_by",
+            "FROM product_selection_group_profit_snapshot",
+            "WHERE group_id = #{groupId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY gmt_create DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductSelectionGroupProfitSnapshotRow selectLatestSelectionGroupProfitSnapshot(@Param("groupId") Long groupId);
+
+    @Insert({
+            "INSERT INTO product_selection_group_profit_snapshot (",
+            "  id, group_id, currency_code, profit_amount, profit_margin, snapshot_json, status,",
+            "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{row.snapshotId}, #{row.groupId}, #{row.currencyCode}, #{row.profitAmount}, #{row.profitMargin},",
+            "  #{row.snapshotJson}, #{row.status},",
+            "  b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertSelectionGroupProfitSnapshot(@Param("row") ProductSelectionGroupProfitSnapshotRow row);
+
+    @Select({
+            "SELECT",
+            "  item.id AS analysis_item_id,",
+            "  COALESCE(item.project_id, item.id) AS project_id,",
+            "  COALESCE(NULLIF(TRIM(item.project_name), ''), '') AS project_name,",
+            "  item.source_collection_id,",
+            "  item.owner_user_id,",
+            "  item.logical_store_id,",
+            "  item.site_code,",
+            "  item.ali1688_purchase_url,",
+            "  item.purchase_price_rmb,",
+            "  item.status AS analysis_status,",
+            "  item.created_by,",
+            "  item.updated_by",
+            "FROM product_selection_analysis_item item",
+            "WHERE item.source_collection_id = #{sourceCollectionId}",
+            "  AND item.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    ProductSelectionAnalysisItemRow selectAnalysisItemBySourceCollectionId(
+            @Param("sourceCollectionId") Long sourceCollectionId
+    );
+
+    @Insert({
+            "INSERT INTO product_selection_analysis_item (",
+            "  id, owner_user_id, logical_store_id, site_code, project_id, project_name, source_collection_id,",
+            "  ali1688_purchase_url, purchase_price_rmb, status, is_deleted,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{row.analysisItemId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.siteCode}, #{row.projectId}, #{row.projectName}, #{row.sourceCollectionId},",
+            "  #{row.ali1688PurchaseUrl}, #{row.purchasePriceRmb}, #{row.analysisStatus}, b'0',",
+            "  #{row.createdBy}, #{row.updatedBy}, NOW(), NOW()",
+            ")"
+    })
+    int insertAnalysisItem(@Param("row") ProductSelectionAnalysisItemRow row);
+
+    @Update({
+            "UPDATE product_selection_analysis_item",
+            "SET ali1688_purchase_url = #{ali1688PurchaseUrl},",
+            "    purchase_price_rmb = #{purchasePrice},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE source_collection_id = #{sourceCollectionId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAnalysisItemProcurement(
+            @Param("sourceCollectionId") Long sourceCollectionId,
+            @Param("ali1688PurchaseUrl") String ali1688PurchaseUrl,
+            @Param("purchasePrice") BigDecimal purchasePrice,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Select({
+            "SELECT",
+            "  item.id AS analysis_item_id,",
+            "  COALESCE(item.project_id, item.id) AS project_id,",
+            "  COALESCE(NULLIF(TRIM(item.project_name), ''), NULLIF(TRIM(source.source_title_cn), ''), NULLIF(TRIM(source.source_title), ''), CONCAT('选品项目 ', item.id)) AS project_name,",
+            "  (",
+            "    SELECT COUNT(*)",
+            "    FROM product_selection_analysis_item peer",
+            "    WHERE peer.is_deleted = b'0'",
+            "      AND COALESCE(peer.project_id, peer.id) = COALESCE(item.project_id, item.id)",
+            "  ) AS project_material_count,",
+            "  item.source_collection_id,",
+            "  item.ali1688_purchase_url,",
+            "  item.purchase_price_rmb,",
+            "  item.status AS analysis_status,",
+            "  source.id,",
+            "  source.owner_user_id,",
+            "  source.logical_store_id,",
+            "  COALESCE(item.site_code, source.site_code) AS site_code,",
+            "  source.collection_no,",
+            "  source.source_type,",
+            "  source.collection_source,",
+            "  source.source_platform,",
+            "  source.source_url,",
+            "  source.page_url,",
+            "  source.source_title,",
+            "  source.source_title_cn,",
+            "  source.source_title_ar,",
+            "  source.source_image_url,",
+            "  source.image_urls_json,",
+            "  source.price_summary,",
+            "  source.moq_hint,",
+            "  source.shipping_from,",
+            "  source.brand_name,",
+            "  source.unit_count,",
+            "  source.color_name,",
+            "  source.spec_hints_json,",
+            "  source.spec_attribute_count,",
+            "  source.source_description_en,",
+            "  source.source_description_ar,",
+            "  source.source_selling_points_en_json,",
+            "  source.source_selling_points_ar_json,",
+            "  source.selected_text,",
+            "  source.selected_text_ar,",
+            "  source.notes,",
+            "  source.status,",
+            "  source.failure_code,",
+            "  source.failure_message,",
+            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  source.created_by,",
+            "  source.updated_by,",
+            "  COALESCE(NULLIF(TRIM(operator.real_name), ''), operator.account_no, '') AS created_by_name,",
+            "  COALESCE(store.project_name, '') AS store_name,",
+            "  (",
+            "    SELECT site.store_code",
+            "    FROM logical_store_site site",
+            "    WHERE site.logical_store_id = source.logical_store_id",
+            "      AND site.is_deleted = b'0'",
+            "      AND (#{siteCode} IS NULL OR #{siteCode} = '' OR site.site = COALESCE(item.site_code, source.site_code))",
+            "    ORDER BY (site.site = COALESCE(item.site_code, source.site_code)) DESC, site.is_reference_site DESC, site.id ASC",
+            "    LIMIT 1",
+            "  ) AS store_code",
+            "FROM product_selection_analysis_item item",
+            "JOIN product_selection_source_collection source ON source.id = item.source_collection_id AND source.is_deleted = b'0'",
+            "LEFT JOIN logical_store store ON store.id = source.logical_store_id AND store.is_deleted = b'0'",
+            "LEFT JOIN `user` operator ON operator.id = source.created_by AND operator.is_deleted = 0",
+            "WHERE item.logical_store_id = #{logicalStoreId}",
+            "  AND (#{siteCode} IS NULL OR #{siteCode} = '' OR COALESCE(item.site_code, source.site_code) = #{siteCode})",
+            "  AND item.is_deleted = b'0'",
+            "  AND (source.source_type IS NULL OR source.source_type != 'purchase-order-product')",
+            "ORDER BY item.gmt_create DESC, item.id DESC",
+            "LIMIT #{limit}"
+    })
+    List<ProductSelectionAnalysisItemRow> listAnalysisItems(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("siteCode") String siteCode,
+            @Param("limit") Integer limit
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  item.id AS analysis_item_id,",
+            "  COALESCE(item.project_id, item.id) AS project_id,",
+            "  COALESCE(NULLIF(TRIM(item.project_name), ''), NULLIF(TRIM(source.source_title_cn), ''), NULLIF(TRIM(source.source_title), ''), CONCAT('选品项目 ', item.id)) AS project_name,",
+            "  (",
+            "    SELECT COUNT(*)",
+            "    FROM product_selection_analysis_item peer",
+            "    WHERE peer.is_deleted = b'0'",
+            "      AND COALESCE(peer.project_id, peer.id) = COALESCE(item.project_id, item.id)",
+            "  ) AS project_material_count,",
+            "  item.source_collection_id,",
+            "  item.ali1688_purchase_url,",
+            "  item.purchase_price_rmb,",
+            "  item.status AS analysis_status,",
+            "  source.id,",
+            "  source.owner_user_id,",
+            "  source.logical_store_id,",
+            "  COALESCE(item.site_code, source.site_code) AS site_code,",
+            "  source.collection_no,",
+            "  source.source_type,",
+            "  source.collection_source,",
+            "  source.source_platform,",
+            "  source.source_url,",
+            "  source.page_url,",
+            "  source.source_title,",
+            "  source.source_title_cn,",
+            "  source.source_title_ar,",
+            "  source.source_image_url,",
+            "  source.image_urls_json,",
+            "  source.price_summary,",
+            "  source.moq_hint,",
+            "  source.shipping_from,",
+            "  source.brand_name,",
+            "  source.unit_count,",
+            "  source.color_name,",
+            "  source.spec_hints_json,",
+            "  source.spec_attribute_count,",
+            "  source.source_description_en,",
+            "  source.source_description_ar,",
+            "  source.source_selling_points_en_json,",
+            "  source.source_selling_points_ar_json,",
+            "  source.selected_text,",
+            "  source.selected_text_ar,",
+            "  source.notes,",
+            "  source.status,",
+            "  source.failure_code,",
+            "  source.failure_message,",
+            "  DATE_FORMAT(source.collected_at, '%Y-%m-%d %H:%i') AS collected_at,",
+            "  source.created_by,",
+            "  source.updated_by,",
+            "  COALESCE(NULLIF(TRIM(operator.real_name), ''), operator.account_no, '') AS created_by_name,",
+            "  COALESCE(store.project_name, '') AS store_name,",
+            "  (",
+            "    SELECT site.store_code",
+            "    FROM logical_store_site site",
+            "    WHERE site.logical_store_id = source.logical_store_id",
+            "      AND site.is_deleted = b'0'",
+            "      AND (COALESCE(item.site_code, source.site_code) IS NULL OR COALESCE(item.site_code, source.site_code) = '' OR site.site = COALESCE(item.site_code, source.site_code))",
+            "    ORDER BY (site.site = COALESCE(item.site_code, source.site_code)) DESC, site.is_reference_site DESC, site.id ASC",
+            "    LIMIT 1",
+            "  ) AS store_code",
+            "FROM product_selection_analysis_item item",
+            "JOIN product_selection_source_collection source ON source.id = item.source_collection_id AND source.is_deleted = b'0'",
+            "LEFT JOIN logical_store store ON store.id = source.logical_store_id AND store.is_deleted = b'0'",
+            "LEFT JOIN `user` operator ON operator.id = source.created_by AND operator.is_deleted = 0",
+            "WHERE item.is_deleted = b'0'",
+            "  AND item.source_collection_id IN",
+            "  <foreach collection='sourceCollectionIds' item='sourceCollectionId' open='(' separator=',' close=')'>",
+            "    #{sourceCollectionId}",
+            "  </foreach>",
+            "ORDER BY item.gmt_create DESC, item.id DESC",
+            "</script>"
+    })
+    List<ProductSelectionAnalysisItemRow> listAnalysisItemsBySourceCollectionIds(
+            @Param("sourceCollectionIds") List<Long> sourceCollectionIds
     );
 }

@@ -199,7 +199,10 @@ public class Ali1688CandidateAiAssessmentService {
     private Map<String, Object> outputSchema() {
         Map<String, Object> score = object("type", "integer");
         Map<String, Object> text = object("type", "string");
-        Map<String, Object> textArray = object("type", "array");
+        Map<String, Object> textArray = object(
+                "type", "array",
+                "items", object("type", "string")
+        );
         Map<String, Object> properties = object(
                 "matchScore", score,
                 "specScore", score,

@@ -84,7 +84,11 @@ public class ProductSelectionSourceCollectionLocalizer {
             if (!view.isReady()) {
                 return "";
             }
-            return extractTranslationText(view);
+            String translated = extractTranslationText(view);
+            if ("AR".equalsIgnoreCase(targetLang) && !containsArabic(translated)) {
+                return "";
+            }
+            return translated;
         } catch (RuntimeException ignored) {
             return "";
         }
@@ -113,6 +117,17 @@ public class ProductSelectionSourceCollectionLocalizer {
         for (int index = 0; index < value.length(); index++) {
             Character.UnicodeScript script = Character.UnicodeScript.of(value.charAt(index));
             if (script == Character.UnicodeScript.HAN) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean containsArabic(String value) {
+        String text = compactText(value);
+        for (int index = 0; index < text.length(); index++) {
+            Character.UnicodeScript script = Character.UnicodeScript.of(text.charAt(index));
+            if (script == Character.UnicodeScript.ARABIC) {
                 return true;
             }
         }

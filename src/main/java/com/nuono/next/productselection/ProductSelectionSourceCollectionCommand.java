@@ -8,6 +8,7 @@ public class ProductSelectionSourceCollectionCommand {
     private String storeName;
     private String storeCode;
     private String sourceType;
+    private String collectionSource;
     private String sourcePlatform;
     private String sourceUrl;
     private String pageUrl;
@@ -52,6 +53,14 @@ public class ProductSelectionSourceCollectionCommand {
 
     public void setSourceType(String sourceType) {
         this.sourceType = sourceType;
+    }
+
+    public String getCollectionSource() {
+        return collectionSource;
+    }
+
+    public void setCollectionSource(String collectionSource) {
+        this.collectionSource = collectionSource;
     }
 
     public String getSourcePlatform() {

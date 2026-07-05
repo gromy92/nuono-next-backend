@@ -50,7 +50,7 @@ public class SourceCollectionCompletenessCalculator {
         if (StringUtils.hasText(view.getSourceTitleCn())) {
             count++;
         }
-        if (StringUtils.hasText(view.getSourceTitleAr())) {
+        if (hasArabicText(view.getSourceTitleAr())) {
             count++;
         }
         if (StringUtils.hasText(view.getSourceImageUrl())) {
@@ -74,7 +74,7 @@ public class SourceCollectionCompletenessCalculator {
         if (StringUtils.hasText(view.getPageUrl()) || StringUtils.hasText(view.getSourceUrl())) {
             count++;
         }
-        if (StringUtils.hasText(view.getSelectedTextAr())) {
+        if (hasArabicText(view.getSelectedTextAr())) {
             count++;
         }
         return count;
@@ -105,7 +105,7 @@ public class SourceCollectionCompletenessCalculator {
         if (StringUtils.hasText(view.getSourceTitle())) {
             count++;
         }
-        if (StringUtils.hasText(view.getSourceTitleAr())) {
+        if (hasArabicText(view.getSourceTitleAr())) {
             count++;
         }
         if (StringUtils.hasText(view.getPriceSummary())) {
@@ -120,13 +120,13 @@ public class SourceCollectionCompletenessCalculator {
         if (!view.getSourceSellingPointsEn().isEmpty()) {
             count++;
         }
-        if (!view.getSourceSellingPointsAr().isEmpty()) {
+        if (hasArabicText(view.getSourceSellingPointsAr())) {
             count++;
         }
         if (StringUtils.hasText(view.getSourceDescriptionEn())) {
             count++;
         }
-        if (StringUtils.hasText(view.getSourceDescriptionAr())) {
+        if (hasArabicText(view.getSourceDescriptionAr())) {
             count++;
         }
         if (StringUtils.hasText(view.getBrandName()) || hasSpecValue(specHints, Set.of("brand", "brand name"))) {
@@ -157,7 +157,7 @@ public class SourceCollectionCompletenessCalculator {
         if (StringUtils.hasText(view.getSourceTitle())) {
             count++;
         }
-        if (StringUtils.hasText(view.getSourceTitleAr())) {
+        if (hasArabicText(view.getSourceTitleAr())) {
             count++;
         }
         if (StringUtils.hasText(view.getPriceSummary())) {
@@ -188,13 +188,13 @@ public class SourceCollectionCompletenessCalculator {
         if (!view.getSourceSellingPointsEn().isEmpty()) {
             count++;
         }
-        if (!view.getSourceSellingPointsAr().isEmpty()) {
+        if (hasArabicText(view.getSourceSellingPointsAr())) {
             count++;
         }
         if (StringUtils.hasText(view.getSourceDescriptionEn())) {
             count++;
         }
-        if (StringUtils.hasText(view.getSourceDescriptionAr())) {
+        if (hasArabicText(view.getSourceDescriptionAr())) {
             count++;
         }
         return count;
@@ -209,7 +209,7 @@ public class SourceCollectionCompletenessCalculator {
         if (StringUtils.hasText(view.getSourceTitle())) {
             count++;
         }
-        if (StringUtils.hasText(view.getSourceTitleAr())) {
+        if (hasArabicText(view.getSourceTitleAr())) {
             count++;
         }
         if (StringUtils.hasText(view.getPriceSummary())) {
@@ -239,16 +239,35 @@ public class SourceCollectionCompletenessCalculator {
         if (!view.getSourceSellingPointsEn().isEmpty()) {
             count++;
         }
-        if (!view.getSourceSellingPointsAr().isEmpty()) {
+        if (hasArabicText(view.getSourceSellingPointsAr())) {
             count++;
         }
         if (hasAmazonEnglishSummary(view)) {
             count++;
         }
-        if (StringUtils.hasText(view.getSourceDescriptionAr())) {
+        if (hasArabicText(view.getSourceDescriptionAr())) {
             count++;
         }
         return count;
+    }
+
+    private boolean hasArabicText(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        for (int index = 0; index < value.length(); index++) {
+            if (Character.UnicodeScript.of(value.charAt(index)) == Character.UnicodeScript.ARABIC) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasArabicText(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return false;
+        }
+        return values.stream().anyMatch(this::hasArabicText);
     }
 
     private boolean hasAmazonAsin(ProductSelectionSourceCollectionView view, List<String> specHints) {
