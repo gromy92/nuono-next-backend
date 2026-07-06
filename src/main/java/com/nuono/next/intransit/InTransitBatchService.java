@@ -380,6 +380,17 @@ public class InTransitBatchService {
                 command.getTargetSiteCode(),
                 AIR_ARRIVAL_HISTORY_SAMPLE_LIMIT
         );
+        if ((samples == null || samples.isEmpty())
+                && standardForwarderId != null
+                && (StringUtils.hasText(command.getTargetStoreCode()) || StringUtils.hasText(command.getTargetSiteCode()))) {
+            samples = mapper.selectRecentAirArrivalDurations(
+                    ownerUserId,
+                    standardForwarderId,
+                    null,
+                    null,
+                    AIR_ARRIVAL_HISTORY_SAMPLE_LIMIT
+            );
+        }
         if ((samples == null || samples.isEmpty()) && standardForwarderId != null) {
             samples = mapper.selectRecentAirArrivalDurations(
                     ownerUserId,

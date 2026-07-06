@@ -210,6 +210,21 @@ class InTransitBatchSchemaContractTest {
     }
 
     @Test
+    void logisticsNodeMapperSqlKeepsTerminalArrivalAheadOfLaterOrdinaryTrackingNodes() throws NoSuchMethodException {
+        Method selectLatestNode = InTransitGoodsMapper.class.getMethod(
+                "selectLatestNode",
+                Long.class,
+                Long.class
+        );
+        String selectSql = Arrays.stream(selectLatestNode.getAnnotation(Select.class).value())
+                .reduce("", (left, right) -> left + " " + right);
+
+        assertTrue(selectSql.contains("ORDER BY CASE"));
+        assertTrue(selectSql.contains("node_status IN ('warehouse_received', 'cancelled')"));
+        assertTrue(selectSql.indexOf("ORDER BY CASE") < selectSql.indexOf("node_happened_at DESC"));
+    }
+
+    @Test
     void batchMapperSqlFindsActiveBatchByNormalizedReferenceNumber() throws NoSuchMethodException {
         Method selectBatchByReferenceNo = InTransitGoodsMapper.class.getMethod(
                 "selectBatchByReferenceNo",
