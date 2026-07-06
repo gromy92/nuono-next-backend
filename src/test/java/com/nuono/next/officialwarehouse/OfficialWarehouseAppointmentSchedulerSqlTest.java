@@ -13,6 +13,18 @@ import org.springframework.scheduling.annotation.Scheduled;
 class OfficialWarehouseAppointmentSchedulerSqlTest {
 
     @Test
+    void bufferUnderflowEofFromNoonCallIsRetryableAccessFailure() {
+        String failureType = LocalDbOfficialWarehouseService.appointmentRetryFailureType(
+                "NOON_CALL",
+                "IllegalStateException",
+                "请求 Noon 失败：BUFFER_UNDERFLOW with EOF, 1253 bytes non decrypted."
+        );
+
+        assertThat(failureType).isEqualTo("NOON_ACCESS_FAILURE");
+        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure(failureType)).isTrue();
+    }
+
+    @Test
     void schedulerDueQueryOnlyConsumesPendingAppointments() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod("listDueAppointments", int.class);
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
