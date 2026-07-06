@@ -18,7 +18,9 @@ class ReplenishmentPlanMapperSqlTest {
 
         assertTrue(sql.contains("pso.fbn_stock AS fbnStockUnits"));
         assertTrue(sql.contains("pso.supermall_stock AS supermallStockUnits"));
+        assertTrue(sql.contains("CASE WHEN pso.fbn_stock IS NULL AND pso.supermall_stock IS NULL THEN NULL"));
         assertTrue(sql.contains("COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)"));
+        assertTrue(sql.contains("END AS currentStockUnits"));
         assertTrue(sql.contains("JOIN logical_store ls"));
         assertTrue(sql.contains("JOIN logical_store_site lss"));
         assertTrue(sql.contains("JOIN product_master pm"));
@@ -37,10 +39,22 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("line.shipped_quantity"));
         assertTrue(sql.contains("line.received_quantity"));
         assertTrue(sql.contains("GREATEST("));
+        assertTrue(sql.contains("SUM(batch.lineRemaining) AS remainingQuantity"));
         assertTrue(sql.contains("batch.batch_status NOT IN"));
-        assertTrue(sql.contains("COALESCE(NULLIF(line.store_code, ''), batch.target_store_code)"));
-        assertTrue(sql.contains("COALESCE(NULLIF(line.site_code, ''), batch.target_site_code)"));
+        assertTrue(sql.contains("line.store_code = #{storeCode}"));
+        assertTrue(sql.contains("line.site_code = #{siteCode}"));
         assertTrue(sql.contains("GROUP BY partnerSku, batch.id"));
+        assertTrue(sql.contains("SELECT DISTINCT line.id"));
+        assertTrue(sql.contains("pv.partner_sku AS canonicalPartnerSku"));
+        assertTrue(sql.contains("JOIN logical_store_site lss"));
+        assertTrue(sql.contains("JOIN logical_store ls"));
+        assertTrue(sql.contains("JOIN product_site_offer pso"));
+        assertTrue(sql.contains("JOIN product_variant pv"));
+        assertTrue(sql.contains("JOIN product_master pm"));
+        assertTrue(sql.contains("LEFT JOIN product_barcode pb"));
+        assertFalse(sql.contains("line.psku AS partnerSku"));
+        assertFalse(sql.contains("batch.target_store_code"));
+        assertFalse(sql.contains("batch.target_site_code"));
         assertFalse(sql.contains("eta_date IS NOT NULL"));
         assertFalse(sql.toLowerCase().contains("official_warehouse_asn"));
     }
