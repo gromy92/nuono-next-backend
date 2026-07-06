@@ -332,6 +332,42 @@ class OperationConfigTypedVersionContentSupportTest {
         assertEquals("古尔邦节", explanation.getImpacts().get(0).getRuleName());
     }
 
+    @Test
+    void resolveEffectiveVersionUsesReplenishmentSystemDefaultVersionNo() {
+        InMemoryTypedVersionRepository repository = new InMemoryTypedVersionRepository();
+        repository.insert(new OperationConfigTypedVersion(
+                99001L,
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                OperationConfigVersionType.REPLENISHMENT_PLAN.name(),
+                "SYSTEM_DEFAULT",
+                null,
+                "系统默认",
+                "1 条配置",
+                1,
+                "全局默认",
+                "[]",
+                0L,
+                0L,
+                LocalDateTime.of(2026, 7, 6, 10, 0),
+                LocalDateTime.of(2026, 7, 6, 10, 0)
+        ));
+
+        Optional<OperationConfigTypedVersion> resolved = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
+                repository,
+                OperationConfigVersionType.REPLENISHMENT_PLAN,
+                307L,
+                "STR108065-NAE",
+                "SA"
+        );
+
+        assertTrue(resolved.isPresent());
+        assertEquals(
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                resolved.get().getVersionNo()
+        );
+    }
+
     private OperationConfigTypedVersion version(
             Long id,
             String versionNo,

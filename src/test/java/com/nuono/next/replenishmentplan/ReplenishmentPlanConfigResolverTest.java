@@ -3,6 +3,7 @@ package com.nuono.next.replenishmentplan;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.nuono.next.operationsconfig.InMemoryOperationConfigTypedVersionRepository;
+import com.nuono.next.operationsconfig.OperationConfigDefaultVersionCatalog;
 import com.nuono.next.operationsconfig.OperationConfigTypedVersion;
 import com.nuono.next.operationsconfig.OperationConfigVersionType;
 import java.time.LocalDateTime;
@@ -108,6 +109,40 @@ class ReplenishmentPlanConfigResolverTest {
         assertEquals(72, config.getSeaLeadDays());
         assertEquals(33, config.getSeaCoverDays());
         assertEquals(105, config.getForecastHorizonDays());
+    }
+
+    @Test
+    void persistedSystemDefaultReplenishmentConfigIsUsedWhenCurrentVersionsAreMissing() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        repository.insert(version(
+                90005L,
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                "SYSTEM_DEFAULT",
+                "全局默认",
+                content(
+                        "空运运输天数", "14",
+                        "空运覆盖天数", "18",
+                        "海运运输天数", "75",
+                        "海运覆盖天数", "40",
+                        "预测窗口天数", "120",
+                        "库存来源", "FBN,SUPERMALL",
+                        "在途必须有 ETA", "true",
+                        "空运只应急", "false",
+                        "建议数量取整", "ceil"
+                ),
+                LocalDateTime.of(2026, 7, 6, 11, 0)
+        ));
+        ReplenishmentPlanConfigResolver resolver = new ReplenishmentPlanConfigResolver(repository);
+
+        ReplenishmentPlanConfig config = resolver.resolve(50001L, "STR245027-NAE", "SA");
+
+        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO, config.getVersionNo());
+        assertEquals(14, config.getAirLeadDays());
+        assertEquals(18, config.getAirCoverDays());
+        assertEquals(75, config.getSeaLeadDays());
+        assertEquals(40, config.getSeaCoverDays());
+        assertEquals(120, config.getForecastHorizonDays());
+        assertEquals(false, config.isAirEmergencyOnly());
     }
 
     @Test

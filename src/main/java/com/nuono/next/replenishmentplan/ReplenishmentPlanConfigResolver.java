@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.operationsconfig.OperationConfigTypedVersion;
 import com.nuono.next.operationsconfig.OperationConfigTypedVersionRepository;
+import com.nuono.next.operationsconfig.OperationConfigTypedVersionContentSupport;
 import com.nuono.next.operationsconfig.OperationConfigVersionType;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -15,12 +15,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class ReplenishmentPlanConfigResolver {
+    private static final Logger log = LoggerFactory.getLogger(ReplenishmentPlanConfigResolver.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Pattern INTEGER_PATTERN = Pattern.compile("-?\\d+");
 
@@ -41,40 +44,14 @@ public class ReplenishmentPlanConfigResolver {
         if (typedVersionRepository == null) {
             return ReplenishmentPlanConfig.defaultBasicV1();
         }
-        Optional<OperationConfigTypedVersion> version = resolveCurrentVersion(ownerUserId, storeCode, siteCode);
+        Optional<OperationConfigTypedVersion> version = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
+                typedVersionRepository,
+                OperationConfigVersionType.REPLENISHMENT_PLAN,
+                ownerUserId,
+                storeCode,
+                siteCode
+        );
         return version.map(this::toConfig).orElseGet(ReplenishmentPlanConfig::defaultBasicV1);
-    }
-
-    private Optional<OperationConfigTypedVersion> resolveCurrentVersion(
-            Long ownerUserId,
-            String storeCode,
-            String siteCode
-    ) {
-        List<OperationConfigTypedVersion> versions = typedVersionRepository.listVersions();
-        if (versions == null || versions.isEmpty()) {
-            return Optional.empty();
-        }
-        String exactScope = scopeSummary(ownerUserId, storeCode, siteCode);
-        OperationConfigTypedVersion exact = null;
-        OperationConfigTypedVersion global = null;
-        for (OperationConfigTypedVersion version : versions) {
-            if (version == null
-                    || !OperationConfigVersionType.REPLENISHMENT_PLAN.name().equals(version.getConfigType())
-                    || !"CURRENT".equals(version.getStatus())) {
-                continue;
-            }
-            if (exactScope != null && exactScope.equals(version.getScopeSummary())) {
-                exact = later(exact, version);
-                continue;
-            }
-            if ("全局当前".equals(version.getScopeSummary())) {
-                global = later(global, version);
-            }
-        }
-        if (exact != null) {
-            return Optional.of(exact);
-        }
-        return Optional.ofNullable(global);
     }
 
     private ReplenishmentPlanConfig toConfig(OperationConfigTypedVersion version) {
@@ -83,6 +60,7 @@ public class ReplenishmentPlanConfigResolver {
         try {
             values = parseValues(version.getContentJson());
         } catch (RuntimeException exception) {
+            logInvalidSelectedVersion(version, exception);
             return defaults;
         }
         try {
@@ -99,6 +77,7 @@ public class ReplenishmentPlanConfigResolver {
                     roundingMode(values.get("建议数量取整"), defaults.getRoundingMode())
             );
         } catch (RuntimeException exception) {
+            logInvalidSelectedVersion(version, exception);
             return defaults;
         }
     }
@@ -128,28 +107,13 @@ public class ReplenishmentPlanConfigResolver {
         }
     }
 
-    private static OperationConfigTypedVersion later(
-            OperationConfigTypedVersion left,
-            OperationConfigTypedVersion right
-    ) {
-        if (left == null) {
-            return right;
-        }
-        Comparator<OperationConfigTypedVersion> comparator = Comparator
-                .comparing(OperationConfigTypedVersion::getUpdatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
-                .thenComparing(OperationConfigTypedVersion::getId, Comparator.nullsFirst(Comparator.naturalOrder()));
-        return comparator.compare(left, right) >= 0 ? left : right;
-    }
-
-    private static String scopeSummary(Long ownerUserId, String storeCode, String siteCode) {
-        if (ownerUserId == null || !hasText(storeCode) || !hasText(siteCode)) {
-            return null;
-        }
-        return ownerUserId
-                + "/"
-                + storeCode.trim().toUpperCase(Locale.ROOT)
-                + "/"
-                + siteCode.trim().toUpperCase(Locale.ROOT);
+    private static void logInvalidSelectedVersion(OperationConfigTypedVersion version, RuntimeException exception) {
+        log.warn(
+                "Invalid replenishment plan config version selected; falling back to hardcoded defaults. versionNo={}, scopeSummary={}, reason={}",
+                version == null ? null : version.getVersionNo(),
+                version == null ? null : version.getScopeSummary(),
+                exception.toString()
+        );
     }
 
     private static int positiveInt(String value, int fallback) {
