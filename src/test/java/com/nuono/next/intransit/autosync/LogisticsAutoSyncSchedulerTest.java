@@ -1,10 +1,26 @@
 package com.nuono.next.intransit.autosync;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
+import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncPreviewView;
+import com.nuono.next.intransit.InTransitPluginSyncService;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.system.task.OperationalTask;
+import com.nuono.next.system.task.OperationalTaskPayload;
+import com.nuono.next.system.task.OperationalTaskService;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Instant;
@@ -12,10 +28,13 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -88,6 +107,97 @@ class LogisticsAutoSyncSchedulerTest {
                 .isFalse();
     }
 
+    @Test
+    void scheduledTickPullsYiteDataThroughHttpProviderAndStopsAtPreviewOnly() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(readBody(exchange)).contains("scheduled-user").contains("scheduled-password");
+                exchange.getResponseHeaders().add("Set-Cookie", "token=scheduled-token; Path=/");
+                sendJson(exchange, "{}");
+            });
+            server.handle("/rest/tms/wos/shipment/lists", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("scheduled-token");
+                sendJson(exchange, yiteListJson());
+            });
+            server.handle("/rest/tms/wos/shipment/view", exchange -> {
+                assertThat(exchange.getRequestURI().getRawQuery()).contains("id=shipment-record-1");
+                sendJson(exchange, yiteViewJson());
+            });
+            server.handle("/rest/tms/wos/shipment/change_declaration_view", exchange -> {
+                assertThat(exchange.getRequestURI().getRawQuery()).contains("activeTab=packing_list");
+                assertThat(exchange.getRequestURI().getRawQuery()).contains("id=shipment-record-1");
+                sendJson(exchange, yitePackingListJson());
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getScheduler().setEnabled(true);
+            properties.getScheduler().setMaxAccountsPerTick(1);
+            properties.getYite().setEnabled(true);
+            properties.getYite().setBaseUrl(server.baseUrl());
+            properties.getYite().setLoginPath("/login");
+            YiteLogisticsProviderAdapter provider = new YiteLogisticsProviderAdapter(properties);
+
+            LogisticsAutoSyncAccessContextFactory accessContextFactory = Mockito.mock(LogisticsAutoSyncAccessContextFactory.class);
+            InTransitPluginSyncService pluginSyncService = Mockito.mock(InTransitPluginSyncService.class);
+            OperationalTaskService taskService = Mockito.mock(OperationalTaskService.class);
+            LogisticsAutoSyncAccount account = scheduledYiteAccount();
+            when(mapper.listDueAccounts(1)).thenReturn(List.of(account));
+            when(accessContextFactory.requireAccessContext(account)).thenReturn(context());
+            PluginSyncPreviewView preview = new PluginSyncPreviewView();
+            preview.setCommittable(true);
+            preview.setBatchCount(1);
+            preview.setPackageCount(1);
+            preview.setLineCount(1);
+            preview.setNodeCount(1);
+            when(pluginSyncService.preview(any(PluginSyncCommand.class))).thenReturn(preview);
+            OperationalTask task = new OperationalTask();
+            task.setId(92001L);
+            when(taskService.start(eq("LOGISTICS_AUTO_SYNC"), any(), any(OperationalTaskPayload.class))).thenReturn(task);
+
+            LogisticsAutoSyncService realService = new LogisticsAutoSyncService(
+                    List.of(provider),
+                    cipher(),
+                    accessContextFactory,
+                    pluginSyncService,
+                    taskService,
+                    mapper
+            );
+            LogisticsAutoSyncScheduler scheduler = new LogisticsAutoSyncScheduler(
+                    properties,
+                    mapper,
+                    realService,
+                    Clock.fixed(Instant.parse("2026-07-06T04:00:00Z"), ZoneId.of("Asia/Shanghai"))
+            );
+
+            int executed = scheduler.runOnce();
+
+            assertThat(executed).isEqualTo(1);
+            ArgumentCaptor<PluginSyncCommand> commandCaptor = ArgumentCaptor.forClass(PluginSyncCommand.class);
+            verify(pluginSyncService).preview(commandCaptor.capture());
+            verify(pluginSyncService, never()).commit(any());
+            assertThat(commandCaptor.getValue().getSourceSystem()).isEqualTo("YITE");
+            assertThat(commandCaptor.getValue().getBatches()).hasSize(1);
+            assertThat(commandCaptor.getValue().getBatches().get(0).getBatchNo()).isEqualTo("YT2607000001");
+            verify(taskService).complete(eq(92001L), any(), eq("物流自动同步完成：预览通过，账号未开启自动提交。"));
+            verify(mapper).updateAccountRunState(
+                    eq(180901L),
+                    eq(92001L),
+                    eq("SUCCESS"),
+                    eq("SUCCESS"),
+                    eq("PREVIEW_ONLY"),
+                    eq("READY"),
+                    any(LocalDateTime.class),
+                    any(LocalDateTime.class),
+                    eq(null),
+                    eq(null),
+                    eq(null),
+                    eq(408L)
+            );
+        }
+    }
+
     private LogisticsAutoSyncScheduler scheduler(boolean enabled, int maxAccountsPerTick) {
         LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
         properties.getScheduler().setEnabled(enabled);
@@ -115,6 +225,196 @@ class LogisticsAutoSyncSchedulerTest {
             ((AtomicBoolean) field.get(scheduler)).set(true);
         } catch (Exception exception) {
             throw new IllegalStateException(exception);
+        }
+    }
+
+    private static LogisticsAutoSyncAccount scheduledYiteAccount() {
+        LogisticsAutoSyncAccount account = account(180901L);
+        account.setOwnerUserId(307L);
+        account.setOperatorUserId(408L);
+        account.setSourceSystem("YITE");
+        account.setForwarderName("义特");
+        account.setLoginAccount("scheduled-user");
+        account.setPasswordCipher(cipher().encrypt("scheduled-password"));
+        account.setCommitEnabled(false);
+        account.setMinIntervalHours(24);
+        return account;
+    }
+
+    private static LogisticsCredentialCipher cipher() {
+        LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+        properties.setCredentialCipherSecret("test-logistics-cipher-secret");
+        return new LogisticsCredentialCipher(properties);
+    }
+
+    private static BusinessAccessContext context() {
+        return BusinessAccessContext.builder()
+                .sessionUserId(408L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .menuPaths(Set.of("/purchase/in-transit-goods"))
+                .storeCodes(Set.of("STR108065-NSA"))
+                .build();
+    }
+
+    private static String yiteListJson() {
+        return json(
+                "{",
+                "  \"success\": 1,",
+                "  \"data\": {",
+                "    \"components\": {",
+                "      \"gridView\": {",
+                "        \"table\": {",
+                "          \"dataSource\": [",
+                "            {",
+                "              \"id\": \"shipment-record-1\",",
+                "              \"shipment_number\": \"YT2607000001\",",
+                "              \"service\": \"沙特海运双清\",",
+                "              \"to_address_country\": \"沙特阿拉伯\",",
+                "              \"parcel_count\": 1,",
+                "              \"created\": 1780054441",
+                "            }",
+                "          ]",
+                "        }",
+                "      }",
+                "    }",
+                "  }",
+                "}"
+        );
+    }
+
+    private static String yiteViewJson() {
+        return json(
+                "{",
+                "  \"success\": 1,",
+                "  \"data\": {",
+                "    \"rows\": [",
+                "      {",
+                "        \"components\": [",
+                "          {",
+                "            \"data\": {",
+                "              \"items\": [",
+                "                { \"title\": \"服务类型\", \"value\": \"沙特海运双清\" },",
+                "                { \"title\": \"发往国家\", \"value\": \"沙特阿拉伯\" },",
+                "                { \"title\": \"状态\", \"value\": \"转运中\" }",
+                "              ],",
+                "              \"dataSource\": [",
+                "                {",
+                "                  \"title\": \"2026-06-03 17:10:22\",",
+                "                  \"info\": \"预配航期 ETD: 6-7 ETA:6-30\",",
+                "                  \"event\": \"\"",
+                "                },",
+                "                {",
+                "                  \"id\": \"box-row-1\",",
+                "                  \"number\": \"YT2607000001U001<br/>1/1\",",
+                "                  \"volume\": \"17.68<br>54×45×32(cm)\",",
+                "                  \"status\": \"转运中\"",
+                "                }",
+                "              ]",
+                "            }",
+                "          }",
+                "        ]",
+                "      }",
+                "    ]",
+                "  }",
+                "}"
+        );
+    }
+
+    private static String yitePackingListJson() {
+        return json(
+                "{",
+                "  \"success\": 1,",
+                "  \"data\": {",
+                "    \"body\": {",
+                "      \"components\": [",
+                "        {",
+                "          \"data\": {",
+                "            \"table\": {",
+                "              \"dataSource\": [",
+                "                {",
+                "                  \"id\": \"YT2607000001U001\",",
+                "                  \"number\": \"YT2607000001U001<br>1/1\",",
+                "                  \"sku\": \"SGGRB142\",",
+                "                  \"name_zh\": \"8个装-透明抽屉隔板\",",
+                "                  \"qty\": \"16\"",
+                "                }",
+                "              ]",
+                "            }",
+                "          }",
+                "        },",
+                "        {",
+                "          \"data\": {",
+                "            \"columns\": [",
+                "              {",
+                "                \"data\": [",
+                "                  { \"data\": { \"label\": \"产品总数\", \"value\": 16 } }",
+                "                ]",
+                "              }",
+                "            ]",
+                "          }",
+                "        }",
+                "      ]",
+                "    }",
+                "  }",
+                "}"
+        );
+    }
+
+    private static String json(String... lines) {
+        return String.join("\n", lines);
+    }
+
+    private interface ExchangeHandler {
+        void handle(HttpExchange exchange) throws Exception;
+    }
+
+    private static final class StubHttpServer implements AutoCloseable {
+        private final HttpServer server;
+
+        private StubHttpServer() throws IOException {
+            server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.start();
+        }
+
+        private String baseUrl() {
+            return "http://127.0.0.1:" + server.getAddress().getPort();
+        }
+
+        private void handle(String path, ExchangeHandler handler) {
+            server.createContext(path, exchange -> {
+                try {
+                    handler.handle(exchange);
+                } catch (Exception exception) {
+                    byte[] bytes = exception.getMessage() == null
+                            ? exception.getClass().getName().getBytes(StandardCharsets.UTF_8)
+                            : exception.getMessage().getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(500, bytes.length);
+                    exchange.getResponseBody().write(bytes);
+                    exchange.close();
+                }
+            });
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
+    }
+
+    private static String readBody(HttpExchange exchange) throws IOException {
+        return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+    }
+
+    private static void sendJson(HttpExchange exchange, String body) {
+        try {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json;charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
         }
     }
 }
