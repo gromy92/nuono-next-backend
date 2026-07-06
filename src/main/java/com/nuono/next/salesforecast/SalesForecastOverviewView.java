@@ -51,7 +51,7 @@ public class SalesForecastOverviewView {
                 siteCode,
                 "no_forecast_run",
                 "暂无销量预测结果",
-                "当前店铺还没有预测运行结果。后续可在完成预测计算后查看 30/60/90 天预测。"
+                "当前店铺还没有预测运行结果。后续可在完成预测计算后查看 120 天逐日预测和 30/60/90 天统计。"
         );
     }
 

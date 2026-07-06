@@ -57,7 +57,8 @@ class SalesForecastDetailViewTest {
                         + "\"matchedScopeLabel\":\"站点+大类目\","
                         + "\"affectedDays30\":3,"
                         + "\"affectedDays60\":3,"
-                        + "\"affectedDays90\":3"
+                        + "\"affectedDays90\":3,"
+                        + "\"affectedDays120\":3"
                         + "}"
                         + "],"
                         + "\"historyCalendarFactorImpacts\":["
@@ -72,7 +73,22 @@ class SalesForecastDetailViewTest {
                         + "\"matchedScopeLabel\":\"站点全品\","
                         + "\"affectedDays30\":4,"
                         + "\"affectedDays60\":4,"
-                        + "\"affectedDays90\":4"
+                        + "\"affectedDays90\":4,"
+                        + "\"affectedDays120\":4"
+                        + "}"
+                        + "],"
+                        + "\"dailyForecasts\":["
+                        + "{"
+                        + "\"dayIndex\":1,"
+                        + "\"forecastDate\":\"2026-06-24\","
+                        + "\"calendarFactor\":\"1.0000\","
+                        + "\"forecastUnits\":\"1.3200\""
+                        + "},"
+                        + "{"
+                        + "\"dayIndex\":120,"
+                        + "\"forecastDate\":\"2026-10-21\","
+                        + "\"calendarFactor\":\"1.1200\","
+                        + "\"forecastUnits\":\"1.4784\""
                         + "}"
                         + "],"
                         + "\"adjustedHistoryUnits7\":\"70.0000\","
@@ -99,6 +115,12 @@ class SalesForecastDetailViewTest {
         assertEquals("1.1200", impact.getFactorValue().setScale(4).toPlainString());
         assertEquals("站点+大类目", impact.getMatchedScopeLabel());
         assertEquals(3, impact.getAffectedDays30());
+        assertEquals(3, impact.getAffectedDays120());
+        assertEquals(2, detail.getFactorBreakdown().getDailyForecasts().size());
+        SalesForecastDailyForecastView firstDailyForecast = detail.getFactorBreakdown().getDailyForecasts().get(0);
+        assertEquals(1, firstDailyForecast.getDayIndex());
+        assertEquals("2026-06-24", String.valueOf(firstDailyForecast.getForecastDate()));
+        assertEquals("1.3200", firstDailyForecast.getForecastUnits().setScale(4).toPlainString());
         assertEquals(1, detail.getHistoryCalendarFactorImpacts().size());
         SalesForecastCalendarFactorImpactView historyImpact = detail.getHistoryCalendarFactorImpacts().get(0);
         assertEquals("Eid history", historyImpact.getRuleName());

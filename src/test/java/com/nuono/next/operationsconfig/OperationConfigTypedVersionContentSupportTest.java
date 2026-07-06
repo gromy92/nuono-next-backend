@@ -238,6 +238,53 @@ class OperationConfigTypedVersionContentSupportTest {
     }
 
     @Test
+    void resolverCountsCalendarFactorImpactsAcrossOneHundredTwentyForecastDays() {
+        InMemoryTypedVersionRepository repository = new InMemoryTypedVersionRepository();
+        repository.insert(new OperationConfigTypedVersion(
+                88023L,
+                "CALENDAR_FACTOR_120_DAY_HORIZON",
+                "120天日历因子",
+                OperationConfigVersionType.BUSINESS_CALENDAR.name(),
+                "CURRENT",
+                null,
+                "运营配置",
+                "120天因子",
+                2,
+                "10002/STR108065-NSA/SA",
+                "["
+                        + "{\"groupName\":\"Ramadan\",\"itemName\":\"SA paper Ramadan\",\"cadence\":\"年度\",\"valueType\":\"日期范围\",\"defaultValue\":\"2027-02-05 ~ 2027-02-07 / 1.30\",\"resultShape\":\"site:SA|family:paper\",\"note\":\"高置信\"}"
+                        + "]",
+                0L,
+                0L,
+                LocalDateTime.of(2026, 6, 1, 0, 0),
+                LocalDateTime.of(2026, 6, 1, 0, 0)
+        ));
+        OperationBusinessCalendarFactorResolver resolver = new OperationBusinessCalendarFactorResolver(repository);
+
+        OperationBusinessCalendarFactorResolver.CalendarFactorExplanation explanation = resolver.explainFactors(
+                10002L,
+                "STR108065-NSA",
+                "SA",
+                LocalDate.of(2026, 10, 31),
+                120,
+                new OperationBusinessCalendarFactorResolver.ProductScope(
+                        "SA",
+                        "PAPERSAY",
+                        "copy_multipurpose_paper",
+                        "paper"
+                )
+        );
+
+        assertEquals(120, explanation.getDailyFactors().size());
+        assertEquals(1, explanation.getImpacts().size());
+        OperationBusinessCalendarFactorResolver.CalendarFactorImpact impact = explanation.getImpacts().get(0);
+        assertEquals(0, impact.getAffectedDays30());
+        assertEquals(0, impact.getAffectedDays60());
+        assertEquals(0, impact.getAffectedDays90());
+        assertEquals(3, impact.getAffectedDays120());
+    }
+
+    @Test
     void calendarRulesParseIntegerFactorAfterDateRangeDelimiter() {
         OperationConfigTypedVersion version = versionWithContent(
                 88022L,

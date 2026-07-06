@@ -1,6 +1,7 @@
 package com.nuono.next.salesforecast;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public class SalesForecastFactorBreakdownView {
 
@@ -13,6 +14,7 @@ public class SalesForecastFactorBreakdownView {
     private final int forecastUnits30;
     private final int forecastUnits60;
     private final int forecastUnits90;
+    private final List<SalesForecastDailyForecastView> dailyForecasts;
 
     public SalesForecastFactorBreakdownView(
             BigDecimal baseDailySales,
@@ -23,7 +25,8 @@ public class SalesForecastFactorBreakdownView {
             BigDecimal futureFactor90,
             int forecastUnits30,
             int forecastUnits60,
-            int forecastUnits90
+            int forecastUnits90,
+            List<SalesForecastDailyForecastView> dailyForecasts
     ) {
         this.baseDailySales = baseDailySales;
         this.recentDailyTrendRate = recentDailyTrendRate;
@@ -34,6 +37,7 @@ public class SalesForecastFactorBreakdownView {
         this.forecastUnits30 = forecastUnits30;
         this.forecastUnits60 = forecastUnits60;
         this.forecastUnits90 = forecastUnits90;
+        this.dailyForecasts = dailyForecasts == null ? List.of() : List.copyOf(dailyForecasts);
     }
 
     public BigDecimal getBaseDailySales() {
@@ -74,5 +78,9 @@ public class SalesForecastFactorBreakdownView {
 
     public int getForecastUnits90() {
         return forecastUnits90;
+    }
+
+    public List<SalesForecastDailyForecastView> getDailyForecasts() {
+        return dailyForecasts;
     }
 }

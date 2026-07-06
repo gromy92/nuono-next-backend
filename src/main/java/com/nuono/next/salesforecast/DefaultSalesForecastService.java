@@ -194,7 +194,8 @@ public class DefaultSalesForecastService implements SalesForecastService {
                 && sameVersionEvidence(existingRun, activityImpact)) {
             List<SalesForecastResultRecord> existingResults = forecastRunRepository.listResults(existingRun.getId());
             if (!hasDuplicatePartnerSkuResults(existingResults)
-                    && !hasCurrentProductBoundaryMismatch(existingResults, stockSnapshots)) {
+                    && !hasCurrentProductBoundaryMismatch(existingResults, stockSnapshots)
+                    && !hasSampleRiskLabelMismatch(existingResults)) {
                 return readyView(query, existingRun, existingResults);
             }
         }
@@ -204,6 +205,23 @@ public class DefaultSalesForecastService implements SalesForecastService {
             return SalesForecastOverviewView.missingSalesData(query.getStoreCode(), query.getSiteCode());
         }
         return readyView(query, savedRun, forecastRunRepository.listResults(savedRun.getId()));
+    }
+
+    @Override
+    public SalesForecastDetailView getDetail(SalesForecastDetailQuery query) {
+        SalesForecastRunRecord existingRun = forecastRunRepository.findLatestCompleted(query);
+        if (existingRun == null) {
+            return null;
+        }
+        String requestedProductKey = productKey(query.getPartnerSku());
+        if (!hasText(requestedProductKey)) {
+            return null;
+        }
+        return forecastRunRepository.listResults(existingRun.getId()).stream()
+                .filter(result -> requestedProductKey.equals(productKey(result.getPartnerSku())))
+                .findFirst()
+                .map(SalesForecastDetailView::fromResult)
+                .orElse(null);
     }
 
     @Override
@@ -311,15 +329,11 @@ public class DefaultSalesForecastService implements SalesForecastService {
                     historyCalendarFactorExplanation(snapshot, latestFactDate);
             OperationBusinessCalendarFactorResolver.CalendarFactorExplanation calendarFactorExplanation =
                     calendarFactorExplanation(snapshot, query, latestFactDate);
-            BigDecimal calendarFactor30 = calendarFactorExplanation.averageFactor(30);
-            BigDecimal calendarFactor60 = calendarFactorExplanation.averageFactor(60);
-            BigDecimal calendarFactor90 = calendarFactorExplanation.averageFactor(90);
             SalesForecastFormulaResult formulaResult = forecastEngine.forecast(
                     snapshot,
                     activityImpact.configVersion,
-                    calendarFactor30,
-                    calendarFactor60,
-                    calendarFactor90,
+                    latestFactDate.plusDays(1),
+                    calendarFactorExplanation.getDailyFactors(),
                     lowSampleDailyFloorByProduct.getOrDefault(productKey(snapshot.getPartnerSku()), BigDecimal.ZERO)
             );
             resultRecords.add(toResultRecord(
@@ -443,14 +457,16 @@ public class DefaultSalesForecastService implements SalesForecastService {
             LocalDate latestFactDate
     ) {
         if (calendarFactorResolver == null) {
-            return OperationBusinessCalendarFactorResolver.CalendarFactorExplanation.neutral(90);
+            return OperationBusinessCalendarFactorResolver.CalendarFactorExplanation.neutral(
+                    DefaultSalesForecastEngine.FORECAST_HORIZON_DAYS
+            );
         }
         return calendarFactorResolver.explainFactors(
                 query.getOwnerUserId(),
                 query.getStoreCode(),
                 query.getSiteCode(),
                 latestFactDate,
-                90,
+                DefaultSalesForecastEngine.FORECAST_HORIZON_DAYS,
                 new OperationBusinessCalendarFactorResolver.ProductScope(
                         snapshot.getSiteCode(),
                         snapshot.getBrand(),
@@ -578,6 +594,46 @@ public class DefaultSalesForecastService implements SalesForecastService {
                         .map(this::productKey)
                         .collect(Collectors.toCollection(LinkedHashSet::new));
         return !resultProductKeys.equals(currentProductKeys);
+    }
+
+    private boolean hasSampleRiskLabelMismatch(List<SalesForecastResultRecord> results) {
+        if (results == null || results.isEmpty()) {
+            return false;
+        }
+        for (SalesForecastResultRecord result : results) {
+            if (result == null) {
+                continue;
+            }
+            Set<String> risks = splitCodeSet(result.getRiskCodes());
+            boolean noSalesTrainingData = result.getObservedDays() <= 0
+                    || risks.contains("no_sales_training_data")
+                    || splitCodeSet(result.getWarningCodes()).contains("no_sales_training_data");
+            if (noSalesTrainingData) {
+                continue;
+            }
+            if (result.getObservedDays() < 30 && !risks.contains("insufficient_history_window")) {
+                return true;
+            }
+            if (result.getHistoryUnits30() <= 10 && !risks.contains("low_history_volume")) {
+                return true;
+            }
+            if (result.getObservedDays() >= 30
+                    && result.getObservedDays() < 60
+                    && !risks.contains("partial_history_window")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<String> splitCodeSet(String codes) {
+        if (codes == null || codes.isBlank()) {
+            return Set.of();
+        }
+        return java.util.Arrays.stream(codes.split(","))
+                .map(String::trim)
+                .filter(code -> !code.isEmpty())
+                .collect(Collectors.toSet());
     }
 
     private boolean matchesExportFilter(SalesForecastOverviewRow row, SalesForecastExportQuery query) {
@@ -746,18 +802,41 @@ public class DefaultSalesForecastService implements SalesForecastService {
 
         boolean noSalesTrainingData = snapshot.getObservedDays() <= 0 || warnings.contains("no_sales_training_data");
         boolean staleSalesData = latestFactDate.isBefore(LocalDate.now(clock).minusDays(3));
+        boolean insufficientHistoryWindow = !noSalesTrainingData && snapshot.getObservedDays() < 30;
+        boolean lowHistoryVolume = !noSalesTrainingData && snapshot.getHistoryUnits30() <= 10;
+        boolean partialHistoryWindow = !noSalesTrainingData
+                && snapshot.getObservedDays() >= 30
+                && snapshot.getObservedDays() < 60;
         if (noSalesTrainingData) {
             warnings.add("no_sales_training_data");
             risks.add("no_sales_training_data");
+        }
+        if (insufficientHistoryWindow) {
+            warnings.add("insufficient_history_window");
+            risks.add("insufficient_history_window");
+        }
+        if (lowHistoryVolume) {
+            warnings.add("low_history_volume");
+            risks.add("low_history_volume");
+        }
+        if (partialHistoryWindow) {
+            warnings.add("partial_history_window");
+            risks.add("partial_history_window");
         }
         if (staleSalesData) {
             warnings.add("stale_sales_data");
             risks.add("stale_sales_data");
         }
 
-        String confidenceLevel = confidenceLevel(snapshot, noSalesTrainingData, staleSalesData);
+        String confidenceLevel = confidenceLevel(snapshot, noSalesTrainingData, staleSalesData, lowHistoryVolume);
         String confidenceLabel = confidenceLabel(confidenceLevel);
-        String confidenceExplanation = confidenceExplanation(confidenceLevel, snapshot, noSalesTrainingData, staleSalesData);
+        String confidenceExplanation = confidenceExplanation(
+                confidenceLevel,
+                snapshot,
+                noSalesTrainingData,
+                staleSalesData,
+                lowHistoryVolume
+        );
         if ("low".equals(confidenceLevel)) {
             risks.add("low_confidence");
         }
@@ -773,9 +852,10 @@ public class DefaultSalesForecastService implements SalesForecastService {
     private String confidenceLevel(
             SalesForecastFeatureSnapshot snapshot,
             boolean noSalesTrainingData,
-            boolean staleSalesData
+            boolean staleSalesData,
+            boolean lowHistoryVolume
     ) {
-        if (noSalesTrainingData || snapshot.getObservedDays() < 30) {
+        if (noSalesTrainingData || snapshot.getObservedDays() < 30 || lowHistoryVolume) {
             return "low";
         }
         if (staleSalesData || snapshot.getObservedDays() < 60) {
@@ -798,16 +878,26 @@ public class DefaultSalesForecastService implements SalesForecastService {
             String confidenceLevel,
             SalesForecastFeatureSnapshot snapshot,
             boolean noSalesTrainingData,
-            boolean staleSalesData
+            boolean staleSalesData,
+            boolean lowHistoryVolume
     ) {
         if (noSalesTrainingData) {
             return "截至当前数据日没有自身销量训练样本，预测只能依赖同类目兜底或按 0 处理，需人工复核。";
         }
+        if (snapshot.getObservedDays() < 30 && lowHistoryVolume) {
+            return "可用销量样本少于 30 天，且近 30 天销量不超过 10 件，预测需人工复核。";
+        }
         if (snapshot.getObservedDays() < 30) {
             return "可用销量样本少于 30 天，预测需人工复核。";
         }
+        if (lowHistoryVolume) {
+            return "近 30 天销量不超过 10 件，样本波动对预测影响较大，需人工复核。";
+        }
         if (staleSalesData) {
             return "最新销量数据过期，预测置信度降为" + confidenceLabel(confidenceLevel) + "。";
+        }
+        if (snapshot.getObservedDays() < 60) {
+            return "可用销量样本少于 60 天，60 天平滑窗口不完整，置信度" + confidenceLabel(confidenceLevel) + "。";
         }
         return "销量样本满足 P0 预测要求，置信度" + confidenceLabel(confidenceLevel) + "。";
     }
@@ -845,10 +935,26 @@ public class DefaultSalesForecastService implements SalesForecastService {
                 + "\"calendarFactor30\":\"" + decimalText(formulaResult.getFutureFactor30()) + "\","
                 + "\"calendarFactor60\":\"" + decimalText(formulaResult.getFutureFactor60()) + "\","
                 + "\"calendarFactor90\":\"" + decimalText(formulaResult.getFutureFactor90()) + "\","
+                + "\"forecastHorizonDays\":" + DefaultSalesForecastEngine.FORECAST_HORIZON_DAYS + ","
                 + "\"lowSampleDailyFloor\":\"" + decimalText(formulaResult.getLowSampleDailyFloor()) + "\","
+                + "\"dailyForecasts\":" + dailyForecastsJson(formulaResult) + ","
                 + "\"calendarFactorImpacts\":" + calendarFactorImpactsJson(calendarFactorExplanation) + ","
                 + "\"historyCalendarFactorImpacts\":" + calendarFactorImpactsJson(historyCalendarFactorExplanation)
                 + "}";
+    }
+
+    private String dailyForecastsJson(SalesForecastFormulaResult formulaResult) {
+        if (formulaResult == null || formulaResult.getDailyForecasts().isEmpty()) {
+            return "[]";
+        }
+        return formulaResult.getDailyForecasts().stream()
+                .map(forecast -> "{"
+                        + "\"dayIndex\":" + forecast.getDayIndex() + ","
+                        + "\"forecastDate\":" + dateOrNull(forecast.getForecastDate()) + ","
+                        + "\"calendarFactor\":\"" + decimalText(forecast.getCalendarFactor()) + "\","
+                        + "\"forecastUnits\":\"" + dailyForecastUnitsText(forecast.getForecastUnits()) + "\""
+                        + "}")
+                .collect(Collectors.joining(",", "[", "]"));
     }
 
     private String calendarFactorImpactsJson(
@@ -869,7 +975,8 @@ public class DefaultSalesForecastService implements SalesForecastService {
                         + "\"matchedScopeLabel\":\"" + jsonText(impact.getMatchedScopeLabel()) + "\","
                         + "\"affectedDays30\":" + impact.getAffectedDays30() + ","
                         + "\"affectedDays60\":" + impact.getAffectedDays60() + ","
-                        + "\"affectedDays90\":" + impact.getAffectedDays90()
+                        + "\"affectedDays90\":" + impact.getAffectedDays90() + ","
+                        + "\"affectedDays120\":" + impact.getAffectedDays120()
                         + "}")
                 .collect(Collectors.joining(",", "[", "]"));
     }
@@ -880,6 +987,14 @@ public class DefaultSalesForecastService implements SalesForecastService {
 
     private String decimalText(BigDecimal value) {
         return value == null ? "" : value.setScale(4, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private String dailyForecastUnitsText(BigDecimal value) {
+        return value == null ? "" : value.setScale(8, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private String dateOrNull(LocalDate value) {
+        return value == null ? "null" : "\"" + value + "\"";
     }
 
     private String jsonText(String value) {

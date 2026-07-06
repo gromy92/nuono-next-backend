@@ -2,6 +2,10 @@ package com.nuono.next.salesforecast;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -9,6 +13,7 @@ public class DefaultSalesForecastEngine {
 
     public static final String CALCULATION_VERSION = "SALES_FORECAST_V1_4";
     public static final String DEFAULT_CONFIG_VERSION = "DEFAULT_CALENDAR_CONFIG";
+    public static final int FORECAST_HORIZON_DAYS = 120;
     private static final BigDecimal HISTORY_WEIGHT_7 = new BigDecimal("0.10");
     private static final BigDecimal HISTORY_WEIGHT_30 = new BigDecimal("0.60");
     private static final BigDecimal HISTORY_WEIGHT_90 = new BigDecimal("0.30");
@@ -26,7 +31,12 @@ public class DefaultSalesForecastEngine {
     private static final int THIRTY_DAY_SPIKE_PRIOR60_MIN_UNITS = 50;
 
     public SalesForecastFormulaResult forecast30(SalesForecastFeatureSnapshot snapshot, String configVersion) {
-        return forecast30(snapshot, configVersion, BigDecimal.ONE);
+        return forecast(
+                snapshot,
+                configVersion,
+                firstForecastDate(snapshot),
+                Collections.nCopies(FORECAST_HORIZON_DAYS, BigDecimal.ONE)
+        );
     }
 
     public SalesForecastFormulaResult forecast30(
@@ -34,7 +44,12 @@ public class DefaultSalesForecastEngine {
             String configVersion,
             BigDecimal futureFactor
     ) {
-        return forecast(snapshot, configVersion, futureFactor, futureFactor, futureFactor);
+        return forecast(
+                snapshot,
+                configVersion,
+                firstForecastDate(snapshot),
+                Collections.nCopies(FORECAST_HORIZON_DAYS, safeFactor(futureFactor))
+        );
     }
 
     public SalesForecastFormulaResult forecast(
@@ -44,7 +59,11 @@ public class DefaultSalesForecastEngine {
             BigDecimal futureFactor60,
             BigDecimal futureFactor90
     ) {
-        return forecast(snapshot, configVersion, futureFactor30, futureFactor60, futureFactor90, BigDecimal.ZERO);
+        List<BigDecimal> futureDailyFactors = new ArrayList<>();
+        addRepeatedFactors(futureDailyFactors, safeFactor(futureFactor30), 30);
+        addRepeatedFactors(futureDailyFactors, safeFactor(futureFactor60), 30);
+        addRepeatedFactors(futureDailyFactors, safeFactor(futureFactor90), FORECAST_HORIZON_DAYS - 60);
+        return forecast(snapshot, configVersion, firstForecastDate(snapshot), futureDailyFactors, BigDecimal.ZERO);
     }
 
     public SalesForecastFormulaResult forecast(
@@ -55,10 +74,34 @@ public class DefaultSalesForecastEngine {
             BigDecimal futureFactor90,
             BigDecimal lowSampleDailyFloor
     ) {
+        List<BigDecimal> futureDailyFactors = new ArrayList<>();
+        addRepeatedFactors(futureDailyFactors, safeFactor(futureFactor30), 30);
+        addRepeatedFactors(futureDailyFactors, safeFactor(futureFactor60), 30);
+        addRepeatedFactors(futureDailyFactors, safeFactor(futureFactor90), FORECAST_HORIZON_DAYS - 60);
+        return forecast(snapshot, configVersion, firstForecastDate(snapshot), futureDailyFactors, lowSampleDailyFloor);
+    }
+
+    public SalesForecastFormulaResult forecast(
+            SalesForecastFeatureSnapshot snapshot,
+            String configVersion,
+            LocalDate firstForecastDate,
+            List<BigDecimal> futureDailyFactors
+    ) {
+        return forecast(snapshot, configVersion, firstForecastDate, futureDailyFactors, BigDecimal.ZERO);
+    }
+
+    public SalesForecastFormulaResult forecast(
+            SalesForecastFeatureSnapshot snapshot,
+            String configVersion,
+            LocalDate firstForecastDate,
+            List<BigDecimal> futureDailyFactors,
+            BigDecimal lowSampleDailyFloor
+    ) {
         String resolvedConfigVersion = hasText(configVersion) ? configVersion : DEFAULT_CONFIG_VERSION;
-        BigDecimal resolvedFutureFactor30 = safeFactor(futureFactor30);
-        BigDecimal resolvedFutureFactor60 = safeFactor(futureFactor60);
-        BigDecimal resolvedFutureFactor90 = safeFactor(futureFactor90);
+        List<BigDecimal> resolvedFutureDailyFactors = resolvedFutureDailyFactors(futureDailyFactors);
+        BigDecimal resolvedFutureFactor30 = averageFactor(resolvedFutureDailyFactors, 30);
+        BigDecimal resolvedFutureFactor60 = averageFactor(resolvedFutureDailyFactors, 60);
+        BigDecimal resolvedFutureFactor90 = averageFactor(resolvedFutureDailyFactors, 90);
         BigDecimal rawDaily7 = dailyAverage(snapshot.getAdjustedHistoryUnits7(), 7);
         BigDecimal rawDaily30 = dailyAverage(snapshot.getAdjustedHistoryUnits30(), 30);
         BigDecimal daily60 = dailyAverage(snapshot.getAdjustedHistoryUnits60(), 60);
@@ -72,9 +115,15 @@ public class DefaultSalesForecastEngine {
         }
         BigDecimal recentDailyTrendRate = recentDailyTrendRate(daily7, rawDaily30);
         BigDecimal trendFactor = neutralTrendFactor();
-        int forecastUnits30 = forecastUnits(baseDailySales, trendFactor, resolvedFutureFactor30, 30);
-        int forecastUnits60 = forecastUnits(baseDailySales, trendFactor, resolvedFutureFactor60, 60);
-        int forecastUnits90 = forecastUnits(baseDailySales, trendFactor, resolvedFutureFactor90, 90);
+        List<SalesForecastDailyForecast> dailyForecasts = dailyForecasts(
+                baseDailySales,
+                trendFactor,
+                resolvedFutureDailyFactors,
+                firstForecastDate
+        );
+        int forecastUnits30 = forecastUnits(dailyForecasts, 30);
+        int forecastUnits60 = forecastUnits(dailyForecasts, 60);
+        int forecastUnits90 = forecastUnits(dailyForecasts, 90);
 
         return new SalesForecastFormulaResult(
                 CALCULATION_VERSION,
@@ -89,6 +138,7 @@ public class DefaultSalesForecastEngine {
                 resolvedFutureFactor60.setScale(4, RoundingMode.HALF_UP),
                 resolvedFutureFactor90.setScale(4, RoundingMode.HALF_UP),
                 appliedLowSampleDailyFloor.setScale(4, RoundingMode.HALF_UP),
+                dailyForecasts,
                 shortReason(
                         snapshot,
                         forecastUnits30,
@@ -100,6 +150,19 @@ public class DefaultSalesForecastEngine {
                         appliedLowSampleDailyFloor
                 )
         );
+    }
+
+    private static void addRepeatedFactors(List<BigDecimal> futureDailyFactors, BigDecimal factor, int days) {
+        for (int index = 0; index < days; index++) {
+            futureDailyFactors.add(factor);
+        }
+    }
+
+    private LocalDate firstForecastDate(SalesForecastFeatureSnapshot snapshot) {
+        if (snapshot == null || snapshot.getLatestFactDate() == null) {
+            return null;
+        }
+        return snapshot.getLatestFactDate().plusDays(1);
     }
 
     private BigDecimal safeFactor(BigDecimal factor) {
@@ -240,21 +303,65 @@ public class DefaultSalesForecastEngine {
         return safeUnits.divide(BigDecimal.valueOf(days), 8, RoundingMode.HALF_UP);
     }
 
-    private int forecastUnits(
+    private List<BigDecimal> resolvedFutureDailyFactors(List<BigDecimal> futureDailyFactors) {
+        List<BigDecimal> result = new ArrayList<>();
+        for (int index = 0; index < FORECAST_HORIZON_DAYS; index++) {
+            BigDecimal factor = futureDailyFactors != null && index < futureDailyFactors.size()
+                    ? futureDailyFactors.get(index)
+                    : BigDecimal.ONE;
+            result.add(safeFactor(factor));
+        }
+        return result;
+    }
+
+    private BigDecimal averageFactor(List<BigDecimal> futureDailyFactors, int windowDays) {
+        if (windowDays <= 0 || futureDailyFactors == null || futureDailyFactors.isEmpty()) {
+            return BigDecimal.ONE;
+        }
+        int days = Math.min(windowDays, futureDailyFactors.size());
+        BigDecimal total = BigDecimal.ZERO;
+        for (int index = 0; index < days; index++) {
+            total = total.add(safeFactor(futureDailyFactors.get(index)));
+        }
+        return total.divide(BigDecimal.valueOf(days), 8, RoundingMode.HALF_UP);
+    }
+
+    private List<SalesForecastDailyForecast> dailyForecasts(
             BigDecimal baseDailySales,
             BigDecimal trendFactor,
-            BigDecimal futureFactor,
-            int windowDays
+            List<BigDecimal> futureDailyFactors,
+            LocalDate firstForecastDate
     ) {
-        BigDecimal forecast = baseDailySales
-                .multiply(trendFactor)
-                .multiply(futureFactor)
-                .multiply(BigDecimal.valueOf(windowDays));
-        int forecastUnits = forecast.setScale(0, RoundingMode.CEILING).intValue();
-        if (forecastUnits < 0) {
+        List<SalesForecastDailyForecast> dailyForecasts = new ArrayList<>();
+        for (int index = 0; index < FORECAST_HORIZON_DAYS; index++) {
+            BigDecimal calendarFactor = safeFactor(futureDailyFactors.get(index));
+            BigDecimal forecastUnits = baseDailySales
+                    .multiply(trendFactor)
+                    .multiply(calendarFactor);
+            if (forecastUnits.compareTo(BigDecimal.ZERO) < 0) {
+                forecastUnits = BigDecimal.ZERO;
+            }
+            dailyForecasts.add(new SalesForecastDailyForecast(
+                    index + 1,
+                    firstForecastDate == null ? null : firstForecastDate.plusDays(index),
+                    calendarFactor.setScale(4, RoundingMode.HALF_UP),
+                    forecastUnits.setScale(8, RoundingMode.HALF_UP)
+            ));
+        }
+        return dailyForecasts;
+    }
+
+    private int forecastUnits(List<SalesForecastDailyForecast> dailyForecasts, int windowDays) {
+        BigDecimal forecastUnits = BigDecimal.ZERO;
+        int days = Math.min(windowDays, dailyForecasts.size());
+        for (int index = 0; index < days; index++) {
+            forecastUnits = forecastUnits.add(dailyForecasts.get(index).getForecastUnits());
+        }
+        int roundedUnits = forecastUnits.setScale(0, RoundingMode.CEILING).intValue();
+        if (roundedUnits < 0) {
             return 0;
         }
-        return forecastUnits;
+        return roundedUnits;
     }
 
     private String shortReason(
@@ -272,13 +379,13 @@ public class DefaultSalesForecastEngine {
                 return "截至 " + snapshot.getLatestFactDate()
                         + " 没有自身销量训练样本，使用低样本同类目兜底日销 "
                         + lowSampleDailyFloor.setScale(4, RoundingMode.HALF_UP).toPlainString()
-                        + "；日历因子30/60/90天："
+                        + "；日历因子30/60/90天统计："
                         + futureFactor30.setScale(4, RoundingMode.HALF_UP).toPlainString()
                         + " / "
                         + futureFactor60.setScale(4, RoundingMode.HALF_UP).toPlainString()
                         + " / "
                         + futureFactor90.setScale(4, RoundingMode.HALF_UP).toPlainString()
-                        + "；预测未来30/60/90天约 "
+                        + "；按未来120天逐日预测，30/60/90天统计约 "
                         + forecastUnits30 + " / " + forecastUnits60 + " / " + forecastUnits90 + " 件。";
             }
             return "截至 " + snapshot.getLatestFactDate()
@@ -290,13 +397,13 @@ public class DefaultSalesForecastEngine {
                 + "；"
                 + historyCalendarAdjustmentSummary(snapshot)
                 + lowSampleDailyFloorSummary(lowSampleDailyFloor)
-                + "日历因子30/60/90天："
+                + "日历因子30/60/90天统计："
                 + futureFactor30.setScale(4, RoundingMode.HALF_UP).toPlainString()
                 + " / "
                 + futureFactor60.setScale(4, RoundingMode.HALF_UP).toPlainString()
                 + " / "
                 + futureFactor90.setScale(4, RoundingMode.HALF_UP).toPlainString()
-                + "；预测未来30/60/90天约 "
+                + "；按未来120天逐日预测，30/60/90天统计约 "
                 + forecastUnits30 + " / " + forecastUnits60 + " / " + forecastUnits90 + " 件。";
     }
 

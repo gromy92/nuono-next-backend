@@ -312,6 +312,7 @@ public class OperationBusinessCalendarFactorResolver {
         private final int affectedDays30;
         private final int affectedDays60;
         private final int affectedDays90;
+        private final int affectedDays120;
 
         private CalendarFactorImpact(
                 String ruleName,
@@ -324,7 +325,8 @@ public class OperationBusinessCalendarFactorResolver {
                 String matchedScopeLabel,
                 int affectedDays30,
                 int affectedDays60,
-                int affectedDays90
+                int affectedDays90,
+                int affectedDays120
         ) {
             this.ruleName = ruleName;
             this.activityType = activityType;
@@ -337,6 +339,7 @@ public class OperationBusinessCalendarFactorResolver {
             this.affectedDays30 = affectedDays30;
             this.affectedDays60 = affectedDays60;
             this.affectedDays90 = affectedDays90;
+            this.affectedDays120 = affectedDays120;
         }
 
         public String getRuleName() {
@@ -382,6 +385,10 @@ public class OperationBusinessCalendarFactorResolver {
         public int getAffectedDays90() {
             return affectedDays90;
         }
+
+        public int getAffectedDays120() {
+            return affectedDays120;
+        }
     }
 
     private static class MutableCalendarFactorImpact {
@@ -394,6 +401,7 @@ public class OperationBusinessCalendarFactorResolver {
         private int affectedDays30;
         private int affectedDays60;
         private int affectedDays90;
+        private int affectedDays120;
 
         private MutableCalendarFactorImpact(
                 OperationCalendarRule rule,
@@ -423,6 +431,9 @@ public class OperationBusinessCalendarFactorResolver {
             if (dayOffset <= 90) {
                 affectedDays90++;
             }
+            if (dayOffset <= 120) {
+                affectedDays120++;
+            }
         }
 
         private CalendarFactorImpact toView() {
@@ -437,7 +448,8 @@ public class OperationBusinessCalendarFactorResolver {
                     matchedScopeLabel,
                     affectedDays30,
                     affectedDays60,
-                    affectedDays90
+                    affectedDays90,
+                    affectedDays120
             );
         }
     }

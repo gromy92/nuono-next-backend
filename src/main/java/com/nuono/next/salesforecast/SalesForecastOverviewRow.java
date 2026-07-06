@@ -120,7 +120,7 @@ public class SalesForecastOverviewRow {
                 record.getActivityExplanation(),
                 record.getShortReason(),
                 followUpMarked,
-                SalesForecastDetailView.fromResult(record)
+                SalesForecastDetailView.fromResult(record, false)
         );
     }
 

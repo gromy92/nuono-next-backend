@@ -34,6 +34,10 @@ public class SalesForecastDetailView {
     }
 
     public static SalesForecastDetailView fromResult(SalesForecastResultRecord record) {
+        return fromResult(record, true);
+    }
+
+    public static SalesForecastDetailView fromResult(SalesForecastResultRecord record, boolean includeDailyForecasts) {
         return new SalesForecastDetailView(
                 new SalesForecastFeatureValuesView(
                         record.getLatestFactDate(),
@@ -58,7 +62,8 @@ public class SalesForecastDetailView {
                         calendarFactor(record.getFeatureSnapshotJson(), "calendarFactor90", record.getFutureFactor()),
                         record.getForecastUnits30(),
                         record.getForecastUnits60(),
-                        record.getForecastUnits90()
+                        record.getForecastUnits90(),
+                        includeDailyForecasts ? dailyForecasts(record.getFeatureSnapshotJson()) : List.of()
                 ),
                 calendarFactorImpacts(record.getFeatureSnapshotJson(), "calendarFactorImpacts"),
                 calendarFactorImpacts(record.getFeatureSnapshotJson(), "historyCalendarFactorImpacts"),
@@ -132,7 +137,32 @@ public class SalesForecastDetailView {
                         text(impact, "matchedScopeLabel"),
                         intValue(impact, "affectedDays30"),
                         intValue(impact, "affectedDays60"),
-                        intValue(impact, "affectedDays90")
+                        intValue(impact, "affectedDays90"),
+                        intValue(impact, "affectedDays120")
+                ));
+            }
+            return result;
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private static List<SalesForecastDailyForecastView> dailyForecasts(String featureSnapshotJson) {
+        if (featureSnapshotJson == null || featureSnapshotJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode forecasts = OBJECT_MAPPER.readTree(featureSnapshotJson).get("dailyForecasts");
+            if (forecasts == null || !forecasts.isArray()) {
+                return List.of();
+            }
+            List<SalesForecastDailyForecastView> result = new ArrayList<>();
+            for (JsonNode forecast : forecasts) {
+                result.add(new SalesForecastDailyForecastView(
+                        intValue(forecast, "dayIndex"),
+                        date(forecast, "forecastDate"),
+                        decimal(forecast, "calendarFactor"),
+                        decimal(forecast, "forecastUnits")
                 ));
             }
             return result;

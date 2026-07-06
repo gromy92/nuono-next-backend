@@ -24,6 +24,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class DefaultSalesForecastServiceTest {
@@ -62,8 +63,20 @@ class DefaultSalesForecastServiceTest {
         SalesForecastResultRecord result = runRepository.savedResults.get(0);
         assertEquals(31, result.getForecastUnits30());
         assertEquals("1.0167", result.getFutureFactor().setScale(4).toPlainString());
-        assertTrue(result.getShortReason().contains("日历因子30/60/90天：1.0167"));
+        assertTrue(result.getShortReason().contains("日历因子30/60/90天统计：1.0167 / 1.0083 / 1.0056"));
         assertFalse(result.getFeatureSnapshotJson().contains("lifecycle"));
+        assertTrue(result.getFeatureSnapshotJson().contains("\"forecastHorizonDays\":120"));
+        assertEquals(0, overview.getRows().get(0).getDetail().getFactorBreakdown().getDailyForecasts().size());
+        SalesForecastDetailView detail = service.getDetail(new SalesForecastDetailQuery(
+                10002L,
+                "STR108065-NSA",
+                "SA",
+                "PAPERSAY001"
+        ));
+        assertEquals(120, detail.getFactorBreakdown().getDailyForecasts().size());
+        SalesForecastDailyForecastView firstDailyForecast = detail.getFactorBreakdown().getDailyForecasts().get(0);
+        assertEquals("2026-06-24", String.valueOf(firstDailyForecast.getForecastDate()));
+        assertEquals("1.5000", firstDailyForecast.getCalendarFactor().setScale(4).toPlainString());
     }
 
     @Test
@@ -182,7 +195,7 @@ class DefaultSalesForecastServiceTest {
         SalesForecastResultRecord result = runRepository.savedResults.get(0);
         assertEquals(0, result.getHistoryUnits30());
         assertEquals(300, result.getHistoryUnits60());
-        assertEquals(306, result.getForecastUnits30());
+        assertEquals(305, result.getForecastUnits30());
         assertTrue(result.getWarningCodes().contains("historical_stockout_imputed"));
         assertTrue(result.getFeatureSnapshotJson().contains("\"adjustedHistoryUnits30\":\"300.0000\""));
     }
@@ -251,6 +264,109 @@ class DefaultSalesForecastServiceTest {
         assertTrue(coldStart.getRiskCodes().contains("low_confidence"));
         assertTrue(coldStart.getShortReason().contains("低样本同类目兜底"));
         assertTrue(coldStart.getFeatureSnapshotJson().contains("\"lowSampleDailyFloor\":\"0.1000\""));
+    }
+
+    @Test
+    void forecastMarksLowHistoryKnownProductsWithSpecificRiskLabels() {
+        LocalDate latestFactDate = LocalDate.of(2026, 6, 23);
+        List<DailySalesFact> facts = new ArrayList<>();
+        for (int dayOffset = 19; dayOffset >= 0; dayOffset--) {
+            facts.add(fact(latestFactDate.minusDays(dayOffset), dayOffset < 5 ? 1 : 0));
+        }
+        RecordingSalesForecastRunRepository runRepository = new RecordingSalesForecastRunRepository();
+        DefaultSalesForecastService service = new DefaultSalesForecastService(
+                new ListedSalesFactRepository(latestFactDate, facts),
+                runRepository,
+                query -> List.of(new SalesForecastStockSnapshot(
+                        10002L,
+                        "STR108065-NSA",
+                        "SA",
+                        "PAPERSAY001",
+                        "SKU-1",
+                        100,
+                        "PAPERSAY",
+                        "copy_multipurpose_paper",
+                        "paper",
+                        "Paper"
+                )),
+                new LegacyActivityWindowRepository(),
+                new NoopFollowUpRepository(),
+                new SalesForecastFeatureBuilder(),
+                new DefaultSalesForecastEngine(),
+                Clock.fixed(Instant.parse("2026-06-25T00:00:00Z"), ZoneOffset.UTC),
+                typedCalendarRepository()
+        );
+
+        SalesForecastOverviewView overview = service.getOverview(new SalesForecastQuery(
+                10002L,
+                "STR108065-NSA",
+                "SA"
+        ));
+
+        assertEquals("ready", overview.getState());
+        SalesForecastResultRecord result = runRepository.savedResults.get(0);
+        assertEquals(20, result.getObservedDays());
+        assertEquals(5, result.getHistoryUnits30());
+        assertEquals("low", result.getConfidenceLevel());
+        assertFalse(result.getRiskCodes().contains("no_sales_training_data"));
+        assertTrue(result.getRiskCodes().contains("insufficient_history_window"));
+        assertTrue(result.getRiskCodes().contains("low_history_volume"));
+        assertTrue(result.getRiskCodes().contains("low_confidence"));
+        List<String> riskLabels = overview.getRows().get(0).getRiskLabels().stream()
+                .map(SalesForecastRiskLabelView::getLabel)
+                .collect(Collectors.toList());
+        assertTrue(riskLabels.contains("历史不足"));
+        assertTrue(riskLabels.contains("低销量样本"));
+    }
+
+    @Test
+    void forecastMarksPartialHistoryWindowAsMediumConfidence() {
+        LocalDate latestFactDate = LocalDate.of(2026, 6, 23);
+        List<DailySalesFact> facts = new ArrayList<>();
+        for (int dayOffset = 44; dayOffset >= 0; dayOffset--) {
+            facts.add(fact(latestFactDate.minusDays(dayOffset), 1));
+        }
+        RecordingSalesForecastRunRepository runRepository = new RecordingSalesForecastRunRepository();
+        DefaultSalesForecastService service = new DefaultSalesForecastService(
+                new ListedSalesFactRepository(latestFactDate, facts),
+                runRepository,
+                query -> List.of(new SalesForecastStockSnapshot(
+                        10002L,
+                        "STR108065-NSA",
+                        "SA",
+                        "PAPERSAY001",
+                        "SKU-1",
+                        100,
+                        "PAPERSAY",
+                        "copy_multipurpose_paper",
+                        "paper",
+                        "Paper"
+                )),
+                new LegacyActivityWindowRepository(),
+                new NoopFollowUpRepository(),
+                new SalesForecastFeatureBuilder(),
+                new DefaultSalesForecastEngine(),
+                Clock.fixed(Instant.parse("2026-06-25T00:00:00Z"), ZoneOffset.UTC),
+                typedCalendarRepository()
+        );
+
+        SalesForecastOverviewView overview = service.getOverview(new SalesForecastQuery(
+                10002L,
+                "STR108065-NSA",
+                "SA"
+        ));
+
+        assertEquals("ready", overview.getState());
+        SalesForecastResultRecord result = runRepository.savedResults.get(0);
+        assertEquals(45, result.getObservedDays());
+        assertEquals(30, result.getHistoryUnits30());
+        assertEquals("medium", result.getConfidenceLevel());
+        assertTrue(result.getRiskCodes().contains("partial_history_window"));
+        assertFalse(result.getRiskCodes().contains("low_confidence"));
+        List<String> riskLabels = overview.getRows().get(0).getRiskLabels().stream()
+                .map(SalesForecastRiskLabelView::getLabel)
+                .collect(Collectors.toList());
+        assertTrue(riskLabels.contains("样本窗口不完整"));
     }
 
     @Test
@@ -372,6 +488,64 @@ class DefaultSalesForecastServiceTest {
 
         assertEquals(90001L, overview.getRunId());
         assertEquals(0, runRepository.saveRunCount);
+    }
+
+    @Test
+    void overviewRecalculatesCachedRunsMissingSampleRiskLabels() {
+        LocalDate latestFactDate = LocalDate.of(2026, 6, 23);
+        List<DailySalesFact> facts = new ArrayList<>();
+        for (int dayOffset = 19; dayOffset >= 0; dayOffset--) {
+            facts.add(fact(latestFactDate.minusDays(dayOffset), dayOffset < 5 ? 1 : 0));
+        }
+        RecordingSalesForecastRunRepository runRepository = new RecordingSalesForecastRunRepository();
+        runRepository.existingRun = new SalesForecastRunRecord(
+                90003L,
+                10002L,
+                "STR108065-NSA",
+                "SA",
+                latestFactDate,
+                DefaultSalesForecastEngine.CALCULATION_VERSION,
+                "CALENDAR_FACTOR_CURRENT",
+                "CALENDAR_FACTOR_CURRENT",
+                "站点类目日历因子",
+                "运营配置",
+                "OLD_LIFECYCLE_CONFIG",
+                "旧生命周期配置",
+                "历史兼容",
+                "succeeded",
+                1,
+                LocalDateTime.of(2026, 6, 28, 0, 0)
+        );
+        runRepository.existingResults = List.of(lowHistoryResultRecord(latestFactDate));
+        DefaultSalesForecastService service = new DefaultSalesForecastService(
+                new ListedSalesFactRepository(latestFactDate, facts),
+                runRepository,
+                query -> List.of(new SalesForecastStockSnapshot(
+                        "PAPERSAY001",
+                        "SKU-1",
+                        100,
+                        "PAPERSAY",
+                        "copy_multipurpose_paper",
+                        "paper"
+                )),
+                new LegacyActivityWindowRepository(),
+                new NoopFollowUpRepository(),
+                new SalesForecastFeatureBuilder(),
+                new DefaultSalesForecastEngine(),
+                Clock.fixed(Instant.parse("2026-06-25T00:00:00Z"), ZoneOffset.UTC),
+                typedCalendarRepository()
+        );
+
+        SalesForecastOverviewView overview = service.getOverview(new SalesForecastQuery(
+                10002L,
+                "STR108065-NSA",
+                "SA"
+        ));
+
+        assertEquals(70001L, overview.getRunId());
+        assertEquals(1, runRepository.saveRunCount);
+        assertTrue(runRepository.savedResults.get(0).getRiskCodes().contains("insufficient_history_window"));
+        assertTrue(runRepository.savedResults.get(0).getRiskCodes().contains("low_history_volume"));
     }
 
     @Test
@@ -565,6 +739,45 @@ class DefaultSalesForecastServiceTest {
         );
     }
 
+    private SalesForecastResultRecord lowHistoryResultRecord(LocalDate latestFactDate) {
+        return new SalesForecastResultRecord(
+                2L,
+                90003L,
+                10002L,
+                "STR108065-NSA",
+                "SA",
+                "PAPERSAY001",
+                "SKU-1",
+                "Paper",
+                latestFactDate,
+                5,
+                5,
+                5,
+                5,
+                20,
+                100,
+                new BigDecimal("600.0"),
+                5,
+                10,
+                15,
+                DefaultSalesForecastEngine.CALCULATION_VERSION,
+                "CALENDAR_FACTOR_CURRENT",
+                BigDecimal.ONE,
+                BigDecimal.ZERO,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                "low",
+                "低",
+                "可用销量样本少于 30 天，预测需人工复核。",
+                "",
+                "low_confidence",
+                "",
+                "",
+                "日历因子30/60/90天：1.0000 / 1.0000 / 1.0000",
+                "{}"
+        );
+    }
+
     private SalesForecastResultRecord result(List<SalesForecastResultRecord> results, String partnerSku) {
         return results.stream()
                 .filter(result -> partnerSku.equals(result.getPartnerSku()))
@@ -698,13 +911,15 @@ class DefaultSalesForecastServiceTest {
         @Override
         public SalesForecastRunRecord saveRun(SalesForecastRunRecord run) {
             saveRunCount++;
-            return run.withIdAndCalculatedAt(70001L, LocalDateTime.of(2026, 6, 29, 0, 0));
+            existingRun = run.withIdAndCalculatedAt(70001L, LocalDateTime.of(2026, 6, 29, 0, 0));
+            return existingRun;
         }
 
         @Override
         public void saveResults(Long runId, List<SalesForecastResultRecord> records) {
             savedResults.clear();
             savedResults.addAll(records);
+            existingResults = List.copyOf(records);
         }
 
         @Override

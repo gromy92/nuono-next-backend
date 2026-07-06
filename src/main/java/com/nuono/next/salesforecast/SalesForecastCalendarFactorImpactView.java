@@ -16,6 +16,7 @@ public class SalesForecastCalendarFactorImpactView {
     private final int affectedDays30;
     private final int affectedDays60;
     private final int affectedDays90;
+    private final int affectedDays120;
 
     public SalesForecastCalendarFactorImpactView(
             String ruleName,
@@ -28,7 +29,8 @@ public class SalesForecastCalendarFactorImpactView {
             String matchedScopeLabel,
             int affectedDays30,
             int affectedDays60,
-            int affectedDays90
+            int affectedDays90,
+            int affectedDays120
     ) {
         this.ruleName = ruleName;
         this.activityType = activityType;
@@ -41,6 +43,7 @@ public class SalesForecastCalendarFactorImpactView {
         this.affectedDays30 = affectedDays30;
         this.affectedDays60 = affectedDays60;
         this.affectedDays90 = affectedDays90;
+        this.affectedDays120 = affectedDays120;
     }
 
     public String getRuleName() {
@@ -85,5 +88,9 @@ public class SalesForecastCalendarFactorImpactView {
 
     public int getAffectedDays90() {
         return affectedDays90;
+    }
+
+    public int getAffectedDays120() {
+        return affectedDays120;
     }
 }

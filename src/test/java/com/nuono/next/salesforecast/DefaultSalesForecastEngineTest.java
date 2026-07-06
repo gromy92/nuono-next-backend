@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +47,7 @@ class DefaultSalesForecastEngineTest {
     }
 
     @Test
-    void salesForecastV14UsesSeparateCalendarFactorsForForecastWindows() {
+    void salesForecastV14RollsCalendarFactorsUpFromDailyForecastSeries() {
         DefaultSalesForecastEngine engine = new DefaultSalesForecastEngine();
         SalesForecastFeatureSnapshot snapshot = snapshot();
 
@@ -59,10 +61,40 @@ class DefaultSalesForecastEngineTest {
 
         assertEquals("CALENDAR_FACTOR_CURRENT", result.getConfigVersion());
         assertEquals(61, result.getForecastUnits30());
-        assertEquals(132, result.getForecastUnits60());
-        assertEquals(148, result.getForecastUnits90());
+        assertEquals(126, result.getForecastUnits60());
+        assertEquals(176, result.getForecastUnits90());
         assertEquals("1.1000", result.getFutureFactor().toPlainString());
-        assertTrue(result.getShortReason().contains("日历因子30/60/90天：1.1000 / 1.2000 / 0.9000"));
+        assertEquals("1.1500", result.getFutureFactor60().toPlainString());
+        assertEquals("1.0667", result.getFutureFactor90().toPlainString());
+        assertTrue(result.getShortReason().contains("日历因子30/60/90天统计：1.1000 / 1.1500 / 1.0667"));
+    }
+
+    @Test
+    void salesForecastV14BuildsDailyForecastHorizonAndRollsUpStatisticsFromDailySeries() {
+        DefaultSalesForecastEngine engine = new DefaultSalesForecastEngine();
+        SalesForecastFeatureSnapshot snapshot = snapshot();
+        List<BigDecimal> futureDailyFactors = new ArrayList<>();
+        for (int index = 0; index < DefaultSalesForecastEngine.FORECAST_HORIZON_DAYS; index++) {
+            futureDailyFactors.add(BigDecimal.ONE);
+        }
+        futureDailyFactors.set(30, new BigDecimal("2.00"));
+
+        SalesForecastFormulaResult result = engine.forecast(
+                snapshot,
+                "CALENDAR_FACTOR_CURRENT",
+                snapshot.getLatestFactDate().plusDays(1),
+                futureDailyFactors
+        );
+
+        assertEquals(DefaultSalesForecastEngine.FORECAST_HORIZON_DAYS, result.getDailyForecasts().size());
+        assertEquals(LocalDate.of(2026, 5, 21), result.getDailyForecasts().get(0).getForecastDate());
+        assertEquals(LocalDate.of(2026, 9, 17), result.getDailyForecasts().get(119).getForecastDate());
+        assertEquals("1.8250", result.getDailyForecasts().get(0).getForecastUnits().setScale(4).toPlainString());
+        assertEquals("3.6500", result.getDailyForecasts().get(30).getForecastUnits().setScale(4).toPlainString());
+        assertEquals(ceilRollup(result, 30), result.getForecastUnits30());
+        assertEquals(ceilRollup(result, 60), result.getForecastUnits60());
+        assertEquals(ceilRollup(result, 90), result.getForecastUnits90());
+        assertTrue(result.getShortReason().contains("按未来120天逐日预测"));
     }
 
     @Test
@@ -228,6 +260,15 @@ class DefaultSalesForecastEngineTest {
                 null,
                 List.of()
         );
+    }
+
+    private int ceilRollup(SalesForecastFormulaResult result, int windowDays) {
+        return result.getDailyForecasts().stream()
+                .limit(windowDays)
+                .map(SalesForecastDailyForecast::getForecastUnits)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(0, RoundingMode.CEILING)
+                .intValue();
     }
 
     private SalesForecastFeatureSnapshot historySnapshot(
