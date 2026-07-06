@@ -5,16 +5,24 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import com.nuono.next.competitoranalysis.noon.NoonFrontendSearchPageParser;
 import com.nuono.next.competitoranalysis.noon.NoonSearchPage;
 import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.competitoranalysis.noon.NoonSearchRequest;
 import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
 import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.http.HttpRequest;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class HttpNoonPublicProductDetailAdapterTest {
@@ -36,6 +44,91 @@ class HttpNoonPublicProductDetailAdapterTest {
         assertEquals(new BigDecimal("19.90"), detail.getPriceAmount());
         assertEquals("https://www.noon.com/saudi-en/canman/p/", detail.getDetailUrl());
         assertEquals("noon-search-customer-catalog-v3", detail.getProviderParserVersion());
+    }
+
+    @Test
+    void fetchUsesFrontendCatalogDetailEndpointBeforeSearch() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        AtomicReference<String> requestedPath = new AtomicReference<>();
+        AtomicReference<String> cookieHeader = new AtomicReference<>();
+        server.createContext("/", exchange -> {
+            requestedPath.set(exchange.getRequestURI().toString());
+            cookieHeader.set(exchange.getRequestHeaders().getFirst("Cookie"));
+            if (exchange.getRequestURI().getPath().endsWith("/ZABCDEF12/p")) {
+                sendJson(exchange, 200, "{"
+                        + "\"catalog\":{"
+                        + "\"type\":\"detail\","
+                        + "\"product\":{"
+                        + "\"sku\":\"ZABCDEF12\","
+                        + "\"product_title\":\"Frontend Detail Bag\","
+                        + "\"brand\":\"Canman\","
+                        + "\"image_urls\":[\"https://f.nooncdn.com/products/abc.jpg\"],"
+                        + "\"canonical_url\":\"/saudi-en/front-detail-bag/ZABCDEF12/p/\","
+                        + "\"price\":{\"amount\":24.50,\"currency\":\"SAR\"},"
+                        + "\"rating\":4.4,"
+                        + "\"reviews_count\":12"
+                        + "}"
+                        + "}"
+                        + "}");
+                return;
+            }
+            sendJson(exchange, 200, "{\"hits\":[{\"sku\":\"ZOTHER123\",\"title\":\"Wrong product\"}]}");
+        });
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort()
+                    + "/_vs/nc/mp-customer-catalog-api/api/v3/u";
+            HttpNoonPublicProductDetailAdapter adapter = new HttpNoonPublicProductDetailAdapter(
+                    new NoonFrontendSearchPageParser(new ObjectMapper()),
+                    Duration.ofSeconds(1),
+                    Duration.ofSeconds(3),
+                    "https://www.noon.com",
+                    baseUrl,
+                    "visitor_id=test",
+                    false
+            );
+
+            NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                    .siteCode("SA")
+                    .locale("en-SA")
+                    .noonProductCode("ZABCDEF12")
+                    .build());
+
+            assertEquals(ProductPublicDetailSyncStatus.PARTIAL, detail.getStatus());
+            assertEquals("PARTIAL_DETAIL", detail.getFailureCode());
+            assertEquals("Frontend Detail Bag", detail.getTitleEn());
+            assertEquals("Canman", detail.getBrand());
+            assertEquals(0, new BigDecimal("24.50").compareTo(detail.getPriceAmount()));
+            assertEquals("SAR", detail.getCurrencyCode());
+            assertEquals(new BigDecimal("4.4"), detail.getRating());
+            assertEquals(12, detail.getReviewCount());
+            assertEquals("https://f.nooncdn.com/products/abc.jpg", detail.getMainImageUrl());
+            assertEquals("https://www.noon.com/saudi-en/front-detail-bag/ZABCDEF12/p/", detail.getDetailUrl());
+            assertTrue(detail.getProviderSourceUrl().endsWith("/ZABCDEF12/p"));
+            assertEquals("noon-frontend-catalog-detail-v1", detail.getProviderParserVersion());
+            assertEquals("visitor_id=test", cookieHeader.get());
+            assertTrue(requestedPath.get().endsWith("/ZABCDEF12/p"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void frontendCatalogDetailUsesCurlWhenCurlIsEnabled() {
+        AtomicInteger httpCount = new AtomicInteger();
+        AtomicInteger curlCount = new AtomicInteger();
+        DetailTransportSpyAdapter adapter = new DetailTransportSpyAdapter(true, httpCount, curlCount);
+
+        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .noonProductCode("ZABCDEF12")
+                .build());
+
+        assertEquals(ProductPublicDetailSyncStatus.PARTIAL, detail.getStatus());
+        assertEquals("curl", detail.getProviderParserVersion());
+        assertEquals(0, httpCount.get());
+        assertEquals(1, curlCount.get());
     }
 
     @Test
@@ -130,6 +223,32 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
+    void fallsBackToFrontendHtmlSearchBeforeCatalogPartner() {
+        StubAdapter adapter = new StubAdapter(null, false, "");
+        adapter.failure = new NoonSearchProviderException(
+                "PROVIDER_UNAVAILABLE",
+                "Noon customer catalog returned 500",
+                500,
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=ZABCDEF12&limit=20",
+                null
+        );
+        adapter.htmlFallbackPage = page(result("ZABCDEF12", "Canman Bag"));
+        adapter.htmlFallbackPage.setSourceUrl("https://www.noon.com/saudi-en/search/?originalQuery=ZABCDEF12&q=ZABCDEF12");
+        adapter.catalogFallbackPage = page(result("ZABCDEF12", "Catalog Partner Bag"));
+        adapter.catalogFallbackPage.setSourceUrl("https://noon-catalog.noon.partners/_svc/catalog/api/u/saudi-en/search?q=ZABCDEF12&limit=20");
+
+        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .noonProductCode("ZABCDEF12")
+                .build());
+
+        assertEquals(ProductPublicDetailSyncStatus.PARTIAL, detail.getStatus());
+        assertTrue(detail.getProviderSourceUrl().contains("www.noon.com/saudi-en/search/"));
+        assertEquals("Canman Bag", detail.getTitleEn());
+    }
+
+    @Test
     void genericCustomerAndFallbackFailuresReportFallbackSource() {
         StubAdapter adapter = new StubAdapter(null, false, "");
         adapter.runtimeFailure = new IllegalStateException("customer transport exploded");
@@ -162,10 +281,36 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
-    void curlCommandForcesHttp11ForNoonPublicProvider() {
+    void fetchLoadsBrowserFrontendCookieWhenNoCookieIsConfigured() {
+        AtomicInteger loadCount = new AtomicInteger();
+        StubAdapter adapter = new StubAdapter(
+                page(result("ZABCDEF12", "Canman Bag")),
+                false,
+                "",
+                true,
+                () -> {
+                    loadCount.incrementAndGet();
+                    return "visitor_id=chrome";
+                }
+        );
+
+        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .noonProductCode("ZABCDEF12")
+                .build());
+
+        assertEquals(ProductPublicDetailSyncStatus.PARTIAL, detail.getStatus());
+        assertEquals("visitor_id=chrome", adapter.lastFrontendCookieHeader);
+        assertEquals(1, loadCount.get());
+    }
+
+    @Test
+    void curlCommandUsesCompressedResponsesWithoutForcingHttp11() {
         StubAdapter adapter = new StubAdapter(page(result("ZABCDEF12", "Canman Bag")), true, "");
 
-        assertTrue(adapter.buildCurlCommand().contains("--http1.1"));
+        assertTrue(adapter.buildCurlCommand().contains("--compressed"));
+        assertFalse(adapter.buildCurlCommand().contains("--http1.1"));
     }
 
     private static NoonSearchPage page(NoonSearchResult result) {
@@ -191,15 +336,31 @@ class HttpNoonPublicProductDetailAdapterTest {
         return result;
     }
 
+    private static void sendJson(HttpExchange exchange, int status, String body) throws IOException {
+        byte[] response = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(status, response.length);
+        exchange.getResponseBody().write(response);
+        exchange.close();
+    }
+
     private static final class StubAdapter extends HttpNoonPublicProductDetailAdapter {
         private final NoonSearchPage page;
         private NoonSearchProviderException failure;
         private NoonSearchProviderException catalogFailure;
         private RuntimeException runtimeFailure;
+        private NoonSearchPage htmlFallbackPage;
         private NoonSearchPage catalogFallbackPage;
+        private RuntimeException htmlRuntimeFailure;
         private RuntimeException catalogRuntimeFailure;
+        private String lastFrontendCookieHeader;
 
         private StubAdapter(NoonSearchPage page, boolean curlEnabled, String cookie) {
+            this(page, curlEnabled, cookie, false, () -> null);
+        }
+
+        private StubAdapter(NoonSearchPage page, boolean curlEnabled, String cookie, boolean chromeCookieEnabled,
+                            java.util.function.Supplier<String> frontendCookieHeaderSupplier) {
             super(
                     new NoonFrontendSearchPageParser(new ObjectMapper()),
                     Duration.ofSeconds(1),
@@ -207,13 +368,30 @@ class HttpNoonPublicProductDetailAdapterTest {
                     "https://www.noon.com",
                     "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u",
                     cookie,
+                    chromeCookieEnabled,
+                    frontendCookieHeaderSupplier,
                     curlEnabled
             );
             this.page = page;
         }
 
         @Override
+        NoonPublicProductDetailResult fetchFrontendCatalogDetail(NoonSearchRequest searchRequest, String code) {
+            return null;
+        }
+
+        @Override
         NoonSearchPage fetchSearchPageWithHttp(NoonSearchRequest request, String url, String frontendCookieHeader) {
+            lastFrontendCookieHeader = frontendCookieHeader;
+            if (url.contains("/search/?")) {
+                if (htmlRuntimeFailure != null) {
+                    throw htmlRuntimeFailure;
+                }
+                if (htmlFallbackPage == null) {
+                    throw new NoonSearchProviderException("PROVIDER_UNAVAILABLE", "html unavailable", null, url, null);
+                }
+                return htmlFallbackPage;
+            }
             if (url.contains("noon-catalog.noon.partners")) {
                 if (catalogFailure != null) {
                     throw catalogFailure;
@@ -230,6 +408,58 @@ class HttpNoonPublicProductDetailAdapterTest {
                 throw failure;
             }
             return page;
+        }
+    }
+
+    private static final class DetailTransportSpyAdapter extends HttpNoonPublicProductDetailAdapter {
+        private final AtomicInteger httpCount;
+        private final AtomicInteger curlCount;
+
+        private DetailTransportSpyAdapter(boolean curlEnabled, AtomicInteger httpCount, AtomicInteger curlCount) {
+            super(
+                    new NoonFrontendSearchPageParser(new ObjectMapper()),
+                    Duration.ofSeconds(1),
+                    Duration.ofSeconds(3),
+                    "https://www.noon.com",
+                    "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u",
+                    "",
+                    false,
+                    () -> null,
+                    curlEnabled
+            );
+            this.httpCount = httpCount;
+            this.curlCount = curlCount;
+        }
+
+        @Override
+        NoonPublicProductDetailResult fetchFrontendCatalogDetailWithHttp(
+                NoonSearchRequest searchRequest,
+                String code,
+                String url,
+                String frontendCookieHeader
+        ) {
+            httpCount.incrementAndGet();
+            return partialFromTransport(code, "http");
+        }
+
+        @Override
+        NoonPublicProductDetailResult fetchFrontendCatalogDetailWithCurl(
+                NoonSearchRequest searchRequest,
+                String code,
+                String url,
+                String frontendCookieHeader
+        ) {
+            curlCount.incrementAndGet();
+            return partialFromTransport(code, "curl");
+        }
+
+        private NoonPublicProductDetailResult partialFromTransport(String code, String transport) {
+            NoonPublicProductDetailResult result = new NoonPublicProductDetailResult();
+            result.setStatus(ProductPublicDetailSyncStatus.PARTIAL);
+            result.setNoonProductCode(code);
+            result.setFailureCode("PARTIAL_DETAIL");
+            result.setProviderParserVersion(transport);
+            return result;
         }
     }
 }

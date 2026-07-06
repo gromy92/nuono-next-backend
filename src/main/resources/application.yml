@@ -143,6 +143,7 @@ nuono:
       catalog-base-url: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CATALOG_BASE_URL:https://noon-catalog.noon.partners/_svc/catalog/api/u}
       customer-catalog-v3-base-url: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CUSTOMER_CATALOG_V3_BASE_URL:https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u}
       frontend-cookie-header: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_FRONTEND_COOKIE_HEADER:}
+      chrome-frontend-cookie-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CHROME_FRONTEND_COOKIE_ENABLED:false}
       curl-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CURL_ENABLED:true}
     scheduler:
       enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_ENABLED:false}

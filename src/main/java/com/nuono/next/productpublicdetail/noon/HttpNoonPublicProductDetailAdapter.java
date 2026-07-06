@@ -1,25 +1,32 @@
 package com.nuono.next.productpublicdetail.noon;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.competitoranalysis.noon.NoonFrontendSearchPageParser;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.competitoranalysis.noon.NoonSearchPage;
 import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.competitoranalysis.noon.NoonSearchRequest;
 import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
+import com.nuono.next.noon.ChromeNoonCookieSupport;
 import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -29,13 +36,18 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDetailAdapter {
+    private static final String FRONTEND_CATALOG_DETAIL_PARSER_VERSION = "noon-frontend-catalog-detail-v1";
+
     private final NoonFrontendSearchPageParser parser;
+    private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final Duration requestTimeout;
     private final String publicBaseUrl;
     private final String catalogBaseUrl;
     private final String customerCatalogV3BaseUrl;
     private final String configuredFrontendCookieHeader;
+    private final boolean chromeFrontendCookieEnabled;
+    private final Supplier<String> frontendCookieHeaderSupplier;
     private final boolean curlEnabled;
 
     @Autowired
@@ -47,6 +59,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             @Value("${nuono.product-public-detail.noon.catalog-base-url:https://noon-catalog.noon.partners/_svc/catalog/api/u}") String catalogBaseUrl,
             @Value("${nuono.product-public-detail.noon.customer-catalog-v3-base-url:https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u}") String customerCatalogV3BaseUrl,
             @Value("${nuono.product-public-detail.noon.frontend-cookie-header:}") String configuredFrontendCookieHeader,
+            @Value("${nuono.product-public-detail.noon.chrome-frontend-cookie-enabled:false}") boolean chromeFrontendCookieEnabled,
             @Value("${nuono.product-public-detail.noon.curl-enabled:true}") boolean curlEnabled
     ) {
         this(
@@ -57,6 +70,8 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 catalogBaseUrl,
                 customerCatalogV3BaseUrl,
                 configuredFrontendCookieHeader,
+                chromeFrontendCookieEnabled,
+                ChromeNoonCookieSupport::loadNoonFrontendCookieHeader,
                 curlEnabled
         );
     }
@@ -75,9 +90,35 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 connectTimeout,
                 requestTimeout,
                 publicBaseUrl,
+                customerCatalogV3BaseUrl,
+                configuredFrontendCookieHeader,
+                false,
+                () -> null,
+                curlEnabled
+        );
+    }
+
+    HttpNoonPublicProductDetailAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String publicBaseUrl,
+            String customerCatalogV3BaseUrl,
+            String configuredFrontendCookieHeader,
+            boolean chromeFrontendCookieEnabled,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled
+    ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                publicBaseUrl,
                 "https://noon-catalog.noon.partners/_svc/catalog/api/u",
                 customerCatalogV3BaseUrl,
                 configuredFrontendCookieHeader,
+                chromeFrontendCookieEnabled,
+                frontendCookieHeaderSupplier,
                 curlEnabled
         );
     }
@@ -92,12 +133,41 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             String configuredFrontendCookieHeader,
             boolean curlEnabled
     ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                publicBaseUrl,
+                catalogBaseUrl,
+                customerCatalogV3BaseUrl,
+                configuredFrontendCookieHeader,
+                false,
+                () -> null,
+                curlEnabled
+        );
+    }
+
+    HttpNoonPublicProductDetailAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String publicBaseUrl,
+            String catalogBaseUrl,
+            String customerCatalogV3BaseUrl,
+            String configuredFrontendCookieHeader,
+            boolean chromeFrontendCookieEnabled,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled
+    ) {
         this.parser = parser;
+        this.objectMapper = new ObjectMapper();
         this.requestTimeout = requestTimeout == null ? Duration.ofSeconds(20) : requestTimeout;
         this.publicBaseUrl = normalizeBaseUrl(publicBaseUrl);
         this.catalogBaseUrl = normalizeCatalogBaseUrl(catalogBaseUrl);
         this.customerCatalogV3BaseUrl = normalizeCustomerCatalogV3BaseUrl(customerCatalogV3BaseUrl);
         this.configuredFrontendCookieHeader = configuredFrontendCookieHeader == null ? "" : configuredFrontendCookieHeader.trim();
+        this.chromeFrontendCookieEnabled = chromeFrontendCookieEnabled;
+        this.frontendCookieHeaderSupplier = frontendCookieHeaderSupplier == null ? () -> null : frontendCookieHeaderSupplier;
         this.curlEnabled = curlEnabled;
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
@@ -118,11 +188,24 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 .keyword(code)
                 .limit(20)
                 .build();
+        try {
+            NoonPublicProductDetailResult detail = fetchFrontendCatalogDetail(searchRequest, code);
+            if (detail != null) {
+                return detail;
+            }
+        } catch (NoonSearchProviderException exception) {
+            if (!shouldFallbackFromFrontendCatalogDetail(exception)) {
+                return mapProviderException(code, exception);
+            }
+        } catch (Exception ignored) {
+            // Existing search fallbacks still cover transient public frontend transport failures.
+        }
         String url = buildCustomerCatalogV3SearchUrl(searchRequest);
         try {
+            String frontendCookieHeader = loadFrontendCookieHeader(url);
             NoonSearchPage page = curlEnabled
-                    ? fetchSearchPageWithCurl(searchRequest, url, configuredFrontendCookieHeader)
-                    : fetchSearchPageWithHttp(searchRequest, url, configuredFrontendCookieHeader);
+                    ? fetchSearchPageWithCurl(searchRequest, url, frontendCookieHeader)
+                    : fetchSearchPageWithHttp(searchRequest, url, frontendCookieHeader);
             NoonSearchResult exact = findExact(page, code);
             if (exact == null) {
                 NoonPublicProductDetailResult result = notFound(code, page, "PUBLIC_DETAIL_NOT_FOUND", "Noon 前台 exact search 未返回该商品码。");
@@ -132,6 +215,13 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             return partial(code, exact, page);
         } catch (NoonSearchProviderException exception) {
             if (shouldFallbackToCatalogPartner(exception)) {
+                try {
+                    return fetchFrontendHtmlSearch(searchRequest, code);
+                } catch (NoonSearchProviderException ignored) {
+                    // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+                } catch (Exception ignored) {
+                    // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+                }
                 try {
                     return fetchCatalogPartner(searchRequest, code);
                 } catch (NoonSearchProviderException fallbackException) {
@@ -150,6 +240,13 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             }
             return mapProviderException(code, exception);
         } catch (Exception exception) {
+            try {
+                return fetchFrontendHtmlSearch(searchRequest, code);
+            } catch (NoonSearchProviderException ignored) {
+                // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+            } catch (Exception ignored) {
+                // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+            }
             try {
                 return fetchCatalogPartner(searchRequest, code);
             } catch (NoonSearchProviderException fallbackException) {
@@ -220,11 +317,190 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 || "PARSE_FAILED".equals(code);
     }
 
+    private boolean shouldFallbackFromFrontendCatalogDetail(NoonSearchProviderException exception) {
+        Integer httpStatus = exception == null ? null : exception.getProviderHttpStatus();
+        if (httpStatus != null && httpStatus != 200) {
+            return httpStatus >= 500;
+        }
+        String code = exception == null ? null : exception.getErrorCode();
+        return "PROVIDER_UNAVAILABLE".equals(code)
+                || "PARSE_FAILED".equals(code);
+    }
+
+    NoonPublicProductDetailResult fetchFrontendCatalogDetail(NoonSearchRequest searchRequest, String code)
+            throws IOException, InterruptedException {
+        String url = buildCustomerCatalogV3DetailUrl(searchRequest, code);
+        String frontendCookieHeader = loadFrontendCookieHeader(url);
+        return curlEnabled
+                ? fetchFrontendCatalogDetailWithCurl(searchRequest, code, url, frontendCookieHeader)
+                : fetchFrontendCatalogDetailWithHttp(searchRequest, code, url, frontendCookieHeader);
+    }
+
+    NoonPublicProductDetailResult fetchFrontendCatalogDetailWithHttp(
+            NoonSearchRequest searchRequest,
+            String code,
+            String url,
+            String frontendCookieHeader
+    ) throws IOException, InterruptedException {
+        HttpResponse<String> response = httpClient.send(
+                buildCustomerCatalogV3SearchRequest(searchRequest, url, frontendCookieHeader),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
+        );
+        return mapFrontendCatalogDetailResponse(searchRequest, code, url, response.statusCode(), response.body());
+    }
+
+    NoonPublicProductDetailResult fetchFrontendCatalogDetailWithCurl(
+            NoonSearchRequest searchRequest,
+            String code,
+            String url,
+            String frontendCookieHeader
+    ) throws IOException {
+        CurlResponse response = executeCurl(buildCustomerCatalogV3CurlConfig(searchRequest, url, frontendCookieHeader));
+        if (response.exitCode != 0) {
+            throw new NoonSearchProviderException(
+                    "PROVIDER_UNAVAILABLE",
+                    "Noon 前台 catalog detail curl 请求失败：" + shrink(response.stderr, 180),
+                    null,
+                    url,
+                    null
+            );
+        }
+        return mapFrontendCatalogDetailResponse(searchRequest, code, url, response.statusCode, response.body);
+    }
+
+    private NoonPublicProductDetailResult mapFrontendCatalogDetailResponse(
+            NoonSearchRequest searchRequest,
+            String code,
+            String url,
+            int statusCode,
+            String body
+    ) {
+        if (statusCode == 404) {
+            return failedOrNotFound(
+                    ProductPublicDetailSyncStatus.NOT_FOUND,
+                    code,
+                    "PUBLIC_DETAIL_NOT_FOUND",
+                    "Noon 前台 catalog detail 未返回该商品码。",
+                    statusCode,
+                    url,
+                    sha256(body),
+                    FRONTEND_CATALOG_DETAIL_PARSER_VERSION
+            );
+        }
+        if (statusCode < 200 || statusCode >= 300) {
+            throw mapUnsuccessfulStatus(statusCode, url);
+        }
+        return parseFrontendCatalogDetail(searchRequest, code, body, url, statusCode);
+    }
+
+    private NoonPublicProductDetailResult parseFrontendCatalogDetail(
+            NoonSearchRequest searchRequest,
+            String code,
+            String json,
+            String url,
+            int providerHttpStatus
+    ) {
+        String body = json == null ? "" : json;
+        String hash = sha256(body);
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(body);
+        } catch (Exception exception) {
+            throw new NoonSearchProviderException(
+                    "PARSE_FAILED",
+                    "Noon 前台 catalog detail 响应不是有效 JSON。",
+                    providerHttpStatus,
+                    url,
+                    hash
+            );
+        }
+
+        JsonNode product = frontendCatalogProduct(root);
+        if (product == null || !product.isObject()) {
+            throw new NoonSearchProviderException(
+                    "PARSE_FAILED",
+                    "Noon 前台 catalog detail 响应无法解析出商品详情。",
+                    providerHttpStatus,
+                    url,
+                    hash
+            );
+        }
+        String productCode = NoonProductCodeSupport.normalize(firstNonBlank(
+                textAny(product, "sku", "sku_config", "catalog_sku", "noonProductCode", "productCode", "product_code"),
+                textAny(root, "sku", "sku_config", "catalog_sku", "noonProductCode", "productCode", "product_code")
+        ));
+        if (!code.equals(productCode)) {
+            return failedOrNotFound(
+                    ProductPublicDetailSyncStatus.NOT_FOUND,
+                    code,
+                    "PUBLIC_DETAIL_NOT_FOUND",
+                    "Noon 前台 catalog detail 返回的商品码不匹配。",
+                    providerHttpStatus,
+                    url,
+                    hash,
+                    FRONTEND_CATALOG_DETAIL_PARSER_VERSION
+            );
+        }
+
+        NoonPublicProductDetailResult mapped = failedOrNotFound(
+                ProductPublicDetailSyncStatus.PARTIAL,
+                code,
+                "PARTIAL_DETAIL",
+                "Noon 前台 catalog detail 返回公开商品字段，商家后台详情字段仍需后续补齐。",
+                providerHttpStatus,
+                url,
+                hash,
+                FRONTEND_CATALOG_DETAIL_PARSER_VERSION
+        );
+        JsonNode catalog = root.path("catalog");
+        mapped.setCodeType(NoonProductCodeSupport.codeType(code).orElse(null));
+        mapped.setTitleEn(trim(textAny(product, "product_title", "title", "name", "title_en", "name_en")));
+        mapped.setTitleAr(trim(textAny(product, "product_title_ar", "title_ar", "name_ar")));
+        mapped.setBrand(resolveFrontendBrand(product.path("brand")));
+        mapped.setCategoryPath(trim(firstNonBlank(
+                textAny(product, "category_path", "categoryPath", "category", "category_name"),
+                textAny(catalog, "category_path", "categoryPath", "category", "category_name")
+        )));
+        mapped.setPriceAmount(resolveFrontendPrice(product));
+        mapped.setCurrencyCode(trim(firstNonBlank(
+                textAny(product, "currency", "currency_code", "currencyCode", "priceCurrency"),
+                textAny(product.path("price"), "currency", "currency_code", "currencyCode"),
+                inferCurrencyCode(searchRequest)
+        )));
+        mapped.setRating(resolveFrontendRating(product));
+        mapped.setReviewCount(resolveFrontendReviewCount(product));
+        mapped.setAvailabilityText(trim(textAny(product, "availability", "availability_text", "stock_status", "stockStatus")));
+        mapped.setMainImageUrl(resolveFrontendImage(product));
+        mapped.setDetailUrl(resolveDetailUrl(firstNonBlank(
+                textAny(product, "canonical_url", "canonicalUrl", "url", "product_url", "productUrl"),
+                textAny(catalog, "canonical_url", "canonicalUrl", "url", "product_url", "productUrl"),
+                textAny(root, "canonical_url", "canonicalUrl", "url", "product_url", "productUrl")
+        )));
+        mapped.setRawPayloadJson(product.toString());
+        return mapped;
+    }
+
+    private NoonPublicProductDetailResult fetchFrontendHtmlSearch(NoonSearchRequest searchRequest, String code) throws Exception {
+        String url = buildFrontendHtmlSearchUrl(searchRequest);
+        String frontendCookieHeader = loadFrontendCookieHeader(url);
+        NoonSearchPage page = curlEnabled
+                ? fetchFrontendHtmlSearchPageWithCurl(searchRequest, url, frontendCookieHeader)
+                : fetchSearchPageWithHttp(searchRequest, url, frontendCookieHeader);
+        NoonSearchResult exact = findExact(page, code);
+        if (exact == null) {
+            NoonPublicProductDetailResult result = notFound(code, page, "PUBLIC_DETAIL_NOT_FOUND", "Noon 前台 HTML exact search 未返回该商品码。");
+            result.setProviderSourceUrl(url);
+            return result;
+        }
+        return partial(code, exact, page);
+    }
+
     private NoonPublicProductDetailResult fetchCatalogPartner(NoonSearchRequest searchRequest, String code) throws Exception {
         String url = buildCatalogSearchUrl(searchRequest);
+        String frontendCookieHeader = loadFrontendCookieHeader(url);
         NoonSearchPage page = curlEnabled
-                ? fetchSearchPageWithCurl(searchRequest, url, configuredFrontendCookieHeader)
-                : fetchSearchPageWithHttp(searchRequest, url, configuredFrontendCookieHeader);
+                ? fetchSearchPageWithCurl(searchRequest, url, frontendCookieHeader)
+                : fetchSearchPageWithHttp(searchRequest, url, frontendCookieHeader);
         NoonSearchResult exact = findExact(page, code);
         if (exact == null) {
             NoonPublicProductDetailResult result = notFound(code, page, "PUBLIC_DETAIL_NOT_FOUND", "Noon catalog partner exact search 未返回该商品码。");
@@ -242,6 +518,9 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         int statusCode = response.statusCode();
         if (statusCode < 200 || statusCode >= 300) {
             throw mapUnsuccessfulStatus(statusCode, url);
+        }
+        if (isFrontendHtmlSearchUrl(url)) {
+            return parser.parse(response.body(), url, statusCode);
         }
         return parser.parseCatalogJson(response.body(), url, statusCode);
     }
@@ -261,6 +540,23 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             throw mapUnsuccessfulStatus(response.statusCode, url);
         }
         return parser.parseCatalogJson(response.body, url, response.statusCode);
+    }
+
+    NoonSearchPage fetchFrontendHtmlSearchPageWithCurl(NoonSearchRequest request, String url, String frontendCookieHeader) throws IOException {
+        CurlResponse response = executeCurl(buildFrontendHtmlSearchCurlConfig(request, url, frontendCookieHeader));
+        if (response.exitCode != 0) {
+            throw new NoonSearchProviderException(
+                    "PROVIDER_UNAVAILABLE",
+                    "Noon 前台 HTML curl 请求失败：" + shrink(response.stderr, 180),
+                    null,
+                    url,
+                    null
+            );
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+            throw mapUnsuccessfulStatus(response.statusCode, url);
+        }
+        return parser.parse(response.body, url, response.statusCode);
     }
 
     HttpRequest buildCustomerCatalogV3SearchRequest(NoonSearchRequest request, String url, String frontendCookieHeader) {
@@ -295,6 +591,26 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         return builder.GET().build();
     }
 
+    String loadFrontendCookieHeader(String url) {
+        if (StringUtils.hasText(configuredFrontendCookieHeader)) {
+            return configuredFrontendCookieHeader;
+        }
+        if (!chromeFrontendCookieEnabled) {
+            return null;
+        }
+        try {
+            return frontendCookieHeaderSupplier.get();
+        } catch (RuntimeException exception) {
+            throw new NoonSearchProviderException(
+                    "PROVIDER_UNAVAILABLE",
+                    "Noon 前台公开详情缺少浏览器会话：" + shrink(exception.getMessage(), 180),
+                    null,
+                    url,
+                    null
+            );
+        }
+    }
+
     String buildCustomerCatalogV3SearchUrl(NoonSearchRequest request) {
         String keyword = request == null ? "" : trim(request.getKeyword());
         int limit = request == null || request.getLimit() == null ? 20 : Math.max(1, Math.min(request.getLimit(), 30));
@@ -303,6 +619,13 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 + URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8)
                 + "&limit="
                 + limit;
+    }
+
+    String buildCustomerCatalogV3DetailUrl(NoonSearchRequest request, String code) {
+        return customerCatalogV3BaseUrl
+                + "/"
+                + URLEncoder.encode(code == null ? "" : code, StandardCharsets.UTF_8)
+                + "/p";
     }
 
     String buildCatalogSearchUrl(NoonSearchRequest request) {
@@ -315,6 +638,13 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 + URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8)
                 + "&limit="
                 + limit;
+    }
+
+    String buildFrontendHtmlSearchUrl(NoonSearchRequest request) {
+        String path = marketPath(request == null ? null : request.getSiteCode(), request == null ? null : request.getLocale());
+        String keyword = request == null ? "" : trim(request.getKeyword());
+        String encoded = URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8);
+        return publicBaseUrl + path + "/search/?originalQuery=" + encoded + "&q=" + encoded;
     }
 
     String buildCustomerCatalogV3CurlConfig(NoonSearchRequest request, String url, String frontendCookieHeader) {
@@ -349,26 +679,35 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         return config.toString();
     }
 
+    String buildFrontendHtmlSearchCurlConfig(NoonSearchRequest request, String url, String frontendCookieHeader) {
+        StringBuilder config = new StringBuilder();
+        appendCurlOption(config, "url", url);
+        appendCurlHeader(config, "accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        appendCurlHeader(config, "accept-language", acceptLanguage(request));
+        appendCurlHeader(config, "cache-control", "no-cache, max-age=0, must-revalidate, no-store");
+        appendCurlHeader(config, "user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36");
+        if (StringUtils.hasText(frontendCookieHeader)) {
+            appendCurlHeader(config, "cookie", frontendCookieHeader.trim());
+        }
+        return config.toString();
+    }
+
     private CurlResponse executeCurl(String config) throws IOException {
         Process process = new ProcessBuilder(buildCurlCommand()).start();
-        try (OutputStream stdin = process.getOutputStream()) {
+        byte[] stdout;
+        byte[] stderr;
+        try (OutputStream stdin = process.getOutputStream();
+             InputStream inputStream = process.getInputStream();
+             InputStream errorStream = process.getErrorStream()) {
             stdin.write(config.getBytes(StandardCharsets.UTF_8));
+            stdin.flush();
+            stdin.close();
+            stdout = readAllBytes(inputStream);
+            stderr = readAllBytes(errorStream);
         }
-        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
-        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-        process.getInputStream().transferTo(stdout);
-        process.getErrorStream().transferTo(stderr);
         try {
             int exitCode = process.waitFor();
-            String output = stdout.toString(StandardCharsets.UTF_8);
-            int split = output.lastIndexOf('\n');
-            int statusCode = 0;
-            String body = output;
-            if (split >= 0) {
-                body = output.substring(0, split);
-                statusCode = parseStatus(output.substring(split + 1));
-            }
-            return new CurlResponse(exitCode, statusCode, body, stderr.toString(StandardCharsets.UTF_8));
+            return parseCurlResponse(exitCode, stdout, stderr);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IOException("curl 请求被中断", exception);
@@ -378,15 +717,38 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     List<String> buildCurlCommand() {
         return List.of(
                 "curl",
-                "--http1.1",
                 "-sS",
-                "--config",
-                "-",
+                "--compressed",
                 "--max-time",
                 String.valueOf(Math.max(3L, requestTimeout.getSeconds())),
+                "-K",
+                "-",
                 "-w",
-                "\n%{http_code}"
+                "\n__NUONO_HTTP_STATUS__:%{http_code}\n"
         );
+    }
+
+    private CurlResponse parseCurlResponse(int exitCode, byte[] stdout, byte[] stderr) {
+        String output = new String(stdout, StandardCharsets.UTF_8);
+        String errorOutput = new String(stderr, StandardCharsets.UTF_8);
+        String marker = "\n__NUONO_HTTP_STATUS__:";
+        int markerIndex = output.lastIndexOf(marker);
+        if (markerIndex < 0) {
+            return new CurlResponse(exitCode, 0, output, errorOutput);
+        }
+        String body = output.substring(0, markerIndex);
+        String statusText = output.substring(markerIndex + marker.length()).trim();
+        return new CurlResponse(exitCode, parseStatus(statusText), body, errorOutput);
+    }
+
+    private byte[] readAllBytes(InputStream inputStream) throws IOException {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        int read;
+        while ((read = inputStream.read(buffer)) != -1) {
+            outputStream.write(buffer, 0, read);
+        }
+        return outputStream.toByteArray();
     }
 
     private NoonSearchProviderException mapUnsuccessfulStatus(int statusCode, String url) {
@@ -498,10 +860,13 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     }
 
     private String buildPublicSearchReferer(NoonSearchRequest request) {
-        String path = marketPath(request == null ? null : request.getSiteCode(), request == null ? null : request.getLocale());
-        String keyword = request == null ? "" : trim(request.getKeyword());
-        String encoded = URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8);
-        return publicBaseUrl + path + "/search/?originalQuery=" + encoded + "&q=" + encoded;
+        return buildFrontendHtmlSearchUrl(request);
+    }
+
+    private boolean isFrontendHtmlSearchUrl(String url) {
+        return StringUtils.hasText(url)
+                && url.startsWith(publicBaseUrl)
+                && url.contains("/search/");
     }
 
     private String resolveDetailUrl(String canonicalUrl) {
@@ -604,6 +969,215 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             return "W00000100A";
         }
         return "W00083496A";
+    }
+
+    private JsonNode frontendCatalogProduct(JsonNode root) {
+        if (root == null || root.isNull() || root.isMissingNode()) {
+            return null;
+        }
+        JsonNode catalogProduct = root.path("catalog").path("product");
+        if (catalogProduct.isObject()) {
+            return catalogProduct;
+        }
+        JsonNode product = root.path("product");
+        if (product.isObject()) {
+            return product;
+        }
+        JsonNode catalog = root.path("catalog");
+        if (catalog.isObject() && hasFrontendProductCode(catalog)) {
+            return catalog;
+        }
+        return hasFrontendProductCode(root) ? root : null;
+    }
+
+    private boolean hasFrontendProductCode(JsonNode node) {
+        return StringUtils.hasText(textAny(
+                node,
+                "sku",
+                "sku_config",
+                "catalog_sku",
+                "noonProductCode",
+                "productCode",
+                "product_code"
+        ));
+    }
+
+    private String resolveFrontendBrand(JsonNode brand) {
+        if (brand == null || brand.isNull() || brand.isMissingNode()) {
+            return null;
+        }
+        if (brand.isTextual()) {
+            return trim(brand.asText());
+        }
+        return trim(textAny(brand, "name", "name_en", "brand_name", "brandName", "title"));
+    }
+
+    private BigDecimal resolveFrontendPrice(JsonNode product) {
+        BigDecimal direct = decimalAny(product, "price_amount", "priceAmount", "sale_price", "salePrice", "price");
+        if (direct != null) {
+            return direct;
+        }
+        BigDecimal nested = decimalAny(product.path("price"), "amount", "value", "sale_price", "salePrice");
+        if (nested != null) {
+            return nested;
+        }
+        JsonNode offer = firstObject(firstObject(firstArray(product, "variants")).path("offers"));
+        BigDecimal offerPrice = decimalAny(offer, "price", "sale_price", "salePrice", "amount", "value");
+        if (offerPrice != null) {
+            return offerPrice;
+        }
+        return decimalAny(offer.path("price"), "amount", "value");
+    }
+
+    private BigDecimal resolveFrontendRating(JsonNode product) {
+        BigDecimal direct = decimalAny(product, "rating", "average_rating", "averageRating", "rating_average");
+        if (direct != null) {
+            return direct;
+        }
+        return decimalAny(product.path("reviews"), "rating", "average_rating", "averageRating", "value");
+    }
+
+    private Integer resolveFrontendReviewCount(JsonNode product) {
+        Integer direct = intAny(product, "review_count", "reviews_count", "reviewCount", "reviewsCount", "num_reviews");
+        if (direct != null) {
+            return direct;
+        }
+        return intAny(product.path("reviews"), "count", "total", "review_count", "reviews_count");
+    }
+
+    private String resolveFrontendImage(JsonNode product) {
+        JsonNode imageUrls = firstArray(product, "image_urls", "imageUrls", "images", "image_keys", "imageKeys");
+        String image = imageUrls == null || imageUrls.isEmpty() ? null : imageUrls.get(0).asText(null);
+        if (!StringUtils.hasText(image)) {
+            image = textAny(product, "image_url", "imageUrl", "image", "main_image", "mainImage");
+        }
+        if (!StringUtils.hasText(image)) {
+            return null;
+        }
+        String trimmed = image.trim();
+        if (trimmed.startsWith("//")) {
+            return "https:" + trimmed;
+        }
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return trimmed;
+        }
+        if (trimmed.startsWith("/")) {
+            return publicBaseUrl + trimmed;
+        }
+        return trimmed;
+    }
+
+    private JsonNode firstArray(JsonNode node, String... fieldNames) {
+        if (node == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (value.isArray()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private JsonNode firstObject(JsonNode node) {
+        if (node != null && node.isArray() && !node.isEmpty() && node.get(0).isObject()) {
+            return node.get(0);
+        }
+        return objectMapper.createObjectNode();
+    }
+
+    private String textAny(JsonNode node, String... fieldNames) {
+        if (node == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (value.isTextual() && StringUtils.hasText(value.asText())) {
+                return value.asText();
+            }
+            if ((value.isNumber() || value.isBoolean()) && StringUtils.hasText(value.asText())) {
+                return value.asText();
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal decimalAny(JsonNode node, String... fieldNames) {
+        if (node == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (value.isNumber()) {
+                return value.decimalValue();
+            }
+            if (value.isTextual() && StringUtils.hasText(value.asText())) {
+                try {
+                    return new BigDecimal(value.asText().trim());
+                } catch (NumberFormatException ignored) {
+                    // Keep scanning alternate price fields.
+                }
+            }
+        }
+        return null;
+    }
+
+    private Integer intAny(JsonNode node, String... fieldNames) {
+        if (node == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (value.canConvertToInt()) {
+                return value.asInt();
+            }
+            if (value.isTextual() && StringUtils.hasText(value.asText())) {
+                try {
+                    return Integer.parseInt(value.asText().trim());
+                } catch (NumberFormatException ignored) {
+                    // Keep scanning alternate review fields.
+                }
+            }
+        }
+        return null;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String inferCurrencyCode(NoonSearchRequest request) {
+        String country = xCountry(request);
+        if ("ae".equals(country)) {
+            return "AED";
+        }
+        if ("eg".equals(country)) {
+            return "EGP";
+        }
+        return "SAR";
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (Exception exception) {
+            return null;
+        }
     }
 
     private void appendCurlHeader(StringBuilder config, String name, String value) {
