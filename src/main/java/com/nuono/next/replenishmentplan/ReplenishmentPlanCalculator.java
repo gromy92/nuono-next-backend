@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -34,9 +35,9 @@ public final class ReplenishmentPlanCalculator {
         Map<Integer, BigDecimal> dailyDemandByDay = normalizeDemand(input.getDailyDemandByDay());
         Map<Integer, BigDecimal> inboundByDay = groupInboundByDay(input.getAnchorDate(), input.getInboundBatches());
         BigDecimal knownInboundUnits = sumValues(inboundByDay);
-        List<MissingEtaBatch> missingEtaBatches = positiveMissingEtaBatches(input.getMissingEtaBatches());
+        List<MissingEtaBatch> missingEtaBatches = collectMissingEtaBatches(input.getInboundBatches(), input.getMissingEtaBatches());
         BigDecimal missingEtaInboundQty = sumMissingEta(missingEtaBatches);
-        List<String> warnings = buildWarnings(input.getDailyDemandByDay(), missingEtaInboundQty);
+        List<String> warnings = buildWarnings(dailyDemandByDay, missingEtaInboundQty, seaWindowEndDay);
 
         StockSnapshot stockSnapshot = input.getStockSnapshot();
         BigDecimal fbnStockUnits = stockSnapshot.getFbnStockUnits();
@@ -64,7 +65,8 @@ public final class ReplenishmentPlanCalculator {
 
         BigDecimal seaSuggestedUnits = ceilDemand(sumDemand(dailyDemandByDay, seaWindowStartDay, seaWindowEndDay));
         boolean airEmergencyTriggered = firstStockoutDay != null && firstStockoutDay < resolvedConfig.getSeaLeadDays();
-        BigDecimal airSuggestedUnits = airEmergencyTriggered
+        boolean shouldCalculateAirSuggestion = !resolvedConfig.isAirEmergencyOnly() || airEmergencyTriggered;
+        BigDecimal airSuggestedUnits = shouldCalculateAirSuggestion
                 ? ceilDemand(sumDemand(dailyDemandByDay, airWindowStartDay, airWindowEndDay))
                 : BigDecimal.ZERO;
         String stockoutWindowLabel = firstStockoutDay != null && firstStockoutDay < resolvedConfig.getAirLeadDays()
@@ -94,7 +96,13 @@ public final class ReplenishmentPlanCalculator {
                 dailyProjection,
                 missingEtaBatches,
                 warnings,
-                buildExplanation(seaWindowStartDay, seaWindowEndDay, airEmergencyTriggered, firstStockoutDay)
+                buildExplanation(
+                        seaWindowStartDay,
+                        seaWindowEndDay,
+                        resolvedConfig.isAirEmergencyOnly(),
+                        airEmergencyTriggered,
+                        firstStockoutDay
+                )
         );
     }
 
@@ -105,10 +113,10 @@ public final class ReplenishmentPlanCalculator {
         }
         for (Map.Entry<Integer, BigDecimal> entry : dailyDemandByDay.entrySet()) {
             Integer day = entry.getKey();
-            BigDecimal demand = nonNegative(entry.getValue());
-            if (day == null || day < 1 || demand.compareTo(BigDecimal.ZERO) <= 0) {
+            if (day == null || day < 1) {
                 continue;
             }
+            BigDecimal demand = nonNegative(entry.getValue());
             normalized.merge(day, demand, BigDecimal::add);
         }
         return normalized;
@@ -131,25 +139,66 @@ public final class ReplenishmentPlanCalculator {
             if (day < 0 || day > Integer.MAX_VALUE) {
                 continue;
             }
-            inboundByDay.merge((int) day, remainingQuantity, BigDecimal::add);
+            int projectionDay = day == 0 ? 1 : (int) day;
+            inboundByDay.merge(projectionDay, remainingQuantity, BigDecimal::add);
         }
         return inboundByDay;
     }
 
-    private static List<MissingEtaBatch> positiveMissingEtaBatches(List<MissingEtaBatch> batches) {
-        List<MissingEtaBatch> positiveBatches = new ArrayList<>();
-        if (batches == null || batches.isEmpty()) {
-            return positiveBatches;
-        }
-        for (MissingEtaBatch batch : batches) {
-            if (batch != null && batch.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0) {
-                positiveBatches.add(batch);
+    private static List<MissingEtaBatch> collectMissingEtaBatches(
+            List<InboundBatch> inboundBatches,
+            List<MissingEtaBatch> explicitMissingEtaBatches
+    ) {
+        Map<String, MissingEtaBatch> batchesByKey = new LinkedHashMap<>();
+        if (explicitMissingEtaBatches != null) {
+            for (MissingEtaBatch batch : explicitMissingEtaBatches) {
+                addMissingEtaBatch(batchesByKey, batch);
             }
         }
-        return positiveBatches;
+        if (inboundBatches != null) {
+            for (InboundBatch batch : inboundBatches) {
+                if (batch == null
+                        || batch.getEtaDate() != null
+                        || batch.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                addMissingEtaBatch(batchesByKey, new MissingEtaBatch(
+                        batch.getBatchId(),
+                        batch.getBatchReferenceNo(),
+                        batch.getTransportMode(),
+                        batch.getBatchStatus(),
+                        batch.getRemainingQuantity()
+                ));
+            }
+        }
+        return new ArrayList<>(batchesByKey.values());
     }
 
-    private static List<String> buildWarnings(Map<Integer, BigDecimal> dailyDemandByDay, BigDecimal missingEtaInboundQty) {
+    private static void addMissingEtaBatch(Map<String, MissingEtaBatch> batchesByKey, MissingEtaBatch batch) {
+        if (batch == null || batch.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        batchesByKey.putIfAbsent(missingEtaKey(batch), batch);
+    }
+
+    private static String missingEtaKey(MissingEtaBatch batch) {
+        if (batch.getBatchId() != null) {
+            return "id:" + batch.getBatchId();
+        }
+        if (batch.getBatchReferenceNo() != null && !batch.getBatchReferenceNo().trim().isEmpty()) {
+            return "ref:" + batch.getBatchReferenceNo().trim();
+        }
+        return "batch:"
+                + batch.getTransportMode() + "|"
+                + batch.getBatchStatus() + "|"
+                + batch.getRemainingQuantity().toPlainString();
+    }
+
+    private static List<String> buildWarnings(
+            Map<Integer, BigDecimal> dailyDemandByDay,
+            BigDecimal missingEtaInboundQty,
+            int seaWindowEndDay
+    ) {
         List<String> warnings = new ArrayList<>();
         if (missingEtaInboundQty.compareTo(BigDecimal.ZERO) > 0) {
             warnings.add("missing_eta_inbound_excluded");
@@ -157,7 +206,22 @@ public final class ReplenishmentPlanCalculator {
         if (dailyDemandByDay == null || dailyDemandByDay.isEmpty()) {
             warnings.add("daily_forecast_missing");
         }
+        if (hasForecastGap(dailyDemandByDay, seaWindowEndDay)) {
+            warnings.add("daily_forecast_gap");
+        }
         return warnings;
+    }
+
+    private static boolean hasForecastGap(Map<Integer, BigDecimal> dailyDemandByDay, int seaWindowEndDay) {
+        if (dailyDemandByDay == null) {
+            return true;
+        }
+        for (int day = 1; day < seaWindowEndDay; day++) {
+            if (!dailyDemandByDay.containsKey(day)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static BigDecimal sumDemand(Map<Integer, BigDecimal> dailyDemandByDay, int startInclusive, int endExclusive) {
@@ -208,13 +272,19 @@ public final class ReplenishmentPlanCalculator {
     private static String buildExplanation(
             int seaWindowStartDay,
             int seaWindowEndDay,
+            boolean airEmergencyOnly,
             boolean airEmergencyTriggered,
             Integer firstStockoutDay
     ) {
-        String airExplanation = airEmergencyTriggered
-                ? "air emergency triggered because first stockout day "
-                + firstStockoutDay + " is before sea arrival."
-                : "air emergency not triggered because projected stock does not run out before sea arrival.";
+        String airExplanation;
+        if (!airEmergencyOnly) {
+            airExplanation = "air emergency mode disabled; air window calculated without stockout trigger.";
+        } else if (airEmergencyTriggered) {
+            airExplanation = "air emergency triggered because first stockout day "
+                    + firstStockoutDay + " is before sea arrival.";
+        } else {
+            airExplanation = "air emergency not triggered because projected stock does not run out before sea arrival.";
+        }
         return "Sea window " + seaWindowStartDay + "-" + seaWindowEndDay
                 + " days uses forecast demand over the half-open window; " + airExplanation;
     }

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public final class ReplenishmentPlanConfig {
 
@@ -47,6 +48,16 @@ public final class ReplenishmentPlanConfig {
             boolean airEmergencyOnly,
             String roundingMode
     ) {
+        validatePositive("airLeadDays", airLeadDays);
+        validatePositive("airCoverDays", airCoverDays);
+        validatePositive("seaLeadDays", seaLeadDays);
+        validatePositive("seaCoverDays", seaCoverDays);
+        validatePositive("forecastHorizonDays", forecastHorizonDays);
+        String resolvedRoundingMode = roundingMode == null ? "ceil" : roundingMode.trim().toLowerCase(Locale.ROOT);
+        if (!"ceil".equals(resolvedRoundingMode)) {
+            throw new IllegalArgumentException("roundingMode only supports ceil");
+        }
+
         this.versionNo = versionNo == null ? DEFAULT_VERSION_NO : versionNo;
         this.airLeadDays = airLeadDays;
         this.airCoverDays = airCoverDays;
@@ -57,7 +68,7 @@ public final class ReplenishmentPlanConfig {
         this.inventorySources = Collections.unmodifiableList(new ArrayList<>(sources));
         this.requireInboundEtaDate = requireInboundEtaDate;
         this.airEmergencyOnly = airEmergencyOnly;
-        this.roundingMode = roundingMode == null ? "ceil" : roundingMode;
+        this.roundingMode = resolvedRoundingMode;
     }
 
     public static ReplenishmentPlanConfig defaultBasicV1() {
@@ -102,5 +113,11 @@ public final class ReplenishmentPlanConfig {
 
     public String getRoundingMode() {
         return roundingMode;
+    }
+
+    private static void validatePositive(String fieldName, int value) {
+        if (value < 1) {
+            throw new IllegalArgumentException(fieldName + " must be >= 1");
+        }
     }
 }

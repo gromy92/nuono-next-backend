@@ -1,8 +1,10 @@
 package com.nuono.next.replenishmentplan;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.InboundBatch;
@@ -72,7 +74,8 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(new BigDecimal("200"), result.getSeaSuggestedUnits());
         assertEquals(100, result.getDailyProjection().size());
         assertEquals(new BigDecimal("100"), result.getDailyProjection().get(19).getInboundUnits());
-        assertTrue(result.getWarnings().isEmpty());
+        assertTrue(result.getWarnings().contains("daily_forecast_gap"));
+        assertFalse(result.getWarnings().contains("daily_forecast_missing"));
         assertEquals(70, result.getConfigSnapshot().getSeaLeadDays());
         assertTrue(result.getExplanation().contains("70-100"));
         assertTrue(result.getExplanation().contains("air emergency triggered"));
@@ -104,7 +107,36 @@ class ReplenishmentPlanCalculatorTest {
     }
 
     @Test
-    void shouldExcludeMissingEtaInboundAndReturnWarningData() {
+    void shouldApplySameDayEtaInboundOnFirstProjectionDay() {
+        LocalDate anchorDate = LocalDate.of(2026, 7, 6);
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        demand.put(1, new BigDecimal("2"));
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-SAME-DAY",
+                "SKU-SAME-DAY",
+                "Same Day Product",
+                anchorDate,
+                new StockSnapshot(new BigDecimal("1"), new BigDecimal("1"), BigDecimal.ZERO),
+                demand,
+                Collections.singletonList(new InboundBatch(
+                        3001L,
+                        "BATCH-SAME-DAY",
+                        "AIR",
+                        "ACTIVE",
+                        anchorDate,
+                        new BigDecimal("2")
+                )),
+                Collections.emptyList()
+        ), null);
+
+        assertEquals(new BigDecimal("2"), result.getKnownInboundUnits());
+        assertEquals(new BigDecimal("2"), result.getDailyProjection().get(0).getInboundUnits());
+        assertNull(result.getFirstStockoutDay());
+    }
+
+    @Test
+    void shouldDeriveMissingEtaInboundFromInboundBatches() {
         LocalDate anchorDate = LocalDate.of(2026, 7, 6);
         List<InboundBatch> inboundBatches = new ArrayList<>();
         inboundBatches.add(new InboundBatch(
@@ -113,21 +145,6 @@ class ReplenishmentPlanCalculatorTest {
                 "SEA",
                 "ACTIVE",
                 null,
-                new BigDecimal("25")
-        ));
-        inboundBatches.add(new InboundBatch(
-                2002L,
-                "BATCH-NEGATIVE",
-                "AIR",
-                "ACTIVE",
-                anchorDate.plusDays(5),
-                new BigDecimal("-5")
-        ));
-        List<MissingEtaBatch> missingEtaBatches = Collections.singletonList(new MissingEtaBatch(
-                2001L,
-                "BATCH-NO-ETA",
-                "SEA",
-                "ACTIVE",
                 new BigDecimal("25")
         ));
 
@@ -139,7 +156,7 @@ class ReplenishmentPlanCalculatorTest {
                 new StockSnapshot(new BigDecimal("50"), new BigDecimal("20"), new BigDecimal("30")),
                 Collections.emptyMap(),
                 inboundBatches,
-                missingEtaBatches
+                Collections.emptyList()
         ), null);
 
         assertEquals(new BigDecimal("0"), result.getKnownInboundUnits());
@@ -149,7 +166,138 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals("BATCH-NO-ETA", result.getMissingEtaBatches().get(0).getBatchReferenceNo());
         assertTrue(result.getWarnings().contains("missing_eta_inbound_excluded"));
         assertTrue(result.getWarnings().contains("daily_forecast_missing"));
+        assertTrue(result.getWarnings().contains("daily_forecast_gap"));
         assertNotNull(result.getDailyProjection().get(4));
         assertEquals(new BigDecimal("0"), result.getDailyProjection().get(4).getInboundUnits());
+    }
+
+    @Test
+    void shouldAvoidDuplicateMissingEtaInboundWhenCallerAlsoPassesSummary() {
+        LocalDate anchorDate = LocalDate.of(2026, 7, 6);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-DUP-MISSING-ETA",
+                "SKU-DUP-MISSING-ETA",
+                "Duplicate Missing ETA Product",
+                anchorDate,
+                new StockSnapshot(new BigDecimal("50"), new BigDecimal("20"), new BigDecimal("30")),
+                Collections.emptyMap(),
+                Collections.singletonList(new InboundBatch(
+                        2001L,
+                        "BATCH-NO-ETA",
+                        "SEA",
+                        "ACTIVE",
+                        null,
+                        new BigDecimal("25")
+                )),
+                Collections.singletonList(new MissingEtaBatch(
+                        2001L,
+                        "BATCH-NO-ETA",
+                        "SEA",
+                        "ACTIVE",
+                        new BigDecimal("25")
+                ))
+        ), null);
+
+        assertEquals(new BigDecimal("25"), result.getMissingEtaInboundQty());
+        assertEquals(1, result.getMissingEtaBatchCount());
+        assertEquals(1, result.getMissingEtaBatches().size());
+    }
+
+    @Test
+    void shouldWarnWhenRequiredForecastWindowHasGaps() {
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        demand.put(1, BigDecimal.ONE);
+        demand.put(70, BigDecimal.TEN);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-SPARSE",
+                "SKU-SPARSE",
+                "Sparse Forecast Product",
+                LocalDate.of(2026, 7, 6),
+                new StockSnapshot(new BigDecimal("100"), new BigDecimal("100"), BigDecimal.ZERO),
+                demand,
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), null);
+
+        assertTrue(result.getWarnings().contains("daily_forecast_gap"));
+        assertFalse(result.getWarnings().contains("daily_forecast_missing"));
+    }
+
+    @Test
+    void shouldNotWarnForecastGapWhenRequiredDaysHaveExplicitZeroDemand() {
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        demand.put(1, BigDecimal.ZERO);
+        demand.put(2, BigDecimal.ZERO);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-ZERO",
+                "SKU-ZERO",
+                "Zero Forecast Product",
+                LocalDate.of(2026, 7, 6),
+                new StockSnapshot(new BigDecimal("100"), new BigDecimal("100"), BigDecimal.ZERO),
+                demand,
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), config(1, 1, 2, 1, 3, true, "ceil"));
+
+        assertFalse(result.getWarnings().contains("daily_forecast_gap"));
+        assertFalse(result.getWarnings().contains("daily_forecast_missing"));
+    }
+
+    @Test
+    void shouldRejectNonsensicalConfigWindowsAndUnsupportedRoundingMode() {
+        assertThrows(IllegalArgumentException.class, () -> config(0, 15, 70, 30, 100, true, "ceil"));
+        assertThrows(IllegalArgumentException.class, () -> config(12, 0, 70, 30, 100, true, "ceil"));
+        assertThrows(IllegalArgumentException.class, () -> config(12, 15, 0, 30, 100, true, "ceil"));
+        assertThrows(IllegalArgumentException.class, () -> config(12, 15, 70, 0, 100, true, "ceil"));
+        assertThrows(IllegalArgumentException.class, () -> config(12, 15, 70, 30, 0, true, "ceil"));
+        assertThrows(IllegalArgumentException.class, () -> config(12, 15, 70, 30, 100, true, "floor"));
+    }
+
+    @Test
+    void shouldCalculateAirWindowWhenEmergencyOnlyIsDisabled() {
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        for (int day = 12; day < 27; day++) {
+            demand.put(day, BigDecimal.ONE);
+        }
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-AIR-REGULAR",
+                "SKU-AIR-REGULAR",
+                "Air Regular Product",
+                LocalDate.of(2026, 7, 6),
+                new StockSnapshot(new BigDecimal("100"), new BigDecimal("100"), BigDecimal.ZERO),
+                demand,
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), config(12, 15, 70, 30, 100, false, "ceil"));
+
+        assertNull(result.getFirstStockoutDay());
+        assertEquals(new BigDecimal("15"), result.getAirSuggestedUnits());
+    }
+
+    private static ReplenishmentPlanConfig config(
+            int airLeadDays,
+            int airCoverDays,
+            int seaLeadDays,
+            int seaCoverDays,
+            int forecastHorizonDays,
+            boolean airEmergencyOnly,
+            String roundingMode
+    ) {
+        return new ReplenishmentPlanConfig(
+                "TEST_REPLENISHMENT_PLAN_BASIC_V1",
+                airLeadDays,
+                airCoverDays,
+                seaLeadDays,
+                seaCoverDays,
+                forecastHorizonDays,
+                Collections.singletonList("FBN"),
+                true,
+                airEmergencyOnly,
+                roundingMode
+        );
     }
 }
