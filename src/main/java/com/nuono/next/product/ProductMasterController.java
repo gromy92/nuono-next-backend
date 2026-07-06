@@ -166,6 +166,34 @@ public class ProductMasterController {
         }
     }
 
+    @PostMapping("/operation-stage")
+    public ProductListDatasetView updateOperationStage(
+            @RequestBody ProductOperationStageUpdateCommand command,
+            HttpServletRequest request
+    ) {
+        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+        if (productMasterService == null) {
+            ProductListDatasetView view = new ProductListDatasetView();
+            view.setReady(false);
+            view.setSource("bootstrap-only");
+            view.setMessage("当前仍在无数据库骨架模式，暂时不能修改商品运营阶段。");
+            return view;
+        }
+
+        try {
+            AuthenticatedSession session = requireSession(request);
+            applyProductScope(command, request);
+            command.setOperatorUserId(session.getUserId());
+            return productMasterService.updateOperationStage(command);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+        }
+    }
+
     @PostMapping("/delete")
     public ProductListDatasetView delete(
             @RequestBody ProductMasterFetchCommand command,
