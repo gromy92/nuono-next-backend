@@ -122,6 +122,124 @@ class OperationConfigVersionLibraryServiceTest {
     }
 
     @Test
+    void replenishmentDraftUpdateRejectsInvalidPositiveIntegerValue() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+        OperationConfigVersionRowView draft = service.copyVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.updateVersion(
+                adminContext(),
+                draft.getVersionNo(),
+                replenishmentRequestWithValue("空运运输天数", "0")
+        ));
+
+        assertTrue(exception.getMessage().contains("空运运输天数"));
+    }
+
+    @Test
+    void replenishmentDraftUpdateRejectsInvalidInventorySourceValue() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+        OperationConfigVersionRowView draft = service.copyVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.updateVersion(
+                adminContext(),
+                draft.getVersionNo(),
+                replenishmentRequestWithValue("库存来源", "FBN,AMAZON")
+        ));
+
+        assertTrue(exception.getMessage().contains("库存来源"));
+    }
+
+    @Test
+    void replenishmentSystemDefaultUpdateRejectsRequireEtaFalse() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.updateVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                replenishmentRequestWithValue("在途必须有 ETA", "false")
+        ));
+
+        assertTrue(exception.getMessage().contains("在途必须有 ETA"));
+        assertTrue(repository.findByVersionNo(OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO).isEmpty());
+    }
+
+    @Test
+    void replenishmentUpdateRejectsMissingRequiredItem() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+        OperationConfigVersionRowView draft = service.copyVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.updateVersion(
+                adminContext(),
+                draft.getVersionNo(),
+                replenishmentRequestMissing("建议数量取整")
+        ));
+
+        assertTrue(exception.getMessage().contains("建议数量取整"));
+    }
+
+    @Test
+    void publishReplenishmentDraftRejectsPersistedInvalidContent() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        LocalDateTime now = LocalDateTime.of(2026, 7, 6, 12, 30);
+        repository.insert(new OperationConfigTypedVersion(
+                88120L,
+                "REPLENISHMENT_PLAN_INVALID_DRAFT",
+                "无效补货计划",
+                OperationConfigVersionType.REPLENISHMENT_PLAN.name(),
+                "DRAFT",
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                "运营",
+                "9 条配置",
+                9,
+                "未设置范围",
+                replenishmentContentJson("空运运输天数", "0"),
+                null,
+                1L,
+                1L,
+                now.minusHours(1),
+                now
+        ));
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.publishVersion(
+                adminContext(),
+                "REPLENISHMENT_PLAN_INVALID_DRAFT",
+                new OperationConfigVersionPublishRequest(null, null, null, "publish invalid")
+        ));
+
+        assertTrue(exception.getMessage().contains("空运运输天数"));
+        assertEquals("DRAFT", repository.findByVersionNo("REPLENISHMENT_PLAN_INVALID_DRAFT").orElseThrow().getStatus());
+    }
+
+    @Test
     void copyCustomVersionCreatesNewDraftWithSameTypeAndSnapshot() {
         InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
         LocalDateTime now = LocalDateTime.of(2026, 5, 25, 9, 30);
@@ -1129,6 +1247,91 @@ class OperationConfigVersionLibraryServiceTest {
                 .storeOwnerUserIds(Map.of("STR108065-NAE", 307L))
                 .menuPaths(Set.of("/operations/config/versions", "/api/operations-config"))
                 .build();
+    }
+
+    private static OperationConfigVersionUpdateRequest replenishmentRequestWithValue(String itemName, String value) {
+        return new OperationConfigVersionUpdateRequest(
+                OperationConfigVersionType.REPLENISHMENT_PLAN.name(),
+                replenishmentItems(itemName, value)
+        );
+    }
+
+    private static OperationConfigVersionUpdateRequest replenishmentRequestMissing(String missingItemName) {
+        List<OperationConfigVersionUpdateRequest.Item> items = new ArrayList<>(replenishmentItems(null, null));
+        items.removeIf(item -> missingItemName.equals(item.getItemName()));
+        return new OperationConfigVersionUpdateRequest(
+                OperationConfigVersionType.REPLENISHMENT_PLAN.name(),
+                items
+        );
+    }
+
+    private static List<OperationConfigVersionUpdateRequest.Item> replenishmentItems(
+            String overrideItemName,
+            String overrideValue
+    ) {
+        return List.of(
+                replenishmentItem("运输时效", "空运运输天数", "数值",
+                        replenishmentValue("空运运输天数", "12", overrideItemName, overrideValue)),
+                replenishmentItem("覆盖窗口", "空运覆盖天数", "数值",
+                        replenishmentValue("空运覆盖天数", "15", overrideItemName, overrideValue)),
+                replenishmentItem("运输时效", "海运运输天数", "数值",
+                        replenishmentValue("海运运输天数", "70", overrideItemName, overrideValue)),
+                replenishmentItem("覆盖窗口", "海运覆盖天数", "数值",
+                        replenishmentValue("海运覆盖天数", "30", overrideItemName, overrideValue)),
+                replenishmentItem("库存口径", "库存来源", "数组",
+                        replenishmentValue("库存来源", "FBN,SUPERMALL", overrideItemName, overrideValue)),
+                replenishmentItem("在途口径", "在途必须有 ETA", "布尔",
+                        replenishmentValue("在途必须有 ETA", "true", overrideItemName, overrideValue)),
+                replenishmentItem("空运策略", "空运只应急", "布尔",
+                        replenishmentValue("空运只应急", "true", overrideItemName, overrideValue)),
+                replenishmentItem("建议数量", "建议数量取整", "枚举",
+                        replenishmentValue("建议数量取整", "ceil", overrideItemName, overrideValue)),
+                replenishmentItem("预测窗口", "预测窗口天数", "数值",
+                        replenishmentValue("预测窗口天数", "100", overrideItemName, overrideValue))
+        );
+    }
+
+    private static OperationConfigVersionUpdateRequest.Item replenishmentItem(
+            String groupName,
+            String itemName,
+            String valueType,
+            String defaultValue
+    ) {
+        return new OperationConfigVersionUpdateRequest.Item(
+                groupName,
+                itemName,
+                "随时",
+                valueType,
+                defaultValue,
+                null,
+                null
+        );
+    }
+
+    private static String replenishmentValue(
+            String itemName,
+            String defaultValue,
+            String overrideItemName,
+            String overrideValue
+    ) {
+        return itemName.equals(overrideItemName) ? overrideValue : defaultValue;
+    }
+
+    private static String replenishmentContentJson(String overrideItemName, String overrideValue) {
+        StringBuilder json = new StringBuilder("[");
+        List<OperationConfigVersionUpdateRequest.Item> items = replenishmentItems(overrideItemName, overrideValue);
+        for (int index = 0; index < items.size(); index++) {
+            OperationConfigVersionUpdateRequest.Item item = items.get(index);
+            if (index > 0) {
+                json.append(',');
+            }
+            json.append("{\"itemName\":\"")
+                    .append(item.getItemName())
+                    .append("\",\"defaultValue\":\"")
+                    .append(item.getDefaultValue())
+                    .append("\"}");
+        }
+        return json.append(']').toString();
     }
 
     private static class InMemoryOperationConfigTypedVersionRepository implements OperationConfigTypedVersionRepository {

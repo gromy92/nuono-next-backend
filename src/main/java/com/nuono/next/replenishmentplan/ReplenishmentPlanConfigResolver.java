@@ -13,8 +13,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -25,7 +23,6 @@ import org.springframework.stereotype.Component;
 public class ReplenishmentPlanConfigResolver {
     private static final Logger log = LoggerFactory.getLogger(ReplenishmentPlanConfigResolver.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final Pattern INTEGER_PATTERN = Pattern.compile("-?\\d+");
 
     private final OperationConfigTypedVersionRepository typedVersionRepository;
 
@@ -120,15 +117,21 @@ public class ReplenishmentPlanConfigResolver {
         if (!hasText(value)) {
             return fallback;
         }
-        Matcher matcher = INTEGER_PATTERN.matcher(value.trim());
-        if (!matcher.find()) {
-            return fallback;
+        String trimmed = value.trim();
+        for (int index = 0; index < trimmed.length(); index++) {
+            char ch = trimmed.charAt(index);
+            if (ch < '0' || ch > '9') {
+                throw new IllegalArgumentException("positive integer expected");
+            }
         }
         try {
-            int parsed = Integer.parseInt(matcher.group());
-            return parsed >= 1 ? parsed : fallback;
+            int parsed = Integer.parseInt(trimmed);
+            if (parsed >= 1) {
+                return parsed;
+            }
+            throw new IllegalArgumentException("positive integer expected");
         } catch (NumberFormatException exception) {
-            return fallback;
+            throw new IllegalArgumentException("positive integer expected", exception);
         }
     }
 
@@ -143,7 +146,7 @@ public class ReplenishmentPlanConfigResolver {
         if ("false".equals(normalized)) {
             return false;
         }
-        return fallback;
+        throw new IllegalArgumentException("boolean value expected");
     }
 
     private static String roundingMode(String value, String fallback) {
@@ -151,7 +154,10 @@ public class ReplenishmentPlanConfigResolver {
             return fallback;
         }
         String normalized = value.trim().toLowerCase(Locale.ROOT);
-        return "ceil".equals(normalized) ? normalized : fallback;
+        if ("ceil".equals(normalized)) {
+            return normalized;
+        }
+        throw new IllegalArgumentException("rounding mode only supports ceil");
     }
 
     private static List<String> inventorySources(String value, List<String> fallback) {
@@ -159,13 +165,13 @@ public class ReplenishmentPlanConfigResolver {
             return fallback;
         }
         List<String> sources = new ArrayList<>();
-        for (String token : value.split("[,，/\\s]+")) {
+        for (String token : value.split("[,，\\s]+")) {
             if (!hasText(token)) {
                 continue;
             }
             String normalized = token.trim().toUpperCase(Locale.ROOT);
             if (!"FBN".equals(normalized) && !"SUPERMALL".equals(normalized)) {
-                return fallback;
+                throw new IllegalArgumentException("inventory sources only support FBN and SUPERMALL");
             }
             if (!sources.contains(normalized)) {
                 sources.add(normalized);
@@ -174,7 +180,7 @@ public class ReplenishmentPlanConfigResolver {
         if (sources.size() == 2 && sources.contains("FBN") && sources.contains("SUPERMALL")) {
             return sources;
         }
-        return fallback;
+        throw new IllegalArgumentException("inventory sources must include FBN and SUPERMALL");
     }
 
     private static String textOrFallback(String value, String fallback) {

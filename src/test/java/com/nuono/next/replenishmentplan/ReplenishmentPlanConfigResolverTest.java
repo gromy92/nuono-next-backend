@@ -163,6 +163,31 @@ class ReplenishmentPlanConfigResolverTest {
         assertDefaultConfig(config);
     }
 
+    @Test
+    void invalidPresentValuesFallBackToHardcodedDefaultsWithDefaultVersionNo() {
+        assertInvalidPresentValueFallsBackToDefaults("空运运输天数", "0");
+        assertInvalidPresentValueFallsBackToDefaults("库存来源", "FBN,AMAZON");
+        assertInvalidPresentValueFallsBackToDefaults("空运只应急", "yes");
+        assertInvalidPresentValueFallsBackToDefaults("建议数量取整", "floor");
+    }
+
+    private static void assertInvalidPresentValueFallsBackToDefaults(String itemName, String invalidValue) {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        repository.insert(version(
+                90006L + Math.abs(itemName.hashCode() % 1000),
+                "REPLENISHMENT_INVALID_" + itemName.hashCode(),
+                "CURRENT",
+                "50001/STR245027-NAE/SA",
+                contentWithOverride(itemName, invalidValue),
+                LocalDateTime.of(2026, 7, 6, 12, 0)
+        ));
+        ReplenishmentPlanConfigResolver resolver = new ReplenishmentPlanConfigResolver(repository);
+
+        ReplenishmentPlanConfig config = resolver.resolve(50001L, "STR245027-NAE", "SA");
+
+        assertDefaultConfig(config);
+    }
+
     private static OperationConfigTypedVersion version(
             Long id,
             String versionNo,
@@ -203,6 +228,24 @@ class ReplenishmentPlanConfigResolverTest {
                     .append("\"}");
         }
         return json.append(']').toString();
+    }
+
+    private static String contentWithOverride(String itemName, String value) {
+        return content(
+                "空运运输天数", valueFor(itemName, "空运运输天数", value, "12"),
+                "空运覆盖天数", valueFor(itemName, "空运覆盖天数", value, "15"),
+                "海运运输天数", valueFor(itemName, "海运运输天数", value, "70"),
+                "海运覆盖天数", valueFor(itemName, "海运覆盖天数", value, "30"),
+                "预测窗口天数", valueFor(itemName, "预测窗口天数", value, "100"),
+                "库存来源", valueFor(itemName, "库存来源", value, "FBN,SUPERMALL"),
+                "在途必须有 ETA", valueFor(itemName, "在途必须有 ETA", value, "true"),
+                "空运只应急", valueFor(itemName, "空运只应急", value, "true"),
+                "建议数量取整", valueFor(itemName, "建议数量取整", value, "ceil")
+        );
+    }
+
+    private static String valueFor(String itemName, String candidateName, String overrideValue, String defaultValue) {
+        return candidateName.equals(itemName) ? overrideValue : defaultValue;
     }
 
     private static void assertDefaultConfig(ReplenishmentPlanConfig config) {
