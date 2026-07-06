@@ -360,6 +360,9 @@ public class OperationConfigVersionLibraryService {
         if (OperationConfigVersionType.PRODUCT_LIFECYCLE.name().equals(configType)) {
             return getDetail(context, OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO);
         }
+        if (OperationConfigVersionType.REPLENISHMENT_PLAN.name().equals(configType)) {
+            return getDetail(context, OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO);
+        }
         throw new IllegalArgumentException("unsupported operation config version type");
     }
 
@@ -425,7 +428,8 @@ public class OperationConfigVersionLibraryService {
 
     private boolean isSystemDefaultVersion(String versionNo) {
         return OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO.equals(versionNo)
-                || OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO.equals(versionNo);
+                || OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO.equals(versionNo)
+                || OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO.equals(versionNo);
     }
 
     private OperationConfigVersionDetailView updateSystemDefaultVersion(
@@ -804,6 +808,9 @@ public class OperationConfigVersionLibraryService {
         }
         if (OperationConfigVersionType.PRODUCT_LIFECYCLE.name().equals(configType)) {
             return "LIFECYCLE_CONFIG_";
+        }
+        if (OperationConfigVersionType.REPLENISHMENT_PLAN.name().equals(configType)) {
+            return "REPLENISHMENT_PLAN_";
         }
         throw new IllegalArgumentException("unsupported operation config version type");
     }

@@ -33,7 +33,7 @@ class OperationConfigVersionLibraryServiceTest {
         assertEquals("DRAFT", draft.getStatus());
         assertTrue(draft.getVersionNo().startsWith("CALENDAR_CONFIG_"));
         assertEquals("默认日历配置 副本", draft.getDisplayName());
-        assertEquals(3, service.listVersions(adminContext()).size());
+        assertEquals(4, service.listVersions(adminContext()).size());
 
         OperationConfigVersionDetailView copiedDetail = service.getDetail(adminContext(), draft.getVersionNo());
         assertEquals(54, copiedDetail.getItems().size());
@@ -67,6 +67,58 @@ class OperationConfigVersionLibraryServiceTest {
         assertTrue(copiedDetail.getItems().stream().anyMatch(item ->
                 "稳定期波动率范围".equals(item.getItemName()) && "[0.3, 0.5]".equals(item.getDefaultValue())
         ));
+    }
+
+    @Test
+    void getDetailDefaultReplenishmentPlanWithoutPersistedRowReturnsCatalogDetail() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+
+        OperationConfigVersionDetailView detail = service.getDetail(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        );
+
+        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO, detail.getVersionNo());
+        assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), detail.getConfigType());
+        assertEquals("SYSTEM_DEFAULT", detail.getStatus());
+        assertEquals(9, detail.getItems().size());
+        assertTrue(detail.getActions().stream().anyMatch(action ->
+                "COPY".equals(action.getAction()) && action.isEnabled()
+        ));
+        assertFalse(actionEnabled(detail, "DELETE"));
+        assertFalse(actionEnabled(detail, "PUBLISH"));
+        assertFalse(actionEnabled(detail, "DISABLE"));
+    }
+
+    @Test
+    void copyDefaultReplenishmentPlanVersionCreatesSameTypeDraftWithContentSnapshot() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+
+        OperationConfigVersionRowView draft = service.copyVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        );
+
+        assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), draft.getConfigType());
+        assertEquals("DRAFT", draft.getStatus());
+        assertTrue(draft.getVersionNo().startsWith("REPLENISHMENT_PLAN_"));
+        assertEquals("默认补货计划参数 副本", draft.getDisplayName());
+
+        OperationConfigVersionDetailView copiedDetail = service.getDetail(adminContext(), draft.getVersionNo());
+        assertEquals(9, copiedDetail.getItems().size());
+        assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), copiedDetail.getConfigType());
+        assertTrue(copiedDetail.getItems().stream().anyMatch(item ->
+                "海运运输天数".equals(item.getItemName()) && "70".equals(item.getDefaultValue())
+        ));
+        assertTrue(copiedDetail.getAuditTrail().stream().anyMatch(audit -> "COPY".equals(audit.getOperation())));
     }
 
     @Test
@@ -768,6 +820,28 @@ class OperationConfigVersionLibraryServiceTest {
     }
 
     @Test
+    void currentVersionFallsBackToDefaultReplenishmentPlanWhenNoCurrentExists() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+
+        OperationConfigVersionDetailView current = service.currentVersion(
+                adminContext(),
+                OperationConfigVersionType.REPLENISHMENT_PLAN.name(),
+                307L,
+                "STR108065-NAE",
+                "AE"
+        );
+
+        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO, current.getVersionNo());
+        assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), current.getConfigType());
+        assertEquals("SYSTEM_DEFAULT", current.getStatus());
+        assertEquals(9, current.getItems().size());
+    }
+
+    @Test
     void disableCurrentVersionStopsCurrentResolutionAndKeepsAuditedDetailReadable() {
         InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
         OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
@@ -820,6 +894,30 @@ class OperationConfigVersionLibraryServiceTest {
                 adminContext(),
                 draft.getVersionNo(),
                 new OperationConfigVersionDisableRequest("draft")
+        ));
+    }
+
+    @Test
+    void deletePublishAndDisableRejectDefaultReplenishmentPlanVersion() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+
+        assertThrows(IllegalStateException.class, () -> service.deleteVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        ));
+        assertThrows(IllegalStateException.class, () -> service.publishVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                new OperationConfigVersionPublishRequest(null, null, null, "default")
+        ));
+        assertThrows(IllegalStateException.class, () -> service.disableVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                new OperationConfigVersionDisableRequest("default")
         ));
     }
 
@@ -983,6 +1081,14 @@ class OperationConfigVersionLibraryServiceTest {
 
     private static boolean actionEnabled(OperationConfigVersionRowView row, String action) {
         return row.getActions().stream()
+                .filter(item -> action.equals(item.getAction()))
+                .findFirst()
+                .map(OperationConfigVersionActionView::isEnabled)
+                .orElse(false);
+    }
+
+    private static boolean actionEnabled(OperationConfigVersionDetailView detail, String action) {
+        return detail.getActions().stream()
                 .filter(item -> action.equals(item.getAction()))
                 .findFirst()
                 .map(OperationConfigVersionActionView::isEnabled)
