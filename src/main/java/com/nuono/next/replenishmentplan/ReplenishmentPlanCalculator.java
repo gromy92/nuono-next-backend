@@ -32,6 +32,9 @@ public final class ReplenishmentPlanCalculator {
 
     public PlanItemView calculate(PlanInput input, ReplenishmentPlanConfig config) {
         Objects.requireNonNull(input, "input must not be null");
+        if (input.getAnchorDate() == null) {
+            throw new IllegalArgumentException("anchorDate is required for replenishment plan calculation");
+        }
         ReplenishmentPlanConfig resolvedConfig = config == null ? ReplenishmentPlanConfig.defaultBasicV1() : config;
 
         int airWindowStartDay = resolvedConfig.getAirLeadDays();
@@ -53,7 +56,7 @@ public final class ReplenishmentPlanCalculator {
         BigDecimal currentStockUnits = fbnStockUnits.add(supermallStockUnits);
 
         BigDecimal projectedStock = currentStockUnits.add(inboundByDay.getOrDefault(0, BigDecimal.ZERO));
-        Integer firstStockoutDay = null;
+        Integer firstStockoutDay = projectedStock.compareTo(BigDecimal.ZERO) <= 0 ? 0 : null;
         List<DailyProjectionView> dailyProjection = new ArrayList<>();
         for (int day = 1; day <= horizon; day++) {
             BigDecimal forecastDemand = dailyDemandByDay.getOrDefault(day, BigDecimal.ZERO);

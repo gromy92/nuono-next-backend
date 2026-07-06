@@ -53,10 +53,14 @@ public final class ReplenishmentPlanConfig {
         validatePositive("seaLeadDays", seaLeadDays);
         validatePositive("seaCoverDays", seaCoverDays);
         validatePositive("forecastHorizonDays", forecastHorizonDays);
+        if (!requireInboundEtaDate) {
+            throw new IllegalArgumentException("requireInboundEtaDate must be true for basic V1");
+        }
         String resolvedRoundingMode = roundingMode == null ? "ceil" : roundingMode.trim().toLowerCase(Locale.ROOT);
         if (!"ceil".equals(resolvedRoundingMode)) {
             throw new IllegalArgumentException("roundingMode only supports ceil");
         }
+        List<String> resolvedInventorySources = normalizeInventorySources(inventorySources);
 
         this.versionNo = versionNo == null ? DEFAULT_VERSION_NO : versionNo;
         this.airLeadDays = airLeadDays;
@@ -64,8 +68,7 @@ public final class ReplenishmentPlanConfig {
         this.seaLeadDays = seaLeadDays;
         this.seaCoverDays = seaCoverDays;
         this.forecastHorizonDays = forecastHorizonDays;
-        List<String> sources = inventorySources == null ? DEFAULT_INVENTORY_SOURCES : inventorySources;
-        this.inventorySources = Collections.unmodifiableList(new ArrayList<>(sources));
+        this.inventorySources = resolvedInventorySources;
         this.requireInboundEtaDate = requireInboundEtaDate;
         this.airEmergencyOnly = airEmergencyOnly;
         this.roundingMode = resolvedRoundingMode;
@@ -119,5 +122,25 @@ public final class ReplenishmentPlanConfig {
         if (value < 1) {
             throw new IllegalArgumentException(fieldName + " must be >= 1");
         }
+    }
+
+    private static List<String> normalizeInventorySources(List<String> inventorySources) {
+        List<String> sources = inventorySources == null ? DEFAULT_INVENTORY_SOURCES : inventorySources;
+        List<String> normalized = new ArrayList<>();
+        for (String source : sources) {
+            if (source == null) {
+                throw new IllegalArgumentException("inventorySources only supports FBN and SUPERMALL");
+            }
+            String normalizedSource = source.trim().toUpperCase(Locale.ROOT);
+            if (!DEFAULT_INVENTORY_SOURCES.contains(normalizedSource)) {
+                throw new IllegalArgumentException("inventorySources only supports FBN and SUPERMALL");
+            }
+            normalized.add(normalizedSource);
+        }
+        if (normalized.size() != DEFAULT_INVENTORY_SOURCES.size()
+                || !normalized.containsAll(DEFAULT_INVENTORY_SOURCES)) {
+            throw new IllegalArgumentException("inventorySources must include FBN and SUPERMALL for basic V1");
+        }
+        return DEFAULT_INVENTORY_SOURCES;
     }
 }

@@ -15,6 +15,7 @@ import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.StockSnapshot;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -134,6 +135,43 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(new BigDecimal("0"), result.getDailyProjection().get(0).getInboundUnits());
         assertEquals(new BigDecimal("1"), result.getDailyProjection().get(0).getProjectedStock());
         assertNull(result.getFirstStockoutDay());
+    }
+
+    @Test
+    void shouldReportDayZeroStockoutWhenInitialAvailableStockIsZero() {
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-ZERO-INITIAL",
+                "SKU-ZERO-INITIAL",
+                "Zero Initial Product",
+                LocalDate.of(2026, 7, 6),
+                new StockSnapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO),
+                Collections.emptyMap(),
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), null);
+
+        assertEquals(0, result.getFirstStockoutDay());
+        assertEquals("0-12 天", result.getStockoutWindowLabel());
+    }
+
+    @Test
+    void shouldRejectNullAnchorDate() {
+        PlanInput input = new PlanInput(
+                "PSKU-NO-ANCHOR",
+                "SKU-NO-ANCHOR",
+                "No Anchor Product",
+                null,
+                new StockSnapshot(new BigDecimal("10"), new BigDecimal("10"), BigDecimal.ZERO),
+                Collections.emptyMap(),
+                Collections.emptyList(),
+                Collections.emptyList()
+        );
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> calculator.calculate(input, null)
+        );
+        assertTrue(exception.getMessage().contains("anchorDate"));
     }
 
     @Test
@@ -329,6 +367,34 @@ class ReplenishmentPlanCalculatorTest {
     }
 
     @Test
+    void shouldRejectUnsupportedV1ConfigSurface() {
+        assertThrows(IllegalArgumentException.class, () -> new ReplenishmentPlanConfig(
+                "TEST_REPLENISHMENT_PLAN_BASIC_V1",
+                12,
+                15,
+                70,
+                30,
+                100,
+                Collections.singletonList("FBN"),
+                true,
+                true,
+                "ceil"
+        ));
+        assertThrows(IllegalArgumentException.class, () -> new ReplenishmentPlanConfig(
+                "TEST_REPLENISHMENT_PLAN_BASIC_V1",
+                12,
+                15,
+                70,
+                30,
+                100,
+                Arrays.asList("FBN", "SUPERMALL"),
+                false,
+                true,
+                "ceil"
+        ));
+    }
+
+    @Test
     void shouldCalculateAirWindowWhenEmergencyOnlyIsDisabled() {
         Map<Integer, BigDecimal> demand = new HashMap<>();
         for (int day = 12; day < 27; day++) {
@@ -366,7 +432,7 @@ class ReplenishmentPlanCalculatorTest {
                 seaLeadDays,
                 seaCoverDays,
                 forecastHorizonDays,
-                Collections.singletonList("FBN"),
+                Arrays.asList("FBN", "SUPERMALL"),
                 true,
                 airEmergencyOnly,
                 roundingMode
