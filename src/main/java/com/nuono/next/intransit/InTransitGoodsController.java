@@ -3,7 +3,9 @@ package com.nuono.next.intransit;
 import com.nuono.next.intransit.InTransitBatchCommands.DeleteLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.DeleteNodeCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveActualArrivalCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveEstimatedArrivalCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncBatch;
@@ -218,6 +220,54 @@ public class InTransitGoodsController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/batches/{batchId}/estimated-arrival")
+    public BatchView saveEstimatedArrival(
+            @PathVariable Long batchId,
+            @RequestBody(required = false) SaveEstimatedArrivalCommand command,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = requireContext(request);
+        SaveEstimatedArrivalCommand resolved = command == null ? new SaveEstimatedArrivalCommand() : command;
+        resolved.setOwnerUserId(context.getBusinessOwnerUserId());
+        resolved.setOperatorUserId(context.getSessionUserId());
+        resolved.setBatchId(batchId);
+        try {
+            BatchView existingBatch = batchService.getBatch(context.getBusinessOwnerUserId(), batchId);
+            accessScopeService.requireBatchAccess(context, existingBatch);
+            return batchService.saveEstimatedArrival(resolved);
+        } catch (BusinessAccessDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/batches/{batchId}/actual-arrival")
+    public BatchView saveActualArrival(
+            @PathVariable Long batchId,
+            @RequestBody(required = false) SaveActualArrivalCommand command,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = requireContext(request);
+        SaveActualArrivalCommand resolved = command == null ? new SaveActualArrivalCommand() : command;
+        resolved.setOwnerUserId(context.getBusinessOwnerUserId());
+        resolved.setOperatorUserId(context.getSessionUserId());
+        resolved.setBatchId(batchId);
+        try {
+            BatchView existingBatch = batchService.getBatch(context.getBusinessOwnerUserId(), batchId);
+            accessScopeService.requireBatchAccess(context, existingBatch);
+            return batchService.saveActualArrival(resolved);
+        } catch (BusinessAccessDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
         }
     }
 

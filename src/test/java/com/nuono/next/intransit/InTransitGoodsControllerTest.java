@@ -10,6 +10,8 @@ import com.nuono.next.intransit.InTransitBatchCommands.DeleteLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.DeleteNodeCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveActualArrivalCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveEstimatedArrivalCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
@@ -29,6 +31,7 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.permission.access.BusinessCapability;
+import java.time.LocalDateTime;
 import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Assertions;
@@ -250,6 +253,66 @@ class InTransitGoodsControllerTest {
         assertEquals(10002L, captor.getValue().getOwnerUserId());
         assertEquals(90001L, captor.getValue().getOperatorUserId());
         assertEquals(53001L, captor.getValue().getBatchId());
+        verify(accessScopeService).requireBatchAccess(context, scopedBatch);
+    }
+
+    @Test
+    void shouldOverwriteSpoofedOwnerOperatorAndRouteBatchIdWhenSavingEstimatedArrival() {
+        BusinessAccessContext context = context();
+        SaveEstimatedArrivalCommand command = new SaveEstimatedArrivalCommand();
+        command.setOwnerUserId(1L);
+        command.setOperatorUserId(2L);
+        command.setBatchId(1L);
+        command.setEstimatedArrivalAt(LocalDateTime.parse("2026-06-12T16:30:00"));
+        command.setNote("人工确认");
+        BatchView saved = new BatchView();
+        saved.setBatchId(53001L);
+        saved.setEstimatedArrivalAt(LocalDateTime.parse("2026-06-12T16:30:00"));
+        BatchView scopedBatch = scopedBatch();
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        when(batchService.getBatch(10002L, 53001L)).thenReturn(scopedBatch);
+        ArgumentCaptor<SaveEstimatedArrivalCommand> captor = ArgumentCaptor.forClass(SaveEstimatedArrivalCommand.class);
+        when(batchService.saveEstimatedArrival(captor.capture())).thenReturn(saved);
+
+        BatchView result = controller.saveEstimatedArrival(53001L, command, request);
+
+        assertEquals(LocalDateTime.parse("2026-06-12T16:30:00"), result.getEstimatedArrivalAt());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(90001L, captor.getValue().getOperatorUserId());
+        assertEquals(53001L, captor.getValue().getBatchId());
+        verify(accessScopeService).requireBatchAccess(context, scopedBatch);
+    }
+
+    @Test
+    void shouldOverwriteSpoofedOwnerOperatorAndRouteBatchIdWhenSavingActualArrival() {
+        BusinessAccessContext context = context();
+        SaveActualArrivalCommand command = new SaveActualArrivalCommand();
+        command.setOwnerUserId(1L);
+        command.setOperatorUserId(2L);
+        command.setBatchId(1L);
+        command.setActualArrivalAt(LocalDateTime.parse("2026-06-13T09:15:00"));
+        command.setNote("人工确认已到仓");
+        BatchView saved = new BatchView();
+        saved.setBatchId(53001L);
+        saved.setBatchStatus("warehouse_received");
+        saved.setLatestNodeStatus("warehouse_received");
+        BatchView scopedBatch = scopedBatch();
+
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
+        when(batchService.getBatch(10002L, 53001L)).thenReturn(scopedBatch);
+        ArgumentCaptor<SaveActualArrivalCommand> captor = ArgumentCaptor.forClass(SaveActualArrivalCommand.class);
+        when(batchService.saveActualArrival(captor.capture())).thenReturn(saved);
+
+        BatchView result = controller.saveActualArrival(53001L, command, request);
+
+        assertEquals("warehouse_received", result.getBatchStatus());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(90001L, captor.getValue().getOperatorUserId());
+        assertEquals(53001L, captor.getValue().getBatchId());
+        assertEquals(LocalDateTime.parse("2026-06-13T09:15:00"), captor.getValue().getActualArrivalAt());
         verify(accessScopeService).requireBatchAccess(context, scopedBatch);
     }
 

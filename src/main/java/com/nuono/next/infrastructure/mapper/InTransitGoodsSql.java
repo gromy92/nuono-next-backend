@@ -24,7 +24,9 @@ public interface InTransitGoodsSql {
             + "batch.raw_forwarder_name, batch.normalized_raw_forwarder_name, batch.forwarder_quality_status, "
             + "batch.transport_mode, batch.batch_status, batch.target_store_code, batch.target_site_code, batch.target_warehouse_name, "
             + "batch.departure_date, batch.eta_date, batch.external_shipment_no, batch.source_created_at, "
-            + "batch.estimated_departure_at, batch.estimated_arrival_at, batch.delivery_appointment_text, "
+            + "batch.estimated_departure_at, batch.estimated_arrival_at, batch.estimated_arrival_source, "
+            + "batch.estimated_arrival_source_detail, batch.estimated_arrival_updated_at, batch.estimated_arrival_updated_by, "
+            + "batch.delivery_appointment_text, "
             + "(SELECT domestic.node_happened_at FROM in_transit_logistics_node domestic "
             + "WHERE domestic.owner_user_id = batch.owner_user_id AND domestic.batch_id = batch.id "
             + "AND domestic.node_status = 'handed_to_forwarder' AND domestic.description = '国内收货' "
@@ -75,7 +77,12 @@ public interface InTransitGoodsSql {
             + ") "
             + "</if> "
             + "<if test='query.etaFrom != null'> AND batch.eta_date &gt;= #{query.etaFrom}</if> "
-            + "<if test='query.etaTo != null'> AND batch.eta_date &lt;= #{query.etaTo}</if> ";
+            + "<if test='query.etaTo != null'> AND batch.eta_date &lt;= #{query.etaTo}</if> "
+            + "<if test='query.todo == \"missingEstimatedArrival\"'> "
+            + "AND batch.estimated_arrival_at IS NULL AND batch.eta_date IS NULL "
+            + "AND batch.batch_status NOT IN ('warehouse_received', 'completed', 'cancelled') "
+            + "AND (batch.latest_node_status IS NULL OR batch.latest_node_status NOT IN ('warehouse_received', 'cancelled')) "
+            + "</if> ";
 
     String LINE_SELECT = ""
             + "SELECT line.id, line.owner_user_id, line.batch_id, line.package_id, line.box_no, line.sku, line.msku, line.psku, "
