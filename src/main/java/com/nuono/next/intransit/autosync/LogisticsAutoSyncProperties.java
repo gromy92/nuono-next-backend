@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class LogisticsAutoSyncProperties {
     private String credentialCipherSecret;
     private Scheduler scheduler = new Scheduler();
+    private Chic chic = new Chic();
 
     public String getCredentialCipherSecret() {
         return credentialCipherSecret;
@@ -21,6 +22,14 @@ public class LogisticsAutoSyncProperties {
 
     public void setScheduler(Scheduler scheduler) {
         this.scheduler = scheduler == null ? new Scheduler() : scheduler;
+    }
+
+    public Chic getChic() {
+        return chic;
+    }
+
+    public void setChic(Chic chic) {
+        this.chic = chic == null ? new Chic() : chic;
     }
 
     public static class Scheduler {
@@ -59,6 +68,63 @@ public class LogisticsAutoSyncProperties {
 
         public void setMaxAccountsPerTick(int maxAccountsPerTick) {
             this.maxAccountsPerTick = maxAccountsPerTick;
+        }
+    }
+
+    public static class Chic {
+        private boolean enabled;
+        private String baseUrl = "https://erp.chicexpressglobal.com";
+        private String loginPath;
+        private String loginAccountField = "username";
+        private String loginPasswordField = "password";
+        private int timeoutSeconds = 30;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getLoginPath() {
+            return loginPath;
+        }
+
+        public void setLoginPath(String loginPath) {
+            this.loginPath = loginPath;
+        }
+
+        public String getLoginAccountField() {
+            return loginAccountField;
+        }
+
+        public void setLoginAccountField(String loginAccountField) {
+            this.loginAccountField = loginAccountField;
+        }
+
+        public String getLoginPasswordField() {
+            return loginPasswordField;
+        }
+
+        public void setLoginPasswordField(String loginPasswordField) {
+            this.loginPasswordField = loginPasswordField;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
         }
     }
 }

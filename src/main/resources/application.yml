@@ -106,6 +106,13 @@ nuono:
           system-operator-user-id: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_OPERATOR_USER_ID:10003}
   logistics-auto-sync:
     credential-cipher-secret: ${NUONO_LOGISTICS_CREDENTIAL_CIPHER_SECRET:}
+    chic:
+      enabled: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_ENABLED:false}
+      base-url: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_BASE_URL:https://erp.chicexpressglobal.com}
+      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_PATH:}
+      login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_ACCOUNT_FIELD:username}
+      login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_PASSWORD_FIELD:password}
+      timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_TIMEOUT_SECONDS:30}
     scheduler:
       enabled: ${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_ENABLED:false}
       cron: "${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_CRON:0 */30 * * * *}"
