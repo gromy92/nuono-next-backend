@@ -119,7 +119,16 @@ public class ProductListingService {
         ProductListingDraftRecord existing = null;
         Long draftId = safeCommand.getDraftId();
         if (draftId == null) {
-            draftId = mapper.nextProductListingDraftId();
+            draftId = activeSourceDraftId(ownerUserId, storeCode, safeCommand);
+            if (draftId != null) {
+                existing = mapper.selectDraftById(draftId, ownerUserId);
+                if (existing == null) {
+                    draftId = null;
+                }
+            }
+            if (draftId == null) {
+                draftId = mapper.nextProductListingDraftId();
+            }
             safeCommand.setDraftId(draftId);
         } else {
             existing = mapper.selectDraftById(draftId, ownerUserId);
@@ -157,6 +166,22 @@ public class ProductListingService {
         }
         backfillDraftProjection(record, safeCommand);
         return draftView(record, safeCommand, issues);
+    }
+
+    private Long activeSourceDraftId(
+            Long ownerUserId,
+            String storeCode,
+            ProductListingDraftCommand command
+    ) {
+        if (!StringUtils.hasText(command.getSourceType()) || command.getSourceRefId() == null) {
+            return null;
+        }
+        return mapper.findActiveDraftId(
+                ownerUserId,
+                storeCode,
+                command.getSourceType().trim(),
+                command.getSourceRefId()
+        );
     }
 
     public ProductListingDraftView validateDraft(BusinessAccessContext context, Long draftId) {

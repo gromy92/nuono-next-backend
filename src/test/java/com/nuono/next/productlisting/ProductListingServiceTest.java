@@ -219,6 +219,26 @@ class ProductListingServiceTest {
     }
 
     @Test
+    void saveDraftReusesActiveSourceDraftWhenDraftIdIsMissing() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand first = validCommand();
+        first.setSourceType("manual_selection_group");
+        first.setSourceRefId(91002L);
+        ProductListingDraftView created = service.saveDraft(context, first);
+        ProductListingDraftCommand second = validCommand();
+        second.setSourceType("manual_selection_group");
+        second.setSourceRefId(91002L);
+        second.setProductTitleEn("Updated title from manual selection group");
+        mapper.resetUpdateCount();
+
+        ProductListingDraftView updated = service.saveDraft(context, second);
+
+        assertEquals(created.getDraftId(), updated.getDraftId());
+        assertEquals(1, mapper.updateCount());
+        assertEquals("Updated title from manual selection group", updated.getDraft().getProductTitleEn());
+    }
+
+    @Test
     void saveDraftPreservesOfferFieldsInDryRunSnapshot() {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand command = validCommand();
@@ -439,7 +459,20 @@ class ProductListingServiceTest {
 
         @Override
         public Long findActiveDraftId(Long ownerUserId, String storeCode, String sourceType, Long sourceRefId) {
-            return null;
+            Long latest = null;
+            for (ProductListingDraftRecord draft : drafts.values()) {
+                if (!ownerUserId.equals(draft.getOwnerUserId())
+                        || !storeCode.equals(draft.getStoreCode())
+                        || !sourceType.equals(draft.getSourceType())
+                        || !sourceRefId.equals(draft.getSourceRefId())
+                        || !List.of("draft", "validation_failed", "ready_for_dry_run").contains(draft.getStatus())) {
+                    continue;
+                }
+                if (latest == null || draft.getId() > latest) {
+                    latest = draft.getId();
+                }
+            }
+            return latest;
         }
 
         @Override
