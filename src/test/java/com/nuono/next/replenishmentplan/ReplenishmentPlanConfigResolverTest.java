@@ -164,6 +164,62 @@ class ReplenishmentPlanConfigResolverTest {
     }
 
     @Test
+    void selectedVersionMissingRequiredItemFallsBackToHardcodedDefaultsWithDefaultVersionNo() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        repository.insert(version(
+                90006L,
+                "REPLENISHMENT_MISSING_REQUIRED",
+                "CURRENT",
+                "50001/STR245027-NAE/SA",
+                content(
+                        "空运运输天数", "10",
+                        "空运覆盖天数", "20",
+                        "海运运输天数", "65",
+                        "海运覆盖天数", "35",
+                        "预测窗口天数", "110",
+                        "库存来源", "FBN,SUPERMALL",
+                        "在途必须有 ETA", "true",
+                        "空运只应急", "false"
+                ),
+                LocalDateTime.of(2026, 7, 6, 12, 0)
+        ));
+        ReplenishmentPlanConfigResolver resolver = new ReplenishmentPlanConfigResolver(repository);
+
+        ReplenishmentPlanConfig config = resolver.resolve(50001L, "STR245027-NAE", "SA");
+
+        assertDefaultConfig(config);
+    }
+
+    @Test
+    void selectedVersionWithDuplicateRequiredItemFallsBackToHardcodedDefaults() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        repository.insert(version(
+                90007L,
+                "REPLENISHMENT_DUPLICATE_REQUIRED",
+                "CURRENT",
+                "50001/STR245027-NAE/SA",
+                content(
+                        "空运运输天数", "10",
+                        "空运运输天数", "11",
+                        "空运覆盖天数", "20",
+                        "海运运输天数", "65",
+                        "海运覆盖天数", "35",
+                        "预测窗口天数", "110",
+                        "库存来源", "FBN,SUPERMALL",
+                        "在途必须有 ETA", "true",
+                        "空运只应急", "false",
+                        "建议数量取整", "ceil"
+                ),
+                LocalDateTime.of(2026, 7, 6, 12, 30)
+        ));
+        ReplenishmentPlanConfigResolver resolver = new ReplenishmentPlanConfigResolver(repository);
+
+        ReplenishmentPlanConfig config = resolver.resolve(50001L, "STR245027-NAE", "SA");
+
+        assertDefaultConfig(config);
+    }
+
+    @Test
     void invalidPresentValuesFallBackToHardcodedDefaultsWithDefaultVersionNo() {
         assertInvalidPresentValueFallsBackToDefaults("空运运输天数", "0");
         assertInvalidPresentValueFallsBackToDefaults("库存来源", "FBN,AMAZON");

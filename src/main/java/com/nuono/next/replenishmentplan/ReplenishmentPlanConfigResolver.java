@@ -23,6 +23,17 @@ import org.springframework.stereotype.Component;
 public class ReplenishmentPlanConfigResolver {
     private static final Logger log = LoggerFactory.getLogger(ReplenishmentPlanConfigResolver.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final List<String> REQUIRED_ITEM_NAMES = List.of(
+            "空运运输天数",
+            "空运覆盖天数",
+            "海运运输天数",
+            "海运覆盖天数",
+            "预测窗口天数",
+            "库存来源",
+            "在途必须有 ETA",
+            "空运只应急",
+            "建议数量取整"
+    );
 
     private final OperationConfigTypedVersionRepository typedVersionRepository;
 
@@ -56,6 +67,7 @@ public class ReplenishmentPlanConfigResolver {
         Map<String, String> values;
         try {
             values = parseValues(version.getContentJson());
+            validateRequiredItems(values);
         } catch (RuntimeException exception) {
             logInvalidSelectedVersion(version, exception);
             return defaults;
@@ -63,15 +75,15 @@ public class ReplenishmentPlanConfigResolver {
         try {
             return new ReplenishmentPlanConfig(
                     textOrFallback(version.getVersionNo(), defaults.getVersionNo()),
-                    positiveInt(values.get("空运运输天数"), defaults.getAirLeadDays()),
-                    positiveInt(values.get("空运覆盖天数"), defaults.getAirCoverDays()),
-                    positiveInt(values.get("海运运输天数"), defaults.getSeaLeadDays()),
-                    positiveInt(values.get("海运覆盖天数"), defaults.getSeaCoverDays()),
-                    positiveInt(values.get("预测窗口天数"), defaults.getForecastHorizonDays()),
-                    inventorySources(values.get("库存来源"), defaults.getInventorySources()),
-                    booleanValue(values.get("在途必须有 ETA"), defaults.isRequireInboundEtaDate()),
-                    booleanValue(values.get("空运只应急"), defaults.isAirEmergencyOnly()),
-                    roundingMode(values.get("建议数量取整"), defaults.getRoundingMode())
+                    positiveInt(requiredValue(values, "空运运输天数"), defaults.getAirLeadDays()),
+                    positiveInt(requiredValue(values, "空运覆盖天数"), defaults.getAirCoverDays()),
+                    positiveInt(requiredValue(values, "海运运输天数"), defaults.getSeaLeadDays()),
+                    positiveInt(requiredValue(values, "海运覆盖天数"), defaults.getSeaCoverDays()),
+                    positiveInt(requiredValue(values, "预测窗口天数"), defaults.getForecastHorizonDays()),
+                    inventorySources(requiredValue(values, "库存来源"), defaults.getInventorySources()),
+                    booleanValue(requiredValue(values, "在途必须有 ETA"), defaults.isRequireInboundEtaDate()),
+                    booleanValue(requiredValue(values, "空运只应急"), defaults.isAirEmergencyOnly()),
+                    roundingMode(requiredValue(values, "建议数量取整"), defaults.getRoundingMode())
             );
         } catch (RuntimeException exception) {
             logInvalidSelectedVersion(version, exception);
@@ -95,13 +107,33 @@ public class ReplenishmentPlanConfigResolver {
                 }
                 String itemName = textValue(item, "itemName");
                 if (hasText(itemName)) {
-                    values.put(itemName.trim(), textValue(item, "defaultValue"));
+                    String normalizedName = itemName.trim();
+                    if (REQUIRED_ITEM_NAMES.contains(normalizedName) && values.containsKey(normalizedName)) {
+                        throw new IllegalArgumentException("duplicate required replenishment plan config item: " + normalizedName);
+                    }
+                    values.put(normalizedName, textValue(item, "defaultValue"));
                 }
             }
             return values;
         } catch (JsonProcessingException exception) {
             throw new IllegalArgumentException("replenishment plan config content parsing failed", exception);
         }
+    }
+
+    private static void validateRequiredItems(Map<String, String> values) {
+        for (String itemName : REQUIRED_ITEM_NAMES) {
+            if (!values.containsKey(itemName)) {
+                throw new IllegalArgumentException("missing required replenishment plan config item: " + itemName);
+            }
+        }
+    }
+
+    private static String requiredValue(Map<String, String> values, String itemName) {
+        String value = values.get(itemName);
+        if (!hasText(value)) {
+            throw new IllegalArgumentException("missing required replenishment plan config value: " + itemName);
+        }
+        return value;
     }
 
     private static void logInvalidSelectedVersion(OperationConfigTypedVersion version, RuntimeException exception) {

@@ -9,6 +9,30 @@ import org.junit.jupiter.api.Test;
 class OperationConfigTypedVersionEvidenceTest {
 
     @Test
+    void defaultForBusinessCalendarReturnsCalendarMetadata() {
+        OperationConfigTypedVersionEvidence evidence = OperationConfigTypedVersionEvidence.defaultFor(
+                OperationConfigVersionType.BUSINESS_CALENDAR
+        );
+
+        assertEquals(OperationConfigVersionType.BUSINESS_CALENDAR.name(), evidence.getConfigType());
+        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO, evidence.getVersionNo());
+        assertEquals("默认日历配置", evidence.getVersionName());
+        assertEquals("系统默认", evidence.getSourceLabel());
+    }
+
+    @Test
+    void defaultForProductLifecycleReturnsLifecycleMetadata() {
+        OperationConfigTypedVersionEvidence evidence = OperationConfigTypedVersionEvidence.defaultFor(
+                OperationConfigVersionType.PRODUCT_LIFECYCLE
+        );
+
+        assertEquals(OperationConfigVersionType.PRODUCT_LIFECYCLE.name(), evidence.getConfigType());
+        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO, evidence.getVersionNo());
+        assertEquals("默认生命周期配置", evidence.getVersionName());
+        assertEquals("系统默认", evidence.getSourceLabel());
+    }
+
+    @Test
     void defaultForReplenishmentPlanReturnsReplenishmentMetadata() {
         OperationConfigTypedVersionEvidence evidence = OperationConfigTypedVersionEvidence.defaultFor(
                 OperationConfigVersionType.REPLENISHMENT_PLAN
@@ -17,6 +41,62 @@ class OperationConfigTypedVersionEvidenceTest {
         assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), evidence.getConfigType());
         assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO, evidence.getVersionNo());
         assertEquals("默认补货计划参数", evidence.getVersionName());
+        assertEquals("系统默认", evidence.getSourceLabel());
+    }
+
+    @Test
+    void resolveProductLifecycleIgnoresCurrentTypedVersionAndReturnsDefaultMetadata() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        repository.insert(version(
+                89001L,
+                "LIFECYCLE_CURRENT",
+                "Current Lifecycle",
+                OperationConfigVersionType.PRODUCT_LIFECYCLE.name(),
+                "CURRENT",
+                "运营配置",
+                "307/STR108065-NAE/SA",
+                LocalDateTime.of(2026, 7, 6, 10, 0)
+        ));
+
+        OperationConfigTypedVersionEvidence evidence = OperationConfigTypedVersionEvidence.resolve(
+                repository,
+                OperationConfigVersionType.PRODUCT_LIFECYCLE,
+                307L,
+                "STR108065-NAE",
+                "SA"
+        );
+
+        assertEquals(OperationConfigVersionType.PRODUCT_LIFECYCLE.name(), evidence.getConfigType());
+        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO, evidence.getVersionNo());
+        assertEquals("默认生命周期配置", evidence.getVersionName());
+        assertEquals("系统默认", evidence.getSourceLabel());
+    }
+
+    @Test
+    void resolveBusinessCalendarIgnoresCurrentTypedVersionAndReturnsDefaultMetadata() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        repository.insert(version(
+                89002L,
+                "CALENDAR_CURRENT",
+                "Current Calendar",
+                OperationConfigVersionType.BUSINESS_CALENDAR.name(),
+                "CURRENT",
+                "运营配置",
+                "307/STR108065-NAE/SA",
+                LocalDateTime.of(2026, 7, 6, 10, 0)
+        ));
+
+        OperationConfigTypedVersionEvidence evidence = OperationConfigTypedVersionEvidence.resolve(
+                repository,
+                OperationConfigVersionType.BUSINESS_CALENDAR,
+                307L,
+                "STR108065-NAE",
+                "SA"
+        );
+
+        assertEquals(OperationConfigVersionType.BUSINESS_CALENDAR.name(), evidence.getConfigType());
+        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO, evidence.getVersionNo());
+        assertEquals("默认日历配置", evidence.getVersionName());
         assertEquals("系统默认", evidence.getSourceLabel());
     }
 

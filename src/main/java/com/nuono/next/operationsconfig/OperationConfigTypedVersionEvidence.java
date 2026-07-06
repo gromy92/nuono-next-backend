@@ -31,6 +31,9 @@ public class OperationConfigTypedVersionEvidence {
             String siteCode
     ) {
         OperationConfigVersionType supportedType = requireSupported(configType);
+        if (!OperationConfigVersionType.REPLENISHMENT_PLAN.equals(supportedType)) {
+            return defaultFor(supportedType);
+        }
         return OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
                         repository,
                         supportedType,
