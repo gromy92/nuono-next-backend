@@ -8,7 +8,6 @@ import org.springframework.context.annotation.Profile;
 @Profile("local-db")
 @MapperScan(basePackages = {
         "com.nuono.next.infrastructure.mapper",
-        "com.nuono.next.intransit.autosync",
         "com.nuono.next.permission.access"
 })
 public class MyBatisConfig {
