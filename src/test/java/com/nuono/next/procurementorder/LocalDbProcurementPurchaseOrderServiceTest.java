@@ -1494,6 +1494,59 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
+    void getOrderAli1688HistoryUsesLatestProductLinkWhenBatchHistoryIsOlder() {
+        PurchaseOrderRecord order = order("SGGR-0703", "人工补货");
+        PurchaseOrderItemRecord item = item();
+        item.skuParent = "SGGR";
+        item.totalQuantity = 100;
+        PurchaseOrderAli1688PurchaseBatchRow oldBatch = purchaseBatchRow();
+        oldBatch.batchLabel = "批次 1";
+        oldBatch.countedQuantity = 100;
+        oldBatch.countedCost = new BigDecimal("218.00");
+        oldBatch.orderNo = "5118264938393005337";
+        oldBatch.orderTime = "2026-05-29 14:17:59";
+        PurchaseOrderAli1688HistoryRow latestProductLink = historyRow();
+        latestProductLink.orderId = 502L;
+        latestProductLink.itemId = 602L;
+        latestProductLink.assignmentId = 702L;
+        latestProductLink.orderNo = "5122278795612005337";
+        latestProductLink.orderTime = "2026-07-03 13:55:15";
+        latestProductLink.assignedQuantity = 30;
+        latestProductLink.allocatedCost = new BigDecimal("15.65");
+        latestProductLink.unitPrice = new BigDecimal("0.5217");
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(item));
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow("SA", "AIR", 100)));
+        when(mapper.listOrderAli1688PurchaseBatches(
+                307L,
+                "PRJ69486",
+                List.of("SA"),
+                List.of("SGGRB115"),
+                List.of("SGGR")
+        )).thenReturn(List.of(oldBatch));
+        when(mapper.listOrderAli1688HistoryRows(
+                307L,
+                "PRJ69486",
+                List.of("SA"),
+                List.of("SGGRB115"),
+                List.of("SGGR")
+        )).thenReturn(List.of(latestProductLink));
+
+        PurchaseOrderAli1688HistoryView view = service.getOrderAli1688History(access(), "200001");
+
+        assertThat(view.items).hasSize(1);
+        assertThat(view.items.get(0).purchaseCount).isEqualTo(2);
+        assertThat(view.items.get(0).totalQuantity).isEqualTo(130);
+        assertThat(view.items.get(0).totalCost).isEqualByComparingTo("233.65");
+        assertThat(view.items.get(0).recentUnitPrice).isEqualByComparingTo("0.5217");
+        assertThat(view.items.get(0).recentPurchaseTime).isEqualTo("2026-07-03 13:55:15");
+        assertThat(view.items.get(0).purchaseBatches).hasSize(1);
+        assertThat(view.items.get(0).history).hasSize(1);
+        assertThat(view.items.get(0).history.get(0).orderNo).isEqualTo("5122278795612005337");
+    }
+
+    @Test
     void getOrderAli1688HistoryMergesSame1688OrderLinesWhenNoManualBatchExists() {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         PurchaseOrderItemRecord item = item();
