@@ -60,14 +60,15 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
 
     @Update({
             "UPDATE logistics_forwarder_account",
-            "SET operator_user_id = #{row.operatorUserId}, source_system = #{row.sourceSystem},",
+            "SET owner_user_id = #{row.ownerUserId}, operator_user_id = #{row.operatorUserId},",
+            "source_system = #{row.sourceSystem},",
             "forwarder_name = #{row.forwarderName}, login_account = #{row.loginAccount},",
             "login_account_hash = #{row.loginAccountHash}, password_cipher = #{row.passwordCipher},",
             "enabled = #{row.enabled}, schedule_enabled = #{row.scheduleEnabled}, commit_enabled = #{row.commitEnabled},",
             "schedule_window_start = #{row.scheduleWindowStart}, schedule_window_end = #{row.scheduleWindowEnd},",
             "min_interval_hours = #{row.minIntervalHours}, verification_status = #{row.verificationStatus},",
             "updated_by = #{row.updatedBy}, gmt_updated = NOW()",
-            "WHERE id = #{row.id} AND owner_user_id = #{row.ownerUserId} AND is_deleted = b'0'"
+            "WHERE id = #{row.id} AND is_deleted = b'0'"
     })
     int updateAccount(@Param("row") LogisticsAutoSyncAccount row);
 
