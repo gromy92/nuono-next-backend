@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 public class OperationConfigDefaultVersionCatalog {
     public static final String DEFAULT_CALENDAR_VERSION_NO = "DEFAULT_CALENDAR_CONFIG";
     public static final String DEFAULT_LIFECYCLE_VERSION_NO = "DEFAULT_LIFECYCLE_CONFIG";
+    public static final String DEFAULT_REPLENISHMENT_PLAN_VERSION_NO = "DEFAULT_REPLENISHMENT_PLAN_BASIC_V1";
     private static final LocalDateTime DEFAULT_UPDATED_AT = LocalDateTime.of(2026, 5, 25, 0, 0);
 
     public List<OperationConfigVersionRowView> listRows() {
@@ -21,7 +22,11 @@ public class OperationConfigDefaultVersionCatalog {
     }
 
     public List<OperationConfigVersionRowView> listRows(boolean editableBySystemAdmin) {
-        return List.of(calendarRow(editableBySystemAdmin), lifecycleRow(editableBySystemAdmin));
+        return List.of(
+                calendarRow(editableBySystemAdmin),
+                lifecycleRow(editableBySystemAdmin),
+                replenishmentPlanRow(editableBySystemAdmin)
+        );
     }
 
     public OperationConfigVersionDetailView getDetail(String versionNo, boolean editableBySystemAdmin) {
@@ -33,6 +38,10 @@ public class OperationConfigDefaultVersionCatalog {
         if (DEFAULT_LIFECYCLE_VERSION_NO.equals(normalized)) {
             OperationConfigVersionRowView row = lifecycleRow(editableBySystemAdmin);
             return toDetail(row, lifecycleItems());
+        }
+        if (DEFAULT_REPLENISHMENT_PLAN_VERSION_NO.equals(normalized)) {
+            OperationConfigVersionRowView row = replenishmentPlanRow(editableBySystemAdmin);
+            return toDetail(row, replenishmentPlanItems());
         }
         throw new IllegalArgumentException("operation config version not found");
     }
@@ -67,6 +76,25 @@ public class OperationConfigDefaultVersionCatalog {
                 "系统默认",
                 "14 条 DEFAULT_V1 配置",
                 14,
+                "全局默认",
+                null,
+                DEFAULT_UPDATED_AT,
+                systemDefaultActions(editableBySystemAdmin)
+        );
+    }
+
+    private OperationConfigVersionRowView replenishmentPlanRow(boolean editableBySystemAdmin) {
+        int itemCount = replenishmentPlanItems().size();
+        return new OperationConfigVersionRowView(
+                DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                "默认补货计划参数",
+                OperationConfigVersionType.REPLENISHMENT_PLAN.name(),
+                OperationConfigVersionType.REPLENISHMENT_PLAN.getLabel(),
+                "SYSTEM_DEFAULT",
+                "系统默认",
+                "系统默认",
+                "空运12/15，海运70/30，库存来源 FBN/SUPERMALL",
+                itemCount,
                 "全局默认",
                 null,
                 DEFAULT_UPDATED_AT,
@@ -190,6 +218,20 @@ public class OperationConfigDefaultVersionCatalog {
                 defaultItem("衰退期", "衰退最小销量环比增长率", "随时", "数值", formatDecimal(thresholds.getDeclineMaxSalesGrowthRate()), null, null),
                 defaultItem("长尾期", "长尾期最大波动率", "随时", "数值", formatDecimal(thresholds.getLongTailMaxVolatility()), null, null),
                 defaultItem("长尾期", "长尾期最大月销红量", "随时", "数值", formatDecimal(thresholds.getLongTailMaxMonthlySales()), null, null)
+        );
+    }
+
+    private List<OperationConfigDefaultVersionItemView> replenishmentPlanItems() {
+        return List.of(
+                defaultItem("运输时效", "空运运输天数", "随时", "数值", "12", null, "空运 ETA 提前量"),
+                defaultItem("覆盖窗口", "空运覆盖天数", "随时", "数值", "15", null, "空运只覆盖短期应急缺口"),
+                defaultItem("运输时效", "海运运输天数", "随时", "数值", "70", null, "海运 ETA 提前量"),
+                defaultItem("覆盖窗口", "海运覆盖天数", "随时", "数值", "30", null, "海运到货后常规补货窗口"),
+                defaultItem("库存口径", "库存来源", "随时", "数组", "FBN,SUPERMALL", null, "基础版只纳入 FBN 和 Supermall"),
+                defaultItem("在途口径", "在途必须有 ETA", "随时", "布尔", "true", null, "无 ETA 在途不参与可用库存覆盖"),
+                defaultItem("空运策略", "空运只应急", "随时", "布尔", "true", null, "海运到货前断货才建议空运"),
+                defaultItem("建议数量", "建议数量取整", "随时", "枚举", "ceil", null, "建议数量向上取整"),
+                defaultItem("预测窗口", "预测窗口天数", "随时", "数值", "100", null, "基础版至少覆盖海运 70+30 天")
         );
     }
 
