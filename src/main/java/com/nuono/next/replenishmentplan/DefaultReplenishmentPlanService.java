@@ -12,7 +12,9 @@ import com.nuono.next.salesforecast.SalesForecastFactorBreakdownView;
 import com.nuono.next.salesforecast.SalesForecastOverviewRow;
 import com.nuono.next.salesforecast.SalesForecastOverviewView;
 import com.nuono.next.salesforecast.SalesForecastQuery;
-import com.nuono.next.salesforecast.SalesForecastService;
+import com.nuono.next.salesforecast.SalesForecastResultRecord;
+import com.nuono.next.salesforecast.SalesForecastRunRecord;
+import com.nuono.next.salesforecast.SalesForecastRunRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
@@ -30,19 +32,19 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
 
     private static final int DAILY_DEMAND_SCALE = 8;
 
-    private final SalesForecastService salesForecastService;
+    private final SalesForecastRunRepository forecastRunRepository;
     private final ReplenishmentPlanRepository repository;
     private final ReplenishmentPlanConfigResolver configResolver;
     private final ReplenishmentPlanCalculator calculator;
     private final Clock clock;
 
     public DefaultReplenishmentPlanService(
-            SalesForecastService salesForecastService,
+            SalesForecastRunRepository forecastRunRepository,
             ReplenishmentPlanRepository repository,
             ReplenishmentPlanConfigResolver configResolver
     ) {
         this(
-                salesForecastService,
+                forecastRunRepository,
                 repository,
                 configResolver,
                 new ReplenishmentPlanCalculator(),
@@ -51,13 +53,13 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
     }
 
     DefaultReplenishmentPlanService(
-            SalesForecastService salesForecastService,
+            SalesForecastRunRepository forecastRunRepository,
             ReplenishmentPlanRepository repository,
             ReplenishmentPlanConfigResolver configResolver,
             ReplenishmentPlanCalculator calculator,
             Clock clock
     ) {
-        this.salesForecastService = salesForecastService;
+        this.forecastRunRepository = forecastRunRepository;
         this.repository = repository;
         this.configResolver = configResolver;
         this.calculator = calculator;
@@ -71,13 +73,31 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                 query.getStoreCode(),
                 query.getSiteCode()
         );
-        SalesForecastOverviewView forecast = salesForecastService.getOverview(new SalesForecastQuery(
+        SalesForecastQuery forecastQuery = new SalesForecastQuery(
                 query.getOwnerUserId(),
                 query.getStoreCode(),
                 query.getSiteCode()
-        ));
-        LocalDate anchorDate = anchorDate(forecast);
-        if (forecast == null || !"ready".equals(forecast.getState()) || forecast.getRows().isEmpty()) {
+        );
+        SalesForecastRunRecord run = forecastRunRepository.findLatestCompleted(forecastQuery);
+        if (run == null) {
+            return emptyOverview(query, config, LocalDate.now(clock));
+        }
+
+        LocalDate anchorDate = anchorDate(run);
+        List<SalesForecastResultRecord> forecastResults = forecastRunRepository.listResults(run.getId());
+        if (forecastResults == null || forecastResults.isEmpty()) {
+            return emptyOverview(query, config, anchorDate);
+        }
+        SalesForecastOverviewView forecast = SalesForecastOverviewView.ready(
+                query.getStoreCode(),
+                query.getSiteCode(),
+                run,
+                forecastResults
+        );
+        List<SalesForecastOverviewRow> forecastRows = forecast.getRows().stream()
+                .filter(row -> row != null && hasText(row.getPartnerSku()))
+                .collect(Collectors.toList());
+        if (forecastRows.isEmpty()) {
             return emptyOverview(query, config, anchorDate);
         }
 
@@ -93,10 +113,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                 .collect(Collectors.groupingBy(ReplenishmentPlanRepository.InboundRow::getPartnerSku));
 
         List<PlanItemView> rows = new ArrayList<>();
-        for (SalesForecastOverviewRow forecastRow : forecast.getRows()) {
-            if (forecastRow == null || !hasText(forecastRow.getPartnerSku())) {
-                continue;
-            }
+        for (SalesForecastOverviewRow forecastRow : forecastRows) {
             List<ReplenishmentPlanRepository.InboundRow> inboundRows =
                     inboundByPartnerSku.getOrDefault(forecastRow.getPartnerSku(), List.of());
             rows.add(calculator.calculate(new PlanInput(
@@ -134,9 +151,9 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         );
     }
 
-    private LocalDate anchorDate(SalesForecastOverviewView forecast) {
-        if (forecast != null && forecast.getSourceDataDate() != null) {
-            return forecast.getSourceDataDate();
+    private LocalDate anchorDate(SalesForecastRunRecord run) {
+        if (run != null && run.getSourceDataDate() != null) {
+            return run.getSourceDataDate();
         }
         return LocalDate.now(clock);
     }

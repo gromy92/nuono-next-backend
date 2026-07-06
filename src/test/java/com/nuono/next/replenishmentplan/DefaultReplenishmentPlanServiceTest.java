@@ -11,16 +11,15 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundRow;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.StockRow;
-import com.nuono.next.salesforecast.SalesForecastDetailView;
-import com.nuono.next.salesforecast.SalesForecastFactorBreakdownView;
-import com.nuono.next.salesforecast.SalesForecastOverviewRow;
-import com.nuono.next.salesforecast.SalesForecastOverviewView;
 import com.nuono.next.salesforecast.SalesForecastQuery;
-import com.nuono.next.salesforecast.SalesForecastService;
+import com.nuono.next.salesforecast.SalesForecastResultRecord;
+import com.nuono.next.salesforecast.SalesForecastRunRecord;
+import com.nuono.next.salesforecast.SalesForecastRunRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +38,7 @@ class DefaultReplenishmentPlanServiceTest {
     private static final LocalDate SOURCE_DATE = LocalDate.of(2026, 7, 6);
 
     @Mock
-    private SalesForecastService salesForecastService;
+    private SalesForecastRunRepository forecastRunRepository;
     @Mock
     private ReplenishmentPlanRepository repository;
     @Mock
@@ -50,7 +49,7 @@ class DefaultReplenishmentPlanServiceTest {
     @BeforeEach
     void setUp() {
         service = new DefaultReplenishmentPlanService(
-                salesForecastService,
+                forecastRunRepository,
                 repository,
                 configResolver,
                 new ReplenishmentPlanCalculator(),
@@ -62,7 +61,8 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void readyForecastMapsStockEtaInboundAndMissingEtaByCanonicalPartnerSku() {
-        when(salesForecastService.getOverview(any())).thenReturn(readyForecast(row("PSKU-001", "SKU-001", 900, null)));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-001", "SKU-001", 900)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-001",
@@ -118,26 +118,35 @@ class DefaultReplenishmentPlanServiceTest {
         assertTrue(row.getWarnings().contains("missing_eta_inbound_excluded"));
 
         ArgumentCaptor<SalesForecastQuery> forecastQuery = ArgumentCaptor.forClass(SalesForecastQuery.class);
-        verify(salesForecastService).getOverview(forecastQuery.capture());
+        verify(forecastRunRepository).findLatestCompleted(forecastQuery.capture());
         assertEquals(OWNER_USER_ID, forecastQuery.getValue().getOwnerUserId());
         assertEquals(STORE_CODE, forecastQuery.getValue().getStoreCode());
         assertEquals(SITE_CODE, forecastQuery.getValue().getSiteCode());
+        verify(forecastRunRepository).listResults(100L);
+        verify(forecastRunRepository, never()).saveRun(any());
+        verify(forecastRunRepository, never()).saveResults(any(), any());
     }
 
     @Test
-    void emptyForecastReturnsEmptyOverviewWithoutReadingRepositories() {
-        when(salesForecastService.getOverview(any())).thenReturn(new SalesForecastOverviewView(
-                "ready",
-                10L,
-                STORE_CODE,
-                SITE_CODE,
-                SOURCE_DATE,
-                null,
-                "SALES_FORECAST_V1_4",
-                "default",
-                null,
-                List.of()
-        ));
+    void missingForecastRunReturnsEmptyOverviewWithoutReadingRepositoriesOrWritingForecast() {
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(null);
+
+        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+
+        assertEquals("empty", overview.getState());
+        assertEquals(LocalDate.of(2026, 7, 7), overview.getAnchorDate());
+        assertTrue(overview.getRows().isEmpty());
+        verify(forecastRunRepository, never()).listResults(any());
+        verify(forecastRunRepository, never()).saveRun(any());
+        verify(forecastRunRepository, never()).saveResults(any(), any());
+        verify(repository, never()).listFbnSupermallStock(any(), any(), any());
+        verify(repository, never()).listActiveInbound(any(), any(), any());
+    }
+
+    @Test
+    void emptyForecastResultsReturnEmptyOverviewWithoutReadingRepositories() {
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of());
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
@@ -149,20 +158,23 @@ class DefaultReplenishmentPlanServiceTest {
     }
 
     @Test
-    void missingForecastUsesClockAnchorAndDoesNotReadRepositories() {
-        when(salesForecastService.getOverview(any())).thenReturn(null);
+    void nullForecastResultsReturnEmptyOverviewWithoutReadingRepositories() {
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(null);
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
         assertEquals("empty", overview.getState());
-        assertEquals(LocalDate.of(2026, 7, 7), overview.getAnchorDate());
+        assertEquals(SOURCE_DATE, overview.getAnchorDate());
+        assertTrue(overview.getRows().isEmpty());
         verify(repository, never()).listFbnSupermallStock(any(), any(), any());
         verify(repository, never()).listActiveInbound(any(), any(), any());
     }
 
     @Test
     void missingStockFactsPreserveNullFieldsAndAddWarnings() {
-        when(salesForecastService.getOverview(any())).thenReturn(readyForecast(row("PSKU-MISSING", "SKU-MISSING", 90, null)));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-MISSING", "SKU-MISSING", 90)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
@@ -179,7 +191,8 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void partialStockFactsDeriveCurrentFromConfirmedSourcesButPreserveMissingSourceNull() {
-        when(salesForecastService.getOverview(any())).thenReturn(readyForecast(row("PSKU-PARTIAL", "SKU-PARTIAL", 90, null)));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-PARTIAL", "SKU-PARTIAL", 90)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-PARTIAL",
@@ -202,7 +215,8 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void demandCurveUsesForecastUnits90DividedByNinetyForNonzeroSeaSuggestion() {
-        when(salesForecastService.getOverview(any())).thenReturn(readyForecast(row("PSKU-DEMAND", "SKU-DEMAND", 180, null)));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-DEMAND", "SKU-DEMAND", 180)));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-DEMAND",
@@ -220,23 +234,16 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void demandCurveFallsBackToDetailFactorBreakdownWhenForecastUnits90IsMissing() {
-        SalesForecastDetailView detail = new SalesForecastDetailView(
-                null,
-                new SalesForecastFactorBreakdownView(
-                        new BigDecimal("1.5"),
-                        BigDecimal.ONE,
-                        new BigDecimal("2"),
-                        new BigDecimal("1"),
-                        new BigDecimal("1"),
-                        0,
-                        0,
-                        0
-                ),
-                null,
-                "SALES_FORECAST_V1_4",
-                "default"
-        );
-        when(salesForecastService.getOverview(any())).thenReturn(readyForecast(row("PSKU-DETAIL", "SKU-DETAIL", 0, detail)));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithFactors(
+                "PSKU-DETAIL",
+                "SKU-DETAIL",
+                0,
+                new BigDecimal("1.5"),
+                new BigDecimal("2"),
+                new BigDecimal("1"),
+                new BigDecimal("1")
+        )));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-DETAIL",
@@ -256,28 +263,48 @@ class DefaultReplenishmentPlanServiceTest {
         return new ReplenishmentPlanRecords.PlanQuery(OWNER_USER_ID, STORE_CODE, SITE_CODE);
     }
 
-    private static SalesForecastOverviewView readyForecast(SalesForecastOverviewRow row) {
-        return new SalesForecastOverviewView(
-                "ready",
+    private static SalesForecastRunRecord run() {
+        return new SalesForecastRunRecord(
                 100L,
+                OWNER_USER_ID,
                 STORE_CODE,
                 SITE_CODE,
                 SOURCE_DATE,
-                null,
                 "SALES_FORECAST_V1_4",
                 "default",
-                null,
-                List.of(row)
+                "succeeded",
+                1,
+                LocalDateTime.of(2026, 7, 6, 12, 0)
         );
     }
 
-    private static SalesForecastOverviewRow row(
+    private static SalesForecastResultRecord result(String partnerSku, String sku, int forecastUnits90) {
+        return resultWithFactors(
+                partnerSku,
+                sku,
+                forecastUnits90,
+                BigDecimal.ZERO,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                BigDecimal.ONE
+        );
+    }
+
+    private static SalesForecastResultRecord resultWithFactors(
             String partnerSku,
             String sku,
             int forecastUnits90,
-            SalesForecastDetailView detail
+            BigDecimal baseDailySales,
+            BigDecimal trendFactor,
+            BigDecimal lifecycleFactor,
+            BigDecimal futureFactor
     ) {
-        return new SalesForecastOverviewRow(
+        return new SalesForecastResultRecord(
+                1000L,
+                100L,
+                OWNER_USER_ID,
+                STORE_CODE,
+                SITE_CODE,
                 partnerSku,
                 sku,
                 "Product " + partnerSku,
@@ -287,24 +314,30 @@ class DefaultReplenishmentPlanServiceTest {
                 0,
                 0,
                 0,
+                null,
+                null,
+                0,
                 0,
                 forecastUnits90,
                 null,
                 null,
-                null,
-                null,
                 "SALES_FORECAST_V1_4",
                 "default",
+                baseDailySales,
+                BigDecimal.ONE,
+                trendFactor,
+                lifecycleFactor,
+                futureFactor,
+                null,
                 "medium",
                 "中",
                 null,
-                List.of(),
-                List.of(),
                 null,
                 null,
                 null,
-                false,
-                detail
+                null,
+                null,
+                null
         );
     }
 }
