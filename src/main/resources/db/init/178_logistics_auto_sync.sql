@@ -26,12 +26,13 @@ CREATE TABLE IF NOT EXISTS `logistics_forwarder_account` (
   `last_failure_code` VARCHAR(80) DEFAULT NULL,
   `last_failure_message` VARCHAR(500) DEFAULT NULL,
   `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+  `active_unique_key` TINYINT GENERATED ALWAYS AS (CASE WHEN `is_deleted` = b'0' THEN 1 ELSE NULL END) STORED,
   `created_by` BIGINT DEFAULT NULL,
   `updated_by` BIGINT DEFAULT NULL,
   `gmt_create` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_logistics_forwarder_account_active` (`owner_user_id`, `source_system`, `login_account_hash`, `is_deleted`),
+  UNIQUE KEY `uk_logistics_forwarder_account_active` (`owner_user_id`, `source_system`, `login_account_hash`, `active_unique_key`),
   KEY `idx_logistics_forwarder_account_due` (`enabled`, `schedule_enabled`, `next_eligible_at`, `cooldown_until`, `gmt_updated`),
   KEY `idx_logistics_forwarder_account_owner` (`owner_user_id`, `source_system`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
