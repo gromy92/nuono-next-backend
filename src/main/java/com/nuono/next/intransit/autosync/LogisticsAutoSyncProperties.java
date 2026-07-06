@@ -7,6 +7,7 @@ public class LogisticsAutoSyncProperties {
     private String credentialCipherSecret;
     private Scheduler scheduler = new Scheduler();
     private Chic chic = new Chic();
+    private Et et = new Et();
 
     public String getCredentialCipherSecret() {
         return credentialCipherSecret;
@@ -30,6 +31,14 @@ public class LogisticsAutoSyncProperties {
 
     public void setChic(Chic chic) {
         this.chic = chic == null ? new Chic() : chic;
+    }
+
+    public Et getEt() {
+        return et;
+    }
+
+    public void setEt(Et et) {
+        this.et = et == null ? new Et() : et;
     }
 
     public static class Scheduler {
@@ -117,6 +126,45 @@ public class LogisticsAutoSyncProperties {
 
         public void setLoginPasswordField(String loginPasswordField) {
             this.loginPasswordField = loginPasswordField;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
+        }
+    }
+
+    public static class Et {
+        private boolean enabled;
+        private String baseUrl = "https://wl.et-global.cn";
+        private String loginPath;
+        private int timeoutSeconds = 30;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getLoginPath() {
+            return loginPath;
+        }
+
+        public void setLoginPath(String loginPath) {
+            this.loginPath = loginPath;
         }
 
         public int getTimeoutSeconds() {

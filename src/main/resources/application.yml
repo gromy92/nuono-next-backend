@@ -113,6 +113,11 @@ nuono:
       login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_ACCOUNT_FIELD:username}
       login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_PASSWORD_FIELD:password}
       timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_TIMEOUT_SECONDS:30}
+    et:
+      enabled: ${NUONO_LOGISTICS_AUTO_SYNC_ET_ENABLED:false}
+      base-url: ${NUONO_LOGISTICS_AUTO_SYNC_ET_BASE_URL:https://wl.et-global.cn}
+      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_ET_LOGIN_PATH:}
+      timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_ET_TIMEOUT_SECONDS:30}
     scheduler:
       enabled: ${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_ENABLED:false}
       cron: "${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_CRON:0 */30 * * * *}"
