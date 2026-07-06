@@ -35,8 +35,8 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonFailureStatus(status)) {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
         }
-        if (isNoonScheduledStatus(status) && !client.reschedule(task)) {
-            return RunResult.failed("RESCHEDULE_ASN", "Noon 取消当前约仓失败。");
+        if (isNoonScheduledStatus(status)) {
+            return RunResult.alreadyScheduled();
         }
         RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
         if (readiness != null) {
@@ -397,6 +397,12 @@ public class OfficialWarehouseAppointmentRunner {
             result.appointmentDate = appointmentDate;
             result.slotId = slotId;
             result.appointmentTime = appointmentTime;
+            return result;
+        }
+
+        private static RunResult alreadyScheduled() {
+            RunResult result = scheduled(null, null, null);
+            result.alreadyScheduled = true;
             return result;
         }
 
