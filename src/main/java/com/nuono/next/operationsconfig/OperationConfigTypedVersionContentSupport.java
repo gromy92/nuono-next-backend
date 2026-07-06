@@ -20,6 +20,7 @@ final class OperationConfigTypedVersionContentSupport {
             "(\\d{4}-\\d{2}-\\d{2})\\s*(?:~|至|到)\\s*(\\d{4}-\\d{2}-\\d{2})"
     );
     private static final Pattern DECIMAL_PATTERN = Pattern.compile("(?<![\\d.])-?\\d+\\.\\d+(?![\\d.])");
+    private static final Pattern FACTOR_SUFFIX_PATTERN = Pattern.compile("(?:/|系数[:：]?)\\s*(-?\\d+(?:\\.\\d+)?)\\s*$");
 
     private OperationConfigTypedVersionContentSupport() {
     }
@@ -232,12 +233,27 @@ final class OperationConfigTypedVersionContentSupport {
     }
 
     private static Optional<BigDecimal> firstDecimal(String value) {
+        Optional<BigDecimal> suffixFactor = factorSuffix(value);
+        if (suffixFactor.isPresent()) {
+            return suffixFactor;
+        }
         List<BigDecimal> values = decimals(value);
         if (!values.isEmpty()) {
             return Optional.of(values.get(values.size() - 1));
         }
         if (value != null && value.trim().matches("-?\\d+")) {
             return Optional.of(new BigDecimal(value.trim()));
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<BigDecimal> factorSuffix(String value) {
+        if (!hasText(value)) {
+            return Optional.empty();
+        }
+        Matcher matcher = FACTOR_SUFFIX_PATTERN.matcher(value.trim());
+        if (matcher.find()) {
+            return Optional.of(new BigDecimal(matcher.group(1)));
         }
         return Optional.empty();
     }

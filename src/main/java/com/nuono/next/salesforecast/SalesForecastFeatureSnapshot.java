@@ -1,7 +1,7 @@
 package com.nuono.next.salesforecast;
 
-import java.time.LocalDate;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 public class SalesForecastFeatureSnapshot {
@@ -12,19 +12,21 @@ public class SalesForecastFeatureSnapshot {
     private final String partnerSku;
     private final String sku;
     private final String productTitle;
+    private final String brand;
+    private final String productFulltype;
+    private final String productFamily;
     private final LocalDate latestFactDate;
     private final int historyUnits7;
     private final int historyUnits30;
     private final int historyUnits60;
     private final int historyUnits90;
+    private final BigDecimal adjustedHistoryUnits7;
+    private final BigDecimal adjustedHistoryUnits30;
+    private final BigDecimal adjustedHistoryUnits60;
+    private final BigDecimal adjustedHistoryUnits90;
     private final int observedDays;
     private final Integer currentStock;
     private final BigDecimal stockCoverDays;
-    private final String lifecycleCode;
-    private final String lifecycleLabel;
-    private final String lifecycleRuleVersion;
-    private final String lifecycleQualityState;
-    private final String lifecycleEvidenceJson;
     private final List<String> warningCodes;
 
     public SalesForecastFeatureSnapshot(
@@ -42,8 +44,6 @@ public class SalesForecastFeatureSnapshot {
             int observedDays,
             Integer currentStock,
             BigDecimal stockCoverDays,
-            String lifecycleCode,
-            String lifecycleLabel,
             List<String> warningCodes
     ) {
         this(
@@ -53,19 +53,21 @@ public class SalesForecastFeatureSnapshot {
                 partnerSku,
                 sku,
                 productTitle,
+                null,
+                null,
+                null,
                 latestFactDate,
                 historyUnits7,
                 historyUnits30,
                 historyUnits60,
                 historyUnits90,
+                BigDecimal.valueOf(historyUnits7),
+                BigDecimal.valueOf(historyUnits30),
+                BigDecimal.valueOf(historyUnits60),
+                BigDecimal.valueOf(historyUnits90),
                 observedDays,
                 currentStock,
                 stockCoverDays,
-                lifecycleCode,
-                lifecycleLabel,
-                "DEFAULT_V1",
-                "ready",
-                null,
                 warningCodes
         );
     }
@@ -77,6 +79,9 @@ public class SalesForecastFeatureSnapshot {
             String partnerSku,
             String sku,
             String productTitle,
+            String brand,
+            String productFulltype,
+            String productFamily,
             LocalDate latestFactDate,
             int historyUnits7,
             int historyUnits30,
@@ -85,11 +90,56 @@ public class SalesForecastFeatureSnapshot {
             int observedDays,
             Integer currentStock,
             BigDecimal stockCoverDays,
-            String lifecycleCode,
-            String lifecycleLabel,
-            String lifecycleRuleVersion,
-            String lifecycleQualityState,
-            String lifecycleEvidenceJson,
+            List<String> warningCodes
+    ) {
+        this(
+                ownerUserId,
+                storeCode,
+                siteCode,
+                partnerSku,
+                sku,
+                productTitle,
+                brand,
+                productFulltype,
+                productFamily,
+                latestFactDate,
+                historyUnits7,
+                historyUnits30,
+                historyUnits60,
+                historyUnits90,
+                BigDecimal.valueOf(historyUnits7),
+                BigDecimal.valueOf(historyUnits30),
+                BigDecimal.valueOf(historyUnits60),
+                BigDecimal.valueOf(historyUnits90),
+                observedDays,
+                currentStock,
+                stockCoverDays,
+                warningCodes
+        );
+    }
+
+    public SalesForecastFeatureSnapshot(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            String partnerSku,
+            String sku,
+            String productTitle,
+            String brand,
+            String productFulltype,
+            String productFamily,
+            LocalDate latestFactDate,
+            int historyUnits7,
+            int historyUnits30,
+            int historyUnits60,
+            int historyUnits90,
+            BigDecimal adjustedHistoryUnits7,
+            BigDecimal adjustedHistoryUnits30,
+            BigDecimal adjustedHistoryUnits60,
+            BigDecimal adjustedHistoryUnits90,
+            int observedDays,
+            Integer currentStock,
+            BigDecimal stockCoverDays,
             List<String> warningCodes
     ) {
         this.ownerUserId = ownerUserId;
@@ -98,19 +148,21 @@ public class SalesForecastFeatureSnapshot {
         this.partnerSku = partnerSku;
         this.sku = sku;
         this.productTitle = productTitle;
+        this.brand = brand;
+        this.productFulltype = productFulltype;
+        this.productFamily = productFamily;
         this.latestFactDate = latestFactDate;
         this.historyUnits7 = historyUnits7;
         this.historyUnits30 = historyUnits30;
         this.historyUnits60 = historyUnits60;
         this.historyUnits90 = historyUnits90;
+        this.adjustedHistoryUnits7 = safeAdjusted(adjustedHistoryUnits7, historyUnits7);
+        this.adjustedHistoryUnits30 = safeAdjusted(adjustedHistoryUnits30, historyUnits30);
+        this.adjustedHistoryUnits60 = safeAdjusted(adjustedHistoryUnits60, historyUnits60);
+        this.adjustedHistoryUnits90 = safeAdjusted(adjustedHistoryUnits90, historyUnits90);
         this.observedDays = observedDays;
         this.currentStock = currentStock;
         this.stockCoverDays = stockCoverDays;
-        this.lifecycleCode = lifecycleCode;
-        this.lifecycleLabel = lifecycleLabel;
-        this.lifecycleRuleVersion = lifecycleRuleVersion;
-        this.lifecycleQualityState = lifecycleQualityState;
-        this.lifecycleEvidenceJson = lifecycleEvidenceJson;
         this.warningCodes = warningCodes == null ? List.of() : List.copyOf(warningCodes);
     }
 
@@ -138,6 +190,18 @@ public class SalesForecastFeatureSnapshot {
         return productTitle;
     }
 
+    public String getBrand() {
+        return brand;
+    }
+
+    public String getProductFulltype() {
+        return productFulltype;
+    }
+
+    public String getProductFamily() {
+        return productFamily;
+    }
+
     public LocalDate getLatestFactDate() {
         return latestFactDate;
     }
@@ -158,6 +222,22 @@ public class SalesForecastFeatureSnapshot {
         return historyUnits90;
     }
 
+    public BigDecimal getAdjustedHistoryUnits7() {
+        return adjustedHistoryUnits7;
+    }
+
+    public BigDecimal getAdjustedHistoryUnits30() {
+        return adjustedHistoryUnits30;
+    }
+
+    public BigDecimal getAdjustedHistoryUnits60() {
+        return adjustedHistoryUnits60;
+    }
+
+    public BigDecimal getAdjustedHistoryUnits90() {
+        return adjustedHistoryUnits90;
+    }
+
     public int getObservedDays() {
         return observedDays;
     }
@@ -170,27 +250,11 @@ public class SalesForecastFeatureSnapshot {
         return stockCoverDays;
     }
 
-    public String getLifecycleCode() {
-        return lifecycleCode;
-    }
-
-    public String getLifecycleLabel() {
-        return lifecycleLabel;
-    }
-
-    public String getLifecycleRuleVersion() {
-        return lifecycleRuleVersion;
-    }
-
-    public String getLifecycleQualityState() {
-        return lifecycleQualityState;
-    }
-
-    public String getLifecycleEvidenceJson() {
-        return lifecycleEvidenceJson;
-    }
-
     public List<String> getWarningCodes() {
         return warningCodes;
+    }
+
+    private BigDecimal safeAdjusted(BigDecimal value, int fallbackUnits) {
+        return value == null ? BigDecimal.valueOf(fallbackUnits) : value;
     }
 }

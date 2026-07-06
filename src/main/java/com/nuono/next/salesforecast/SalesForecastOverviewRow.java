@@ -21,8 +21,6 @@ public class SalesForecastOverviewRow {
     private final int forecastUnits90;
     private final Integer currentStock;
     private final BigDecimal stockCoverDays;
-    private final String lifecycleCode;
-    private final String lifecycleLabel;
     private final String calculationVersion;
     private final String configVersion;
     private final String confidenceLevel;
@@ -50,8 +48,6 @@ public class SalesForecastOverviewRow {
             int forecastUnits90,
             Integer currentStock,
             BigDecimal stockCoverDays,
-            String lifecycleCode,
-            String lifecycleLabel,
             String calculationVersion,
             String configVersion,
             String confidenceLevel,
@@ -78,8 +74,6 @@ public class SalesForecastOverviewRow {
         this.forecastUnits90 = forecastUnits90;
         this.currentStock = currentStock;
         this.stockCoverDays = stockCoverDays;
-        this.lifecycleCode = lifecycleCode;
-        this.lifecycleLabel = lifecycleLabel;
         this.calculationVersion = calculationVersion;
         this.configVersion = configVersion;
         this.confidenceLevel = confidenceLevel;
@@ -113,8 +107,6 @@ public class SalesForecastOverviewRow {
                 record.getForecastUnits90(),
                 record.getCurrentStock(),
                 record.getStockCoverDays(),
-                record.getLifecycleCode(),
-                record.getLifecycleLabel(),
                 record.getCalculationVersion(),
                 record.getConfigVersion(),
                 record.getConfidenceLevel(),
@@ -182,14 +174,6 @@ public class SalesForecastOverviewRow {
 
     public BigDecimal getStockCoverDays() {
         return stockCoverDays;
-    }
-
-    public String getLifecycleCode() {
-        return lifecycleCode;
-    }
-
-    public String getLifecycleLabel() {
-        return lifecycleLabel;
     }
 
     public String getCalculationVersion() {

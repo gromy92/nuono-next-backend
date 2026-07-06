@@ -22,13 +22,16 @@ public class SalesForecastRiskLabelView {
             return new SalesForecastRiskLabelView(code, "补货风险", "danger", "库存覆盖天数偏低，需要优先复核补货。");
         }
         if ("overstock_risk".equals(code)) {
-            return new SalesForecastRiskLabelView(code, "积压风险", "warning", "库存覆盖较深且商品处于衰退或长尾期状态。");
+            return new SalesForecastRiskLabelView(code, "积压风险", "warning", "库存覆盖较深且近期销量偏低，需要复核库存消化节奏。");
         }
         if ("stale_sales_data".equals(code)) {
             return new SalesForecastRiskLabelView(code, "销量数据过期", "warning", "最新销量事实早于预期新鲜度。");
         }
         if ("missing_stock_data".equals(code)) {
             return new SalesForecastRiskLabelView(code, "缺库存", "warning", "当前商品未匹配到库存投影。");
+        }
+        if ("no_sales_training_data".equals(code)) {
+            return new SalesForecastRiskLabelView(code, "无训练数据", "warning", "当前在架商品没有自身销量训练样本，预测只能依赖同类目兜底或按 0 处理，需人工复核。");
         }
         if ("low_confidence".equals(code)) {
             return new SalesForecastRiskLabelView(code, "低置信度", "warning", "样本不足或存在数据质量问题，预测需人工复核。");

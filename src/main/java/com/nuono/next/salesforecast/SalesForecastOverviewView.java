@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -85,7 +86,7 @@ public class SalesForecastOverviewView {
                 ? Set.of()
                 : followUps.stream()
                         .filter(SalesForecastFollowUpRecord::isMarked)
-                        .map(record -> productKey(record.getPartnerSku(), record.getSku()))
+                        .map(record -> productKey(record.getPartnerSku()))
                         .collect(Collectors.toCollection(HashSet::new));
         return new SalesForecastOverviewView(
                 "ready",
@@ -100,14 +101,14 @@ public class SalesForecastOverviewView {
                 safeResults.stream()
                         .map(record -> SalesForecastOverviewRow.fromResult(
                                 record,
-                                markedKeys.contains(productKey(record.getPartnerSku(), record.getSku()))
+                                markedKeys.contains(productKey(record.getPartnerSku()))
                         ))
                         .collect(Collectors.toList())
         );
     }
 
-    private static String productKey(String partnerSku, String sku) {
-        return String.valueOf(partnerSku);
+    private static String productKey(String partnerSku) {
+        return partnerSku == null ? "" : partnerSku.trim().toUpperCase(Locale.ROOT);
     }
 
     private static SalesForecastOverviewView empty(

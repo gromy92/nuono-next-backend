@@ -1,6 +1,7 @@
 package com.nuono.next.sales;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
@@ -61,6 +62,18 @@ class SalesPriceTrendPolicyTest {
     }
 
     @Test
+    void partnerSkuIsEnoughProductScopeForPriceTrend() {
+        RecordingNoonOrderFactMapper mapper = new RecordingNoonOrderFactMapper();
+        mapper.candidateRows = 1;
+        mapper.rows = List.of(row("SAR", "49.990000"));
+        MyBatisSalesPriceTrendRepository repository = new MyBatisSalesPriceTrendRepository(mapper);
+
+        SalesPriceTrendResult result = repository.getPriceTrend(defaultQuery().withSku(null), "day");
+
+        assertEquals(SalesPriceTrendState.READY, result.getState().getState());
+    }
+
+    @Test
     void mapperQueryExcludesStatusesAndMissingPriceTimestampCurrency() throws Exception {
         Method method = NoonOrderFactMapper.class.getMethod(
                 "selectPriceTrendBuckets",
@@ -81,6 +94,7 @@ class SalesPriceTrendPolicyTest {
         assertTrue(sql.contains("not like '%failed%'"));
         assertTrue(sql.contains("not like '%could_not_be_delivered%'"));
         assertTrue(sql.contains("not like '%rejected%'"));
+        assertFalse(sql.contains("and sku ="));
     }
 
     private static SalesFactQuery defaultQuery() {

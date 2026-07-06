@@ -10,5 +10,14 @@ public interface SalesForecastRunRepository {
 
     void saveResults(Long runId, List<SalesForecastResultRecord> records);
 
+    default SalesForecastRunRecord saveRunWithResults(
+            SalesForecastRunRecord run,
+            List<SalesForecastResultRecord> records
+    ) {
+        SalesForecastRunRecord savedRun = saveRun(run);
+        saveResults(savedRun.getId(), records);
+        return savedRun;
+    }
+
     List<SalesForecastResultRecord> listResults(Long runId);
 }

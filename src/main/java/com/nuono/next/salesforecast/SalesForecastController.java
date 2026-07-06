@@ -83,7 +83,6 @@ public class SalesForecastController {
             @RequestParam String siteCode,
             @RequestParam(defaultValue = "30") int forecastWindow,
             @RequestParam(required = false) String searchKeyword,
-            @RequestParam(defaultValue = "all") String lifecycleFilter,
             @RequestParam(defaultValue = "all") String riskFilter,
             @RequestParam(defaultValue = "all") String confidenceFilter,
             HttpServletRequest request
@@ -94,7 +93,6 @@ public class SalesForecastController {
                 new SalesForecastExportQuery(
                         forecastWindow,
                         searchKeyword,
-                        lifecycleFilter,
                         riskFilter,
                         confidenceFilter
                 )

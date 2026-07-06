@@ -12,9 +12,10 @@ public class SalesForecastFormulaResult {
     private final BigDecimal baseDailySales;
     private final BigDecimal recentDailyTrendRate;
     private final BigDecimal trendFactor;
-    private final BigDecimal lifecycleFactor;
-    private final BigDecimal futureFactor;
-    private final String lifecycleExplanation;
+    private final BigDecimal futureFactor30;
+    private final BigDecimal futureFactor60;
+    private final BigDecimal futureFactor90;
+    private final BigDecimal lowSampleDailyFloor;
     private final String shortReason;
 
     public SalesForecastFormulaResult(
@@ -26,9 +27,10 @@ public class SalesForecastFormulaResult {
             BigDecimal baseDailySales,
             BigDecimal recentDailyTrendRate,
             BigDecimal trendFactor,
-            BigDecimal lifecycleFactor,
-            BigDecimal futureFactor,
-            String lifecycleExplanation,
+            BigDecimal futureFactor30,
+            BigDecimal futureFactor60,
+            BigDecimal futureFactor90,
+            BigDecimal lowSampleDailyFloor,
             String shortReason
     ) {
         this.calculationVersion = calculationVersion;
@@ -39,9 +41,10 @@ public class SalesForecastFormulaResult {
         this.baseDailySales = baseDailySales;
         this.recentDailyTrendRate = recentDailyTrendRate;
         this.trendFactor = trendFactor;
-        this.lifecycleFactor = lifecycleFactor;
-        this.futureFactor = futureFactor;
-        this.lifecycleExplanation = lifecycleExplanation;
+        this.futureFactor30 = futureFactor30;
+        this.futureFactor60 = futureFactor60;
+        this.futureFactor90 = futureFactor90;
+        this.lowSampleDailyFloor = lowSampleDailyFloor;
         this.shortReason = shortReason;
     }
 
@@ -77,16 +80,24 @@ public class SalesForecastFormulaResult {
         return trendFactor;
     }
 
-    public BigDecimal getLifecycleFactor() {
-        return lifecycleFactor;
-    }
-
     public BigDecimal getFutureFactor() {
-        return futureFactor;
+        return futureFactor30;
     }
 
-    public String getLifecycleExplanation() {
-        return lifecycleExplanation;
+    public BigDecimal getFutureFactor30() {
+        return futureFactor30;
+    }
+
+    public BigDecimal getFutureFactor60() {
+        return futureFactor60;
+    }
+
+    public BigDecimal getFutureFactor90() {
+        return futureFactor90;
+    }
+
+    public BigDecimal getLowSampleDailyFloor() {
+        return lowSampleDailyFloor;
     }
 
     public String getShortReason() {
