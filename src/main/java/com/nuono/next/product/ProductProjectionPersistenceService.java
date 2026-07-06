@@ -1868,6 +1868,8 @@ public class ProductProjectionPersistenceService {
         view.setDetailBaselineSyncedAt(record.getDetailBaselineSyncedAt());
         if ("ready".equalsIgnoreCase(view.getDetailBaselineStatus())) {
             view.setDetailBaselineMessage("详情基线已准备。");
+        } else if ("public_detail_readonly".equalsIgnoreCase(view.getDetailBaselineStatus())) {
+            view.setDetailBaselineMessage("已有 Noon 前台公开详情，只读可查看。");
         } else {
             view.setDetailBaselineMessage("缺少详情基线。");
         }

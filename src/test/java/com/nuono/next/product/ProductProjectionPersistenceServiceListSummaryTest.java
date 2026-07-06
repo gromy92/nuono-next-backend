@@ -133,6 +133,33 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void shouldDescribePublicDetailReadonlyBaselineAsUsableReadonlySummary() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZPUBLIC001");
+        record.setCurrentZCode("ZPUBLIC001");
+        record.setPartnerSku("PARTNER-PUBLIC-001");
+        record.setTitle("Public detail product");
+        record.setSyncStatus("synced");
+        record.setDetailBaselineStatus("public_detail_readonly");
+        record.setDetailBaselineSyncedAt("2026-07-05 05:30:23");
+
+        when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZPUBLIC001"))
+                .thenReturn(record);
+
+        ProductListSummaryView summary = service.loadProductListSummary(
+                10002L,
+                "STR245027-NAE",
+                "ZPUBLIC001",
+                new ArrayList<>()
+        );
+
+        assertTrue(summary.isReady());
+        assertEquals("public_detail_readonly", summary.getDetailBaselineStatus());
+        assertEquals("已有 Noon 前台公开详情，只读可查看。", summary.getDetailBaselineMessage());
+        assertEquals("2026-07-05 05:30:23", summary.getDetailBaselineSyncedAt());
+    }
+
+    @Test
     void shouldPreferPartnerSkuWhenLoadingProjectionSummary() {
         ProductListProjectionRecord record = new ProductListProjectionRecord();
         record.setSkuParent("ZCURRENT001");

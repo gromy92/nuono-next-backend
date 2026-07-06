@@ -166,7 +166,8 @@ public class ProductReadModelService {
         if (summary == null || ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(summary.getSkuParent())) {
             return;
         }
-        if ("ready".equalsIgnoreCase(summary.getDetailBaselineStatus())) {
+        if ("ready".equalsIgnoreCase(summary.getDetailBaselineStatus())
+                || "public_detail_readonly".equalsIgnoreCase(summary.getDetailBaselineStatus())) {
             return;
         }
         if (productDetailBaselineBackfillService == null) {
