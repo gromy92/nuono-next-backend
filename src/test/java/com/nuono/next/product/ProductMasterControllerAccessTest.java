@@ -136,6 +136,35 @@ class ProductMasterControllerAccessTest {
         verify(productMasterService).loadPublishTask(64001L, 10002L);
     }
 
+    @Test
+    void shouldOverwriteOwnerAndAttachOperatorBeforeUpdatingOperationStage() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(productMasterServiceProvider.getIfAvailable()).thenReturn(productMasterService);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_MASTER,
+                "STR245027-NAE"
+        )).thenReturn(productContext(10003L, 10002L, "STR245027-NAE"));
+        when(productMasterService.updateOperationStage(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new ProductListDatasetView());
+
+        ProductOperationStageUpdateCommand command = new ProductOperationStageUpdateCommand();
+        command.setOwnerUserId(99999L);
+        command.setStoreCode("STR245027-NAE");
+        command.setPartnerSku("PAPERSAYSB132");
+        command.setOperationStageCode("STABLE");
+
+        controller.updateOperationStage(command, request);
+
+        ArgumentCaptor<ProductOperationStageUpdateCommand> captor =
+                ArgumentCaptor.forClass(ProductOperationStageUpdateCommand.class);
+        verify(productMasterService).updateOperationStage(captor.capture());
+        assertEquals(10002L, captor.getValue().getOwnerUserId());
+        assertEquals(10003L, captor.getValue().getOperatorUserId());
+        assertEquals("PAPERSAYSB132", captor.getValue().getPartnerSku());
+        assertEquals("STABLE", captor.getValue().getOperationStageCode());
+    }
+
     private MockHttpServletRequest requestFor(AuthenticatedSession session) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         lenient().when(sessionTokenService.requireSession(request)).thenReturn(session);

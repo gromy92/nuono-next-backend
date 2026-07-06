@@ -1332,6 +1332,36 @@ public interface ProductManagementMapper {
     );
 
     @Update({
+            "UPDATE product_site_offer pso",
+            "JOIN product_variant pv",
+            "  ON pv.id = pso.variant_id",
+            " AND pv.is_deleted = 0",
+            "JOIN logical_store ls",
+            "  ON ls.id = COALESCE(pso.logical_store_id, pv.logical_store_id)",
+            " AND ls.owner_user_id = #{ownerUserId}",
+            " AND ls.is_deleted = 0",
+            "JOIN logical_store_site lss",
+            "  ON lss.id = pso.site_id",
+            " AND lss.logical_store_id = ls.id",
+            " AND lss.store_code = #{storeCode}",
+            " AND lss.is_deleted = 0",
+            "SET pso.operation_stage_code = #{operationStageCode},",
+            "    pso.operation_stage_updated_at = NOW(),",
+            "    pso.operation_stage_updated_by = #{operatorUserId},",
+            "    pso.updated_by = #{operatorUserId},",
+            "    pso.gmt_updated = NOW()",
+            "WHERE pso.is_deleted = 0",
+            "  AND (pso.partner_sku = #{partnerSku} OR pv.partner_sku = #{partnerSku})"
+    })
+    int updateProductSiteOfferOperationStage(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("operationStageCode") String operationStageCode,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
             "UPDATE product_barcode pb",
             "JOIN product_variant pv",
             "  ON pv.id = pb.variant_id",
@@ -1512,6 +1542,9 @@ public interface ProductManagementMapper {
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.listing_started_source END),",
             "    MAX(pso.listing_started_source)",
             "  ) AS listingStartedSource,",
+            "  MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.operation_stage_code END) AS operationStageCode,",
+            "  DATE_FORMAT(MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.operation_stage_updated_at END), '%Y-%m-%d %H:%i:%s') AS operationStageUpdatedAt,",
+            "  MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.operation_stage_updated_by END) AS operationStageUpdatedBy,",
             "  CASE WHEN EXISTS (",
             "    SELECT 1",
             "    FROM product_master_draft pmd",
@@ -1770,6 +1803,9 @@ public interface ProductManagementMapper {
             "    MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.listing_started_source END),",
             "    MAX(pso.listing_started_source)",
             "  ) AS listingStartedSource,",
+            "  MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.operation_stage_code END) AS operationStageCode,",
+            "  DATE_FORMAT(MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.operation_stage_updated_at END), '%Y-%m-%d %H:%i:%s') AS operationStageUpdatedAt,",
+            "  MAX(CASE WHEN lss.store_code = #{storeCode} THEN pso.operation_stage_updated_by END) AS operationStageUpdatedBy,",
             "  CASE WHEN EXISTS (",
             "    SELECT 1",
             "    FROM product_master_draft pmd",

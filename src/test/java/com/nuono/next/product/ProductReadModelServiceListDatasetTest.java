@@ -63,6 +63,9 @@ class ProductReadModelServiceListDatasetTest {
         summary.setTitle("Paper bag");
         summary.setSyncStatus("synced");
         summary.setDetailBaselineStatus("missing");
+        summary.setOperationStageCode("TESTING");
+        summary.setOperationStageUpdatedAt("2026-07-06 11:35:00");
+        summary.setOperationStageUpdatedBy(10003L);
         summary.setLastSyncedAt("2026-06-04 10:00:00");
         summary.setLastPublishTask(Map.of(
                 "taskType", "product-delete",
@@ -94,6 +97,9 @@ class ProductReadModelServiceListDatasetTest {
         assertEquals("PAPERSAYSB132", view.getItems().get(0).getPartnerSku());
         assertEquals("ZPAPER001", view.getItems().get(0).getCurrentZCode());
         assertEquals("missing", view.getItems().get(0).getDetailBaselineStatus());
+        assertEquals("TESTING", view.getItems().get(0).getOperationStageCode());
+        assertEquals("2026-07-06 11:35:00", view.getItems().get(0).getOperationStageUpdatedAt());
+        assertEquals(10003L, view.getItems().get(0).getOperationStageUpdatedBy());
         assertEquals("删除中", view.getItems().get(0).getLastPublishTask().get("statusLabel"));
 
         verify(productProjectionPersistenceService).loadProductListSummaries(

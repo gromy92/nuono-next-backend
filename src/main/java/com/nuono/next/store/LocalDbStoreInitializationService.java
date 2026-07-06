@@ -3107,6 +3107,9 @@ public class LocalDbStoreInitializationService {
         private String statusCode;
         private String listingStartedAt;
         private String listingStartedSource;
+        private String operationStageCode;
+        private String operationStageUpdatedAt;
+        private Long operationStageUpdatedBy;
         private Boolean isActive;
         private String syncStatus;
         private String lastSyncedAt;
@@ -3334,6 +3337,30 @@ public class LocalDbStoreInitializationService {
 
         public void setListingStartedSource(String listingStartedSource) {
             this.listingStartedSource = listingStartedSource;
+        }
+
+        public String getOperationStageCode() {
+            return operationStageCode;
+        }
+
+        public void setOperationStageCode(String operationStageCode) {
+            this.operationStageCode = operationStageCode;
+        }
+
+        public String getOperationStageUpdatedAt() {
+            return operationStageUpdatedAt;
+        }
+
+        public void setOperationStageUpdatedAt(String operationStageUpdatedAt) {
+            this.operationStageUpdatedAt = operationStageUpdatedAt;
+        }
+
+        public Long getOperationStageUpdatedBy() {
+            return operationStageUpdatedBy;
+        }
+
+        public void setOperationStageUpdatedBy(Long operationStageUpdatedBy) {
+            this.operationStageUpdatedBy = operationStageUpdatedBy;
         }
 
         public Boolean getIsActive() {

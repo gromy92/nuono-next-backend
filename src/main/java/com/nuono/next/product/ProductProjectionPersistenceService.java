@@ -1858,6 +1858,9 @@ public class ProductProjectionPersistenceService {
         view.setStatusCode(record.getCurrentSiteStatusCode());
         view.setListingStartedAt(record.getListingStartedAt());
         view.setListingStartedSource(record.getListingStartedSource());
+        view.setOperationStageCode(record.getOperationStageCode());
+        view.setOperationStageUpdatedAt(record.getOperationStageUpdatedAt());
+        view.setOperationStageUpdatedBy(record.getOperationStageUpdatedBy());
         view.setSyncStatus(record.getSyncStatus());
         view.setLastSyncedAt(record.getLastSyncedAt());
         view.setLastDraftSavedAt(record.getLastDraftSavedAt());

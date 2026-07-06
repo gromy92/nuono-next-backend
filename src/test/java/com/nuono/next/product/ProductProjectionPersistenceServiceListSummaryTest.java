@@ -79,6 +79,9 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         record.setCurrentSiteStatusCode("LIVE");
         record.setListingStartedAt("2026-05-10 00:00:00");
         record.setListingStartedSource("pv");
+        record.setOperationStageCode("STABLE");
+        record.setOperationStageUpdatedAt("2026-07-06 11:30:00");
+        record.setOperationStageUpdatedBy(10003L);
         record.setSyncStatus("draft");
         record.setLastSyncedAt("2026-04-27 12:30:00");
         record.setDetailBaselineStatus("ready");
@@ -121,6 +124,9 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("LIVE", summary.getLiveStatus());
         assertEquals("2026-05-10 00:00:00", summary.getListingStartedAt());
         assertEquals("pv", summary.getListingStartedSource());
+        assertEquals("STABLE", summary.getOperationStageCode());
+        assertEquals("2026-07-06 11:30:00", summary.getOperationStageUpdatedAt());
+        assertEquals(10003L, summary.getOperationStageUpdatedBy());
         assertEquals("星耀琥珀香薰炉", summary.getTitleCn());
         assertEquals(List.of("AE"), summary.getSiteLabels());
         assertEquals(List.of("LIVE"), summary.getLiveStatuses());

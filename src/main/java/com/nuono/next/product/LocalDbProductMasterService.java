@@ -868,6 +868,46 @@ public class LocalDbProductMasterService {
     }
 
     @Transactional
+    public ProductListDatasetView updateOperationStage(ProductOperationStageUpdateCommand command) {
+        if (command == null || command.getOwnerUserId() == null) {
+            throw new IllegalArgumentException("缺少老板上下文，暂时不能修改商品运营阶段。");
+        }
+        String storeCode = normalize(command.getStoreCode());
+        requireText(storeCode, "缺少店铺编码，暂时不能修改商品运营阶段。");
+        String partnerSku = normalize(command.getPartnerSku());
+        requireText(partnerSku, "缺少商品 PSKU，暂时不能修改商品运营阶段。");
+        ProductOperationStage stage = ProductOperationStage.fromNullableCode(command.getOperationStageCode());
+        String operationStageCode = stage == null ? null : stage.getCode();
+        Long operatorUserId = command.getOperatorUserId() == null
+                ? command.getOwnerUserId()
+                : command.getOperatorUserId();
+
+        StoreSyncStoreRecord store = resolveProductOwnerStore(
+                command.getOwnerUserId(),
+                storeCode,
+                "当前店铺不在选中的老板名下。"
+        );
+        storeCode = normalize(store.getStoreCode());
+        int updated = productManagementMapper.updateProductSiteOfferOperationStage(
+                command.getOwnerUserId(),
+                storeCode,
+                partnerSku,
+                operationStageCode,
+                operatorUserId
+        );
+        if (updated == 0) {
+            throw new IllegalArgumentException("当前店铺站点下未找到可修改运营阶段的商品。");
+        }
+
+        ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
+        reloadCommand.setOwnerUserId(command.getOwnerUserId());
+        reloadCommand.setStoreCode(storeCode);
+        ProductListDatasetView view = loadListDataset(reloadCommand);
+        view.setMessage("商品运营阶段已更新。");
+        return view;
+    }
+
+    @Transactional
     public ProductListDatasetView deleteProduct(ProductMasterFetchCommand command) {
         if (command == null || command.getOwnerUserId() == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能删除商品。");
