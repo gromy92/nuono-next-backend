@@ -198,6 +198,100 @@ class LogisticsAutoSyncSchedulerTest {
         }
     }
 
+    @Test
+    void scheduledTickPullsChicDataThroughHttpProviderAndStopsAtPreviewOnly() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(readBody(exchange)).contains("scheduled-user").contains("scheduled-password");
+                sendJson(exchange, "{\"data\":{\"token\":\"scheduled-chic-token\"}}");
+            });
+            server.handle("/api/purchase/purchase-order/purchaseBatch/query", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("scheduled-chic-token");
+                assertThat(readBody(exchange)).contains("\"rows\":1");
+                sendJson(exchange, chicListJson());
+            });
+            server.handle("/api/purchase/purchase-order/purchaseBatch/detail", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("scheduled-chic-token");
+                assertThat(readBody(exchange)).contains("53000");
+                sendJson(exchange, chicDetailJson());
+            });
+            server.handle("/api/order/report/list", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("GET");
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("scheduled-chic-token");
+                sendJson(exchange, chicOrderReportJson());
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getScheduler().setEnabled(true);
+            properties.getScheduler().setMaxAccountsPerTick(1);
+            properties.getChic().setEnabled(true);
+            properties.getChic().setBaseUrl(server.baseUrl());
+            properties.getChic().setLoginPath("/login");
+            ChicLogisticsProviderAdapter provider = new ChicLogisticsProviderAdapter(properties);
+
+            LogisticsAutoSyncAccessContextFactory accessContextFactory = Mockito.mock(LogisticsAutoSyncAccessContextFactory.class);
+            InTransitPluginSyncService pluginSyncService = Mockito.mock(InTransitPluginSyncService.class);
+            OperationalTaskService taskService = Mockito.mock(OperationalTaskService.class);
+            LogisticsAutoSyncAccount account = scheduledChicAccount();
+            when(mapper.listDueAccounts(1)).thenReturn(List.of(account));
+            when(accessContextFactory.requireAccessContext(account)).thenReturn(context());
+            PluginSyncPreviewView preview = new PluginSyncPreviewView();
+            preview.setCommittable(true);
+            preview.setBatchCount(1);
+            preview.setPackageCount(1);
+            preview.setLineCount(1);
+            preview.setNodeCount(1);
+            when(pluginSyncService.preview(any(PluginSyncCommand.class))).thenReturn(preview);
+            OperationalTask task = new OperationalTask();
+            task.setId(92002L);
+            when(taskService.start(eq("LOGISTICS_AUTO_SYNC"), any(), any(OperationalTaskPayload.class))).thenReturn(task);
+
+            LogisticsAutoSyncService realService = new LogisticsAutoSyncService(
+                    List.of(provider),
+                    cipher(),
+                    accessContextFactory,
+                    pluginSyncService,
+                    taskService,
+                    mapper
+            );
+            LogisticsAutoSyncScheduler scheduler = new LogisticsAutoSyncScheduler(
+                    properties,
+                    mapper,
+                    realService,
+                    Clock.fixed(Instant.parse("2026-07-06T04:00:00Z"), ZoneId.of("Asia/Shanghai"))
+            );
+
+            int executed = scheduler.runOnce();
+
+            assertThat(executed).isEqualTo(1);
+            ArgumentCaptor<PluginSyncCommand> commandCaptor = ArgumentCaptor.forClass(PluginSyncCommand.class);
+            verify(pluginSyncService).preview(commandCaptor.capture());
+            verify(pluginSyncService, never()).commit(any());
+            assertThat(commandCaptor.getValue().getSourceSystem()).isEqualTo("CHIC");
+            assertThat(commandCaptor.getValue().getBatches()).hasSize(1);
+            assertThat(commandCaptor.getValue().getBatches().get(0).getBatchNo()).isEqualTo("XGGEKSA04070");
+            assertThat(commandCaptor.getValue().getBatches().get(0).getExternalShipmentNo()).isEqualTo("CHIC-SHIP-04070");
+            verify(taskService).complete(eq(92002L), any(), eq("物流自动同步完成：预览通过，账号未开启自动提交。"));
+            verify(mapper).updateAccountRunState(
+                    eq(180902L),
+                    eq(92002L),
+                    eq("SUCCESS"),
+                    eq("SUCCESS"),
+                    eq("PREVIEW_ONLY"),
+                    eq("READY"),
+                    any(LocalDateTime.class),
+                    any(LocalDateTime.class),
+                    eq(null),
+                    eq(null),
+                    eq(null),
+                    eq(408L)
+            );
+        }
+    }
+
     private LogisticsAutoSyncScheduler scheduler(boolean enabled, int maxAccountsPerTick) {
         LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
         properties.getScheduler().setEnabled(enabled);
@@ -234,6 +328,19 @@ class LogisticsAutoSyncSchedulerTest {
         account.setOperatorUserId(408L);
         account.setSourceSystem("YITE");
         account.setForwarderName("义特");
+        account.setLoginAccount("scheduled-user");
+        account.setPasswordCipher(cipher().encrypt("scheduled-password"));
+        account.setCommitEnabled(false);
+        account.setMinIntervalHours(24);
+        return account;
+    }
+
+    private static LogisticsAutoSyncAccount scheduledChicAccount() {
+        LogisticsAutoSyncAccount account = account(180902L);
+        account.setOwnerUserId(307L);
+        account.setOperatorUserId(408L);
+        account.setSourceSystem("CHIC");
+        account.setForwarderName("启客");
         account.setLoginAccount("scheduled-user");
         account.setPasswordCipher(cipher().encrypt("scheduled-password"));
         account.setCommitEnabled(false);
@@ -356,6 +463,81 @@ class LogisticsAutoSyncSchedulerTest {
                 "        }",
                 "      ]",
                 "    }",
+                "  }",
+                "}"
+        );
+    }
+
+    private static String chicListJson() {
+        return json(
+                "{",
+                "  \"data\": {",
+                "    \"records\": [",
+                "      {",
+                "        \"purchaseBatchId\": 53000,",
+                "        \"purchaseBatchSn\": \"XGGEKSA04070\",",
+                "        \"boxNum\": 1,",
+                "        \"totalQuantity\": 30",
+                "      }",
+                "    ]",
+                "  }",
+                "}"
+        );
+    }
+
+    private static String chicDetailJson() {
+        return json(
+                "{",
+                "  \"data\": {",
+                "    \"purchaseBatchSn\": \"XGGEKSA04070\",",
+                "    \"destination\": \"SA\",",
+                "    \"transportMode\": \"SEA\",",
+                "    \"purchaseOrderList\": [",
+                "      {",
+                "        \"warehousingSn\": \"XGGEKSA04070-1\",",
+                "        \"boxSpec\": \"50*40*30cm\",",
+                "        \"weight\": 15.5,",
+                "        \"goodsList\": [",
+                "          {",
+                "            \"psku\": \"SGGRB219\",",
+                "            \"sku\": \"SGGRB219\",",
+                "            \"goodsName\": \"高弹力头巾美容帽\",",
+                "            \"storeCode\": \"STR245027-NSA\",",
+                "            \"siteCode\": \"SA\",",
+                "            \"quantity\": 30",
+                "          }",
+                "        ]",
+                "      }",
+                "    ],",
+                "    \"trackingList\": [",
+                "      {",
+                "        \"status\": \"国内收货完成\",",
+                "        \"time\": \"2026-06-01 08:30:00\"",
+                "      }",
+                "    ]",
+                "  }",
+                "}"
+        );
+    }
+
+    private static String chicOrderReportJson() {
+        return json(
+                "{",
+                "  \"data\": {",
+                "    \"records\": [",
+                "      {",
+                "        \"purchaseBatchSn\": \"XGGEKSA04070\",",
+                "        \"warehousingSn\": \"XGGEKSA04070-1\",",
+                "        \"shippingNo\": \"CHIC-SHIP-04070\",",
+                "        \"status\": \"已入仓\",",
+                "        \"statusTime\": \"2026/06/03 9:05\",",
+                "        \"officialEtaDate\": \"2026-06-12\",",
+                "        \"deliveryAppointmentText\": \"16点后\",",
+                "        \"estimatedDepartureAt\": \"2026-06-08 10:30\",",
+                "        \"estimatedArrivalAt\": \"2026-06-11 18:00\",",
+                "        \"chargeableWeight\": 16",
+                "      }",
+                "    ]",
                 "  }",
                 "}"
         );
