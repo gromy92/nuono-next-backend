@@ -132,6 +132,24 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
+    void frontendCatalogDetailIsSkippedWithoutFrontendCookie() {
+        AtomicInteger httpCount = new AtomicInteger();
+        AtomicInteger curlCount = new AtomicInteger();
+        DetailTransportSpyAdapter adapter = new DetailTransportSpyAdapter(true, httpCount, curlCount, "");
+
+        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .noonProductCode("ZABCDEF12")
+                .build());
+
+        assertEquals(ProductPublicDetailSyncStatus.PARTIAL, detail.getStatus());
+        assertEquals("Canman Bag", detail.getTitleEn());
+        assertEquals(0, httpCount.get());
+        assertEquals(0, curlCount.get());
+    }
+
+    @Test
     void missingExactMatchReturnsNotFound() {
         StubAdapter adapter = new StubAdapter(page(result("ZOTHER123", "Other")), false, "");
 
@@ -416,13 +434,17 @@ class HttpNoonPublicProductDetailAdapterTest {
         private final AtomicInteger curlCount;
 
         private DetailTransportSpyAdapter(boolean curlEnabled, AtomicInteger httpCount, AtomicInteger curlCount) {
+            this(curlEnabled, httpCount, curlCount, "visitor_id=test");
+        }
+
+        private DetailTransportSpyAdapter(boolean curlEnabled, AtomicInteger httpCount, AtomicInteger curlCount, String cookie) {
             super(
                     new NoonFrontendSearchPageParser(new ObjectMapper()),
                     Duration.ofSeconds(1),
                     Duration.ofSeconds(3),
                     "https://www.noon.com",
                     "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u",
-                    "",
+                    cookie,
                     false,
                     () -> null,
                     curlEnabled
@@ -451,6 +473,16 @@ class HttpNoonPublicProductDetailAdapterTest {
         ) {
             curlCount.incrementAndGet();
             return partialFromTransport(code, "curl");
+        }
+
+        @Override
+        NoonSearchPage fetchSearchPageWithHttp(NoonSearchRequest request, String url, String frontendCookieHeader) {
+            return page(result("ZABCDEF12", "Canman Bag"));
+        }
+
+        @Override
+        NoonSearchPage fetchSearchPageWithCurl(NoonSearchRequest request, String url, String frontendCookieHeader) {
+            return page(result("ZABCDEF12", "Canman Bag"));
         }
 
         private NoonPublicProductDetailResult partialFromTransport(String code, String transport) {

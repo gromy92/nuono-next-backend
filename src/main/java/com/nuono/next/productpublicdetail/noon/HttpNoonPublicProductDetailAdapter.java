@@ -331,6 +331,9 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             throws IOException, InterruptedException {
         String url = buildCustomerCatalogV3DetailUrl(searchRequest, code);
         String frontendCookieHeader = loadFrontendCookieHeader(url);
+        if (!StringUtils.hasText(frontendCookieHeader)) {
+            return null;
+        }
         return curlEnabled
                 ? fetchFrontendCatalogDetailWithCurl(searchRequest, code, url, frontendCookieHeader)
                 : fetchFrontendCatalogDetailWithHttp(searchRequest, code, url, frontendCookieHeader);
