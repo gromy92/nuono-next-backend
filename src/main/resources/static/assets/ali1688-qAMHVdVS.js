@@ -1,0 +1,1 @@
+function t(e){return e.ali1688Collection?e.ali1688Collection:{status:"not_started",progressPercent:0,searchMode:"主图图搜",candidateCount:0,recommendedCount:0,message:"暂无真实1688候选采集任务。",canGenerateProcurementOrder:!1,candidates:[]}}export{t as b};
