@@ -6,6 +6,12 @@ import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncBatch;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncLine;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncPackage;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -120,6 +126,57 @@ class EtLogisticsProviderAdapterTest {
         assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.CONFIGURATION_ERROR);
     }
 
+    @Test
+    void fetchLogsInAndCollectsEtDetailsAutomatically() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                String body = readBody(exchange);
+                assertThat(body).contains("fake-user").contains("fake-password");
+                exchange.getResponseHeaders().add("Set-Cookie", "et_session=ok; Path=/");
+                sendJson(exchange, "{}");
+            });
+            server.handle("/Delivery/ShipOrder/GetGridJson", exchange -> {
+                assertThat(exchange.getRequestHeaders().getFirst("Cookie")).contains("et_session=ok");
+                sendJson(exchange, listJson());
+            });
+            server.handle("/Delivery/ShipOrder/GetBoxDetailForm", exchange -> {
+                assertThat(exchange.getRequestURI().getRawQuery()).contains("shipOrderId=F2604304851631");
+                sendJson(exchange, shipOrderBoxDetailJson());
+            });
+            server.handle("/Delivery/BoxList/GetModifyBox", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(readBody(exchange)).contains("boxId=X26043047357");
+                sendJson(exchange, boxModifyJson());
+            });
+            server.handle("/Delivery/BoxList/GetDetailsGridJson", exchange -> {
+                assertThat(exchange.getRequestURI().getRawQuery()).contains("boxId=X26043047357");
+                sendJson(exchange, boxListDetailJson());
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getEt().setEnabled(true);
+            properties.getEt().setBaseUrl(server.baseUrl());
+            properties.getEt().setLoginPath("/login");
+            EtLogisticsProviderAdapter httpAdapter = new EtLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(10);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getCommand().getSourceSystem()).isEqualTo("ET");
+            assertThat(result.getCommand().getBatches()).hasSize(1);
+            assertThat(result.getPackageCount()).isEqualTo(1);
+            assertThat(result.getLineCount()).isEqualTo(1);
+            assertThat(result.getCommand().getBatches().get(0).getPackages().get(0).getLines().get(0).getPsku())
+                    .isEqualTo("PAPERSAYSB293");
+        }
+    }
+
     private static String listJson() {
         return json(
                 "{",
@@ -199,5 +256,58 @@ class EtLogisticsProviderAdapterTest {
 
     private static String json(String... lines) {
         return String.join("\n", lines);
+    }
+
+    private interface ExchangeHandler {
+        void handle(HttpExchange exchange) throws Exception;
+    }
+
+    private static final class StubHttpServer implements AutoCloseable {
+        private final HttpServer server;
+
+        private StubHttpServer() throws IOException {
+            server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.start();
+        }
+
+        private String baseUrl() {
+            return "http://127.0.0.1:" + server.getAddress().getPort();
+        }
+
+        private void handle(String path, ExchangeHandler handler) {
+            server.createContext(path, exchange -> {
+                try {
+                    handler.handle(exchange);
+                } catch (Exception exception) {
+                    byte[] bytes = exception.getMessage() == null
+                            ? exception.getClass().getName().getBytes(StandardCharsets.UTF_8)
+                            : exception.getMessage().getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(500, bytes.length);
+                    exchange.getResponseBody().write(bytes);
+                    exchange.close();
+                }
+            });
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
+    }
+
+    private static String readBody(HttpExchange exchange) throws IOException {
+        return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+    }
+
+    private static void sendJson(HttpExchange exchange, String body) {
+        try {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json;charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
     }
 }

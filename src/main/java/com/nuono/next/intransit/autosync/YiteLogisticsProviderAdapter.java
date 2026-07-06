@@ -10,10 +10,19 @@ import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncLine;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncNode;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncPackage;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncSourceBatchExpectation;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.HttpCookie;
+import java.net.URI;
 import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -77,10 +86,125 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
                     "义特自动同步 HTTP 拉取未启用。"
             );
         }
-        return LogisticsProviderFetchResult.failure(
-                LogisticsProviderFailureCode.CONFIGURATION_ERROR,
-                "义特自动同步登录接口尚未配置。"
-        );
+        if (!StringUtils.hasText(yite.getBaseUrl()) || !StringUtils.hasText(yite.getLoginPath())) {
+            return LogisticsProviderFetchResult.failure(
+                    LogisticsProviderFailureCode.CONFIGURATION_ERROR,
+                    "义特自动同步缺少 baseUrl 或 loginPath 配置。"
+            );
+        }
+        if (request == null || !StringUtils.hasText(request.getLoginAccount()) || !StringUtils.hasText(request.getPassword())) {
+            return LogisticsProviderFetchResult.failure(
+                    LogisticsProviderFailureCode.INVALID_CREDENTIAL,
+                    "义特自动同步账号或密码为空。"
+            );
+        }
+
+        try {
+            FetchSession session = login(yite, request);
+            int limit = Math.max(1, Math.min(DEFAULT_SHIPMENT_LIMIT, request.getRecentLimit() <= 0 ? DEFAULT_SHIPMENT_LIMIT : request.getRecentLimit()));
+            String listBody = postJson(session, "/rest/tms/wos/shipment/lists", buildShipmentListPayload(limit));
+            List<JsonNode> shipmentRows = extractShipmentRows(parseJson(listBody), limit);
+            Map<String, String> viewJsonByShipmentRecordId = new LinkedHashMap<>();
+            Map<String, String> packingListJsonByShipmentRecordId = new LinkedHashMap<>();
+            for (JsonNode row : shipmentRows) {
+                String recordId = pickText(row, "id");
+                if (!StringUtils.hasText(recordId)) {
+                    continue;
+                }
+                viewJsonByShipmentRecordId.put(recordId, get(session, buildShipmentViewPath(recordId)));
+                packingListJsonByShipmentRecordId.put(recordId, get(session, buildShipmentPackingListPath(recordId)));
+            }
+            PluginSyncCommand command = normalize(listBody, viewJsonByShipmentRecordId, packingListJsonByShipmentRecordId);
+            LogisticsProviderFetchResult result = LogisticsProviderFetchResult.success(command);
+            result.setPackageCount(countPackages(command));
+            result.setLineCount(countLines(command));
+            result.setNodeCount(countNodes(command));
+            return result;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "义特自动同步请求被中断。");
+        } catch (IOException exception) {
+            return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "义特自动同步网络请求失败。");
+        } catch (ProviderAuthException exception) {
+            return LogisticsProviderFetchResult.failure(exception.failureCode, exception.getMessage());
+        } catch (RuntimeException exception) {
+            return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.PROVIDER_ERROR, "义特自动同步返回数据解析失败。");
+        }
+    }
+
+    private FetchSession login(LogisticsAutoSyncProperties.Yite yite, LogisticsProviderFetchRequest request)
+            throws IOException, InterruptedException {
+        CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(timeoutSeconds(yite.getTimeoutSeconds())))
+                .cookieHandler(cookieManager)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        FetchSession session = new FetchSession(yite.getBaseUrl(), httpClient, cookieManager);
+        Map<String, String> loginPayload = new LinkedHashMap<>();
+        loginPayload.put(defaultText(yite.getLoginAccountField(), "username"), request.getLoginAccount());
+        loginPayload.put(defaultText(yite.getLoginPasswordField(), "password"), request.getPassword());
+        HttpRequest.Builder builder = requestBuilder(session, yite.getLoginPath())
+                .header("accept", "application/json");
+        String payloadType = defaultText(yite.getLoginPayloadType(), "json").trim().toLowerCase(Locale.ROOT);
+        HttpRequest requestMessage;
+        if ("form".equals(payloadType)) {
+            requestMessage = builder
+                    .header("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(toForm(loginPayload)))
+                    .build();
+        } else {
+            requestMessage = builder
+                    .header("content-type", "application/json;charset=utf-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(toJson(loginPayload)))
+                    .build();
+        }
+        requireJsonBody(send(session, requestMessage), "义特登录接口返回异常。");
+        return session;
+    }
+
+    private String postJson(FetchSession session, String path, Object payload) throws IOException, InterruptedException {
+        return requireJsonBody(send(session, requestBuilder(session, path)
+                .header("accept", "application/json")
+                .header("content-type", "application/json;charset=utf-8")
+                .POST(HttpRequest.BodyPublishers.ofString(toJson(payload)))
+                .build()), "义特接口返回异常。");
+    }
+
+    private String get(FetchSession session, String path) throws IOException, InterruptedException {
+        return requireJsonBody(send(session, requestBuilder(session, path)
+                .header("accept", "application/json")
+                .GET()
+                .build()), "义特接口返回异常。");
+    }
+
+    private HttpResponse<String> send(FetchSession session, HttpRequest request) throws IOException, InterruptedException {
+        return session.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpRequest.Builder requestBuilder(FetchSession session, String path) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(session.baseUrl, path))
+                .timeout(Duration.ofSeconds(timeoutSeconds((properties.getYite() == null ? new LogisticsAutoSyncProperties.Yite() : properties.getYite()).getTimeoutSeconds())))
+                .header("token-type", "web");
+        String token = sessionCookie(session, "token", "os_wos");
+        if (StringUtils.hasText(token)) {
+            builder.header("token", token);
+        }
+        return builder;
+    }
+
+    private String requireJsonBody(HttpResponse<String> response, String errorMessage) {
+        if (response.statusCode() == 401 || response.statusCode() == 403) {
+            throw new ProviderAuthException(LogisticsProviderFailureCode.INVALID_CREDENTIAL, "义特登录失败或账号无权限。");
+        }
+        if (response.statusCode() >= 400) {
+            throw new ProviderAuthException(LogisticsProviderFailureCode.PROVIDER_ERROR, errorMessage);
+        }
+        String body = response.body() == null ? "" : response.body();
+        if (looksLikeHtml(body)) {
+            throw new ProviderAuthException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "义特接口返回登录页面，可能需要验证码或风控验证。");
+        }
+        return body;
     }
 
     public Map<String, Object> buildShipmentListPayload(int limit) {
@@ -779,6 +903,72 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
         return properties.getYite() == null ? new LogisticsAutoSyncProperties.Yite() : properties.getYite();
     }
 
+    private URI uri(String baseUrl, String path) {
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            return URI.create(path);
+        }
+        return URI.create(defaultText(baseUrl, "https://ywyite.nextsls.com").replaceAll("/+$", "")
+                + "/" + path.replaceAll("^/+", ""));
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("义特自动同步请求序列化失败。", exception);
+        }
+    }
+
+    private String toForm(Map<String, String> fields) {
+        StringBuilder builder = new StringBuilder();
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            if (builder.length() > 0) {
+                builder.append('&');
+            }
+            builder.append(URLEncoder.encode(defaultText(entry.getKey(), ""), StandardCharsets.UTF_8));
+            builder.append('=');
+            builder.append(URLEncoder.encode(defaultText(entry.getValue(), ""), StandardCharsets.UTF_8));
+        }
+        return builder.toString();
+    }
+
+    private int timeoutSeconds(int value) {
+        return Math.max(5, Math.min(120, value));
+    }
+
+    private String sessionCookie(FetchSession session, String... names) {
+        for (HttpCookie cookie : session.cookieManager.getCookieStore().getCookies()) {
+            for (String name : names) {
+                if (Objects.equals(cookie.getName(), name) && StringUtils.hasText(cookie.getValue())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean looksLikeHtml(String body) {
+        return StringUtils.hasText(body) && body.trim().matches("(?is)^\\s*<!doctype.*|^\\s*<html\\b.*");
+    }
+
+    private int countPackages(PluginSyncCommand command) {
+        if (command == null || command.getBatches() == null) return 0;
+        return command.getBatches().stream().mapToInt(batch -> batch.getPackages() == null ? 0 : batch.getPackages().size()).sum();
+    }
+
+    private int countLines(PluginSyncCommand command) {
+        if (command == null || command.getBatches() == null) return 0;
+        return command.getBatches().stream()
+                .flatMap(batch -> batch.getPackages() == null ? java.util.stream.Stream.<PluginSyncPackage>empty() : batch.getPackages().stream())
+                .mapToInt(itemPackage -> itemPackage.getLines() == null ? 0 : itemPackage.getLines().size())
+                .sum();
+    }
+
+    private int countNodes(PluginSyncCommand command) {
+        if (command == null || command.getBatches() == null) return 0;
+        return command.getBatches().stream().mapToInt(batch -> batch.getNodes() == null ? 0 : batch.getNodes().size()).sum();
+    }
+
     private static final class ViewContext {
         private String destination;
         private List<JsonNode> boxRows = Collections.emptyList();
@@ -808,6 +998,27 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
             this.departureDate = departureDate;
             this.arrivalDate = arrivalDate;
             this.score = score;
+        }
+    }
+
+    private static final class FetchSession {
+        private final String baseUrl;
+        private final HttpClient httpClient;
+        private final CookieManager cookieManager;
+
+        private FetchSession(String baseUrl, HttpClient httpClient, CookieManager cookieManager) {
+            this.baseUrl = baseUrl;
+            this.httpClient = httpClient;
+            this.cookieManager = cookieManager;
+        }
+    }
+
+    private static final class ProviderAuthException extends RuntimeException {
+        private final String failureCode;
+
+        private ProviderAuthException(String failureCode, String message) {
+            super(message);
+            this.failureCode = failureCode;
         }
     }
 }

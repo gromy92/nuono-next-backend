@@ -150,6 +150,9 @@ public class LogisticsAutoSyncProperties {
         private boolean enabled;
         private String baseUrl = "https://wl.et-global.cn";
         private String loginPath;
+        private String loginAccountField = "username";
+        private String loginPasswordField = "password";
+        private String loginPayloadType = "form";
         private int timeoutSeconds = 30;
 
         public boolean isEnabled() {
@@ -174,6 +177,30 @@ public class LogisticsAutoSyncProperties {
 
         public void setLoginPath(String loginPath) {
             this.loginPath = loginPath;
+        }
+
+        public String getLoginAccountField() {
+            return loginAccountField;
+        }
+
+        public void setLoginAccountField(String loginAccountField) {
+            this.loginAccountField = loginAccountField;
+        }
+
+        public String getLoginPasswordField() {
+            return loginPasswordField;
+        }
+
+        public void setLoginPasswordField(String loginPasswordField) {
+            this.loginPasswordField = loginPasswordField;
+        }
+
+        public String getLoginPayloadType() {
+            return loginPayloadType;
+        }
+
+        public void setLoginPayloadType(String loginPayloadType) {
+            this.loginPayloadType = loginPayloadType;
         }
 
         public int getTimeoutSeconds() {
@@ -189,6 +216,9 @@ public class LogisticsAutoSyncProperties {
         private boolean enabled;
         private String baseUrl = "https://ywyite.nextsls.com";
         private String loginPath;
+        private String loginAccountField = "username";
+        private String loginPasswordField = "password";
+        private String loginPayloadType = "json";
         private int timeoutSeconds = 30;
 
         public boolean isEnabled() {
@@ -213,6 +243,30 @@ public class LogisticsAutoSyncProperties {
 
         public void setLoginPath(String loginPath) {
             this.loginPath = loginPath;
+        }
+
+        public String getLoginAccountField() {
+            return loginAccountField;
+        }
+
+        public void setLoginAccountField(String loginAccountField) {
+            this.loginAccountField = loginAccountField;
+        }
+
+        public String getLoginPasswordField() {
+            return loginPasswordField;
+        }
+
+        public void setLoginPasswordField(String loginPasswordField) {
+            this.loginPasswordField = loginPasswordField;
+        }
+
+        public String getLoginPayloadType() {
+            return loginPayloadType;
+        }
+
+        public void setLoginPayloadType(String loginPayloadType) {
+            this.loginPayloadType = loginPayloadType;
         }
 
         public int getTimeoutSeconds() {

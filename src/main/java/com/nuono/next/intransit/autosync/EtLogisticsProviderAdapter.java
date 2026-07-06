@@ -11,7 +11,17 @@ import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncLine;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncNode;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncPackage;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncSourceBatchExpectation;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -22,6 +32,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -73,10 +84,133 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
                     "ET 自动同步 HTTP 拉取未启用。"
             );
         }
-        return LogisticsProviderFetchResult.failure(
-                LogisticsProviderFailureCode.CONFIGURATION_ERROR,
-                "ET 自动同步登录接口尚未配置。"
-        );
+        if (!StringUtils.hasText(et.getBaseUrl()) || !StringUtils.hasText(et.getLoginPath())) {
+            return LogisticsProviderFetchResult.failure(
+                    LogisticsProviderFailureCode.CONFIGURATION_ERROR,
+                    "ET 自动同步缺少 baseUrl 或 loginPath 配置。"
+            );
+        }
+        if (request == null || !StringUtils.hasText(request.getLoginAccount()) || !StringUtils.hasText(request.getPassword())) {
+            return LogisticsProviderFetchResult.failure(
+                    LogisticsProviderFailureCode.INVALID_CREDENTIAL,
+                    "ET 自动同步账号或密码为空。"
+            );
+        }
+
+        try {
+            FetchSession session = login(et, request);
+            int limit = Math.max(1, Math.min(DEFAULT_SHIP_ORDER_LIMIT, request.getRecentLimit() <= 0 ? DEFAULT_SHIP_ORDER_LIMIT : request.getRecentLimit()));
+            String listBody = get(session, buildShipOrderListPath(limit, "0"));
+            List<JsonNode> listRows = extractRows(parseJson(listBody), limit);
+            Map<String, String> boxDetailJsonByShipOrderId = new LinkedHashMap<>();
+            Map<String, String> boxModifyJsonByBoxId = new LinkedHashMap<>();
+            Map<String, String> boxListDetailJsonByBoxId = new LinkedHashMap<>();
+            Set<String> boxIds = new LinkedHashSet<>();
+            for (JsonNode row : listRows) {
+                String shipOrderId = pickBatchNo(row);
+                if (!StringUtils.hasText(shipOrderId)) {
+                    continue;
+                }
+                String detailBody = get(session, buildShipOrderBoxDetailPath(shipOrderId, 1, DEFAULT_BOX_DETAIL_LIMIT, "0"));
+                boxDetailJsonByShipOrderId.put(shipOrderId, detailBody);
+                for (JsonNode detailRow : extractRows(parseJson(detailBody), Integer.MAX_VALUE)) {
+                    String boxId = pickExternalBoxNo(detailRow);
+                    if (StringUtils.hasText(boxId)) {
+                        boxIds.add(boxId);
+                    }
+                }
+            }
+            for (String boxId : boxIds) {
+                boxModifyJsonByBoxId.put(boxId, postForm(session, buildBoxModifyPath(), Collections.singletonMap("boxId", boxId)));
+                boxListDetailJsonByBoxId.put(boxId, get(session, buildBoxListDetailPath(boxId, 1, DEFAULT_BOX_DETAIL_LIMIT, "0")));
+            }
+            PluginSyncCommand command = normalize(listBody, boxDetailJsonByShipOrderId, boxModifyJsonByBoxId, boxListDetailJsonByBoxId);
+            LogisticsProviderFetchResult result = LogisticsProviderFetchResult.success(command);
+            result.setPackageCount(countPackages(command));
+            result.setLineCount(countLines(command));
+            result.setNodeCount(countNodes(command));
+            return result;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "ET 自动同步请求被中断。");
+        } catch (IOException exception) {
+            return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "ET 自动同步网络请求失败。");
+        } catch (ProviderAuthException exception) {
+            return LogisticsProviderFetchResult.failure(exception.failureCode, exception.getMessage());
+        } catch (RuntimeException exception) {
+            return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.PROVIDER_ERROR, "ET 自动同步返回数据解析失败。");
+        }
+    }
+
+    private FetchSession login(LogisticsAutoSyncProperties.Et et, LogisticsProviderFetchRequest request)
+            throws IOException, InterruptedException {
+        CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(timeoutSeconds(et.getTimeoutSeconds())))
+                .cookieHandler(cookieManager)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        FetchSession session = new FetchSession(et.getBaseUrl(), httpClient);
+        Map<String, String> loginPayload = new LinkedHashMap<>();
+        loginPayload.put(defaultText(et.getLoginAccountField(), "username"), request.getLoginAccount());
+        loginPayload.put(defaultText(et.getLoginPasswordField(), "password"), request.getPassword());
+        HttpRequest.Builder builder = requestBuilder(session, et.getLoginPath())
+                .header("accept", "application/json, text/javascript, */*; q=0.01");
+        String payloadType = defaultText(et.getLoginPayloadType(), "form").trim().toLowerCase(Locale.ROOT);
+        HttpRequest requestMessage;
+        if ("json".equals(payloadType)) {
+            requestMessage = builder
+                    .header("content-type", "application/json;charset=UTF-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(toJson(loginPayload)))
+                    .build();
+        } else {
+            requestMessage = builder
+                    .header("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
+                    .POST(HttpRequest.BodyPublishers.ofString(toForm(loginPayload)))
+                    .build();
+        }
+        requireJsonBody(send(session, requestMessage), "ET 登录接口返回异常。");
+        return session;
+    }
+
+    private String get(FetchSession session, String path) throws IOException, InterruptedException {
+        return requireJsonBody(send(session, requestBuilder(session, path)
+                .header("accept", "application/json, text/javascript, */*; q=0.01")
+                .header("x-requested-with", "XMLHttpRequest")
+                .GET()
+                .build()), "ET 接口返回异常。");
+    }
+
+    private String postForm(FetchSession session, String path, Map<String, String> fields) throws IOException, InterruptedException {
+        return requireJsonBody(send(session, requestBuilder(session, path)
+                .header("accept", "*/*")
+                .header("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
+                .header("x-requested-with", "XMLHttpRequest")
+                .POST(HttpRequest.BodyPublishers.ofString(toForm(fields)))
+                .build()), "ET 接口返回异常。");
+    }
+
+    private HttpResponse<String> send(FetchSession session, HttpRequest request) throws IOException, InterruptedException {
+        return session.httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpRequest.Builder requestBuilder(FetchSession session, String path) {
+        return HttpRequest.newBuilder(uri(session.baseUrl, path))
+                .timeout(Duration.ofSeconds(timeoutSeconds((properties.getEt() == null ? new LogisticsAutoSyncProperties.Et() : properties.getEt()).getTimeoutSeconds())));
+    }
+
+    private String requireJsonBody(HttpResponse<String> response, String errorMessage) {
+        if (response.statusCode() == 401 || response.statusCode() == 403) {
+            throw new ProviderAuthException(LogisticsProviderFailureCode.INVALID_CREDENTIAL, "ET 登录失败或账号无权限。");
+        }
+        if (response.statusCode() >= 400) {
+            throw new ProviderAuthException(LogisticsProviderFailureCode.PROVIDER_ERROR, errorMessage);
+        }
+        String body = response.body() == null ? "" : response.body();
+        if (looksLikeHtml(body)) {
+            throw new ProviderAuthException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "ET 接口返回登录页面，可能需要验证码或风控验证。");
+        }
+        return body;
     }
 
     public String buildShipOrderListPath(int limit, String cacheBuster) {
@@ -756,6 +890,61 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
         return value == null ? defaultValue : value;
     }
 
+    private URI uri(String baseUrl, String path) {
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            return URI.create(path);
+        }
+        return URI.create(defaultText(baseUrl, "https://wl.et-global.cn").replaceAll("/+$", "")
+                + "/" + path.replaceAll("^/+", ""));
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("ET 自动同步请求序列化失败。", exception);
+        }
+    }
+
+    private String toForm(Map<String, String> fields) {
+        StringBuilder builder = new StringBuilder();
+        for (Map.Entry<String, String> entry : fields.entrySet()) {
+            if (builder.length() > 0) {
+                builder.append('&');
+            }
+            builder.append(URLEncoder.encode(defaultText(entry.getKey(), ""), StandardCharsets.UTF_8));
+            builder.append('=');
+            builder.append(URLEncoder.encode(defaultText(entry.getValue(), ""), StandardCharsets.UTF_8));
+        }
+        return builder.toString();
+    }
+
+    private int timeoutSeconds(int value) {
+        return Math.max(5, Math.min(120, value));
+    }
+
+    private boolean looksLikeHtml(String body) {
+        return StringUtils.hasText(body) && body.trim().matches("(?is)^\\s*<!doctype.*|^\\s*<html\\b.*");
+    }
+
+    private int countPackages(PluginSyncCommand command) {
+        if (command == null || command.getBatches() == null) return 0;
+        return command.getBatches().stream().mapToInt(batch -> batch.getPackages() == null ? 0 : batch.getPackages().size()).sum();
+    }
+
+    private int countLines(PluginSyncCommand command) {
+        if (command == null || command.getBatches() == null) return 0;
+        return command.getBatches().stream()
+                .flatMap(batch -> batch.getPackages() == null ? java.util.stream.Stream.<PluginSyncPackage>empty() : batch.getPackages().stream())
+                .mapToInt(itemPackage -> itemPackage.getLines() == null ? 0 : itemPackage.getLines().size())
+                .sum();
+    }
+
+    private int countNodes(PluginSyncCommand command) {
+        if (command == null || command.getBatches() == null) return 0;
+        return command.getBatches().stream().mapToInt(batch -> batch.getNodes() == null ? 0 : batch.getNodes().size()).sum();
+    }
+
     private static final class ExpectationAccumulator {
         private final Set<String> boxes = new HashSet<>();
         private Integer explicitBoxNum;
@@ -771,6 +960,25 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
             this.startDateTime = startDateTime;
             this.endDateTime = endDateTime;
             this.endDate = endDate;
+        }
+    }
+
+    private static final class FetchSession {
+        private final String baseUrl;
+        private final HttpClient httpClient;
+
+        private FetchSession(String baseUrl, HttpClient httpClient) {
+            this.baseUrl = baseUrl;
+            this.httpClient = httpClient;
+        }
+    }
+
+    private static final class ProviderAuthException extends RuntimeException {
+        private final String failureCode;
+
+        private ProviderAuthException(String failureCode, String message) {
+            super(message);
+            this.failureCode = failureCode;
         }
     }
 }
