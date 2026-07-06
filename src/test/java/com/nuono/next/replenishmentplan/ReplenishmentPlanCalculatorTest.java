@@ -107,7 +107,7 @@ class ReplenishmentPlanCalculatorTest {
     }
 
     @Test
-    void shouldApplySameDayEtaInboundOnFirstProjectionDay() {
+    void shouldApplySameDayEtaInboundToInitialStockWithoutShowingItOnDayOne() {
         LocalDate anchorDate = LocalDate.of(2026, 7, 6);
         Map<Integer, BigDecimal> demand = new HashMap<>();
         demand.put(1, new BigDecimal("2"));
@@ -131,7 +131,8 @@ class ReplenishmentPlanCalculatorTest {
         ), null);
 
         assertEquals(new BigDecimal("2"), result.getKnownInboundUnits());
-        assertEquals(new BigDecimal("2"), result.getDailyProjection().get(0).getInboundUnits());
+        assertEquals(new BigDecimal("0"), result.getDailyProjection().get(0).getInboundUnits());
+        assertEquals(new BigDecimal("1"), result.getDailyProjection().get(0).getProjectedStock());
         assertNull(result.getFirstStockoutDay());
     }
 
@@ -298,6 +299,23 @@ class ReplenishmentPlanCalculatorTest {
 
         assertFalse(result.getWarnings().contains("daily_forecast_gap"));
         assertFalse(result.getWarnings().contains("daily_forecast_missing"));
+    }
+
+    @Test
+    void shouldUseExactMaxOfForecastHorizonAndSeaWindowEndAsProjectionHorizon() {
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-SHORT-HORIZON",
+                "SKU-SHORT-HORIZON",
+                "Short Horizon Product",
+                LocalDate.of(2026, 7, 6),
+                new StockSnapshot(new BigDecimal("100"), new BigDecimal("100"), BigDecimal.ZERO),
+                Collections.emptyMap(),
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), config(10, 10, 2, 3, 3, true, "ceil"));
+
+        assertEquals(5, result.getDailyProjection().size());
+        assertEquals(5, result.getDailyProjection().get(4).getDay());
     }
 
     @Test

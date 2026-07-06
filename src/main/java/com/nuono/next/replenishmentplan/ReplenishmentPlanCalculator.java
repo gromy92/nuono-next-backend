@@ -38,10 +38,7 @@ public final class ReplenishmentPlanCalculator {
         int airWindowEndDay = resolvedConfig.getAirLeadDays() + resolvedConfig.getAirCoverDays();
         int seaWindowStartDay = resolvedConfig.getSeaLeadDays();
         int seaWindowEndDay = resolvedConfig.getSeaLeadDays() + resolvedConfig.getSeaCoverDays();
-        int horizon = Math.max(
-                Math.max(resolvedConfig.getForecastHorizonDays(), seaWindowEndDay),
-                Math.max(30, airWindowEndDay)
-        );
+        int horizon = Math.max(resolvedConfig.getForecastHorizonDays(), seaWindowEndDay);
 
         Map<Integer, BigDecimal> dailyDemandByDay = normalizeDemand(input.getDailyDemandByDay());
         Map<Integer, BigDecimal> inboundByDay = groupInboundByDay(input.getAnchorDate(), input.getInboundBatches());
@@ -55,7 +52,7 @@ public final class ReplenishmentPlanCalculator {
         BigDecimal supermallStockUnits = stockSnapshot.getSupermallStockUnits();
         BigDecimal currentStockUnits = fbnStockUnits.add(supermallStockUnits);
 
-        BigDecimal projectedStock = currentStockUnits;
+        BigDecimal projectedStock = currentStockUnits.add(inboundByDay.getOrDefault(0, BigDecimal.ZERO));
         Integer firstStockoutDay = null;
         List<DailyProjectionView> dailyProjection = new ArrayList<>();
         for (int day = 1; day <= horizon; day++) {
@@ -150,8 +147,7 @@ public final class ReplenishmentPlanCalculator {
             if (day < 0 || day > Integer.MAX_VALUE) {
                 continue;
             }
-            int projectionDay = day == 0 ? 1 : (int) day;
-            inboundByDay.merge(projectionDay, remainingQuantity, BigDecimal::add);
+            inboundByDay.merge((int) day, remainingQuantity, BigDecimal::add);
         }
         return inboundByDay;
     }
