@@ -381,6 +381,55 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldFallbackToForwarderAirHistoryWhenScopedHistoryIsMissing() {
+        SaveBatchCommand command = new SaveBatchCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setRawForwarderName("启客");
+        command.setTransportMode("AIR");
+        command.setTargetStoreCode("RUH");
+        command.setTargetSiteCode("SA");
+        command.setTargetWarehouseName("FBN-RUH");
+        command.setEstimatedDepartureAt(LocalDateTime.parse("2026-07-01T08:00:00"));
+        command.setBatchReferenceNo("XGGEKSA05002");
+        command.setBatchStatus("in_transit");
+
+        ForwarderResolveView matched = new ForwarderResolveView();
+        matched.setStandardForwarderId(51002L);
+        matched.setStandardForwarderCode("QIKE");
+        matched.setStandardForwarderName("启客");
+        matched.setRawForwarderName("启客");
+        matched.setNormalizedRawForwarderName("启客");
+        matched.setQualityStatus("forwarder_matched");
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matched);
+        when(mapper.selectRecentAirArrivalDurations(10002L, 51002L, "RUH", "SA", 10))
+                .thenReturn(List.of());
+        when(mapper.selectRecentAirArrivalDurations(10002L, 51002L, null, null, 10))
+                .thenReturn(List.of(airSample(4320L), airSample(5760L), airSample(7200L)));
+        when(mapper.nextBatchId()).thenReturn(53007L);
+        BatchRow persisted = batch(53007L, "in_transit", "启客", "forwarder_matched");
+        persisted.setStandardForwarderId(51002L);
+        persisted.setStandardForwarderCode("QIKE");
+        persisted.setStandardForwarderName("启客");
+        persisted.setTargetStoreCode("RUH");
+        persisted.setTargetSiteCode("SA");
+        persisted.setTargetWarehouseName("FBN-RUH");
+        persisted.setEstimatedDepartureAt(LocalDateTime.parse("2026-07-01T08:00:00"));
+        persisted.setEstimatedArrivalAt(LocalDateTime.parse("2026-07-05T08:00:00"));
+        persisted.setEtaDate(LocalDate.parse("2026-07-05"));
+        persisted.setEstimatedArrivalSource("AIR_HISTORY_ESTIMATE");
+        when(mapper.selectBatchById(10002L, 53007L)).thenReturn(persisted);
+
+        service.saveBatch(command);
+
+        ArgumentCaptor<BatchRow> rowCaptor = ArgumentCaptor.forClass(BatchRow.class);
+        verify(mapper).insertBatch(rowCaptor.capture());
+        assertEquals(LocalDateTime.parse("2026-07-05T08:00:00"), rowCaptor.getValue().getEstimatedArrivalAt());
+        assertEquals(LocalDate.parse("2026-07-05"), rowCaptor.getValue().getEtaDate());
+        assertEquals("AIR_HISTORY_ESTIMATE", rowCaptor.getValue().getEstimatedArrivalSource());
+    }
+
+    @Test
     void shouldKeepManualEstimatedArrivalWhenSavingNonDraftBatch() {
         SaveBatchCommand command = new SaveBatchCommand();
         command.setOwnerUserId(10002L);

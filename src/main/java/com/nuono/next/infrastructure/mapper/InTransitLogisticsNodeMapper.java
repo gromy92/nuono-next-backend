@@ -83,7 +83,8 @@ public interface InTransitLogisticsNodeMapper extends InTransitGoodsSequenceMapp
             "SELECT node_status AS latest_node_status, node_happened_at AS latest_node_happened_at, description AS latest_node_description",
             "FROM in_transit_logistics_node",
             "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND is_deleted = b'0'",
-            "ORDER BY node_happened_at DESC, id DESC",
+            "ORDER BY CASE WHEN node_status IN ('warehouse_received', 'cancelled') THEN 0 ELSE 1 END,",
+            "node_happened_at DESC, id DESC",
             "LIMIT 1"
     })
     BatchLatestNodeRow selectLatestNode(@Param("ownerUserId") Long ownerUserId, @Param("batchId") Long batchId);
