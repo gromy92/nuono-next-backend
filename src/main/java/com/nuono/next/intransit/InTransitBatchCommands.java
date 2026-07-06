@@ -23,6 +23,7 @@ public final class InTransitBatchCommands {
         private String batchStatus;
         private String statusScope;
         private String skuKeyword;
+        private String todo;
         private LocalDate etaFrom;
         private LocalDate etaTo;
         private Integer limit;
@@ -112,6 +113,14 @@ public final class InTransitBatchCommands {
 
         public void setSkuKeyword(String skuKeyword) {
             this.skuKeyword = skuKeyword;
+        }
+
+        public String getTodo() {
+            return todo;
+        }
+
+        public void setTodo(String todo) {
+            this.todo = todo;
         }
 
         public LocalDate getEtaFrom() {
@@ -498,6 +507,102 @@ public final class InTransitBatchCommands {
         public void setAccessContext(BusinessAccessContext accessContext) { this.accessContext = accessContext; }
     }
 
+    public static class SaveEstimatedArrivalCommand {
+        private Long batchId;
+        private Long ownerUserId;
+        private Long operatorUserId;
+        private LocalDateTime estimatedArrivalAt;
+        private String note;
+
+        public Long getBatchId() {
+            return batchId;
+        }
+
+        public void setBatchId(Long batchId) {
+            this.batchId = batchId;
+        }
+
+        public Long getOwnerUserId() {
+            return ownerUserId;
+        }
+
+        public void setOwnerUserId(Long ownerUserId) {
+            this.ownerUserId = ownerUserId;
+        }
+
+        public Long getOperatorUserId() {
+            return operatorUserId;
+        }
+
+        public void setOperatorUserId(Long operatorUserId) {
+            this.operatorUserId = operatorUserId;
+        }
+
+        public LocalDateTime getEstimatedArrivalAt() {
+            return estimatedArrivalAt;
+        }
+
+        public void setEstimatedArrivalAt(LocalDateTime estimatedArrivalAt) {
+            this.estimatedArrivalAt = estimatedArrivalAt;
+        }
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
+        }
+    }
+
+    public static class SaveActualArrivalCommand {
+        private Long batchId;
+        private Long ownerUserId;
+        private Long operatorUserId;
+        private LocalDateTime actualArrivalAt;
+        private String note;
+
+        public Long getBatchId() {
+            return batchId;
+        }
+
+        public void setBatchId(Long batchId) {
+            this.batchId = batchId;
+        }
+
+        public Long getOwnerUserId() {
+            return ownerUserId;
+        }
+
+        public void setOwnerUserId(Long ownerUserId) {
+            this.ownerUserId = ownerUserId;
+        }
+
+        public Long getOperatorUserId() {
+            return operatorUserId;
+        }
+
+        public void setOperatorUserId(Long operatorUserId) {
+            this.operatorUserId = operatorUserId;
+        }
+
+        public LocalDateTime getActualArrivalAt() {
+            return actualArrivalAt;
+        }
+
+        public void setActualArrivalAt(LocalDateTime actualArrivalAt) {
+            this.actualArrivalAt = actualArrivalAt;
+        }
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
+        }
+    }
+
     public static class SaveBatchCommand {
         private Long batchId;
         private Long ownerUserId;
@@ -517,6 +622,10 @@ public final class InTransitBatchCommands {
         private LocalDateTime sourceCreatedAt;
         private LocalDateTime estimatedDepartureAt;
         private LocalDateTime estimatedArrivalAt;
+        private String estimatedArrivalSource;
+        private String estimatedArrivalSourceDetail;
+        private LocalDateTime estimatedArrivalUpdatedAt;
+        private Long estimatedArrivalUpdatedBy;
         private String deliveryAppointmentText;
         private String batchStatus;
 
@@ -662,6 +771,38 @@ public final class InTransitBatchCommands {
 
         public void setEstimatedArrivalAt(LocalDateTime estimatedArrivalAt) {
             this.estimatedArrivalAt = estimatedArrivalAt;
+        }
+
+        public String getEstimatedArrivalSource() {
+            return estimatedArrivalSource;
+        }
+
+        public void setEstimatedArrivalSource(String estimatedArrivalSource) {
+            this.estimatedArrivalSource = estimatedArrivalSource;
+        }
+
+        public String getEstimatedArrivalSourceDetail() {
+            return estimatedArrivalSourceDetail;
+        }
+
+        public void setEstimatedArrivalSourceDetail(String estimatedArrivalSourceDetail) {
+            this.estimatedArrivalSourceDetail = estimatedArrivalSourceDetail;
+        }
+
+        public LocalDateTime getEstimatedArrivalUpdatedAt() {
+            return estimatedArrivalUpdatedAt;
+        }
+
+        public void setEstimatedArrivalUpdatedAt(LocalDateTime estimatedArrivalUpdatedAt) {
+            this.estimatedArrivalUpdatedAt = estimatedArrivalUpdatedAt;
+        }
+
+        public Long getEstimatedArrivalUpdatedBy() {
+            return estimatedArrivalUpdatedBy;
+        }
+
+        public void setEstimatedArrivalUpdatedBy(Long estimatedArrivalUpdatedBy) {
+            this.estimatedArrivalUpdatedBy = estimatedArrivalUpdatedBy;
         }
 
         public String getDeliveryAppointmentText() {

@@ -1,9 +1,12 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
+import com.nuono.next.intransit.InTransitBatchRecords.AirArrivalDurationSampleRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchAggregateRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchLatestNodeRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -71,12 +74,14 @@ public interface InTransitBatchMapper extends InTransitGoodsSequenceMapper {
             "id, owner_user_id, standard_forwarder_id, raw_forwarder_name, normalized_raw_forwarder_name, forwarder_quality_status,",
             "transport_mode, batch_status, target_store_code, target_site_code, target_warehouse_name, departure_date, eta_date,",
             "tracking_no, container_no, batch_reference_no, external_shipment_no, source_created_at, estimated_departure_at,",
-            "estimated_arrival_at, delivery_appointment_text, missing_fields_json, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            "estimated_arrival_at, estimated_arrival_source, estimated_arrival_source_detail, estimated_arrival_updated_at,",
+            "estimated_arrival_updated_by, delivery_appointment_text, missing_fields_json, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.ownerUserId}, #{row.standardForwarderId}, #{row.rawForwarderName}, #{row.normalizedRawForwarderName}, #{row.forwarderQualityStatus},",
             "#{row.transportMode}, #{row.batchStatus}, #{row.targetStoreCode}, #{row.targetSiteCode}, #{row.targetWarehouseName}, #{row.departureDate}, #{row.etaDate},",
             "#{row.trackingNo}, #{row.containerNo}, #{row.batchReferenceNo}, #{row.externalShipmentNo}, #{row.sourceCreatedAt},",
-            "#{row.estimatedDepartureAt}, #{row.estimatedArrivalAt}, #{row.deliveryAppointmentText}, #{row.missingFieldsJson},",
+            "#{row.estimatedDepartureAt}, #{row.estimatedArrivalAt}, #{row.estimatedArrivalSource}, #{row.estimatedArrivalSourceDetail},",
+            "#{row.estimatedArrivalUpdatedAt}, #{row.estimatedArrivalUpdatedBy}, #{row.deliveryAppointmentText}, #{row.missingFieldsJson},",
             "b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertBatch(@Param("row") BatchRow row);
@@ -90,11 +95,64 @@ public interface InTransitBatchMapper extends InTransitGoodsSequenceMapper {
             "eta_date = #{row.etaDate}, tracking_no = #{row.trackingNo}, container_no = #{row.containerNo}, batch_reference_no = #{row.batchReferenceNo},",
             "external_shipment_no = #{row.externalShipmentNo}, source_created_at = #{row.sourceCreatedAt},",
             "estimated_departure_at = #{row.estimatedDepartureAt}, estimated_arrival_at = #{row.estimatedArrivalAt},",
+            "estimated_arrival_source = #{row.estimatedArrivalSource}, estimated_arrival_source_detail = #{row.estimatedArrivalSourceDetail},",
+            "estimated_arrival_updated_at = #{row.estimatedArrivalUpdatedAt}, estimated_arrival_updated_by = #{row.estimatedArrivalUpdatedBy},",
             "delivery_appointment_text = #{row.deliveryAppointmentText},",
             "missing_fields_json = #{row.missingFieldsJson}, updated_by = #{row.updatedBy}, gmt_updated = NOW()",
             "WHERE owner_user_id = #{row.ownerUserId} AND id = #{row.id} AND is_deleted = b'0'"
     })
     int updateBatch(@Param("row") BatchRow row);
+
+    @Update({
+            "UPDATE in_transit_batch",
+            "SET estimated_arrival_at = #{estimatedArrivalAt}, eta_date = #{etaDate},",
+            "estimated_arrival_source = #{estimatedArrivalSource},",
+            "estimated_arrival_source_detail = #{estimatedArrivalSourceDetail},",
+            "estimated_arrival_updated_at = NOW(), estimated_arrival_updated_by = #{operatorUserId},",
+            "updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE owner_user_id = #{ownerUserId} AND id = #{batchId} AND is_deleted = b'0'"
+    })
+    int updateEstimatedArrival(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchId") Long batchId,
+            @Param("estimatedArrivalAt") LocalDateTime estimatedArrivalAt,
+            @Param("etaDate") LocalDate etaDate,
+            @Param("estimatedArrivalSource") String estimatedArrivalSource,
+            @Param("estimatedArrivalSourceDetail") String estimatedArrivalSourceDetail,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "<script>",
+            "SELECT TIMESTAMPDIFF(MINUTE,",
+            "COALESCE(batch.estimated_departure_at, batch.source_created_at, TIMESTAMP(batch.departure_date)),",
+            "received.node_happened_at) AS duration_minutes",
+            "FROM in_transit_batch batch",
+            "JOIN in_transit_logistics_node received ON received.owner_user_id = batch.owner_user_id",
+            "AND received.batch_id = batch.id AND received.node_status = 'warehouse_received'",
+            "AND received.is_deleted = b'0'",
+            "WHERE batch.owner_user_id = #{ownerUserId}",
+            "AND batch.transport_mode = 'AIR'",
+            "AND batch.is_deleted = b'0'",
+            "AND COALESCE(batch.estimated_departure_at, batch.source_created_at, TIMESTAMP(batch.departure_date)) IS NOT NULL",
+            "AND received.node_happened_at IS NOT NULL",
+            "<if test='standardForwarderId != null'> AND batch.standard_forwarder_id = #{standardForwarderId}</if>",
+            "<if test='targetStoreCode != null and targetStoreCode != \"\"'> AND batch.target_store_code = #{targetStoreCode}</if>",
+            "<if test='targetSiteCode != null and targetSiteCode != \"\"'> AND batch.target_site_code = #{targetSiteCode}</if>",
+            "AND TIMESTAMPDIFF(MINUTE,",
+            "COALESCE(batch.estimated_departure_at, batch.source_created_at, TIMESTAMP(batch.departure_date)),",
+            "received.node_happened_at) BETWEEN 60 AND 43200",
+            "ORDER BY received.node_happened_at DESC, batch.id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<AirArrivalDurationSampleRow> selectRecentAirArrivalDurations(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("standardForwarderId") Long standardForwarderId,
+            @Param("targetStoreCode") String targetStoreCode,
+            @Param("targetSiteCode") String targetSiteCode,
+            @Param("limit") int limit
+    );
 
     @Select({
             "SELECT",

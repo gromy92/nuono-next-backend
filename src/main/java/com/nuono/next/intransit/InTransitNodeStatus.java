@@ -35,6 +35,49 @@ public enum InTransitNodeStatus {
         return label;
     }
 
+    public boolean isTerminalForBatchProjection() {
+        return this == WAREHOUSE_RECEIVED || this == CANCELLED;
+    }
+
+    public static boolean isTerminalForBatchProjection(String value) {
+        return isTerminalForBatchProjection(value, null);
+    }
+
+    public static boolean isTerminalForBatchProjection(String value, String description) {
+        return require(normalizeForPersistence(value, description)).isTerminalForBatchProjection();
+    }
+
+    public static String normalizeForPersistence(String value, String description) {
+        if (isWarehouseArrivalMarker(value) || isWarehouseArrivalMarker(description)) {
+            return WAREHOUSE_RECEIVED.code();
+        }
+        InTransitNodeStatus status = require(value);
+        return status.code();
+    }
+
+    public static boolean isWarehouseArrivalMarker(String value) {
+        return isFbnWarehouseAppointment(value) || isPickedUpOverseasWarehouseBeforeDelivery(value);
+    }
+
+    private static boolean isFbnWarehouseAppointment(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+        return normalized.contains("FBN预约送仓")
+                || (normalized.contains("FBN") && normalized.contains("预约送仓"));
+    }
+
+    private static boolean isPickedUpOverseasWarehouseBeforeDelivery(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        String normalized = value.trim().replaceAll("\\s+", "");
+        return normalized.contains("提回海外仓")
+                && normalized.contains("待拆柜")
+                && normalized.contains("派送");
+    }
+
     public static InTransitNodeStatus require(String value) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException("物流节点状态不支持自由文本。");
