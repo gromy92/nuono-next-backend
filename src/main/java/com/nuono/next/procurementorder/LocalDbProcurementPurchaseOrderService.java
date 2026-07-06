@@ -5391,38 +5391,44 @@ public class LocalDbProcurementPurchaseOrderService {
             view.purchaseBatches = new ArrayList<>(purchaseBatches.values());
             view.history = new ArrayList<>(historyByOrder.values());
 
-            if (!view.purchaseBatches.isEmpty()) {
-                view.purchaseCount = view.purchaseBatches.size();
-                view.totalQuantity = view.purchaseBatches.stream()
-                        .map(batch -> batch.countedQuantity)
-                        .filter(quantity -> quantity != null)
-                        .mapToInt(Integer::intValue)
-                        .sum();
-                view.totalCost = view.purchaseBatches.stream()
-                        .map(batch -> batch.countedCost)
-                        .filter(cost -> cost != null)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                view.averageUnitPrice = unitPrice(view.totalCost, view.totalQuantity);
-                PurchaseOrderAli1688PurchaseBatchView latestBatch = latestBatch(view.purchaseBatches);
-                view.recentPurchaseTime = latestBatchSourceTime(latestBatch);
-                view.recentUnitPrice = latestBatch == null ? null : firstNonNull(latestBatch.unitPrice, view.averageUnitPrice);
-                return view;
-            }
-
-            view.purchaseCount = view.history.size();
-            view.totalQuantity = view.history.stream()
+            List<PurchaseOrderAli1688HistorySourceView> unbatchedHistory = unbatchedHistory(
+                    view.history,
+                    view.purchaseBatches
+            );
+            Integer batchQuantity = view.purchaseBatches.stream()
+                    .map(batch -> batch.countedQuantity)
+                    .filter(quantity -> quantity != null)
+                    .mapToInt(Integer::intValue)
+                    .sum();
+            BigDecimal batchCost = view.purchaseBatches.stream()
+                    .map(batch -> batch.countedCost)
+                    .filter(cost -> cost != null)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            Integer historyQuantity = unbatchedHistory.stream()
                     .map(source -> source.assignedQuantity)
                     .filter(quantity -> quantity != null)
                     .mapToInt(Integer::intValue)
                     .sum();
-            view.totalCost = view.history.stream()
+            BigDecimal historyCost = unbatchedHistory.stream()
                     .map(source -> source.allocatedCost)
                     .filter(cost -> cost != null)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            view.purchaseCount = view.purchaseBatches.size() + unbatchedHistory.size();
+            view.totalQuantity = batchQuantity + historyQuantity;
+            view.totalCost = batchCost.add(historyCost);
             view.averageUnitPrice = unitPrice(view.totalCost, view.totalQuantity);
-            PurchaseOrderAli1688HistorySourceView latestHistory = latestHistory(view.history);
-            view.recentPurchaseTime = latestHistory == null ? null : latestHistory.orderTime;
-            view.recentUnitPrice = latestHistory == null ? view.averageUnitPrice : firstNonNull(latestHistory.unitPrice, view.averageUnitPrice);
+            PurchaseOrderAli1688PurchaseBatchView latestBatch = latestBatch(view.purchaseBatches);
+            PurchaseOrderAli1688HistorySourceView latestHistory = latestHistory(unbatchedHistory);
+            String latestBatchTime = latestBatchSourceTime(latestBatch);
+            if (latestHistory != null && compareNullableText(latestHistory.orderTime, latestBatchTime) > 0) {
+                view.recentPurchaseTime = latestHistory.orderTime;
+                view.recentUnitPrice = firstNonNull(latestHistory.unitPrice, view.averageUnitPrice);
+            } else {
+                view.recentPurchaseTime = latestBatchTime;
+                view.recentUnitPrice = latestBatch == null
+                        ? view.averageUnitPrice
+                        : firstNonNull(latestBatch.unitPrice, view.averageUnitPrice);
+            }
             return view;
         }
 
@@ -5528,6 +5534,61 @@ public class LocalDbProcurementPurchaseOrderService {
             target.sourceLineLabel = firstNonBlank(target.sourceLineLabel, source.sourceLineLabel);
             target.allocationBasis = firstNonBlank(target.allocationBasis, source.allocationBasis);
             target.evidenceText = firstNonBlank(target.evidenceText, source.evidenceText);
+        }
+
+        private static List<PurchaseOrderAli1688HistorySourceView> unbatchedHistory(
+                List<PurchaseOrderAli1688HistorySourceView> history,
+                List<PurchaseOrderAli1688PurchaseBatchView> batches
+        ) {
+            if (history == null || history.isEmpty() || batches == null || batches.isEmpty()) {
+                return history == null ? List.of() : history;
+            }
+            Set<String> batchSourceKeys = new LinkedHashSet<>();
+            Set<String> batchOrderKeys = new LinkedHashSet<>();
+            for (PurchaseOrderAli1688PurchaseBatchView batch : batches) {
+                if (batch == null || batch.sources == null) {
+                    continue;
+                }
+                for (PurchaseOrderAli1688HistorySourceView source : batch.sources) {
+                    if (source == null) {
+                        continue;
+                    }
+                    batchSourceKeys.add(sourceKey(source));
+                    String orderKey = orderSourceKey(source);
+                    if (orderKey != null) {
+                        batchOrderKeys.add(orderKey);
+                    }
+                }
+            }
+            if (batchSourceKeys.isEmpty() && batchOrderKeys.isEmpty()) {
+                return history;
+            }
+            List<PurchaseOrderAli1688HistorySourceView> result = new ArrayList<>();
+            for (PurchaseOrderAli1688HistorySourceView source : history) {
+                if (source == null) {
+                    continue;
+                }
+                String orderKey = orderSourceKey(source);
+                if (batchSourceKeys.contains(sourceKey(source))
+                        || (orderKey != null && batchOrderKeys.contains(orderKey))) {
+                    continue;
+                }
+                result.add(source);
+            }
+            return result;
+        }
+
+        private static String orderSourceKey(PurchaseOrderAli1688HistorySourceView source) {
+            if (source == null) {
+                return null;
+            }
+            if (StringUtils.hasText(source.orderNo)) {
+                return "orderNo:" + source.orderNo;
+            }
+            if (source.orderId != null) {
+                return "orderId:" + source.orderId;
+            }
+            return null;
         }
 
         private static PurchaseOrderAli1688PurchaseBatchView latestBatch(
