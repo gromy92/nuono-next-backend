@@ -350,7 +350,7 @@ public class ProductKeywordService {
         if (limit == null || limit <= 0) {
             return 100;
         }
-        return Math.min(limit, 500);
+        return Math.min(limit, 5000);
     }
 
     private String requireText(String value, String message) {

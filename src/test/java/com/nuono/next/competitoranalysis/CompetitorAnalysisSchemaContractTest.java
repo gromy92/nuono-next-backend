@@ -42,6 +42,14 @@ class CompetitorAnalysisSchemaContractTest {
             "init",
             "171_operations_competitor_rank_search_metadata.sql"
     );
+    private static final Path KEYWORD_LINK_SCHEMA_PATH = Path.of(
+            "src",
+            "main",
+            "resources",
+            "db",
+            "init",
+            "175_product_keyword_competitor_link.sql"
+    );
 
     @Test
     void competitorAnalysisSchemaDefinesFirstPhaseTablesAndStatusSeparation() throws IOException {
@@ -132,6 +140,22 @@ class CompetitorAnalysisSchemaContractTest {
         assertTrue(sql.contains("title_ar_snapshot"));
         assertTrue(sql.contains("tags_json"));
         assertTrue(sql.contains("tags_snapshot_json"));
+    }
+
+    @Test
+    void competitorKeywordSchemaLinksToProductKeywordAssetsAndBackfillsHistory() throws IOException {
+        assertTrue(Files.exists(KEYWORD_LINK_SCHEMA_PATH), "competitor keyword link migration must exist");
+        String sql = normalizedSql(KEYWORD_LINK_SCHEMA_PATH);
+
+        assertTrue(sql.contains("alter table operations_competitor_keyword"));
+        assertTrue(sql.contains("product_keyword_id"));
+        assertTrue(sql.contains("idx_ops_comp_keyword_product_keyword"));
+        assertTrue(sql.contains("insert into product_keyword"));
+        assertTrue(sql.contains("insert into product_keyword_usage_event"));
+        assertTrue(sql.contains("competitor_keyword"));
+        assertTrue(sql.contains("event_status"));
+        assertTrue(sql.contains("observed"));
+        assertTrue(sql.contains("update operations_competitor_keyword"));
     }
 
     private static String normalizedSql(Path path) throws IOException {

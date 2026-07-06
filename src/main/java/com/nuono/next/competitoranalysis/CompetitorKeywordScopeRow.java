@@ -2,6 +2,7 @@ package com.nuono.next.competitoranalysis;
 
 public class CompetitorKeywordScopeRow {
     private Long keywordId;
+    private Long productKeywordId;
     private Long watchProductId;
     private Long ownerUserId;
     private String storeCode;
@@ -11,6 +12,8 @@ public class CompetitorKeywordScopeRow {
 
     public Long getKeywordId() { return keywordId; }
     public void setKeywordId(Long keywordId) { this.keywordId = keywordId; }
+    public Long getProductKeywordId() { return productKeywordId; }
+    public void setProductKeywordId(Long productKeywordId) { this.productKeywordId = productKeywordId; }
     public Long getWatchProductId() { return watchProductId; }
     public void setWatchProductId(Long watchProductId) { this.watchProductId = watchProductId; }
     public Long getOwnerUserId() { return ownerUserId; }

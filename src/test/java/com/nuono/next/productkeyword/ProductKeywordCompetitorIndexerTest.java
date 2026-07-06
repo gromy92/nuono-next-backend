@@ -114,6 +114,48 @@ class ProductKeywordCompetitorIndexerTest {
         });
     }
 
+    @Test
+    void deletedCompetitorKeywordWritesRemovedUsageEventWithoutArchivingKeywordAsset() {
+        FakeProductKeywordMapper mapper = new FakeProductKeywordMapper();
+        ProductKeywordRecord active = new ProductKeywordRecord();
+        active.setId(300900L);
+        active.setOwnerUserId(99L);
+        active.setStoreCode("STR108065-NSA");
+        active.setSiteCode("SA");
+        active.setPartnerSku("PSKU-1");
+        active.setKeyword("Milk Bottle");
+        active.setKeywordNorm("milk bottle");
+        active.setStatus("ACTIVE");
+        active.setIntentTagsJson("[\"CORE\",\"COMPETITOR_TRACK\"]");
+        mapper.upsertKeyword(active);
+        ProductKeywordCompetitorIndexer indexer = new ProductKeywordCompetitorIndexer(mapper, new ProductKeywordNormalizer());
+
+        indexer.indexKeyword(new ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand(
+                99L,
+                180001L,
+                190001L,
+                "STR108065-NSA",
+                "SA",
+                "PSKU-1",
+                "Milk Bottle",
+                "DELETED",
+                LocalDateTime.parse("2026-07-04T13:00:00"),
+                7L
+        ));
+
+        assertThat(mapper.keywords.values()).singleElement().satisfies(keyword -> {
+            assertThat(keyword.getId()).isEqualTo(300900L);
+            assertThat(keyword.getStatus()).isEqualTo("ACTIVE");
+        });
+        assertThat(mapper.events.values()).singleElement().satisfies(event -> {
+            assertThat(event.getKeywordId()).isEqualTo(300900L);
+            assertThat(event.getSourceType()).isEqualTo("COMPETITOR_KEYWORD");
+            assertThat(event.getEventStatus()).isEqualTo("REMOVED");
+            assertThat(event.getEventNaturalKey())
+                    .isEqualTo("COMPETITOR_KEYWORD|operations_competitor_keyword|190001|SA|PSKU-1|milk bottle|REMOVED");
+        });
+    }
+
     private static final class FakeProductKeywordMapper implements ProductKeywordMapper {
         private long nextKeywordId = 300001L;
         private long nextEventId = 320001L;

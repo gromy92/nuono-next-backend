@@ -15,7 +15,7 @@ class ProductKeywordSchemaTest {
             "resources",
             "db",
             "init",
-            "167_product_keyword_management.sql"
+            "174_product_keyword_management.sql"
     );
 
     @Test
@@ -82,7 +82,8 @@ class ProductKeywordSchemaTest {
                 "LocalDbBootstrapStatusService.java"
         ));
 
-        assertThat(java).contains("classpath:db/init/167_product_keyword_management.sql");
+        assertThat(java).contains("classpath:db/init/174_product_keyword_management.sql");
+        assertThat(java).contains("classpath:db/init/175_product_keyword_competitor_link.sql");
     }
 
     @Test

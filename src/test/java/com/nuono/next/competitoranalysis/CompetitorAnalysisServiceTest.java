@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.productkeyword.ProductKeywordCompetitorIndexer;
+import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,6 +33,9 @@ class CompetitorAnalysisServiceTest {
 
     @Mock
     private CompetitorAnalysisMapper mapper;
+
+    @Mock
+    private ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer;
 
     private CompetitorAnalysisService service;
 
@@ -317,6 +322,44 @@ class CompetitorAnalysisServiceTest {
         assertEquals(1, options.size());
         assertEquals("Z6122BASKETSA", options.get(0).getNoonProductCode());
         assertEquals("Z_CODE", options.get(0).getCodeType());
+    }
+
+    @Test
+    void addKeywordStoresUnifiedProductKeywordIdOnCompetitorKeyword() throws Exception {
+        service.setProductKeywordCompetitorIndexer(productKeywordCompetitorIndexer);
+        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
+        when(mapper.selectKeywordByNorm(180123L, "milk bottle")).thenReturn(null);
+        when(mapper.nextKeywordId()).thenReturn(190222L);
+        when(productKeywordCompetitorIndexer.indexKeyword(any())).thenReturn(300123L);
+        when(mapper.insertKeyword(any())).thenReturn(1);
+        stubDetail(180123L);
+
+        service.addKeyword(operatorContext(), 180123L, keywordCommand(" Milk Bottle "));
+
+        ArgumentCaptor<CompetitorKeywordInsertCommand> insertCaptor =
+                ArgumentCaptor.forClass(CompetitorKeywordInsertCommand.class);
+        verify(mapper).insertKeyword(insertCaptor.capture());
+        Method getter = CompetitorKeywordInsertCommand.class.getMethod("getProductKeywordId");
+        assertEquals(300123L, getter.invoke(insertCaptor.getValue()));
+    }
+
+    @Test
+    void deleteKeywordWritesRemovedProductKeywordEvent() {
+        service.setProductKeywordCompetitorIndexer(productKeywordCompetitorIndexer);
+        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
+        CompetitorKeywordRow keyword = keywordRow(190001L, 180123L, "Milk Bottle", "milk bottle");
+        when(mapper.selectKeywordById(190001L)).thenReturn(keyword);
+        when(mapper.softDeleteKeyword(190001L, 601L)).thenReturn(1);
+        stubDetail(180123L);
+
+        service.deleteKeyword(operatorContext(), 190001L);
+
+        ArgumentCaptor<ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand> commandCaptor =
+                ArgumentCaptor.forClass(ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand.class);
+        verify(productKeywordCompetitorIndexer).indexKeyword(commandCaptor.capture());
+        assertEquals(190001L, commandCaptor.getValue().getKeywordId());
+        assertEquals("Milk Bottle", commandCaptor.getValue().getKeyword());
+        assertEquals("DELETED", commandCaptor.getValue().getStatus());
     }
 
     @Test
@@ -701,6 +744,12 @@ class CompetitorAnalysisServiceTest {
         return command;
     }
 
+    private static CompetitorKeywordCommand keywordCommand(String keyword) {
+        CompetitorKeywordCommand command = new CompetitorKeywordCommand();
+        command.setKeyword(keyword);
+        return command;
+    }
+
     private static CompetitorDashboardRankChangeRow rankChange(String trackedProductType, Integer previousRankNo, Integer rankNo) {
         CompetitorDashboardRankChangeRow row = new CompetitorDashboardRankChangeRow();
         row.setTrackedProductType(trackedProductType);
@@ -761,6 +810,24 @@ class CompetitorAnalysisServiceTest {
         row.setTitleSnapshot("Foldable Laundry Basket With Bamboo Handles");
         row.setStatus("ACTIVE");
         return row;
+    }
+
+    private static CompetitorKeywordRow keywordRow(Long id, Long watchProductId, String keyword, String keywordNorm) {
+        CompetitorKeywordRow row = new CompetitorKeywordRow();
+        row.setId(id);
+        row.setWatchProductId(watchProductId);
+        row.setKeyword(keyword);
+        row.setKeywordNorm(keywordNorm);
+        row.setStatus("ACTIVE");
+        return row;
+    }
+
+    private void stubDetail(Long watchProductId) {
+        when(mapper.selectWatchProductById(501L, watchProductId)).thenReturn(watchProduct(watchProductId, "Z6122BASKETSA"));
+        when(mapper.listKeywordsByWatchProductId(watchProductId)).thenReturn(List.of());
+        when(mapper.listProductsByWatchProductId(watchProductId)).thenReturn(List.of());
+        when(mapper.listKeywordProductRelationsByWatchProductId(watchProductId)).thenReturn(List.of());
+        when(mapper.listLatestRankPointsByWatchProductId(watchProductId)).thenReturn(List.of());
     }
 
     private static CompetitorKeywordScopeRow keywordScope(Long keywordId, Long watchProductId) {

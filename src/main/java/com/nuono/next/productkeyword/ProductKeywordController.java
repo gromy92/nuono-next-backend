@@ -38,6 +38,7 @@ public class ProductKeywordController {
             @RequestParam(value = "partnerSku", required = false) String partnerSku,
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "limit", required = false) Integer limit,
             HttpServletRequest request
     ) {
         ProductKeywordListQuery query = new ProductKeywordListQuery();
@@ -46,7 +47,7 @@ public class ProductKeywordController {
         query.setPartnerSku(trimToNull(partnerSku));
         query.setKeywordNorm(normalizeSearch(keyword));
         query.setStatus(normalizeOptionalUpper(status));
-        query.setLimit(100);
+        query.setLimit(limit);
         BusinessAccessContext context = requireStoreAccess(request, query.getStoreCode());
         try {
             return service.listKeywords(context, query);

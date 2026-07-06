@@ -13,8 +13,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,7 +22,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class CompetitorAnalysisService {
 
-    private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisService.class);
     private static final Pattern COLLAPSED_WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern NOON_CODE_PATTERN = Pattern.compile("(?i)(^|/)([ZN][A-Z0-9]{4,79})(/|\\?|$)");
 
@@ -203,13 +200,24 @@ public class CompetitorAnalysisService {
         String keyword = normalizeKeywordDisplay(command == null ? null : command.getKeyword());
         String keywordNorm = normalizeKeywordNorm(keyword);
         CompetitorKeywordRow existing = mapper.selectKeywordByNorm(watchProduct.getId(), keywordNorm);
-        CompetitorKeywordRow indexedKeyword = existing;
         Long actorUserId = actorUserId(context);
         if (existing == null) {
             Long keywordId = mapper.nextKeywordId();
+            Long productKeywordId = indexCompetitorKeyword(
+                    watchProduct.getOwnerUserId(),
+                    watchProduct.getId(),
+                    watchProduct.getStoreCode(),
+                    watchProduct.getSiteCode(),
+                    watchProduct.getPartnerSku(),
+                    keywordId,
+                    keyword,
+                    "ACTIVE",
+                    actorUserId
+            );
             CompetitorKeywordInsertCommand insert = new CompetitorKeywordInsertCommand();
             insert.setId(keywordId);
             insert.setWatchProductId(watchProduct.getId());
+            insert.setProductKeywordId(productKeywordId);
             insert.setKeyword(keyword);
             insert.setKeywordNorm(keywordNorm);
             insert.setLocale(normalizeText(command == null ? null : command.getLocale()));
@@ -217,16 +225,13 @@ public class CompetitorAnalysisService {
             insert.setDisplayOrder(command == null || command.getDisplayOrder() == null ? 0 : command.getDisplayOrder());
             insert.setActorUserId(actorUserId);
             mapper.insertKeyword(insert);
-            indexedKeyword = new CompetitorKeywordRow();
-            indexedKeyword.setId(keywordId);
-            indexedKeyword.setWatchProductId(watchProduct.getId());
-            indexedKeyword.setKeyword(keyword);
-            indexedKeyword.setKeywordNorm(keywordNorm);
-            indexedKeyword.setLocale(insert.getLocale());
-            indexedKeyword.setStatus("ACTIVE");
-            indexedKeyword.setDisplayOrder(insert.getDisplayOrder());
+        } else {
+            Long productKeywordId = indexCompetitorKeyword(watchProduct, existing, actorUserId);
+            if (productKeywordId != null && !productKeywordId.equals(existing.getProductKeywordId())) {
+                mapper.updateKeywordProductKeywordId(existing.getId(), productKeywordId, actorUserId);
+                existing.setProductKeywordId(productKeywordId);
+            }
         }
-        indexCompetitorKeyword(watchProduct, indexedKeyword, actorUserId);
         return detail(context, watchProduct.getId());
     }
 
@@ -239,29 +244,61 @@ public class CompetitorAnalysisService {
         requireStoreInContext(context, scope.getStoreCode());
         CompetitorKeywordUpdateCommand update = new CompetitorKeywordUpdateCommand();
         update.setId(keywordId);
+        CompetitorKeywordRow currentKeyword = mapper.selectKeywordById(keywordId);
+        String indexedKeywordText = currentKeyword == null ? null : currentKeyword.getKeyword();
+        String indexedStatus = currentKeyword == null || !StringUtils.hasText(currentKeyword.getStatus())
+                ? scope.getStatus()
+                : currentKeyword.getStatus();
         if (command != null && StringUtils.hasText(command.getKeyword())) {
             String keyword = normalizeKeywordDisplay(command.getKeyword());
             update.setKeyword(keyword);
             update.setKeywordNorm(normalizeKeywordNorm(keyword));
+            indexedKeywordText = keyword;
         }
         if (command != null) {
             update.setLocale(normalizeNullableText(command.getLocale()));
-            update.setStatus(normalizeStatus(command.getStatus()));
+            String normalizedStatus = normalizeStatus(command.getStatus());
+            update.setStatus(normalizedStatus);
             update.setDisplayOrder(command.getDisplayOrder());
+            if (StringUtils.hasText(normalizedStatus)) {
+                indexedStatus = normalizedStatus;
+            }
         }
         Long actorUserId = actorUserId(context);
+        Long productKeywordId = indexCompetitorKeyword(
+                scope.getOwnerUserId(),
+                scope.getWatchProductId(),
+                scope.getStoreCode(),
+                scope.getSiteCode(),
+                scope.getPartnerSku(),
+                keywordId,
+                indexedKeywordText,
+                indexedStatus,
+                actorUserId
+        );
+        update.setProductKeywordId(productKeywordId);
         update.setActorUserId(actorUserId);
         mapper.updateKeyword(update);
-        if (productKeywordCompetitorIndexer != null) {
-            indexCompetitorKeyword(scope, mapper.selectKeywordById(keywordId), actorUserId);
-        }
         return detail(context, scope.getWatchProductId());
     }
 
     public CompetitorWatchProductDetailView deleteKeyword(BusinessAccessContext context, Long keywordId) {
         CompetitorKeywordScopeRow scope = requireKeywordScope(keywordId);
         requireStoreInContext(context, scope.getStoreCode());
-        mapper.softDeleteKeyword(keywordId, actorUserId(context));
+        CompetitorKeywordRow keyword = mapper.selectKeywordById(keywordId);
+        Long actorUserId = actorUserId(context);
+        mapper.softDeleteKeyword(keywordId, actorUserId);
+        indexCompetitorKeyword(
+                scope.getOwnerUserId(),
+                scope.getWatchProductId(),
+                scope.getStoreCode(),
+                scope.getSiteCode(),
+                scope.getPartnerSku(),
+                keywordId,
+                keyword == null ? null : keyword.getKeyword(),
+                "DELETED",
+                actorUserId
+        );
         return detail(context, scope.getWatchProductId());
     }
 
@@ -446,15 +483,15 @@ public class CompetitorAnalysisService {
         return mapper.selectProductOptionByPartnerSku(ownerUserId, storeCode, siteCode, partnerSku);
     }
 
-    private void indexCompetitorKeyword(
+    private Long indexCompetitorKeyword(
             CompetitorWatchProductRow watchProduct,
             CompetitorKeywordRow keyword,
             Long actorUserId
     ) {
         if (watchProduct == null) {
-            return;
+            return null;
         }
-        indexCompetitorKeyword(
+        return indexCompetitorKeyword(
                 watchProduct.getOwnerUserId(),
                 watchProduct.getId(),
                 watchProduct.getStoreCode(),
@@ -465,15 +502,15 @@ public class CompetitorAnalysisService {
         );
     }
 
-    private void indexCompetitorKeyword(
+    private Long indexCompetitorKeyword(
             CompetitorKeywordScopeRow scope,
             CompetitorKeywordRow keyword,
             Long actorUserId
     ) {
         if (scope == null) {
-            return;
+            return null;
         }
-        indexCompetitorKeyword(
+        return indexCompetitorKeyword(
                 scope.getOwnerUserId(),
                 scope.getWatchProductId(),
                 scope.getStoreCode(),
@@ -484,7 +521,7 @@ public class CompetitorAnalysisService {
         );
     }
 
-    private void indexCompetitorKeyword(
+    private Long indexCompetitorKeyword(
             Long ownerUserId,
             Long watchProductId,
             String storeCode,
@@ -494,27 +531,49 @@ public class CompetitorAnalysisService {
             Long actorUserId
     ) {
         if (productKeywordCompetitorIndexer == null || keyword == null) {
-            return;
+            return null;
         }
-        try {
-            productKeywordCompetitorIndexer.indexKeyword(
-                    new ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand(
-                            ownerUserId,
-                            watchProductId,
-                            keyword.getId(),
-                            storeCode,
-                            siteCode,
-                            partnerSku,
-                            keyword.getKeyword(),
-                            keyword.getStatus(),
-                            LocalDateTime.now(),
-                            actorUserId
-                    )
-            );
-        } catch (RuntimeException exception) {
-            // 关键词索引只用于运营分析回溯，不能阻断竞品关键词维护主链路。
-            log.warn("Product keyword competitor index failed for competitor keyword {}", keyword.getId(), exception);
+        return indexCompetitorKeyword(
+                ownerUserId,
+                watchProductId,
+                storeCode,
+                siteCode,
+                partnerSku,
+                keyword.getId(),
+                keyword.getKeyword(),
+                keyword.getStatus(),
+                actorUserId
+        );
+    }
+
+    private Long indexCompetitorKeyword(
+            Long ownerUserId,
+            Long watchProductId,
+            String storeCode,
+            String siteCode,
+            String partnerSku,
+            Long keywordId,
+            String keyword,
+            String status,
+            Long actorUserId
+    ) {
+        if (productKeywordCompetitorIndexer == null || keywordId == null || !StringUtils.hasText(keyword)) {
+            return null;
         }
+        return productKeywordCompetitorIndexer.indexKeyword(
+                new ProductKeywordCompetitorIndexer.CompetitorKeywordIndexCommand(
+                        ownerUserId,
+                        watchProductId,
+                        keywordId,
+                        storeCode,
+                        siteCode,
+                        partnerSku,
+                        keyword,
+                        status,
+                        LocalDateTime.now(),
+                        actorUserId
+                )
+        );
     }
 
     public CompetitorWatchProductScopeRow requireWatchProductScope(Long watchProductId) {

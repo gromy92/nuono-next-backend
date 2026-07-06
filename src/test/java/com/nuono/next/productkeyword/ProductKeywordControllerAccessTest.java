@@ -59,6 +59,7 @@ class ProductKeywordControllerAccessTest {
                 " PSKU-1 ",
                 " Milk ",
                 " active ",
+                5000,
                 request
         );
 
@@ -72,6 +73,7 @@ class ProductKeywordControllerAccessTest {
         assertThat(query.getPartnerSku()).isEqualTo(PARTNER_SKU);
         assertThat(query.getKeywordNorm()).isEqualTo("milk");
         assertThat(query.getStatus()).isEqualTo("ACTIVE");
+        assertThat(query.getLimit()).isEqualTo(5000);
     }
 
     @Test
@@ -155,11 +157,11 @@ class ProductKeywordControllerAccessTest {
     void missingStoreOrSiteReturnsBadRequestBeforeAccessCheck() {
         MockHttpServletRequest request = new MockHttpServletRequest();
 
-        assertThatThrownBy(() -> controller.list(" ", SITE_CODE, PARTNER_SKU, null, null, request))
+        assertThatThrownBy(() -> controller.list(" ", SITE_CODE, PARTNER_SKU, null, null, null, request))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting("status")
                 .isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThatThrownBy(() -> controller.list(STORE_CODE, " ", PARTNER_SKU, null, null, request))
+        assertThatThrownBy(() -> controller.list(STORE_CODE, " ", PARTNER_SKU, null, null, null, request))
                 .isInstanceOf(ResponseStatusException.class)
                 .extracting("status")
                 .isEqualTo(HttpStatus.BAD_REQUEST);

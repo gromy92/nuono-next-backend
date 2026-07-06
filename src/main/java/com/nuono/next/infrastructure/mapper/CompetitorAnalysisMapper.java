@@ -1453,7 +1453,8 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
-            "  id, watch_product_id AS watchProductId, keyword, keyword_norm AS keywordNorm, locale,",
+            "  id, watch_product_id AS watchProductId, product_keyword_id AS productKeywordId,",
+            "  keyword, keyword_norm AS keywordNorm, locale,",
             "  status, display_order AS displayOrder, last_provider_status AS lastProviderStatus,",
             "  last_succeeded_at AS lastSucceededAt, last_error_code AS lastErrorCode,",
             "  last_error_message AS lastErrorMessage",
@@ -1470,7 +1471,8 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
-            "  id, watch_product_id AS watchProductId, keyword, keyword_norm AS keywordNorm, locale,",
+            "  id, watch_product_id AS watchProductId, product_keyword_id AS productKeywordId,",
+            "  keyword, keyword_norm AS keywordNorm, locale,",
             "  status, display_order AS displayOrder, last_provider_status AS lastProviderStatus,",
             "  last_succeeded_at AS lastSucceededAt, last_error_code AS lastErrorCode,",
             "  last_error_message AS lastErrorMessage",
@@ -1483,10 +1485,10 @@ public interface CompetitorAnalysisMapper {
 
     @Insert({
             "INSERT INTO operations_competitor_keyword (",
-            "  id, watch_product_id, keyword, keyword_norm, locale, status, display_order,",
+            "  id, watch_product_id, product_keyword_id, keyword, keyword_norm, locale, status, display_order,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{watchProductId}, #{keyword}, #{keywordNorm}, #{locale}, #{status}, #{displayOrder},",
+            "  #{id}, #{watchProductId}, #{productKeywordId}, #{keyword}, #{keywordNorm}, #{locale}, #{status}, #{displayOrder},",
             "  b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
             ")"
     })
@@ -1497,6 +1499,7 @@ public interface CompetitorAnalysisMapper {
             "UPDATE operations_competitor_keyword",
             "SET updated_by = #{actorUserId},",
             "    gmt_updated = NOW()",
+            "  <if test='productKeywordId != null'>, product_keyword_id = #{productKeywordId}</if>",
             "  <if test='keyword != null and keyword != \"\"'>, keyword = #{keyword}</if>",
             "  <if test='keywordNorm != null and keywordNorm != \"\"'>, keyword_norm = #{keywordNorm}</if>",
             "  <if test='locale != null'>, locale = #{locale}</if>",
@@ -1507,6 +1510,20 @@ public interface CompetitorAnalysisMapper {
             "</script>"
     })
     int updateKeyword(CompetitorKeywordUpdateCommand command);
+
+    @Update({
+            "UPDATE operations_competitor_keyword",
+            "SET product_keyword_id = #{productKeywordId},",
+            "    updated_by = #{actorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{keywordId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateKeywordProductKeywordId(
+            @Param("keywordId") Long keywordId,
+            @Param("productKeywordId") Long productKeywordId,
+            @Param("actorUserId") Long actorUserId
+    );
 
     @Update({
             "UPDATE operations_competitor_keyword",
@@ -1524,6 +1541,7 @@ public interface CompetitorAnalysisMapper {
     @Select({
             "SELECT",
             "  kw.id AS keywordId, kw.watch_product_id AS watchProductId,",
+            "  kw.product_keyword_id AS productKeywordId,",
             "  wp.owner_user_id AS ownerUserId, wp.store_code AS storeCode, wp.site_code AS siteCode,",
             "  wp.partner_sku AS partnerSku,",
             "  kw.status AS status",
@@ -1539,7 +1557,8 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
-            "  id, watch_product_id AS watchProductId, keyword, keyword_norm AS keywordNorm, locale,",
+            "  id, watch_product_id AS watchProductId, product_keyword_id AS productKeywordId,",
+            "  keyword, keyword_norm AS keywordNorm, locale,",
             "  status, display_order AS displayOrder, last_provider_status AS lastProviderStatus,",
             "  last_succeeded_at AS lastSucceededAt, last_error_code AS lastErrorCode,",
             "  last_error_message AS lastErrorMessage",
@@ -2066,7 +2085,8 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
-            "  id, watch_product_id AS watchProductId, keyword, keyword_norm AS keywordNorm, locale,",
+            "  id, watch_product_id AS watchProductId, product_keyword_id AS productKeywordId,",
+            "  keyword, keyword_norm AS keywordNorm, locale,",
             "  status, display_order AS displayOrder, last_provider_status AS lastProviderStatus,",
             "  last_succeeded_at AS lastSucceededAt, last_error_code AS lastErrorCode,",
             "  last_error_message AS lastErrorMessage",

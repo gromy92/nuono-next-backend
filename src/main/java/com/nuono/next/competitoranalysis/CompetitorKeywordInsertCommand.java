@@ -3,6 +3,7 @@ package com.nuono.next.competitoranalysis;
 public class CompetitorKeywordInsertCommand {
     private Long id;
     private Long watchProductId;
+    private Long productKeywordId;
     private String keyword;
     private String keywordNorm;
     private String locale;
@@ -14,6 +15,8 @@ public class CompetitorKeywordInsertCommand {
     public void setId(Long id) { this.id = id; }
     public Long getWatchProductId() { return watchProductId; }
     public void setWatchProductId(Long watchProductId) { this.watchProductId = watchProductId; }
+    public Long getProductKeywordId() { return productKeywordId; }
+    public void setProductKeywordId(Long productKeywordId) { this.productKeywordId = productKeywordId; }
     public String getKeyword() { return keyword; }
     public void setKeyword(String keyword) { this.keyword = keyword; }
     public String getKeywordNorm() { return keywordNorm; }

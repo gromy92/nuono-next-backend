@@ -159,7 +159,8 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/170_product_selection_source_collection_backoff.sql",
                 "classpath:db/init/171_operations_competitor_rank_search_metadata.sql",
                 "classpath:db/init/172_product_site_offer_logistics_history.sql",
-                "classpath:db/init/167_product_keyword_management.sql"
+                "classpath:db/init/174_product_keyword_management.sql",
+                "classpath:db/init/175_product_keyword_competitor_link.sql"
             ));
         return payload;
     }

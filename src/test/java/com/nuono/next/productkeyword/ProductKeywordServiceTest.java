@@ -154,6 +154,24 @@ class ProductKeywordServiceTest {
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void listKeywordsAllowsCurrentScopeDirectReadUpToFiveThousandRows() {
+        FakeProductKeywordMapper mapper = new FakeProductKeywordMapper();
+        ProductKeywordService service = new ProductKeywordService(mapper, new ProductKeywordNormalizer());
+        ProductKeywordListQuery query = new ProductKeywordListQuery();
+        query.setStoreCode(" str108065-nsa ");
+        query.setSiteCode(" sa ");
+        query.setLimit(8000);
+
+        service.listKeywords(context(), query);
+
+        assertThat(mapper.lastListQuery).isNotNull();
+        assertThat(mapper.lastListQuery.getOwnerUserId()).isEqualTo(99L);
+        assertThat(mapper.lastListQuery.getStoreCode()).isEqualTo("STR108065-NSA");
+        assertThat(mapper.lastListQuery.getSiteCode()).isEqualTo("SA");
+        assertThat(mapper.lastListQuery.getLimit()).isEqualTo(5000);
+    }
+
     private static BusinessAccessContext context() {
         return BusinessAccessContext.builder()
                 .sessionUserId(7L)
@@ -185,6 +203,7 @@ class ProductKeywordServiceTest {
         private long nextEventId = 320001L;
         private final Map<String, ProductKeywordRecord> keywords = new LinkedHashMap<>();
         private final Map<String, ProductKeywordUsageEventRecord> events = new LinkedHashMap<>();
+        private ProductKeywordListQuery lastListQuery;
 
         @Override
         public int allocateId(IdSequenceCommand command) {
@@ -250,6 +269,7 @@ class ProductKeywordServiceTest {
 
         @Override
         public List<ProductKeywordRecord> listKeywords(ProductKeywordListQuery query) {
+            lastListQuery = query;
             return new ArrayList<>(keywords.values());
         }
 

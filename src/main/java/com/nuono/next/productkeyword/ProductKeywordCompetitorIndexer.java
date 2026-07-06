@@ -18,9 +18,9 @@ public class ProductKeywordCompetitorIndexer {
         this.normalizer = normalizer;
     }
 
-    public void indexKeyword(CompetitorKeywordIndexCommand command) {
+    public Long indexKeyword(CompetitorKeywordIndexCommand command) {
         if (!isIndexable(command)) {
-            return;
+            return null;
         }
         String storeCode = command.storeCode.trim().toUpperCase(Locale.ROOT);
         String siteCode = command.siteCode.trim().toUpperCase(Locale.ROOT);
@@ -28,9 +28,10 @@ public class ProductKeywordCompetitorIndexer {
         String keyword = command.keyword.trim();
         String keywordNorm = normalizer.normalize(keyword);
         if (!StringUtils.hasText(keywordNorm)) {
-            return;
+            return null;
         }
         LocalDateTime occurredAt = command.occurredAt == null ? LocalDateTime.now() : command.occurredAt;
+        ProductKeywordEventStatus eventStatus = eventStatus(command.status);
         ProductKeywordRecord keywordRecord = mapper.selectByScopeAndNorm(
                 command.ownerUserId,
                 storeCode,
@@ -61,7 +62,8 @@ public class ProductKeywordCompetitorIndexer {
         keywordRecord.setLastSeenAt(occurredAt);
         keywordRecord.setUpdatedBy(command.actorUserId);
         mapper.upsertKeyword(keywordRecord);
-        mapper.upsertUsageEvent(buildEvent(command, keywordRecord, keyword, keywordNorm, occurredAt));
+        mapper.upsertUsageEvent(buildEvent(command, keywordRecord, keyword, keywordNorm, eventStatus, occurredAt));
+        return keywordRecord.getId();
     }
 
     private boolean isIndexable(CompetitorKeywordIndexCommand command) {
@@ -73,7 +75,17 @@ public class ProductKeywordCompetitorIndexer {
                 && StringUtils.hasText(command.siteCode)
                 && StringUtils.hasText(command.partnerSku)
                 && StringUtils.hasText(command.keyword)
-                && "ACTIVE".equalsIgnoreCase(command.status);
+                && eventStatus(command.status) != null;
+    }
+
+    private ProductKeywordEventStatus eventStatus(String status) {
+        if ("ACTIVE".equalsIgnoreCase(status)) {
+            return ProductKeywordEventStatus.OBSERVED;
+        }
+        if ("DELETED".equalsIgnoreCase(status) || "REMOVED".equalsIgnoreCase(status)) {
+            return ProductKeywordEventStatus.REMOVED;
+        }
+        return null;
     }
 
     private ProductKeywordUsageEventRecord buildEvent(
@@ -81,6 +93,7 @@ public class ProductKeywordCompetitorIndexer {
             ProductKeywordRecord keywordRecord,
             String keyword,
             String keywordNorm,
+            ProductKeywordEventStatus eventStatus,
             LocalDateTime occurredAt
     ) {
         ProductKeywordUsageEventRecord event = new ProductKeywordUsageEventRecord();
@@ -96,17 +109,22 @@ public class ProductKeywordCompetitorIndexer {
         event.setSourceRefType("operations_competitor_keyword");
         event.setSourceRefId(command.keywordId);
         event.setSourceRefKey(command.watchProductId + ":" + command.keywordId);
-        event.setEventStatus(ProductKeywordEventStatus.OBSERVED.name());
+        event.setEventStatus(eventStatus.name());
         event.setOccurredAt(occurredAt);
         event.setPayloadJson(payloadJson(command, keyword));
         event.setMetricsJson("{}");
-        event.setEventNaturalKey(naturalKey(command.keywordId, keywordRecord, keywordNorm));
+        event.setEventNaturalKey(naturalKey(command.keywordId, keywordRecord, keywordNorm, eventStatus));
         event.setCreatedBy(command.actorUserId);
         event.setUpdatedBy(command.actorUserId);
         return event;
     }
 
-    private String naturalKey(Long keywordId, ProductKeywordRecord keywordRecord, String keywordNorm) {
+    private String naturalKey(
+            Long keywordId,
+            ProductKeywordRecord keywordRecord,
+            String keywordNorm,
+            ProductKeywordEventStatus eventStatus
+    ) {
         return String.join(
                 "|",
                 ProductKeywordSourceType.COMPETITOR_KEYWORD.name(),
@@ -115,7 +133,7 @@ public class ProductKeywordCompetitorIndexer {
                 keywordRecord.getSiteCode(),
                 keywordRecord.getPartnerSku(),
                 keywordNorm,
-                ProductKeywordEventStatus.OBSERVED.name()
+                eventStatus.name()
         );
     }
 
@@ -133,6 +151,7 @@ public class ProductKeywordCompetitorIndexer {
     private String payloadJson(CompetitorKeywordIndexCommand command, String keyword) {
         List<String> entries = summaryEntries(command);
         entries.add("\"keyword\":" + quote(keyword));
+        entries.add("\"status\":" + quote(command.status));
         return "{" + String.join(",", entries) + "}";
     }
 
