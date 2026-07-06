@@ -152,8 +152,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals("已封箱", firstLine.getPackageStatus());
         assertEquals("发往海外", firstLine.getLogisticsStatus());
         assertEquals("SGGRB219", firstLine.getPsku());
-        assertEquals("RUH", firstLine.getStoreCode());
-        assertEquals("SA", firstLine.getSiteCode());
+        assertNull(firstLine.getStoreCode());
+        assertNull(firstLine.getSiteCode());
         assertNull(firstLine.getCartonWeightKg());
         assertNull(firstLine.getCartonVolumeCbm());
 
@@ -163,6 +163,42 @@ class InTransitPluginSyncServiceTest {
         assertEquals("departed_origin", nodeCaptor.getValue().getNodeStatus());
         assertEquals(LocalDateTime.parse("2026-06-02T12:00:00"), nodeCaptor.getValue().getNodeHappenedAt());
         assertEquals("发往海外", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
+    void shouldNotFallbackPluginLineScopeToForwarderDestination() {
+        PluginSyncCommand command = sampleCommand();
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
+        assertNull(firstLine.getStoreCode());
+        assertNull(firstLine.getSiteCode());
+    }
+
+    @Test
+    void shouldKeepTrueNuonoPluginLineScope() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine firstPayloadLine = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        firstPayloadLine.setStoreCode("str245027-nae");
+        firstPayloadLine.setSiteCode("");
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
+        assertEquals("STR245027-NAE", firstLine.getStoreCode());
+        assertEquals("AE", firstLine.getSiteCode());
+        verify(accessScopeService, times(2)).requireWritableLineScope(any(), any(SaveLineCommand.class));
     }
 
     @Test
@@ -591,7 +627,7 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldRejectPluginLineWhenStoreSiteCannotBeResolved() {
+    void shouldKeepPluginLineScopeBlankWhenStoreSiteCannotBeResolved() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncBatch batch = command.getBatches().get(0);
         batch.setBatchNo("NO-ROUTE-001");
@@ -604,18 +640,19 @@ class InTransitPluginSyncServiceTest {
 
         PluginSyncPreviewView preview = service.preview(command);
 
-        assertEquals(false, preview.isCommittable());
-        assertTrue(preview.getIssues().stream().anyMatch(issue ->
-                "storeCode".equals(issue.getField())
-                        && issue.getMessage().contains("目的地店铺")
-        ));
-        assertTrue(preview.getIssues().stream().anyMatch(issue ->
-                "siteCode".equals(issue.getField())
-                        && issue.getMessage().contains("站点")
-        ));
-        assertThrows(IllegalStateException.class, () -> service.commit(command));
-        verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
-        verify(batchService, never()).saveLine(any(SaveLineCommand.class));
+        assertEquals(true, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().noneMatch(issue -> "error".equals(issue.getLevel())));
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        assertNull(lineCaptor.getAllValues().get(0).getStoreCode());
+        assertNull(lineCaptor.getAllValues().get(0).getSiteCode());
     }
 
     @Test
@@ -900,8 +937,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals("PAPERSAYSB293", line.getSku());
         assertEquals("PAPERSAYSB293", line.getMsku());
         assertEquals("粉盒马克笔24支48色", line.getProductName());
-        assertEquals("RUH", line.getStoreCode());
-        assertEquals("SA", line.getSiteCode());
+        assertNull(line.getStoreCode());
+        assertNull(line.getSiteCode());
         assertEquals(48, line.getShippedQuantity());
         assertEquals(0, line.getReceivedQuantity());
         assertEquals("已完结", line.getPackageStatus());
