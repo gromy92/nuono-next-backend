@@ -48,14 +48,15 @@ public final class ReplenishmentPlanCalculator {
         BigDecimal knownInboundUnits = sumValues(inboundByDay);
         List<MissingEtaBatch> missingEtaBatches = collectMissingEtaBatches(input.getInboundBatches(), input.getMissingEtaBatches());
         BigDecimal missingEtaInboundQty = sumMissingEta(missingEtaBatches);
-        List<String> warnings = buildWarnings(dailyDemandByDay, missingEtaInboundQty, seaWindowEndDay);
-
         StockSnapshot stockSnapshot = input.getStockSnapshot();
+        List<String> warnings = buildWarnings(dailyDemandByDay, missingEtaInboundQty, seaWindowEndDay, stockSnapshot);
+
         BigDecimal fbnStockUnits = stockSnapshot.getFbnStockUnits();
         BigDecimal supermallStockUnits = stockSnapshot.getSupermallStockUnits();
-        BigDecimal currentStockUnits = fbnStockUnits.add(supermallStockUnits);
+        BigDecimal currentStockUnits = stockSnapshot.getCurrentStockUnits();
+        BigDecimal projectionStockUnits = projectionStockUnits(stockSnapshot);
 
-        BigDecimal projectedStock = currentStockUnits.add(inboundByDay.getOrDefault(0, BigDecimal.ZERO));
+        BigDecimal projectedStock = projectionStockUnits.add(inboundByDay.getOrDefault(0, BigDecimal.ZERO));
         Integer firstStockoutDay = projectedStock.compareTo(BigDecimal.ZERO) <= 0 ? 0 : null;
         List<DailyProjectionView> dailyProjection = new ArrayList<>();
         for (int day = 1; day <= horizon; day++) {
@@ -217,7 +218,8 @@ public final class ReplenishmentPlanCalculator {
     private static List<String> buildWarnings(
             Map<Integer, BigDecimal> dailyDemandByDay,
             BigDecimal missingEtaInboundQty,
-            int seaWindowEndDay
+            int seaWindowEndDay,
+            StockSnapshot stockSnapshot
     ) {
         List<String> warnings = new ArrayList<>();
         if (missingEtaInboundQty.compareTo(BigDecimal.ZERO) > 0) {
@@ -229,7 +231,23 @@ public final class ReplenishmentPlanCalculator {
         if (hasForecastGap(dailyDemandByDay, seaWindowEndDay)) {
             warnings.add("daily_forecast_gap");
         }
+        if (stockSnapshot == null || stockSnapshot.getCurrentStockUnits() == null || stockSnapshot.currentStockFactMissing()) {
+            warnings.add("stock_fact_missing");
+        }
+        if (stockSnapshot == null || stockSnapshot.getFbnStockUnits() == null) {
+            warnings.add("fbn_stock_fact_missing");
+        }
+        if (stockSnapshot == null || stockSnapshot.getSupermallStockUnits() == null) {
+            warnings.add("supermall_stock_fact_missing");
+        }
         return warnings;
+    }
+
+    private static BigDecimal projectionStockUnits(StockSnapshot stockSnapshot) {
+        if (stockSnapshot == null) {
+            return BigDecimal.ZERO;
+        }
+        return nonNegative(stockSnapshot.getFbnStockUnits()).add(nonNegative(stockSnapshot.getSupermallStockUnits()));
     }
 
     private static boolean hasForecastGap(Map<Integer, BigDecimal> dailyDemandByDay, int seaWindowEndDay) {

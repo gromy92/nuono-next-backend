@@ -155,6 +155,28 @@ class ReplenishmentPlanCalculatorTest {
     }
 
     @Test
+    void shouldPreserveMissingStockFactsWhileUsingZeroForProjection() {
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-MISSING-STOCK",
+                "SKU-MISSING-STOCK",
+                "Missing Stock Product",
+                LocalDate.of(2026, 7, 6),
+                new StockSnapshot(null, null, null),
+                Collections.emptyMap(),
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), null);
+
+        assertNull(result.getCurrentStockUnits());
+        assertNull(result.getFbnStockUnits());
+        assertNull(result.getSupermallStockUnits());
+        assertEquals(0, result.getFirstStockoutDay());
+        assertTrue(result.getWarnings().contains("stock_fact_missing"));
+        assertTrue(result.getWarnings().contains("fbn_stock_fact_missing"));
+        assertTrue(result.getWarnings().contains("supermall_stock_fact_missing"));
+    }
+
+    @Test
     void shouldRejectNullAnchorDate() {
         PlanInput input = new PlanInput(
                 "PSKU-NO-ANCHOR",

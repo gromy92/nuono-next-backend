@@ -38,7 +38,7 @@ public final class ReplenishmentPlanRecords {
             this.productTitle = productTitle;
             this.anchorDate = anchorDate;
             this.stockSnapshot = stockSnapshot == null
-                    ? new StockSnapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO)
+                    ? new StockSnapshot(null, null, null)
                     : stockSnapshot;
             this.dailyDemandByDay = Collections.unmodifiableMap(
                     dailyDemandByDay == null ? Collections.emptyMap() : new HashMap<>(dailyDemandByDay)
@@ -84,11 +84,22 @@ public final class ReplenishmentPlanRecords {
         private final BigDecimal currentStockUnits;
         private final BigDecimal fbnStockUnits;
         private final BigDecimal supermallStockUnits;
+        private final boolean currentStockFactMissing;
 
         public StockSnapshot(BigDecimal currentStockUnits, BigDecimal fbnStockUnits, BigDecimal supermallStockUnits) {
-            this.currentStockUnits = nonNegative(currentStockUnits);
-            this.fbnStockUnits = nonNegative(fbnStockUnits);
-            this.supermallStockUnits = nonNegative(supermallStockUnits);
+            this(currentStockUnits, fbnStockUnits, supermallStockUnits, currentStockUnits == null);
+        }
+
+        StockSnapshot(
+                BigDecimal currentStockUnits,
+                BigDecimal fbnStockUnits,
+                BigDecimal supermallStockUnits,
+                boolean currentStockFactMissing
+        ) {
+            this.currentStockUnits = nonNegativeOrNull(currentStockUnits);
+            this.fbnStockUnits = nonNegativeOrNull(fbnStockUnits);
+            this.supermallStockUnits = nonNegativeOrNull(supermallStockUnits);
+            this.currentStockFactMissing = currentStockFactMissing;
         }
 
         public BigDecimal getCurrentStockUnits() {
@@ -101,6 +112,10 @@ public final class ReplenishmentPlanRecords {
 
         public BigDecimal getSupermallStockUnits() {
             return supermallStockUnits;
+        }
+
+        boolean currentStockFactMissing() {
+            return currentStockFactMissing;
         }
     }
 
@@ -292,9 +307,9 @@ public final class ReplenishmentPlanRecords {
             this.partnerSku = partnerSku;
             this.sku = sku;
             this.productTitle = productTitle;
-            this.currentStockUnits = nonNegative(currentStockUnits);
-            this.fbnStockUnits = nonNegative(fbnStockUnits);
-            this.supermallStockUnits = nonNegative(supermallStockUnits);
+            this.currentStockUnits = nonNegativeOrNull(currentStockUnits);
+            this.fbnStockUnits = nonNegativeOrNull(fbnStockUnits);
+            this.supermallStockUnits = nonNegativeOrNull(supermallStockUnits);
             this.knownInboundUnits = nonNegative(knownInboundUnits);
             this.missingEtaInboundQty = nonNegative(missingEtaInboundQty);
             this.missingEtaBatchCount = missingEtaBatchCount;
@@ -405,8 +420,98 @@ public final class ReplenishmentPlanRecords {
         }
     }
 
+    public static final class PlanQuery {
+        private final Long ownerUserId;
+        private final String storeCode;
+        private final String siteCode;
+
+        public PlanQuery(Long ownerUserId, String storeCode, String siteCode) {
+            this.ownerUserId = ownerUserId;
+            this.storeCode = storeCode;
+            this.siteCode = siteCode;
+        }
+
+        public Long getOwnerUserId() {
+            return ownerUserId;
+        }
+
+        public String getStoreCode() {
+            return storeCode;
+        }
+
+        public String getSiteCode() {
+            return siteCode;
+        }
+    }
+
+    public static final class PlanOverviewView {
+        private final String state;
+        private final String storeCode;
+        private final String siteCode;
+        private final String calculationVersion;
+        private final ReplenishmentPlanConfig configSnapshot;
+        private final LocalDate anchorDate;
+        private final List<PlanItemView> rows;
+
+        public PlanOverviewView(
+                String state,
+                String storeCode,
+                String siteCode,
+                String calculationVersion,
+                ReplenishmentPlanConfig configSnapshot,
+                LocalDate anchorDate,
+                List<PlanItemView> rows
+        ) {
+            this.state = state;
+            this.storeCode = storeCode;
+            this.siteCode = siteCode;
+            this.calculationVersion = calculationVersion;
+            this.configSnapshot = configSnapshot;
+            this.anchorDate = anchorDate;
+            this.rows = immutableList(rows);
+        }
+
+        public String getState() {
+            return state;
+        }
+
+        public String getStoreCode() {
+            return storeCode;
+        }
+
+        public String getSiteCode() {
+            return siteCode;
+        }
+
+        public String getCalculationVersion() {
+            return calculationVersion;
+        }
+
+        public ReplenishmentPlanConfig getConfigSnapshot() {
+            return configSnapshot;
+        }
+
+        public LocalDate getAnchorDate() {
+            return anchorDate;
+        }
+
+        public List<PlanItemView> getRows() {
+            return rows;
+        }
+    }
+
     private static BigDecimal nonNegative(BigDecimal value) {
         if (value == null || value.signum() < 0) {
+            return BigDecimal.ZERO;
+        }
+        return value;
+    }
+
+    private static BigDecimal nonNegativeOrNull(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.signum() < 0) {
             return BigDecimal.ZERO;
         }
         return value;
