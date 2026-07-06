@@ -11,13 +11,24 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public final class ReplenishmentPlanCalculator {
+
+    private static final Set<String> INACTIVE_INBOUND_STATUSES = new HashSet<>(Arrays.asList(
+            "draft",
+            "warehouse_received",
+            "completed",
+            "cancelled"
+    ));
 
     public PlanItemView calculate(PlanInput input, ReplenishmentPlanConfig config) {
         Objects.requireNonNull(input, "input must not be null");
@@ -128,7 +139,7 @@ public final class ReplenishmentPlanCalculator {
             return inboundByDay;
         }
         for (InboundBatch batch : inboundBatches) {
-            if (batch == null || batch.getEtaDate() == null) {
+            if (batch == null || !isActiveStatus(batch.getBatchStatus()) || batch.getEtaDate() == null) {
                 continue;
             }
             BigDecimal remainingQuantity = nonNegative(batch.getRemainingQuantity());
@@ -158,6 +169,7 @@ public final class ReplenishmentPlanCalculator {
         if (inboundBatches != null) {
             for (InboundBatch batch : inboundBatches) {
                 if (batch == null
+                        || !isActiveStatus(batch.getBatchStatus())
                         || batch.getEtaDate() != null
                         || batch.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
                     continue;
@@ -175,10 +187,19 @@ public final class ReplenishmentPlanCalculator {
     }
 
     private static void addMissingEtaBatch(Map<String, MissingEtaBatch> batchesByKey, MissingEtaBatch batch) {
-        if (batch == null || batch.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+        if (batch == null
+                || !isActiveStatus(batch.getBatchStatus())
+                || batch.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
         batchesByKey.putIfAbsent(missingEtaKey(batch), batch);
+    }
+
+    private static boolean isActiveStatus(String status) {
+        if (status == null || status.trim().isEmpty()) {
+            return true;
+        }
+        return !INACTIVE_INBOUND_STATUSES.contains(status.trim().toLowerCase(Locale.ROOT));
     }
 
     private static String missingEtaKey(MissingEtaBatch batch) {

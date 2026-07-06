@@ -136,6 +136,32 @@ class ReplenishmentPlanCalculatorTest {
     }
 
     @Test
+    void shouldExcludeInactiveEtaInboundFromKnownInboundAndProjection() {
+        LocalDate anchorDate = LocalDate.of(2026, 7, 6);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-CANCELLED-INBOUND",
+                "SKU-CANCELLED-INBOUND",
+                "Cancelled Inbound Product",
+                anchorDate,
+                new StockSnapshot(new BigDecimal("10"), new BigDecimal("10"), BigDecimal.ZERO),
+                Collections.emptyMap(),
+                Collections.singletonList(new InboundBatch(
+                        4001L,
+                        "BATCH-CANCELLED",
+                        "SEA",
+                        "CANCELLED",
+                        anchorDate.plusDays(5),
+                        new BigDecimal("30")
+                )),
+                Collections.emptyList()
+        ), null);
+
+        assertEquals(new BigDecimal("0"), result.getKnownInboundUnits());
+        assertEquals(new BigDecimal("0"), result.getDailyProjection().get(4).getInboundUnits());
+    }
+
+    @Test
     void shouldDeriveMissingEtaInboundFromInboundBatches() {
         LocalDate anchorDate = LocalDate.of(2026, 7, 6);
         List<InboundBatch> inboundBatches = new ArrayList<>();
@@ -169,6 +195,34 @@ class ReplenishmentPlanCalculatorTest {
         assertTrue(result.getWarnings().contains("daily_forecast_gap"));
         assertNotNull(result.getDailyProjection().get(4));
         assertEquals(new BigDecimal("0"), result.getDailyProjection().get(4).getInboundUnits());
+    }
+
+    @Test
+    void shouldNotConvertInactiveNullEtaInboundToMissingEtaWarningData() {
+        LocalDate anchorDate = LocalDate.of(2026, 7, 6);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-COMPLETED-MISSING-ETA",
+                "SKU-COMPLETED-MISSING-ETA",
+                "Completed Missing ETA Product",
+                anchorDate,
+                new StockSnapshot(new BigDecimal("50"), new BigDecimal("50"), BigDecimal.ZERO),
+                Collections.emptyMap(),
+                Collections.singletonList(new InboundBatch(
+                        4002L,
+                        "BATCH-COMPLETED",
+                        "SEA",
+                        "Completed",
+                        null,
+                        new BigDecimal("40")
+                )),
+                Collections.emptyList()
+        ), null);
+
+        assertEquals(new BigDecimal("0"), result.getMissingEtaInboundQty());
+        assertEquals(0, result.getMissingEtaBatchCount());
+        assertTrue(result.getMissingEtaBatches().isEmpty());
+        assertFalse(result.getWarnings().contains("missing_eta_inbound_excluded"));
     }
 
     @Test
