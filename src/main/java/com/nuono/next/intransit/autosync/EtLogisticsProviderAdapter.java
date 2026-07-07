@@ -207,6 +207,9 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
             throw new ProviderAuthException(LogisticsProviderFailureCode.PROVIDER_ERROR, errorMessage);
         }
         String body = response.body() == null ? "" : response.body();
+        if (looksLikeCaptchaChallenge(body)) {
+            throw new ProviderAuthException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "ET 接口提示需要验证码或风控验证。");
+        }
         if (looksLikeHtml(body)) {
             throw new ProviderAuthException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "ET 接口返回登录页面，可能需要验证码或风控验证。");
         }
@@ -925,6 +928,17 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
 
     private boolean looksLikeHtml(String body) {
         return StringUtils.hasText(body) && body.trim().matches("(?is)^\\s*<!doctype.*|^\\s*<html\\b.*");
+    }
+
+    private boolean looksLikeCaptchaChallenge(String body) {
+        if (!StringUtils.hasText(body)) {
+            return false;
+        }
+        String normalized = body.toLowerCase(Locale.ROOT);
+        return normalized.contains("captcha")
+                || normalized.contains("validatecode")
+                || normalized.contains("verifycode")
+                || body.contains("验证码");
     }
 
     private int countPackages(PluginSyncCommand command) {

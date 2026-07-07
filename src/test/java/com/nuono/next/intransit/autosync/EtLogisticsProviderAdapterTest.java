@@ -13,6 +13,7 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class EtLogisticsProviderAdapterTest {
@@ -174,6 +175,43 @@ class EtLogisticsProviderAdapterTest {
             assertThat(result.getLineCount()).isEqualTo(1);
             assertThat(result.getCommand().getBatches().get(0).getPackages().get(0).getLines().get(0).getPsku())
                     .isEqualTo("PAPERSAYSB293");
+        }
+    }
+
+    @Test
+    void returnsCaptchaRequiredWhenLoginJsonRequiresCaptcha() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            AtomicBoolean listRequested = new AtomicBoolean(false);
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(readBody(exchange)).contains("fake-user").contains("fake-password");
+                sendJson(exchange, "{\"success\":false,\"message\":\"请输入验证码\"}");
+            });
+            server.handle("/Delivery/ShipOrder/GetGridJson", exchange -> {
+                listRequested.set(true);
+                sendJson(exchange, listJson());
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getEt().setEnabled(true);
+            properties.getEt().setBaseUrl(server.baseUrl());
+            properties.getEt().setLoginPath("/login");
+            EtLogisticsProviderAdapter httpAdapter = new EtLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(10);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.CAPTCHA_REQUIRED);
+            assertThat(result.getFailureMessage())
+                    .contains("验证码")
+                    .doesNotContain("fake-user")
+                    .doesNotContain("fake-password");
+            assertThat(listRequested).isFalse();
         }
     }
 
