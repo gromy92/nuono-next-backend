@@ -1,0 +1,14 @@
+package com.nuono.next.postsaleprofit;
+
+public enum PostSaleProfitQualityStatus {
+    OK,
+    MISSING_ORDER_LINE,
+    MISSING_FINANCE,
+    MISSING_PURCHASE_COST,
+    MISSING_HEADHAUL,
+    ESTIMATED_HEADHAUL,
+    PURCHASE_SOURCE_REVIEW,
+    MISSING_FX_RATE,
+    UNASSIGNED_ORDER_QUANTITY,
+    MANUAL_LOCKED
+}

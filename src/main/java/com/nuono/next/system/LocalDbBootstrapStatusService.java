@@ -163,7 +163,10 @@ public class LocalDbBootstrapStatusService {
                 "classpath:db/init/175_product_keyword_competitor_link.sql",
                 "classpath:db/init/176_product_operation_stage.sql",
                 "classpath:db/init/177_in_transit_batch_estimated_arrival_source.sql",
-                "classpath:db/init/178_logistics_auto_sync.sql"
+                "classpath:db/init/178_logistics_auto_sync.sql",
+                "classpath:db/init/179_post_sale_profit_center.sql",
+                "classpath:db/init/180_procurement_logistics_shipment_allocation.sql",
+                "classpath:db/init/181_post_sale_profit_menu_permission.sql"
             ));
         return payload;
     }
