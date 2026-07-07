@@ -3,6 +3,7 @@ package com.nuono.next.intransit.autosync;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
+import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncIssueView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncPreviewView;
 import com.nuono.next.intransit.InTransitPluginSyncService;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -11,6 +12,7 @@ import com.nuono.next.system.task.OperationalTaskPayload;
 import com.nuono.next.system.task.OperationalTaskService;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -22,6 +24,7 @@ import org.springframework.util.StringUtils;
 public class LogisticsAutoSyncService {
     private static final String TASK_TYPE = "LOGISTICS_AUTO_SYNC";
     private static final int DEFAULT_RECENT_LIMIT = 10;
+    private static final int MAX_PREVIEW_ISSUES_IN_TASK_RESULT = 20;
 
     private final Map<String, LogisticsProviderAdapter> adaptersBySource = new HashMap<>();
     private final LogisticsCredentialCipher credentialCipher;
@@ -91,6 +94,7 @@ public class LogisticsAutoSyncService {
                 summary.setStatus("preview_blocked");
                 summary.setFailureCode(LogisticsProviderFailureCode.PREVIEW_BLOCKED);
                 summary.setFailureMessage("物流自动同步预览未通过，未提交。");
+                applyPreviewIssues(summary, preview, account, password);
                 updateRunState(
                         account,
                         task,
@@ -103,7 +107,12 @@ public class LogisticsAutoSyncService {
                         LogisticsProviderFailureCode.PREVIEW_BLOCKED,
                         summary.getFailureMessage()
                 );
-                taskService.fail(task.getId(), LogisticsProviderFailureCode.PREVIEW_BLOCKED, summary.getFailureMessage());
+                taskService.fail(
+                        task.getId(),
+                        LogisticsProviderFailureCode.PREVIEW_BLOCKED,
+                        summary.getFailureMessage(),
+                        toJson(summary)
+                );
                 return summary;
             }
 
@@ -290,6 +299,51 @@ public class LogisticsAutoSyncService {
         summary.setNodeCount(fetchResult.getNodeCount());
     }
 
+    private void applyPreviewIssues(
+            LogisticsAutoSyncTaskSummary summary,
+            PluginSyncPreviewView preview,
+            LogisticsAutoSyncAccount account,
+            String password
+    ) {
+        if (summary == null || preview == null) {
+            return;
+        }
+        List<PluginSyncIssueView> issues = preview.getIssues();
+        if (issues == null || issues.isEmpty()) {
+            summary.setPreviewIssueCount(0);
+            summary.setPreviewIssues(List.of());
+            return;
+        }
+        summary.setPreviewIssueCount(issues.size());
+        List<LogisticsAutoSyncTaskSummary.PreviewIssueSummary> sanitized = new ArrayList<>();
+        for (PluginSyncIssueView issue : issues) {
+            if (issue == null) {
+                continue;
+            }
+            sanitized.add(toPreviewIssueSummary(issue, account, password));
+            if (sanitized.size() >= MAX_PREVIEW_ISSUES_IN_TASK_RESULT) {
+                break;
+            }
+        }
+        summary.setPreviewIssues(sanitized);
+    }
+
+    private LogisticsAutoSyncTaskSummary.PreviewIssueSummary toPreviewIssueSummary(
+            PluginSyncIssueView issue,
+            LogisticsAutoSyncAccount account,
+            String password
+    ) {
+        LogisticsAutoSyncTaskSummary.PreviewIssueSummary summary =
+                new LogisticsAutoSyncTaskSummary.PreviewIssueSummary();
+        summary.setLevel(sanitize(issue.getLevel(), account, password));
+        summary.setBatchNo(sanitize(issue.getBatchNo(), account, password));
+        summary.setBoxNo(sanitize(issue.getBoxNo(), account, password));
+        summary.setPsku(sanitize(issue.getPsku(), account, password));
+        summary.setField(sanitize(issue.getField(), account, password));
+        summary.setMessage(truncate(sanitize(issue.getMessage(), account, password), 300));
+        return summary;
+    }
+
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -327,6 +381,13 @@ public class LogisticsAutoSyncService {
             result = result.replace(password, "[redacted]");
         }
         return result;
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxLength));
     }
 
     private static String normalizeSource(String sourceSystem) {

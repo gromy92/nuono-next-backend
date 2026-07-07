@@ -108,6 +108,27 @@ class OperationalTaskServiceTest {
     }
 
     @Test
+    void shouldRecordFailureResultJsonWhenProvided() {
+        OperationalTask task = service.start(
+                "logistics-auto-sync",
+                "owner:307|source:CHIC|account:180000",
+                payload()
+        );
+
+        OperationalTask failed = service.fail(
+                task.getId(),
+                "PREVIEW_BLOCKED",
+                "preview blocked",
+                "{\"previewIssueCount\":1}"
+        );
+
+        assertEquals(OperationalTaskStatus.FAILED, failed.getStatus());
+        assertEquals("PREVIEW_BLOCKED", failed.getErrorCode());
+        assertEquals("{\"previewIssueCount\":1}", failed.getResultJson());
+        assertEquals(failed.getResultJson(), service.find(task.getId()).orElseThrow().getResultJson());
+    }
+
+    @Test
     void shouldNormalizeScopeAndRejectBlankIdentity() {
         OperationalTask task = service.start(
                 " product.initialization ",

@@ -1,5 +1,8 @@
 package com.nuono.next.intransit.autosync;
 
+import java.util.Collections;
+import java.util.List;
+
 public class LogisticsAutoSyncTaskSummary {
     private Long accountId;
     private Long ownerUserId;
@@ -12,6 +15,8 @@ public class LogisticsAutoSyncTaskSummary {
     private int packageCount;
     private int lineCount;
     private int nodeCount;
+    private int previewIssueCount;
+    private List<PreviewIssueSummary> previewIssues = Collections.emptyList();
 
     public Long getAccountId() { return accountId; }
     public void setAccountId(Long accountId) { this.accountId = accountId; }
@@ -35,4 +40,32 @@ public class LogisticsAutoSyncTaskSummary {
     public void setLineCount(int lineCount) { this.lineCount = lineCount; }
     public int getNodeCount() { return nodeCount; }
     public void setNodeCount(int nodeCount) { this.nodeCount = nodeCount; }
+    public int getPreviewIssueCount() { return previewIssueCount; }
+    public void setPreviewIssueCount(int previewIssueCount) { this.previewIssueCount = previewIssueCount; }
+    public List<PreviewIssueSummary> getPreviewIssues() { return previewIssues; }
+    public void setPreviewIssues(List<PreviewIssueSummary> previewIssues) {
+        this.previewIssues = previewIssues == null ? Collections.emptyList() : previewIssues;
+    }
+
+    public static class PreviewIssueSummary {
+        private String level;
+        private String batchNo;
+        private String boxNo;
+        private String psku;
+        private String field;
+        private String message;
+
+        public String getLevel() { return level; }
+        public void setLevel(String level) { this.level = level; }
+        public String getBatchNo() { return batchNo; }
+        public void setBatchNo(String batchNo) { this.batchNo = batchNo; }
+        public String getBoxNo() { return boxNo; }
+        public void setBoxNo(String boxNo) { this.boxNo = boxNo; }
+        public String getPsku() { return psku; }
+        public void setPsku(String psku) { this.psku = psku; }
+        public String getField() { return field; }
+        public void setField(String field) { this.field = field; }
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+    }
 }
