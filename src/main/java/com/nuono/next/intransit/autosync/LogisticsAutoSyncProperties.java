@@ -215,7 +215,7 @@ public class LogisticsAutoSyncProperties {
     public static class Yite {
         private boolean enabled;
         private String baseUrl = "https://ywyite.nextsls.com";
-        private String loginPath;
+        private String loginPath = "/rest/tms/wos/auth/login?redirect_url=%2Ftms%2Fwos";
         private String loginAccountField = "username";
         private String loginPasswordField = "password";
         private String loginPayloadType = "json";

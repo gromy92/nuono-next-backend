@@ -124,7 +124,7 @@ nuono:
     yite:
       enabled: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_ENABLED:false}
       base-url: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_BASE_URL:https://ywyite.nextsls.com}
-      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PATH:}
+      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PATH:/rest/tms/wos/auth/login?redirect_url=%2Ftms%2Fwos}
       login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_ACCOUNT_FIELD:username}
       login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PASSWORD_FIELD:password}
       login-payload-type: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PAYLOAD_TYPE:json}

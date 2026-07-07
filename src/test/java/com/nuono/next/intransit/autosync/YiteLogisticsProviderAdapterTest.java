@@ -14,6 +14,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class YiteLogisticsProviderAdapterTest {
@@ -27,6 +28,12 @@ class YiteLogisticsProviderAdapterTest {
                 .isEqualTo("/rest/tms/wos/shipment/view?id=6a1979a93a8e5260c465758b");
         assertThat(adapter.buildShipmentPackingListPath("6a1979a93a8e5260c465758b"))
                 .isEqualTo("/rest/tms/wos/shipment/change_declaration_view?activeTab=packing_list&id=6a1979a93a8e5260c465758b");
+    }
+
+    @Test
+    void defaultsToVerifiedYiteLoginPath() {
+        assertThat(new LogisticsAutoSyncProperties().getYite().getLoginPath())
+                .isEqualTo("/rest/tms/wos/auth/login?redirect_url=%2Ftms%2Fwos");
     }
 
     @Test
@@ -162,6 +169,79 @@ class YiteLogisticsProviderAdapterTest {
             assertThat(result.getNodeCount()).isEqualTo(3);
             assertThat(result.getCommand().getBatches().get(0).getPackages().get(0).getLines().get(0).getPsku())
                     .isEqualTo("SGGRB142");
+        }
+    }
+
+    @Test
+    void fetchUsesYiteLoginResponseTokenWhenCookieTokenIsMissing() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                String body = readBody(exchange);
+                assertThat(body).contains("fake-user").contains("fake-password");
+                sendJson(exchange, "{\"success\":1,\"data\":{\"token\":\"body-token\"}}");
+            });
+            server.handle("/rest/tms/wos/shipment/lists", exchange -> {
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("body-token");
+                sendJson(exchange, listJson());
+            });
+            server.handle("/rest/tms/wos/shipment/view", exchange -> sendJson(exchange, viewJson()));
+            server.handle("/rest/tms/wos/shipment/change_declaration_view", exchange -> sendJson(exchange, packingListJson()));
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getYite().setEnabled(true);
+            properties.getYite().setBaseUrl(server.baseUrl());
+            properties.getYite().setLoginPath("/login");
+            YiteLogisticsProviderAdapter httpAdapter = new YiteLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(10);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getCommand().getSourceSystem()).isEqualTo("YITE");
+            assertThat(result.getCommand().getBatches()).hasSize(1);
+        }
+    }
+
+    @Test
+    void returnsInvalidCredentialWhenYiteLoginJsonFails() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            AtomicBoolean listRequested = new AtomicBoolean(false);
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                String body = readBody(exchange);
+                assertThat(body).contains("fake-user").contains("fake-password");
+                sendJson(exchange, "{\"success\":0,\"info\":\"账号或密码错误\"}");
+            });
+            server.handle("/rest/tms/wos/shipment/lists", exchange -> {
+                listRequested.set(true);
+                sendJson(exchange, listJson());
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getYite().setEnabled(true);
+            properties.getYite().setBaseUrl(server.baseUrl());
+            properties.getYite().setLoginPath("/login");
+            YiteLogisticsProviderAdapter httpAdapter = new YiteLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(10);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.INVALID_CREDENTIAL);
+            assertThat(result.getFailureMessage())
+                    .contains("登录失败")
+                    .doesNotContain("fake-user")
+                    .doesNotContain("fake-password");
+            assertThat(listRequested).isFalse();
         }
     }
 

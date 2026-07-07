@@ -159,8 +159,8 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
                     .POST(HttpRequest.BodyPublishers.ofString(toJson(loginPayload)))
                     .build();
         }
-        requireJsonBody(send(session, requestMessage), "义特登录接口返回异常。");
-        return session;
+        String loginBody = requireJsonBody(send(session, requestMessage), "义特登录接口返回异常。");
+        return new FetchSession(yite.getBaseUrl(), httpClient, cookieManager, extractLoginToken(loginBody));
     }
 
     private String postJson(FetchSession session, String path, Object payload) throws IOException, InterruptedException {
@@ -186,7 +186,7 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri(session.baseUrl, path))
                 .timeout(Duration.ofSeconds(timeoutSeconds((properties.getYite() == null ? new LogisticsAutoSyncProperties.Yite() : properties.getYite()).getTimeoutSeconds())))
                 .header("token-type", "web");
-        String token = sessionCookie(session, "token", "os_wos");
+        String token = firstText(session.token, sessionCookie(session, "token", "os_wos"));
         if (StringUtils.hasText(token)) {
             builder.header("token", token);
         }
@@ -205,6 +205,49 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
             throw new ProviderAuthException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "义特接口返回登录页面，可能需要验证码或风控验证。");
         }
         return body;
+    }
+
+    private String extractLoginToken(String body) {
+        JsonNode root = parseJson(body);
+        JsonNode success = readValue(root, "success");
+        if (isExplicitFailure(success)) {
+            String message = firstText(
+                    pickText(root, "info", "message", "msg", "error"),
+                    pickText(readValue(root, "data"), "info", "message", "msg", "error"),
+                    "义特登录失败。"
+            );
+            throw new ProviderAuthException(loginFailureCode(message), "义特登录失败：" + message);
+        }
+        String token = firstText(
+                pickText(root, "token", "accessToken", "access_token"),
+                pickText(readValue(root, "data"), "token", "accessToken", "access_token")
+        );
+        return StringUtils.hasText(token) ? token.replaceFirst("(?i)^Bearer\\s+", "").trim() : null;
+    }
+
+    private boolean isExplicitFailure(JsonNode success) {
+        if (success == null || success.isMissingNode() || success.isNull()) {
+            return false;
+        }
+        if (success.isBoolean()) {
+            return !success.asBoolean();
+        }
+        if (success.isNumber()) {
+            return success.asInt() == 0;
+        }
+        if (success.isTextual()) {
+            String value = success.asText().trim().toLowerCase(Locale.ROOT);
+            return "0".equals(value) || "false".equals(value) || "fail".equals(value) || "failed".equals(value);
+        }
+        return false;
+    }
+
+    private String loginFailureCode(String message) {
+        String normalized = StringUtils.hasText(message) ? message.toLowerCase(Locale.ROOT) : "";
+        if (normalized.contains("captcha") || normalized.contains("验证码") || normalized.contains("风控")) {
+            return LogisticsProviderFailureCode.CAPTCHA_REQUIRED;
+        }
+        return LogisticsProviderFailureCode.INVALID_CREDENTIAL;
     }
 
     public Map<String, Object> buildShipmentListPayload(int limit) {
@@ -1005,11 +1048,17 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
         private final String baseUrl;
         private final HttpClient httpClient;
         private final CookieManager cookieManager;
+        private final String token;
 
         private FetchSession(String baseUrl, HttpClient httpClient, CookieManager cookieManager) {
+            this(baseUrl, httpClient, cookieManager, null);
+        }
+
+        private FetchSession(String baseUrl, HttpClient httpClient, CookieManager cookieManager, String token) {
             this.baseUrl = baseUrl;
             this.httpClient = httpClient;
             this.cookieManager = cookieManager;
+            this.token = token;
         }
     }
 
