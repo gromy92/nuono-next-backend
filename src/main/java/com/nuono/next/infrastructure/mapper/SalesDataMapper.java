@@ -14,6 +14,7 @@ import com.nuono.next.sales.SalesSyncTaskCommand;
 import com.nuono.next.sales.SalesSyncTaskRecord;
 import com.nuono.next.salesforecast.SalesForecastFollowUpCommand;
 import com.nuono.next.salesforecast.SalesForecastFollowUpRecord;
+import com.nuono.next.salesforecast.SalesForecastHistoricalStockSnapshot;
 import com.nuono.next.salesforecast.SalesForecastResultRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRecord;
 import com.nuono.next.salesforecast.SalesForecastStockSnapshot;
@@ -334,14 +335,28 @@ public interface SalesDataMapper {
     );
 
     @ConstructorArgs({
+            @Arg(column = "ownerUserId", javaType = Long.class),
+            @Arg(column = "storeCode", javaType = String.class),
+            @Arg(column = "siteCode", javaType = String.class),
             @Arg(column = "partnerSku", javaType = String.class),
             @Arg(column = "sku", javaType = String.class),
-            @Arg(column = "currentStock", javaType = Integer.class)
+            @Arg(column = "currentStock", javaType = Integer.class),
+            @Arg(column = "brand", javaType = String.class),
+            @Arg(column = "productFulltype", javaType = String.class),
+            @Arg(column = "productFamily", javaType = String.class),
+            @Arg(column = "productTitle", javaType = String.class)
     })
     @Select({
             "SELECT",
+            "  ls.owner_user_id AS ownerUserId,",
+            "  lss.store_code AS storeCode,",
+            "  lss.site AS siteCode,",
             "  pv.partner_sku AS partnerSku,",
             "  COALESCE(NULLIF(pv.child_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, '')) AS sku,",
+            "  pm.brand_cache AS brand,",
+            "  pm.product_fulltype_cache AS productFulltype,",
+            "  COALESCE(NULLIF(npfd.family, ''), NULLIF(SUBSTRING_INDEX(pm.product_fulltype_cache, '-', 1), '')) AS productFamily,",
+            "  COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS productTitle,",
             "  CASE",
             "    WHEN pso.fbn_stock IS NULL AND pso.supermall_stock IS NULL AND pso.fbp_stock IS NULL THEN NULL",
             "    ELSE COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0) + COALESCE(pso.fbp_stock, 0)",
@@ -353,14 +368,63 @@ public interface SalesDataMapper {
             "JOIN logical_store_site lss ON lss.id = pso.site_id",
             "  AND lss.logical_store_id = ls.id",
             "  AND lss.is_deleted = 0",
+            "LEFT JOIN noon_product_fulltype_dictionary npfd ON npfd.owner_user_id = ls.owner_user_id",
+            "  AND npfd.project_code = ls.project_code COLLATE utf8mb4_unicode_ci",
+            "  AND npfd.store_code = lss.store_code COLLATE utf8mb4_unicode_ci",
+            "  AND npfd.product_fulltype = pm.product_fulltype_cache COLLATE utf8mb4_unicode_ci",
+            "  AND npfd.status = 'ACTIVE'",
             "WHERE ls.owner_user_id = #{query.ownerUserId}",
             "  AND lss.store_code = #{query.storeCode}",
             "  AND lss.site = #{query.siteCode}",
             "  AND pso.is_deleted = 0",
+            "  AND COALESCE(pso.is_active, b'0') = b'1'",
+            "  AND pv.partner_sku IS NOT NULL",
+            "  AND TRIM(pv.partner_sku) <> ''",
             "ORDER BY pv.partner_sku ASC, sku ASC"
     })
     List<SalesForecastStockSnapshot> selectSalesForecastCurrentStock(
             @Param("query") com.nuono.next.salesforecast.SalesForecastQuery query
+    );
+
+    @ConstructorArgs({
+            @Arg(column = "ownerUserId", javaType = Long.class),
+            @Arg(column = "storeCode", javaType = String.class),
+            @Arg(column = "siteCode", javaType = String.class),
+            @Arg(column = "partnerSku", javaType = String.class),
+            @Arg(column = "stockDate", javaType = LocalDate.class),
+            @Arg(column = "sellableStock", javaType = Integer.class)
+    })
+    @Select({
+            "<script>",
+            "SELECT",
+            "  owner_user_id AS ownerUserId,",
+            "  store_code AS storeCode,",
+            "  site_code AS siteCode,",
+            "  partner_sku AS partnerSku,",
+            "  DATE(COALESCE(inventory_snapshot_at, gmt_updated, gmt_create)) AS stockDate,",
+            "  SUM(CASE WHEN stock_bucket = 'SELLABLE' THEN GREATEST(COALESCE(qty, 0), 0) ELSE 0 END) AS sellableStock",
+            "FROM official_warehouse_inventory_snapshot_line",
+            "WHERE owner_user_id = #{query.ownerUserId}",
+            "  AND store_code = #{query.storeCode}",
+            "  AND site_code = #{query.siteCode}",
+            "  AND is_deleted = 0",
+            "  AND partner_sku IS NOT NULL",
+            "  AND TRIM(partner_sku) &lt;&gt; ''",
+            "  AND DATE(COALESCE(inventory_snapshot_at, gmt_updated, gmt_create)) &gt;= #{dateFrom}",
+            "  AND DATE(COALESCE(inventory_snapshot_at, gmt_updated, gmt_create)) &lt;= #{dateTo}",
+            "  AND UPPER(TRIM(partner_sku)) IN",
+            "  <foreach item='partnerSku' collection='partnerSkuList' open='(' separator=',' close=')'>",
+            "    #{partnerSku}",
+            "  </foreach>",
+            "GROUP BY owner_user_id, store_code, site_code, partner_sku, DATE(COALESCE(inventory_snapshot_at, gmt_updated, gmt_create))",
+            "ORDER BY partner_sku ASC, stockDate ASC",
+            "</script>"
+    })
+    List<SalesForecastHistoricalStockSnapshot> selectSalesForecastHistoricalStock(
+            @Param("query") com.nuono.next.salesforecast.SalesForecastQuery query,
+            @Param("dateFrom") LocalDate dateFrom,
+            @Param("dateTo") LocalDate dateTo,
+            @Param("partnerSkuList") List<String> partnerSkuList
     );
 
     @Insert({
@@ -368,8 +432,8 @@ public interface SalesDataMapper {
             "  id, run_id, owner_user_id, store_code, site_code, partner_sku, sku, product_title,",
             "  latest_fact_date, history_units_7, history_units_30, history_units_60, history_units_90,",
             "  observed_days, current_stock, stock_cover_days, forecast_units_30, forecast_units_60, forecast_units_90,",
-            "  lifecycle_code, lifecycle_label, calculation_version, config_version, base_daily_sales, recent_daily_trend_rate,",
-            "  trend_factor, lifecycle_factor, future_factor, lifecycle_explanation, confidence_level, confidence_label,",
+            "  calculation_version, config_version, base_daily_sales, recent_daily_trend_rate,",
+            "  trend_factor, future_factor, confidence_level, confidence_label,",
             "  confidence_explanation, warning_codes, risk_codes, activity_window_summary, activity_explanation, short_reason,",
             "  feature_snapshot_json, gmt_create, gmt_updated",
             ") VALUES (",
@@ -377,10 +441,10 @@ public interface SalesDataMapper {
             "  #{record.partnerSku}, #{record.sku}, #{record.productTitle}, #{record.latestFactDate},",
             "  #{record.historyUnits7}, #{record.historyUnits30}, #{record.historyUnits60},",
             "  #{record.historyUnits90}, #{record.observedDays}, #{record.currentStock}, #{record.stockCoverDays}, #{record.forecastUnits30},",
-            "  #{record.forecastUnits60}, #{record.forecastUnits90}, #{record.lifecycleCode},",
-            "  #{record.lifecycleLabel}, #{record.calculationVersion}, #{record.configVersion},",
+            "  #{record.forecastUnits60}, #{record.forecastUnits90},",
+            "  #{record.calculationVersion}, #{record.configVersion},",
             "  #{record.baseDailySales}, #{record.recentDailyTrendRate}, #{record.trendFactor},",
-            "  #{record.lifecycleFactor}, #{record.futureFactor}, #{record.lifecycleExplanation},",
+            "  #{record.futureFactor},",
             "  #{record.confidenceLevel}, #{record.confidenceLabel}, #{record.confidenceExplanation},",
             "  #{record.warningCodes}, #{record.riskCodes},",
             "  #{record.activityWindowSummary}, #{record.activityExplanation},",
@@ -414,16 +478,12 @@ public interface SalesDataMapper {
             @Arg(column = "forecastUnits30", javaType = int.class),
             @Arg(column = "forecastUnits60", javaType = int.class),
             @Arg(column = "forecastUnits90", javaType = int.class),
-            @Arg(column = "lifecycleCode", javaType = String.class),
-            @Arg(column = "lifecycleLabel", javaType = String.class),
             @Arg(column = "calculationVersion", javaType = String.class),
             @Arg(column = "configVersion", javaType = String.class),
             @Arg(column = "baseDailySales", javaType = BigDecimal.class),
             @Arg(column = "recentDailyTrendRate", javaType = BigDecimal.class),
             @Arg(column = "trendFactor", javaType = BigDecimal.class),
-            @Arg(column = "lifecycleFactor", javaType = BigDecimal.class),
             @Arg(column = "futureFactor", javaType = BigDecimal.class),
-            @Arg(column = "lifecycleExplanation", javaType = String.class),
             @Arg(column = "confidenceLevel", javaType = String.class),
             @Arg(column = "confidenceLabel", javaType = String.class),
             @Arg(column = "confidenceExplanation", javaType = String.class),
@@ -455,16 +515,12 @@ public interface SalesDataMapper {
             "  forecast_units_30 AS forecastUnits30,",
             "  forecast_units_60 AS forecastUnits60,",
             "  forecast_units_90 AS forecastUnits90,",
-            "  lifecycle_code AS lifecycleCode,",
-            "  lifecycle_label AS lifecycleLabel,",
             "  calculation_version AS calculationVersion,",
             "  config_version AS configVersion,",
             "  base_daily_sales AS baseDailySales,",
             "  recent_daily_trend_rate AS recentDailyTrendRate,",
             "  trend_factor AS trendFactor,",
-            "  lifecycle_factor AS lifecycleFactor,",
             "  future_factor AS futureFactor,",
-            "  lifecycle_explanation AS lifecycleExplanation,",
             "  confidence_level AS confidenceLevel,",
             "  confidence_label AS confidenceLabel,",
             "  confidence_explanation AS confidenceExplanation,",
@@ -863,6 +919,7 @@ public interface SalesDataMapper {
     @ConstructorArgs({
             @Arg(column = "partnerSku", javaType = String.class),
             @Arg(column = "sku", javaType = String.class),
+            @Arg(column = "productTitle", javaType = String.class),
             @Arg(column = "brand", javaType = String.class),
             @Arg(column = "productFulltype", javaType = String.class),
             @Arg(column = "imageUrl", javaType = String.class),
@@ -876,6 +933,7 @@ public interface SalesDataMapper {
             "SELECT",
             "  pv.partner_sku AS partnerSku,",
             "  COALESCE(NULLIF(pv.child_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, ''), '') AS sku,",
+            "  pm.title_cache AS productTitle,",
             "  pm.brand_cache AS brand,",
             "  pm.product_fulltype_cache AS productFulltype,",
             "  pm.cover_image_url AS imageUrl,",

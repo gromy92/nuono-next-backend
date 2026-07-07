@@ -3,6 +3,7 @@ package com.nuono.next.salesforecast;
 import com.nuono.next.infrastructure.mapper.SalesDataMapper;
 import java.util.List;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class MyBatisSalesForecastRunRepository implements SalesForecastRunRepository {
@@ -34,6 +35,17 @@ public class MyBatisSalesForecastRunRepository implements SalesForecastRunReposi
             Long id = mapper.nextSalesForecastResultId();
             mapper.insertSalesForecastResult(id, runId, record);
         }
+    }
+
+    @Override
+    @Transactional
+    public SalesForecastRunRecord saveRunWithResults(
+            SalesForecastRunRecord run,
+            List<SalesForecastResultRecord> records
+    ) {
+        SalesForecastRunRecord savedRun = saveRun(run);
+        saveResults(savedRun.getId(), records);
+        return savedRun;
     }
 
     @Override

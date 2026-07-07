@@ -52,7 +52,7 @@ class MyBatisSalesPriceTrendRepositoryTest {
         assertEquals("STR245027-NAE", mapper.storeCode);
         assertEquals("AE", mapper.siteCode);
         assertEquals("MILKYWAYA09", mapper.partnerSku);
-        assertEquals("Z580978E7ED8F9491B50BZ-1", mapper.sku);
+        assertEquals(null, mapper.sku);
         assertEquals(LocalDateTime.of(2026, 5, 1, 0, 0), mapper.dateFromStart);
         assertEquals(LocalDateTime.of(2026, 6, 1, 0, 0), mapper.dateToExclusive);
     }

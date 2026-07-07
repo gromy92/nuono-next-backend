@@ -158,7 +158,6 @@ class SalesDataControllerAccessTest {
                 "Paper Says",
                 "Stationery-Paper-Sticker",
                 "product_dimension_matched",
-                "stable",
                 null,
                 request
         );
@@ -172,7 +171,6 @@ class SalesDataControllerAccessTest {
         assertEquals("Paper Says", captor.getValue().getBrand());
         assertEquals("Stationery-Paper-Sticker", captor.getValue().getProductFulltype());
         assertEquals("product_dimension_matched", captor.getValue().getDataQualityCode());
-        assertEquals("stable", captor.getValue().getLifecycleCode());
     }
 
     @Test
@@ -189,7 +187,6 @@ class SalesDataControllerAccessTest {
                 "2026-05-01",
                 "2026-05-31",
                 "papersay",
-                null,
                 null,
                 null,
                 null,
@@ -217,7 +214,6 @@ class SalesDataControllerAccessTest {
                         "SA",
                         "2026-05-01",
                         "2026-05-31",
-                        null,
                         null,
                         null,
                         null,

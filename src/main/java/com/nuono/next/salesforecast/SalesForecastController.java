@@ -41,6 +41,30 @@ public class SalesForecastController {
         return forecastService.getOverview(authorizedQuery(storeCode, siteCode, request));
     }
 
+    @GetMapping("/detail")
+    public SalesForecastDetailView getDetail(
+            @RequestParam String storeCode,
+            @RequestParam String siteCode,
+            @RequestParam String partnerSku,
+            HttpServletRequest request
+    ) {
+        validateOverviewRequest(storeCode, siteCode);
+        if (!StringUtils.hasText(partnerSku)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少 Partner SKU。");
+        }
+        SalesForecastQuery query = authorizedQuery(storeCode, siteCode, request);
+        SalesForecastDetailView detail = forecastService.getDetail(new SalesForecastDetailQuery(
+                query.getOwnerUserId(),
+                query.getStoreCode(),
+                query.getSiteCode(),
+                partnerSku
+        ));
+        if (detail == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "未找到该商品的销量预测详情。");
+        }
+        return detail;
+    }
+
     @PostMapping("/follow-ups")
     public SalesForecastFollowUpView setFollowUp(
             @RequestBody SalesForecastFollowUpRequest body,
@@ -83,7 +107,6 @@ public class SalesForecastController {
             @RequestParam String siteCode,
             @RequestParam(defaultValue = "30") int forecastWindow,
             @RequestParam(required = false) String searchKeyword,
-            @RequestParam(defaultValue = "all") String lifecycleFilter,
             @RequestParam(defaultValue = "all") String riskFilter,
             @RequestParam(defaultValue = "all") String confidenceFilter,
             HttpServletRequest request
@@ -94,7 +117,6 @@ public class SalesForecastController {
                 new SalesForecastExportQuery(
                         forecastWindow,
                         searchKeyword,
-                        lifecycleFilter,
                         riskFilter,
                         confidenceFilter
                 )

@@ -3,6 +3,7 @@ package com.nuono.next.sales;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.noonsync.NoonBusinessSyncStatusService;
 import com.nuono.next.noonsync.NoonSalesSyncSurfaceState;
 import com.nuono.next.noonsync.NoonSyncFoundationService;
@@ -85,7 +86,6 @@ class SalesAnalyticsServiceTest {
         repository.facts = List.of();
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
-                new ProductLifecycleClassifier(),
                 new NoonBusinessSyncStatusService(new NoonSyncFoundationService())
         );
 
@@ -117,7 +117,6 @@ class SalesAnalyticsServiceTest {
         repository.latestFactDate = LocalDate.of(2026, 5, 10);
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
-                new ProductLifecycleClassifier(),
                 new NoonBusinessSyncStatusService(new NoonSyncFoundationService())
         );
 
@@ -155,6 +154,25 @@ class SalesAnalyticsServiceTest {
         assertEquals(250, summary.getTotalVisitors());
         assertEquals(new BigDecimal("50"), summary.getConversionVisitorsPercentage());
         assertEquals(new BigDecimal("70"), summary.getBuyBoxVisitorPercentage());
+    }
+
+    @Test
+    void marksBusinessMetricsUnavailableWhenTrafficColumnsAreMissing() {
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "SAMPLE-SKU-001", "Z57C90A4184D0CFD75218Z-1", 10, 10, 0, 10, new BigDecimal("348.00"), null, null, null, null)
+        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
+
+        SalesAnalyticsSummary summary = service.getSummary(defaultQuery());
+        SalesProductRow row = service.listProductRows(defaultQuery()).get(0);
+
+        assertEquals(10, summary.getNetUnits());
+        assertEquals(0, summary.getYourVisitors());
+        assertEquals(null, summary.getConversionVisitorsPercentage());
+        assertEquals(false, summary.isBusinessMetricsAvailable());
+        assertEquals(false, row.isBusinessMetricsAvailable());
+        assertEquals(false, row.isLatestBusinessMetricsAvailable());
     }
 
     @Test
@@ -197,8 +215,6 @@ class SalesAnalyticsServiceTest {
         assertEquals(LocalDate.of(2026, 5, 19), rows.get(0).getLatestFactDate());
         assertEquals(10, rows.get(0).getNetUnits());
         assertEquals(List.of("legacy_product_sales_data", "noon_productviewsandsalesdata"), rows.get(0).getSourceSystems());
-        assertEquals("new", rows.get(0).getLifecycleCode());
-        assertEquals("新品", rows.get(0).getLifecycleLabel());
         assertEquals("SAMPLE-SKU-002", rows.get(1).getPartnerSku());
     }
 
@@ -221,6 +237,24 @@ class SalesAnalyticsServiceTest {
     }
 
     @Test
+    void productRowsKeepSamePartnerSkuScopedToAuthorizedStoreAndSite() {
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(
+                fact(LocalDate.of(2026, 5, 18), "SAMPLE-SKU-001", "Z-SA-1", 4, 4, 0, 4, new BigDecimal("40.00"), 20, 30, null, null),
+                factWithScope("STR245027-SAU", "AE", LocalDate.of(2026, 5, 18), "SAMPLE-SKU-001", "Z-AE-1", 9),
+                factWithScope("STR245027-OTHER", "SA", LocalDate.of(2026, 5, 18), "SAMPLE-SKU-001", "Z-OTHER-1", 11)
+        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
+
+        List<SalesProductRow> rows = service.listProductRows(defaultQuery());
+
+        assertEquals(1, rows.size());
+        assertEquals("SAMPLE-SKU-001", rows.get(0).getPartnerSku());
+        assertEquals("Z-SA-1", rows.get(0).getSku());
+        assertEquals(4, rows.get(0).getNetUnits());
+    }
+
+    @Test
     void productRowsExcludeFactsWithoutBusinessPsku() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         repository.facts = List.of(
@@ -235,6 +269,32 @@ class SalesAnalyticsServiceTest {
         assertEquals(1, rows.size());
         assertEquals("SAMPLE-SKU-001", rows.get(0).getPartnerSku());
         assertEquals(8, rows.get(0).getNetUnits());
+    }
+
+    @Test
+    void productRowsDoNotSerializeLifecycleFields() throws Exception {
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(fact(
+                LocalDate.of(2026, 5, 18),
+                "SAMPLE-SKU-001",
+                "Z57C90A4184D0CFD75218Z-1",
+                1,
+                1,
+                0,
+                1,
+                BigDecimal.TEN,
+                null,
+                null,
+                null,
+                null
+        ));
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
+
+        String json = new ObjectMapper()
+                .findAndRegisterModules()
+                .writeValueAsString(service.listProductRows(defaultQuery()).get(0));
+
+        assertFalse(json.contains("lifecycle"));
     }
 
     @Test
@@ -261,6 +321,44 @@ class SalesAnalyticsServiceTest {
     }
 
     @Test
+    void productRowsAndDetailUseDimensionTitleWhenLatestSalesTitleIsMissing() {
+        String title = "50 Printable Sheets of A4 Size, Glossy White Sticker Paper";
+        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
+        repository.facts = List.of(
+                factWithTitle(LocalDate.of(2026, 5, 18), "PAPERSAYS065", "ZEA2BC495A97B0328CF53Z-1", null, 4),
+                factWithTitle(LocalDate.of(2026, 5, 19), "PAPERSAYS065", "ZEA2BC495A97B0328CF53Z-1", null, 6)
+        );
+        RecordingProductDimensionRepository dimensionRepository = new RecordingProductDimensionRepository();
+        dimensionRepository.snapshots = List.of(new SalesProductDimensionSnapshot(
+                "PAPERSAYS065",
+                "ZEA2BC495A97B0328CF53Z-1",
+                title,
+                "PAPERSAY",
+                "stationery-paper-copy_multipurpose_paper",
+                "https://image.example.test/papersay.jpg",
+                198,
+                null,
+                null,
+                null
+        ));
+        SalesAnalyticsService service = new SalesAnalyticsService(repository, dimensionRepository);
+
+        SalesProductRow row = service.listProductRows(defaultQuery()).get(0);
+        SalesProductDetail detail = service.getProductDetail(new SalesFactQuery(
+                10002L,
+                "STR245027-SAU",
+                "SA",
+                LocalDate.of(2026, 5, 1),
+                LocalDate.of(2026, 5, 31),
+                "PAPERSAYS065",
+                "ZEA2BC495A97B0328CF53Z-1"
+        ));
+
+        assertEquals(title, row.getProductTitle());
+        assertEquals(title, detail.getProductTitle());
+    }
+
+    @Test
     void salesFactQueryCarriesBatchPartnerSkuFilterToRepository() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         SalesAnalyticsService service = new SalesAnalyticsService(repository);
@@ -281,197 +379,6 @@ class SalesAnalyticsServiceTest {
         ));
 
         assertEquals(List.of("SAMPLE-SKU-001", "SAMPLE-SKU-002"), repository.lastQuery.getPartnerSkuList());
-    }
-
-    @Test
-    void productRowsPreferPersistedLifecycleCurrentStateWhenAvailable() {
-        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
-        repository.facts = List.of(fact(
-                LocalDate.of(2026, 5, 19),
-                "SAMPLE-SKU-001",
-                "Z57C90A4184D0CFD75218Z-1",
-                3,
-                3,
-                0,
-                3,
-                BigDecimal.TEN,
-                12,
-                null,
-                null,
-                null
-        ));
-        RecordingLifecycleStateRepository lifecycleRepository = new RecordingLifecycleStateRepository();
-        lifecycleRepository.currentState = lifecycleState("decline", "衰退", "ready", "DEFAULT_V1");
-        SalesAnalyticsService service = new SalesAnalyticsService(
-                repository,
-                new ProductLifecycleClassifier(),
-                null,
-                lifecycleRepository
-        );
-
-        List<SalesProductRow> rows = service.listProductRows(defaultQuery());
-
-        assertEquals("decline", rows.get(0).getLifecycleCode());
-        assertEquals("衰退", rows.get(0).getLifecycleLabel());
-        assertEquals("ready", rows.get(0).getLifecycleQualityState());
-        assertEquals("DEFAULT_V1", rows.get(0).getLifecycleRuleVersion());
-        assertEquals("STR245027-SAU", lifecycleRepository.lastQuery.getStoreCode());
-        assertEquals("SAMPLE-SKU-001", lifecycleRepository.lastQuery.getPartnerSku());
-    }
-
-    @Test
-    void productRowsExposeDataInsufficientLifecycleStateFromBackend() {
-        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
-        repository.facts = List.of(fact(
-                LocalDate.of(2026, 5, 19),
-                "SAMPLE-SKU-001",
-                "Z57C90A4184D0CFD75218Z-1",
-                1,
-                1,
-                0,
-                1,
-                BigDecimal.TEN,
-                null,
-                null,
-                null,
-                null
-        ));
-        RecordingLifecycleStateRepository lifecycleRepository = new RecordingLifecycleStateRepository();
-        lifecycleRepository.currentState = lifecycleState(
-                "data_insufficient",
-                "数据不足",
-                "pv_unresolvable",
-                "DEFAULT_V1"
-        );
-        SalesAnalyticsService service = new SalesAnalyticsService(
-                repository,
-                new ProductLifecycleClassifier(),
-                null,
-                lifecycleRepository
-        );
-
-        SalesProductRow row = service.listProductRows(defaultQuery()).get(0);
-
-        assertEquals("data_insufficient", row.getLifecycleCode());
-        assertEquals("数据不足", row.getLifecycleLabel());
-        assertEquals("pv_unresolvable", row.getLifecycleQualityState());
-        assertEquals("{\"reason\":\"pv_unresolvable\"}", row.getLifecycleEvidenceJson());
-    }
-
-    @Test
-    void productRowsExposeStockoutHoldWarningFromPersistedLifecycleQualityState() {
-        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
-        repository.facts = List.of(fact(
-                LocalDate.of(2026, 5, 19),
-                "SAMPLE-SKU-001",
-                "Z57C90A4184D0CFD75218Z-1",
-                1,
-                1,
-                0,
-                1,
-                BigDecimal.TEN,
-                10,
-                null,
-                null,
-                null
-        ));
-        RecordingLifecycleStateRepository lifecycleRepository = new RecordingLifecycleStateRepository();
-        lifecycleRepository.currentState = lifecycleState(
-                "stable",
-                "稳定",
-                "stockout_hold",
-                "DEFAULT_V1"
-        );
-        SalesAnalyticsService service = new SalesAnalyticsService(
-                repository,
-                new ProductLifecycleClassifier(),
-                null,
-                lifecycleRepository
-        );
-
-        SalesProductRow row = service.listProductRows(defaultQuery()).get(0);
-
-        assertEquals("stockout_hold", row.getLifecycleQualityState());
-        assertEquals(List.of("lifecycle_stockout_hold"), row.getLifecycleWarningCodes());
-    }
-
-    @Test
-    void productRowsExposePendingStateWhenLifecycleHasNotBeenCalculated() {
-        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
-        repository.facts = List.of(fact(
-                LocalDate.of(2026, 5, 19),
-                "SAMPLE-SKU-001",
-                "Z57C90A4184D0CFD75218Z-1",
-                1,
-                1,
-                0,
-                1,
-                BigDecimal.TEN,
-                10,
-                null,
-                null,
-                null
-        ));
-        SalesAnalyticsService service = new SalesAnalyticsService(
-                repository,
-                new ProductLifecycleClassifier(),
-                null,
-                new RecordingLifecycleStateRepository()
-        );
-
-        SalesProductRow row = service.listProductRows(defaultQuery()).get(0);
-
-        assertEquals("pending", row.getLifecycleCode());
-        assertEquals("待计算", row.getLifecycleLabel());
-        assertEquals("pending", row.getLifecycleQualityState());
-    }
-
-    @Test
-    void productRowsAndExportRespectLifecycleCodeFilterFromAuthorizedQuery() {
-        RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
-        repository.facts = List.of(
-                fact(LocalDate.of(2026, 5, 18), "STABLE-PSKU", "ZSTABLE-1", 7, 7, 0, 7, BigDecimal.TEN, 77, 120, null, null),
-                fact(LocalDate.of(2026, 5, 18), "NEW-PSKU", "ZNEW-1", 3, 3, 0, 3, BigDecimal.TEN, 30, 90, null, null)
-        );
-        RecordingLifecycleStateRepository lifecycleRepository = new RecordingLifecycleStateRepository();
-        lifecycleRepository.currentStates.put(
-                "STABLE-PSKU",
-                lifecycleState("stable", "稳定", "ready", "DEFAULT_V1")
-        );
-        lifecycleRepository.currentStates.put(
-                "NEW-PSKU",
-                lifecycleState("new", "新品", "ready", "DEFAULT_V1")
-        );
-        SalesAnalyticsService service = new SalesAnalyticsService(
-                repository,
-                new ProductLifecycleClassifier(),
-                null,
-                lifecycleRepository
-        );
-        SalesFactQuery query = new SalesFactQuery(
-                10002L,
-                "STR245027-SAU",
-                "SA",
-                LocalDate.of(2026, 5, 1),
-                LocalDate.of(2026, 5, 31),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                List.of(),
-                "stable"
-        );
-
-        List<SalesProductRow> rows = service.listProductRows(query);
-        String csv = service.exportDailyFactsCsv(query);
-
-        assertEquals(1, rows.size());
-        assertEquals("STABLE-PSKU", rows.get(0).getPartnerSku());
-        assertEquals("stable", rows.get(0).getLifecycleCode());
-        assertEquals(true, csv.contains("STABLE-PSKU"));
-        assertEquals(false, csv.contains("NEW-PSKU"));
     }
 
     @Test
@@ -501,9 +408,6 @@ class SalesAnalyticsServiceTest {
         );
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
-                new ProductLifecycleClassifier(),
-                null,
-                null,
                 dimensionRepository
         );
 
@@ -554,9 +458,6 @@ class SalesAnalyticsServiceTest {
         ));
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
-                new ProductLifecycleClassifier(),
-                null,
-                null,
                 dimensionRepository
         );
 
@@ -593,9 +494,6 @@ class SalesAnalyticsServiceTest {
         );
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
-                new ProductLifecycleClassifier(),
-                null,
-                null,
                 dimensionRepository
         );
 
@@ -653,9 +551,6 @@ class SalesAnalyticsServiceTest {
         ));
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
-                new ProductLifecycleClassifier(),
-                null,
-                null,
                 dimensionRepository
         );
 
@@ -751,9 +646,6 @@ class SalesAnalyticsServiceTest {
         ));
         SalesAnalyticsService service = new SalesAnalyticsService(
                 repository,
-                new ProductLifecycleClassifier(),
-                null,
-                null,
                 dimensionRepository
         );
         SalesFactQuery query = defaultQuery();
@@ -886,47 +778,6 @@ class SalesAnalyticsServiceTest {
         }
     }
 
-    private static class RecordingLifecycleStateRepository implements ProductLifecycleStateRepository {
-        private ProductLifecycleStateQuery lastQuery;
-        private ProductLifecycleCurrentState currentState;
-        private java.util.Map<String, ProductLifecycleCurrentState> currentStates = new java.util.HashMap<>();
-
-        @Override
-        public void saveCurrentState(ProductLifecycleCurrentState state) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void saveHistory(ProductLifecycleHistoryRecord historyRecord) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void saveJob(ProductLifecycleJobRecord job) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public ProductLifecycleCurrentState findCurrentState(ProductLifecycleStateQuery query) {
-            this.lastQuery = query;
-            ProductLifecycleCurrentState mapped = currentStates.get(query.getPartnerSku());
-            if (mapped != null) {
-                return mapped;
-            }
-            return currentState;
-        }
-
-        @Override
-        public List<ProductLifecycleHistoryRecord> listHistory(ProductLifecycleStateQuery query) {
-            return List.of();
-        }
-
-        @Override
-        public List<ProductLifecycleJobRecord> listJobs(ProductLifecycleJobQuery query) {
-            return List.of();
-        }
-    }
-
     private static class RecordingProductDimensionRepository implements SalesProductDimensionRepository {
         private List<SalesProductDimensionSnapshot> snapshots = List.of();
 
@@ -934,33 +785,6 @@ class SalesAnalyticsServiceTest {
         public List<SalesProductDimensionSnapshot> list(SalesFactQuery query) {
             return snapshots;
         }
-    }
-
-    private ProductLifecycleCurrentState lifecycleState(
-            String code,
-            String label,
-            String qualityState,
-            String ruleVersion
-    ) {
-        return new ProductLifecycleCurrentState(
-                70001L,
-                10002L,
-                "STR245027-SAU",
-                "SA",
-                "SAMPLE-SKU-001",
-                "Z57C90A4184D0CFD75218Z-1",
-                code,
-                label,
-                ruleVersion,
-                LocalDate.of(2026, 5, 20),
-                LocalDate.of(2026, 1, 1),
-                "official",
-                qualityState,
-                "persisted lifecycle",
-                "{\"reason\":\"" + qualityState + "\"}",
-                72001L,
-                null
-        );
     }
 
     private SalesFactQuery defaultQuery() {
@@ -1040,6 +864,69 @@ class SalesAnalyticsServiceTest {
                 sku,
                 "Z57C90A4184D0CFD75218Z",
                 "SA",
+                "SAR",
+                "Sanitized sample product",
+                null,
+                null,
+                netUnits,
+                netUnits,
+                0,
+                netUnits,
+                BigDecimal.TEN,
+                null,
+                null,
+                null
+        );
+    }
+
+    private DailySalesFact factWithTitle(LocalDate factDate, String partnerSku, String sku, String productTitle, int netUnits) {
+        return new DailySalesFact(
+                NoonSalesCsvImportService.SOURCE_SYSTEM,
+                10001L,
+                10002L,
+                245027L,
+                "STR245027-SAU",
+                "SA",
+                factDate,
+                partnerSku,
+                sku,
+                "Z57C90A4184D0CFD75218Z",
+                "SA",
+                "SAR",
+                productTitle,
+                null,
+                null,
+                netUnits,
+                netUnits,
+                0,
+                netUnits,
+                BigDecimal.TEN,
+                null,
+                null,
+                null
+        );
+    }
+
+    private DailySalesFact factWithScope(
+            String storeCode,
+            String siteCode,
+            LocalDate factDate,
+            String partnerSku,
+            String sku,
+            int netUnits
+    ) {
+        return new DailySalesFact(
+                NoonSalesCsvImportService.SOURCE_SYSTEM,
+                10001L,
+                10002L,
+                245027L,
+                storeCode,
+                siteCode,
+                factDate,
+                partnerSku,
+                sku,
+                "Z57C90A4184D0CFD75218Z",
+                siteCode,
                 "SAR",
                 "Sanitized sample product",
                 null,
