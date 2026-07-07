@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.time.LocalDate;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class PostSaleProfitLogisticsClosureMapperSqlTest {
@@ -136,6 +137,27 @@ class PostSaleProfitLogisticsClosureMapperSqlTest {
                 .contains("confirmed_batch_headhaul_prorated_by_shipped_quantity");
     }
 
+    @Test
+    void allocationDeleteScopesByStoreAndSite() throws Exception {
+        Method method = PostSaleProfitLogisticsClosureMapper.class.getMethod(
+                "softDeleteAllocation",
+                Long.class,
+                String.class,
+                String.class,
+                Long.class,
+                Long.class
+        );
+
+        String sql = updateSql(method);
+
+        assertThat(sql)
+                .contains("UPDATE procurement_logistics_shipment_allocation")
+                .contains("owner_user_id = #{ownerUserId}")
+                .contains("target_store_code = #{storeCode}")
+                .contains("target_site_code = #{siteCode}")
+                .contains("id = #{allocationId}");
+    }
+
     private static String selectSql(Method method) {
         return String.join(" ", method.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");
@@ -143,6 +165,11 @@ class PostSaleProfitLogisticsClosureMapperSqlTest {
 
     private static String insertSql(Method method) {
         return String.join(" ", method.getAnnotation(Insert.class).value())
+                .replaceAll("\\s+", " ");
+    }
+
+    private static String updateSql(Method method) {
+        return String.join(" ", method.getAnnotation(Update.class).value())
                 .replaceAll("\\s+", " ");
     }
 }

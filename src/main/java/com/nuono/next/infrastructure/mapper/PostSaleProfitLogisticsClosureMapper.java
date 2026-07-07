@@ -415,11 +415,15 @@ public interface PostSaleProfitLogisticsClosureMapper {
             "UPDATE procurement_logistics_shipment_allocation",
             "SET is_deleted = b'1', updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE owner_user_id = #{ownerUserId}",
+            "  AND target_store_code = #{storeCode}",
+            "  AND target_site_code = #{siteCode}",
             "  AND id = #{allocationId}",
             "  AND is_deleted = b'0'"
     })
     int softDeleteAllocation(
             @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
             @Param("allocationId") Long allocationId,
             @Param("operatorUserId") Long operatorUserId
     );

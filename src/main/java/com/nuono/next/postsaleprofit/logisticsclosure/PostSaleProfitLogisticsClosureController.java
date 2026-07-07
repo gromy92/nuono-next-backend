@@ -146,6 +146,8 @@ public class PostSaleProfitLogisticsClosureController {
         );
         return service.deleteAllocation(
                 ownerUserId(context, scope.storeCode),
+                scope.storeCode,
+                scope.siteCode,
                 context.getSessionUserId(),
                 body.getAllocationId()
         );

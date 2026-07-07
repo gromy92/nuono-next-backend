@@ -155,13 +155,18 @@ public class PostSaleProfitLogisticsClosureService {
 
     public LogisticsClosureAllocationResultView deleteAllocation(
             Long ownerUserId,
+            String storeCode,
+            String siteCode,
             Long operatorUserId,
             Long allocationId
     ) {
         if (allocationId == null || allocationId < 1) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "allocationId is required.");
         }
-        mapper.softDeleteAllocation(ownerUserId, allocationId, operatorUserId);
+        if (!StringUtils.hasText(storeCode) || !StringUtils.hasText(siteCode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "storeCode and siteCode are required.");
+        }
+        mapper.softDeleteAllocation(ownerUserId, storeCode, siteCode, allocationId, operatorUserId);
         return new LogisticsClosureAllocationResultView(allocationId, "DELETED");
     }
 

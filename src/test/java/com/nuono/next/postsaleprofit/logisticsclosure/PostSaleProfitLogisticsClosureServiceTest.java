@@ -81,6 +81,17 @@ class PostSaleProfitLogisticsClosureServiceTest {
                 .contains("\"reason\":\"用户确认同批次\"");
     }
 
+    @Test
+    void deleteAllocationScopesByStoreAndSite() {
+        PostSaleProfitLogisticsClosureService service = new PostSaleProfitLogisticsClosureService(mapper);
+
+        var result = service.deleteAllocation(307L, "STR108065-NSA", "SA", 307L, 120001L);
+
+        verify(mapper).softDeleteAllocation(307L, "STR108065-NSA", "SA", 120001L, 307L);
+        assertThat(result.getAllocationId()).isEqualTo(120001L);
+        assertThat(result.getConfirmationStatus()).isEqualTo("DELETED");
+    }
+
     private static LogisticsClosureConfirmCommand command(String quantity) {
         LogisticsClosureConfirmCommand command = new LogisticsClosureConfirmCommand();
         command.setOwnerUserId(307L);
