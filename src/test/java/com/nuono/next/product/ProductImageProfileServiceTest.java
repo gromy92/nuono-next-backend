@@ -1,6 +1,7 @@
 package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -523,6 +524,8 @@ class ProductImageProfileServiceTest {
         profile.setProductTitle("PAPERSAY 12 Pack Retractable Black Gel Ink Pens");
         profile.setProductFactText("Existing profile fact text");
         ProductPublicDetailSnapshot snapshot = new ProductPublicDetailSnapshot();
+        snapshot.setStoreCode("STR108065-NAE");
+        snapshot.setSiteCode("AE");
         snapshot.setTitleEn("12 Pack Retractable Black Gel Ink Pens");
         snapshot.setTitleAr("أقلام حبر جل سوداء قابلة للسحب 12 قطعة");
         snapshot.setRawPayloadJson("{\"feature_bullets\":[\"Smooth 0.5mm writing\",\"12 pieces in one pack\"],\"specifications\":{\"Ink Color\":\"Black\"}}");
@@ -562,6 +565,46 @@ class ProductImageProfileServiceTest {
         verify(productPublicDetailMapper, never()).selectLatestSnapshot(any(), any(), any(), any(), any());
         verify(mapper, never()).updateProfile(any());
         verify(mapper, never()).replaceSectionsAsDeleted(any());
+    }
+
+    @Test
+    void extractImageFactsShouldOmitSiblingSiteRawPublicDetailPayload() {
+        ProductImageProfileRecord profile = profileRecord();
+        profile.setProductMasterId(9001L);
+        profile.setProductVariantId(53001L);
+        profile.setProductTitle("PAPERSAY 12 Pack Retractable Black Gel Ink Pens");
+        ProductPublicDetailSnapshot snapshot = new ProductPublicDetailSnapshot();
+        snapshot.setStoreCode("STR108065-NSA");
+        snapshot.setSiteCode("SA");
+        snapshot.setTitleEn("Sibling public title");
+        snapshot.setBrand("PAPERSAY");
+        snapshot.setRawPayloadJson("{\"price\":\"88.50\",\"currency\":\"SAR\",\"url\":\"https://www.noon.com/saudi-en/Z/p/\",\"availability\":\"SA only\"}");
+        AiStructuredTextResult aiResult = AiStructuredTextResult.success();
+        Map<String, Object> parsedJson = new LinkedHashMap<>();
+        parsedJson.put("specSummary", "");
+        parsedJson.put("titleEn", "Sibling public title");
+        parsedJson.put("titleAr", "");
+        parsedJson.put("sizeText", "");
+        parsedJson.put("heroSellingPoints", List.of());
+        parsedJson.put("packageText", "");
+        aiResult.setParsedJson(parsedJson);
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(307L, "STR108065-NAE", "PAPERSAYSB024"))
+                .thenReturn(snapshot);
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class))).thenReturn(aiResult);
+
+        service.extractImageFacts(307L, "STR108065-NAE", 7001L, 10003L);
+
+        ArgumentCaptor<AiStructuredTextCommand> commandCaptor = ArgumentCaptor.forClass(AiStructuredTextCommand.class);
+        verify(aiCapabilityService).createStructuredText(commandCaptor.capture());
+        String prompt = commandCaptor.getValue().getPrompt();
+        assertTrue(prompt.contains("Sibling public title"));
+        assertTrue(prompt.contains("该快照来自同店铺的兄弟站点"));
+        assertFalse(prompt.contains("\"price\""));
+        assertFalse(prompt.contains("SAR"));
+        assertFalse(prompt.contains("saudi-en"));
+        assertFalse(prompt.contains("SA only"));
     }
 
     private ProductImageProfileRecord profileRecord() {

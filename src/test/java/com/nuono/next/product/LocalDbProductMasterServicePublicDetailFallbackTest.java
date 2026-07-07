@@ -1,6 +1,7 @@
 package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -20,7 +21,7 @@ import org.junit.jupiter.api.Test;
 class LocalDbProductMasterServicePublicDetailFallbackTest {
 
     @Test
-    void openWorkbenchFallsBackToPublicDetailReadonlyViewWhenBaselineIsMissing() {
+    void openWorkbenchFallsBackToSiblingSitePublicDetailReadonlyViewWhenBaselineIsMissing() {
         ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
         ProductPublicDetailMapper productPublicDetailMapper = mock(ProductPublicDetailMapper.class);
         StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
@@ -29,15 +30,15 @@ class LocalDbProductMasterServicePublicDetailFallbackTest {
         when(openService.openFromLocalBaseline(any(), any())).thenReturn(null);
 
         StoreSyncStoreRecord store = store();
-        when(storeSyncMapper.selectOwnerStore(308L, "STR353172-NSA")).thenReturn(store);
+        when(storeSyncMapper.selectOwnerStore(308L, "STR353172-NAE")).thenReturn(store);
         when(productManagementMapper.selectProductListProjectionBySkuParent(
                 308L,
-                "STR353172-NSA",
+                "STR353172-NAE",
                 "Z203B08BE8C1E820A4CA6Z"
         )).thenReturn(projection());
         when(productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(
                 308L,
-                "STR353172-NSA",
+                "STR353172-NAE",
                 "Z203B08BE8C1E820A4CA6Z"
         )).thenReturn(publicDetail());
 
@@ -65,7 +66,7 @@ class LocalDbProductMasterServicePublicDetailFallbackTest {
 
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
         command.setOwnerUserId(308L);
-        command.setStoreCode("STR353172-NSA");
+        command.setStoreCode("STR353172-NAE");
         command.setSkuParent("Z203B08BE8C1E820A4CA6Z");
 
         ProductMasterWorkbenchView view = service.openWorkbench(command);
@@ -76,6 +77,14 @@ class LocalDbProductMasterServicePublicDetailFallbackTest {
         assertEquals("failed", view.getSyncStatus());
         assertEquals(ProductPublicDetailReadonlyWorkbenchFactory.MODE, view.getBaselineSnapshot().getMode());
         assertEquals("Public title", view.getDraftSnapshot().getContent().get("titleEn"));
+        assertFalse(view.getDraftSnapshot().getContent().containsKey("detailUrl"));
+        assertEquals("STR353172-NAE", view.getDraftSnapshot().getStoreContext().get("storeCode"));
+        assertEquals("AE", view.getDraftSnapshot().getStoreContext().get("site"));
+        assertEquals("99.00", view.getDraftSnapshot().getPricing().get("price"));
+        assertFalse(view.getDraftSnapshot().getPricing().containsKey("currency"));
+        assertEquals("STR353172-NAE", view.getDraftSnapshot().getSiteOffers().get(0).get("storeCode"));
+        assertEquals("AE", view.getDraftSnapshot().getSiteOffers().get(0).get("site"));
+        assertFalse(view.getDraftSnapshot().getSiteOffers().get(0).containsKey("currency"));
         assertTrue(view.getWarnings().stream().anyMatch((warning) -> warning.contains("前台公开详情")));
     }
 
@@ -83,8 +92,8 @@ class LocalDbProductMasterServicePublicDetailFallbackTest {
         StoreSyncStoreRecord store = new StoreSyncStoreRecord();
         store.setProjectName("353172");
         store.setProjectCode("PRJ353172");
-        store.setStoreCode("STR353172-NSA");
-        store.setSite("SA");
+        store.setStoreCode("STR353172-NAE");
+        store.setSite("AE");
         return store;
     }
 
@@ -114,6 +123,7 @@ class LocalDbProductMasterServicePublicDetailFallbackTest {
         detail.setPriceAmount(new BigDecimal("88.50"));
         detail.setCurrencyCode("SAR");
         detail.setMainImageUrl("https://f.nooncdn.com/p/pzsku/Z203/main.jpg");
+        detail.setDetailUrl("https://www.noon.com/saudi-en/Z203B08BE8C1E820A4CA6Z/p/");
         detail.setFetchedAt(LocalDateTime.of(2026, 6, 22, 10, 15, 30));
         detail.setStoreCode("STR353172-NSA");
         detail.setSiteCode("SA");

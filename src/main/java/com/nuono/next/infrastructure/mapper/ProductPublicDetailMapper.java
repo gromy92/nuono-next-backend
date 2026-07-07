@@ -15,6 +15,19 @@ import org.apache.ibatis.annotations.Update;
 public interface ProductPublicDetailMapper {
     String SYNCABLE_SITE_STATUS_CONDITION =
             "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')";
+    String FRESH_LOGICAL_STORE_PUBLIC_DETAIL_NOT_EXISTS_CONDITION =
+            "  AND NOT EXISTS ("
+                    + " SELECT 1"
+                    + " FROM product_public_detail_snapshot fresh"
+                    + " WHERE fresh.product_master_id = pm.id"
+                    + "   AND fresh.product_variant_id = pv.id"
+                    + "   AND fresh.logical_store_id = ls.id"
+                    + "   AND fresh.source_platform = 'NOON'"
+                    + "   AND fresh.sync_status IN ('SUCCEEDED', 'PARTIAL')"
+                    + "   AND fresh.is_latest = b'1'"
+                    + "   AND fresh.is_deleted = b'0'"
+                    + "   AND fresh.fetched_at &gt;= DATE_SUB(NOW(), INTERVAL #{staleDays} DAY)"
+                    + ")";
     String SINGLE_PUBLIC_DETAIL_SITE_CONDITION =
             "  AND NOT EXISTS ("
                     + " SELECT 1"
@@ -23,12 +36,22 @@ public interface ProductPublicDetailMapper {
                     + "   ON preferred_pso.site_id = preferred_lss.id"
                     + "  AND preferred_pso.variant_id = pv.id"
                     + " WHERE preferred_lss.logical_store_id = lss.logical_store_id"
-                    + "   AND UPPER(preferred_lss.store_code) = UPPER(lss.store_code)"
                     + "   AND preferred_lss.is_deleted = b'0'"
                     + "   AND preferred_pso.is_deleted = b'0'"
                     + "   AND COALESCE(preferred_lss.is_mounted, b'1') = b'1'"
                     + "   AND COALESCE(preferred_pso.is_active, b'0') = b'1'"
                     + "   AND UPPER(COALESCE(preferred_lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')"
+                    + "   AND NOT EXISTS ("
+                    + "     SELECT 1"
+                    + "     FROM product_public_detail_snapshot preferred_fail"
+                    + "     WHERE preferred_fail.product_master_id = pm.id"
+                    + "       AND preferred_fail.product_variant_id = pv.id"
+                    + "       AND UPPER(preferred_fail.site_code) = UPPER(preferred_lss.site)"
+                    + "       AND preferred_fail.source_platform = 'NOON'"
+                    + "       AND preferred_fail.sync_status IN ('FAILED', 'NOT_FOUND')"
+                    + "       AND preferred_fail.fetched_at &gt;= DATE_SUB(NOW(), INTERVAL #{failureCooldownHours} HOUR)"
+                    + "       AND preferred_fail.is_deleted = b'0'"
+                    + "   )"
                     + "   AND ("
                     + "     CASE WHEN UPPER(preferred_lss.site) = 'SA' THEN 0 ELSE 1 END"
                     + "       &lt; CASE WHEN UPPER(lss.site) = 'SA' THEN 0 ELSE 1 END"
@@ -90,6 +113,52 @@ public interface ProductPublicDetailMapper {
             "JOIN product_master pm ON pm.logical_store_id = ls.id",
             "JOIN product_variant pv ON pv.product_master_id = pm.id",
             "JOIN product_site_offer pso ON pso.variant_id = pv.id AND pso.site_id = lss.id",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND lss.logical_store_id = #{logicalStoreId}",
+            "  AND ls.is_deleted = b'0'",
+            "  AND lss.is_deleted = b'0'",
+            "  AND pm.is_deleted = b'0'",
+            "  AND pv.is_deleted = b'0'",
+            "  AND pso.is_deleted = b'0'",
+            "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
+            SYNCABLE_SITE_STATUS_CONDITION,
+            "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
+            "  AND COALESCE(pso.is_active, b'0') = b'1'",
+            "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
+            SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
+            "  AND NOT EXISTS (",
+            "      SELECT 1 FROM product_public_detail_snapshot fail",
+            "      WHERE fail.product_master_id = pm.id",
+            "        AND fail.product_variant_id = pv.id",
+            "        AND UPPER(fail.site_code) = UPPER(lss.site)",
+            "        AND fail.source_platform = 'NOON'",
+            "        AND fail.sync_status IN ('FAILED', 'NOT_FOUND')",
+            "        AND fail.fetched_at &gt;= DATE_SUB(NOW(), INTERVAL #{failureCooldownHours} HOUR)",
+            "        AND fail.is_deleted = b'0'",
+            "  )",
+            "GROUP BY ls.owner_user_id, ls.id, lss.store_code, lss.site, lss.id",
+            "ORDER BY CASE WHEN UPPER(lss.site) = 'SA' THEN 0 ELSE 1 END, lss.id ASC",
+            "LIMIT 1",
+            "</script>"
+    })
+    ProductPublicDetailScope selectPreferredScope(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("failureCooldownHours") int failureCooldownHours
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  ls.owner_user_id AS ownerUserId,",
+            "  ls.id AS logicalStoreId,",
+            "  lss.store_code AS storeCode,",
+            "  UPPER(lss.site) AS siteCode",
+            "FROM logical_store ls",
+            "JOIN logical_store_site lss ON lss.logical_store_id = ls.id",
+            "JOIN product_master pm ON pm.logical_store_id = ls.id",
+            "JOIN product_variant pv ON pv.product_master_id = pm.id",
+            "JOIN product_site_offer pso ON pso.variant_id = pv.id AND pso.site_id = lss.id",
             "LEFT JOIN product_public_detail_snapshot latest",
             "  ON latest.product_master_id = pm.id",
             " AND latest.product_variant_id = pv.id",
@@ -108,7 +177,7 @@ public interface ProductPublicDetailMapper {
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
             SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
-            "  AND (latest.id IS NULL OR latest.fetched_at &lt; DATE_SUB(NOW(), INTERVAL #{staleDays} DAY))",
+            FRESH_LOGICAL_STORE_PUBLIC_DETAIL_NOT_EXISTS_CONDITION,
             "  AND NOT EXISTS (",
             "      SELECT 1 FROM product_public_detail_snapshot fail",
             "      WHERE fail.product_master_id = pm.id",
@@ -168,9 +237,11 @@ public interface ProductPublicDetailMapper {
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
+            "  <if test='enforcePreferredSite'>",
             SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
+            "  </if>",
             "  <if test='onlyDue'>",
-            "  AND (latest.id IS NULL OR latest.fetched_at &lt; DATE_SUB(NOW(), INTERVAL #{staleDays} DAY))",
+            FRESH_LOGICAL_STORE_PUBLIC_DETAIL_NOT_EXISTS_CONDITION,
             "  AND NOT EXISTS (",
             "      SELECT 1 FROM product_public_detail_snapshot fail",
             "      WHERE fail.product_master_id = pm.id",
@@ -193,7 +264,8 @@ public interface ProductPublicDetailMapper {
             @Param("limit") int limit,
             @Param("staleDays") int staleDays,
             @Param("failureCooldownHours") int failureCooldownHours,
-            @Param("onlyDue") boolean onlyDue
+            @Param("onlyDue") boolean onlyDue,
+            @Param("enforcePreferredSite") boolean enforcePreferredSite
     );
 
     @Select({
@@ -217,13 +289,27 @@ public interface ProductPublicDetailMapper {
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
+            "  <if test='enforcePreferredSite'>",
             SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
+            "  </if>",
+            "  AND NOT EXISTS (",
+            "      SELECT 1 FROM product_public_detail_snapshot fail",
+            "      WHERE fail.product_master_id = pm.id",
+            "        AND fail.product_variant_id = pv.id",
+            "        AND UPPER(fail.site_code) = UPPER(lss.site)",
+            "        AND fail.source_platform = 'NOON'",
+            "        AND fail.sync_status IN ('FAILED', 'NOT_FOUND')",
+            "        AND fail.fetched_at &gt;= DATE_SUB(NOW(), INTERVAL #{failureCooldownHours} HOUR)",
+            "        AND fail.is_deleted = b'0'",
+            "  )",
             "</script>"
     })
     int countCandidates(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode
+            @Param("siteCode") String siteCode,
+            @Param("failureCooldownHours") int failureCooldownHours,
+            @Param("enforcePreferredSite") boolean enforcePreferredSite
     );
 
     @Select({
@@ -305,15 +391,27 @@ public interface ProductPublicDetailMapper {
             "  provider_response_hash AS providerResponseHash, provider_parser_version AS providerParserVersion, sync_status AS syncStatus, failure_code AS failureCode,",
             "  failure_message AS failureMessage, fact_date AS factDate, fetched_at AS fetchedAt, is_latest AS latest, created_by AS createdBy, updated_by AS updatedBy,",
             "  gmt_create AS createdAt, gmt_updated AS updatedAt",
-            "FROM product_public_detail_snapshot",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND UPPER(store_code) = UPPER(#{storeCode})",
-            "  AND (partner_sku = #{skuParent} OR sku_parent = #{skuParent} OR noon_product_code = #{skuParent})",
-            "  AND source_platform = 'NOON'",
-            "  AND sync_status IN ('SUCCEEDED', 'PARTIAL')",
-            "  AND is_latest = b'1'",
-            "  AND is_deleted = b'0'",
-            "ORDER BY CASE WHEN sync_status = 'SUCCEEDED' THEN 0 ELSE 1 END, fetched_at DESC, fact_date DESC, id DESC",
+            "FROM product_public_detail_snapshot pp",
+            "WHERE pp.owner_user_id = #{ownerUserId}",
+            "  AND (",
+            "      UPPER(pp.store_code) = UPPER(#{storeCode})",
+            "      OR EXISTS (",
+            "          SELECT 1",
+            "          FROM logical_store_site requested_lss",
+            "          WHERE requested_lss.logical_store_id = pp.logical_store_id",
+            "            AND UPPER(requested_lss.store_code) = UPPER(#{storeCode})",
+            "            AND requested_lss.is_deleted = b'0'",
+            "      )",
+            "  )",
+            "  AND (pp.partner_sku = #{skuParent} OR pp.sku_parent = #{skuParent} OR pp.noon_product_code = #{skuParent})",
+            "  AND pp.source_platform = 'NOON'",
+            "  AND pp.sync_status IN ('SUCCEEDED', 'PARTIAL')",
+            "  AND pp.is_latest = b'1'",
+            "  AND pp.is_deleted = b'0'",
+            "ORDER BY CASE WHEN pp.sync_status = 'SUCCEEDED' THEN 0 ELSE 1 END,",
+            "  pp.fetched_at DESC, pp.fact_date DESC,",
+            "  CASE WHEN UPPER(pp.store_code) = UPPER(#{storeCode}) THEN 0 ELSE 1 END,",
+            "  pp.id DESC",
             "LIMIT 1"
     })
     ProductPublicDetailSnapshot selectLatestUsableSnapshotBySkuParent(

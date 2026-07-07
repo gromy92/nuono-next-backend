@@ -1,11 +1,13 @@
 package com.nuono.next.product;
 
+import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskPayload;
 import com.nuono.next.system.task.OperationalTaskService;
 import com.nuono.next.system.task.OperationalTaskStatus;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,15 +26,18 @@ public class ProductDetailBaselineBackfillService {
 
     private final OperationalTaskService operationalTaskService;
     private final TaskSubmitter taskSubmitter;
+    private final BiFunction<Long, String, Long> storeScopeResolver;
 
     @Autowired
     public ProductDetailBaselineBackfillService(
             OperationalTaskService operationalTaskService,
-            NoonAccountTaskQueue noonAccountTaskQueue
+            NoonAccountTaskQueue noonAccountTaskQueue,
+            ProductManagementMapper productManagementMapper
     ) {
         this(
                 operationalTaskService,
-                noonAccountTaskQueue == null ? null : noonAccountTaskQueue::submit
+                noonAccountTaskQueue == null ? null : noonAccountTaskQueue::submit,
+                productManagementMapper == null ? null : productManagementMapper::selectLogicalStoreIdByOwnerStoreCode
         );
     }
 
@@ -40,8 +45,17 @@ public class ProductDetailBaselineBackfillService {
             OperationalTaskService operationalTaskService,
             TaskSubmitter taskSubmitter
     ) {
+        this(operationalTaskService, taskSubmitter, null);
+    }
+
+    ProductDetailBaselineBackfillService(
+            OperationalTaskService operationalTaskService,
+            TaskSubmitter taskSubmitter,
+            BiFunction<Long, String, Long> storeScopeResolver
+    ) {
         this.operationalTaskService = operationalTaskService;
         this.taskSubmitter = taskSubmitter == null ? (accountKey, task) -> task.run() : taskSubmitter;
+        this.storeScopeResolver = storeScopeResolver;
     }
 
     public String enqueue(
@@ -84,6 +98,18 @@ public class ProductDetailBaselineBackfillService {
             return null;
         }
         String naturalKey = naturalKey(ownerUserId, storeCode, skuParent);
+        return stateByNaturalKey(naturalKey);
+    }
+
+    public BackfillState stateForLogicalStore(Long ownerUserId, Long logicalStoreId, String skuParent) {
+        if (operationalTaskService == null) {
+            return null;
+        }
+        String naturalKey = naturalKeyForLogicalStore(ownerUserId, logicalStoreId, skuParent);
+        return stateByNaturalKey(naturalKey);
+    }
+
+    private BackfillState stateByNaturalKey(String naturalKey) {
         if (!StringUtils.hasText(naturalKey)) {
             return null;
         }
@@ -168,9 +194,44 @@ public class ProductDetailBaselineBackfillService {
         if (ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
             return null;
         }
+        String storeScopeKey = storeScopeKey(ownerUserId, storeCode);
         return "owner:" + ownerUserId
-                + "|store:" + normalize(storeCode)
+                + "|" + storeScopeKey
                 + "|skuParent:" + normalize(skuParent);
+    }
+
+    private String naturalKeyForLogicalStore(Long ownerUserId, Long logicalStoreId, String skuParent) {
+        if (ownerUserId == null || logicalStoreId == null || !StringUtils.hasText(skuParent)) {
+            return null;
+        }
+        return "owner:" + ownerUserId
+                + "|logicalStore:" + logicalStoreId
+                + "|skuParent:" + normalize(skuParent);
+    }
+
+    private String storeScopeKey(Long ownerUserId, String storeCode) {
+        Long logicalStoreId = resolveLogicalStoreId(ownerUserId, storeCode);
+        if (logicalStoreId != null) {
+            return "logicalStore:" + logicalStoreId;
+        }
+        return "store:" + normalize(storeCode);
+    }
+
+    private Long resolveLogicalStoreId(Long ownerUserId, String storeCode) {
+        if (storeScopeResolver == null || ownerUserId == null || !StringUtils.hasText(storeCode)) {
+            return null;
+        }
+        try {
+            return storeScopeResolver.apply(ownerUserId, normalize(storeCode));
+        } catch (RuntimeException exception) {
+            log.debug(
+                    "failed to resolve logical store for product detail baseline backfill owner={} store={} error={}",
+                    ownerUserId,
+                    storeCode,
+                    exception.getMessage()
+            );
+            return null;
+        }
     }
 
     private String accountKey(ProductMasterFetchCommand command) {

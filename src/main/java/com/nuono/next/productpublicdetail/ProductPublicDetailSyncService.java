@@ -172,12 +172,21 @@ public class ProductPublicDetailSyncService {
         String normalizedStore = normalizeStore(storeCode);
         String normalizedSite = normalizeSite(siteCode);
         Long ownerUserId = resolveOwnerUserId(context, normalizedStore);
-        requireActiveScope(ownerUserId, normalizedStore, normalizedSite);
-        OperationalTask active = findActiveTask(ownerUserId, normalizedStore, normalizedSite);
+        ScopeSelection selection = preferredScopeSelection(context, requireActiveScope(ownerUserId, normalizedStore, normalizedSite));
+        String scopeStore = normalizeStore(selection.scope.getStoreCode());
+        String scopeSite = normalizeSite(selection.scope.getSiteCode());
+        OperationalTask active = findActiveTask(ownerUserId, scopeStore, scopeSite);
         if (active != null) {
             return ProductPublicDetailTaskView.from(active);
         }
-        return ProductPublicDetailTaskView.from(submitTask(ownerUserId, normalizedStore, normalizedSite, context.getSessionUserId(), false));
+        return ProductPublicDetailTaskView.from(submitTask(
+                ownerUserId,
+                scopeStore,
+                scopeSite,
+                context.getSessionUserId(),
+                false,
+                selection.enforcePreferredSite
+        ));
     }
 
     public ProductPublicDetailTaskView submitScheduled(Long ownerUserId, String storeCode, String siteCode) {
@@ -188,29 +197,37 @@ public class ProductPublicDetailSyncService {
         if (active != null) {
             return ProductPublicDetailTaskView.from(active);
         }
-        return ProductPublicDetailTaskView.from(submitTask(ownerUserId, normalizedStore, normalizedSite, ownerUserId, true));
+        return ProductPublicDetailTaskView.from(submitTask(ownerUserId, normalizedStore, normalizedSite, ownerUserId, true, true));
     }
 
     public ProductPublicDetailStatusView syncStatus(BusinessAccessContext context, String storeCode, String siteCode) {
         String normalizedStore = normalizeStore(storeCode);
         String normalizedSite = normalizeSite(siteCode);
         Long ownerUserId = resolveOwnerUserId(context, normalizedStore);
-        requireActiveScope(ownerUserId, normalizedStore, normalizedSite);
+        ScopeSelection selection = preferredScopeSelection(context, requireActiveScope(ownerUserId, normalizedStore, normalizedSite));
+        String scopeStore = normalizeStore(selection.scope.getStoreCode());
+        String scopeSite = normalizeSite(selection.scope.getSiteCode());
         LocalDate today = LocalDate.now(BUSINESS_ZONE);
         ProductPublicDetailStatusView view = new ProductPublicDetailStatusView();
         view.setOwnerUserId(ownerUserId);
-        view.setStoreCode(normalizedStore);
-        view.setSiteCode(normalizedSite);
-        view.setCandidateCount(mapper.countCandidates(ownerUserId, normalizedStore, normalizedSite));
-        view.setLatestSucceededCount(mapper.countLatestByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.SUCCEEDED));
-        view.setLatestPartialCount(mapper.countLatestByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.PARTIAL));
-        view.setLatestNotFoundCount(mapper.countLatestByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.NOT_FOUND));
-        view.setLatestFailedCount(mapper.countLatestByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.FAILED));
-        view.setTodaySucceededCount(mapper.countTodayByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.SUCCEEDED, today));
-        view.setTodayPartialCount(mapper.countTodayByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.PARTIAL, today));
-        view.setTodayNotFoundCount(mapper.countTodayByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.NOT_FOUND, today));
-        view.setTodayFailedCount(mapper.countTodayByStatus(ownerUserId, normalizedStore, normalizedSite, ProductPublicDetailSyncStatus.FAILED, today));
-        view.setLatestTask(ProductPublicDetailTaskView.from(findLatestTask(ownerUserId, normalizedStore, normalizedSite)));
+        view.setStoreCode(scopeStore);
+        view.setSiteCode(scopeSite);
+        view.setCandidateCount(mapper.countCandidates(
+                ownerUserId,
+                scopeStore,
+                scopeSite,
+                failureCooldownHours,
+                selection.enforcePreferredSite
+        ));
+        view.setLatestSucceededCount(mapper.countLatestByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.SUCCEEDED));
+        view.setLatestPartialCount(mapper.countLatestByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.PARTIAL));
+        view.setLatestNotFoundCount(mapper.countLatestByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.NOT_FOUND));
+        view.setLatestFailedCount(mapper.countLatestByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.FAILED));
+        view.setTodaySucceededCount(mapper.countTodayByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.SUCCEEDED, today));
+        view.setTodayPartialCount(mapper.countTodayByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.PARTIAL, today));
+        view.setTodayNotFoundCount(mapper.countTodayByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.NOT_FOUND, today));
+        view.setTodayFailedCount(mapper.countTodayByStatus(ownerUserId, scopeStore, scopeSite, ProductPublicDetailSyncStatus.FAILED, today));
+        view.setLatestTask(ProductPublicDetailTaskView.from(findLatestTask(ownerUserId, scopeStore, scopeSite)));
         view.setCheckedAt(now());
         return view;
     }
@@ -232,7 +249,15 @@ public class ProductPublicDetailSyncService {
         return mapper.selectLatestSnapshot(ownerUserId, normalizedStore, normalizedSite, productMasterId, productVariantId);
     }
 
-    void runTask(Long taskId, Long ownerUserId, String storeCode, String siteCode, Long actorUserId, boolean scheduled) {
+    void runTask(
+            Long taskId,
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            Long actorUserId,
+            boolean scheduled,
+            boolean enforcePreferredSite
+    ) {
         long startedNanos = System.nanoTime();
         ProductPublicDetailSyncSummary summary = new ProductPublicDetailSyncSummary();
         NoonPublicProductDetailAdapter adapter = adapterSupplier.get();
@@ -254,7 +279,8 @@ public class ProductPublicDetailSyncService {
                     maxProductsPerTask,
                     staleDays,
                     failureCooldownHours,
-                    scheduled
+                    scheduled,
+                    enforcePreferredSite
             );
             summary.setSelected(candidates.size());
             if (candidates.isEmpty()) {
@@ -377,7 +403,14 @@ public class ProductPublicDetailSyncService {
         ).trim();
     }
 
-    private OperationalTask submitTask(Long ownerUserId, String storeCode, String siteCode, Long actorUserId, boolean scheduled) {
+    private OperationalTask submitTask(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            Long actorUserId,
+            boolean scheduled,
+            boolean enforcePreferredSite
+    ) {
         String naturalKey = scheduled ? scheduledNaturalKey(ownerUserId, storeCode, siteCode) : manualNaturalKey(ownerUserId, storeCode, siteCode);
         OperationalTaskPayload payload = OperationalTaskPayload.builder()
                 .ownerUserId(ownerUserId)
@@ -392,7 +425,10 @@ public class ProductPublicDetailSyncService {
                 .message("商品前台详情同步正在后台执行。")
                 .build();
         OperationalTask task = operationalTaskService.start(TASK_TYPE, naturalKey, payload);
-        taskSubmitter.submit(accountKey(ownerUserId, storeCode), () -> runTask(task.getId(), ownerUserId, storeCode, siteCode, actorUserId, scheduled));
+        taskSubmitter.submit(
+                accountKey(ownerUserId, storeCode),
+                () -> runTask(task.getId(), ownerUserId, storeCode, siteCode, actorUserId, scheduled, enforcePreferredSite)
+        );
         return task;
     }
 
@@ -517,6 +553,42 @@ public class ProductPublicDetailSyncService {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "未找到 active 店铺站点范围。");
         }
         return scope;
+    }
+
+    private ScopeSelection preferredScopeSelection(BusinessAccessContext context, ProductPublicDetailScope requestedScope) {
+        if (requestedScope == null || requestedScope.getOwnerUserId() == null || requestedScope.getLogicalStoreId() == null) {
+            return ScopeSelection.enforcing(requestedScope);
+        }
+        ProductPublicDetailScope preferred = mapper.selectPreferredScope(
+                requestedScope.getOwnerUserId(),
+                requestedScope.getLogicalStoreId(),
+                failureCooldownHours
+        );
+        if (preferred == null || context == null || !StringUtils.hasText(preferred.getStoreCode())) {
+            return ScopeSelection.enforcing(requestedScope);
+        }
+        String preferredStore = normalizeStore(preferred.getStoreCode());
+        return context.canAccessStore(preferredStore)
+                ? ScopeSelection.enforcing(preferred)
+                : ScopeSelection.requestedWithoutPreferredExclusion(requestedScope);
+    }
+
+    private static final class ScopeSelection {
+        private final ProductPublicDetailScope scope;
+        private final boolean enforcePreferredSite;
+
+        private ScopeSelection(ProductPublicDetailScope scope, boolean enforcePreferredSite) {
+            this.scope = scope;
+            this.enforcePreferredSite = enforcePreferredSite;
+        }
+
+        private static ScopeSelection enforcing(ProductPublicDetailScope scope) {
+            return new ScopeSelection(scope, true);
+        }
+
+        private static ScopeSelection requestedWithoutPreferredExclusion(ProductPublicDetailScope scope) {
+            return new ScopeSelection(scope, false);
+        }
     }
 
     private Long resolveOwnerUserId(BusinessAccessContext context, String storeCode) {
