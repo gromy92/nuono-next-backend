@@ -241,6 +241,32 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
+    void catalogPartnerFallbackCanBeDisabledForProductionGateway() {
+        StubAdapter adapter = new StubAdapter(null, false, "", false);
+        adapter.failure = new NoonSearchProviderException(
+                "PROVIDER_UNAVAILABLE",
+                "Noon customer catalog timed out",
+                null,
+                "https://gateway.example.test/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=ZABCDEF12&limit=20",
+                null
+        );
+        adapter.catalogFallbackPage = page(result("ZABCDEF12", "Catalog Partner Bag"));
+        adapter.catalogFallbackPage.setSourceUrl("https://noon-catalog.noon.partners/_svc/catalog/api/u/saudi-en/search?q=ZABCDEF12&limit=20");
+
+        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
+                .siteCode("SA")
+                .locale("en-SA")
+                .noonProductCode("ZABCDEF12")
+                .build());
+
+        assertEquals(ProductPublicDetailSyncStatus.FAILED, detail.getStatus());
+        assertEquals("PROVIDER_UNAVAILABLE", detail.getFailureCode());
+        assertTrue(detail.getProviderSourceUrl().contains("gateway.example.test"));
+        assertFalse(detail.getProviderSourceUrl().contains("noon-catalog.noon.partners"));
+        assertEquals(0, adapter.catalogRequestCount.get());
+    }
+
+    @Test
     void fallsBackToFrontendHtmlSearchBeforeCatalogPartner() {
         StubAdapter adapter = new StubAdapter(null, false, "");
         adapter.failure = new NoonSearchProviderException(
@@ -372,13 +398,23 @@ class HttpNoonPublicProductDetailAdapterTest {
         private RuntimeException htmlRuntimeFailure;
         private RuntimeException catalogRuntimeFailure;
         private String lastFrontendCookieHeader;
+        private final AtomicInteger catalogRequestCount = new AtomicInteger();
 
         private StubAdapter(NoonSearchPage page, boolean curlEnabled, String cookie) {
-            this(page, curlEnabled, cookie, false, () -> null);
+            this(page, curlEnabled, cookie, true);
+        }
+
+        private StubAdapter(NoonSearchPage page, boolean curlEnabled, String cookie, boolean catalogPartnerFallbackEnabled) {
+            this(page, curlEnabled, cookie, false, () -> null, catalogPartnerFallbackEnabled);
         }
 
         private StubAdapter(NoonSearchPage page, boolean curlEnabled, String cookie, boolean chromeCookieEnabled,
                             java.util.function.Supplier<String> frontendCookieHeaderSupplier) {
+            this(page, curlEnabled, cookie, chromeCookieEnabled, frontendCookieHeaderSupplier, true);
+        }
+
+        private StubAdapter(NoonSearchPage page, boolean curlEnabled, String cookie, boolean chromeCookieEnabled,
+                            java.util.function.Supplier<String> frontendCookieHeaderSupplier, boolean catalogPartnerFallbackEnabled) {
             super(
                     new NoonFrontendSearchPageParser(new ObjectMapper()),
                     Duration.ofSeconds(1),
@@ -388,7 +424,8 @@ class HttpNoonPublicProductDetailAdapterTest {
                     cookie,
                     chromeCookieEnabled,
                     frontendCookieHeaderSupplier,
-                    curlEnabled
+                    curlEnabled,
+                    catalogPartnerFallbackEnabled
             );
             this.page = page;
         }
@@ -411,6 +448,7 @@ class HttpNoonPublicProductDetailAdapterTest {
                 return htmlFallbackPage;
             }
             if (url.contains("noon-catalog.noon.partners")) {
+                catalogRequestCount.incrementAndGet();
                 if (catalogFailure != null) {
                     throw catalogFailure;
                 }
