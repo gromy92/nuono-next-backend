@@ -222,6 +222,50 @@ class OperationConfigVersionLibraryServiceTest {
     }
 
     @Test
+    void calendarUpdateAcceptsSiteScopedFamilyAndSiteFallbackFactors() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+        OperationConfigVersionRowView draft = service.copyVersion(adminContext(), "DEFAULT_CALENDAR_CONFIG");
+
+        OperationConfigVersionDetailView updated = service.updateVersion(
+                adminContext(),
+                draft.getVersionNo(),
+                new OperationConfigVersionUpdateRequest(
+                        OperationConfigVersionType.BUSINESS_CALENDAR.name(),
+                        "站点类目因子",
+                        "高置信站点类目因子 + 站点全品兜底",
+                        List.of(
+                                new OperationConfigVersionUpdateRequest.Item(
+                                        "业务日历",
+                                        "黄色星期五 / SA / paper",
+                                        null,
+                                        "日期范围/系数",
+                                        "2026-11-20 ~ 2026-11-30 / 1.2500",
+                                        "site:SA|family:paper",
+                                        "高置信类目因子"
+                                ),
+                                new OperationConfigVersionUpdateRequest.Item(
+                                        "业务日历",
+                                        "黄色星期五 / SA / 全品兜底",
+                                        null,
+                                        "日期范围/系数",
+                                        "2026-11-20 ~ 2026-11-30 / 1.1000",
+                                        "site:SA",
+                                        "低置信站点全品兜底"
+                                )
+                        )
+                )
+        );
+
+        assertEquals(2, updated.getItems().size());
+        assertEquals("site:SA|family:paper", updated.getItems().get(0).getResultShape());
+        assertEquals("site:SA", updated.getItems().get(1).getResultShape());
+    }
+
+    @Test
     void calendarUpdateRejectsLifecycleContentForCalendarDraft() {
         InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
         OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
@@ -831,6 +875,40 @@ class OperationConfigVersionLibraryServiceTest {
 
         assertEquals("CURRENT", published.getStatus());
         assertEquals("307/STR108065-NAE/AE", published.getScopeSummary());
+    }
+
+    @Test
+    void bossCanViewOwnImportedDraftWithDescriptiveScopeSummary() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        LocalDateTime now = LocalDateTime.of(2026, 6, 27, 12, 22);
+        repository.insert(new OperationConfigTypedVersion(
+                88010L,
+                "CALENDAR_FACTOR_DRAFT_20260627",
+                "线上销量节日因子草稿 20260627",
+                OperationConfigVersionType.BUSINESS_CALENDAR.name(),
+                "DRAFT",
+                "CALENDAR_CONFIG_88007",
+                "线上销量因子导入",
+                "线上销量节日因子草稿：高置信站点类目因子 + 低置信站点全品兜底",
+                128,
+                "全局草稿 / 站点+大类目高置信因子 / 站点全品兜底",
+                "[{\"groupName\":\"业务日历\",\"itemName\":\"黄色星期五 / SA / paper\",\"cadence\":null,\"valueType\":\"日期范围/系数\",\"defaultValue\":\"2026-11-20 ~ 2026-11-30 / 1.2500\",\"resultShape\":\"site:SA|family:paper\",\"note\":\"高置信\"}]",
+                307L,
+                307L,
+                now,
+                now
+        ));
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+
+        List<OperationConfigVersionRowView> rows = service.listVersions(bossContext());
+        OperationConfigVersionDetailView detail = service.getDetail(bossContext(), "CALENDAR_FACTOR_DRAFT_20260627");
+
+        assertTrue(rows.stream().anyMatch(row -> "CALENDAR_FACTOR_DRAFT_20260627".equals(row.getVersionNo())));
+        assertEquals("DRAFT", detail.getStatus());
+        assertEquals(1, detail.getItems().size());
     }
 
     @Test

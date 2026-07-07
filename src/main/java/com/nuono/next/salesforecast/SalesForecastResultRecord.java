@@ -24,16 +24,12 @@ public class SalesForecastResultRecord {
     private final int forecastUnits30;
     private final int forecastUnits60;
     private final int forecastUnits90;
-    private final String lifecycleCode;
-    private final String lifecycleLabel;
     private final String calculationVersion;
     private final String configVersion;
     private final BigDecimal baseDailySales;
     private final BigDecimal recentDailyTrendRate;
     private final BigDecimal trendFactor;
-    private final BigDecimal lifecycleFactor;
     private final BigDecimal futureFactor;
-    private final String lifecycleExplanation;
     private final String confidenceLevel;
     private final String confidenceLabel;
     private final String confidenceExplanation;
@@ -64,16 +60,12 @@ public class SalesForecastResultRecord {
             int forecastUnits30,
             int forecastUnits60,
             int forecastUnits90,
-            String lifecycleCode,
-            String lifecycleLabel,
             String calculationVersion,
             String configVersion,
             BigDecimal baseDailySales,
             BigDecimal recentDailyTrendRate,
             BigDecimal trendFactor,
-            BigDecimal lifecycleFactor,
             BigDecimal futureFactor,
-            String lifecycleExplanation,
             String confidenceLevel,
             String confidenceLabel,
             String confidenceExplanation,
@@ -103,16 +95,12 @@ public class SalesForecastResultRecord {
         this.forecastUnits30 = forecastUnits30;
         this.forecastUnits60 = forecastUnits60;
         this.forecastUnits90 = forecastUnits90;
-        this.lifecycleCode = lifecycleCode;
-        this.lifecycleLabel = lifecycleLabel;
         this.calculationVersion = calculationVersion;
         this.configVersion = configVersion;
         this.baseDailySales = baseDailySales;
         this.recentDailyTrendRate = recentDailyTrendRate;
         this.trendFactor = trendFactor;
-        this.lifecycleFactor = lifecycleFactor;
         this.futureFactor = futureFactor;
-        this.lifecycleExplanation = lifecycleExplanation;
         this.confidenceLevel = confidenceLevel;
         this.confidenceLabel = confidenceLabel;
         this.confidenceExplanation = confidenceExplanation;
@@ -145,16 +133,12 @@ public class SalesForecastResultRecord {
                 forecastUnits30,
                 forecastUnits60,
                 forecastUnits90,
-                lifecycleCode,
-                lifecycleLabel,
                 calculationVersion,
                 configVersion,
                 baseDailySales,
                 recentDailyTrendRate,
                 trendFactor,
-                lifecycleFactor,
                 futureFactor,
-                lifecycleExplanation,
                 confidenceLevel,
                 confidenceLabel,
                 confidenceExplanation,
@@ -243,14 +227,6 @@ public class SalesForecastResultRecord {
         return forecastUnits90;
     }
 
-    public String getLifecycleCode() {
-        return lifecycleCode;
-    }
-
-    public String getLifecycleLabel() {
-        return lifecycleLabel;
-    }
-
     public String getCalculationVersion() {
         return calculationVersion;
     }
@@ -271,16 +247,8 @@ public class SalesForecastResultRecord {
         return trendFactor;
     }
 
-    public BigDecimal getLifecycleFactor() {
-        return lifecycleFactor;
-    }
-
     public BigDecimal getFutureFactor() {
         return futureFactor;
-    }
-
-    public String getLifecycleExplanation() {
-        return lifecycleExplanation;
     }
 
     public String getConfidenceLevel() {

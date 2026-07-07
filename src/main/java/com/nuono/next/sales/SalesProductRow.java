@@ -12,13 +12,6 @@ public class SalesProductRow {
     private final String productTitle;
     private final LocalDate latestFactDate;
     private final List<String> sourceSystems;
-    private final String lifecycleCode;
-    private final String lifecycleLabel;
-    private final String lifecycleExplanation;
-    private final String lifecycleRuleVersion;
-    private final String lifecycleQualityState;
-    private final String lifecycleEvidenceJson;
-    private final List<String> lifecycleWarningCodes;
     private final String brand;
     private final String productFulltype;
     private final String imageUrl;
@@ -40,7 +33,6 @@ public class SalesProductRow {
             String productTitle,
             LocalDate latestFactDate,
             List<String> sourceSystems,
-            ProductLifecycleResult lifecycle,
             SalesAnalyticsSummary summary
     ) {
         this(
@@ -49,7 +41,6 @@ public class SalesProductRow {
                 productTitle,
                 latestFactDate,
                 sourceSystems,
-                lifecycle,
                 summary,
                 null,
                 null,
@@ -67,7 +58,6 @@ public class SalesProductRow {
             String productTitle,
             LocalDate latestFactDate,
             List<String> sourceSystems,
-            ProductLifecycleResult lifecycle,
             SalesAnalyticsSummary summary,
             String brand,
             String productFulltype,
@@ -82,7 +72,6 @@ public class SalesProductRow {
                 productTitle,
                 latestFactDate,
                 sourceSystems,
-                lifecycle,
                 summary,
                 brand,
                 productFulltype,
@@ -100,7 +89,6 @@ public class SalesProductRow {
             String productTitle,
             LocalDate latestFactDate,
             List<String> sourceSystems,
-            ProductLifecycleResult lifecycle,
             SalesAnalyticsSummary summary,
             String brand,
             String productFulltype,
@@ -116,7 +104,6 @@ public class SalesProductRow {
                 productTitle,
                 latestFactDate,
                 sourceSystems,
-                lifecycle,
                 summary,
                 brand,
                 productFulltype,
@@ -140,7 +127,6 @@ public class SalesProductRow {
             String productTitle,
             LocalDate latestFactDate,
             List<String> sourceSystems,
-            ProductLifecycleResult lifecycle,
             SalesAnalyticsSummary summary,
             String brand,
             String productFulltype,
@@ -161,13 +147,6 @@ public class SalesProductRow {
         this.productTitle = productTitle;
         this.latestFactDate = latestFactDate;
         this.sourceSystems = sourceSystems == null ? List.of() : List.copyOf(sourceSystems);
-        this.lifecycleCode = lifecycle == null ? null : lifecycle.getCode();
-        this.lifecycleLabel = lifecycle == null ? null : lifecycle.getLabel();
-        this.lifecycleExplanation = lifecycle == null ? null : lifecycle.getExplanation();
-        this.lifecycleRuleVersion = lifecycle == null ? null : lifecycle.getRuleVersion();
-        this.lifecycleQualityState = lifecycle == null ? null : lifecycle.getQualityState();
-        this.lifecycleEvidenceJson = lifecycle == null ? null : lifecycle.getEvidenceJson();
-        this.lifecycleWarningCodes = lifecycle == null ? List.of() : lifecycle.getWarningCodes();
         this.brand = brand;
         this.productFulltype = productFulltype;
         this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
@@ -202,34 +181,6 @@ public class SalesProductRow {
 
     public List<String> getSourceSystems() {
         return sourceSystems;
-    }
-
-    public String getLifecycleCode() {
-        return lifecycleCode;
-    }
-
-    public String getLifecycleLabel() {
-        return lifecycleLabel;
-    }
-
-    public String getLifecycleExplanation() {
-        return lifecycleExplanation;
-    }
-
-    public String getLifecycleRuleVersion() {
-        return lifecycleRuleVersion;
-    }
-
-    public String getLifecycleQualityState() {
-        return lifecycleQualityState;
-    }
-
-    public String getLifecycleEvidenceJson() {
-        return lifecycleEvidenceJson;
-    }
-
-    public List<String> getLifecycleWarningCodes() {
-        return lifecycleWarningCodes;
     }
 
     public String getBrand() {
@@ -316,6 +267,10 @@ public class SalesProductRow {
         return summary.getBuyBoxVisitorPercentage();
     }
 
+    public boolean isBusinessMetricsAvailable() {
+        return summary.isBusinessMetricsAvailable();
+    }
+
     public int getLatestNetUnits() {
         return latestSummary.getNetUnits();
     }
@@ -342,5 +297,9 @@ public class SalesProductRow {
 
     public BigDecimal getLatestConversionVisitorsPercentage() {
         return latestSummary.getConversionVisitorsPercentage();
+    }
+
+    public boolean isLatestBusinessMetricsAvailable() {
+        return latestSummary.isBusinessMetricsAvailable();
     }
 }

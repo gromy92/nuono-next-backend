@@ -28,7 +28,20 @@ public class OperationConfigTypedVersionEvidence {
             String storeCode,
             String siteCode
     ) {
-        return defaultFor(configType);
+        return OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
+                        repository,
+                        configType,
+                        ownerUserId,
+                        storeCode,
+                        siteCode
+                )
+                .map(version -> new OperationConfigTypedVersionEvidence(
+                        configType.name(),
+                        version.getVersionNo(),
+                        version.getDisplayName(),
+                        hasText(version.getSourceLabel()) ? version.getSourceLabel() : "typed_version"
+                ))
+                .orElseGet(() -> defaultFor(configType));
     }
 
     public static OperationConfigTypedVersionEvidence defaultFor(OperationConfigVersionType configType) {
@@ -62,5 +75,9 @@ public class OperationConfigTypedVersionEvidence {
 
     public String getSourceLabel() {
         return sourceLabel;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

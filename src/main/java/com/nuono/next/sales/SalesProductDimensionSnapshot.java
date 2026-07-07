@@ -4,6 +4,7 @@ public class SalesProductDimensionSnapshot {
 
     private final String partnerSku;
     private final String sku;
+    private final String productTitle;
     private final String brand;
     private final String productFulltype;
     private final String imageUrl;
@@ -18,7 +19,7 @@ public class SalesProductDimensionSnapshot {
             String brand,
             String productFulltype
     ) {
-        this(partnerSku, sku, brand, productFulltype, null, null, null, null, null);
+        this(partnerSku, sku, null, brand, productFulltype, null, null, null, null, null);
     }
 
     public SalesProductDimensionSnapshot(
@@ -28,7 +29,7 @@ public class SalesProductDimensionSnapshot {
             String productFulltype,
             Integer currentStock
     ) {
-        this(partnerSku, sku, brand, productFulltype, null, currentStock, null, null, null);
+        this(partnerSku, sku, null, brand, productFulltype, null, currentStock, null, null, null);
     }
 
     public SalesProductDimensionSnapshot(
@@ -42,8 +43,24 @@ public class SalesProductDimensionSnapshot {
             Integer supermallStock,
             Integer fbpStock
     ) {
+        this(partnerSku, sku, null, brand, productFulltype, imageUrl, currentStock, fbnStock, supermallStock, fbpStock);
+    }
+
+    public SalesProductDimensionSnapshot(
+            String partnerSku,
+            String sku,
+            String productTitle,
+            String brand,
+            String productFulltype,
+            String imageUrl,
+            Integer currentStock,
+            Integer fbnStock,
+            Integer supermallStock,
+            Integer fbpStock
+    ) {
         this.partnerSku = partnerSku;
         this.sku = sku;
+        this.productTitle = productTitle;
         this.brand = brand;
         this.productFulltype = productFulltype;
         this.imageUrl = imageUrl;
@@ -59,6 +76,10 @@ public class SalesProductDimensionSnapshot {
 
     public String getSku() {
         return sku;
+    }
+
+    public String getProductTitle() {
+        return productTitle;
     }
 
     public String getBrand() {

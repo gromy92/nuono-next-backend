@@ -121,7 +121,6 @@ public class SalesDataController {
             @RequestParam(required = false) String brand,
             @RequestParam(required = false) String productFulltype,
             @RequestParam(required = false) String dataQualityCode,
-            @RequestParam(required = false) String lifecycleCode,
             @RequestParam(required = false) String partnerSkuList,
             HttpServletRequest request
     ) {
@@ -136,7 +135,6 @@ public class SalesDataController {
                 brand,
                 productFulltype,
                 dataQualityCode,
-                lifecycleCode,
                 partnerSkuList,
                 request
         ));
@@ -153,7 +151,6 @@ public class SalesDataController {
             @RequestParam(required = false) String brand,
             @RequestParam(required = false) String productFulltype,
             @RequestParam(required = false) String dataQualityCode,
-            @RequestParam(required = false) String lifecycleCode,
             @RequestParam(required = false) String partnerSkuList,
             HttpServletRequest request
     ) {
@@ -168,7 +165,6 @@ public class SalesDataController {
                 brand,
                 productFulltype,
                 dataQualityCode,
-                lifecycleCode,
                 partnerSkuList,
                 request
         ), granularity);
@@ -184,7 +180,6 @@ public class SalesDataController {
             @RequestParam(required = false) String brand,
             @RequestParam(required = false) String productFulltype,
             @RequestParam(required = false) String dataQualityCode,
-            @RequestParam(required = false) String lifecycleCode,
             @RequestParam(required = false) String partnerSkuList,
             HttpServletRequest request
     ) {
@@ -199,7 +194,6 @@ public class SalesDataController {
                 brand,
                 productFulltype,
                 dataQualityCode,
-                lifecycleCode,
                 partnerSkuList,
                 request
         ));
@@ -222,7 +216,6 @@ public class SalesDataController {
                 dateTo,
                 partnerSku,
                 sku,
-                null,
                 null,
                 null,
                 null,
@@ -266,7 +259,6 @@ public class SalesDataController {
             @RequestParam(required = false) String brand,
             @RequestParam(required = false) String productFulltype,
             @RequestParam(required = false) String dataQualityCode,
-            @RequestParam(required = false) String lifecycleCode,
             @RequestParam(required = false) String partnerSkuList,
             HttpServletRequest request
     ) {
@@ -281,7 +273,6 @@ public class SalesDataController {
                 brand,
                 productFulltype,
                 dataQualityCode,
-                lifecycleCode,
                 partnerSkuList,
                 request
         ));
@@ -537,7 +528,6 @@ public class SalesDataController {
             String brand,
             String productFulltype,
             String dataQualityCode,
-            String lifecycleCode,
             String partnerSkuList,
             HttpServletRequest request
     ) {
@@ -563,8 +553,7 @@ public class SalesDataController {
                 brand,
                 productFulltype,
                 dataQualityCode,
-                parsePartnerSkuList(partnerSkuList),
-                lifecycleCode
+                parsePartnerSkuList(partnerSkuList)
         );
     }
 

@@ -120,6 +120,31 @@ public class SalesForecastRunRecord {
             String calendarVersionNo,
             String calendarVersionName,
             String calendarVersionSourceLabel,
+            int resultCount
+    ) {
+        return succeeded(
+                query,
+                sourceDataDate,
+                calculationVersion,
+                configVersion,
+                calendarVersionNo,
+                calendarVersionName,
+                calendarVersionSourceLabel,
+                null,
+                null,
+                null,
+                resultCount
+        );
+    }
+
+    public static SalesForecastRunRecord succeeded(
+            SalesForecastQuery query,
+            LocalDate sourceDataDate,
+            String calculationVersion,
+            String configVersion,
+            String calendarVersionNo,
+            String calendarVersionName,
+            String calendarVersionSourceLabel,
             String lifecycleVersionNo,
             String lifecycleVersionName,
             String lifecycleVersionSourceLabel,

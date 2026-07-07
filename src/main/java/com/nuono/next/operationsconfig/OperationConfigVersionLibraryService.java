@@ -396,7 +396,7 @@ public class OperationConfigVersionLibraryService {
         }
         ScopeKey scope = parseScope(scopeSummary);
         if (scope == null) {
-            return false;
+            return isCreatorDraft(context, version);
         }
         if (context.isBossAccount()) {
             return scope.ownerUserId != null
@@ -409,6 +409,12 @@ public class OperationConfigVersionLibraryService {
                     && (scope.ownerUserId == null || scope.ownerUserId.equals(mappedOwner));
         }
         return false;
+    }
+
+    private boolean isCreatorDraft(BusinessAccessContext context, OperationConfigTypedVersion version) {
+        return "DRAFT".equals(version.getStatus())
+                && version.getCreatedBy() != null
+                && version.getCreatedBy().equals(context.getSessionUserId());
     }
 
     private void requireVersionVisible(BusinessAccessContext context, OperationConfigTypedVersion version) {
@@ -647,9 +653,13 @@ public class OperationConfigVersionLibraryService {
         int separator = trimmed.indexOf(':');
         String type = separator > 0 ? trimmed.substring(0, separator).trim().toLowerCase(Locale.ROOT) : lower;
         String value = separator > 0 ? trimmed.substring(separator + 1).trim() : "";
-        if ("brand".equals(type) || "product_fulltype".equals(type) || "fulltype".equals(type) || "category".equals(type)) {
+        if ("site".equals(type)) {
+            validateSiteCalendarTargetValue(value, rawScope);
+            return;
+        }
+        if ("brand".equals(type) || "product_fulltype".equals(type) || "fulltype".equals(type) || "category".equals(type) || "family".equals(type)) {
             if (value.isEmpty()) {
-                throw new IllegalArgumentException("品牌、Product Fulltype、类目范围必须填写范围值。");
+                throw new IllegalArgumentException("品牌、Product Fulltype、类目、大类目范围必须填写范围值。");
             }
             return;
         }
@@ -660,6 +670,37 @@ public class OperationConfigVersionLibraryService {
             return;
         }
         throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+    }
+
+    private void validateSiteCalendarTargetValue(String value, String rawScope) {
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("站点范围必须填写站点值。");
+        }
+        if (value.endsWith("|")) {
+            throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+        }
+        String[] parts = value.split("\\|");
+        if (parts.length == 0 || parts[0].trim().isEmpty()) {
+            throw new IllegalArgumentException("站点范围必须填写站点值。");
+        }
+        for (int index = 1; index < parts.length; index++) {
+            String part = parts[index].trim();
+            if (part.isEmpty()) {
+                throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+            }
+            int separator = part.indexOf(':');
+            if (separator <= 0 || separator == part.length() - 1) {
+                throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+            }
+            String dimensionType = part.substring(0, separator).trim().toLowerCase(Locale.ROOT);
+            if (!"brand".equals(dimensionType)
+                    && !"product_fulltype".equals(dimensionType)
+                    && !"fulltype".equals(dimensionType)
+                    && !"category".equals(dimensionType)
+                    && !"family".equals(dimensionType)) {
+                throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+            }
+        }
     }
 
     private String summaryFor(String configType, int itemCount) {
