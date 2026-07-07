@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,6 +21,7 @@ public class LogisticsAutoSyncScheduler {
     private final Clock clock;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    @Autowired
     public LogisticsAutoSyncScheduler(
             LogisticsAutoSyncProperties properties,
             LogisticsAutoSyncMapper mapper,
