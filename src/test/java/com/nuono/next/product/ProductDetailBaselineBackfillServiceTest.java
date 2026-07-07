@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,63 @@ class ProductDetailBaselineBackfillServiceTest {
     }
 
     @Test
+    void shouldDeduplicateActiveBackfillAcrossSiteStoresInSameLogicalStore() {
+        List<Runnable> submittedTasks = new ArrayList<>();
+        ProductDetailBaselineBackfillService service = newService(
+                (ownerUserId, storeCode) -> 50003L,
+                (accountKey, task) -> submittedTasks.add(task)
+        );
+
+        ProductMasterFetchCommand saCommand = command("STR108065-NSA", "ZEA2BC495A97B0328CF53Z", "PAPERSAYS065");
+        ProductMasterFetchCommand aeCommand = command("STR108065-NAE", "ZEA2BC495A97B0328CF53Z", "PAPERSAYS065");
+
+        service.enqueue(saCommand, "open-missing-baseline", (command, reason) -> readySnapshot());
+        service.enqueue(aeCommand, "open-missing-baseline", (command, reason) -> readySnapshot());
+
+        assertEquals(1, submittedTasks.size());
+        assertEquals(1, repository.tasks.size());
+        ProductDetailBaselineBackfillService.BackfillState aeState = service.state(
+                307L,
+                "STR108065-NAE",
+                "ZEA2BC495A97B0328CF53Z"
+        );
+        assertEquals("preparing", aeState.getStatus());
+    }
+
+    @Test
+    void stateCanUseResolvedLogicalStoreWithoutResolvingStoreAgain() {
+        ProductDetailBaselineBackfillService service = newService(
+                (ownerUserId, storeCode) -> 50003L,
+                (accountKey, task) -> {}
+        );
+        ProductMasterFetchCommand saCommand = command("STR108065-NSA", "ZEA2BC495A97B0328CF53Z", "PAPERSAYS065");
+        service.enqueue(saCommand, "open-missing-baseline", (command, reason) -> readySnapshot());
+
+        ProductDetailBaselineBackfillService.BackfillState state =
+                service.stateForLogicalStore(307L, 50003L, "ZEA2BC495A97B0328CF53Z");
+
+        assertEquals("preparing", state.getStatus());
+    }
+
+    @Test
+    void shouldKeepBackfillSeparateAcrossDifferentLogicalStores() {
+        List<Runnable> submittedTasks = new ArrayList<>();
+        ProductDetailBaselineBackfillService service = newService(
+                (ownerUserId, storeCode) -> storeCode.endsWith("-NSA") ? 50003L : 50004L,
+                (accountKey, task) -> submittedTasks.add(task)
+        );
+
+        ProductMasterFetchCommand canmanCommand = command("STR108065-NSA", "ZEA2BC495A97B0328CF53Z", "PAPERSAYS065");
+        ProductMasterFetchCommand sggrCommand = command("STR108066-NAE", "ZEA2BC495A97B0328CF53Z", "PAPERSAYS065");
+
+        service.enqueue(canmanCommand, "open-missing-baseline", (command, reason) -> readySnapshot());
+        service.enqueue(sggrCommand, "open-missing-baseline", (command, reason) -> readySnapshot());
+
+        assertEquals(2, submittedTasks.size());
+        assertEquals(2, repository.tasks.size());
+    }
+
+    @Test
     void shouldCompleteSuccessfulBackfill() {
         ProductDetailBaselineBackfillService service = newService((accountKey, task) -> task.run());
 
@@ -104,12 +162,20 @@ class ProductDetailBaselineBackfillServiceTest {
     private ProductDetailBaselineBackfillService newService(
             ProductDetailBaselineBackfillService.TaskSubmitter taskSubmitter
     ) {
+        return newService((ownerUserId, storeCode) -> null, taskSubmitter);
+    }
+
+    private ProductDetailBaselineBackfillService newService(
+            BiFunction<Long, String, Long> storeScopeResolver,
+            ProductDetailBaselineBackfillService.TaskSubmitter taskSubmitter
+    ) {
         return new ProductDetailBaselineBackfillService(
                 new OperationalTaskService(
                         repository,
                         Clock.fixed(Instant.parse("2026-06-04T05:00:00Z"), ZoneOffset.UTC)
                 ),
-                taskSubmitter
+                taskSubmitter,
+                storeScopeResolver
         );
     }
 
@@ -122,11 +188,15 @@ class ProductDetailBaselineBackfillServiceTest {
     }
 
     private ProductMasterFetchCommand command() {
+        return command("canman", "PAPERSAYSB132", "PAPERSAYSB132");
+    }
+
+    private ProductMasterFetchCommand command(String storeCode, String skuParent, String partnerSku) {
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
         command.setOwnerUserId(307L);
-        command.setStoreCode("canman");
-        command.setSkuParent("PAPERSAYSB132");
-        command.setPartnerSku("PAPERSAYSB132");
+        command.setStoreCode(storeCode);
+        command.setSkuParent(skuParent);
+        command.setPartnerSku(partnerSku);
         command.setPskuCode("Z9A");
         return command;
     }

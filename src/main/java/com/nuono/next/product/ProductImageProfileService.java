@@ -290,7 +290,14 @@ public class ProductImageProfileService {
         if (index < 0 || index == value.length() - 1) {
             return null;
         }
-        return value.substring(index + 1).toUpperCase(Locale.ROOT);
+        String suffix = value.substring(index + 1).trim().toUpperCase(Locale.ROOT);
+        if ("NAE".equals(suffix)) {
+            return "AE";
+        }
+        if ("NSA".equals(suffix)) {
+            return "SA";
+        }
+        return suffix;
     }
 
     private String productImageFactExtractionInstructions() {
@@ -330,12 +337,32 @@ public class ProductImageProfileService {
             appendPromptLine(lines, "详情阿语标题", snapshot.getTitleAr());
             appendPromptLine(lines, "详情品牌", snapshot.getBrand());
             appendPromptLine(lines, "详情分类", snapshot.getCategoryPath());
-            appendPromptLine(lines, "详情原始 JSON", truncate(snapshot.getRawPayloadJson(), 9000));
+            if (sameSite(profile, snapshot)) {
+                appendPromptLine(lines, "详情原始 JSON", truncate(snapshot.getRawPayloadJson(), 9000));
+            } else {
+                lines.add("详情原始 JSON：已省略；该快照来自同店铺的兄弟站点，只用于共享商品标题、品牌和分类。");
+            }
         }
         lines.add("");
         lines.add("输出 JSON 示例：");
         lines.add("{\"specSummary\":\"Black · 0.5mm · 12 Pieces\",\"titleEn\":\"Retractable Gel Ink Pens\",\"titleAr\":\"أقلام حبر جل قابلة للسحب\",\"sizeText\":\"\",\"heroSellingPoints\":[\"Smooth 0.5mm writing\"],\"packageText\":\"12 pens per pack\"}");
         return String.join("\n", lines);
+    }
+
+    private boolean sameSite(ProductImageProfileRecord profile, ProductPublicDetailSnapshot snapshot) {
+        if (profile == null || snapshot == null) {
+            return false;
+        }
+        String profileStore = trimToNull(profile.getStoreCode());
+        String snapshotStore = trimToNull(snapshot.getStoreCode());
+        String profileSite = siteCodeFromStoreCode(profileStore);
+        String snapshotSite = trimToNull(snapshot.getSiteCode());
+        return profileStore != null
+                && snapshotStore != null
+                && profileStore.equalsIgnoreCase(snapshotStore)
+                && profileSite != null
+                && snapshotSite != null
+                && profileSite.equalsIgnoreCase(snapshotSite);
     }
 
     private Map<String, Object> productImageFactExtractionSchema() {

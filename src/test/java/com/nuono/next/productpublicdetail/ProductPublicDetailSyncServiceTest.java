@@ -71,7 +71,7 @@ class ProductPublicDetailSyncServiceTest {
     @Test
     void partialResultInsertsDailySnapshotAndMarksLatest() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
-        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(partialResult());
@@ -97,7 +97,7 @@ class ProductPublicDetailSyncServiceTest {
     @Test
     void failedSameDayResultDoesNotOverwriteExistingLatestPartial() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
-        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(failedResult());
@@ -113,7 +113,7 @@ class ProductPublicDetailSyncServiceTest {
     @Test
     void failedResultDoesNotWriteSnapshotWhenNoExistingDetail() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
-        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(failedResult());
@@ -129,7 +129,7 @@ class ProductPublicDetailSyncServiceTest {
     @Test
     void notFoundResultDoesNotWriteSnapshotWhenNoExistingDetail() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
-        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(notFoundResult());
@@ -167,7 +167,7 @@ class ProductPublicDetailSyncServiceTest {
         second.setPartnerSku("CANMAN-SKU-2");
         second.setSkuParent("ZCANMAN13");
         second.setNoonProductCode("ZCANMAN13");
-        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(first, second));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(blockedResult());
@@ -210,7 +210,7 @@ class ProductPublicDetailSyncServiceTest {
         second.setPartnerSku("CANMAN-SKU-2");
         second.setSkuParent("ZCANMAN13");
         second.setNoonProductCode("ZCANMAN13");
-        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean()))
+        when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(first, second));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenAnswer(invocation -> {
@@ -235,6 +235,117 @@ class ProductPublicDetailSyncServiceTest {
         verify(mapper).insertSnapshot(any(ProductPublicDetailSnapshot.class));
     }
 
+    @Test
+    void submitManualUsesPreferredScopeForSiblingSiteRequest() {
+        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
+        ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
+        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
+        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
+        when(mapper.listCandidates(eq(501L), eq("STR108065-NSA"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
+                .thenReturn(List.of(candidate("STR108065-NSA", "SA")));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(partialResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300001L);
+
+        ProductPublicDetailTaskView task = service.submitManual(contextWith108065Stores(), "STR108065-NAE", "AE");
+
+        assertEquals("STR108065-NSA", task.getStoreCode());
+        assertEquals("SA", task.getSiteCode());
+        verify(mapper).listCandidates(eq(501L), eq("STR108065-NSA"), eq("SA"), anyInt(), anyInt(), anyInt(), eq(false), eq(true));
+    }
+
+    @Test
+    void submitManualFallsBackToRequestedScopeWhenPreferredScopeHasNoCandidates() {
+        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
+        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
+        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(null);
+        when(mapper.listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
+                .thenReturn(List.of(candidate("STR108065-NAE", "AE")));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(partialResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("AE"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300001L);
+
+        ProductPublicDetailTaskView task = service.submitManual(contextWith108065Stores(), "STR108065-NAE", "AE");
+
+        assertEquals("STR108065-NAE", task.getStoreCode());
+        assertEquals("AE", task.getSiteCode());
+        verify(mapper).listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), eq(false), eq(true));
+    }
+
+    @Test
+    void submitManualFallsBackToRequestedScopeWhenPreferredScopeIsNotAccessible() {
+        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
+        ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
+        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
+        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
+        when(mapper.listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
+                .thenReturn(List.of(candidate("STR108065-NAE", "AE")));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(partialResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("AE"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300001L);
+
+        ProductPublicDetailTaskView task = service.submitManual(contextWith108065AeStore(), "STR108065-NAE", "AE");
+
+        assertEquals("STR108065-NAE", task.getStoreCode());
+        assertEquals("AE", task.getSiteCode());
+        verify(mapper).listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), eq(false), eq(false));
+        verify(mapper, never()).listCandidates(eq(501L), eq("STR108065-NSA"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void submitScheduledUsesRequestedScopeEvenWhenSiblingSiteCouldBePreferred() {
+        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
+        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
+        when(mapper.listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
+                .thenReturn(List.of(candidate("STR108065-NAE", "AE")));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(partialResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("AE"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300001L);
+
+        ProductPublicDetailTaskView task = service.submitScheduled(501L, "STR108065-NAE", "AE");
+
+        assertEquals("STR108065-NAE", task.getStoreCode());
+        assertEquals("AE", task.getSiteCode());
+        verify(mapper, never()).selectPreferredScope(any(), any(), anyInt());
+        verify(mapper).listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), eq(true), eq(true));
+    }
+
+    @Test
+    void syncStatusUsesPreferredScopeForSiblingSiteRequest() {
+        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
+        ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
+        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
+        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
+        when(mapper.countCandidates(501L, "STR108065-NSA", "SA", 12, true)).thenReturn(3);
+
+        ProductPublicDetailStatusView status = service.syncStatus(contextWith108065Stores(), "STR108065-NAE", "AE");
+
+        assertEquals("STR108065-NSA", status.getStoreCode());
+        assertEquals("SA", status.getSiteCode());
+        assertEquals(3, status.getCandidateCount());
+    }
+
+    @Test
+    void syncStatusFallsBackToRequestedScopeWhenPreferredScopeIsNotAccessible() {
+        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
+        ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
+        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
+        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
+        when(mapper.countCandidates(501L, "STR108065-NAE", "AE", 12, false)).thenReturn(5);
+
+        ProductPublicDetailStatusView status = service.syncStatus(contextWith108065AeStore(), "STR108065-NAE", "AE");
+
+        assertEquals("STR108065-NAE", status.getStoreCode());
+        assertEquals("AE", status.getSiteCode());
+        assertEquals(5, status.getCandidateCount());
+        verify(mapper).countCandidates(501L, "STR108065-NAE", "AE", 12, false);
+        verify(mapper, never()).countCandidates(501L, "STR108065-NSA", "SA", 12, true);
+    }
+
     private static BusinessAccessContext context() {
         return BusinessAccessContext.builder()
                 .sessionUserId(901L)
@@ -244,12 +355,39 @@ class ProductPublicDetailSyncServiceTest {
                 .build();
     }
 
+    private static BusinessAccessContext contextWith108065Stores() {
+        return BusinessAccessContext.builder()
+                .sessionUserId(901L)
+                .businessOwnerUserId(501L)
+                .storeCodes(java.util.Set.of("STR108065-NAE", "STR108065-NSA"))
+                .storeOwnerUserIds(Map.of("STR108065-NAE", 501L, "STR108065-NSA", 501L))
+                .build();
+    }
+
+    private static BusinessAccessContext contextWith108065AeStore() {
+        return BusinessAccessContext.builder()
+                .sessionUserId(901L)
+                .businessOwnerUserId(501L)
+                .storeCodes(java.util.Set.of("STR108065-NAE"))
+                .storeOwnerUserIds(Map.of("STR108065-NAE", 501L))
+                .build();
+    }
+
     private static ProductPublicDetailScope scope() {
         ProductPublicDetailScope scope = new ProductPublicDetailScope();
         scope.setOwnerUserId(501L);
         scope.setLogicalStoreId(601L);
         scope.setStoreCode("CANMAN");
         scope.setSiteCode("SA");
+        return scope;
+    }
+
+    private static ProductPublicDetailScope scope(String storeCode, String siteCode) {
+        ProductPublicDetailScope scope = new ProductPublicDetailScope();
+        scope.setOwnerUserId(501L);
+        scope.setLogicalStoreId(601L);
+        scope.setStoreCode(storeCode);
+        scope.setSiteCode(siteCode);
         return scope;
     }
 
@@ -265,6 +403,13 @@ class ProductPublicDetailSyncServiceTest {
         candidate.setPartnerSku("CANMAN-SKU-1");
         candidate.setSkuParent("ZCANMAN12");
         candidate.setNoonProductCode("ZCANMAN12");
+        return candidate;
+    }
+
+    private static ProductPublicDetailCandidate candidate(String storeCode, String siteCode) {
+        ProductPublicDetailCandidate candidate = candidate();
+        candidate.setStoreCode(storeCode);
+        candidate.setSiteCode(siteCode);
         return candidate;
     }
 

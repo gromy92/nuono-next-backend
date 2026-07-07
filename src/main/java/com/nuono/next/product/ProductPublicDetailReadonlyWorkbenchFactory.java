@@ -30,18 +30,19 @@ class ProductPublicDetailReadonlyWorkbenchFactory {
             return null;
         }
 
+        boolean sameSite = sameSite(command, store, detail);
         ProductMasterSnapshotView baseline = new ProductMasterSnapshotView();
         baseline.setMode(MODE);
         baseline.setReady(true);
         baseline.setDegraded(true);
         baseline.setMessage("已使用 Noon 前台公开详情打开只读视图。");
         baseline.setWarnings(new ArrayList<>(List.of(READONLY_WARNING)));
-        baseline.setStoreContext(buildStoreContext(command, store, detail));
+        baseline.setStoreContext(buildStoreContext(command, store, detail, sameSite));
         baseline.setIdentity(buildIdentity(projection, detail));
         baseline.setTaxonomy(buildTaxonomy(projection, detail));
-        baseline.setContent(buildContent(projection, detail));
-        baseline.setPricing(buildPricing(projection, detail));
-        baseline.setSiteOffers(buildSiteOffers(store, projection, detail));
+        baseline.setContent(buildContent(projection, detail, sameSite));
+        baseline.setPricing(buildPricing(projection, detail, sameSite));
+        baseline.setSiteOffers(buildSiteOffers(command, store, projection, detail, sameSite));
         return baseline;
     }
 
@@ -52,20 +53,22 @@ class ProductPublicDetailReadonlyWorkbenchFactory {
     private Map<String, Object> buildStoreContext(
             ProductMasterFetchCommand command,
             StoreSyncStoreRecord store,
-            ProductPublicDetailSnapshot detail
+            ProductPublicDetailSnapshot detail,
+            boolean sameSite
     ) {
         Map<String, Object> context = new LinkedHashMap<>();
         putIfNotNull(context, "ownerUserId", command == null ? null : command.getOwnerUserId());
         putIfNotBlank(context, "projectName", store == null ? null : store.getProjectName());
         putIfNotBlank(context, "projectCode", store == null ? null : store.getProjectCode());
         putIfNotBlank(context, "storeCode", firstNonBlank(
-                detail == null ? null : detail.getStoreCode(),
+                sameSite && detail != null ? detail.getStoreCode() : null,
                 store == null ? null : store.getStoreCode(),
                 command == null ? null : command.getStoreCode()
         ));
         putIfNotBlank(context, "site", firstNonBlank(
-                detail == null ? null : detail.getSiteCode(),
-                store == null ? null : store.getSite()
+                sameSite && detail != null ? detail.getSiteCode() : null,
+                store == null ? null : store.getSite(),
+                siteCodeFromStoreCode(command == null ? null : command.getStoreCode())
         ));
         if (detail != null && detail.getFetchedAt() != null) {
             putIfNotBlank(context, "fetchedAt", FETCH_TIME_FORMATTER.format(detail.getFetchedAt()));
@@ -108,7 +111,8 @@ class ProductPublicDetailReadonlyWorkbenchFactory {
 
     private Map<String, Object> buildContent(
             ProductListProjectionRecord projection,
-            ProductPublicDetailSnapshot detail
+            ProductPublicDetailSnapshot detail,
+            boolean sameSite
     ) {
         Map<String, Object> content = new LinkedHashMap<>();
         putIfNotBlank(content, "titleEn", firstNonBlank(detail.getTitleEn(), projection.getTitle()));
@@ -121,43 +125,107 @@ class ProductPublicDetailReadonlyWorkbenchFactory {
         }
         content.put("images", images);
         content.put("imageCount", images.size());
-        putIfNotBlank(content, "detailUrl", detail.getDetailUrl());
+        if (sameSite) {
+            putIfNotBlank(content, "detailUrl", detail.getDetailUrl());
+        }
         return content;
     }
 
     private Map<String, Object> buildPricing(
             ProductListProjectionRecord projection,
-            ProductPublicDetailSnapshot detail
+            ProductPublicDetailSnapshot detail,
+            boolean sameSite
     ) {
         Map<String, Object> pricing = new LinkedHashMap<>();
-        putIfNotBlank(pricing, "price", firstNonBlank(decimalText(detail.getPriceAmount()), projection.getOriginalPrice(), projection.getReferencePrice()));
+        putIfNotBlank(pricing, "price", firstNonBlank(
+                sameSite ? decimalText(detail.getPriceAmount()) : null,
+                projection.getOriginalPrice(),
+                projection.getReferencePrice()
+        ));
         putIfNotBlank(pricing, "salePrice", projection.getSalePrice());
-        putIfNotBlank(pricing, "currency", detail.getCurrencyCode());
+        if (sameSite) {
+            putIfNotBlank(pricing, "currency", detail.getCurrencyCode());
+        }
         return pricing;
     }
 
     private List<Map<String, Object>> buildSiteOffers(
+            ProductMasterFetchCommand command,
             StoreSyncStoreRecord store,
             ProductListProjectionRecord projection,
-            ProductPublicDetailSnapshot detail
+            ProductPublicDetailSnapshot detail,
+            boolean sameSite
     ) {
         Map<String, Object> siteOffer = new LinkedHashMap<>();
         putIfNotBlank(siteOffer, "storeCode", firstNonBlank(
-                detail.getStoreCode(),
-                store == null ? null : store.getStoreCode()
+                sameSite ? detail.getStoreCode() : null,
+                store == null ? null : store.getStoreCode(),
+                command == null ? null : command.getStoreCode()
         ));
         putIfNotBlank(siteOffer, "site", firstNonBlank(
-                detail.getSiteCode(),
-                store == null ? null : store.getSite()
+                sameSite ? detail.getSiteCode() : null,
+                store == null ? null : store.getSite(),
+                siteCodeFromStoreCode(command == null ? null : command.getStoreCode())
         ));
         putIfNotBlank(siteOffer, "partnerSku", firstNonBlank(detail.getPartnerSku(), projection.getPartnerSku()));
         putIfNotBlank(siteOffer, "pskuCode", projection.getPskuCode());
-        putIfNotBlank(siteOffer, "price", firstNonBlank(decimalText(detail.getPriceAmount()), projection.getOriginalPrice(), projection.getReferencePrice()));
+        putIfNotBlank(siteOffer, "price", firstNonBlank(
+                sameSite ? decimalText(detail.getPriceAmount()) : null,
+                projection.getOriginalPrice(),
+                projection.getReferencePrice()
+        ));
         putIfNotBlank(siteOffer, "salePrice", projection.getSalePrice());
-        putIfNotBlank(siteOffer, "currency", detail.getCurrencyCode());
+        if (sameSite) {
+            putIfNotBlank(siteOffer, "currency", detail.getCurrencyCode());
+        }
         putIfNotBlank(siteOffer, "statusCode", projection.getCurrentSiteLiveStatus());
         putIfNotNull(siteOffer, "readonly", true);
         return List.of(siteOffer);
+    }
+
+    private boolean sameSite(
+            ProductMasterFetchCommand command,
+            StoreSyncStoreRecord store,
+            ProductPublicDetailSnapshot detail
+    ) {
+        if (detail == null) {
+            return false;
+        }
+        String requestedStoreCode = firstNonBlank(
+                store == null ? null : store.getStoreCode(),
+                command == null ? null : command.getStoreCode()
+        );
+        String requestedSite = firstNonBlank(
+                store == null ? null : store.getSite(),
+                siteCodeFromStoreCode(command == null ? null : command.getStoreCode())
+        );
+        return equalsIgnoreCase(requestedStoreCode, detail.getStoreCode())
+                && equalsIgnoreCase(requestedSite, detail.getSiteCode());
+    }
+
+    private boolean equalsIgnoreCase(String left, String right) {
+        return StringUtils.hasText(left)
+                && StringUtils.hasText(right)
+                && left.trim().equalsIgnoreCase(right.trim());
+    }
+
+    private String siteCodeFromStoreCode(String storeCode) {
+        String value = text(storeCode);
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        int index = value.lastIndexOf('-');
+        if (index < 0 || index + 1 >= value.length()) {
+            return null;
+        }
+        String suffix = value.substring(index + 1).trim().toUpperCase();
+        if ("NAE".equals(suffix)) {
+            return "AE";
+        }
+        if ("NSA".equals(suffix)) {
+            return "SA";
+        }
+        return suffix;
     }
 
     private boolean isUsablePublicDetail(ProductPublicDetailSnapshot detail) {

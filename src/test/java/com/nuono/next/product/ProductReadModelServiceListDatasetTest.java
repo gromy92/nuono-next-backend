@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,6 +54,8 @@ class ProductReadModelServiceListDatasetTest {
     void listDatasetReadsLocalProjectionWithoutInitializationStatusOrBackfillSideEffects() {
         StoreSyncStoreRecord store = ownerStore();
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(51009L);
 
         ProductListSummaryView summary = new ProductListSummaryView();
         summary.setReady(true);
@@ -107,8 +110,48 @@ class ProductReadModelServiceListDatasetTest {
                 eq("STR245027-NAE"),
                 anyList()
         );
+        verify(productDetailBaselineBackfillService).stateForLogicalStore(10002L, 51009L, "PAPERSAYSB132");
         verify(productDetailBaselineBackfillService, never()).state(10002L, "STR245027-NAE", "PAPERSAYSB132");
         verify(productDetailBaselineBackfillService, never()).enqueue(any(), anyString(), any());
+    }
+
+    @Test
+    void listDatasetResolvesLogicalStoreOnceForMultipleEligibleBackfillSummaries() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(51009L);
+
+        ProductListSummaryView first = productSummary("STR245027-NAE", "ZPAPER001", "PAPERSAYSB132", "NOON-CODE-001");
+        first.setDetailBaselineStatus("missing");
+        ProductListSummaryView second = productSummary("STR245027-NAE", "ZPAPER002", "PAPERSAYSB133", "NOON-CODE-002");
+        second.setDetailBaselineStatus("missing");
+        ProductListSummaryView ready = productSummary("STR245027-NAE", "ZPAPER003", "PAPERSAYSB134", "NOON-CODE-003");
+        ready.setDetailBaselineStatus("ready");
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(first, second, ready));
+        when(productDetailBaselineBackfillService.stateForLogicalStore(10002L, 51009L, "ZPAPER001"))
+                .thenReturn(new ProductDetailBaselineBackfillService.BackfillState("preparing", "正在后台补齐详情基线。"));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListDatasetView view = service.loadListDataset(command);
+
+        assertEquals(3, view.getItems().size());
+        assertEquals("preparing", view.getItems().get(0).getDetailBaselineStatus());
+        assertEquals("missing", view.getItems().get(1).getDetailBaselineStatus());
+        assertEquals("ready", view.getItems().get(2).getDetailBaselineStatus());
+        verify(productManagementMapper, times(1))
+                .selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE");
+        verify(productDetailBaselineBackfillService).stateForLogicalStore(10002L, 51009L, "ZPAPER001");
+        verify(productDetailBaselineBackfillService).stateForLogicalStore(10002L, 51009L, "ZPAPER002");
+        verify(productDetailBaselineBackfillService, never()).stateForLogicalStore(10002L, 51009L, "ZPAPER003");
+        verify(productDetailBaselineBackfillService, never()).state(any(), anyString(), anyString());
     }
 
     @Test
