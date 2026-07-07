@@ -49,6 +49,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     private final boolean chromeFrontendCookieEnabled;
     private final Supplier<String> frontendCookieHeaderSupplier;
     private final boolean curlEnabled;
+    private final boolean catalogPartnerFallbackEnabled;
 
     @Autowired
     public HttpNoonPublicProductDetailAdapter(
@@ -60,7 +61,8 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             @Value("${nuono.product-public-detail.noon.customer-catalog-v3-base-url:https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u}") String customerCatalogV3BaseUrl,
             @Value("${nuono.product-public-detail.noon.frontend-cookie-header:}") String configuredFrontendCookieHeader,
             @Value("${nuono.product-public-detail.noon.chrome-frontend-cookie-enabled:false}") boolean chromeFrontendCookieEnabled,
-            @Value("${nuono.product-public-detail.noon.curl-enabled:true}") boolean curlEnabled
+            @Value("${nuono.product-public-detail.noon.curl-enabled:true}") boolean curlEnabled,
+            @Value("${nuono.product-public-detail.noon.catalog-partner-fallback-enabled:false}") boolean catalogPartnerFallbackEnabled
     ) {
         this(
                 parser,
@@ -72,7 +74,8 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 configuredFrontendCookieHeader,
                 chromeFrontendCookieEnabled,
                 ChromeNoonCookieSupport::loadNoonFrontendCookieHeader,
-                curlEnabled
+                curlEnabled,
+                catalogPartnerFallbackEnabled
         );
     }
 
@@ -114,12 +117,39 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 connectTimeout,
                 requestTimeout,
                 publicBaseUrl,
+                customerCatalogV3BaseUrl,
+                configuredFrontendCookieHeader,
+                chromeFrontendCookieEnabled,
+                frontendCookieHeaderSupplier,
+                curlEnabled,
+                true
+        );
+    }
+
+    HttpNoonPublicProductDetailAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String publicBaseUrl,
+            String customerCatalogV3BaseUrl,
+            String configuredFrontendCookieHeader,
+            boolean chromeFrontendCookieEnabled,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled,
+            boolean catalogPartnerFallbackEnabled
+    ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                publicBaseUrl,
                 "https://noon-catalog.noon.partners/_svc/catalog/api/u",
                 customerCatalogV3BaseUrl,
                 configuredFrontendCookieHeader,
                 chromeFrontendCookieEnabled,
                 frontendCookieHeaderSupplier,
-                curlEnabled
+                curlEnabled,
+                catalogPartnerFallbackEnabled
         );
     }
 
@@ -159,6 +189,34 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             Supplier<String> frontendCookieHeaderSupplier,
             boolean curlEnabled
     ) {
+        this(
+                parser,
+                connectTimeout,
+                requestTimeout,
+                publicBaseUrl,
+                catalogBaseUrl,
+                customerCatalogV3BaseUrl,
+                configuredFrontendCookieHeader,
+                chromeFrontendCookieEnabled,
+                frontendCookieHeaderSupplier,
+                curlEnabled,
+                true
+        );
+    }
+
+    HttpNoonPublicProductDetailAdapter(
+            NoonFrontendSearchPageParser parser,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String publicBaseUrl,
+            String catalogBaseUrl,
+            String customerCatalogV3BaseUrl,
+            String configuredFrontendCookieHeader,
+            boolean chromeFrontendCookieEnabled,
+            Supplier<String> frontendCookieHeaderSupplier,
+            boolean curlEnabled,
+            boolean catalogPartnerFallbackEnabled
+    ) {
         this.parser = parser;
         this.objectMapper = new ObjectMapper();
         this.requestTimeout = requestTimeout == null ? Duration.ofSeconds(20) : requestTimeout;
@@ -169,6 +227,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         this.chromeFrontendCookieEnabled = chromeFrontendCookieEnabled;
         this.frontendCookieHeaderSupplier = frontendCookieHeaderSupplier == null ? () -> null : frontendCookieHeaderSupplier;
         this.curlEnabled = curlEnabled;
+        this.catalogPartnerFallbackEnabled = catalogPartnerFallbackEnabled;
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(connectTimeout == null ? Duration.ofSeconds(5) : connectTimeout)
@@ -218,9 +277,12 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 try {
                     return fetchFrontendHtmlSearch(searchRequest, code);
                 } catch (NoonSearchProviderException ignored) {
-                    // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+                    // Continue to the configured legacy fallback decision below.
                 } catch (Exception ignored) {
-                    // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+                    // Continue to the configured legacy fallback decision below.
+                }
+                if (!catalogPartnerFallbackEnabled) {
+                    return mapProviderException(code, exception);
                 }
                 try {
                     return fetchCatalogPartner(searchRequest, code);
@@ -243,9 +305,20 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             try {
                 return fetchFrontendHtmlSearch(searchRequest, code);
             } catch (NoonSearchProviderException ignored) {
-                // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+                // Continue to the configured legacy fallback decision below.
             } catch (Exception ignored) {
-                // Keep the existing catalog partner fallback when the public HTML page is unavailable.
+                // Continue to the configured legacy fallback decision below.
+            }
+            if (!catalogPartnerFallbackEnabled) {
+                return failed(
+                        code,
+                        "PROVIDER_UNAVAILABLE",
+                        "Noon 前台公开搜索暂不可用：" + shrink(exception.getMessage(), 180),
+                        null,
+                        url,
+                        null,
+                        null
+                );
             }
             try {
                 return fetchCatalogPartner(searchRequest, code);

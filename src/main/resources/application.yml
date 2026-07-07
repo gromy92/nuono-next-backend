@@ -175,6 +175,7 @@ nuono:
       frontend-cookie-header: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_FRONTEND_COOKIE_HEADER:}
       chrome-frontend-cookie-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CHROME_FRONTEND_COOKIE_ENABLED:false}
       curl-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CURL_ENABLED:true}
+      catalog-partner-fallback-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CATALOG_PARTNER_FALLBACK_ENABLED:false}
     scheduler:
       enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_ENABLED:false}
       cron: "${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_CRON:0 30 3 * * *}"
