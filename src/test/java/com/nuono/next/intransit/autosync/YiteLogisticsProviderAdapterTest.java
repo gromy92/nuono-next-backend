@@ -245,6 +245,47 @@ class YiteLogisticsProviderAdapterTest {
         }
     }
 
+    @Test
+    void returnsProviderFailureWhenYiteListJsonFails() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            AtomicBoolean viewRequested = new AtomicBoolean(false);
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(readBody(exchange)).contains("fake-user").contains("fake-password");
+                sendJson(exchange, "{\"success\":1,\"data\":{\"token\":\"body-token\"}}");
+            });
+            server.handle("/rest/tms/wos/shipment/lists", exchange -> {
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("body-token");
+                sendJson(exchange, "{\"success\":0,\"info\":\"账号无权限\"}");
+            });
+            server.handle("/rest/tms/wos/shipment/view", exchange -> {
+                viewRequested.set(true);
+                sendJson(exchange, viewJson());
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getYite().setEnabled(true);
+            properties.getYite().setBaseUrl(server.baseUrl());
+            properties.getYite().setLoginPath("/login");
+            YiteLogisticsProviderAdapter httpAdapter = new YiteLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(10);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.INVALID_CREDENTIAL);
+            assertThat(result.getFailureMessage())
+                    .contains("账号无权限")
+                    .doesNotContain("fake-user")
+                    .doesNotContain("fake-password");
+            assertThat(viewRequested).isFalse();
+        }
+    }
+
     private static String listJson() {
         return json(
                 "{",

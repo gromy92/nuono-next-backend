@@ -83,6 +83,21 @@ class LogisticsAutoSyncSchedulerTest {
     }
 
     @Test
+    void enabledSchedulerContinuesAfterOneAccountThrows() {
+        LogisticsAutoSyncScheduler scheduler = scheduler(true, 2);
+        LogisticsAutoSyncAccount first = account(180001L);
+        LogisticsAutoSyncAccount second = account(180002L);
+        when(mapper.listDueAccounts(2)).thenReturn(List.of(first, second));
+        when(service.runAccount(first)).thenThrow(new IllegalStateException("boom"));
+
+        int count = scheduler.runOnce();
+
+        assertThat(count).isEqualTo(2);
+        verify(service).runAccount(first);
+        verify(service).runAccount(second);
+    }
+
+    @Test
     void schedulerSkipsAccountsOutsideWindowOrCooldown() {
         LogisticsAutoSyncScheduler scheduler = scheduler(true, 10);
         LogisticsAutoSyncAccount outsideWindow = account(180001L);

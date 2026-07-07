@@ -3,6 +3,7 @@ package com.nuono.next.intransit.autosync;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -102,6 +103,21 @@ class LogisticsAutoSyncAccountServiceTest {
         assertThat(row.getSourceSystem()).isEqualTo("YITE");
         assertThat(row.getVerificationStatus()).isEqualTo("UNVERIFIED");
         assertThat(cipher().decrypt(row.getPasswordCipher())).isEqualTo("new-password");
+    }
+
+    @Test
+    void rejectsUpdateWhenExistingAccountBelongsToDifferentOwner() {
+        LogisticsAutoSyncAccountService service = service();
+        LogisticsAutoSyncAccount existing = existingAccount();
+        existing.setOwnerUserId(999L);
+        existing.setPasswordCipher(cipher().encrypt("old-password"));
+        when(mapper.selectAccountById(180001L)).thenReturn(existing);
+        LogisticsAutoSyncAccountCommand command = command(180001L, "CHIC", "login@example.com", null);
+
+        assertThatThrownBy(() -> service.save(command, 502L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不属于当前业务 owner");
+        verify(mapper, never()).updateAccount(any(LogisticsAutoSyncAccount.class));
     }
 
     @Test

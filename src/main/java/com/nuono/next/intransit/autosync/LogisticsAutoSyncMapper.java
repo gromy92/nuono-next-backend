@@ -68,7 +68,7 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
             "schedule_window_start = #{row.scheduleWindowStart}, schedule_window_end = #{row.scheduleWindowEnd},",
             "min_interval_hours = #{row.minIntervalHours}, verification_status = #{row.verificationStatus},",
             "updated_by = #{row.updatedBy}, gmt_updated = NOW()",
-            "WHERE id = #{row.id} AND is_deleted = b'0'"
+            "WHERE id = #{row.id} AND owner_user_id = #{row.ownerUserId} AND is_deleted = b'0'"
     })
     int updateAccount(@Param("row") LogisticsAutoSyncAccount row);
 
@@ -87,7 +87,7 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
             "UPDATE logistics_forwarder_account",
             "SET last_task_id = #{taskId}, last_login_status = #{loginStatus},",
             "last_preview_status = #{previewStatus}, last_sync_status = #{syncStatus},",
-            "verification_status = #{verificationStatus}, last_synced_at = #{lastSyncedAt},",
+            "verification_status = #{verificationStatus}, last_synced_at = COALESCE(#{lastSyncedAt}, last_synced_at),",
             "next_eligible_at = #{nextEligibleAt}, cooldown_until = #{cooldownUntil},",
             "last_failure_code = #{failureCode}, last_failure_message = #{failureMessage},",
             "updated_by = #{operatorUserId}, gmt_updated = NOW()",

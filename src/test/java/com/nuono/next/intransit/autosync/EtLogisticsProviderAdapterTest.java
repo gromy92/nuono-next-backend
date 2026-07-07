@@ -215,6 +215,44 @@ class EtLogisticsProviderAdapterTest {
         }
     }
 
+    @Test
+    void returnsInvalidCredentialWhenEtLoginJsonFailsWithoutCaptcha() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            AtomicBoolean listRequested = new AtomicBoolean(false);
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                assertThat(readBody(exchange)).contains("fake-user").contains("fake-password");
+                sendJson(exchange, "{\"success\":false,\"message\":\"账号或密码错误\"}");
+            });
+            server.handle("/Delivery/ShipOrder/GetGridJson", exchange -> {
+                listRequested.set(true);
+                sendJson(exchange, listJson());
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getEt().setEnabled(true);
+            properties.getEt().setBaseUrl(server.baseUrl());
+            properties.getEt().setLoginPath("/login");
+            EtLogisticsProviderAdapter httpAdapter = new EtLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(10);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.INVALID_CREDENTIAL);
+            assertThat(result.getFailureMessage())
+                    .contains("登录失败")
+                    .contains("账号或密码错误")
+                    .doesNotContain("fake-user")
+                    .doesNotContain("fake-password");
+            assertThat(listRequested).isFalse();
+        }
+    }
+
     private static String listJson() {
         return json(
                 "{",

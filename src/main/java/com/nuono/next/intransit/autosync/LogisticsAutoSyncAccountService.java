@@ -38,6 +38,7 @@ public class LogisticsAutoSyncAccountService {
             return LogisticsAutoSyncAccountView.from(createAccount(command, actorUserId));
         }
         LogisticsAutoSyncAccount existing = requireAccount(accountId);
+        ensureSameOwner(existing, command.getOwnerUserId());
         LogisticsAutoSyncAccount updated = buildAccount(command, actorUserId, existing);
         if (mapper.updateAccount(updated) <= 0) {
             throw new IllegalStateException("物流自动同步账号更新失败。");
@@ -122,6 +123,13 @@ public class LogisticsAutoSyncAccountService {
         row.setCreatedAt(existing.getCreatedAt());
         row.setUpdatedAt(existing.getUpdatedAt());
         return row;
+    }
+
+    private static void ensureSameOwner(LogisticsAutoSyncAccount existing, Long ownerUserId) {
+        Long requestedOwnerUserId = requireValue(ownerUserId, "ownerUserId");
+        if (!Objects.equals(existing.getOwnerUserId(), requestedOwnerUserId)) {
+            throw new IllegalArgumentException("物流自动同步账号不属于当前业务 owner。");
+        }
     }
 
     private String resolvePasswordCipher(

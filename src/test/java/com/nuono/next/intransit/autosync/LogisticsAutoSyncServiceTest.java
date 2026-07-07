@@ -92,7 +92,7 @@ class LogisticsAutoSyncServiceTest {
         verify(taskService).fail(91002L, "PREVIEW_BLOCKED", "物流自动同步预览未通过，未提交。");
         verify(mapper).updateAccountRunState(
                 eq(180001L), eq(91002L), eq("SUCCESS"), eq("FAILED"), eq("FAILED"),
-                eq("FAILED"), any(LocalDateTime.class), any(LocalDateTime.class), eq(null),
+                eq("FAILED"), eq(null), any(LocalDateTime.class), eq(null),
                 eq("PREVIEW_BLOCKED"), eq("物流自动同步预览未通过，未提交。"), eq(408L)
         );
     }
@@ -163,8 +163,34 @@ class LogisticsAutoSyncServiceTest {
         verify(taskService).fail(91005L, "CAPTCHA_REQUIRED", "需要验证码");
         verify(mapper).updateAccountRunState(
                 eq(180001L), eq(91005L), eq("FAILED"), eq(null), eq("FAILED"),
-                eq("BLOCKED"), any(LocalDateTime.class), any(LocalDateTime.class),
+                eq("BLOCKED"), eq(null), any(LocalDateTime.class),
                 any(LocalDateTime.class), eq("CAPTCHA_REQUIRED"), eq("需要验证码"), eq(408L)
+        );
+    }
+
+    @Test
+    void unexpectedExceptionAfterTaskStartFailsTaskAndLeavesLastSyncedAtUntouched() {
+        LogisticsAutoSyncService service = service();
+        LogisticsAutoSyncAccount account = account(false);
+        when(accessContextFactory.requireAccessContext(account))
+                .thenThrow(new IllegalStateException("账号 secret-login 不能操作该店铺"));
+        when(taskService.start(eq("LOGISTICS_AUTO_SYNC"), any(), any(OperationalTaskPayload.class))).thenReturn(task(91006L));
+
+        LogisticsAutoSyncTaskSummary summary = service.runAccount(account);
+
+        assertThat(summary.getStatus()).isEqualTo("internal_failed");
+        assertThat(summary.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.PROVIDER_ERROR);
+        assertThat(summary.getFailureMessage())
+                .contains("[redacted]")
+                .doesNotContain("secret-login")
+                .doesNotContain("super-secret");
+        verify(pluginSyncService, never()).preview(any());
+        verify(pluginSyncService, never()).commit(any());
+        verify(taskService).fail(eq(91006L), eq(LogisticsProviderFailureCode.PROVIDER_ERROR), any());
+        verify(mapper).updateAccountRunState(
+                eq(180001L), eq(91006L), eq("FAILED"), eq(null), eq("FAILED"),
+                eq("FAILED"), eq(null), any(LocalDateTime.class), eq(null),
+                eq(LogisticsProviderFailureCode.PROVIDER_ERROR), any(), eq(408L)
         );
     }
 

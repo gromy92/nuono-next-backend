@@ -5,11 +5,15 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
 public class LogisticsAutoSyncScheduler {
+    private static final Logger log = LoggerFactory.getLogger(LogisticsAutoSyncScheduler.class);
+
     private final LogisticsAutoSyncProperties properties;
     private final LogisticsAutoSyncMapper mapper;
     private final LogisticsAutoSyncService service;
@@ -67,7 +71,16 @@ public class LogisticsAutoSyncScheduler {
                 if (!isRunnableNow(account, now)) {
                     continue;
                 }
-                service.runAccount(account);
+                try {
+                    service.runAccount(account);
+                } catch (RuntimeException exception) {
+                    log.warn(
+                            "Logistics auto sync account failed in scheduler: accountId={}, error={}: {}",
+                            account == null ? null : account.getId(),
+                            exception.getClass().getSimpleName(),
+                            exception.getMessage()
+                    );
+                }
                 executed += 1;
             }
             return executed;

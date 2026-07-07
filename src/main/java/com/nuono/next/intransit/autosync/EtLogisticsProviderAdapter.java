@@ -213,7 +213,58 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
         if (looksLikeHtml(body)) {
             throw new ProviderAuthException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "ET 接口返回登录页面，可能需要验证码或风控验证。");
         }
+        rejectExplicitFailure(body, errorMessage);
         return body;
+    }
+
+    private void rejectExplicitFailure(String body, String errorMessage) {
+        JsonNode root = parseJson(body);
+        JsonNode success = readValue(root, "success");
+        if (!isExplicitFailure(success)) {
+            return;
+        }
+        String message = firstText(
+                pickText(root, "info", "message", "msg", "error"),
+                pickText(readValue(root, "data"), "info", "message", "msg", "error"),
+                "ET 接口返回失败。"
+        );
+        boolean loginContext = StringUtils.hasText(errorMessage) && errorMessage.contains("登录");
+        String prefix = loginContext ? "ET 登录失败：" : "ET 接口返回业务错误：";
+        throw new ProviderAuthException(businessFailureCode(message, loginContext), prefix + message);
+    }
+
+    private boolean isExplicitFailure(JsonNode success) {
+        if (success == null || success.isMissingNode() || success.isNull()) {
+            return false;
+        }
+        if (success.isBoolean()) {
+            return !success.asBoolean();
+        }
+        if (success.isNumber()) {
+            return success.asInt() == 0;
+        }
+        if (success.isTextual()) {
+            String value = success.asText().trim().toLowerCase(Locale.ROOT);
+            return "0".equals(value) || "false".equals(value) || "fail".equals(value) || "failed".equals(value);
+        }
+        return false;
+    }
+
+    private String businessFailureCode(String message, boolean loginContext) {
+        String normalized = StringUtils.hasText(message) ? message.toLowerCase(Locale.ROOT) : "";
+        if (normalized.contains("captcha") || normalized.contains("验证码") || normalized.contains("风控")) {
+            return LogisticsProviderFailureCode.CAPTCHA_REQUIRED;
+        }
+        if (loginContext
+                || normalized.contains("账号")
+                || normalized.contains("密码")
+                || normalized.contains("登录")
+                || normalized.contains("权限")
+                || normalized.contains("unauthorized")
+                || normalized.contains("forbidden")) {
+            return LogisticsProviderFailureCode.INVALID_CREDENTIAL;
+        }
+        return LogisticsProviderFailureCode.PROVIDER_ERROR;
     }
 
     public String buildShipOrderListPath(int limit, String cacheBuster) {

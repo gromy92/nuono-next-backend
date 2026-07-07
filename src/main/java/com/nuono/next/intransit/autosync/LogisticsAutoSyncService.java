@@ -63,59 +63,65 @@ public class LogisticsAutoSyncService {
                 safePayload(account, sourceSystem)
         );
         LogisticsAutoSyncTaskSummary summary = baseSummary(account, sourceSystem, task.getId());
-        BusinessAccessContext accessContext = accessContextFactory.requireAccessContext(account);
-        String password = credentialCipher.decrypt(account.getPasswordCipher());
-        LogisticsProviderFetchResult fetchResult = adapter(sourceSystem).fetch(fetchRequest(account, sourceSystem, password));
-        if (fetchResult == null || !fetchResult.isSuccess()) {
-            return providerFailure(account, task, summary, fetchResult, password);
-        }
+        String password = null;
+        try {
+            BusinessAccessContext accessContext = accessContextFactory.requireAccessContext(account);
+            password = credentialCipher.decrypt(account.getPasswordCipher());
+            LogisticsProviderFetchResult fetchResult = adapter(sourceSystem).fetch(fetchRequest(account, sourceSystem, password));
+            if (fetchResult == null || !fetchResult.isSuccess()) {
+                return providerFailure(account, task, summary, fetchResult, password);
+            }
 
-        applyProviderCounts(summary, fetchResult);
-        PluginSyncCommand command = fetchResult.getCommand();
-        if (command == null || command.getBatches() == null || command.getBatches().isEmpty()) {
-            summary.setStatus("no_data");
-            updateRunState(account, task, "SUCCESS", null, "NO_DATA", "READY", null, null, null);
-            taskService.complete(task.getId(), toJson(summary), "物流自动同步完成：没有新数据。");
+            applyProviderCounts(summary, fetchResult);
+            PluginSyncCommand command = fetchResult.getCommand();
+            if (command == null || command.getBatches() == null || command.getBatches().isEmpty()) {
+                summary.setStatus("no_data");
+                updateRunState(account, task, "SUCCESS", null, "NO_DATA", "READY", true, null, null, null);
+                taskService.complete(task.getId(), toJson(summary), "物流自动同步完成：没有新数据。");
+                return summary;
+            }
+
+            enrichCommand(command, account, sourceSystem, accessContext);
+            PluginSyncPreviewView preview = pluginSyncService.preview(command);
+            summary.setBatchCount(preview == null ? summary.getBatchCount() : preview.getBatchCount());
+            summary.setPackageCount(preview == null ? summary.getPackageCount() : preview.getPackageCount());
+            summary.setLineCount(preview == null ? summary.getLineCount() : preview.getLineCount());
+            summary.setNodeCount(preview == null ? summary.getNodeCount() : preview.getNodeCount());
+            if (preview == null || !preview.isCommittable()) {
+                summary.setStatus("preview_blocked");
+                summary.setFailureCode(LogisticsProviderFailureCode.PREVIEW_BLOCKED);
+                summary.setFailureMessage("物流自动同步预览未通过，未提交。");
+                updateRunState(
+                        account,
+                        task,
+                        "SUCCESS",
+                        "FAILED",
+                        "FAILED",
+                        "FAILED",
+                        false,
+                        null,
+                        LogisticsProviderFailureCode.PREVIEW_BLOCKED,
+                        summary.getFailureMessage()
+                );
+                taskService.fail(task.getId(), LogisticsProviderFailureCode.PREVIEW_BLOCKED, summary.getFailureMessage());
+                return summary;
+            }
+
+            if (!Boolean.TRUE.equals(account.getCommitEnabled())) {
+                summary.setStatus("preview_only");
+                updateRunState(account, task, "SUCCESS", "SUCCESS", "PREVIEW_ONLY", "READY", true, null, null, null);
+                taskService.complete(task.getId(), toJson(summary), "物流自动同步完成：预览通过，账号未开启自动提交。");
+                return summary;
+            }
+
+            pluginSyncService.commit(command);
+            summary.setStatus("committed");
+            updateRunState(account, task, "SUCCESS", "SUCCESS", "COMMITTED", "READY", true, null, null, null);
+            taskService.complete(task.getId(), toJson(summary), "物流自动同步完成：已自动提交。");
             return summary;
+        } catch (RuntimeException exception) {
+            return internalFailure(account, task, summary, exception, password);
         }
-
-        enrichCommand(command, account, sourceSystem, accessContext);
-        PluginSyncPreviewView preview = pluginSyncService.preview(command);
-        summary.setBatchCount(preview == null ? summary.getBatchCount() : preview.getBatchCount());
-        summary.setPackageCount(preview == null ? summary.getPackageCount() : preview.getPackageCount());
-        summary.setLineCount(preview == null ? summary.getLineCount() : preview.getLineCount());
-        summary.setNodeCount(preview == null ? summary.getNodeCount() : preview.getNodeCount());
-        if (preview == null || !preview.isCommittable()) {
-            summary.setStatus("preview_blocked");
-            summary.setFailureCode(LogisticsProviderFailureCode.PREVIEW_BLOCKED);
-            summary.setFailureMessage("物流自动同步预览未通过，未提交。");
-            updateRunState(
-                    account,
-                    task,
-                    "SUCCESS",
-                    "FAILED",
-                    "FAILED",
-                    "FAILED",
-                    null,
-                    LogisticsProviderFailureCode.PREVIEW_BLOCKED,
-                    summary.getFailureMessage()
-            );
-            taskService.fail(task.getId(), LogisticsProviderFailureCode.PREVIEW_BLOCKED, summary.getFailureMessage());
-            return summary;
-        }
-
-        if (!Boolean.TRUE.equals(account.getCommitEnabled())) {
-            summary.setStatus("preview_only");
-            updateRunState(account, task, "SUCCESS", "SUCCESS", "PREVIEW_ONLY", "READY", null, null, null);
-            taskService.complete(task.getId(), toJson(summary), "物流自动同步完成：预览通过，账号未开启自动提交。");
-            return summary;
-        }
-
-        pluginSyncService.commit(command);
-        summary.setStatus("committed");
-        updateRunState(account, task, "SUCCESS", "SUCCESS", "COMMITTED", "READY", null, null, null);
-        taskService.complete(task.getId(), toJson(summary), "物流自动同步完成：已自动提交。");
-        return summary;
     }
 
     private LogisticsAutoSyncTaskSummary providerFailure(
@@ -144,11 +150,42 @@ public class LogisticsAutoSyncService {
                 null,
                 "FAILED",
                 verificationStatus,
+                false,
                 cooldownUntil,
                 failureCode,
                 failureMessage
         );
         taskService.fail(task.getId(), failureCode, failureMessage);
+        return summary;
+    }
+
+    private LogisticsAutoSyncTaskSummary internalFailure(
+            LogisticsAutoSyncAccount account,
+            OperationalTask task,
+            LogisticsAutoSyncTaskSummary summary,
+            RuntimeException exception,
+            String password
+    ) {
+        String failureMessage = sanitize(exception == null ? null : exception.getMessage(), account, password);
+        if (!StringUtils.hasText(failureMessage)) {
+            failureMessage = "物流自动同步执行异常。";
+        }
+        summary.setStatus("internal_failed");
+        summary.setFailureCode(LogisticsProviderFailureCode.PROVIDER_ERROR);
+        summary.setFailureMessage(failureMessage);
+        updateRunState(
+                account,
+                task,
+                "FAILED",
+                null,
+                "FAILED",
+                "FAILED",
+                false,
+                null,
+                LogisticsProviderFailureCode.PROVIDER_ERROR,
+                failureMessage
+        );
+        taskService.fail(task.getId(), LogisticsProviderFailureCode.PROVIDER_ERROR, failureMessage);
         return summary;
     }
 
@@ -159,11 +196,13 @@ public class LogisticsAutoSyncService {
             String previewStatus,
             String syncStatus,
             String verificationStatus,
+            boolean updateLastSyncedAt,
             LocalDateTime cooldownUntil,
             String failureCode,
             String failureMessage
     ) {
         LocalDateTime now = LocalDateTime.now();
+        LocalDateTime lastSyncedAt = updateLastSyncedAt ? now : null;
         mapper.updateAccountRunState(
                 account.getId(),
                 task.getId(),
@@ -171,7 +210,7 @@ public class LogisticsAutoSyncService {
                 previewStatus,
                 syncStatus,
                 verificationStatus,
-                now,
+                lastSyncedAt,
                 now.plusHours(Math.max(1, account.getMinIntervalHours() == null ? 24 : account.getMinIntervalHours())),
                 cooldownUntil,
                 failureCode,
