@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncBatch;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncCommitView;
+import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncIssueView;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.PluginSyncPreviewView;
 import com.nuono.next.intransit.InTransitPluginSyncService;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -81,15 +82,38 @@ class LogisticsAutoSyncServiceTest {
         PluginSyncPreviewView preview = new PluginSyncPreviewView();
         preview.setCommittable(false);
         preview.setBatchCount(1);
+        preview.setIssues(List.of(
+                PluginSyncIssueView.error(
+                        "XGGEKSA04082",
+                        "BOX-01",
+                        "secret-login",
+                        "barcode",
+                        "barcode super-secret 未解析，不能提交。"
+                )
+        ));
         when(pluginSyncService.preview(any(PluginSyncCommand.class))).thenReturn(preview);
         when(taskService.start(eq("LOGISTICS_AUTO_SYNC"), any(), any(OperationalTaskPayload.class))).thenReturn(task(91002L));
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
 
         LogisticsAutoSyncTaskSummary summary = service.runAccount(account);
 
         assertThat(summary.getStatus()).isEqualTo("preview_blocked");
         verify(pluginSyncService).preview(any(PluginSyncCommand.class));
         verify(pluginSyncService, never()).commit(any());
-        verify(taskService).fail(91002L, "PREVIEW_BLOCKED", "物流自动同步预览未通过，未提交。");
+        verify(taskService).fail(
+                eq(91002L),
+                eq("PREVIEW_BLOCKED"),
+                eq("物流自动同步预览未通过，未提交。"),
+                resultCaptor.capture()
+        );
+        assertThat(resultCaptor.getValue())
+                .contains("\"status\":\"preview_blocked\"")
+                .contains("\"previewIssueCount\":1")
+                .contains("\"batchNo\":\"XGGEKSA04082\"")
+                .contains("\"field\":\"barcode\"")
+                .contains("[redacted]")
+                .doesNotContain("secret-login")
+                .doesNotContain("super-secret");
         verify(mapper).updateAccountRunState(
                 eq(180001L), eq(91002L), eq("SUCCESS"), eq("FAILED"), eq("FAILED"),
                 eq("FAILED"), eq(null), any(LocalDateTime.class), eq(null),
