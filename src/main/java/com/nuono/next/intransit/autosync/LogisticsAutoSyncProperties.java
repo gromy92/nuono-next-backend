@@ -92,7 +92,7 @@ public class LogisticsAutoSyncProperties {
     public static class Chic {
         private boolean enabled;
         private String baseUrl = "https://erp.chicexpressglobal.com";
-        private String loginPath;
+        private String loginPath = "/api/login";
         private String loginAccountField = "username";
         private String loginPasswordField = "password";
         private int timeoutSeconds = 30;

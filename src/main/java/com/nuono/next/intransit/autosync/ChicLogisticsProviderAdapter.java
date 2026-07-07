@@ -191,7 +191,12 @@ public class ChicLogisticsProviderAdapter implements LogisticsProviderAdapter {
         if (looksLikeHtml(response.body())) {
             throw new ChicAuthenticationException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "Chic 登录返回页面内容，可能需要验证码或风控验证。");
         }
-        return new FetchSession(chic, httpClient, extractToken(response.body()));
+        rejectApiFailure(response.body(), "Chic 登录失败。");
+        String token = extractToken(response.body());
+        if (!StringUtils.hasText(token)) {
+            throw new ChicAuthenticationException(LogisticsProviderFailureCode.INVALID_CREDENTIAL, "Chic 登录失败，未返回有效登录令牌。");
+        }
+        return new FetchSession(chic, httpClient, token);
     }
 
     private String postJson(FetchSession session, String path, Object payload) throws IOException, InterruptedException {
@@ -220,6 +225,8 @@ public class ChicLogisticsProviderAdapter implements LogisticsProviderAdapter {
                 .header("token-type", "web");
         if (StringUtils.hasText(token)) {
             builder.header("token", token);
+            builder.header("X-Token", token);
+            builder.header("Authorization", token);
         }
         return builder;
     }
@@ -235,7 +242,31 @@ public class ChicLogisticsProviderAdapter implements LogisticsProviderAdapter {
         if (looksLikeHtml(body)) {
             throw new ChicAuthenticationException(LogisticsProviderFailureCode.CAPTCHA_REQUIRED, "Chic 接口返回登录页面，可能需要验证码或风控验证。");
         }
+        rejectApiFailure(body, "Chic 接口返回业务错误。");
         return body;
+    }
+
+    private void rejectApiFailure(String body, String defaultMessage) {
+        JsonNode root = parseJson(body);
+        String code = text(getValueByKey(root, "code"));
+        if (!StringUtils.hasText(code) || "1".equals(code) || "200".equals(code)) {
+            return;
+        }
+        String message = firstText(
+                pickText(root, "message", "msg", "error"),
+                pickText(getValueByKey(root, "data"), "message", "msg", "error"),
+                defaultMessage
+        );
+        if ("6".equals(code) || "401".equals(code) || "403".equals(code)) {
+            throw new ChicAuthenticationException(
+                    LogisticsProviderFailureCode.INVALID_CREDENTIAL,
+                    "Chic 登录态失效或账号无权限：" + message
+            );
+        }
+        throw new ChicAuthenticationException(
+                LogisticsProviderFailureCode.PROVIDER_ERROR,
+                defaultMessage + "：" + message
+        );
     }
 
     private URI uri(String path) {

@@ -7,9 +7,17 @@ import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncLine;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncNode;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncPackage;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class ChicLogisticsProviderAdapterTest {
@@ -17,6 +25,12 @@ class ChicLogisticsProviderAdapterTest {
     private final ChicLogisticsProviderAdapter adapter = new ChicLogisticsProviderAdapter(
             new LogisticsAutoSyncProperties()
     );
+
+    @Test
+    void defaultsToVerifiedChicLoginPath() {
+        assertThat(new LogisticsAutoSyncProperties().getChic().getLoginPath())
+                .isEqualTo("/api/login");
+    }
 
     @Test
     void normalizesRecentChicBatchesFromListDetailsAndOrderReport() {
@@ -170,6 +184,92 @@ class ChicLogisticsProviderAdapterTest {
                 .doesNotContain("fake-password");
     }
 
+    @Test
+    void fetchSendsChicTokenHeadersRequiredByRealApi() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            server.handle("/login", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("POST");
+                String body = readBody(exchange);
+                assertThat(body).contains("fake-user").contains("fake-password");
+                sendJson(exchange, "{\"data\":{\"token\":\"chic-token\"}}");
+            });
+            server.handle("/api/purchase/purchase-order/purchaseBatch/query", exchange -> {
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("chic-token");
+                assertThat(exchange.getRequestHeaders().getFirst("X-Token")).isEqualTo("chic-token");
+                assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("chic-token");
+                assertThat(readBody(exchange)).contains("\"rows\":1");
+                sendJson(exchange, listJson(1));
+            });
+            server.handle("/api/purchase/purchase-order/purchaseBatch/detail", exchange -> {
+                assertThat(exchange.getRequestHeaders().getFirst("X-Token")).isEqualTo("chic-token");
+                assertThat(readBody(exchange)).contains("53000");
+                sendJson(exchange, detailJson("XGGEKSA04070", "XGGEKSA04070-1"));
+            });
+            server.handle("/api/order/report/list", exchange -> {
+                assertThat(exchange.getRequestHeaders().getFirst("Authorization")).isEqualTo("chic-token");
+                sendJson(exchange, json(
+                        "{",
+                        "  \"data\": {",
+                        "    \"records\": []",
+                        "  }",
+                        "}"
+                ));
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getChic().setEnabled(true);
+            properties.getChic().setBaseUrl(server.baseUrl());
+            properties.getChic().setLoginPath("/login");
+            ChicLogisticsProviderAdapter httpAdapter = new ChicLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(1);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.getCommand().getSourceSystem()).isEqualTo("CHIC");
+            assertThat(result.getCommand().getBatches()).hasSize(1);
+        }
+    }
+
+    @Test
+    void returnsInvalidCredentialWhenChicApiReportsUnauthorizedBusinessCode() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            AtomicBoolean detailRequested = new AtomicBoolean(false);
+            server.handle("/login", exchange -> sendJson(exchange, "{\"data\":{\"token\":\"chic-token\"}}"));
+            server.handle("/api/purchase/purchase-order/purchaseBatch/query", exchange ->
+                    sendJson(exchange, "{\"code\":6,\"message\":\"未经授权请求\"}"));
+            server.handle("/api/purchase/purchase-order/purchaseBatch/detail", exchange -> {
+                detailRequested.set(true);
+                sendJson(exchange, detailJson("XGGEKSA04070", "XGGEKSA04070-1"));
+            });
+
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getChic().setEnabled(true);
+            properties.getChic().setBaseUrl(server.baseUrl());
+            properties.getChic().setLoginPath("/login");
+            ChicLogisticsProviderAdapter httpAdapter = new ChicLogisticsProviderAdapter(properties);
+
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+            request.setRecentLimit(1);
+
+            LogisticsProviderFetchResult result = httpAdapter.fetch(request);
+
+            assertThat(result.isSuccess()).isFalse();
+            assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.INVALID_CREDENTIAL);
+            assertThat(result.getFailureMessage())
+                    .contains("无权限")
+                    .doesNotContain("fake-user")
+                    .doesNotContain("fake-password");
+            assertThat(detailRequested).isFalse();
+        }
+    }
+
     private static String listJson(int count) {
         StringBuilder builder = new StringBuilder("{\"data\":{\"records\":[");
         for (int index = 0; index < count; index += 1) {
@@ -230,5 +330,54 @@ class ChicLogisticsProviderAdapterTest {
 
     private static String json(String... lines) {
         return String.join("\n", lines);
+    }
+
+    private static final class StubHttpServer implements AutoCloseable {
+        private final HttpServer server;
+
+        private StubHttpServer() throws IOException {
+            this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            this.server.start();
+        }
+
+        private String baseUrl() {
+            return "http://127.0.0.1:" + server.getAddress().getPort();
+        }
+
+        private void handle(String path, HttpHandler handler) {
+            server.createContext(path, exchange -> {
+                try {
+                    handler.handle(exchange);
+                } catch (Throwable exception) {
+                    byte[] bytes = exception.getMessage() == null
+                            ? exception.getClass().getName().getBytes(StandardCharsets.UTF_8)
+                            : exception.getMessage().getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(500, bytes.length);
+                    exchange.getResponseBody().write(bytes);
+                    exchange.close();
+                }
+            });
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
+    }
+
+    private static String readBody(HttpExchange exchange) throws IOException {
+        return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+    }
+
+    private static void sendJson(HttpExchange exchange, String body) {
+        try {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json;charset=utf-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
     }
 }
