@@ -45,6 +45,7 @@ class NoonProductListPullAdapterTest {
         assertEquals("noon-interface-product-130000", writer.command.getSourceBatchId());
         assertTrue(writer.command.isPreserveDrafts());
         assertFalse(writer.command.isPublishFlowTriggered());
+        assertFalse(writer.command.isCompleteSiteScope());
         assertEquals("STR245027-NAE", writer.command.getSiteSeeds().get(0).getStoreCode());
         ProductProjectionPersistenceService.ProductMasterSeed seed = writer.command.getProductSeeds().get(0);
         assertEquals("ZPARENT-1", seed.getSkuParent());

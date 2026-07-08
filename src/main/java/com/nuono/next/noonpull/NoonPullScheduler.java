@@ -205,8 +205,9 @@ public class NoonPullScheduler {
             if (!isFinanceTransactionReportReadyWindow()) {
                 return;
             }
-            LocalDate targetDate = latestAvailableDate();
-            createTask(plan, "finance-transactions:" + targetDate + ".." + targetDate, targetDate, targetDate);
+            LocalDate targetTo = latestAvailableDate();
+            LocalDate targetFrom = targetTo.minusDays(6);
+            createTask(plan, "finance-transactions:" + targetFrom + ".." + targetTo, targetFrom, targetTo);
             return;
         }
         if (plan.getDataDomain() == NoonPullDataDomain.NOON_ADVERTISING

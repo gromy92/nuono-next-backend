@@ -647,6 +647,89 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void partialInitializationProjectionMustNotDeleteOtherLogicalStoreSites() {
+        ProductProjectionPersistenceService.ProductMasterSeed productSeed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        productSeed.setSkuParent("ZCHENWU-SA-001");
+        productSeed.setPartnerSku("PHO0A010");
+        productSeed.setChildSku("PHO0A010-CHILD");
+        productSeed.setTitleCache("chenwu SA payload");
+        productSeed.addSiteOffer(siteOffer("STR244978-NSA", "PSO-SA-001"));
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ244978")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR244978-NSA")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50006L, "STR244978-NSA"))
+                .thenReturn(51006L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 52006L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52006L);
+        when(productManagementMapper.selectProductVariantIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 53006L);
+        when(productManagementMapper.nextProductVariantId()).thenReturn(53006L);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(50006L, "PHO0A010", "SA"))
+                .thenReturn(null);
+        when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54006L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ244978",
+                "chenwu",
+                "STR244978-NSA",
+                List.of(new ProductProjectionPersistenceService.SiteSeed("STR244978-NSA", "SA", "LOCAL_READY", true)),
+                List.of(productSeed),
+                new ArrayList<>(),
+                true
+        );
+
+        verify(productManagementMapper, never()).markStaleLogicalStoreSitesDeleted(
+                eq(50006L),
+                anyList(),
+                eq(307L)
+        );
+    }
+
+    @Test
+    void completeInitializationProjectionStillDeletesStaleLogicalStoreSites() {
+        ProductProjectionPersistenceService.ProductMasterSeed productSeed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        productSeed.setSkuParent("ZCHENWU-AE-001");
+        productSeed.setPartnerSku("PHO0A010");
+        productSeed.setChildSku("PHO0A010-CHILD");
+        productSeed.setTitleCache("chenwu AE payload");
+        productSeed.addSiteOffer(siteOffer("STR244978-NAE", "PSO-AE-001"));
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ244978")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR244978-NAE")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50006L, "STR244978-NAE"))
+                .thenReturn(51007L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 52007L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52007L);
+        when(productManagementMapper.selectProductVariantIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 53007L);
+        when(productManagementMapper.nextProductVariantId()).thenReturn(53007L);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(50006L, "PHO0A010", "AE"))
+                .thenReturn(null);
+        when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54007L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ244978",
+                "chenwu",
+                "STR244978-NAE",
+                List.of(new ProductProjectionPersistenceService.SiteSeed("STR244978-NAE", "AE", "LOCAL_READY", true)),
+                List.of(productSeed),
+                new ArrayList<>()
+        );
+
+        verify(productManagementMapper).markStaleLogicalStoreSitesDeleted(
+                eq(50006L),
+                eq(List.of("STR244978-NAE")),
+                eq(307L)
+        );
+    }
+
+    @Test
     void shouldCaptureArabicContentAndOfferNoteInModificationChanges() throws Exception {
         ProductMasterSnapshotView baseline = historySnapshot("Old title", "عنوان قديم", "Old note");
         ProductMasterSnapshotView draft = historySnapshot("Old title", "عنوان جديد", "New note");

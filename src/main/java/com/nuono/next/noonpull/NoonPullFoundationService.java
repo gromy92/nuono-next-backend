@@ -294,6 +294,35 @@ public class NoonPullFoundationService {
         return task;
     }
 
+    public NoonPullTaskRecord markReportExportAcceptedEmpty(
+            Long taskId,
+            String sourceBatchId,
+            String diagnosticSummary
+    ) {
+        NoonPullTaskRecord task = requireTask(taskId);
+        LocalDateTime now = now();
+        task.setStatus(NoonPullTaskStatus.SUCCEEDED);
+        task.setSourceBatchId(sourceBatchId);
+        task.setFailureType(null);
+        task.setRetryAction(null);
+        task.setRetryable(null);
+        task.setRequiresManualAction(null);
+        task.setDiagnosticSummary(redact(diagnosticSummary));
+        task.setNextResumePosition(null);
+        task.setLastSafeResponseSummary(null);
+        task.setReadinessState("confirmed_empty");
+        task.setReportNextPollAt(null);
+        task.setFinishedAt(now);
+        task.setUpdatedAt(now);
+        repository.updateTask(task);
+
+        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        plan.setLatestSuccessAt(now);
+        plan.setUpdatedAt(now);
+        repository.updatePlan(plan);
+        return task.copy();
+    }
+
     public NoonPullTaskRecord recordReportRiskBackoffDelay(
             Long taskId,
             NoonRiskBackoffHold hold,
