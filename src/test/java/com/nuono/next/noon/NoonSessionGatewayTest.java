@@ -293,6 +293,33 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldExposeEmailOtpGenerateErrorForRateLimitClassification() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":[{\"projectCode\":\"PRJ7001\",\"projectName\":\"新店铺\",\"orgCode\":\"ORG7001\",\"orgName\":\"新组织\"}]}",
+                "sid=email-otp; Path=/",
+                "{\"success\":false,\"error\":\"Too many requests, please try again later\"}"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+
+            IllegalStateException exception = assertThrows(
+                    IllegalStateException.class,
+                    () -> gateway.authorizeMerchantEmailLogin(
+                            10001L,
+                            "merchant@example.com",
+                            "imap-secret",
+                            "PRJ7001",
+                            "STR7001-NAE"
+                    )
+            );
+
+            assertTrue(exception.getMessage().contains("Too many requests"));
+            assertFalse(exception.getMessage().contains("null"));
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
     void shouldSkipPersistingCookieWhenProjectCodeIsMissing() {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         NoonSessionGateway gateway = gateway(mapper, "");
@@ -397,6 +424,7 @@ class NoonSessionGatewayTest {
         private final HttpServer server;
         private final String projectsBody;
         private final String sessionCookie;
+        private final String generateBody;
         private final AtomicInteger sessionCreateCount = new AtomicInteger();
         private final AtomicInteger generateCount = new AtomicInteger();
         private volatile JsonNode lastValidateBody;
@@ -406,8 +434,13 @@ class NoonSessionGatewayTest {
         }
 
         private AuthRefreshServer(String projectsBody, String sessionCookie) throws IOException {
+            this(projectsBody, sessionCookie, "{\"emailotp\":\"ok\"}");
+        }
+
+        private AuthRefreshServer(String projectsBody, String sessionCookie, String generateBody) throws IOException {
             this.projectsBody = projectsBody;
             this.sessionCookie = sessionCookie;
+            this.generateBody = generateBody;
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
             server.createContext("/", (exchange) -> {
                 String path = exchange.getRequestURI().getPath();
@@ -444,7 +477,7 @@ class NoonSessionGatewayTest {
                 }
                 if ("/generate".equals(path)) {
                     generateCount.incrementAndGet();
-                    sendJson(exchange, 200, "{\"emailotp\":\"ok\"}", null);
+                    sendJson(exchange, 200, this.generateBody, null);
                     return;
                 }
                 if ("/projects".equals(path)) {
