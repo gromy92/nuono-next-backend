@@ -44,6 +44,9 @@ class NoonPullFailurePolicyTest {
         assertEquals(NoonPullFailureType.MAPPING_FAILED, policy.classify("mapping failed for row 3"));
         assertEquals(NoonPullFailureType.TIMEOUT, policy.classify("socket timeout"));
         assertEquals(NoonPullFailureType.RATE_LIMITED, policy.classify("429 too many requests"));
+        assertEquals(NoonPullFailureType.RATE_LIMITED, policy.classify(
+                "Noon emailotp 发送失败：Too many requests, please try again later"
+        ));
         assertEquals(NoonPullFailureType.BLOCKED_BY_RISK_CONTROL, policy.classify("blocked by risk control"));
         assertEquals(NoonPullFailureType.CAPTCHA_REQUIRED, policy.classify("captcha required"));
         assertEquals(NoonPullFailureType.PARTIAL_SUCCESS, policy.classify("imported with partial success"));
