@@ -83,6 +83,7 @@ class InTransitBatchSchemaContractTest {
             "system",
             "LocalDbBootstrapStatusService.java"
     );
+
     @Test
     void migrationDefinesBatchBasicsWithoutPurchaseFeeOrInventoryFields() throws IOException {
         String sql = Files.readString(MIGRATION);
@@ -134,6 +135,8 @@ class InTransitBatchSchemaContractTest {
         assertTrue(selectSql.contains("batch.estimated_arrival_updated_at"));
         assertTrue(selectSql.contains("batch.estimated_arrival_updated_by"));
         assertTrue(selectSql.contains("batch.delivery_appointment_text"));
+        assertTrue(selectSql.contains("received.node_status = 'warehouse_received'"));
+        assertTrue(selectSql.contains("AS actual_arrival_at"));
 
         Method insertBatch = InTransitGoodsMapper.class.getMethod(
                 "insertBatch",
@@ -293,6 +296,8 @@ class InTransitBatchSchemaContractTest {
         assertTrue(filterSql.contains("batch.eta_date IS NULL"));
         assertTrue(filterSql.contains("batch.batch_status NOT IN ('warehouse_received', 'completed', 'cancelled')"));
         assertTrue(filterSql.contains("batch.latest_node_status NOT IN ('warehouse_received', 'cancelled')"));
+        assertTrue(filterSql.contains("AND NOT EXISTS"));
+        assertTrue(filterSql.contains("received.node_status = 'warehouse_received'"));
     }
 
     @Test

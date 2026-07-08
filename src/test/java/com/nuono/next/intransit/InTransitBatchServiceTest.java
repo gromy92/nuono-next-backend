@@ -331,6 +331,47 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldExposeActualArrivalAsEffectiveArrivalWhenWarehouseReceivedNodeExists() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        BatchRow arrived = batch(53011L, "warehouse_received", "义特", "forwarder_matched");
+        arrived.setEtaDate(null);
+        arrived.setEstimatedArrivalAt(null);
+        arrived.setLatestNodeStatus("warehouse_received");
+        arrived.setLatestNodeHappenedAt(LocalDateTime.parse("2026-06-01T00:40:46"));
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(1);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(arrived));
+
+        BatchListView result = service.listBatches(query);
+        BatchView view = result.getItems().get(0);
+
+        assertEquals(LocalDateTime.parse("2026-06-01T00:40:46"), view.getActualArrivalAt());
+        assertEquals(LocalDateTime.parse("2026-06-01T00:40:46"), view.getEffectiveArrivalAt());
+        assertEquals("ACTUAL", view.getEffectiveArrivalSource());
+    }
+
+    @Test
+    void shouldExposeActualArrivalFromReceivedNodeWhenLatestProjectionIsStale() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        BatchRow arrived = batch(53012L, "in_transit", "启客", "forwarder_matched");
+        arrived.setEtaDate(null);
+        arrived.setEstimatedArrivalAt(null);
+        arrived.setLatestNodeStatus("in_transit");
+        arrived.setLatestNodeHappenedAt(LocalDateTime.parse("2026-05-24T18:56:27"));
+        arrived.setActualArrivalAt(LocalDateTime.parse("2026-05-20T00:00:00"));
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(1);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(arrived));
+
+        BatchListView result = service.listBatches(query);
+        BatchView view = result.getItems().get(0);
+
+        assertEquals(LocalDateTime.parse("2026-05-20T00:00:00"), view.getActualArrivalAt());
+        assertEquals(LocalDateTime.parse("2026-05-20T00:00:00"), view.getEffectiveArrivalAt());
+        assertEquals("ACTUAL", view.getEffectiveArrivalSource());
+    }
+
+    @Test
     void shouldEstimateMissingAirArrivalFromRecentHistoryWhenSavingBatch() {
         SaveBatchCommand command = new SaveBatchCommand();
         command.setOwnerUserId(10002L);

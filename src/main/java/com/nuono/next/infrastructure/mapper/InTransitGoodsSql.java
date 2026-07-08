@@ -36,6 +36,10 @@ public interface InTransitGoodsSql {
             + "batch.missing_fields_json, batch.box_count, batch.sku_count, batch.shipped_quantity_total, batch.received_quantity_total, "
             + "batch.remaining_quantity_total, batch.carton_count_total, batch.total_weight_kg, batch.total_volume_cbm, "
             + "batch.latest_node_status, batch.latest_node_happened_at, batch.latest_node_description, "
+            + "(SELECT received.node_happened_at FROM in_transit_logistics_node received "
+            + "WHERE received.owner_user_id = batch.owner_user_id AND received.batch_id = batch.id "
+            + "AND received.node_status = 'warehouse_received' AND received.is_deleted = b'0' "
+            + "ORDER BY received.node_happened_at DESC, received.id DESC LIMIT 1) AS actual_arrival_at, "
             + "batch.gmt_create AS created_at, batch.created_by, batch.updated_by "
             + "FROM in_transit_batch batch "
             + "LEFT JOIN in_transit_forwarder forwarder ON forwarder.id = batch.standard_forwarder_id "
@@ -82,6 +86,11 @@ public interface InTransitGoodsSql {
             + "AND batch.estimated_arrival_at IS NULL AND batch.eta_date IS NULL "
             + "AND batch.batch_status NOT IN ('warehouse_received', 'completed', 'cancelled') "
             + "AND (batch.latest_node_status IS NULL OR batch.latest_node_status NOT IN ('warehouse_received', 'cancelled')) "
+            + "AND NOT EXISTS ( "
+            + "SELECT 1 FROM in_transit_logistics_node received "
+            + "WHERE received.owner_user_id = batch.owner_user_id AND received.batch_id = batch.id "
+            + "AND received.node_status = 'warehouse_received' AND received.is_deleted = b'0' "
+            + ") "
             + "</if> ";
 
     String LINE_SELECT = ""
