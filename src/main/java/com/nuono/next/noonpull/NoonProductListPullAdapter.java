@@ -39,6 +39,7 @@ public class NoonProductListPullAdapter {
         writeCommand.setSourceBatchId(command.getSourceBatchId());
         writeCommand.setPreserveDrafts(true);
         writeCommand.setPublishFlowTriggered(false);
+        writeCommand.setCompleteSiteScope(false);
         writeCommand.setSiteSeeds(List.of(new ProductProjectionPersistenceService.SiteSeed(
                 command.getStoreCode(),
                 command.getSiteCode(),

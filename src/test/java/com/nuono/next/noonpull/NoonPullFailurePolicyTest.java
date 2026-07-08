@@ -26,6 +26,11 @@ class NoonPullFailurePolicyTest {
     @Test
     void shouldClassifyKnownFailuresWithoutRelyingOnRawStrings() {
         assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify("HTTP 503 provider unavailable"));
+        assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify(
+                "provider unavailable: Noon Ads campaign metrics returned no campaigns for "
+                        + "projectCode=PRJ108065 siteCode=AE dateWindow=2026-07-06..2026-07-06; "
+                        + "verify Ad Manager Overview coverage before treating as zero business data"
+        ));
         assertEquals(NoonPullFailureType.PROVIDER_NOT_CONFIGURED, policy.classify("provider is not configured"));
         assertEquals(NoonPullFailureType.INVALID_PROJECT_CODE, policy.classify(
                 "provider unavailable: report export create failed: HTTP 400 {\"error\":\"Invalid project code\"}"

@@ -3,7 +3,6 @@ package com.nuono.next.noonpull;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.noonads.NoonAdvertisingReportProvider;
 import java.io.ByteArrayInputStream;
@@ -36,23 +35,12 @@ import org.springframework.util.StringUtils;
 public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportProvider {
     private static final String READY_URL_PREFIX = "memory://noon-ads-report/";
     private static final String DEFAULT_ADMANAGER_BASE_URL = "https://admanager.noon.partners";
-    private static final String[] CAMPAIGN_STATUSES = {
-            "archived",
-            "completed",
-            "budget_exhausted",
-            "draft",
-            "paused",
-            "live",
-            "scheduled"
-    };
 
     private final ObjectMapper objectMapper;
     private final NoonPullStoreBindingResolver bindingResolver;
     private final NoonPullGatewaySessionFactory sessionFactory;
-    private final String campaignMetricsUrl;
+    private final String dashboardMetricsUrl;
     private final String queryReportUrl;
-    private final int campaignPageSize;
-    private final int maxCampaignPages;
     private final int maxQueryCampaigns;
 
     public RealNoonAdvertisingReportProvider(
@@ -74,10 +62,8 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         String normalizedBaseUrl = trimTrailingSlash(
                 StringUtils.hasText(baseUrl) ? baseUrl : DEFAULT_ADMANAGER_BASE_URL
         );
-        this.campaignMetricsUrl = normalizedBaseUrl + "/_svc/productads/v2/noon/metrics/campaigns";
+        this.dashboardMetricsUrl = normalizedBaseUrl + "/_svc/productads/v2/noon/metrics";
         this.queryReportUrl = normalizedBaseUrl + "/_svc/productads/v2/noon/product/reports/queries";
-        this.campaignPageSize = Math.max(1, campaignPageSize);
-        this.maxCampaignPages = Math.max(1, maxCampaignPages);
         this.maxQueryCampaigns = Math.max(0, maxQueryCampaigns);
     }
 
@@ -112,6 +98,13 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
             NoonPullStoreBinding binding = bindingResolver.resolve(request);
             NoonPullGatewaySession session = sessionFactory.login(binding);
             List<CampaignRow> campaigns = fetchCampaignRows(session, binding, request);
+            if (campaigns.isEmpty()) {
+                throw new NoonInterfacePullException(
+                        "provider unavailable: Noon Ads campaign metrics returned no campaigns for "
+                                + adsScope(binding, request)
+                                + "; verify Ad Manager Overview coverage before treating as zero business data"
+                );
+            }
             List<QueryRow> queries = fetchQueryRows(session, binding, request, campaigns);
             return toCsv(binding, campaigns, queries);
         } catch (RuntimeException exception) {
@@ -125,36 +118,23 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
             NoonReportPullRequest request
     ) {
         Map<String, CampaignRow> campaignsByCode = new LinkedHashMap<>();
-        int pageNo = 1;
-        while (pageNo <= maxCampaignPages) {
-            JsonNode page = session.postJson(
-                    campaignMetricsUrl,
-                    campaignMetricsBody(binding, request, pageNo),
-                    false,
-                    admanagerHeaders(binding, "application/json, text/plain, */*")
-            );
-            String providerError = providerError(page);
-            if (StringUtils.hasText(providerError)) {
-                throw NoonPullProviderFailureMapper.explicit("noon ads campaign metrics", providerError);
+        JsonNode response = session.postJson(
+                dashboardMetricsUrl,
+                dashboardMetricsBody(request),
+                false,
+                admanagerHeaders(binding, "application/json, text/plain, */*")
+        );
+        String providerError = providerError(response);
+        if (StringUtils.hasText(providerError)) {
+            throw NoonPullProviderFailureMapper.explicit("noon ads dashboard metrics", providerError);
+        }
+        Map<String, JsonNode> metricsByCode = metricsByCode(response.path("current").path("campaignMetrics"));
+        for (JsonNode campaign : response.path("campaigns")) {
+            String code = text(campaign, "campaignCode");
+            if (!StringUtils.hasText(code)) {
+                continue;
             }
-            Map<String, JsonNode> metricsByCode = metricsByCode(page.path("campaignMetrics"));
-            for (JsonNode campaign : page.path("campaigns")) {
-                String code = text(campaign, "campaignCode");
-                if (!StringUtils.hasText(code)) {
-                    continue;
-                }
-                campaignsByCode.put(code, campaignRow(campaign, metricsByCode.get(code)));
-            }
-            int nbPages = Math.max(1, page.path("paginationMetadata").path("nbPages").asInt(1));
-            if (pageNo >= nbPages) {
-                break;
-            }
-            if (pageNo >= maxCampaignPages) {
-                throw new NoonInterfacePullException(
-                        "provider unavailable: Noon Ads campaign metrics exceeded max pages " + maxCampaignPages
-                );
-            }
-            pageNo++;
+            campaignsByCode.put(code, campaignRow(campaign, metricsByCode.get(code)));
         }
         return campaignsByCode.values().stream()
                 .sorted(Comparator.comparing(CampaignRow::spendAmount).reversed())
@@ -191,29 +171,12 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         return rows;
     }
 
-    private ObjectNode campaignMetricsBody(NoonPullStoreBinding binding, NoonReportPullRequest request, int pageNo) {
+    private ObjectNode dashboardMetricsBody(NoonReportPullRequest request) {
         ObjectNode body = objectMapper.createObjectNode();
-        body.set("campaignCodes", objectMapper.createArrayNode());
-        ArrayNode campaignType = objectMapper.createArrayNode();
-        campaignType.add("product");
-        body.set("campaignType", campaignType);
-        ArrayNode statuses = objectMapper.createArrayNode();
-        for (String status : CAMPAIGN_STATUSES) {
-            statuses.add(status);
-        }
-        body.set("campaignStatus", statuses);
-        body.putNull("isAudience");
-        ArrayNode pricingModel = objectMapper.createArrayNode();
-        pricingModel.add("cpc");
-        body.set("pricingModel", pricingModel);
-        body.putNull("isGuaranteed");
         body.put("startDate", request.getDateFrom().toString());
         body.put("endDate", request.getDateTo().toString());
-        ArrayNode marketplace = objectMapper.createArrayNode();
-        marketplace.add(marketplaceId(binding.getSiteCode()));
-        body.set("marketplace", marketplace);
-        body.put("pageNo", pageNo);
-        body.put("pageSize", campaignPageSize);
+        body.set("campaignFilters", objectMapper.createObjectNode());
+        body.put("isNamshi", false);
         return body;
     }
 
@@ -247,11 +210,11 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         return new CampaignRow(
                 text(campaign, "campaignCode"),
                 firstText(campaign, "name", "campaignName"),
-                text(campaign, "status"),
-                text(campaign, "qcStatus"),
+                firstText(campaign, "effectiveStatus", "status"),
+                firstText(campaign, "qcStatus", "qc_status"),
                 text(campaign, "adgroupCode"),
-                parseDate(text(campaign, "startDate")),
-                parseDate(text(campaign, "endDate")),
+                parseDate(firstText(campaign, "startDate", "startTime")),
+                parseDate(firstText(campaign, "endDate", "endTime")),
                 longValue(safeMetrics, "views"),
                 longValue(safeMetrics, "clicks"),
                 longValue(safeMetrics, "orders"),
@@ -488,20 +451,6 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         }
     }
 
-    private int marketplaceId(String siteCode) {
-        String normalized = siteCode == null ? "" : siteCode.trim().toUpperCase(Locale.ROOT);
-        if ("SA".equals(normalized)) {
-            return 1;
-        }
-        if ("AE".equals(normalized)) {
-            return 2;
-        }
-        if ("EG".equals(normalized)) {
-            return 3;
-        }
-        throw new NoonInterfacePullException("provider not configured: unsupported Noon Ads site code " + siteCode);
-    }
-
     private boolean looksLikeXlsx(byte[] content) {
         return content != null && content.length >= 2 && content[0] == 'P' && content[1] == 'K';
     }
@@ -583,8 +532,12 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         if (!StringUtils.hasText(value)) {
             return null;
         }
+        String normalized = value.trim();
+        if (normalized.length() >= 10) {
+            normalized = normalized.substring(0, 10);
+        }
         try {
-            return LocalDate.parse(value.trim());
+            return LocalDate.parse(normalized);
         } catch (RuntimeException exception) {
             return null;
         }
@@ -626,6 +579,16 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
 
     private String safeExportId(String value) {
         return StringUtils.hasText(value) ? value.trim() : "unknown";
+    }
+
+    private String adsScope(NoonPullStoreBinding binding, NoonReportPullRequest request) {
+        String projectCode = binding == null ? null : binding.getProjectCode();
+        String siteCode = request == null ? null : request.getSiteCode();
+        LocalDate dateFrom = request == null ? null : request.getDateFrom();
+        LocalDate dateTo = request == null ? null : request.getDateTo();
+        return "projectCode=" + projectCode
+                + " siteCode=" + siteCode
+                + " dateWindow=" + dateFrom + ".." + dateTo;
     }
 
     private String safeRequestContext(NoonReportPullRequest request) {

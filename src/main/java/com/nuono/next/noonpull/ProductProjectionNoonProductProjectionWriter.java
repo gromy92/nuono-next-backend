@@ -21,7 +21,8 @@ public class ProductProjectionNoonProductProjectionWriter implements NoonProduct
                 command.getSiteSeeds(),
                 command.getProductSeeds(),
                 command.getWarnings(),
-                command.isPreserveDrafts()
+                command.isPreserveDrafts(),
+                command.isCompleteSiteScope()
         );
     }
 }

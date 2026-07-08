@@ -140,7 +140,8 @@ public class ProductProjectionPersistenceService {
                 siteSeeds,
                 productSeeds,
                 warnings,
-                false
+                false,
+                true
         );
     }
 
@@ -155,6 +156,31 @@ public class ProductProjectionPersistenceService {
             List<String> warnings,
             boolean preserveDrafts
     ) {
+        persistInitializationProjection(
+                ownerUserId,
+                projectCode,
+                projectName,
+                referenceStoreCode,
+                siteSeeds,
+                productSeeds,
+                warnings,
+                preserveDrafts,
+                false
+        );
+    }
+
+    @Transactional
+    public void persistInitializationProjection(
+            Long ownerUserId,
+            String projectCode,
+            String projectName,
+            String referenceStoreCode,
+            List<SiteSeed> siteSeeds,
+            List<ProductMasterSeed> productSeeds,
+            List<String> warnings,
+            boolean preserveDrafts,
+            boolean completeSiteScope
+    ) {
         if (ownerUserId == null || !StringUtils.hasText(projectCode) || productSeeds == null || productSeeds.isEmpty()) {
             return;
         }
@@ -163,7 +189,13 @@ public class ProductProjectionPersistenceService {
         }
 
         Long logicalStoreId = ensureLogicalStore(ownerUserId, projectCode, projectName);
-        Map<String, Long> siteIdMap = ensureSites(logicalStoreId, referenceStoreCode, siteSeeds, ownerUserId);
+        Map<String, Long> siteIdMap = ensureSites(
+                logicalStoreId,
+                referenceStoreCode,
+                siteSeeds,
+                ownerUserId,
+                completeSiteScope
+        );
         Map<String, String> siteCodeMap = siteCodeByStoreCode(siteSeeds);
         boolean classificationDictionaryReady = ensureClassificationDictionaryTablesReady(warnings);
         for (ProductMasterSeed productSeed : productSeeds) {
@@ -211,7 +243,8 @@ public class ProductProjectionPersistenceService {
                 logicalStoreId,
                 referenceStoreCode,
                 siteSeeds,
-                ownerUserId
+                ownerUserId,
+                false
         );
         Map<String, String> siteCodeMap = siteCodeByStoreCode(siteSeeds);
 
@@ -1543,7 +1576,8 @@ public class ProductProjectionPersistenceService {
             Long logicalStoreId,
             String referenceStoreCode,
             List<SiteSeed> siteSeeds,
-            Long updatedBy
+            Long updatedBy,
+            boolean completeSiteScope
     ) {
         Map<String, Long> siteIdMap = new LinkedHashMap<>();
         if (logicalStoreId == null || siteSeeds == null) {
@@ -1586,7 +1620,7 @@ public class ProductProjectionPersistenceService {
                 siteIdMap.put(storeCode, siteId);
             }
         }
-        if (!activeStoreCodes.isEmpty()) {
+        if (completeSiteScope && !activeStoreCodes.isEmpty()) {
             productManagementMapper.markStaleLogicalStoreSitesDeleted(logicalStoreId, activeStoreCodes, updatedBy);
         }
         return siteIdMap;

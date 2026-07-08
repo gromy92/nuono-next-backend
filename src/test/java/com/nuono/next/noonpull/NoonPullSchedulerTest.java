@@ -149,8 +149,8 @@ class NoonPullSchedulerTest {
         NoonPullTaskRecord task = repository.listTasks().get(0);
         assertEquals(NoonPullDataDomain.FINANCE_TRANSACTION, task.getDataDomain());
         assertEquals(NoonPullType.REPORT, task.getPullType());
-        assertEquals("finance-transactions:2026-05-23..2026-05-23", task.getTargetIdentity());
-        assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateFrom());
+        assertEquals("finance-transactions:2026-05-17..2026-05-23", task.getTargetIdentity());
+        assertEquals(LocalDate.of(2026, 5, 17), task.getTargetDateFrom());
         assertEquals(LocalDate.of(2026, 5, 23), task.getTargetDateTo());
     }
 

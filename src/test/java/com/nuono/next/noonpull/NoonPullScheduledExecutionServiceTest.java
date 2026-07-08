@@ -698,7 +698,7 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals(1, result.getExecutedTaskCount());
         NoonPullTaskRecord task = repository.listTasks().get(0);
         assertEquals(NoonPullTaskStatus.SUCCEEDED, task.getStatus());
-        assertEquals("finance-transactions:2026-05-23..2026-05-23", task.getTargetIdentity());
+        assertEquals("finance-transactions:2026-05-17..2026-05-23", task.getTargetIdentity());
         assertEquals(1, financeWriter.facts.size());
         NoonFinanceTransactionFact fact = financeWriter.facts.get(0);
         assertEquals(307L, fact.getOwnerUserId());
@@ -901,7 +901,7 @@ class NoonPullScheduledExecutionServiceTest {
             public String createExport(NoonReportPullRequest request) {
                 assertEquals(NoonPullDataDomain.FINANCE_TRANSACTION, request.getDataDomain());
                 assertEquals(NoonFinanceTransactionReportDescriptor.DEFAULT_REPORT_TYPE, request.getReportType());
-                assertEquals(LocalDate.of(2026, 5, 23), request.getDateFrom());
+                assertEquals(LocalDate.of(2026, 5, 17), request.getDateFrom());
                 assertEquals(LocalDate.of(2026, 5, 23), request.getDateTo());
                 return "EXP-FINANCE";
             }
