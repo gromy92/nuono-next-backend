@@ -267,6 +267,7 @@ public class ProductVariantSpecService {
                     return resolved;
                 }
             }
+            return null;
         }
         return variantId;
     }

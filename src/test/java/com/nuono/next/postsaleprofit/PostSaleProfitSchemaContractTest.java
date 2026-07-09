@@ -1,5 +1,6 @@
 package com.nuono.next.postsaleprofit;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
@@ -47,12 +48,11 @@ class PostSaleProfitSchemaContractTest {
 
     @Test
     void localDbBootstrapListsPostSaleProfitMigration() throws Exception {
-        String java = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
-
-        assertThat(java)
-                .contains("classpath:db/init/179_post_sale_profit_center.sql")
-                .contains("classpath:db/init/180_procurement_logistics_shipment_allocation.sql")
-                .contains("classpath:db/init/181_post_sale_profit_menu_permission.sql");
+        assertInitScriptsInclude(
+                "classpath:db/init/179_post_sale_profit_center.sql",
+                "classpath:db/init/180_procurement_logistics_shipment_allocation.sql",
+                "classpath:db/init/181_post_sale_profit_menu_permission.sql"
+        );
     }
 
     @Test

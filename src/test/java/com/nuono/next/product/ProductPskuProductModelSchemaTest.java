@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
@@ -11,9 +12,8 @@ class ProductPskuProductModelSchemaTest {
     @Test
     void migrationPromotesProductMasterToPskuMasterAndSiteOfferToPskuSiteState() throws Exception {
         String migration = Files.readString(Path.of("src/main/resources/db/init/152_psku_product_model_realignment.sql"));
-        String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
 
-        assertThat(bootstrap).contains("classpath:db/init/152_psku_product_model_realignment.sql");
+        assertInitScriptsInclude("classpath:db/init/152_psku_product_model_realignment.sql");
         assertThat(migration)
                 .contains("ALTER TABLE `product_master` ADD COLUMN `partner_sku`")
                 .contains("ALTER TABLE `product_master` ADD COLUMN `current_z_code`")
@@ -54,9 +54,8 @@ class ProductPskuProductModelSchemaTest {
     @Test
     void forwarderLegacyBackfillUsesCanonicalPskuIdentityWithoutRewritingSourceStore() throws Exception {
         String migration = Files.readString(Path.of("src/main/resources/db/init/153_psku_product_model_forwarder_legacy_backfill.sql"));
-        String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
 
-        assertThat(bootstrap).contains("classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql");
+        assertInitScriptsInclude("classpath:db/init/153_psku_product_model_forwarder_legacy_backfill.sql");
         assertThat(migration)
                 .contains("UPDATE `product_forwarder_declaration_attribute` pfda")
                 .contains("UPDATE `product_forwarder_channel_quote` pfcq")
@@ -73,6 +72,27 @@ class ProductPskuProductModelSchemaTest {
                 .contains("pfcq.partner_sku = COALESCE")
                 .doesNotContain("source_store_code =")
                 .doesNotContain("DELETE FROM")
+                .doesNotContain("DROP TABLE")
+                .doesNotContain("DROP COLUMN");
+    }
+
+    @Test
+    void productBarcodeCarriesPskuProductIdentityForCleanupAndLookup() throws Exception {
+        String migration = Files.readString(Path.of("src/main/resources/db/init/182_product_barcode_psku_identity.sql"));
+
+        assertInitScriptsInclude("classpath:db/init/182_product_barcode_psku_identity.sql");
+        assertThat(migration)
+                .contains("ALTER TABLE `product_barcode` ADD COLUMN `product_master_id`")
+                .contains("ALTER TABLE `product_barcode` ADD COLUMN `logical_store_id`")
+                .contains("ALTER TABLE `product_barcode` ADD COLUMN `partner_sku`")
+                .contains("UPDATE `product_barcode` barcode")
+                .contains("JOIN `product_variant` pv")
+                .contains("JOIN `product_master` pm")
+                .contains("barcode.product_master_id = pm.id")
+                .contains("barcode.logical_store_id = pm.logical_store_id")
+                .contains("barcode.partner_sku = TRIM(pv.partner_sku)")
+                .contains("idx_product_barcode_master")
+                .contains("idx_product_barcode_store_psku")
                 .doesNotContain("DROP TABLE")
                 .doesNotContain("DROP COLUMN");
     }

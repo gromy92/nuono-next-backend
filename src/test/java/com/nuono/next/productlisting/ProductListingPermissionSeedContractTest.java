@@ -1,5 +1,6 @@
 package com.nuono.next.productlisting;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,19 +49,10 @@ class ProductListingPermissionSeedContractTest {
 
     @Test
     void localDbBootstrapStatusListsProductListingScripts() throws IOException {
-        String source = Files.readString(Path.of(
-                "src",
-                "main",
-                "java",
-                "com",
-                "nuono",
-                "next",
-                "system",
-                "LocalDbBootstrapStatusService.java"
-        ));
-
-        assertTrue(source.contains("classpath:db/init/090_product_listing_dry_run.sql"));
-        assertTrue(source.contains("classpath:db/init/091_product_listing_menu_permission.sql"));
+        assertInitScriptsInclude(
+                "classpath:db/init/090_product_listing_dry_run.sql",
+                "classpath:db/init/091_product_listing_menu_permission.sql"
+        );
     }
 
     private static Pattern roleGrant(int roleId) {

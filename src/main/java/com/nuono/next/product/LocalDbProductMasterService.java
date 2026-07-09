@@ -596,8 +596,10 @@ public class LocalDbProductMasterService {
             return null;
         }
         String requestedStoreCode = normalize(command.getStoreCode());
+        String partnerSku = normalize(command.getPartnerSku());
         String skuParent = normalize(command.getSkuParent());
-        if (!StringUtils.hasText(requestedStoreCode) || !StringUtils.hasText(skuParent)) {
+        if (!StringUtils.hasText(requestedStoreCode)
+                || (!StringUtils.hasText(partnerSku) && !StringUtils.hasText(skuParent))) {
             return null;
         }
         StoreSyncStoreRecord store = resolveProductOwnerStore(
@@ -606,15 +608,37 @@ public class LocalDbProductMasterService {
                 "当前店铺不在选中的老板名下。"
         );
         String storeCode = normalize(store.getStoreCode());
-        ProductListProjectionRecord projection = productManagementMapper.selectProductListProjectionBySkuParent(
-                command.getOwnerUserId(),
-                storeCode,
-                skuParent
-        );
+        ProductListProjectionRecord projection;
+        String publicDetailLookupSkuParent;
+        if (StringUtils.hasText(partnerSku)) {
+            Long logicalStoreId = productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(
+                    command.getOwnerUserId(),
+                    storeCode
+            );
+            if (logicalStoreId == null) {
+                return null;
+            }
+            projection = productManagementMapper.selectProductListProjectionByStorePartnerSku(
+                    logicalStoreId,
+                    storeCode,
+                    partnerSku
+            );
+            if (projection == null) {
+                return null;
+            }
+            publicDetailLookupSkuParent = partnerSku;
+        } else {
+            projection = productManagementMapper.selectProductListProjectionBySkuParent(
+                    command.getOwnerUserId(),
+                    storeCode,
+                    skuParent
+            );
+            publicDetailLookupSkuParent = skuParent;
+        }
         ProductPublicDetailSnapshot publicDetail = productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(
                 command.getOwnerUserId(),
                 storeCode,
-                skuParent
+                publicDetailLookupSkuParent
         );
         ProductMasterSnapshotView baseline = productPublicDetailReadonlyWorkbenchFactory.buildBaseline(
                 command,
@@ -635,9 +659,9 @@ public class LocalDbProductMasterService {
             record.getBaselineSnapshot().setWarnings(baseline.getWarnings());
             record.getDraftSnapshot().setWarnings(baseline.getWarnings());
         }
-        productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), requestedStoreCode, skuParent, command.getPartnerSku()), record);
+        productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), requestedStoreCode, skuParent, partnerSku), record);
         if (!Objects.equals(requestedStoreCode, storeCode)) {
-            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), storeCode, skuParent, command.getPartnerSku()), record);
+            productWorkbenchRecordStore.put(workbenchKey(command.getOwnerUserId(), storeCode, skuParent, partnerSku), record);
         }
 
         ProductMasterWorkbenchView view = productWorkbenchViewAssembler.buildWorkbenchView(

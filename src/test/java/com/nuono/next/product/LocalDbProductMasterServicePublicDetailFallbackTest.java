@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -86,6 +88,84 @@ class LocalDbProductMasterServicePublicDetailFallbackTest {
         assertEquals("AE", view.getDraftSnapshot().getSiteOffers().get(0).get("site"));
         assertFalse(view.getDraftSnapshot().getSiteOffers().get(0).containsKey("currency"));
         assertTrue(view.getWarnings().stream().anyMatch((warning) -> warning.contains("前台公开详情")));
+    }
+
+    @Test
+    void openWorkbenchUsesPartnerSkuInsteadOfRequestZCodeWhenPartnerSkuIsPresent() {
+        ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
+        ProductPublicDetailMapper productPublicDetailMapper = mock(ProductPublicDetailMapper.class);
+        StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
+        ProductProjectionPersistenceService persistenceService = mock(ProductProjectionPersistenceService.class);
+        ProductWorkbenchOpenService openService = mock(ProductWorkbenchOpenService.class);
+        when(openService.openFromLocalBaseline(any(), any())).thenReturn(null);
+
+        StoreSyncStoreRecord store = store();
+        when(storeSyncMapper.selectOwnerStore(308L, "STR353172-NAE")).thenReturn(store);
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(308L, "STR353172-NAE"))
+                .thenReturn(501L);
+        when(productManagementMapper.selectProductListProjectionByStorePartnerSku(
+                501L,
+                "STR353172-NAE",
+                "PARTNER-001"
+        )).thenReturn(projection());
+        when(productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(
+                308L,
+                "STR353172-NAE",
+                "PARTNER-001"
+        )).thenReturn(publicDetail());
+
+        LocalDbProductMasterService service = new LocalDbProductMasterService(
+                productManagementMapper,
+                null,
+                productPublicDetailMapper,
+                storeSyncMapper,
+                null,
+                new ObjectMapper(),
+                null,
+                persistenceService,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                new ProductWorkbenchRecordStore(),
+                openService,
+                null,
+                null
+        );
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(308L);
+        command.setStoreCode("STR353172-NAE");
+        command.setPartnerSku("PARTNER-001");
+        command.setSkuParent("ZSTALE-BELONGS-OTHER-PSKU");
+
+        ProductMasterWorkbenchView view = service.openWorkbench(command);
+
+        verify(productManagementMapper, never()).selectProductListProjectionBySkuParent(
+                308L,
+                "STR353172-NAE",
+                "ZSTALE-BELONGS-OTHER-PSKU"
+        );
+        verify(productPublicDetailMapper, never()).selectLatestUsableSnapshotBySkuParent(
+                308L,
+                "STR353172-NAE",
+                "ZSTALE-BELONGS-OTHER-PSKU"
+        );
+        verify(productManagementMapper).selectProductListProjectionByStorePartnerSku(
+                501L,
+                "STR353172-NAE",
+                "PARTNER-001"
+        );
+        verify(productPublicDetailMapper).selectLatestUsableSnapshotBySkuParent(
+                308L,
+                "STR353172-NAE",
+                "PARTNER-001"
+        );
+        assertEquals(ProductPublicDetailReadonlyWorkbenchFactory.MODE, view.getMode());
+        assertTrue(view.isReady());
     }
 
     private StoreSyncStoreRecord store() {

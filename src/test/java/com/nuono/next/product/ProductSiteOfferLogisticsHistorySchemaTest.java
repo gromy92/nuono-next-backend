@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
@@ -13,11 +14,8 @@ class ProductSiteOfferLogisticsHistorySchemaTest {
         String migration = Files.readString(Path.of(
                 "src/main/resources/db/init/172_product_site_offer_logistics_history.sql"
         ));
-        String bootstrap = Files.readString(Path.of(
-                "src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"
-        ));
 
-        assertThat(bootstrap).contains("classpath:db/init/172_product_site_offer_logistics_history.sql");
+        assertInitScriptsInclude("classpath:db/init/172_product_site_offer_logistics_history.sql");
         assertThat(migration)
                 .contains("TABLE_NAME = 'product_site_offer'")
                 .contains("COLUMN_NAME = 'logistics_has_history'")

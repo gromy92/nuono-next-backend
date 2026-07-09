@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
@@ -44,6 +45,22 @@ class ProductVariantSpecPskuIdentityTest {
 
         assertEquals(53001L, logisticsService.resolveVariantId(10002L, "STR69486-NSA", "SGGRB113", null));
         assertEquals(53001L, logisticsService.resolveVariantId(10002L, "STR69486-NSA", null, 53001L));
+    }
+
+    @Test
+    void specResolverDoesNotFallbackToLegacyVariantIdWhenPartnerSkuIsPresent() {
+        when(mapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR69486-NSA")).thenReturn(51001L);
+        when(mapper.selectProductVariantIdByStorePartnerSku(51001L, "SGGRB113")).thenReturn(null);
+
+        assertNull(specService.resolveVariantId(10002L, "STR69486-NSA", "SGGRB113", 99999L));
+    }
+
+    @Test
+    void logisticsResolverDoesNotFallbackToLegacyVariantIdWhenPartnerSkuIsPresent() {
+        when(mapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR69486-NSA")).thenReturn(51001L);
+        when(mapper.selectProductVariantIdByStorePartnerSku(51001L, "SGGRB113")).thenReturn(null);
+
+        assertNull(logisticsService.resolveVariantId(10002L, "STR69486-NSA", "SGGRB113", 99999L));
     }
 
     @Test

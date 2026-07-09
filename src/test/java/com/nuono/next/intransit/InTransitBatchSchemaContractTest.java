@@ -1,5 +1,6 @@
 package com.nuono.next.intransit;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -73,17 +74,6 @@ class InTransitBatchSchemaContractTest {
             "init",
             "177_in_transit_batch_estimated_arrival_source.sql"
     );
-    private static final Path LOCAL_DB_BOOTSTRAP_STATUS_SERVICE = Path.of(
-            "src",
-            "main",
-            "java",
-            "com",
-            "nuono",
-            "next",
-            "system",
-            "LocalDbBootstrapStatusService.java"
-    );
-
     @Test
     void migrationDefinesBatchBasicsWithoutPurchaseFeeOrInventoryFields() throws IOException {
         String sql = Files.readString(MIGRATION);
@@ -173,7 +163,6 @@ class InTransitBatchSchemaContractTest {
     @Test
     void migrationAddsEstimatedArrivalSourcePriorityFields() throws IOException {
         String sql = Files.readString(ESTIMATED_ARRIVAL_SOURCE_MIGRATION);
-        String localBootstrapStatusService = Files.readString(LOCAL_DB_BOOTSTRAP_STATUS_SERVICE);
         String lower = sql.toLowerCase(Locale.ROOT);
 
         assertTrue(sql.contains("ADD COLUMN `estimated_arrival_source` VARCHAR(40) DEFAULT NULL"));
@@ -186,7 +175,7 @@ class InTransitBatchSchemaContractTest {
         assertFalse(lower.contains("drop table"));
         assertFalse(lower.contains("drop column"));
         assertFalse(lower.contains("delete from"));
-        assertTrue(localBootstrapStatusService.contains("classpath:db/init/177_in_transit_batch_estimated_arrival_source.sql"));
+        assertInitScriptsInclude("classpath:db/init/177_in_transit_batch_estimated_arrival_source.sql");
     }
 
     @Test

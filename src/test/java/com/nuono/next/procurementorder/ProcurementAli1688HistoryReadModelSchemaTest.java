@@ -1,5 +1,6 @@
 package com.nuono.next.procurementorder;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
@@ -10,14 +11,13 @@ class ProcurementAli1688HistoryReadModelSchemaTest {
 
     @Test
     void purchaseOrderAli1688HistorySchemasAreIncludedInLocalDbBootstrapList() throws Exception {
-        String java = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
-
-        assertThat(java)
-                .contains("classpath:db/init/118_procurement_ali1688_order_sku_allocation.sql")
-                .contains("classpath:db/init/119_procurement_purchase_order.sql")
-                .contains("classpath:db/init/122_procurement_purchase_order_logistics_plan.sql")
-                .contains("classpath:db/init/123_procurement_purchase_order_transport_mode.sql")
-                .contains("classpath:db/init/141_procurement_ali1688_sku_purchase_batch_combo_support.sql");
+        assertInitScriptsInclude(
+                "classpath:db/init/118_procurement_ali1688_order_sku_allocation.sql",
+                "classpath:db/init/119_procurement_purchase_order.sql",
+                "classpath:db/init/122_procurement_purchase_order_logistics_plan.sql",
+                "classpath:db/init/123_procurement_purchase_order_transport_mode.sql",
+                "classpath:db/init/141_procurement_ali1688_sku_purchase_batch_combo_support.sql"
+        );
     }
 
     @Test
