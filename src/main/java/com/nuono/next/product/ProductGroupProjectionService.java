@@ -98,19 +98,36 @@ public class ProductGroupProjectionService {
         }
 
         List<String> activeSkuParents = new ArrayList<>();
+        List<String> activePartnerSkus = new ArrayList<>();
+        int activeMemberCount = 0;
         for (int index = 0; index < members.size(); index++) {
             Map<String, Object> member = members.get(index);
             String memberSkuParent = normalize(ProductGroupSnapshotSupport.groupMemberSkuParent(member));
             if (!StringUtils.hasText(memberSkuParent)) {
                 continue;
             }
-            activeSkuParents.add(memberSkuParent);
+            String memberPartnerSku = normalize(text(member.get("partnerSku")));
+            if (StringUtils.hasText(memberPartnerSku)) {
+                addIfAbsent(activePartnerSkus, memberPartnerSku);
+            } else {
+                addIfAbsent(activeSkuParents, memberSkuParent);
+            }
+            activeMemberCount++;
             Long memberMasterId = productMasterId;
             String currentSkuParent = text(snapshot.getIdentity().get("skuParent"));
-            if (StringUtils.hasText(currentSkuParent) && !currentSkuParent.equalsIgnoreCase(memberSkuParent)) {
-                memberMasterId = productGroupMapper.selectProductMasterId(logicalStoreId, memberSkuParent);
+            String currentPartnerSku = text(snapshot.getIdentity().get("partnerSku"));
+            boolean sameCurrentPartner = StringUtils.hasText(memberPartnerSku)
+                    && StringUtils.hasText(currentPartnerSku)
+                    && currentPartnerSku.equalsIgnoreCase(memberPartnerSku);
+            boolean sameCurrentLegacy = !StringUtils.hasText(memberPartnerSku)
+                    && StringUtils.hasText(currentSkuParent)
+                    && currentSkuParent.equalsIgnoreCase(memberSkuParent);
+            if (!sameCurrentPartner && !sameCurrentLegacy) {
+                memberMasterId = resolveMemberProductMasterId(logicalStoreId, member, memberSkuParent);
             }
-            Long existingMemberId = productGroupMapper.selectProductGroupMemberId(persistedGroupId, memberSkuParent);
+            Long existingMemberId = StringUtils.hasText(memberPartnerSku)
+                    ? productGroupMapper.selectProductGroupMemberIdByPartnerSku(persistedGroupId, memberPartnerSku)
+                    : productGroupMapper.selectProductGroupMemberId(persistedGroupId, memberSkuParent);
             Long memberId = existingMemberId != null ? existingMemberId : productGroupMapper.nextProductGroupMemberId();
             productGroupMapper.upsertProductGroupMember(
                     memberId,
@@ -129,11 +146,17 @@ public class ProductGroupProjectionService {
             );
         }
 
-        if (!activeSkuParents.isEmpty()) {
+        if (activeMemberCount > 0) {
             productGroupMapper.markStaleProductGroupMembersDeleted(persistedGroupId, activeSkuParents, updatedBy);
+            productGroupMapper.markStaleProductGroupMembersDeletedByPartnerSku(
+                    persistedGroupId,
+                    activePartnerSkus,
+                    activeSkuParents,
+                    updatedBy
+            );
             String effectiveGroupRef = normalize(firstNonBlank(groupRef, groupRefCanonical, skuGroup));
             String effectiveGroupName = normalize(firstNonBlank(groupName, effectiveGroupRef));
-            Integer effectiveMemberCount = activeSkuParents.size();
+            Integer effectiveMemberCount = activeMemberCount;
             productGroupMapper.syncProductMasterGroupFieldsForActiveMembers(
                     persistedGroupId,
                     skuGroup,
@@ -150,7 +173,31 @@ public class ProductGroupProjectionService {
                     activeSkuParents,
                     updatedBy
             );
+            productGroupMapper.clearProductMasterGroupFieldsForInactivePartnerSkuMembers(
+                    logicalStoreId,
+                    skuGroup,
+                    effectiveGroupRef,
+                    groupRefCanonical,
+                    activePartnerSkus,
+                    activeSkuParents,
+                    updatedBy
+            );
         }
+    }
+
+    private Long resolveMemberProductMasterId(
+            Long logicalStoreId,
+            Map<String, Object> member,
+            String memberSkuParent
+    ) {
+        String partnerSku = normalize(text(member == null ? null : member.get("partnerSku")));
+        if (StringUtils.hasText(partnerSku)) {
+            return productGroupMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, partnerSku);
+        }
+        if (!StringUtils.hasText(memberSkuParent)) {
+            return null;
+        }
+        return productGroupMapper.selectProductMasterId(logicalStoreId, memberSkuParent);
     }
 
     public void hydrateSnapshotGroupFromCurrentProjection(
@@ -383,5 +430,11 @@ public class ProductGroupProjectionService {
 
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private void addIfAbsent(List<String> values, String value) {
+        if (StringUtils.hasText(value) && !values.contains(value)) {
+            values.add(value);
+        }
     }
 }

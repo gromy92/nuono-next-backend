@@ -62,14 +62,16 @@ class ProductManagementOperationStageMapperSqlTest {
 
         assertThat(sql)
                 .contains("UPDATE product_site_offer pso")
-                .contains("JOIN product_variant pv")
                 .contains("JOIN logical_store ls")
+                .contains("ls.id = pso.logical_store_id")
                 .contains("JOIN logical_store_site lss")
+                .contains("lss.id = pso.site_id")
                 .contains("lss.store_code = #{storeCode}")
                 .contains("SET pso.operation_stage_code = #{operationStageCode}")
                 .contains("pso.operation_stage_updated_by = #{operatorUserId}")
                 .contains("pso.partner_sku = #{partnerSku}")
-                .contains("pv.partner_sku = #{partnerSku}")
+                .doesNotContain("JOIN product_variant")
+                .doesNotContain("pv.partner_sku")
                 .doesNotContain("UPDATE product_master");
     }
 

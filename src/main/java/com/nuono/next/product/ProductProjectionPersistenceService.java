@@ -591,9 +591,7 @@ public class ProductProjectionPersistenceService {
             return;
         }
         Long logicalStoreId = ensureLogicalStore(ownerUserId, projectCode, projectName);
-        Long productMasterId = StringUtils.hasText(partnerSku)
-                ? productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, normalize(partnerSku))
-                : null;
+        Long productMasterId = selectProductMasterId(new ProductIdentity(logicalStoreId, partnerSku));
         if (productMasterId != null) {
             productManagementMapper.updateProductMasterStatusById(
                     productMasterId,
@@ -696,12 +694,13 @@ public class ProductProjectionPersistenceService {
                 partnerSku,
                 skuParent
         );
+        String fallbackSkuParent = StringUtils.hasText(partnerSku) ? null : skuParent;
         if (record == null) {
             ProductPublishTaskRecord rebuildTask = selectLatestVisibleRebuildTaskByStoreIdentity(
                     ownerUserId,
                     normalizedStoreCode,
                     partnerSku,
-                    skuParent
+                    fallbackSkuParent
             );
             if (rebuildTask != null) {
                 ProductListSummaryView rebuildSummary = toRebuildTaskSummary(rebuildTask, normalizedStoreCode, warnings);
@@ -743,6 +742,7 @@ public class ProductProjectionPersistenceService {
                     return record;
                 }
             }
+            return null;
         }
         String normalizedSkuParent = normalize(skuParent);
         if (!StringUtils.hasText(normalizedSkuParent)) {
@@ -980,6 +980,7 @@ public class ProductProjectionPersistenceService {
                 ownerUserId,
                 text(liveSnapshot.getStoreContext().get("projectCode")),
                 text(liveSnapshot.getStoreContext().get("projectName")),
+                text(liveSnapshot.getIdentity().get("partnerSku")),
                 text(liveSnapshot.getIdentity().get("skuParent"))
         );
         if (productMasterId == null) {
@@ -1335,15 +1336,11 @@ public class ProductProjectionPersistenceService {
                     ownerUserId,
                     normalize(storeCode)
             );
-            if (logicalStoreId != null) {
-                Long productMasterId = productManagementMapper.selectProductMasterIdByStorePartnerSku(
-                        logicalStoreId,
-                        normalizedPartnerSku
-                );
-                if (productMasterId != null) {
-                    return productMasterId;
-                }
+            Long productMasterId = selectProductMasterId(new ProductIdentity(logicalStoreId, normalizedPartnerSku));
+            if (productMasterId != null) {
+                return productMasterId;
             }
+            return null;
         }
         if (!StringUtils.hasText(skuParent)) {
             return null;
@@ -1398,6 +1395,7 @@ public class ProductProjectionPersistenceService {
                 ownerUserId,
                 text(workbench.getStoreContext().get("projectCode")),
                 text(workbench.getStoreContext().get("projectName")),
+                text(workbench.getIdentity().get("partnerSku")),
                 text(workbench.getIdentity().get("skuParent"))
         );
         if (productMasterId == null) {
@@ -1467,6 +1465,7 @@ public class ProductProjectionPersistenceService {
                 ownerUserId,
                 text(publishedSnapshot.getStoreContext().get("projectCode")),
                 text(publishedSnapshot.getStoreContext().get("projectName")),
+                text(publishedSnapshot.getIdentity().get("partnerSku")),
                 text(publishedSnapshot.getIdentity().get("skuParent"))
         );
         if (productMasterId == null) {
@@ -1645,10 +1644,11 @@ public class ProductProjectionPersistenceService {
     }
 
     private Long upsertProductMaster(Long logicalStoreId, Long updatedBy, ProductMasterSeed seed) {
-        String partnerSku = normalize(seed.getPartnerSku());
+        ProductIdentity productIdentity = new ProductIdentity(logicalStoreId, seed.getPartnerSku());
+        String partnerSku = productIdentity.partnerSku();
         String currentZCode = normalize(seed.getSkuParent());
-        Long existingId = StringUtils.hasText(partnerSku)
-                ? productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, partnerSku)
+        Long existingId = productIdentity.isComplete()
+                ? selectProductMasterId(productIdentity)
                 : productManagementMapper.selectProductMasterId(logicalStoreId, currentZCode);
         Long id = existingId != null ? existingId : productManagementMapper.nextProductMasterId();
         productManagementMapper.upsertProductMaster(
@@ -1674,8 +1674,8 @@ public class ProductProjectionPersistenceService {
                 parseDateTime(seed.getLastSyncedAt()),
                 updatedBy
         );
-        return StringUtils.hasText(partnerSku)
-                ? productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, partnerSku)
+        return productIdentity.isComplete()
+                ? selectProductMasterId(productIdentity)
                 : productManagementMapper.selectProductMasterId(logicalStoreId, currentZCode);
     }
 
@@ -2112,9 +2112,7 @@ public class ProductProjectionPersistenceService {
         }
         Map<String, Boolean> existingIdentityKeys = new LinkedHashMap<>();
         for (ProductListSummaryView summary : summaries) {
-            rememberIdentityKey(existingIdentityKeys, summary == null ? null : summary.getPartnerSku());
-            rememberIdentityKey(existingIdentityKeys, summary == null ? null : summary.getSkuParent());
-            rememberIdentityKey(existingIdentityKeys, summary == null ? null : summary.getCurrentZCode());
+            rememberListSummaryIdentityKey(existingIdentityKeys, storeCode, summary);
         }
         List<ProductPublishTaskRecord> rebuildTasks =
                 productManagementMapper.selectVisibleProductRebuildTasksByStore(ownerUserId, storeCode, 50);
@@ -2122,18 +2120,39 @@ public class ProductProjectionPersistenceService {
             return;
         }
         for (ProductPublishTaskRecord task : rebuildTasks) {
-            String partnerSkuKey = identityKey(task == null ? null : task.getPartnerSku());
-            String skuParentKey = identityKey(task == null ? null : task.getSkuParent());
-            if ((StringUtils.hasText(partnerSkuKey) && existingIdentityKeys.containsKey(partnerSkuKey))
-                    || (StringUtils.hasText(skuParentKey) && existingIdentityKeys.containsKey(skuParentKey))) {
+            String key = rebuildTaskIdentityKey(storeCode, task);
+            if (StringUtils.hasText(key) && existingIdentityKeys.containsKey(key)) {
                 continue;
             }
             ProductListSummaryView summary = toRebuildTaskSummary(task, storeCode, warnings);
             summaries.add(summary);
-            rememberIdentityKey(existingIdentityKeys, summary.getPartnerSku());
-            rememberIdentityKey(existingIdentityKeys, summary.getSkuParent());
-            rememberIdentityKey(existingIdentityKeys, summary.getCurrentZCode());
+            rememberListSummaryIdentityKey(existingIdentityKeys, storeCode, summary);
         }
+    }
+
+    private void rememberListSummaryIdentityKey(
+            Map<String, Boolean> identityKeys,
+            String storeCode,
+            ProductListSummaryView summary
+    ) {
+        if (summary == null) {
+            return;
+        }
+        String key = ProductIdentity.storeScopedStableKey(storeCode, summary.getPartnerSku());
+        if (StringUtils.hasText(key)) {
+            rememberIdentityKey(identityKeys, key);
+            return;
+        }
+        rememberIdentityKey(identityKeys, summary.getSkuParent());
+        rememberIdentityKey(identityKeys, summary.getCurrentZCode());
+    }
+
+    private String rebuildTaskIdentityKey(String storeCode, ProductPublishTaskRecord task) {
+        if (task == null) {
+            return null;
+        }
+        String key = ProductIdentity.storeScopedStableKey(storeCode, task.getPartnerSku());
+        return StringUtils.hasText(key) ? identityKey(key) : identityKey(task.getSkuParent());
     }
 
     private void rememberIdentityKey(Map<String, Boolean> identityKeys, String value) {
@@ -2178,14 +2197,9 @@ public class ProductProjectionPersistenceService {
         String normalizedStoreCode = normalize(storeCode);
         if (StringUtils.hasText(view.getPartnerSku())) {
             Long logicalStoreId = productManagementMapper.selectLogicalStoreIdBySiteStoreCode(normalizedStoreCode);
-            if (logicalStoreId != null) {
-                Long productMasterId = productManagementMapper.selectProductMasterIdByStorePartnerSku(
-                        logicalStoreId,
-                        normalize(view.getPartnerSku())
-                );
-                if (productMasterId != null) {
-                    return productMasterId;
-                }
+            Long productMasterId = selectProductMasterId(new ProductIdentity(logicalStoreId, view.getPartnerSku()));
+            if (productMasterId != null) {
+                return productMasterId;
             }
         }
         if (!allowSkuParentFallback
@@ -2566,22 +2580,19 @@ public class ProductProjectionPersistenceService {
         if (variantId == null || siteId == null || siteOffer == null) {
             return;
         }
-        Long existingId = StringUtils.hasText(partnerSku) && StringUtils.hasText(siteCode)
-                ? productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(
-                        logicalStoreId,
-                        normalize(partnerSku),
-                        normalize(siteCode)
-                )
+        ProductSiteIdentity siteIdentity = new ProductSiteIdentity(logicalStoreId, partnerSku, siteCode);
+        Long existingId = siteIdentity.isComplete()
+                ? selectProductSiteOfferId(siteIdentity)
                 : productManagementMapper.selectProductSiteOfferId(variantId, siteId);
         Long id = existingId != null ? existingId : productManagementMapper.nextProductSiteOfferId();
         productManagementMapper.upsertProductSiteOffer(
                 id,
                 productMasterId,
                 logicalStoreId,
-                normalize(partnerSku),
+                siteIdentity.partnerSku(),
                 variantId,
                 siteId,
-                normalize(siteCode),
+                siteIdentity.siteCode(),
                 normalize(text(siteOffer.get("pskuCode"))),
                 normalize(text(siteOffer.get("offerCode"))),
                 normalize(text(siteOffer.get("currency"))),
@@ -2638,8 +2649,29 @@ public class ProductProjectionPersistenceService {
         );
         productManagementMapper.markProductSiteOfferLogisticsHistoryByStock(
                 logicalStoreId,
-                normalize(partnerSku),
+                siteIdentity.partnerSku(),
                 updatedBy
+        );
+    }
+
+    private Long selectProductMasterId(ProductIdentity identity) {
+        if (identity == null || !identity.isComplete()) {
+            return null;
+        }
+        return productManagementMapper.selectProductMasterIdByStorePartnerSku(
+                identity.logicalStoreId(),
+                identity.partnerSku()
+        );
+    }
+
+    private Long selectProductSiteOfferId(ProductSiteIdentity identity) {
+        if (identity == null || !identity.isComplete()) {
+            return null;
+        }
+        return productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(
+                identity.logicalStoreId(),
+                identity.partnerSku(),
+                identity.siteCode()
         );
     }
 
@@ -2664,13 +2696,24 @@ public class ProductProjectionPersistenceService {
             Long ownerUserId,
             String projectCode,
             String projectName,
+            String partnerSku,
             String skuParent
     ) {
-        if (ownerUserId == null || !StringUtils.hasText(projectCode) || !StringUtils.hasText(skuParent)) {
+        if (ownerUserId == null || !StringUtils.hasText(projectCode)) {
             return null;
         }
         Long logicalStoreId = ensureLogicalStore(ownerUserId, projectCode, projectName);
-        return logicalStoreId == null ? null : productManagementMapper.selectProductMasterId(logicalStoreId, normalize(skuParent));
+        if (logicalStoreId == null) {
+            return null;
+        }
+        String normalizedPartnerSku = normalize(partnerSku);
+        if (StringUtils.hasText(normalizedPartnerSku)) {
+            return selectProductMasterId(new ProductIdentity(logicalStoreId, normalizedPartnerSku));
+        }
+        if (!StringUtils.hasText(skuParent)) {
+            return null;
+        }
+        return productManagementMapper.selectProductMasterId(logicalStoreId, normalize(skuParent));
     }
 
     private Long persistBaselineSnapshot(

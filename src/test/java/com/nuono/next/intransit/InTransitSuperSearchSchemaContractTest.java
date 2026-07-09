@@ -1,5 +1,6 @@
 package com.nuono.next.intransit;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -90,13 +91,10 @@ class InTransitSuperSearchSchemaContractTest {
     @Test
     void superSearchMigrationAddsPartnerSkuLookupIndex() throws Exception {
         String sql = Files.readString(Path.of("src/main/resources/db/init/140_in_transit_super_search_indexes.sql"));
-        String bootstrapSource = Files.readString(Path.of(
-                "src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"
-        ));
 
         assertTrue(sql.contains("idx_product_variant_partner_sku_lookup"));
         assertTrue(sql.contains("(partner_sku, is_deleted, product_master_id)"));
-        assertTrue(bootstrapSource.contains("classpath:db/init/140_in_transit_super_search_indexes.sql"));
+        assertInitScriptsInclude("classpath:db/init/140_in_transit_super_search_indexes.sql");
     }
 
     @Test

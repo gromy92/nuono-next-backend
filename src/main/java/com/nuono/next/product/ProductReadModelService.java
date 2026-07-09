@@ -55,8 +55,9 @@ public class ProductReadModelService {
 
         LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsByProductIdentity =
                 new LinkedHashMap<>();
-        for (ProductListSummaryView summary : summaries) {
-            String identityKey = productIdentityKey(storeCode, summary);
+        for (int index = 0; index < summaries.size(); index++) {
+            ProductListSummaryView summary = summaries.get(index);
+            String identityKey = productIdentityKey(storeCode, summary, index);
             if (summary == null || !StringUtils.hasText(identityKey)) {
                 continue;
             }
@@ -437,15 +438,16 @@ public class ProductReadModelService {
         return null;
     }
 
-    private String productIdentityKey(String storeCode, ProductListSummaryView summary) {
+    private String productIdentityKey(String storeCode, ProductListSummaryView summary, int index) {
         if (summary == null) {
             return null;
         }
-        String productKey = firstNonBlank(summary.getPartnerSku(), summary.getSkuParent());
-        if (!StringUtils.hasText(productKey)) {
-            return null;
+        String scopedStoreCode = firstNonBlank(summary.getStoreCode(), storeCode);
+        String stableKey = ProductIdentity.storeScopedStableKey(scopedStoreCode, summary.getPartnerSku());
+        if (StringUtils.hasText(stableKey)) {
+            return stableKey;
         }
-        return firstNonBlank(summary.getStoreCode(), storeCode) + "::" + productKey;
+        return firstNonBlank(scopedStoreCode, "store:unknown") + "|missing-psku-row:" + index;
     }
 
     private String normalize(String value) {

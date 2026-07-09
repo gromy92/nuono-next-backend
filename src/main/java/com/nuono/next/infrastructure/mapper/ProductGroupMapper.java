@@ -118,6 +118,19 @@ public interface ProductGroupMapper {
             @Param("skuParent") String skuParent
     );
 
+    @Select({
+            "SELECT id",
+            "FROM product_master",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductMasterIdByStorePartnerSku(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku
+    );
+
     @Insert({
             "INSERT INTO product_group_member (",
             "  id, product_group_id, product_master_id, sku_parent, member_sku, child_sku, partner_sku,",
@@ -171,6 +184,19 @@ public interface ProductGroupMapper {
             @Param("skuParent") String skuParent
     );
 
+    @Select({
+            "SELECT id",
+            "FROM product_group_member",
+            "WHERE product_group_id = #{productGroupId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductGroupMemberIdByPartnerSku(
+            @Param("productGroupId") Long productGroupId,
+            @Param("partnerSku") String partnerSku
+    );
+
     @Update({
             "<script>",
             "UPDATE product_group_member",
@@ -179,6 +205,7 @@ public interface ProductGroupMapper {
             "    gmt_updated = NOW()",
             "WHERE product_group_id = #{productGroupId}",
             "  AND is_deleted = 0",
+            "  AND (partner_sku IS NULL OR partner_sku = '')",
             "  <if test='skuParents != null and skuParents.size() > 0'>",
             "    AND sku_parent NOT IN",
             "    <foreach collection='skuParents' item='skuParent' open='(' separator=',' close=')'>",
@@ -194,6 +221,37 @@ public interface ProductGroupMapper {
     );
 
     @Update({
+            "<script>",
+            "UPDATE product_group_member",
+            "SET is_deleted = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE product_group_id = #{productGroupId}",
+            "  AND is_deleted = 0",
+            "  AND partner_sku IS NOT NULL",
+            "  AND partner_sku != ''",
+            "  <if test='partnerSkus != null and partnerSkus.size() > 0'>",
+            "    AND partner_sku NOT IN",
+            "    <foreach collection='partnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
+            "      #{partnerSku}",
+            "    </foreach>",
+            "  </if>",
+            "  <if test='skuParents != null and skuParents.size() > 0'>",
+            "    AND sku_parent NOT IN",
+            "    <foreach collection='skuParents' item='skuParent' open='(' separator=',' close=')'>",
+            "      #{skuParent}",
+            "    </foreach>",
+            "  </if>",
+            "</script>"
+    })
+    int markStaleProductGroupMembersDeletedByPartnerSku(
+            @Param("productGroupId") Long productGroupId,
+            @Param("partnerSkus") List<String> partnerSkus,
+            @Param("skuParents") List<String> skuParents,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
             "UPDATE product_master pm",
             "JOIN product_group pg",
             "  ON pg.logical_store_id = pm.logical_store_id",
@@ -201,7 +259,10 @@ public interface ProductGroupMapper {
             " AND pg.is_deleted = 0",
             "JOIN product_group_member pgm",
             "  ON pgm.product_group_id = pg.id",
-            " AND pgm.sku_parent = pm.sku_parent",
+            " AND (",
+            "      (pgm.partner_sku IS NOT NULL AND pgm.partner_sku <> '' AND pm.partner_sku = pgm.partner_sku)",
+            "      OR ((pgm.partner_sku IS NULL OR pgm.partner_sku = '') AND pm.sku_parent = pgm.sku_parent)",
+            "    )",
             " AND pgm.member_status = 'active'",
             " AND pgm.is_deleted = 0",
             "SET pm.sku_group = #{skuGroup},",
@@ -232,6 +293,7 @@ public interface ProductGroupMapper {
             "    pm.gmt_updated = NOW()",
             "WHERE pm.logical_store_id = #{logicalStoreId}",
             "  AND pm.is_deleted = 0",
+            "  AND (pm.partner_sku IS NULL OR pm.partner_sku = '')",
             "  AND (",
             "    pm.sku_group = #{skuGroup}",
             "    OR pm.group_ref = #{groupRef}",
@@ -250,6 +312,48 @@ public interface ProductGroupMapper {
             @Param("skuGroup") String skuGroup,
             @Param("groupRef") String groupRef,
             @Param("groupRefCanonical") String groupRefCanonical,
+            @Param("activeSkuParents") List<String> activeSkuParents,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "<script>",
+            "UPDATE product_master pm",
+            "SET pm.sku_group = NULL,",
+            "    pm.group_ref = NULL,",
+            "    pm.group_name_cache = NULL,",
+            "    pm.group_member_count = NULL,",
+            "    pm.updated_by = #{updatedBy},",
+            "    pm.gmt_updated = NOW()",
+            "WHERE pm.logical_store_id = #{logicalStoreId}",
+            "  AND pm.is_deleted = 0",
+            "  AND pm.partner_sku IS NOT NULL",
+            "  AND pm.partner_sku != ''",
+            "  AND (",
+            "    pm.sku_group = #{skuGroup}",
+            "    OR pm.group_ref = #{groupRef}",
+            "    OR pm.group_ref = #{groupRefCanonical}",
+            "  )",
+            "  <if test='activePartnerSkus != null and activePartnerSkus.size() > 0'>",
+            "    AND pm.partner_sku NOT IN",
+            "    <foreach collection='activePartnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
+            "      #{partnerSku}",
+            "    </foreach>",
+            "  </if>",
+            "  <if test='activeSkuParents != null and activeSkuParents.size() > 0'>",
+            "    AND pm.sku_parent NOT IN",
+            "    <foreach collection='activeSkuParents' item='skuParent' open='(' separator=',' close=')'>",
+            "      #{skuParent}",
+            "    </foreach>",
+            "  </if>",
+            "</script>"
+    })
+    int clearProductMasterGroupFieldsForInactivePartnerSkuMembers(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("skuGroup") String skuGroup,
+            @Param("groupRef") String groupRef,
+            @Param("groupRefCanonical") String groupRefCanonical,
+            @Param("activePartnerSkus") List<String> activePartnerSkus,
             @Param("activeSkuParents") List<String> activeSkuParents,
             @Param("updatedBy") Long updatedBy
     );
@@ -363,7 +467,10 @@ public interface ProductGroupMapper {
             " AND pm.sku_parent = #{skuParent}",
             " AND pm.is_deleted = 0",
             "JOIN product_group_member pgm",
-            "  ON pgm.sku_parent = pm.sku_parent",
+            "  ON (",
+            "       (pgm.partner_sku IS NOT NULL AND pgm.partner_sku <> '' AND pm.partner_sku = pgm.partner_sku)",
+            "       OR ((pgm.partner_sku IS NULL OR pgm.partner_sku = '') AND pm.sku_parent = pgm.sku_parent)",
+            "     )",
             " AND pgm.member_status = 'active'",
             " AND pgm.is_deleted = 0",
             "JOIN product_group pg",
@@ -397,7 +504,10 @@ public interface ProductGroupMapper {
             " AND pg.is_deleted = 0",
             "LEFT JOIN product_master pm",
             "  ON pm.logical_store_id = pg.logical_store_id",
-            " AND pm.sku_parent = pgm.sku_parent",
+            " AND (",
+            "      (pgm.partner_sku IS NOT NULL AND pgm.partner_sku <> '' AND pm.partner_sku = pgm.partner_sku)",
+            "      OR ((pgm.partner_sku IS NULL OR pgm.partner_sku = '') AND pm.sku_parent = pgm.sku_parent)",
+            "    )",
             " AND pm.is_deleted = 0",
             "WHERE pgm.product_group_id = #{productGroupId}",
             "  AND pgm.member_status = 'active'",

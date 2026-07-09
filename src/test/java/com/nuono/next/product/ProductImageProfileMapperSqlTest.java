@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
@@ -132,7 +133,6 @@ class ProductImageProfileMapperSqlTest {
     @Test
     void migrationAddsLogicalStoreScopeAndAssetSourceColumns() throws Exception {
         String sql = Files.readString(Path.of("src/main/resources/db/init/159_product_image_logical_store_scope.sql"));
-        String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
 
         assertThat(sql)
                 .contains("ADD COLUMN `logical_store_id`")
@@ -146,7 +146,7 @@ class ProductImageProfileMapperSqlTest {
                 .contains("ADD COLUMN `source_snapshot_id`")
                 .contains("ADD COLUMN `source_field`")
                 .contains("ADD COLUMN `source_kind`");
-        assertThat(bootstrap).contains("classpath:db/init/159_product_image_logical_store_scope.sql");
+        assertInitScriptsInclude("classpath:db/init/159_product_image_logical_store_scope.sql");
     }
 
     private static String annotationSql(Select select) {

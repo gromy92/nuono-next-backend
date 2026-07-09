@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -97,6 +98,50 @@ class ProductWorkbenchOpenServiceTest {
                 eq(null),
                 eq("PAPERSAYSB132"),
                 eq("2026-06-04 10:00:00"),
+                anyList()
+        );
+    }
+
+    @Test
+    void opensByPartnerSkuWithoutUsingCurrentZCodeAsFallback() {
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+        command.setPartnerSku("PAPERSAYSB132");
+        command.setSkuParent("ZPAPER001");
+        ProductMasterSnapshotView baseline = baselineSnapshot();
+        FakeOpenSupport support = new FakeOpenSupport();
+        when(productProjectionPersistenceService.loadLatestBaselineSnapshot(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("PAPERSAYSB132"),
+                nullable(String.class),
+                anyList()
+        )).thenReturn(baseline);
+        when(productProjectionPersistenceService.loadPersistedWorkbenchState(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("PAPERSAYSB132"),
+                nullable(String.class),
+                anyList()
+        )).thenReturn(null);
+
+        ProductMasterWorkbenchView view = service.openFromLocalBaseline(command, support);
+
+        assertEquals("synced", view.getSyncStatus());
+        verify(productProjectionPersistenceService).clearInactivePersistedDraft(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("PAPERSAYSB132"),
+                eq(null),
+                eq("2026-06-04 10:00:00"),
+                anyList()
+        );
+        verify(productProjectionPersistenceService, never()).loadLatestBaselineSnapshot(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("PAPERSAYSB132"),
+                eq("ZPAPER001"),
                 anyList()
         );
     }

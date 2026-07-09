@@ -10,6 +10,7 @@ import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import java.lang.reflect.Method;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.mockito.Mockito;
@@ -31,6 +32,17 @@ class ProductPskuProductIdentityMapperSqlTest {
     }
 
     @Test
+    void productIdentityProvidesStableKeysWithoutLegacyZCodeFallback() {
+        ProductIdentity identity = new ProductIdentity(50003L, " SGGRB113 ");
+
+        assertThat(identity.stableKey()).isEqualTo("logicalStore:50003|psku:SGGRB113");
+        assertThat(ProductIdentity.storeScopedStableKey(" STR69486-NSA ", " SGGRB113 "))
+                .isEqualTo("STR69486-NSA|psku:SGGRB113");
+        assertThat(ProductIdentity.storeScopedStableKey("STR69486-NSA", " "))
+                .isNull();
+    }
+
+    @Test
     void productSiteIdentityTrimsPskuAndSiteAndRequiresAllParts() {
         ProductSiteIdentity identity = new ProductSiteIdentity(50003L, " SGGRB113 ", " NSA ");
 
@@ -43,6 +55,16 @@ class ProductPskuProductIdentityMapperSqlTest {
         assertThat(new ProductSiteIdentity(50003L, "SGGRB113", " ").isComplete()).isFalse();
         assertThat(new ProductSiteIdentity(50003L, "SGGRB113", "NSA"))
                 .isNotEqualTo(new ProductSiteIdentity(50003L, "SGGRB113", "NAE"));
+    }
+
+    @Test
+    void productSiteIdentityProvidesSiteKeyAndProductIdentity() {
+        ProductSiteIdentity identity = new ProductSiteIdentity(50003L, " SGGRB113 ", " SA ");
+
+        assertThat(identity.productIdentity()).isEqualTo(new ProductIdentity(50003L, "SGGRB113"));
+        assertThat(identity.stableProductKey()).isEqualTo("logicalStore:50003|psku:SGGRB113");
+        assertThat(identity.stableSiteKey()).isEqualTo("logicalStore:50003|psku:SGGRB113|site:SA");
+        assertThat(new ProductSiteIdentity(50003L, "SGGRB113", " ").stableSiteKey()).isNull();
     }
 
     @Test
@@ -98,6 +120,61 @@ class ProductPskuProductIdentityMapperSqlTest {
                 .contains("partner_sku = #{partnerSku}")
                 .contains("ORDER BY gmt_updated DESC, id DESC")
                 .doesNotContain("sku_parent = #{skuParent}");
+    }
+
+    @Test
+    void listPublishTaskResolverUsesStableProductMasterPskuWithoutVariantJoin() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "selectLatestProductPublishTasksByStorePartnerSkus",
+                Long.class,
+                java.util.List.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("FROM product_master pm")
+                .contains("pm.logical_store_id = #{logicalStoreId}")
+                .contains("pm.partner_sku IN")
+                .contains("ppt.partner_sku IN")
+                .doesNotContain("FROM product_variant")
+                .doesNotContain("JOIN product_variant")
+                .doesNotContain("pv.partner_sku IN");
+    }
+
+    @Test
+    void visibleRebuildTaskListSuppressesCurrentProductBySourcePskuWhenTaskPskuMissing() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "selectVisibleProductRebuildTasksByStore",
+                Long.class,
+                String.class,
+                int.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("active_pm.partner_sku = COALESCE(NULLIF(ppt.partner_sku, ''), source_pm.partner_sku)")
+                .contains("active_pm.id IS NULL")
+                .doesNotContain("active_pm.partner_sku = ppt.partner_sku");
+    }
+
+    @Test
+    void visibleRebuildTaskLookupSuppressesCurrentProductBySourcePskuWhenTaskPskuMissing() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "selectLatestVisibleProductRebuildTaskByStoreIdentity",
+                Long.class,
+                String.class,
+                String.class,
+                String.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("active_pm.partner_sku = COALESCE(NULLIF(ppt.partner_sku, ''), source_pm.partner_sku)")
+                .contains("active_pm.id IS NULL")
+                .doesNotContain("active_pm.partner_sku = ppt.partner_sku");
     }
 
     @Test
@@ -307,5 +384,39 @@ class ProductPskuProductIdentityMapperSqlTest {
                 .contains("partner_sku = #{partnerSku}")
                 .contains("site_code = #{siteCode}")
                 .doesNotContain("variant_id = #{variantId}");
+    }
+
+    @Test
+    void siteOfferCleanupByProductMasterUsesSiteOfferRowAddressWithoutVariantJoin() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "markProductSiteOffersDeletedByProductMasterId",
+                Long.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("UPDATE product_site_offer pso")
+                .contains("pso.product_master_id = #{productMasterId}")
+                .doesNotContain("JOIN product_variant")
+                .doesNotContain("pv.product_master_id");
+    }
+
+    @Test
+    void barcodeCleanupByProductMasterUsesBarcodeRowAddressWithoutVariantJoin() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "markProductBarcodesDeletedByProductMasterId",
+                Long.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("UPDATE product_barcode pb")
+                .contains("pb.product_master_id = #{productMasterId}")
+                .doesNotContain("JOIN product_variant")
+                .doesNotContain("pv.product_master_id");
     }
 }

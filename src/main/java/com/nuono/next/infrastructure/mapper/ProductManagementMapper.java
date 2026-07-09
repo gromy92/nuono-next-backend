@@ -373,20 +373,22 @@ public interface ProductManagementMapper {
     @Select({
             "<script>",
             "SELECT ppt.*",
-            "FROM product_variant pv",
-            "JOIN product_master pm",
-            "  ON pm.id = pv.product_master_id",
-            " AND pm.logical_store_id = pv.logical_store_id",
-            " AND pm.is_deleted = 0",
+            "FROM product_master pm",
             "JOIN product_publish_task ppt",
             "  ON ppt.product_master_id = pm.id",
             " AND ppt.is_deleted = 0",
-            "WHERE pv.logical_store_id = #{logicalStoreId}",
-            "  AND pv.is_deleted = 0",
-            "  AND pv.partner_sku IN",
-            "  <foreach collection='partnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
-            "    #{partnerSku}",
-            "  </foreach>",
+            "WHERE pm.logical_store_id = #{logicalStoreId}",
+            "  AND pm.is_deleted = 0",
+            "  AND (",
+            "    pm.partner_sku IN",
+            "    <foreach collection='partnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
+            "      #{partnerSku}",
+            "    </foreach>",
+            "    OR ppt.partner_sku IN",
+            "    <foreach collection='partnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
+            "      #{partnerSku}",
+            "    </foreach>",
+            "  )",
             "  AND ppt.id = (",
             "    SELECT latest.id",
             "    FROM product_publish_task latest",
@@ -419,7 +421,7 @@ public interface ProductManagementMapper {
             " AND ls.is_deleted = 0",
             "LEFT JOIN product_master active_pm",
             "  ON active_pm.logical_store_id = source_pm.logical_store_id",
-            " AND active_pm.partner_sku = ppt.partner_sku",
+            " AND active_pm.partner_sku = COALESCE(NULLIF(ppt.partner_sku, ''), source_pm.partner_sku)",
             " AND active_pm.is_deleted = 0",
             "WHERE ppt.owner_user_id = #{ownerUserId}",
             "  AND ppt.is_deleted = 0",
@@ -463,7 +465,7 @@ public interface ProductManagementMapper {
             " AND ls.is_deleted = 0",
             "LEFT JOIN product_master active_pm",
             "  ON active_pm.logical_store_id = source_pm.logical_store_id",
-            " AND active_pm.partner_sku = ppt.partner_sku",
+            " AND active_pm.partner_sku = COALESCE(NULLIF(ppt.partner_sku, ''), source_pm.partner_sku)",
             " AND active_pm.is_deleted = 0",
             "WHERE ppt.owner_user_id = #{ownerUserId}",
             "  AND ppt.is_deleted = 0",
@@ -1139,9 +1141,10 @@ public interface ProductManagementMapper {
             "  anchor.site AS siteCode,",
             "  pm.sku_parent AS skuParent,",
             "  pm.product_source_type AS productSourceType,",
-            "  pv.partner_sku AS partnerSku,",
+            "  pm.partner_sku AS partnerSku,",
             "  COALESCE(",
             "    MAX(CASE WHEN pso.site_id = anchor.id THEN pso.psku_code END),",
+            "    MAX(CASE WHEN pso.site_code = anchor.site THEN pso.psku_code END),",
             "    MAX(pso.psku_code)",
             "  ) AS pskuCode",
             "FROM logical_store ls",
@@ -1149,20 +1152,17 @@ public interface ProductManagementMapper {
             "  ON anchor.logical_store_id = ls.id",
             " AND anchor.store_code = #{storeCode}",
             " AND anchor.is_deleted = 0",
-            "JOIN product_variant pv",
-            "  ON pv.logical_store_id = ls.id",
-            " AND pv.partner_sku = #{partnerSku}",
-            " AND pv.is_deleted = 0",
             "JOIN product_master pm",
-            "  ON pm.id = pv.product_master_id",
-            " AND pm.logical_store_id = ls.id",
+            "  ON pm.logical_store_id = ls.id",
+            " AND pm.partner_sku = #{partnerSku}",
             " AND pm.is_deleted = 0",
             "LEFT JOIN product_site_offer pso",
-            "  ON pso.variant_id = pv.id",
+            "  ON pso.logical_store_id = pm.logical_store_id",
+            " AND pso.partner_sku = pm.partner_sku",
             " AND pso.is_deleted = 0",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND ls.is_deleted = 0",
-            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent, pm.product_source_type, pv.partner_sku",
+            "GROUP BY pm.id, ls.id, anchor.store_code, anchor.site, pm.sku_parent, pm.product_source_type, pm.partner_sku",
             "LIMIT 1"
     })
     ProductMasterIdentityRecord selectProductMasterIdentityByStorePartnerSku(
@@ -1318,12 +1318,10 @@ public interface ProductManagementMapper {
 
     @Update({
             "UPDATE product_site_offer pso",
-            "JOIN product_variant pv",
-            "  ON pv.id = pso.variant_id",
             "SET pso.is_deleted = 1,",
             "    pso.updated_by = #{updatedBy},",
             "    pso.gmt_updated = NOW()",
-            "WHERE pv.product_master_id = #{productMasterId}",
+            "WHERE pso.product_master_id = #{productMasterId}",
             "  AND pso.is_deleted = 0"
     })
     int markProductSiteOffersDeletedByProductMasterId(
@@ -1333,11 +1331,8 @@ public interface ProductManagementMapper {
 
     @Update({
             "UPDATE product_site_offer pso",
-            "JOIN product_variant pv",
-            "  ON pv.id = pso.variant_id",
-            " AND pv.is_deleted = 0",
             "JOIN logical_store ls",
-            "  ON ls.id = COALESCE(pso.logical_store_id, pv.logical_store_id)",
+            "  ON ls.id = pso.logical_store_id",
             " AND ls.owner_user_id = #{ownerUserId}",
             " AND ls.is_deleted = 0",
             "JOIN logical_store_site lss",
@@ -1351,7 +1346,7 @@ public interface ProductManagementMapper {
             "    pso.updated_by = #{operatorUserId},",
             "    pso.gmt_updated = NOW()",
             "WHERE pso.is_deleted = 0",
-            "  AND (pso.partner_sku = #{partnerSku} OR pv.partner_sku = #{partnerSku})"
+            "  AND pso.partner_sku = #{partnerSku}"
     })
     int updateProductSiteOfferOperationStage(
             @Param("ownerUserId") Long ownerUserId,
@@ -1363,12 +1358,10 @@ public interface ProductManagementMapper {
 
     @Update({
             "UPDATE product_barcode pb",
-            "JOIN product_variant pv",
-            "  ON pv.id = pb.variant_id",
             "SET pb.is_deleted = 1,",
             "    pb.updated_by = #{updatedBy},",
             "    pb.gmt_updated = NOW()",
-            "WHERE pv.product_master_id = #{productMasterId}",
+            "WHERE pb.product_master_id = #{productMasterId}",
             "  AND pb.is_deleted = 0"
     })
     int markProductBarcodesDeletedByProductMasterId(

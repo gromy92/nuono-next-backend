@@ -213,6 +213,32 @@ class ProductReadModelServiceListDatasetTest {
     }
 
     @Test
+    void listDatasetDoesNotMergeRowsByCurrentZCodeWhenPartnerSkuIsMissing() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+
+        ProductListSummaryView first = productSummary("STR245027-NAE", "ZSAME", null, "NOON-CODE-001");
+        first.setTitle("Missing PSKU first row");
+        ProductListSummaryView second = productSummary("STR245027-NAE", "ZSAME", "", "NOON-CODE-002");
+        second.setTitle("Missing PSKU second row");
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(first, second));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListDatasetView view = service.loadListDataset(command);
+
+        assertEquals(2, view.getItems().size());
+        assertEquals("Missing PSKU first row", view.getItems().get(0).getTitle());
+        assertEquals("Missing PSKU second row", view.getItems().get(1).getTitle());
+    }
+
+    @Test
     void listDatasetDoesNotHideActiveProjectionRowsByDeletedHistoricalSkuParent() {
         StoreSyncStoreRecord store = ownerStore();
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);

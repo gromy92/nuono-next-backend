@@ -1,5 +1,6 @@
 package com.nuono.next.officialwarehouse;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.permission.access.BusinessCapability;
@@ -12,12 +13,12 @@ class OfficialWarehouseSchemaTest {
 
     @Test
     void officialWarehouseSchemaIsIncludedInLocalDbBootstrapList() throws Exception {
-        String java = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
-
-        assertThat(java).contains("classpath:db/init/134_official_warehouse_asn.sql");
-        assertThat(java).contains("classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql");
-        assertThat(java).contains("classpath:db/init/136_official_warehouse_appointment.sql");
-        assertThat(java).contains("classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql");
+        assertInitScriptsInclude(
+                "classpath:db/init/134_official_warehouse_asn.sql",
+                "classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql",
+                "classpath:db/init/136_official_warehouse_appointment.sql",
+                "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql"
+        );
     }
 
     @Test
