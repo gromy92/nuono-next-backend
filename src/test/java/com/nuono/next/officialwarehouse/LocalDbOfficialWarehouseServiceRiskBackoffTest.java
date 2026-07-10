@@ -25,8 +25,10 @@ import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class LocalDbOfficialWarehouseServiceRiskBackoffTest {
 
@@ -52,6 +54,7 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
 
         AppointmentRecord appointment = appointment();
         when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
+        when(mapper.markAppointmentRunning(611049L, 901L)).thenReturn(1);
         when(bindingResolver.resolve(any())).thenReturn(binding());
         when(noonSessionGateway.loginWithEmailAuthCode(
                 eq(307L),
@@ -82,6 +85,62 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 contains("Too many requests"),
                 eq(901L)
         );
+    }
+
+    @Test
+    void manualRunSkipsNoonCallWhenAppointmentWasAlreadyClaimed() {
+        OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
+        NoonSessionGateway noonSessionGateway = mock(NoonSessionGateway.class);
+        NoonSalesReportBindingResolver bindingResolver = mock(NoonSalesReportBindingResolver.class);
+        NoonHttpCallLogService noonHttpCallLogService = mock(NoonHttpCallLogService.class);
+        OfficialWarehouseNoonInboundClient noonInboundClient = mock(OfficialWarehouseNoonInboundClient.class);
+        LocalDbOfficialWarehouseService service = new LocalDbOfficialWarehouseService(
+                mapper,
+                noonSessionGateway,
+                bindingResolver,
+                noonHttpCallLogService,
+                noonInboundClient,
+                new ObjectMapper(),
+                NoonRiskBackoffGuard.disabled(),
+                new NoonPullFailurePolicy()
+        );
+        AppointmentRecord appointment = appointment();
+        when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
+        when(mapper.markAppointmentRunning(611049L, 901L)).thenReturn(0);
+
+        service.runAppointmentOnce(access(), "611049");
+
+        verify(bindingResolver, never()).resolve(any());
+        verify(noonSessionGateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void schedulerSkipsNoonCallWhenDueAppointmentClaimIsLost() {
+        OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
+        NoonSessionGateway noonSessionGateway = mock(NoonSessionGateway.class);
+        NoonSalesReportBindingResolver bindingResolver = mock(NoonSalesReportBindingResolver.class);
+        NoonHttpCallLogService noonHttpCallLogService = mock(NoonHttpCallLogService.class);
+        OfficialWarehouseNoonInboundClient noonInboundClient = mock(OfficialWarehouseNoonInboundClient.class);
+        LocalDbOfficialWarehouseService service = new LocalDbOfficialWarehouseService(
+                mapper,
+                noonSessionGateway,
+                bindingResolver,
+                noonHttpCallLogService,
+                noonInboundClient,
+                new ObjectMapper(),
+                NoonRiskBackoffGuard.disabled(),
+                new NoonPullFailurePolicy()
+        );
+        AppointmentRecord appointment = appointment();
+        when(mapper.listDueAppointments(1)).thenReturn(List.of(appointment));
+        when(mapper.claimDueAppointmentForRun(611049L, 307L)).thenReturn(0);
+        ReflectionTestUtils.setField(service, "appointmentSchedulerEnabled", true);
+
+        service.runAppointmentScheduler();
+
+        verify(mapper).claimDueAppointmentForRun(611049L, 307L);
+        verify(bindingResolver, never()).resolve(any());
+        verify(noonSessionGateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
     }
 
     @Test

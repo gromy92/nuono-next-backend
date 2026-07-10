@@ -37,6 +37,40 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     }
 
     @Test
+    void schedulerDueClaimIsAtomicAndOnlyClaimsStillDuePendingAppointments() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "claimDueAppointmentForRun",
+                Long.class,
+                Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("UPDATE official_warehouse_appointment");
+        assertThat(sql).contains("SET status = 'RUNNING'");
+        assertThat(sql).contains("attempt_count = attempt_count + 1");
+        assertThat(sql).contains("WHERE id = #{appointmentId}");
+        assertThat(sql).contains("status = 'PENDING'");
+        assertThat(sql).contains("(next_attempt_at IS NULL OR next_attempt_at <= NOW())");
+        assertThat(sql).doesNotContain("status IN ('PENDING', 'FAILED', 'RUNNING')");
+    }
+
+    @Test
+    void manualRunCannotReclaimAlreadyRunningAppointment() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "markAppointmentRunning",
+                Long.class,
+                Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("status IN ('PENDING', 'FAILED')");
+        assertThat(sql).doesNotContain("status IN ('PENDING', 'FAILED', 'RUNNING')");
+        assertThat(sql).doesNotContain("status IN ('PENDING', 'RUNNING')");
+    }
+
+    @Test
     void staleRunningRecoveryOnlyRequeuesNoCapacityAppointments() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
                 "markStaleNoCapacityAppointmentsPending",
