@@ -988,9 +988,23 @@ public interface OfficialWarehouseMapper {
             "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",
             "  AND is_deleted = b'0'",
-            "  AND status IN ('PENDING', 'FAILED', 'RUNNING')"
+            "  AND status IN ('PENDING', 'FAILED')"
     })
     int markAppointmentRunning(
+            @Param("appointmentId") Long appointmentId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'RUNNING', attempt_count = attempt_count + 1, last_attempt_at = NOW(), next_attempt_at = NULL,",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND is_deleted = b'0'",
+            "  AND status = 'PENDING'",
+            "  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())"
+    })
+    int claimDueAppointmentForRun(
             @Param("appointmentId") Long appointmentId,
             @Param("operatorUserId") Long operatorUserId
     );

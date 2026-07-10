@@ -1309,16 +1309,34 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         );
         List<AppointmentRecord> dueAppointments = mapper.listDueAppointments(Math.max(1, appointmentSchedulerMaxItems));
         for (AppointmentRecord appointment : dueAppointments) {
+            Long operatorId = schedulerOperatorUserId(appointment);
+            if (mapper.claimDueAppointmentForRun(appointment.id, operatorId) == 0) {
+                continue;
+            }
             try {
-                runAppointmentRecord(appointment, schedulerOperatorUserId(appointment), true);
+                runClaimedAppointmentRecord(appointment, operatorId, true);
             } catch (Exception ignored) {
-                // Individual appointment failures are persisted in runAppointmentRecord.
+                // Individual appointment failures are persisted in runClaimedAppointmentRecord.
             }
         }
     }
 
     private AppointmentView runAppointmentRecord(AppointmentRecord appointment, Long operatorUserId, boolean allowRetry) {
         Long operatorId = operatorUserId == null ? appointment.ownerUserId : operatorUserId;
+        if (allowRetry && shouldRetryAppointment(appointment, APPOINTMENT_RISK_BACKOFF_STAGE)) {
+            NoonRiskBackoffHold activeHold = currentAppointmentRiskBackoff(appointment);
+            if (activeHold != null) {
+                markAppointmentPendingRiskBackoff(appointment, activeHold, operatorId);
+                return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+            }
+        }
+        if (mapper.markAppointmentRunning(appointment.id, operatorId) == 0) {
+            return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+        }
+        return runClaimedAppointmentRecord(appointment, operatorId, allowRetry);
+    }
+
+    private AppointmentView runClaimedAppointmentRecord(AppointmentRecord appointment, Long operatorId, boolean allowRetry) {
         AppointmentTask task = null;
         if (allowRetry && shouldRetryAppointment(appointment, APPOINTMENT_RISK_BACKOFF_STAGE)) {
             NoonRiskBackoffHold activeHold = currentAppointmentRiskBackoff(appointment);
@@ -1327,7 +1345,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
             }
         }
-        mapper.markAppointmentRunning(appointment.id, operatorId);
         try {
             task = toAppointmentTask(appointment);
             NoonSalesReportBinding binding = resolveBinding(appointment);
@@ -1437,7 +1454,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             );
             return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
         }
-        mapper.markAppointmentRunning(appointment.id, operatorId);
+        if (mapper.markAppointmentRunning(appointment.id, operatorId) == 0) {
+            return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+        }
         try {
             task = toAppointmentTask(appointment);
             NoonSalesReportBinding binding = resolveBinding(appointment);
