@@ -226,8 +226,8 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         record.warehouseFrom = "CHIC";
         record.warehouseToPartnerCode = "RUH01S";
         record.warehouseToCode = "W00105371A";
-        record.apStartDateValue = LocalDate.parse("2026-07-09");
-        record.apEndDateValue = LocalDate.parse("2026-07-10");
+        record.apStartDateValue = LocalDate.now().plusDays(1);
+        record.apEndDateValue = LocalDate.now().plusDays(2);
         record.status = "PENDING";
         record.attemptCount = 7;
         return record;
