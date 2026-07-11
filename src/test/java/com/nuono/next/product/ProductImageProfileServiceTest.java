@@ -478,11 +478,17 @@ class ProductImageProfileServiceTest {
         ProductImageSectionRecord sizeSection = sectionRecord(ProductImageSectionType.SIZE, "4.3 x 2.8 in");
         ProductImageSectionRecord featureSection = sectionRecord(ProductImageSectionType.CORE_FEATURE, "Retractable reel");
         OperationsSkinRecord skin = skinRecord();
+        OperationsSkinComponentRecord detailFrame = skinComponent(
+                "DETAIL_IMAGE",
+                "DETAIL_FRAME",
+                "/operations-skins/papersay/detail-frame.png"
+        );
         List<OperationsSkinComponentRecord> components = List.of(
                 skinComponent("FRAME", "/operations-skins/papersay/frame.png"),
                 skinComponent("BRAND_LOCKUP", "/operations-skins/papersay/brand.png"),
                 skinComponent("SPEC_BG", "/operations-skins/papersay/spec.png"),
-                skinComponent("MAIN_TITLE_BG", "/operations-skins/papersay/title.png")
+                skinComponent("MAIN_TITLE_BG", "/operations-skins/papersay/title.png"),
+                detailFrame
         );
 
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
@@ -512,6 +518,9 @@ class ProductImageProfileServiceTest {
         assertTrue(suite.getDraftPromptText().contains("4.3 x 2.8 in"));
         assertTrue(suite.getDraftPackageJson().contains("\"skinId\":3001"));
         assertTrue(suite.getDraftPackageJson().contains("\"componentKey\":\"FRAME\""));
+        assertTrue(suite.getDraftPackageJson().contains("\"templateRole\":\"DETAIL_IMAGE\""));
+        assertTrue(suite.getDraftPackageJson().contains("\"componentKey\":\"DETAIL_FRAME\""));
+        assertTrue(suite.getDraftPromptText().contains("DETAIL_IMAGE/DETAIL_FRAME"));
         assertTrue(suite.getDraftPackageJson().contains("https://example.test/product-main.jpg"));
         assertEquals(1, view.getSuites().size());
     }
@@ -675,9 +684,13 @@ class ProductImageProfileServiceTest {
     }
 
     private OperationsSkinComponentRecord skinComponent(String componentKey, String imageUrl) {
+        return skinComponent("HERO_MAIN", componentKey, imageUrl);
+    }
+
+    private OperationsSkinComponentRecord skinComponent(String templateRole, String componentKey, String imageUrl) {
         OperationsSkinComponentRecord record = new OperationsSkinComponentRecord();
         record.setSkinId(3001L);
-        record.setTemplateRole("HERO_MAIN");
+        record.setTemplateRole(templateRole);
         record.setComponentKey(componentKey);
         record.setImageUrl(imageUrl);
         record.setX(0);

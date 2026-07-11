@@ -1282,23 +1282,28 @@ public class ProductImageProfileService {
             if (skin == null || skin.getId() == null) {
                 continue;
             }
-            List<OperationsSkinComponentRecord> components = completedHeroComponents(
+            List<OperationsSkinComponentRecord> components = completedSkinComponents(
                     operationsSkinMapper.selectComponents(skin.getId(), ownerUserId, storeCode)
             );
-            if (hasRequiredHeroComponents(components)) {
+            if (hasRequiredHeroComponents(completedHeroComponents(components))) {
                 return new ActiveHeroSkin(skin, components);
             }
         }
         throw new IllegalArgumentException("当前店铺没有完整的主图皮肤。");
     }
 
-    private List<OperationsSkinComponentRecord> completedHeroComponents(List<OperationsSkinComponentRecord> rawComponents) {
+    private List<OperationsSkinComponentRecord> completedSkinComponents(List<OperationsSkinComponentRecord> rawComponents) {
         return safeList(rawComponents).stream()
                 .filter(Objects::nonNull)
-                .filter(component -> HERO_MAIN_TEMPLATE_ROLE.equalsIgnoreCase(trimToNull(component.getTemplateRole())))
+                .filter(component -> trimToNull(component.getTemplateRole()) != null)
                 .filter(component -> trimToNull(component.getComponentKey()) != null)
                 .filter(component -> trimToNull(component.getImageUrl()) != null)
                 .sorted((left, right) -> {
+                    int leftRoleOrder = templateRoleOrder(left.getTemplateRole());
+                    int rightRoleOrder = templateRoleOrder(right.getTemplateRole());
+                    if (leftRoleOrder != rightRoleOrder) {
+                        return Integer.compare(leftRoleOrder, rightRoleOrder);
+                    }
                     int leftOrder = componentOrder(left.getComponentKey());
                     int rightOrder = componentOrder(right.getComponentKey());
                     if (leftOrder != rightOrder) {
@@ -1314,6 +1319,12 @@ public class ProductImageProfileService {
                 .collect(Collectors.toList());
     }
 
+    private List<OperationsSkinComponentRecord> completedHeroComponents(List<OperationsSkinComponentRecord> components) {
+        return safeList(components).stream()
+                .filter(component -> HERO_MAIN_TEMPLATE_ROLE.equalsIgnoreCase(trimToNull(component.getTemplateRole())))
+                .collect(Collectors.toList());
+    }
+
     private boolean hasRequiredHeroComponents(List<OperationsSkinComponentRecord> components) {
         Set<String> keys = safeList(components).stream()
                 .map(component -> trimToNull(component.getComponentKey()))
@@ -1321,6 +1332,27 @@ public class ProductImageProfileService {
                 .map(value -> value.toUpperCase(Locale.ROOT))
                 .collect(Collectors.toSet());
         return keys.containsAll(REQUIRED_HERO_COMPONENT_KEYS);
+    }
+
+    private int templateRoleOrder(String templateRole) {
+        String normalized = trimToNull(templateRole);
+        if (normalized == null) {
+            return Integer.MAX_VALUE;
+        }
+        switch (normalized.toUpperCase(Locale.ROOT)) {
+            case HERO_MAIN_TEMPLATE_ROLE:
+                return 0;
+            case "SIZE_IMAGE":
+                return 10;
+            case "DETAIL_IMAGE":
+                return 20;
+            case "SCENE_IMAGE":
+                return 30;
+            case "PACKAGE_IMAGE":
+                return 40;
+            default:
+                return Integer.MAX_VALUE;
+        }
     }
 
     private int componentOrder(String componentKey) {
