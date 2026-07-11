@@ -516,10 +516,16 @@ class ProductImageProfileServiceTest {
         assertEquals(ProductImageSuiteStatus.DRAFT, suite.getSuiteStatus());
         assertTrue(suite.getDraftPromptText().contains("图片要求"));
         assertTrue(suite.getDraftPromptText().contains("4.3 x 2.8 in"));
+        assertTrue(suite.getDraftPromptText().contains("每张细节图单独成图"));
+        assertTrue(suite.getDraftPromptText().contains("局部大图"));
+        assertTrue(suite.getDraftPromptText().contains("场景图使用 SCENE_IMAGE"));
         assertTrue(suite.getDraftPackageJson().contains("\"skinId\":3001"));
         assertTrue(suite.getDraftPackageJson().contains("\"componentKey\":\"FRAME\""));
         assertTrue(suite.getDraftPackageJson().contains("\"templateRole\":\"DETAIL_IMAGE\""));
         assertTrue(suite.getDraftPackageJson().contains("\"componentKey\":\"DETAIL_FRAME\""));
+        assertTrue(suite.getDraftPackageJson().contains("\"targetCount\":\"2-4\""));
+        assertTrue(suite.getDraftPackageJson().contains("每张细节图单独成图"));
+        assertTrue(suite.getDraftPackageJson().contains("局部大图"));
         assertTrue(suite.getDraftPromptText().contains("DETAIL_IMAGE/DETAIL_FRAME"));
         assertTrue(suite.getDraftPackageJson().contains("https://example.test/product-main.jpg"));
         assertEquals(1, view.getSuites().size());

@@ -1412,13 +1412,13 @@ public class ProductImageProfileService {
         for (String value : combinedSectionTexts(sections, 4)) {
             lines.add("- " + value);
         }
-        lines.add("要求：使用 DETAIL_IMAGE 细节图皮肤，围绕材质、细节特写、核心功能和核心卖点展开。");
+        lines.add("要求：使用 DETAIL_IMAGE 细节图皮肤；每张细节图单独成图，必须是一处商品局部大图/特写，不做场景图、不做多细节拼版。");
         lines.add("");
         lines.add("第4部分 场景图 1-2张");
         for (String value : sectionTexts(sections, ProductImageSectionType.USAGE_SCENE, 2)) {
             lines.add("- " + value);
         }
-        lines.add("要求：使用 SCENE_IMAGE 场景图皮肤，场景必须符合商品真实用途。");
+        lines.add("要求：场景图使用 SCENE_IMAGE 场景图皮肤，场景必须符合商品真实用途。");
         lines.add("");
         lines.add("第5部分 包装图 1张");
         lines.add("文案：" + firstOrPlaceholder(sectionTexts(sections, ProductImageSectionType.PACKAGE_LIST, 1), "包装/套装清单待补充"));
@@ -1531,7 +1531,7 @@ public class ProductImageProfileService {
                 "skinTemplateRole", "DETAIL_IMAGE",
                 "copies", combinedSectionTexts(sections, 4),
                 "targetCount", "2-4",
-                "requirement", "细节图使用 DETAIL_IMAGE 细节图皮肤。"
+                "requirement", "细节图使用 DETAIL_IMAGE 细节图皮肤；每张细节图单独成图，必须是一处商品局部大图/特写，不做场景图、不做多细节拼版。"
         ));
         payload.put("usageScenes", Map.of(
                 "skinTemplateRole", "SCENE_IMAGE",
