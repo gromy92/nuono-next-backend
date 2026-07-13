@@ -101,6 +101,8 @@ class ProductPublicDetailSyncServiceTest {
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(failedResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class)))
+                .thenReturn(existingLatestPartialSnapshot());
 
         service.submitManual(context(), "CANMAN", "SA");
 
@@ -111,32 +113,48 @@ class ProductPublicDetailSyncServiceTest {
     }
 
     @Test
-    void failedResultDoesNotWriteSnapshotWhenNoExistingDetail() {
+    void failedResultWritesNonLatestAuditSnapshotWhenNoExistingDetail() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
         when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(failedResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300002L);
 
         service.submitManual(context(), "CANMAN", "SA");
 
-        verify(mapper, never()).insertSnapshot(any(ProductPublicDetailSnapshot.class));
+        ArgumentCaptor<ProductPublicDetailSnapshot> snapshotCaptor = ArgumentCaptor.forClass(ProductPublicDetailSnapshot.class);
+        verify(mapper).insertSnapshot(snapshotCaptor.capture());
+        ProductPublicDetailSnapshot snapshot = snapshotCaptor.getValue();
+        assertEquals(300002L, snapshot.getId());
+        assertEquals(ProductPublicDetailSyncStatus.FAILED, snapshot.getSyncStatus());
+        assertEquals(Boolean.FALSE, snapshot.getLatest());
+        assertEquals("RATE_LIMITED", snapshot.getFailureCode());
         verify(mapper, never()).updateSnapshotPreservingTrustedData(any(ProductPublicDetailSnapshot.class));
         verify(mapper, never()).clearLatestForProduct(any(), any(), any(), any(), any(), any());
         verify(mapper, never()).markLatest(any(), any());
     }
 
     @Test
-    void notFoundResultDoesNotWriteSnapshotWhenNoExistingDetail() {
+    void notFoundResultWritesNonLatestAuditSnapshotWhenNoExistingDetail() {
         when(mapper.selectActiveScope(501L, "CANMAN", "SA")).thenReturn(scope());
         when(mapper.listCandidates(eq(501L), eq("CANMAN"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate()));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(notFoundResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300003L);
 
         service.submitManual(context(), "CANMAN", "SA");
 
-        verify(mapper, never()).insertSnapshot(any(ProductPublicDetailSnapshot.class));
+        ArgumentCaptor<ProductPublicDetailSnapshot> snapshotCaptor = ArgumentCaptor.forClass(ProductPublicDetailSnapshot.class);
+        verify(mapper).insertSnapshot(snapshotCaptor.capture());
+        ProductPublicDetailSnapshot snapshot = snapshotCaptor.getValue();
+        assertEquals(300003L, snapshot.getId());
+        assertEquals(ProductPublicDetailSyncStatus.NOT_FOUND, snapshot.getSyncStatus());
+        assertEquals(Boolean.FALSE, snapshot.getLatest());
+        assertEquals("PUBLIC_DETAIL_NOT_FOUND", snapshot.getFailureCode());
         verify(mapper, never()).updateSnapshotPreservingTrustedData(any(ProductPublicDetailSnapshot.class));
         verify(mapper, never()).clearLatestForProduct(any(), any(), any(), any(), any(), any());
         verify(mapper, never()).markLatest(any(), any());
@@ -409,6 +427,24 @@ class ProductPublicDetailSyncServiceTest {
         candidate.setStoreCode(storeCode);
         candidate.setSiteCode(siteCode);
         return candidate;
+    }
+
+    private static ProductPublicDetailSnapshot existingLatestPartialSnapshot() {
+        ProductPublicDetailSnapshot snapshot = new ProductPublicDetailSnapshot();
+        snapshot.setId(300001L);
+        snapshot.setOwnerUserId(501L);
+        snapshot.setLogicalStoreId(601L);
+        snapshot.setStoreCode("CANMAN");
+        snapshot.setSiteCode("SA");
+        snapshot.setProductMasterId(1001L);
+        snapshot.setProductVariantId(2001L);
+        snapshot.setProductSiteOfferId(2501L);
+        snapshot.setNoonProductCode("ZCANMAN12");
+        snapshot.setSourcePlatform("NOON");
+        snapshot.setSyncStatus(ProductPublicDetailSyncStatus.PARTIAL);
+        snapshot.setFactDate(LocalDate.parse("2026-06-15"));
+        snapshot.setLatest(true);
+        return snapshot;
     }
 
     private static NoonPublicProductDetailResult partialResult() {
