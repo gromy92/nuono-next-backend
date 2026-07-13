@@ -100,6 +100,34 @@ public class ProductImageProfileService {
         return view;
     }
 
+    @Transactional
+    public ProductImageProfileSummaryListView listSummaries(ProductImageProfileListCommand command) {
+        Long ownerUserId = requireOwnerUserId(command == null ? null : command.getOwnerUserId());
+        String storeCode = requireStoreCode(command == null ? null : command.getStoreCode());
+        String keyword = trimToNull(command == null ? null : command.getKeyword());
+        Long operatorUserId = command == null ? null : command.getOperatorUserId();
+
+        ensureStoreProfiles(ownerUserId, storeCode, operatorUserId);
+
+        ProductImageProfileSummaryListView view = new ProductImageProfileSummaryListView();
+        view.setOwnerUserId(ownerUserId);
+        view.setStoreCode(storeCode);
+
+        Map<String, ProductImageProfileSummaryView> byIdentity = new LinkedHashMap<>();
+        for (ProductImageProfileSummaryRecord summary : safeList(mapper.selectProfileSummariesForStore(ownerUserId, storeCode, keyword))) {
+            ProductImageProfileSummaryView item = toSummaryView(summary);
+            byIdentity.put(identityKey(summary.getPskuCode(), summary.getProductIdentityKey()), item);
+        }
+
+        for (ProductImageProductCandidateRecord candidate : safeList(mapper.selectProductCandidates(ownerUserId, storeCode, keyword))) {
+            String candidateKey = identityKey(candidate.getPskuCode(), candidate.getProductIdentityKey());
+            byIdentity.putIfAbsent(candidateKey, toTransientSummaryView(ownerUserId, storeCode, candidate));
+        }
+
+        view.setItems(new ArrayList<>(byIdentity.values()));
+        return view;
+    }
+
     private void ensureStoreProfiles(Long ownerUserId, String storeCode, Long operatorUserId) {
         LocalDateTime now = LocalDateTime.now();
         for (ProductImageProductCandidateRecord candidate : safeList(mapper.selectAllProductCandidatesForStore(ownerUserId, storeCode))) {
@@ -1034,6 +1062,28 @@ public class ProductImageProfileService {
         return view;
     }
 
+    private ProductImageProfileSummaryView toSummaryView(ProductImageProfileSummaryRecord record) {
+        ProductImageProfileSummaryView view = new ProductImageProfileSummaryView();
+        view.setId(record.getId());
+        view.setOwnerUserId(record.getOwnerUserId());
+        view.setStoreCode(record.getStoreCode());
+        view.setPskuCode(record.getPskuCode());
+        view.setProductIdentityKey(record.getProductIdentityKey());
+        view.setProductMasterId(record.getProductMasterId());
+        view.setProductVariantId(record.getProductVariantId());
+        view.setProductTitle(record.getProductTitle());
+        view.setBrand(record.getBrand());
+        view.setTitleAr(record.getTitleAr());
+        view.setTitleEn(record.getTitleEn());
+        view.setSpecSummary(record.getSpecSummary());
+        view.setCoverImageUrl(record.getCoverImageUrl());
+        view.setAssetCount(record.getAssetCount() == null ? 0 : record.getAssetCount());
+        view.setSuiteCount(record.getSuiteCount() == null ? 0 : record.getSuiteCount());
+        view.setHasAdoptedSuite(Boolean.TRUE.equals(record.getHasAdoptedSuite()));
+        view.setUpdatedAt(format(record.getUpdatedAt()));
+        return view;
+    }
+
     private ProductImageProfileDetailView toTransientDetailView(
             Long ownerUserId,
             String storeCode,
@@ -1049,6 +1099,27 @@ public class ProductImageProfileService {
         view.setProductTitle(candidate.getProductTitle());
         view.setBrand(candidate.getBrand());
         view.setAssets(baseAssets(candidate.getProductMasterId(), candidate.getCoverImageUrl()));
+        return view;
+    }
+
+    private ProductImageProfileSummaryView toTransientSummaryView(
+            Long ownerUserId,
+            String storeCode,
+            ProductImageProductCandidateRecord candidate
+    ) {
+        ProductImageProfileSummaryView view = new ProductImageProfileSummaryView();
+        view.setOwnerUserId(ownerUserId);
+        view.setStoreCode(storeCode);
+        view.setPskuCode(candidate.getPskuCode());
+        view.setProductIdentityKey(candidate.getProductIdentityKey());
+        view.setProductMasterId(candidate.getProductMasterId());
+        view.setProductVariantId(candidate.getProductVariantId());
+        view.setProductTitle(candidate.getProductTitle());
+        view.setBrand(candidate.getBrand());
+        view.setCoverImageUrl(candidate.getCoverImageUrl());
+        view.setAssetCount(StringUtils.hasText(candidate.getCoverImageUrl()) ? 1 : 0);
+        view.setSuiteCount(0);
+        view.setHasAdoptedSuite(false);
         return view;
     }
 

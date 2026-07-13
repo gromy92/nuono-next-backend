@@ -88,6 +88,32 @@ public class ProductImageProfileController {
         }
     }
 
+    @GetMapping("/profile-summaries")
+    public ProductImageProfileSummaryListView listSummaries(
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam(value = "storeCode", required = false) String storeCode,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            HttpServletRequest request
+    ) {
+        ProductImageProfileService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            ProductImageProfileListCommand command = new ProductImageProfileListCommand();
+            command.setOwnerUserId(resolvedOwnerUserId);
+            command.setStoreCode(storeCode);
+            command.setKeyword(keyword);
+            command.setOperatorUserId(session.getUserId());
+            return service.listSummaries(command);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (ProductImageProfileNotFoundException exception) {
+            throw notFound(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @GetMapping("/profiles/{profileId}")
     public ProductImageProfileDetailView detail(
             @PathVariable Long profileId,
