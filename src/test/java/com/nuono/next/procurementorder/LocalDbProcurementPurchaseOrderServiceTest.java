@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.lenient;
@@ -35,6 +37,7 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseO
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductArchiveRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderChannelQuoteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductOfferRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderDuplicateItemSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
@@ -843,11 +846,16 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         PurchaseOrderRecord before = order("SGGR-0607", "人工补货");
         PurchaseOrderRecord after = order("SGGR-0607", "人工补货");
         after.status = "SUBMITTED";
+        PurchaseOrderItemRecord item = item();
+        item.sourcingSpecText = "拉链款";
+        item.totalQuantity = 30;
+        ProductArchiveRecord product = sealReadyProduct(item.productVariantId, item.partnerSku);
         when(mapper.selectOrderById(200001L)).thenReturn(before, after);
         when(mapper.submitOrder(200001L, 307L)).thenReturn(1);
         when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of());
-        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of());
-        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow("SA", "AIR", 30)));
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(item));
+        when(mapper.selectProductArchiveByVariant(301L, item.productVariantId)).thenReturn(product);
 
         PurchaseOrderView view = service.submitOrder(access(), "200001");
 
@@ -866,6 +874,40 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
+    void submitOrderRejectsEmptyPurchaseOrder() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.submitOrder(access(), "200001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("当前采购单还没有商品，不能封存");
+        verify(mapper, never()).submitOrder(anyLong(), anyLong());
+    }
+
+    @Test
+    void submitOrderRejectsMissingSealRequirements() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderItemRecord item = item();
+        item.totalQuantity = 30;
+        ProductArchiveRecord product = product();
+        product.productVariantId = item.productVariantId;
+        product.partnerSku = item.partnerSku;
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(item));
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow("SA", "UNSPECIFIED", 30)));
+        when(mapper.selectProductArchiveByVariant(301L, item.productVariantId)).thenReturn(product);
+
+        assertThatThrownBy(() -> service.submitOrder(access(), "200001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("缺少封存必填信息")
+                .hasMessageContaining("采购规格缺失")
+                .hasMessageContaining("运输方式未指定")
+                .hasMessageContaining("商品尺寸缺失");
+        verify(mapper, never()).submitOrder(anyLong(), anyLong());
+    }
+
+    @Test
     void updateOrderRejectsSubmittedPurchaseOrder() {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         order.status = "SUBMITTED";
@@ -875,7 +917,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
 
         assertThatThrownBy(() -> service.updateOrder(access(), "200001", command))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("采购单已提交");
+                .hasMessageContaining("采购单已封存");
     }
 
     @Test
@@ -888,7 +930,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
 
         assertThatThrownBy(() -> service.createShippingOrder(access(), command))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("提交后的采购单才可加入发货单");
+                .hasMessageContaining("已封存的采购单才可合并为仓库单");
     }
 
     @Test
@@ -952,29 +994,21 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
-    void createShippingOrderAllowsAlreadyJoinedPurchaseOrderWithWarning() {
+    void createShippingOrderRejectsAlreadyJoinedPurchaseOrder() {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         order.status = "SUBMITTED";
         PurchaseOrderLogisticsQuoteLineRecord sourceLine = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
         when(mapper.selectOrderById(200001L)).thenReturn(order, order);
         when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(sourceLine));
         when(mapper.countActiveShippingOrderLinesByItemSites(List.of(220002L))).thenReturn(1);
-        when(mapper.nextShippingOrderId()).thenReturn(290001L);
-        when(mapper.nextShippingOrderSegmentId()).thenReturn(292001L);
-        when(mapper.nextShippingOrderLineId()).thenReturn(291001L);
-        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder());
-        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "AIR")));
-        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
-        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(sourceLine));
 
         CreateShippingOrderCommand command = new CreateShippingOrderCommand();
         command.purchaseOrderIds = List.of("200001");
 
-        ShippingOrderView view = service.createShippingOrder(access(), command);
-
-        assertThat(view.id).isEqualTo("290001");
-        assertThat(view.warnings).contains("所选采购单中已有商品行加入过发货单，本次已按整单重新生成发货单。");
-        verify(mapper).insertShippingOrder(any(), eq(307L));
+        assertThatThrownBy(() -> service.createShippingOrder(access(), command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("所选采购单已在仓库单中，不能重复合并");
+        verify(mapper, never()).insertShippingOrder(any(), anyLong());
     }
 
     @Test
@@ -1314,11 +1348,13 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
-    void addItemsRejectsSameProductSameSiteAlreadyInOrder() {
+    void addItemsMergesSameProductSameSiteTransportAlreadyInOrder() {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         PurchaseOrderItemRecord existingItem = item();
         existingItem.productVariantId = 320002L;
         existingItem.partnerSku = "SGGRB116";
+        PurchaseOrderItemSiteRecord existingSite = siteRow(210001L, "SGGRB116", "AE", "SEA", 20);
+        PurchaseOrderItemSiteRecord mergedSite = siteRow(210001L, "SGGRB116", "AE", "SEA", 25);
 
         AddItemsCommand command = new AddItemsCommand();
         ItemCommand itemCommand = new ItemCommand();
@@ -1328,15 +1364,121 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         itemCommand.quantity = 5;
         command.items = List.of(itemCommand);
 
-        when(mapper.selectOrderById(200001L)).thenReturn(order);
-        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow(210001L, "SGGRB116", "AE", "AIR", 20)));
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order, order);
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(existingSite), List.of(mergedSite));
         when(mapper.listStoreSites(301L)).thenReturn(List.of(storeSite(30002L, "AE", "STR69486-NAE")));
         when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
         when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(existingItem);
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(existingItem));
+
+        PurchaseOrderView view = service.addItems(access(), "200001", command);
+
+        assertThat(view.items).hasSize(1);
+        assertThat(view.items.get(0).allocations)
+                .extracting(allocation -> allocation.site + ":" + allocation.transportMode + ":" + allocation.quantity)
+                .containsExactly("AE:SEA:25");
+        verify(mapper).increaseItemSiteQuantity(220002L, 5, 307L);
+        verify(mapper, never()).upsertItemSite(any());
+        verify(mapper).recalculateItemAggregates(210001L, 307L);
+        verify(mapper).recalculateOrderAggregates(200001L, 307L);
+    }
+
+    @Test
+    void addItemsAllowsSameProductSameSiteTransportAlreadyInAnotherCurrentPurchaseOrder() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+
+        AddItemsCommand command = new AddItemsCommand();
+        ItemCommand itemCommand = new ItemCommand();
+        itemCommand.psku = "SGGRB116";
+        itemCommand.site = "AE";
+        itemCommand.transportMode = "SEA";
+        itemCommand.quantity = 5;
+        command.items = List.of(itemCommand);
+
+        PurchaseOrderItemRecord savedItem = item();
+        savedItem.id = 210002L;
+        savedItem.productVariantId = 320002L;
+        savedItem.partnerSku = "SGGRB116";
+        PurchaseOrderItemSiteRecord savedSite = siteRow(210002L, "SGGRB116", "AE", "SEA", 5);
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order, order);
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(), List.of(savedSite));
+        when(mapper.listStoreSites(301L)).thenReturn(List.of(storeSite(30002L, "AE", "STR69486-NAE")));
+        when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
+        when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(null);
+        when(mapper.nextItemId()).thenReturn(210002L);
+        when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
+        when(mapper.nextItemSiteId()).thenReturn(220002L);
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(savedItem));
+
+        PurchaseOrderView view = service.addItems(access(), "200001", command);
+
+        assertThat(view.items).hasSize(1);
+        assertThat(view.items.get(0).allocations)
+                .extracting(allocation -> allocation.site + ":" + allocation.transportMode + ":" + allocation.quantity)
+                .containsExactly("AE:SEA:5");
+        verify(mapper, never()).selectCurrentOrderItemSiteDuplicate(anyLong(), anyLong(), anyString(), anyString(), anyString());
+        verify(mapper).upsertItemSite(any());
+        verify(mapper).recalculateItemAggregates(210002L, 307L);
+        verify(mapper).recalculateOrderAggregates(200001L, 307L);
+    }
+
+    @Test
+    void addItemsRejectsSubmittedPurchaseOrder() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        order.status = "SUBMITTED";
+        AddItemsCommand command = new AddItemsCommand();
+        ItemCommand itemCommand = new ItemCommand();
+        itemCommand.psku = "SGGRB116";
+        itemCommand.site = "AE";
+        itemCommand.transportMode = "SEA";
+        itemCommand.quantity = 5;
+        command.items = List.of(itemCommand);
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
 
         assertThatThrownBy(() -> service.addItems(access(), "200001", command))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("不能重复添加相同商品相同站点");
+                .hasMessageContaining("采购单已封存");
+        verify(mapper, never()).listProductArchiveMatches(anyLong(), anyString());
+        verify(mapper, never()).selectProductOffer(anyLong(), anyString(), anyLong(), anyString());
+        verify(mapper, never()).upsertItemSite(any());
+    }
+
+    @Test
+    void addItemsAllowsSameProductSameSiteWithDifferentTransportMode() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderItemRecord existingItem = item();
+        existingItem.productVariantId = 320002L;
+        existingItem.partnerSku = "SGGRB116";
+        PurchaseOrderItemSiteRecord airSite = siteRow(210001L, "SGGRB116", "AE", "AIR", 20);
+        PurchaseOrderItemSiteRecord seaSite = siteRow(210001L, "SGGRB116", "AE", "SEA", 5);
+        seaSite.id = 220099L;
+
+        AddItemsCommand command = new AddItemsCommand();
+        ItemCommand itemCommand = new ItemCommand();
+        itemCommand.psku = "SGGRB116";
+        itemCommand.site = "AE";
+        itemCommand.transportMode = "SEA";
+        itemCommand.quantity = 5;
+        command.items = List.of(itemCommand);
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order, order);
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(airSite), List.of(airSite, seaSite));
+        when(mapper.listStoreSites(301L)).thenReturn(List.of(storeSite(30002L, "AE", "STR69486-NAE")));
+        when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
+        when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(existingItem);
+        when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
+        when(mapper.nextItemSiteId()).thenReturn(220099L);
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(existingItem));
+
+        PurchaseOrderView view = service.addItems(access(), "200001", command);
+
+        assertThat(view.items).hasSize(1);
+        assertThat(view.items.get(0).allocations)
+                .extracting(allocation -> allocation.site + ":" + allocation.transportMode + ":" + allocation.quantity)
+                .containsExactly("AE:AIR:20", "AE:SEA:5");
+        verify(mapper).recalculateItemAggregates(210001L, 307L);
+        verify(mapper).recalculateOrderAggregates(200001L, 307L);
     }
 
     @Test
@@ -1434,6 +1576,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         verify(mapper).updateOrderSiteCodes(200001L, "[\"SA\",\"AE\"]", 307L);
         verify(mapper).recalculateItemAggregates(210001L, 307L);
         verify(mapper).recalculateOrderAggregates(200001L, 307L);
+        verify(mapper, never()).selectCurrentOrderItemSiteDuplicate(anyLong(), anyLong(), anyString(), anyString(), anyString());
         verify(mapper).insertOperationLog(
                 eq(240001L),
                 eq(200001L),
@@ -1988,6 +2131,23 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         return record;
     }
 
+    private ProductArchiveRecord sealReadyProduct(Long variantId, String psku) {
+        ProductArchiveRecord record = product();
+        record.productVariantId = variantId;
+        record.partnerSku = psku;
+        record.productLengthCm = new BigDecimal("10");
+        record.productWidthCm = new BigDecimal("8");
+        record.productHeightCm = new BigDecimal("2");
+        record.productWeightG = new BigDecimal("120");
+        record.cartonLengthCm = new BigDecimal("50");
+        record.cartonWidthCm = new BigDecimal("40");
+        record.cartonHeightCm = new BigDecimal("30");
+        record.cartonWeightKg = new BigDecimal("12");
+        record.cartonQuantity = 100;
+        record.specSourceType = "manual";
+        return record;
+    }
+
     private ProductOfferRecord offer() {
         return offer("AE", 30002L, 330002L, "SGGRB116");
     }
@@ -2025,6 +2185,24 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         record.transportMode = transportMode;
         record.quantity = quantity;
         record.status = "ACTIVE";
+        return record;
+    }
+
+    private PurchaseOrderDuplicateItemSiteRecord duplicateItemSite(
+            Long purchaseOrderId,
+            String orderNo,
+            String title,
+            String psku,
+            String siteCode,
+            String transportMode
+    ) {
+        PurchaseOrderDuplicateItemSiteRecord record = new PurchaseOrderDuplicateItemSiteRecord();
+        record.purchaseOrderId = purchaseOrderId;
+        record.orderNo = orderNo;
+        record.title = title;
+        record.partnerSku = psku;
+        record.siteCode = siteCode;
+        record.transportMode = transportMode;
         return record;
     }
 

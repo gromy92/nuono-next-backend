@@ -14,7 +14,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class OperationConfigTypedVersionContentSupport {
+public final class OperationConfigTypedVersionContentSupport {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Pattern DATE_RANGE_PATTERN = Pattern.compile(
             "(\\d{4}-\\d{2}-\\d{2})\\s*(?:~|至|到)\\s*(\\d{4}-\\d{2}-\\d{2})"
@@ -25,7 +25,7 @@ final class OperationConfigTypedVersionContentSupport {
     private OperationConfigTypedVersionContentSupport() {
     }
 
-    static Optional<OperationConfigTypedVersion> resolveEffectiveVersion(
+    public static Optional<OperationConfigTypedVersion> resolveEffectiveVersion(
             OperationConfigTypedVersionRepository repository,
             OperationConfigVersionType configType,
             Long ownerUserId,
@@ -40,7 +40,14 @@ final class OperationConfigTypedVersionContentSupport {
         OperationConfigTypedVersion global = null;
         OperationConfigTypedVersion systemDefault = null;
         String defaultVersionNo = defaultVersionNo(configType);
-        for (OperationConfigTypedVersion version : repository.listVersions()) {
+        List<OperationConfigTypedVersion> versions = repository.listVersions();
+        if (versions == null || versions.isEmpty()) {
+            return Optional.empty();
+        }
+        for (OperationConfigTypedVersion version : versions) {
+            if (version == null) {
+                continue;
+            }
             if (!configType.name().equals(version.getConfigType())) {
                 continue;
             }
@@ -311,9 +318,16 @@ final class OperationConfigTypedVersionContentSupport {
     }
 
     private static String defaultVersionNo(OperationConfigVersionType configType) {
-        return OperationConfigVersionType.PRODUCT_LIFECYCLE.equals(configType)
-                ? OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO
-                : OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO;
+        if (OperationConfigVersionType.BUSINESS_CALENDAR.equals(configType)) {
+            return OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO;
+        }
+        if (OperationConfigVersionType.PRODUCT_LIFECYCLE.equals(configType)) {
+            return OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO;
+        }
+        if (OperationConfigVersionType.REPLENISHMENT_PLAN.equals(configType)) {
+            return OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO;
+        }
+        throw new IllegalArgumentException("unsupported operation config version type");
     }
 
     private static String textValue(JsonNode node, String fieldName) {

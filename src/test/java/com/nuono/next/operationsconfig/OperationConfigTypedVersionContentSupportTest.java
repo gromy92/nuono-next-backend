@@ -67,7 +67,7 @@ class OperationConfigTypedVersionContentSupportTest {
     }
 
     @Test
-    void resolvesEffectiveTypedCalendarEvidenceByExactScopeThenGlobalThenDefault() {
+    void resolvesEffectiveTypedCalendarVersionByExactScopeThenGlobalThenDefault() {
         InMemoryTypedVersionRepository repository = new InMemoryTypedVersionRepository();
         repository.insert(version(
                 88001L,
@@ -94,33 +94,45 @@ class OperationConfigTypedVersionContentSupportTest {
                 LocalDateTime.of(2026, 5, 2, 0, 0)
         ));
 
-        OperationConfigTypedVersionEvidence exact = OperationConfigTypedVersionEvidence.resolve(
+        Optional<OperationConfigTypedVersion> exact = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
                 repository,
                 OperationConfigVersionType.BUSINESS_CALENDAR,
                 10002L,
                 "str108065-nsa",
                 "sa"
         );
-        OperationConfigTypedVersionEvidence global = OperationConfigTypedVersionEvidence.resolve(
+        Optional<OperationConfigTypedVersion> global = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
                 repository,
                 OperationConfigVersionType.BUSINESS_CALENDAR,
                 10002L,
                 "OTHER",
                 "SA"
         );
-        OperationConfigTypedVersionEvidence fallback = OperationConfigTypedVersionEvidence.resolve(
-                new InMemoryTypedVersionRepository(),
+        InMemoryTypedVersionRepository defaultRepository = new InMemoryTypedVersionRepository();
+        defaultRepository.insert(version(
+                88004L,
+                "DEFAULT_CALENDAR_CONFIG",
+                "默认日历配置",
+                "SYSTEM_DEFAULT",
+                "全局默认",
+                LocalDateTime.of(2026, 1, 1, 0, 0)
+        ));
+        Optional<OperationConfigTypedVersion> fallback = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
+                defaultRepository,
                 OperationConfigVersionType.BUSINESS_CALENDAR,
                 10002L,
                 "OTHER",
                 "SA"
         );
 
-        assertEquals("CALENDAR_EXACT", exact.getVersionNo());
-        assertEquals("canman SA 日历", exact.getVersionName());
-        assertEquals("typed_version", exact.getSourceLabel());
-        assertEquals("CALENDAR_GLOBAL", global.getVersionNo());
-        assertEquals("DEFAULT_CALENDAR_CONFIG", fallback.getVersionNo());
+        assertTrue(exact.isPresent());
+        assertTrue(global.isPresent());
+        assertTrue(fallback.isPresent());
+        assertEquals("CALENDAR_EXACT", exact.get().getVersionNo());
+        assertEquals("canman SA 日历", exact.get().getDisplayName());
+        assertEquals("typed_version", exact.get().getSourceLabel());
+        assertEquals("CALENDAR_GLOBAL", global.get().getVersionNo());
+        assertEquals("DEFAULT_CALENDAR_CONFIG", fallback.get().getVersionNo());
     }
 
     @Test
@@ -330,6 +342,42 @@ class OperationConfigTypedVersionContentSupportTest {
 
         assertEquals("0.7000", explanation.averageFactor(1).setScale(4, RoundingMode.HALF_UP).toPlainString());
         assertEquals("古尔邦节", explanation.getImpacts().get(0).getRuleName());
+    }
+
+    @Test
+    void resolveEffectiveVersionUsesReplenishmentSystemDefaultVersionNo() {
+        InMemoryTypedVersionRepository repository = new InMemoryTypedVersionRepository();
+        repository.insert(new OperationConfigTypedVersion(
+                99001L,
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                OperationConfigVersionType.REPLENISHMENT_PLAN.name(),
+                "SYSTEM_DEFAULT",
+                null,
+                "系统默认",
+                "1 条配置",
+                1,
+                "全局默认",
+                "[]",
+                0L,
+                0L,
+                LocalDateTime.of(2026, 7, 6, 10, 0),
+                LocalDateTime.of(2026, 7, 6, 10, 0)
+        ));
+
+        Optional<OperationConfigTypedVersion> resolved = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
+                repository,
+                OperationConfigVersionType.REPLENISHMENT_PLAN,
+                307L,
+                "STR108065-NAE",
+                "SA"
+        );
+
+        assertTrue(resolved.isPresent());
+        assertEquals(
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO,
+                resolved.get().getVersionNo()
+        );
     }
 
     private OperationConfigTypedVersion version(
