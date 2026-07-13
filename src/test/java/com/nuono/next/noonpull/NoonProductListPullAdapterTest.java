@@ -144,6 +144,34 @@ class NoonProductListPullAdapterTest {
         assertEquals("PSKU-CAMEL-4", seed.getSiteOffers().get(0).getPskuCode());
     }
 
+    @Test
+    void shouldTreatBooleanLikeLiveStatusAsActive() {
+        CapturingProjectionWriter writer = new CapturingProjectionWriter();
+        NoonProductListPullAdapter adapter = new NoonProductListPullAdapter(writer);
+        NoonProductListApplyCommand command = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .projectCode("PRJ69486")
+                .projectName("SGGR")
+                .storeCode("STR69486-NSA")
+                .siteCode("SA")
+                .sourceBatchId("noon-interface-product-sggr")
+                .items(List.of(
+                        Map.of(
+                                "sku_parent", "ZE8DD09EA5F05C485D0ADZ",
+                                "sku", "ZE8DD09EA5F05C485D0ADZ-1",
+                                "partner_sku", "SGGRB273",
+                                "live_status", true
+                        )
+                ))
+                .build();
+
+        adapter.apply(command);
+
+        ProductProjectionPersistenceService.ProductMasterSeed seed = writer.command.getProductSeeds().get(0);
+        assertTrue(seed.getIsActive());
+        assertTrue(seed.getSiteOffers().get(0).getIsActive());
+    }
+
     private static final class CapturingProjectionWriter implements NoonProductProjectionWriter {
         private NoonProductProjectionWriteCommand command;
 
