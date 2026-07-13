@@ -172,20 +172,18 @@ public class ProductPublicDetailSyncService {
         String normalizedStore = normalizeStore(storeCode);
         String normalizedSite = normalizeSite(siteCode);
         Long ownerUserId = resolveOwnerUserId(context, normalizedStore);
-        ScopeSelection selection = preferredScopeSelection(context, requireActiveScope(ownerUserId, normalizedStore, normalizedSite));
-        String scopeStore = normalizeStore(selection.scope.getStoreCode());
-        String scopeSite = normalizeSite(selection.scope.getSiteCode());
-        OperationalTask active = findActiveTask(ownerUserId, scopeStore, scopeSite);
+        requireActiveScope(ownerUserId, normalizedStore, normalizedSite);
+        OperationalTask active = findActiveTask(ownerUserId, normalizedStore, normalizedSite);
         if (active != null) {
             return ProductPublicDetailTaskView.from(active);
         }
         return ProductPublicDetailTaskView.from(submitTask(
                 ownerUserId,
-                scopeStore,
-                scopeSite,
+                normalizedStore,
+                normalizedSite,
                 context.getSessionUserId(),
                 false,
-                selection.enforcePreferredSite
+                true
         ));
     }
 
