@@ -164,6 +164,27 @@ class OperationConfigVersionLibraryServiceTest {
     }
 
     @Test
+    void replenishmentDraftUpdateRejectsSupermallInventorySourceValue() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+        OperationConfigVersionRowView draft = service.copyVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.updateVersion(
+                adminContext(),
+                draft.getVersionNo(),
+                replenishmentRequestWithValue("库存来源", "FBN,SUPERMALL")
+        ));
+
+        assertTrue(exception.getMessage().contains("库存来源"));
+    }
+
+    @Test
     void replenishmentSystemDefaultUpdateRejectsRequireEtaFalse() {
         InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
         OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
@@ -1279,7 +1300,7 @@ class OperationConfigVersionLibraryServiceTest {
                 replenishmentItem("覆盖窗口", "海运覆盖天数", "数值",
                         replenishmentValue("海运覆盖天数", "30", overrideItemName, overrideValue)),
                 replenishmentItem("库存口径", "库存来源", "数组",
-                        replenishmentValue("库存来源", "FBN,SUPERMALL", overrideItemName, overrideValue)),
+                        replenishmentValue("库存来源", "FBN", overrideItemName, overrideValue)),
                 replenishmentItem("在途口径", "在途必须有 ETA", "布尔",
                         replenishmentValue("在途必须有 ETA", "true", overrideItemName, overrideValue)),
                 replenishmentItem("空运策略", "空运只应急", "布尔",

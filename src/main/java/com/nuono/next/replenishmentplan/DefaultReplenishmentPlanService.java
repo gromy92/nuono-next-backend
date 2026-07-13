@@ -8,7 +8,9 @@ import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.PlanOverviewVie
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.PlanQuery;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.StockSnapshot;
 import com.nuono.next.salesforecast.SalesForecastDetailView;
+import com.nuono.next.salesforecast.SalesForecastDailyForecastView;
 import com.nuono.next.salesforecast.SalesForecastFactorBreakdownView;
+import com.nuono.next.salesforecast.SalesForecastFeatureValuesView;
 import com.nuono.next.salesforecast.SalesForecastOverviewRow;
 import com.nuono.next.salesforecast.SalesForecastOverviewView;
 import com.nuono.next.salesforecast.SalesForecastQuery;
@@ -20,11 +22,14 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -38,6 +43,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
     private final ReplenishmentPlanCalculator calculator;
     private final Clock clock;
 
+    @Autowired
     public DefaultReplenishmentPlanService(
             SalesForecastRunRepository forecastRunRepository,
             ReplenishmentPlanRepository repository,
@@ -84,6 +90,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         }
 
         LocalDate anchorDate = anchorDate(run);
+        LocalDate planDate = LocalDate.now(clock);
         List<SalesForecastResultRecord> forecastResults = forecastRunRepository.listResults(run.getId());
         if (forecastResults == null || forecastResults.isEmpty()) {
             return emptyOverview(query, config, anchorDate);
@@ -100,29 +107,55 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         if (forecastRows.isEmpty()) {
             return emptyOverview(query, config, anchorDate);
         }
+        Map<String, SalesForecastResultRecord> forecastResultByPartnerSku = forecastResults.stream()
+                .filter(record -> record != null && hasText(record.getPartnerSku()))
+                .collect(Collectors.toMap(
+                        record -> skuKey(record.getPartnerSku()),
+                        record -> record,
+                        (left, right) -> left
+                ));
 
         Map<String, ReplenishmentPlanRepository.StockRow> stockByPartnerSku = listStockRows(query).stream()
                 .filter(row -> row != null && hasText(row.getPartnerSku()))
                 .collect(Collectors.toMap(
-                        ReplenishmentPlanRepository.StockRow::getPartnerSku,
+                        row -> skuKey(row.getPartnerSku()),
                         row -> row,
                         (left, right) -> left
                 ));
         Map<String, List<ReplenishmentPlanRepository.InboundRow>> inboundByPartnerSku = listInboundRows(query).stream()
                 .filter(row -> row != null && hasText(row.getPartnerSku()))
-                .collect(Collectors.groupingBy(ReplenishmentPlanRepository.InboundRow::getPartnerSku));
+                .collect(Collectors.groupingBy(row -> skuKey(row.getPartnerSku())));
 
         List<PlanItemView> rows = new ArrayList<>();
         for (SalesForecastOverviewRow forecastRow : forecastRows) {
+            String partnerSkuKey = skuKey(forecastRow.getPartnerSku());
             List<ReplenishmentPlanRepository.InboundRow> inboundRows =
-                    inboundByPartnerSku.getOrDefault(forecastRow.getPartnerSku(), List.of());
+                    inboundByPartnerSku.getOrDefault(partnerSkuKey, List.of());
             rows.add(calculator.calculate(new PlanInput(
                     forecastRow.getPartnerSku(),
                     forecastRow.getSku(),
                     forecastRow.getProductTitle(),
+                    stockImageUrl(stockByPartnerSku.get(partnerSkuKey)),
+                    stockListingAt(stockByPartnerSku.get(partnerSkuKey)),
+                    forecastRow.getLatestFactDate(),
+                    observedDays(forecastRow),
+                    forecastRow.getHistoryUnits7(),
+                    forecastRow.getHistoryUnits30(),
+                    forecastRow.getHistoryUnits60(),
+                    forecastRow.getHistoryUnits90(),
+                    adjustedHistoryUnits(forecastRow, 7),
+                    adjustedHistoryUnits(forecastRow, 30),
+                    adjustedHistoryUnits(forecastRow, 60),
+                    adjustedHistoryUnits(forecastRow, 90),
+                    forecastRow.getForecastUnits30(),
+                    forecastRow.getForecastUnits60(),
+                    forecastRow.getForecastUnits90(),
+                    forecastRow.getConfidenceLabel(),
+                    forecastRow.getShortReason(),
                     anchorDate,
-                    stockSnapshot(stockByPartnerSku.get(forecastRow.getPartnerSku())),
-                    dailyDemandByDay(forecastRow, config),
+                    planDate,
+                    stockSnapshot(stockByPartnerSku.get(partnerSkuKey)),
+                    dailyDemandByDay(forecastRow, forecastResultByPartnerSku.get(partnerSkuKey), config, anchorDate, planDate),
                     knownInboundBatches(inboundRows),
                     missingEtaBatches(inboundRows)
             ), config));
@@ -158,6 +191,54 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         return LocalDate.now(clock);
     }
 
+    private static int observedDays(SalesForecastOverviewRow row) {
+        SalesForecastDetailView detail = row == null ? null : row.getDetail();
+        if (detail == null || detail.getFeatureValues() == null) {
+            return 0;
+        }
+        return detail.getFeatureValues().getObservedDays();
+    }
+
+    private static BigDecimal adjustedHistoryUnits(SalesForecastOverviewRow row, int windowDays) {
+        SalesForecastDetailView detail = row == null ? null : row.getDetail();
+        SalesForecastFeatureValuesView featureValues = detail == null ? null : detail.getFeatureValues();
+        if (featureValues == null) {
+            return BigDecimal.valueOf(rawHistoryUnits(row, windowDays));
+        }
+        if (windowDays == 7) {
+            return featureValues.getAdjustedHistoryUnits7();
+        }
+        if (windowDays == 30) {
+            return featureValues.getAdjustedHistoryUnits30();
+        }
+        if (windowDays == 60) {
+            return featureValues.getAdjustedHistoryUnits60();
+        }
+        if (windowDays == 90) {
+            return featureValues.getAdjustedHistoryUnits90();
+        }
+        return BigDecimal.valueOf(rawHistoryUnits(row, windowDays));
+    }
+
+    private static int rawHistoryUnits(SalesForecastOverviewRow row, int windowDays) {
+        if (row == null) {
+            return 0;
+        }
+        if (windowDays == 7) {
+            return row.getHistoryUnits7();
+        }
+        if (windowDays == 30) {
+            return row.getHistoryUnits30();
+        }
+        if (windowDays == 60) {
+            return row.getHistoryUnits60();
+        }
+        if (windowDays == 90) {
+            return row.getHistoryUnits90();
+        }
+        return 0;
+    }
+
     private List<ReplenishmentPlanRepository.StockRow> listStockRows(PlanQuery query) {
         List<ReplenishmentPlanRepository.StockRow> rows = repository.listFbnSupermallStock(
                 query.getOwnerUserId(),
@@ -182,17 +263,22 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         }
         BigDecimal fbnStockUnits = row.getFbnStockUnits();
         BigDecimal supermallStockUnits = row.getSupermallStockUnits();
-        BigDecimal currentStockUnits = row.getCurrentStockUnits();
-        boolean currentStockFactMissing = currentStockUnits == null;
-        if (currentStockUnits == null && (fbnStockUnits != null || supermallStockUnits != null)) {
-            currentStockUnits = zeroIfNull(fbnStockUnits).add(zeroIfNull(supermallStockUnits));
-        }
+        BigDecimal currentStockUnits = fbnStockUnits;
+        boolean currentStockFactMissing = fbnStockUnits == null;
         return new StockSnapshot(
                 currentStockUnits,
                 fbnStockUnits,
                 supermallStockUnits,
                 currentStockFactMissing
         );
+    }
+
+    private static String stockImageUrl(ReplenishmentPlanRepository.StockRow row) {
+        return row == null ? null : row.getImageUrl();
+    }
+
+    private static LocalDate stockListingAt(ReplenishmentPlanRepository.StockRow row) {
+        return row == null ? null : row.getListingAt();
     }
 
     private static List<InboundBatch> knownInboundBatches(List<ReplenishmentPlanRepository.InboundRow> rows) {
@@ -232,18 +318,71 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
 
     private static Map<Integer, BigDecimal> dailyDemandByDay(
             SalesForecastOverviewRow row,
-            ReplenishmentPlanConfig config
+            SalesForecastResultRecord result,
+            ReplenishmentPlanConfig config,
+            LocalDate anchorDate,
+            LocalDate planDate
     ) {
         int horizonDays = Math.max(config.getForecastHorizonDays(), config.getSeaLeadDays() + config.getSeaCoverDays());
-        BigDecimal dailyDemand = constantDailyDemand(row);
-        Map<Integer, BigDecimal> demandByDay = new HashMap<>();
+        Map<Integer, BigDecimal> demandByDay = dailyForecastDemandByDay(result, horizonDays, anchorDate, planDate);
+        if (!demandByDay.isEmpty()) {
+            return demandByDay;
+        }
+        BigDecimal dailyDemand = fallbackDailyDemand(row);
+        demandByDay = new HashMap<>();
         for (int day = 1; day <= horizonDays; day++) {
             demandByDay.put(day, dailyDemand);
         }
         return demandByDay;
     }
 
-    private static BigDecimal constantDailyDemand(SalesForecastOverviewRow row) {
+    private static Map<Integer, BigDecimal> dailyForecastDemandByDay(
+            SalesForecastResultRecord result,
+            int horizonDays,
+            LocalDate anchorDate,
+            LocalDate planDate
+    ) {
+        SalesForecastDetailView detail = result == null ? null : SalesForecastDetailView.fromResult(result, true);
+        SalesForecastFactorBreakdownView factors = detail == null ? null : detail.getFactorBreakdown();
+        if (factors == null || factors.getDailyForecasts() == null || factors.getDailyForecasts().isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, BigDecimal> demandByDay = new HashMap<>();
+        for (SalesForecastDailyForecastView forecast : factors.getDailyForecasts()) {
+            Integer day = planDayIndex(forecast, anchorDate, planDate);
+            if (day == null || day < 1 || day > horizonDays) {
+                continue;
+            }
+            demandByDay.merge(day, zeroIfNull(forecast.getForecastUnits()), BigDecimal::add);
+        }
+        return demandByDay;
+    }
+
+    private static Integer planDayIndex(SalesForecastDailyForecastView forecast, LocalDate anchorDate, LocalDate planDate) {
+        if (forecast == null) {
+            return null;
+        }
+        if (forecast.getForecastDate() != null && planDate != null) {
+            return toDayIndex(ChronoUnit.DAYS.between(planDate, forecast.getForecastDate()));
+        }
+        int sourceDayIndex = forecast.getDayIndex();
+        if (sourceDayIndex < 1) {
+            return null;
+        }
+        if (anchorDate != null && planDate != null) {
+            return toDayIndex(ChronoUnit.DAYS.between(planDate, anchorDate.plusDays(sourceDayIndex)));
+        }
+        return sourceDayIndex;
+    }
+
+    private static Integer toDayIndex(long dayIndex) {
+        if (dayIndex < Integer.MIN_VALUE || dayIndex > Integer.MAX_VALUE) {
+            return null;
+        }
+        return (int) dayIndex;
+    }
+
+    private static BigDecimal fallbackDailyDemand(SalesForecastOverviewRow row) {
         if (row.getForecastUnits90() > 0) {
             return BigDecimal.valueOf(row.getForecastUnits90())
                     .divide(BigDecimal.valueOf(90), DAILY_DEMAND_SCALE, RoundingMode.HALF_UP);
@@ -253,13 +392,11 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         if (factors == null
                 || factors.getBaseDailySales() == null
                 || factors.getTrendFactor() == null
-                || factors.getLifecycleFactor() == null
                 || factors.getFutureFactor() == null) {
             return BigDecimal.ZERO;
         }
         BigDecimal demand = factors.getBaseDailySales()
                 .multiply(factors.getTrendFactor())
-                .multiply(factors.getLifecycleFactor())
                 .multiply(factors.getFutureFactor());
         return demand.signum() <= 0 ? BigDecimal.ZERO : demand.setScale(DAILY_DEMAND_SCALE, RoundingMode.HALF_UP);
     }
@@ -270,5 +407,9 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
 
     private static boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    private static String skuKey(String value) {
+        return hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";
     }
 }

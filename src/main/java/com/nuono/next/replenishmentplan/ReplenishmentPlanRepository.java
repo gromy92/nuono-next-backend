@@ -1,5 +1,6 @@
 package com.nuono.next.replenishmentplan;
 
+import com.nuono.next.product.ProductImageUrlSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -13,6 +14,8 @@ public interface ReplenishmentPlanRepository {
     final class StockRow {
         private final String partnerSku;
         private final String sku;
+        private final String imageUrl;
+        private final LocalDate listingAt;
         private final BigDecimal currentStockUnits;
         private final BigDecimal fbnStockUnits;
         private final BigDecimal supermallStockUnits;
@@ -24,8 +27,33 @@ public interface ReplenishmentPlanRepository {
                 BigDecimal fbnStockUnits,
                 BigDecimal supermallStockUnits
         ) {
+            this(partnerSku, sku, null, null, currentStockUnits, fbnStockUnits, supermallStockUnits);
+        }
+
+        public StockRow(
+                String partnerSku,
+                String sku,
+                String imageUrl,
+                BigDecimal currentStockUnits,
+                BigDecimal fbnStockUnits,
+                BigDecimal supermallStockUnits
+        ) {
+            this(partnerSku, sku, imageUrl, null, currentStockUnits, fbnStockUnits, supermallStockUnits);
+        }
+
+        public StockRow(
+                String partnerSku,
+                String sku,
+                String imageUrl,
+                LocalDate listingAt,
+                BigDecimal currentStockUnits,
+                BigDecimal fbnStockUnits,
+                BigDecimal supermallStockUnits
+        ) {
             this.partnerSku = partnerSku;
             this.sku = sku;
+            this.imageUrl = ProductImageUrlSupport.normalize(imageUrl);
+            this.listingAt = listingAt;
             this.currentStockUnits = currentStockUnits;
             this.fbnStockUnits = fbnStockUnits;
             this.supermallStockUnits = supermallStockUnits;
@@ -37,6 +65,14 @@ public interface ReplenishmentPlanRepository {
 
         public String getSku() {
             return sku;
+        }
+
+        public String getImageUrl() {
+            return imageUrl;
+        }
+
+        public LocalDate getListingAt() {
+            return listingAt;
         }
 
         public BigDecimal getCurrentStockUnits() {

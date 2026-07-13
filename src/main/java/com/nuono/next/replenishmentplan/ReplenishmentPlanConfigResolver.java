@@ -202,17 +202,17 @@ public class ReplenishmentPlanConfigResolver {
                 continue;
             }
             String normalized = token.trim().toUpperCase(Locale.ROOT);
-            if (!"FBN".equals(normalized) && !"SUPERMALL".equals(normalized)) {
-                throw new IllegalArgumentException("inventory sources only support FBN and SUPERMALL");
+            if (!"FBN".equals(normalized)) {
+                throw new IllegalArgumentException("inventory sources only support FBN");
             }
             if (!sources.contains(normalized)) {
                 sources.add(normalized);
             }
         }
-        if (sources.size() == 2 && sources.contains("FBN") && sources.contains("SUPERMALL")) {
+        if (sources.size() == 1 && sources.contains("FBN")) {
             return sources;
         }
-        throw new IllegalArgumentException("inventory sources must include FBN and SUPERMALL");
+        throw new IllegalArgumentException("inventory sources must include only FBN");
     }
 
     private static String textOrFallback(String value, String fallback) {

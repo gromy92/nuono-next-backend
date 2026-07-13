@@ -1,7 +1,6 @@
 package com.nuono.next.replenishmentplan;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -11,7 +10,7 @@ public final class ReplenishmentPlanConfig {
     public static final String CALCULATION_VERSION = "REPLENISHMENT_PLAN_BASIC_V1";
     public static final String DEFAULT_VERSION_NO = "DEFAULT_REPLENISHMENT_PLAN_BASIC_V1";
 
-    private static final List<String> DEFAULT_INVENTORY_SOURCES = Collections.unmodifiableList(Arrays.asList("FBN", "SUPERMALL"));
+    private static final List<String> DEFAULT_INVENTORY_SOURCES = Collections.singletonList("FBN");
     private static final ReplenishmentPlanConfig DEFAULT_BASIC_V1 = new ReplenishmentPlanConfig(
             DEFAULT_VERSION_NO,
             12,
@@ -129,17 +128,16 @@ public final class ReplenishmentPlanConfig {
         List<String> normalized = new ArrayList<>();
         for (String source : sources) {
             if (source == null) {
-                throw new IllegalArgumentException("inventorySources only supports FBN and SUPERMALL");
+                throw new IllegalArgumentException("inventorySources only supports FBN");
             }
             String normalizedSource = source.trim().toUpperCase(Locale.ROOT);
             if (!DEFAULT_INVENTORY_SOURCES.contains(normalizedSource)) {
-                throw new IllegalArgumentException("inventorySources only supports FBN and SUPERMALL");
+                throw new IllegalArgumentException("inventorySources only supports FBN");
             }
             normalized.add(normalizedSource);
         }
-        if (normalized.size() != DEFAULT_INVENTORY_SOURCES.size()
-                || !normalized.containsAll(DEFAULT_INVENTORY_SOURCES)) {
-            throw new IllegalArgumentException("inventorySources must include FBN and SUPERMALL for basic V1");
+        if (normalized.size() != 1 || !"FBN".equals(normalized.get(0))) {
+            throw new IllegalArgumentException("inventorySources must include only FBN for basic V1");
         }
         return DEFAULT_INVENTORY_SOURCES;
     }

@@ -37,7 +37,7 @@ class ReplenishmentPlanConfigResolverTest {
                         "海运运输天数", "66",
                         "海运覆盖天数", "31",
                         "预测窗口天数", "101",
-                        "库存来源", "FBN,SUPERMALL",
+                        "库存来源", "FBN",
                         "在途必须有 ETA", "true",
                         "空运只应急", "true",
                         "建议数量取整", "ceil"
@@ -55,7 +55,7 @@ class ReplenishmentPlanConfigResolverTest {
                         "海运运输天数", "65",
                         "海运覆盖天数", "35",
                         "预测窗口天数", "110",
-                        "库存来源", "fbn, supermall",
+                        "库存来源", "fbn",
                         "在途必须有 ETA", "true",
                         "空运只应急", "true",
                         "建议数量取整", "ceil"
@@ -72,7 +72,7 @@ class ReplenishmentPlanConfigResolverTest {
         assertEquals(65, config.getSeaLeadDays());
         assertEquals(35, config.getSeaCoverDays());
         assertEquals(110, config.getForecastHorizonDays());
-        assertEquals(List.of("FBN", "SUPERMALL"), config.getInventorySources());
+        assertEquals(List.of("FBN"), config.getInventorySources());
         assertEquals(true, config.isRequireInboundEtaDate());
         assertEquals(true, config.isAirEmergencyOnly());
         assertEquals("ceil", config.getRoundingMode());
@@ -92,7 +92,7 @@ class ReplenishmentPlanConfigResolverTest {
                         "海运运输天数", "72",
                         "海运覆盖天数", "33",
                         "预测窗口天数", "105",
-                        "库存来源", "FBN,SUPERMALL",
+                        "库存来源", "FBN",
                         "在途必须有 ETA", "true",
                         "空运只应急", "true",
                         "建议数量取整", "ceil"
@@ -125,7 +125,7 @@ class ReplenishmentPlanConfigResolverTest {
                         "海运运输天数", "75",
                         "海运覆盖天数", "40",
                         "预测窗口天数", "120",
-                        "库存来源", "FBN,SUPERMALL",
+                        "库存来源", "FBN",
                         "在途必须有 ETA", "true",
                         "空运只应急", "false",
                         "建议数量取整", "ceil"
@@ -177,7 +177,7 @@ class ReplenishmentPlanConfigResolverTest {
                         "海运运输天数", "65",
                         "海运覆盖天数", "35",
                         "预测窗口天数", "110",
-                        "库存来源", "FBN,SUPERMALL",
+                        "库存来源", "FBN",
                         "在途必须有 ETA", "true",
                         "空运只应急", "false"
                 ),
@@ -205,7 +205,7 @@ class ReplenishmentPlanConfigResolverTest {
                         "海运运输天数", "65",
                         "海运覆盖天数", "35",
                         "预测窗口天数", "110",
-                        "库存来源", "FBN,SUPERMALL",
+                        "库存来源", "FBN",
                         "在途必须有 ETA", "true",
                         "空运只应急", "false",
                         "建议数量取整", "ceil"
@@ -223,6 +223,7 @@ class ReplenishmentPlanConfigResolverTest {
     void invalidPresentValuesFallBackToHardcodedDefaultsWithDefaultVersionNo() {
         assertInvalidPresentValueFallsBackToDefaults("空运运输天数", "0");
         assertInvalidPresentValueFallsBackToDefaults("库存来源", "FBN,AMAZON");
+        assertInvalidPresentValueFallsBackToDefaults("库存来源", "FBN,SUPERMALL");
         assertInvalidPresentValueFallsBackToDefaults("空运只应急", "yes");
         assertInvalidPresentValueFallsBackToDefaults("建议数量取整", "floor");
     }
@@ -293,7 +294,7 @@ class ReplenishmentPlanConfigResolverTest {
                 "海运运输天数", valueFor(itemName, "海运运输天数", value, "70"),
                 "海运覆盖天数", valueFor(itemName, "海运覆盖天数", value, "30"),
                 "预测窗口天数", valueFor(itemName, "预测窗口天数", value, "100"),
-                "库存来源", valueFor(itemName, "库存来源", value, "FBN,SUPERMALL"),
+                "库存来源", valueFor(itemName, "库存来源", value, "FBN"),
                 "在途必须有 ETA", valueFor(itemName, "在途必须有 ETA", value, "true"),
                 "空运只应急", valueFor(itemName, "空运只应急", value, "true"),
                 "建议数量取整", valueFor(itemName, "建议数量取整", value, "ceil")

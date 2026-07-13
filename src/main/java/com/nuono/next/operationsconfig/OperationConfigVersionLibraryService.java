@@ -786,20 +786,20 @@ public class OperationConfigVersionLibraryService {
         Set<String> sources = new HashSet<>();
         String trimmed = value == null ? "" : value.trim();
         if (trimmed.isEmpty()) {
-            throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN 和 SUPERMALL。");
+            throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN。");
         }
         for (String token : trimmed.split("[,，\\s]+")) {
             if (token == null || token.trim().isEmpty()) {
                 continue;
             }
             String normalized = token.trim().toUpperCase(Locale.ROOT);
-            if (!"FBN".equals(normalized) && !"SUPERMALL".equals(normalized)) {
-                throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN 和 SUPERMALL。");
+            if (!"FBN".equals(normalized)) {
+                throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN。");
             }
             sources.add(normalized);
         }
-        if (sources.size() != 2 || !sources.contains("FBN") || !sources.contains("SUPERMALL")) {
-            throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN 和 SUPERMALL。");
+        if (sources.size() != 1 || !sources.contains("FBN")) {
+            throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN。");
         }
     }
 

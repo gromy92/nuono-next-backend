@@ -13,11 +13,19 @@ import org.apache.ibatis.annotations.Select;
 
 public interface ReplenishmentPlanMapper {
 
-    String ACTIVE_BATCH_FILTER = "AND batch.batch_status NOT IN ('draft', 'warehouse_received', 'completed', 'cancelled')";
+    String DEPARTURE_DATE_EXPRESSION = "COALESCE(DATE(batch.estimated_departure_at), batch.departure_date, "
+            + "DATE(batch.source_created_at))";
+
+    String ACTIVE_BATCH_FILTER = "AND batch.batch_status NOT IN ('draft', 'warehouse_received', 'completed', 'cancelled') "
+            + "AND (batch.latest_node_status IS NULL OR batch.latest_node_status NOT IN ('warehouse_received', 'cancelled')) "
+            + "AND (batch.eta_date IS NOT NULL OR " + DEPARTURE_DATE_EXPRESSION + " IS NULL OR "
+            + DEPARTURE_DATE_EXPRESSION + " >= DATE_SUB(CURDATE(), INTERVAL 7 MONTH))";
 
     @ConstructorArgs({
             @Arg(column = "partnerSku", javaType = String.class),
             @Arg(column = "sku", javaType = String.class),
+            @Arg(column = "imageUrl", javaType = String.class),
+            @Arg(column = "listingAt", javaType = LocalDate.class),
             @Arg(column = "currentStockUnits", javaType = BigDecimal.class),
             @Arg(column = "fbnStockUnits", javaType = BigDecimal.class),
             @Arg(column = "supermallStockUnits", javaType = BigDecimal.class)
@@ -26,9 +34,14 @@ public interface ReplenishmentPlanMapper {
             "SELECT",
             "  pv.partner_sku AS partnerSku,",
             "  COALESCE(NULLIF(pv.child_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, '')) AS sku,",
-            "  CASE WHEN pso.fbn_stock IS NULL AND pso.supermall_stock IS NULL THEN NULL",
-            "    ELSE COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)",
-            "  END AS currentStockUnits,",
+            "  COALESCE(",
+            "    NULLIF(pm.cover_image_url, ''),",
+            "    NULLIF(public_detail.main_image_url, ''),",
+            "    NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.mainImageUrl')), 'null'), ''),",
+            "    NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.images[0]')), 'null'), '')",
+            "  ) AS imageUrl,",
+            "  DATE(pso.listing_started_at) AS listingAt,",
+            "  pso.fbn_stock AS currentStockUnits,",
             "  pso.fbn_stock AS fbnStockUnits,",
             "  pso.supermall_stock AS supermallStockUnits",
             "FROM product_site_offer pso",
@@ -38,6 +51,27 @@ public interface ReplenishmentPlanMapper {
             "JOIN logical_store_site lss ON lss.id = pso.site_id",
             "  AND lss.logical_store_id = ls.id",
             "  AND lss.is_deleted = b'0'",
+            "LEFT JOIN product_public_detail_snapshot public_detail",
+            "  ON public_detail.owner_user_id = ls.owner_user_id",
+            "  AND public_detail.store_code = lss.store_code",
+            "  AND public_detail.site_code = lss.site",
+            "  AND public_detail.product_variant_id = pv.id",
+            "  AND public_detail.source_platform = 'NOON'",
+            "  AND public_detail.sync_status IN ('SUCCEEDED', 'PARTIAL')",
+            "  AND public_detail.is_latest = b'1'",
+            "  AND public_detail.is_deleted = b'0'",
+            "LEFT JOIN product_master_snapshot pms ON pms.product_master_id = pm.id",
+            "  AND pms.snapshot_type = 'baseline'",
+            "  AND pms.is_deleted = b'0'",
+            "  AND pms.id = (",
+            "    SELECT pms_latest.id",
+            "    FROM product_master_snapshot pms_latest",
+            "    WHERE pms_latest.product_master_id = pm.id",
+            "      AND pms_latest.snapshot_type = 'baseline'",
+            "      AND pms_latest.is_deleted = b'0'",
+            "    ORDER BY pms_latest.fetched_at DESC, pms_latest.id DESC",
+            "    LIMIT 1",
+            "  )",
             "WHERE ls.owner_user_id = #{ownerUserId}",
             "  AND lss.store_code = #{storeCode}",
             "  AND lss.site = #{siteCode}",
@@ -81,8 +115,14 @@ public interface ReplenishmentPlanMapper {
             "  AND batch.is_deleted = b'0'",
             "WHERE line.owner_user_id = #{ownerUserId}",
             "  AND line.is_deleted = b'0'",
-            "  AND line.store_code = #{storeCode}",
-            "  AND line.site_code = #{siteCode}",
+            "  AND (",
+            "    (line.store_code = #{storeCode} AND line.site_code = #{siteCode})",
+            "    OR (",
+            "      NULLIF(TRIM(line.store_code), '') IS NULL",
+            "      AND (NULLIF(TRIM(line.site_code), '') IS NULL OR line.site_code = #{siteCode})",
+            "    )",
+            "    OR (line.store_code = #{storeCode} AND NULLIF(TRIM(line.site_code), '') IS NULL)",
+            "  )",
             ACTIVE_BATCH_FILTER,
             "  AND GREATEST(COALESCE(line.remaining_quantity,",
             "    COALESCE(line.shipped_quantity, 0) - COALESCE(line.received_quantity, 0)), 0) > 0",

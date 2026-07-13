@@ -36,7 +36,7 @@ public class ReplenishmentPlanController {
         validateOverviewRequest(storeCode, siteCode);
         BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
                 request,
-                BusinessCapability.SALES_DATA,
+                BusinessCapability.PROCUREMENT,
                 storeCode
         );
         Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);

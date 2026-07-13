@@ -41,9 +41,9 @@ class ReplenishmentPlanControllerAccessTest {
     }
 
     @Test
-    void overviewUsesAuthorizedSalesDataStoreScope() {
+    void overviewUsesAuthorizedProcurementStoreScope() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR108065-NSA"))
+        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.PROCUREMENT, "STR108065-NSA"))
                 .thenReturn(contextWithStoreOwner());
         when(service.getOverview(any())).thenReturn(new ReplenishmentPlanRecords.PlanOverviewView(
                 "ready",
@@ -69,7 +69,7 @@ class ReplenishmentPlanControllerAccessTest {
     @Test
     void overviewFallsBackToBusinessOwnerWhenStoreOwnerIsNotMapped() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR108065-NSA"))
+        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.PROCUREMENT, "STR108065-NSA"))
                 .thenReturn(contextWithoutStoreOwner());
         when(service.getOverview(any())).thenReturn(new ReplenishmentPlanRecords.PlanOverviewView(
                 "empty",
@@ -92,7 +92,7 @@ class ReplenishmentPlanControllerAccessTest {
     @Test
     void overviewRejectsUnauthorizedStoreBeforeCallingService() {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR108065-NSA"))
+        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.PROCUREMENT, "STR108065-NSA"))
                 .thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "系统管理员不能操作店铺业务。"));
 
         ResponseStatusException error = assertThrows(

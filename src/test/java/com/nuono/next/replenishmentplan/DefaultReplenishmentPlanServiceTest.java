@@ -1,6 +1,7 @@
 package com.nuono.next.replenishmentplan;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -62,11 +63,13 @@ class DefaultReplenishmentPlanServiceTest {
     @Test
     void readyForecastMapsStockEtaInboundAndMissingEtaByCanonicalPartnerSku() {
         when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-001", "SKU-001", 900)));
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithEvidence("PSKU-001", "SKU-001", 900)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(new StockRow(
-                        "PSKU-001",
+                        " psku-001 ",
                         "SKU-001",
+                        "https://f.nooncdn.com/p/test-image.jpg",
+                        LocalDate.of(2026, 3, 12),
                         new BigDecimal("15"),
                         new BigDecimal("10"),
                         new BigDecimal("5")
@@ -74,7 +77,7 @@ class DefaultReplenishmentPlanServiceTest {
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(
                         new InboundRow(
-                                "PSKU-001",
+                                "psku-001",
                                 1001L,
                                 "BATCH-ETA",
                                 "SEA",
@@ -83,7 +86,7 @@ class DefaultReplenishmentPlanServiceTest {
                                 new BigDecimal("20")
                         ),
                         new InboundRow(
-                                "PSKU-001",
+                                " PSKU-001 ",
                                 1002L,
                                 "BATCH-NO-ETA",
                                 "SEA",
@@ -109,13 +112,33 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(1, overview.getRows().size());
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertEquals("PSKU-001", row.getPartnerSku());
-        assertEquals(new BigDecimal("15"), row.getCurrentStockUnits());
+        assertEquals("https://f.nooncdn.com/p/test-image.jpg", row.getImageUrl());
+        assertEquals(LocalDate.of(2026, 3, 12), row.getListingAt());
+        assertEquals(new BigDecimal("10"), row.getCurrentStockUnits());
+        assertEquals(new BigDecimal("10"), row.getFbnStockUnits());
         assertEquals(new BigDecimal("20"), row.getKnownInboundUnits());
         assertEquals(new BigDecimal("7"), row.getMissingEtaInboundQty());
         assertEquals(1, row.getMissingEtaBatchCount());
         assertEquals("BATCH-NO-ETA", row.getMissingEtaBatches().get(0).getBatchReferenceNo());
-        assertEquals(new BigDecimal("300"), row.getSeaSuggestedUnits());
+        assertEquals(new BigDecimal("150"), row.getSeaCalculatedUnits());
+        assertEquals(new BigDecimal("150"), row.getSeaSuggestedUnits());
         assertTrue(row.getWarnings().contains("missing_eta_inbound_excluded"));
+        assertEquals(SOURCE_DATE, row.getLatestFactDate());
+        assertEquals(67, row.getObservedDays());
+        assertEquals(11, row.getHistoryUnits7());
+        assertEquals(42, row.getHistoryUnits30());
+        assertEquals(73, row.getHistoryUnits60());
+        assertEquals(105, row.getHistoryUnits90());
+        assertEquals(new BigDecimal("15.5000"), row.getAdjustedHistoryUnits7());
+        assertEquals(new BigDecimal("50.0000"), row.getAdjustedHistoryUnits30());
+        assertEquals(new BigDecimal("88.0000"), row.getAdjustedHistoryUnits60());
+        assertEquals(new BigDecimal("120.0000"), row.getAdjustedHistoryUnits90());
+        assertEquals(300, row.getForecastUnits30());
+        assertEquals(600, row.getForecastUnits60());
+        assertEquals(900, row.getForecastUnits90());
+        assertEquals("高", row.getConfidenceLabel());
+        assertEquals("近 30 天稳定出单", row.getShortReason());
+        assertEquals(SOURCE_DATE.plusDays(20), row.getNearestInboundEtaDate());
 
         ArgumentCaptor<SalesForecastQuery> forecastQuery = ArgumentCaptor.forClass(SalesForecastQuery.class);
         verify(forecastRunRepository).findLatestCompleted(forecastQuery.capture());
@@ -186,17 +209,18 @@ class DefaultReplenishmentPlanServiceTest {
         assertNull(row.getSupermallStockUnits());
         assertTrue(row.getWarnings().contains("stock_fact_missing"));
         assertTrue(row.getWarnings().contains("fbn_stock_fact_missing"));
-        assertTrue(row.getWarnings().contains("supermall_stock_fact_missing"));
+        assertFalse(row.getWarnings().contains("supermall_stock_fact_missing"));
     }
 
     @Test
-    void partialStockFactsDeriveCurrentFromConfirmedSourcesButPreserveMissingSourceNull() {
+    void partialStockFactsUseFbnAsCurrentStockAndIgnoreMissingSupermall() {
         when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
         when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-PARTIAL", "SKU-PARTIAL", 90)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-PARTIAL",
                         "SKU-PARTIAL",
+                        null,
                         null,
                         new BigDecimal("8"),
                         null
@@ -209,8 +233,106 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(new BigDecimal("8"), row.getCurrentStockUnits());
         assertEquals(new BigDecimal("8"), row.getFbnStockUnits());
         assertNull(row.getSupermallStockUnits());
-        assertTrue(row.getWarnings().contains("supermall_stock_fact_missing"));
-        assertTrue(row.getWarnings().contains("stock_fact_missing"));
+        assertFalse(row.getWarnings().contains("supermall_stock_fact_missing"));
+        assertFalse(row.getWarnings().contains("stock_fact_missing"));
+    }
+
+    @Test
+    void currentDateControlsPastEtaExclusionAndRecentEtaReviewFlag() {
+        DefaultReplenishmentPlanService serviceOnJuly8 = new DefaultReplenishmentPlanService(
+                forecastRunRepository,
+                repository,
+                configResolver,
+                new ReplenishmentPlanCalculator(),
+                Clock.fixed(Instant.parse("2026-07-08T00:00:00Z"), ZoneOffset.UTC)
+        );
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-ETA", "SKU-ETA", 90)));
+        when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
+        when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE))
+                .thenReturn(List.of(
+                        new InboundRow(
+                                "PSKU-ETA",
+                                2001L,
+                                "BATCH-OLD-ETA",
+                                "SEA",
+                                "ACTIVE",
+                                LocalDate.of(2026, 7, 3),
+                                new BigDecimal("20")
+                        ),
+                        new InboundRow(
+                                "PSKU-ETA",
+                                2002L,
+                                "BATCH-RECENT-ETA",
+                                "SEA",
+                                "ACTIVE",
+                                LocalDate.of(2026, 7, 7),
+                                new BigDecimal("10")
+                        ),
+                        new InboundRow(
+                                "PSKU-ETA",
+                                2003L,
+                                "BATCH-FUTURE-ETA",
+                                "SEA",
+                                "ACTIVE",
+                                LocalDate.of(2026, 7, 10),
+                                new BigDecimal("30")
+                        )
+                ));
+
+        ReplenishmentPlanRecords.PlanOverviewView overview = serviceOnJuly8.getOverview(query());
+
+        ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
+        assertEquals(SOURCE_DATE, overview.getAnchorDate());
+        assertEquals(new BigDecimal("40"), row.getKnownInboundUnits());
+        assertEquals(LocalDate.of(2026, 7, 7), row.getNearestInboundEtaDate());
+        assertEquals(2, row.getInboundBatches().size());
+        ReplenishmentPlanRecords.InboundBatch recentEta = inboundBatch(row, "BATCH-RECENT-ETA");
+        assertTrue(recentEta.isEtaReviewRequired());
+        assertTrue(recentEta.isCoverageIncluded());
+        ReplenishmentPlanRecords.InboundBatch futureEta = inboundBatch(row, "BATCH-FUTURE-ETA");
+        assertFalse(futureEta.isEtaReviewRequired());
+        assertTrue(futureEta.isCoverageIncluded());
+        assertTrue(row.getWarnings().contains("past_eta_inbound_excluded"));
+        assertTrue(row.getWarnings().contains("recent_eta_review_required"));
+    }
+
+    @Test
+    void persistedDailyForecastsAreMappedFromForecastDateToCurrentPlanDate() {
+        DefaultReplenishmentPlanService serviceOnJuly8 = new DefaultReplenishmentPlanService(
+                forecastRunRepository,
+                repository,
+                configResolver,
+                new ReplenishmentPlanCalculator(),
+                Clock.fixed(Instant.parse("2026-07-08T00:00:00Z"), ZoneOffset.UTC)
+        );
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithShiftedDailyForecasts(
+                "PSKU-SHIFTED",
+                "SKU-SHIFTED"
+        )));
+        when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
+                .thenReturn(List.of(new StockRow(
+                        "PSKU-SHIFTED",
+                        "SKU-SHIFTED",
+                        null,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO
+                )));
+        when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
+
+        ReplenishmentPlanRecords.PlanOverviewView overview = serviceOnJuly8.getOverview(query());
+
+        ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
+        assertEquals(SOURCE_DATE, overview.getAnchorDate());
+        assertEquals(new BigDecimal("9"), row.getAirWindowForecastUnits());
+        assertEquals(new BigDecimal("9"), row.getAirCalculatedUnits());
+        assertEquals(new BigDecimal("10"), row.getAirSuggestedUnits());
+        assertEquals(new BigDecimal("7"), row.getSeaWindowForecastUnits());
+        assertEquals(new BigDecimal("0"), row.getSeaCalculatedUnits());
+        assertEquals(new BigDecimal("0"), row.getSeaSuggestedUnits());
+        assertEquals(new BigDecimal("51"), row.getForecastUnits100());
     }
 
     @Test
@@ -221,6 +343,7 @@ class DefaultReplenishmentPlanServiceTest {
                 .thenReturn(List.of(new StockRow(
                         "PSKU-DEMAND",
                         "SKU-DEMAND",
+                        null,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO
@@ -229,6 +352,32 @@ class DefaultReplenishmentPlanServiceTest {
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
+        assertEquals(new BigDecimal("30"), overview.getRows().get(0).getSeaCalculatedUnits());
+        assertEquals(new BigDecimal("30"), overview.getRows().get(0).getSeaSuggestedUnits());
+    }
+
+    @Test
+    void demandCurveUsesPersistedDailyForecastsBeforeNinetyDayAverage() {
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithDailyForecasts(
+                "PSKU-DAILY",
+                "SKU-DAILY",
+                900
+        )));
+        when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
+                .thenReturn(List.of(new StockRow(
+                        "PSKU-DAILY",
+                        "SKU-DAILY",
+                        null,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO
+                )));
+        when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
+
+        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+
+        assertEquals(new BigDecimal("58"), overview.getRows().get(0).getSeaCalculatedUnits());
         assertEquals(new BigDecimal("60"), overview.getRows().get(0).getSeaSuggestedUnits());
     }
 
@@ -241,13 +390,13 @@ class DefaultReplenishmentPlanServiceTest {
                 0,
                 new BigDecimal("1.5"),
                 new BigDecimal("2"),
-                new BigDecimal("1"),
                 new BigDecimal("1")
         )));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-DETAIL",
                         "SKU-DETAIL",
+                        null,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO,
                         BigDecimal.ZERO
@@ -256,7 +405,8 @@ class DefaultReplenishmentPlanServiceTest {
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
-        assertEquals(new BigDecimal("90"), overview.getRows().get(0).getSeaSuggestedUnits());
+        assertEquals(new BigDecimal("45"), overview.getRows().get(0).getSeaCalculatedUnits());
+        assertEquals(new BigDecimal("50"), overview.getRows().get(0).getSeaSuggestedUnits());
     }
 
     private static ReplenishmentPlanRecords.PlanQuery query() {
@@ -285,8 +435,30 @@ class DefaultReplenishmentPlanServiceTest {
                 forecastUnits90,
                 BigDecimal.ZERO,
                 BigDecimal.ONE,
-                BigDecimal.ONE,
                 BigDecimal.ONE
+        );
+    }
+
+    private static SalesForecastResultRecord resultWithEvidence(String partnerSku, String sku, int forecastUnits90) {
+        return resultRecord(
+                partnerSku,
+                sku,
+                forecastUnits90,
+                BigDecimal.ZERO,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                11,
+                42,
+                73,
+                105,
+                67,
+                "high",
+                "高",
+                "近 30 天稳定出单",
+                "{\"adjustedHistoryUnits7\":\"15.5000\","
+                        + "\"adjustedHistoryUnits30\":\"50.0000\","
+                        + "\"adjustedHistoryUnits60\":\"88.0000\","
+                        + "\"adjustedHistoryUnits90\":\"120.0000\"}"
         );
     }
 
@@ -296,8 +468,117 @@ class DefaultReplenishmentPlanServiceTest {
             int forecastUnits90,
             BigDecimal baseDailySales,
             BigDecimal trendFactor,
-            BigDecimal lifecycleFactor,
             BigDecimal futureFactor
+    ) {
+        return resultRecord(
+                partnerSku,
+                sku,
+                forecastUnits90,
+                baseDailySales,
+                trendFactor,
+                futureFactor,
+                0,
+                0,
+                0,
+                0,
+                0,
+                "medium",
+                "中",
+                null
+        );
+    }
+
+    private static SalesForecastResultRecord resultWithDailyForecasts(String partnerSku, String sku, int forecastUnits90) {
+        return resultRecord(
+                partnerSku,
+                sku,
+                forecastUnits90,
+                BigDecimal.ZERO,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                0,
+                0,
+                0,
+                0,
+                90,
+                "high",
+                "高",
+                null,
+                dailyForecastsJson()
+        );
+    }
+
+    private static SalesForecastResultRecord resultWithShiftedDailyForecasts(String partnerSku, String sku) {
+        return resultRecord(
+                partnerSku,
+                sku,
+                0,
+                BigDecimal.ZERO,
+                BigDecimal.ONE,
+                BigDecimal.ONE,
+                0,
+                0,
+                0,
+                0,
+                90,
+                "high",
+                "高",
+                null,
+                shiftedDailyForecastsJson()
+        );
+    }
+
+    private static SalesForecastResultRecord resultRecord(
+            String partnerSku,
+            String sku,
+            int forecastUnits90,
+            BigDecimal baseDailySales,
+            BigDecimal trendFactor,
+            BigDecimal futureFactor,
+            int historyUnits7,
+            int historyUnits30,
+            int historyUnits60,
+            int historyUnits90,
+            int observedDays,
+            String confidenceLevel,
+            String confidenceLabel,
+            String shortReason
+    ) {
+        return resultRecord(
+                partnerSku,
+                sku,
+                forecastUnits90,
+                baseDailySales,
+                trendFactor,
+                futureFactor,
+                historyUnits7,
+                historyUnits30,
+                historyUnits60,
+                historyUnits90,
+                observedDays,
+                confidenceLevel,
+                confidenceLabel,
+                shortReason,
+                null
+        );
+    }
+
+    private static SalesForecastResultRecord resultRecord(
+            String partnerSku,
+            String sku,
+            int forecastUnits90,
+            BigDecimal baseDailySales,
+            BigDecimal trendFactor,
+            BigDecimal futureFactor,
+            int historyUnits7,
+            int historyUnits30,
+            int historyUnits60,
+            int historyUnits90,
+            int observedDays,
+            String confidenceLevel,
+            String confidenceLabel,
+            String shortReason,
+            String featureSnapshotJson
     ) {
         return new SalesForecastResultRecord(
                 1000L,
@@ -309,35 +590,67 @@ class DefaultReplenishmentPlanServiceTest {
                 sku,
                 "Product " + partnerSku,
                 SOURCE_DATE,
-                0,
-                0,
-                0,
-                0,
-                0,
+                historyUnits7,
+                historyUnits30,
+                historyUnits60,
+                historyUnits90,
+                observedDays,
                 null,
                 null,
-                0,
-                0,
+                forecastUnits90 / 3,
+                forecastUnits90 * 2 / 3,
                 forecastUnits90,
-                null,
-                null,
                 "SALES_FORECAST_V1_4",
                 "default",
                 baseDailySales,
                 BigDecimal.ONE,
                 trendFactor,
-                lifecycleFactor,
                 futureFactor,
-                null,
-                "medium",
-                "中",
-                null,
+                confidenceLevel,
+                confidenceLabel,
                 null,
                 null,
                 null,
                 null,
                 null,
-                null
+                shortReason,
+                featureSnapshotJson
         );
+    }
+
+    private static String dailyForecastsJson() {
+        StringBuilder json = new StringBuilder("{\"dailyForecasts\":[");
+        for (int day = 1; day <= 100; day++) {
+            if (day > 1) {
+                json.append(',');
+            }
+            BigDecimal forecastUnits = day >= 70 && day < 100 ? new BigDecimal("2") : BigDecimal.ZERO;
+            json.append('{')
+                    .append("\"dayIndex\":").append(day).append(',')
+                    .append("\"forecastDate\":\"").append(SOURCE_DATE.plusDays(day)).append("\",")
+                    .append("\"calendarFactor\":\"1.0000\",")
+                    .append("\"forecastUnits\":\"").append(forecastUnits.toPlainString()).append("\"")
+                    .append('}');
+        }
+        return json.append("]}").toString();
+    }
+
+    private static String shiftedDailyForecastsJson() {
+        return "{\"dailyForecasts\":["
+                + "{\"dayIndex\":12,\"forecastDate\":\"2026-07-18\",\"calendarFactor\":\"1.0000\",\"forecastUnits\":\"5\"},"
+                + "{\"dayIndex\":28,\"forecastDate\":\"2026-08-03\",\"calendarFactor\":\"1.0000\",\"forecastUnits\":\"9\"},"
+                + "{\"dayIndex\":70,\"forecastDate\":\"2026-09-14\",\"calendarFactor\":\"1.0000\",\"forecastUnits\":\"30\"},"
+                + "{\"dayIndex\":101,\"forecastDate\":\"2026-10-15\",\"calendarFactor\":\"1.0000\",\"forecastUnits\":\"7\"}"
+                + "]}";
+    }
+
+    private static ReplenishmentPlanRecords.InboundBatch inboundBatch(
+            ReplenishmentPlanRecords.PlanItemView row,
+            String batchReferenceNo
+    ) {
+        return row.getInboundBatches().stream()
+                .filter(batch -> batchReferenceNo.equals(batch.getBatchReferenceNo()))
+                .findFirst()
+                .orElseThrow();
     }
 }

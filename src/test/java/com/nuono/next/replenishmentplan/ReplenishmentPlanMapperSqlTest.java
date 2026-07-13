@@ -13,17 +13,24 @@ import org.junit.jupiter.api.Test;
 class ReplenishmentPlanMapperSqlTest {
 
     @Test
-    void stockQueryUsesOnlyFbnAndSupermallStock() throws Exception {
+    void stockQueryUsesOnlyFbnStockForCurrentReplenishmentInventory() throws Exception {
         String sql = selectSql("selectFbnSupermallStock", Long.class, String.class, String.class);
 
+        assertTrue(sql.contains("pso.fbn_stock AS currentStockUnits"));
         assertTrue(sql.contains("pso.fbn_stock AS fbnStockUnits"));
         assertTrue(sql.contains("pso.supermall_stock AS supermallStockUnits"));
-        assertTrue(sql.contains("CASE WHEN pso.fbn_stock IS NULL AND pso.supermall_stock IS NULL THEN NULL"));
-        assertTrue(sql.contains("COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)"));
-        assertTrue(sql.contains("END AS currentStockUnits"));
+        assertTrue(sql.contains("DATE(pso.listing_started_at) AS listingAt"));
+        assertFalse(sql.contains("COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)"));
+        assertTrue(sql.contains("COALESCE("));
+        assertTrue(sql.contains("pm.cover_image_url"));
+        assertTrue(sql.contains("public_detail.main_image_url"));
+        assertTrue(sql.contains("$.content.mainImageUrl"));
+        assertTrue(sql.contains("$.content.images[0]"));
         assertTrue(sql.contains("JOIN logical_store ls"));
         assertTrue(sql.contains("JOIN logical_store_site lss"));
         assertTrue(sql.contains("JOIN product_master pm"));
+        assertTrue(sql.contains("LEFT JOIN product_public_detail_snapshot public_detail"));
+        assertTrue(sql.contains("LEFT JOIN product_master_snapshot pms"));
         assertTrue(sql.contains("WHERE ls.owner_user_id = #{ownerUserId}"));
         assertTrue(sql.contains("AND lss.store_code = #{storeCode}"));
         assertTrue(sql.contains("AND lss.site = #{siteCode}"));
@@ -31,7 +38,7 @@ class ReplenishmentPlanMapperSqlTest {
     }
 
     @Test
-    void inboundLineQueryKeepsEtaRowsAndUsesOnlyScopedActiveLines() throws Exception {
+    void inboundLineQueryKeepsEtaRowsAndUsesScopedOrUnassignedActiveLineCandidates() throws Exception {
         String sql = selectSql("selectActiveInboundLines", Long.class, String.class, String.class);
 
         assertTrue(sql.contains("line.id AS lineId"));
@@ -46,17 +53,26 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("GREATEST("));
         assertTrue(sql.contains("AS remainingQuantity"));
         assertTrue(sql.contains("batch.batch_status NOT IN"));
+        assertTrue(sql.contains("batch.latest_node_status IS NULL"));
+        assertTrue(sql.contains("batch.latest_node_status NOT IN"));
+        assertTrue(sql.contains("DATE_SUB(CURDATE(), INTERVAL 7 MONTH)"));
+        assertTrue(sql.contains("DATE(batch.estimated_departure_at)"));
+        assertTrue(sql.contains("batch.departure_date"));
+        assertTrue(sql.contains("DATE(batch.source_created_at)"));
         assertTrue(sql.contains("FROM in_transit_goods_line line"));
         assertTrue(sql.contains("JOIN in_transit_batch batch"));
         assertTrue(sql.contains("line.store_code = #{storeCode}"));
         assertTrue(sql.contains("line.site_code = #{siteCode}"));
+        assertTrue(sql.contains("NULLIF(TRIM(line.store_code), '') IS NULL"));
+        assertTrue(sql.contains("NULLIF(TRIM(line.site_code), '') IS NULL"));
+        assertTrue(sql.contains("OR line.site_code = #{siteCode}"));
         assertTrue(sql.contains("> 0"));
         assertFalse(sql.contains("JOIN product_site_offer pso"));
         assertFalse(sql.contains("JOIN product_variant pv"));
         assertFalse(sql.contains("line.psku AS partnerSku"));
         assertFalse(sql.contains("batch.target_store_code"));
         assertFalse(sql.contains("batch.target_site_code"));
-        assertFalse(sql.contains("eta_date IS NOT NULL"));
+        assertFalse(sql.contains("AND batch.eta_date IS NOT NULL"));
         assertFalse(sql.toLowerCase().contains("official_warehouse_asn"));
     }
 
@@ -91,6 +107,7 @@ class ReplenishmentPlanMapperSqlTest {
         for (String status : inactiveStatuses) {
             assertTrue(sql.contains("'" + status + "'"), "missing inactive status: " + status);
         }
+        assertTrue(sql.contains("batch.latest_node_status NOT IN ('warehouse_received', 'cancelled')"));
     }
 
     private static String selectSql(String methodName, Class<?>... parameterTypes) throws Exception {

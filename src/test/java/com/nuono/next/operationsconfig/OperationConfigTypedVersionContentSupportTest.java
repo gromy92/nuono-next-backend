@@ -67,7 +67,7 @@ class OperationConfigTypedVersionContentSupportTest {
     }
 
     @Test
-    void resolvesEffectiveTypedCalendarEvidenceByExactScopeThenGlobalThenDefault() {
+    void resolvesEffectiveTypedCalendarVersionByExactScopeThenGlobalThenDefault() {
         InMemoryTypedVersionRepository repository = new InMemoryTypedVersionRepository();
         repository.insert(version(
                 88001L,
@@ -94,33 +94,45 @@ class OperationConfigTypedVersionContentSupportTest {
                 LocalDateTime.of(2026, 5, 2, 0, 0)
         ));
 
-        OperationConfigTypedVersionEvidence exact = OperationConfigTypedVersionEvidence.resolve(
+        Optional<OperationConfigTypedVersion> exact = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
                 repository,
                 OperationConfigVersionType.BUSINESS_CALENDAR,
                 10002L,
                 "str108065-nsa",
                 "sa"
         );
-        OperationConfigTypedVersionEvidence global = OperationConfigTypedVersionEvidence.resolve(
+        Optional<OperationConfigTypedVersion> global = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
                 repository,
                 OperationConfigVersionType.BUSINESS_CALENDAR,
                 10002L,
                 "OTHER",
                 "SA"
         );
-        OperationConfigTypedVersionEvidence fallback = OperationConfigTypedVersionEvidence.resolve(
-                new InMemoryTypedVersionRepository(),
+        InMemoryTypedVersionRepository defaultRepository = new InMemoryTypedVersionRepository();
+        defaultRepository.insert(version(
+                88004L,
+                "DEFAULT_CALENDAR_CONFIG",
+                "默认日历配置",
+                "SYSTEM_DEFAULT",
+                "全局默认",
+                LocalDateTime.of(2026, 1, 1, 0, 0)
+        ));
+        Optional<OperationConfigTypedVersion> fallback = OperationConfigTypedVersionContentSupport.resolveEffectiveVersion(
+                defaultRepository,
                 OperationConfigVersionType.BUSINESS_CALENDAR,
                 10002L,
                 "OTHER",
                 "SA"
         );
 
-        assertEquals("CALENDAR_EXACT", exact.getVersionNo());
-        assertEquals("canman SA 日历", exact.getVersionName());
-        assertEquals("typed_version", exact.getSourceLabel());
-        assertEquals("CALENDAR_GLOBAL", global.getVersionNo());
-        assertEquals("DEFAULT_CALENDAR_CONFIG", fallback.getVersionNo());
+        assertTrue(exact.isPresent());
+        assertTrue(global.isPresent());
+        assertTrue(fallback.isPresent());
+        assertEquals("CALENDAR_EXACT", exact.get().getVersionNo());
+        assertEquals("canman SA 日历", exact.get().getDisplayName());
+        assertEquals("typed_version", exact.get().getSourceLabel());
+        assertEquals("CALENDAR_GLOBAL", global.get().getVersionNo());
+        assertEquals("DEFAULT_CALENDAR_CONFIG", fallback.get().getVersionNo());
     }
 
     @Test

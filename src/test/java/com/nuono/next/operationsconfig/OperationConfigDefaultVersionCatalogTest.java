@@ -120,7 +120,7 @@ class OperationConfigDefaultVersionCatalogTest {
         assertEquals("15", defaultValue(detail, "空运覆盖天数"));
         assertEquals("70", defaultValue(detail, "海运运输天数"));
         assertEquals("30", defaultValue(detail, "海运覆盖天数"));
-        assertEquals("FBN,SUPERMALL", defaultValue(detail, "库存来源"));
+        assertEquals("FBN", defaultValue(detail, "库存来源"));
         assertEquals("true", defaultValue(detail, "在途必须有 ETA"));
         assertEquals("true", defaultValue(detail, "空运只应急"));
         assertEquals("ceil", defaultValue(detail, "建议数量取整"));
