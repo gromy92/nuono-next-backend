@@ -73,7 +73,7 @@ class OperationConfigTypedVersionEvidenceTest {
     }
 
     @Test
-    void resolveBusinessCalendarIgnoresCurrentTypedVersionAndReturnsDefaultMetadata() {
+    void resolveBusinessCalendarReturnsCurrentTypedVersionMetadata() {
         InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
         repository.insert(version(
                 89002L,
@@ -95,9 +95,9 @@ class OperationConfigTypedVersionEvidenceTest {
         );
 
         assertEquals(OperationConfigVersionType.BUSINESS_CALENDAR.name(), evidence.getConfigType());
-        assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO, evidence.getVersionNo());
-        assertEquals("默认日历配置", evidence.getVersionName());
-        assertEquals("系统默认", evidence.getSourceLabel());
+        assertEquals("CALENDAR_CURRENT", evidence.getVersionNo());
+        assertEquals("Current Calendar", evidence.getVersionName());
+        assertEquals("运营配置", evidence.getSourceLabel());
     }
 
     @Test
