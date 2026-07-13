@@ -236,30 +236,9 @@ class ProductPublicDetailSyncServiceTest {
     }
 
     @Test
-    void submitManualUsesPreferredScopeForSiblingSiteRequest() {
-        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
-        ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
-        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
-        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
-        when(mapper.listCandidates(eq(501L), eq("STR108065-NSA"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
-                .thenReturn(List.of(candidate("STR108065-NSA", "SA")));
-        when(adapter.adapterVersion()).thenReturn("test-adapter");
-        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(partialResult());
-        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("SA"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
-        when(mapper.nextSnapshotId()).thenReturn(300001L);
-
-        ProductPublicDetailTaskView task = service.submitManual(contextWith108065Stores(), "STR108065-NAE", "AE");
-
-        assertEquals("STR108065-NSA", task.getStoreCode());
-        assertEquals("SA", task.getSiteCode());
-        verify(mapper).listCandidates(eq(501L), eq("STR108065-NSA"), eq("SA"), anyInt(), anyInt(), anyInt(), eq(false), eq(true));
-    }
-
-    @Test
-    void submitManualFallsBackToRequestedScopeWhenPreferredScopeHasNoCandidates() {
+    void submitManualKeepsRequestedScopeAndAppliesPreferredSiteFilter() {
         ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
         when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
-        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(null);
         when(mapper.listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate("STR108065-NAE", "AE")));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
@@ -271,15 +250,33 @@ class ProductPublicDetailSyncServiceTest {
 
         assertEquals("STR108065-NAE", task.getStoreCode());
         assertEquals("AE", task.getSiteCode());
+        verify(mapper, never()).selectPreferredScope(any(), any(), anyInt());
         verify(mapper).listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), eq(false), eq(true));
     }
 
     @Test
-    void submitManualFallsBackToRequestedScopeWhenPreferredScopeIsNotAccessible() {
+    void submitManualUsesRequestedScopeWhenPreferredScopeHasNoCandidates() {
         ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
-        ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
         when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
-        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
+        when(mapper.listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
+                .thenReturn(List.of(candidate("STR108065-NAE", "AE")));
+        when(adapter.adapterVersion()).thenReturn("test-adapter");
+        when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenReturn(partialResult());
+        when(mapper.selectDailySnapshot(eq(1001L), eq(2001L), eq("AE"), eq("NOON"), any(LocalDate.class))).thenReturn(null);
+        when(mapper.nextSnapshotId()).thenReturn(300001L);
+
+        ProductPublicDetailTaskView task = service.submitManual(contextWith108065Stores(), "STR108065-NAE", "AE");
+
+        assertEquals("STR108065-NAE", task.getStoreCode());
+        assertEquals("AE", task.getSiteCode());
+        verify(mapper, never()).selectPreferredScope(any(), any(), anyInt());
+        verify(mapper).listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), eq(false), eq(true));
+    }
+
+    @Test
+    void submitManualUsesRequestedScopeWhenPreferredScopeIsNotAccessible() {
+        ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
+        when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
         when(mapper.listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean()))
                 .thenReturn(List.of(candidate("STR108065-NAE", "AE")));
         when(adapter.adapterVersion()).thenReturn("test-adapter");
@@ -291,7 +288,8 @@ class ProductPublicDetailSyncServiceTest {
 
         assertEquals("STR108065-NAE", task.getStoreCode());
         assertEquals("AE", task.getSiteCode());
-        verify(mapper).listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), eq(false), eq(false));
+        verify(mapper, never()).selectPreferredScope(any(), any(), anyInt());
+        verify(mapper).listCandidates(eq(501L), eq("STR108065-NAE"), eq("AE"), anyInt(), anyInt(), anyInt(), eq(false), eq(true));
         verify(mapper, never()).listCandidates(eq(501L), eq("STR108065-NSA"), eq("SA"), anyInt(), anyInt(), anyInt(), anyBoolean(), anyBoolean());
     }
 
