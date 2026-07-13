@@ -615,6 +615,24 @@ public interface OfficialWarehouseMapper {
 
     @Update({
             "UPDATE official_warehouse_asn",
+            "SET routing_response_json = #{routingResponseJson}, routing_is_transfer = #{routingIsTransfer},",
+            "    selected_warehouse_partner_code = #{selectedWarehousePartnerCode}, selected_warehouse_code = #{selectedWarehouseCode},",
+            "    selected_warehouse_name = #{selectedWarehouseName}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAsnRoutingSnapshot(
+            @Param("asnId") Long asnId,
+            @Param("routingResponseJson") String routingResponseJson,
+            @Param("routingIsTransfer") Boolean routingIsTransfer,
+            @Param("selectedWarehousePartnerCode") String selectedWarehousePartnerCode,
+            @Param("selectedWarehouseCode") String selectedWarehouseCode,
+            @Param("selectedWarehouseName") String selectedWarehouseName,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
             "SET status = 'LINES_CREATED', finished_at = NOW(), error_stage = NULL, failure_type = NULL, error_message = NULL,",
             "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{asnId}",
@@ -758,6 +776,40 @@ public interface OfficialWarehouseMapper {
             @Param("operatorUserId") Long operatorUserId
     );
 
+    @Update({
+            "UPDATE official_warehouse_asn_shipping_batch_link",
+            "SET is_deleted = b'1', updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE asn_id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteAsnShippingBatchLinks(
+            @Param("asnId") Long asnId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn_line",
+            "SET is_deleted = b'1', updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE asn_id = #{asnId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteAsnLines(
+            @Param("asnId") Long asnId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET is_deleted = b'1', updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND is_deleted = b'0'",
+            "  AND (noon_asn_nr IS NULL OR TRIM(noon_asn_nr) = '')"
+    })
+    int softDeletePreSubmitAsn(
+            @Param("asnId") Long asnId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
     @Select({
             "<script>",
             "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, store_code AS storeCode,",
@@ -775,6 +827,7 @@ public interface OfficialWarehouseMapper {
             "FROM official_warehouse_asn",
             "WHERE is_deleted = b'0'",
             "  AND owner_user_id = #{ownerUserId}",
+            "  AND NOT (status = 'FAILED' AND (noon_asn_nr IS NULL OR TRIM(noon_asn_nr) = ''))",
             "<if test='storeCodes != null and storeCodes.size() > 0'>",
             "  AND UPPER(store_code) IN",
             "  <foreach item='storeCode' collection='storeCodes' open='(' separator=',' close=')'>",

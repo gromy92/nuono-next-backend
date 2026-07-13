@@ -206,6 +206,56 @@ class OfficialWarehouseSchemaTest {
     }
 
     @Test
+    void officialWarehouseHidesAndCleansPreSubmitAsnFailures() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
+
+        assertThat(mapper)
+                .contains("AND NOT (status = 'FAILED' AND (noon_asn_nr IS NULL OR TRIM(noon_asn_nr) = ''))")
+                .contains("int softDeleteAsnShippingBatchLinks(")
+                .contains("int softDeleteAsnLines(")
+                .contains("int softDeletePreSubmitAsn(")
+                .contains("AND (noon_asn_nr IS NULL OR TRIM(noon_asn_nr) = '')");
+        assertThat(service)
+                .contains("boolean remoteAsnCreated = false;")
+                .contains("remoteAsnCreated = true;")
+                .contains("private void failAsnCreation(")
+                .contains("if (!remoteAsnCreated)")
+                .contains("mapper.softDeletePreSubmitAsn(asnId, operatorUserId);");
+    }
+
+    @Test
+    void officialWarehouseNoonSyncCanPrefillRoutingSnapshotWithoutChangingAsnStatus() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
+        String client = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseNoonInboundClient.java"));
+        String controller = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java"));
+        String commands = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseCommands.java"));
+        int snapshotSqlStart = mapper.indexOf("\"SET routing_response_json = #{routingResponseJson}");
+        int snapshotSqlEnd = mapper.indexOf("int updateAsnRoutingSnapshot", snapshotSqlStart);
+        String snapshotSql = mapper.substring(snapshotSqlStart, snapshotSqlEnd);
+
+        assertThat(mapper)
+                .contains("int updateAsnRoutingSnapshot(")
+                .contains("selected_warehouse_partner_code = #{selectedWarehousePartnerCode}");
+        assertThat(snapshotSql).doesNotContain("status = 'ROUTED'");
+        assertThat(service)
+                .contains("syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, false")
+                .contains("syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, true")
+                .contains("prefillSyncedAsnRoutingWarehouses(")
+                .contains("queryAsnDetailRow(session, binding, context, syncRecord.noonAsnNr)")
+                .contains("mapper.updateAsnRoutingSnapshot(");
+        assertThat(client)
+                .contains("JsonNode queryAsnDetailRow(")
+                .contains("routingLineRowsFromAsnDetail(JsonNode detail)");
+        assertThat(commands).contains("public static class SyncNoonAsnNumbersCommand");
+        assertThat(controller)
+                .contains("@PostMapping(\"/asns/sync-noon-numbers\")")
+                .contains("command.dryRun == null || command.dryRun")
+                .contains("service().syncNoonAsnNumbers(");
+    }
+
+    @Test
     void officialWarehouseHasOwnBusinessCapability() {
         assertThat(BusinessCapability.OFFICIAL_WAREHOUSE.getMenuPathPrefixes())
                 .contains("/warehouse/official-warehouse", "/api/warehouse/official-warehouse");

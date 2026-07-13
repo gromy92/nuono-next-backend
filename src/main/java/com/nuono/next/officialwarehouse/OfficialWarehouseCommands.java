@@ -23,6 +23,13 @@ public final class OfficialWarehouseCommands {
         public Integer quantity;
     }
 
+    public static class SyncNoonAsnNumbersCommand {
+        public String storeCode;
+        public String siteCode;
+        public List<String> asnNumbers = new ArrayList<>();
+        public Boolean dryRun;
+    }
+
     public static class UpsertAppointmentCommand {
         public String warehouseFrom;
         public String warehouseToPartnerCode;

@@ -101,6 +101,15 @@ public class OfficialWarehouseNoonInboundClient {
             NoonCallContext context,
             String asnNr
     ) {
+        return parseAsnDetail(queryAsnDetailRow(session, binding, context, asnNr));
+    }
+
+    JsonNode queryAsnDetailRow(
+            NoonSession session,
+            NoonSalesReportBinding binding,
+            NoonCallContext context,
+            String asnNr
+    ) {
         JsonNode response = postNoonJson(
                 session,
                 binding,
@@ -108,7 +117,7 @@ public class OfficialWarehouseNoonInboundClient {
                 QUERY_ASN_DETAIL_URL,
                 asnDetailBody(binding, asnNr)
         );
-        return parseAsnDetail(firstDataNode(response));
+        return firstDataNode(response);
     }
 
     void setWarehouses(
@@ -296,6 +305,46 @@ public class OfficialWarehouseNoonInboundClient {
         );
     }
 
+    static List<AsnLineInsertRecord> routingLineRowsFromAsnDetail(JsonNode detail) {
+        if (detail == null) {
+            return List.of();
+        }
+        JsonNode lines = detail.path("lines");
+        if (!lines.isArray()) {
+            lines = detail.path("partnerAsnLineList");
+        }
+        if (!lines.isArray()) {
+            return List.of();
+        }
+        List<AsnLineInsertRecord> result = new ArrayList<>();
+        for (JsonNode line : lines) {
+            String noonSku = firstText(line, "sku", "noon_sku", "noonSku");
+            Integer quantity = firstPositiveInt(
+                    line,
+                    "qty",
+                    "quantity",
+                    "total_qty",
+                    "totalQty",
+                    "expected_qty",
+                    "expectedQty",
+                    "qty_expected",
+                    "qtyExpected"
+            );
+            if (!StringUtils.hasText(noonSku) || quantity == null) {
+                continue;
+            }
+            AsnLineInsertRecord record = new AsnLineInsertRecord();
+            record.noonSku = noonSku;
+            record.quantity = quantity;
+            record.storageTypeCode = firstNonBlank(
+                    firstText(line, "storage_type_code", "storageTypeCode"),
+                    "standard"
+            );
+            result.add(record);
+        }
+        return result;
+    }
+
     private JsonNode postNoonJson(
             NoonSession session,
             NoonSalesReportBinding binding,
@@ -419,6 +468,19 @@ public class OfficialWarehouseNoonInboundClient {
     private static Integer intValue(JsonNode node, String fieldName) {
         Long value = longValue(node, fieldName);
         return value == null ? null : value.intValue();
+    }
+
+    private static Integer firstPositiveInt(JsonNode node, String... fieldNames) {
+        if (fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            Integer value = intValue(node, fieldName);
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static Long longValue(JsonNode node, String fieldName) {

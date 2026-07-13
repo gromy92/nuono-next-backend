@@ -192,7 +192,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 result.fetched += rows.size();
                 for (JsonNode rowNode : rows) {
                     NoonAsnListRow remoteRow = OfficialWarehouseAsnListSyncSupport.parseRow(rowNode);
-                    syncNoonAsnListRow(result, ownerUserId, site, binding, remoteRow, access.getSessionUserId());
+                    syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, false, access.getSessionUserId());
                 }
             }
             JsonNode pagination = data.path("pagination");
@@ -256,7 +256,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                     if (dryRun) {
                         continue;
                     }
-                    syncNoonAsnListRow(result, ownerUserId, site, binding, remoteRow, access.getSessionUserId());
+                    syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, true, access.getSessionUserId());
                 }
             }
             if (!found) {
@@ -523,6 +523,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             mapper.insertAsnShippingBatchLink(linkRow);
         }
 
+        boolean remoteAsnCreated = false;
         try {
             NoonSalesReportBinding binding = bindingResolver.resolve(new NoonSalesReportRequest(
                     ownerUserId,
@@ -539,6 +540,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             JsonNode createResponse = noonInboundClient.createAsn(session, binding, asnCallContext, totalQuantity);
             JsonNode createData = createResponse.path("data");
             String asnNr = requireText(text(createData, "asn_nr"), "Noon 创建 ASN 响应缺少 asn_nr。");
+            remoteAsnCreated = true;
             Long partnerAsnId = longValue(createData, "id_partner_asn");
             Integer noonTotalQty = intValue(createData, "total_qty");
             mapper.markAsnCreated(
@@ -581,14 +583,29 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             mapper.markProductSiteOfferLogisticsHistoryByAsn(asnId, access.getSessionUserId());
             return getAsn(access, String.valueOf(asnId));
         } catch (IllegalArgumentException exception) {
-            mapper.markAsnFailed(asnId, "VALIDATION", "VALIDATION", exception.getMessage(), access.getSessionUserId());
-            mapper.markPendingLinesFailed(asnId, exception.getMessage(), access.getSessionUserId());
+            failAsnCreation(asnId, remoteAsnCreated, "VALIDATION", "VALIDATION", exception.getMessage(), access.getSessionUserId());
             throw exception;
         } catch (Exception exception) {
             String message = shrinkMessage(exception);
-            mapper.markAsnFailed(asnId, resolveFailureStage(), exception.getClass().getSimpleName(), message, access.getSessionUserId());
-            mapper.markPendingLinesFailed(asnId, message, access.getSessionUserId());
+            failAsnCreation(asnId, remoteAsnCreated, resolveFailureStage(), exception.getClass().getSimpleName(), message, access.getSessionUserId());
             throw new IllegalStateException("Noon 官方仓 ASN 创建失败：" + message, exception);
+        }
+    }
+
+    private void failAsnCreation(
+            Long asnId,
+            boolean remoteAsnCreated,
+            String errorStage,
+            String failureType,
+            String errorMessage,
+            Long operatorUserId
+    ) {
+        mapper.markAsnFailed(asnId, errorStage, failureType, errorMessage, operatorUserId);
+        mapper.markPendingLinesFailed(asnId, errorMessage, operatorUserId);
+        if (!remoteAsnCreated) {
+            mapper.softDeleteAsnShippingBatchLinks(asnId, operatorUserId);
+            mapper.softDeleteAsnLines(asnId, operatorUserId);
+            mapper.softDeletePreSubmitAsn(asnId, operatorUserId);
         }
     }
 
@@ -772,7 +789,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             Long ownerUserId,
             StoreSiteRecord site,
             NoonSalesReportBinding binding,
+            NoonSession session,
             NoonAsnListRow remoteRow,
+            boolean allowExistingRoutingPrefill,
             Long operatorUserId
     ) {
         Long operatorId = operatorUserId == null ? ownerUserId : operatorUserId;
@@ -790,6 +809,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         AsnRecord existing = mapper.selectAsnByNoonAsnNr(ownerUserId, site.storeCode, site.siteCode, remoteRow.asnNr);
         Long asnId;
         String localAsnNo;
+        boolean insertedFromNoon = existing == null;
         if (existing == null) {
             asnId = mapper.nextAsnId();
             localAsnNo = "OWA-" + asnId;
@@ -823,6 +843,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 remoteRow,
                 operatorId
         );
+        boolean missingRoutingSnapshot = existing == null
+                || (!StringUtils.hasText(existing.routingResponseJson)
+                && !StringUtils.hasText(existing.selectedWarehousePartnerCode)
+                && !StringUtils.hasText(existing.selectedWarehouseCode));
         mapper.syncAsnFromNoonList(syncRecord);
         if ("FAILED".equals(syncRecord.status)) {
             result.failed += 1;
@@ -837,6 +861,66 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 remoteRow,
                 operatorId
         );
+        if (insertedFromNoon || (allowExistingRoutingPrefill && missingRoutingSnapshot)) {
+            prefillSyncedAsnRoutingWarehouses(
+                    session,
+                    binding,
+                    asnId,
+                    localAsnNo,
+                    syncRecord,
+                    remoteRow,
+                    operatorId
+            );
+        }
+    }
+
+    private void prefillSyncedAsnRoutingWarehouses(
+            NoonSession session,
+            NoonSalesReportBinding binding,
+            Long asnId,
+            String localAsnNo,
+            AsnNoonListSyncRecord syncRecord,
+            NoonAsnListRow remoteRow,
+            Long operatorUserId
+    ) {
+        if (session == null || syncRecord == null || remoteRow == null || !StringUtils.hasText(syncRecord.noonAsnNr)) {
+            return;
+        }
+        if (!"LINES_CREATED".equals(syncRecord.status)) {
+            return;
+        }
+        if (!OfficialWarehouseStatusPolicy.isNoonAsnReadyForAppointmentStatus(remoteRow.remoteStatus)) {
+            return;
+        }
+        if (StringUtils.hasText(remoteRow.warehouseToPartnerCode) || StringUtils.hasText(remoteRow.warehouseToCode)) {
+            return;
+        }
+        NoonCallContext context = NoonCallContext.asn(asnId, localAsnNo);
+        try {
+            JsonNode detail = noonInboundClient.queryAsnDetailRow(session, binding, context, syncRecord.noonAsnNr);
+            List<AsnLineInsertRecord> routingLines = OfficialWarehouseNoonInboundClient.routingLineRowsFromAsnDetail(detail);
+            if (routingLines.isEmpty()) {
+                return;
+            }
+            JsonNode routingResponse = noonInboundClient.routeWarehouse(session, binding, context, syncRecord.noonAsnNr, routingLines);
+            JsonNode firstWarehouse = firstWarehouse(routingResponse);
+            String selectedWarehousePartnerCode = text(firstWarehouse, "partner_code");
+            String selectedWarehouseCode = text(firstWarehouse, "code");
+            if (!StringUtils.hasText(selectedWarehousePartnerCode) && !StringUtils.hasText(selectedWarehouseCode)) {
+                return;
+            }
+            mapper.updateAsnRoutingSnapshot(
+                    asnId,
+                    writeJson(routingResponse),
+                    booleanValue(routingResponse, "is_transfer"),
+                    selectedWarehousePartnerCode,
+                    selectedWarehouseCode,
+                    firstNonBlank(selectedWarehousePartnerCode, selectedWarehouseCode),
+                    operatorUserId
+            );
+        } catch (RuntimeException exception) {
+            // Keep ASN list sync resilient; the Noon call log keeps the routing prefill failure detail.
+        }
     }
 
     private AsnNoonListSyncRecord buildAsnNoonListSyncRecord(
