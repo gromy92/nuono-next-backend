@@ -431,11 +431,10 @@ public class ProductPublicDetailSyncService {
     }
 
     private void upsertSnapshot(ProductPublicDetailSnapshot snapshot) {
-        if (snapshot == null
-                || snapshot.getSyncStatus() == null
-                || !snapshot.getSyncStatus().updatesLatestPointer()) {
+        if (snapshot == null || snapshot.getSyncStatus() == null) {
             return;
         }
+        boolean updatesLatestPointer = snapshot.getSyncStatus().updatesLatestPointer();
         ProductPublicDetailSnapshot existing = mapper.selectDailySnapshot(
                 snapshot.getProductMasterId(),
                 snapshot.getProductVariantId(),
@@ -445,7 +444,7 @@ public class ProductPublicDetailSyncService {
         );
         if (existing == null) {
             snapshot.setId(mapper.nextSnapshotId());
-            snapshot.setLatest(true);
+            snapshot.setLatest(updatesLatestPointer);
             mapper.insertSnapshot(snapshot);
         } else {
             if (shouldPreserveExistingLatestSuccess(existing, snapshot)) {
@@ -455,7 +454,7 @@ public class ProductPublicDetailSyncService {
             snapshot.setLatest(existing.getLatest());
             mapper.updateSnapshotPreservingTrustedData(snapshot);
         }
-        if (snapshot.getSyncStatus() != null && snapshot.getSyncStatus().updatesLatestPointer()) {
+        if (updatesLatestPointer) {
             mapper.clearLatestForProduct(
                     snapshot.getProductMasterId(),
                     snapshot.getProductVariantId(),
