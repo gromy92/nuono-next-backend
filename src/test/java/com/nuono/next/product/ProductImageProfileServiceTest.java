@@ -116,6 +116,47 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
+    void listSummariesShouldReturnLightweightRowsWithoutDetailAssetQueries() {
+        ProductImageProductCandidateRecord candidate = candidateRecord();
+        candidate.setProductTitle("Candidate title");
+        ProductImageProfileSummaryRecord summary = new ProductImageProfileSummaryRecord();
+        summary.setId(7001L);
+        summary.setOwnerUserId(307L);
+        summary.setStoreCode("STR108065-NAE");
+        summary.setPskuCode("PAPERSAYSB024");
+        summary.setProductIdentityKey("psku:PAPERSAYSB024");
+        summary.setProductMasterId(9001L);
+        summary.setProductTitle("Magnetic Whiteboard Markers");
+        summary.setBrand("PAPERSAY");
+        summary.setCoverImageUrl("https://example.test/cover.jpg");
+        summary.setAssetCount(7);
+        summary.setSuiteCount(2);
+        summary.setHasAdoptedSuite(true);
+        when(mapper.selectAllProductCandidatesForStore(307L, "STR108065-NAE")).thenReturn(List.of(candidate));
+        when(mapper.selectProfileByIdentity(307L, "STR108065-NAE", "SGGRB291", "variant:92001")).thenReturn(profileRecord());
+        when(mapper.selectProfileSummariesForStore(307L, "STR108065-NAE", null)).thenReturn(List.of(summary));
+        when(mapper.selectProductCandidates(307L, "STR108065-NAE", null)).thenReturn(List.of());
+
+        ProductImageProfileListCommand command = new ProductImageProfileListCommand();
+        command.setOwnerUserId(307L);
+        command.setStoreCode("STR108065-NAE");
+        command.setOperatorUserId(10003L);
+
+        ProductImageProfileSummaryListView view = service.listSummaries(command);
+
+        assertEquals(1, view.getItems().size());
+        ProductImageProfileSummaryView item = view.getItems().get(0);
+        assertEquals(7001L, item.getId());
+        assertEquals("https://example.test/cover.jpg", item.getCoverImageUrl());
+        assertEquals(7, item.getAssetCount());
+        assertEquals(2, item.getSuiteCount());
+        assertTrue(item.getHasAdoptedSuite());
+        verify(mapper, never()).selectAssets(any());
+        verify(mapper, never()).selectSections(any());
+        verify(mapper, never()).selectSuites(any());
+    }
+
+    @Test
     void saveShouldCreateProfileWithProductIdentityAndSections() {
         ProductImageProfileSaveCommand command = new ProductImageProfileSaveCommand();
         command.setOwnerUserId(307L);

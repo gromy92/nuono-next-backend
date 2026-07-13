@@ -57,6 +57,31 @@ class ProductImageProfileMapperSqlTest {
     }
 
     @Test
+    void profileSummaryListSelectsOnlyListFieldsCoverAndCounts() throws Exception {
+        Method method = ProductImageProfileMapper.class.getMethod(
+                "selectProfileSummariesForStore",
+                Long.class,
+                String.class,
+                String.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String rawSql = String.join("\n", select.value());
+        String sql = rawSql.replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("cover_image_url")
+                .contains("asset_count")
+                .contains("suite_count")
+                .contains("has_adopted_suite")
+                .contains("GROUP BY p2.owner_user_id, p2.psku_code, p2.product_identity_key")
+                .contains("product_image_profile_asset")
+                .contains("product_image_suite")
+                .doesNotContain("product_image_section");
+
+        new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
+    }
+
+    @Test
     void productCandidatesUseAllSitesUnderRequestedLogicalStore() throws Exception {
         Method method = ProductImageProfileMapper.class.getMethod(
                 "selectProductCandidates",

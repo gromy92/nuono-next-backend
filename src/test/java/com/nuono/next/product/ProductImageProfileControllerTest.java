@@ -75,6 +75,25 @@ class ProductImageProfileControllerTest {
     }
 
     @Test
+    void profileSummariesShouldResolveOwnerFromSessionAndStoreScope() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
+        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR108065-NAE")))
+                .thenReturn(307L);
+        when(service.listSummaries(any())).thenReturn(new ProductImageProfileSummaryListView());
+
+        controller.listSummaries(99999L, "STR108065-NAE", "PAPERSAY", request);
+
+        ArgumentCaptor<ProductImageProfileListCommand> captor = ArgumentCaptor.forClass(ProductImageProfileListCommand.class);
+        verify(service).listSummaries(captor.capture());
+        assertEquals(307L, captor.getValue().getOwnerUserId());
+        assertEquals("STR108065-NAE", captor.getValue().getStoreCode());
+        assertEquals("PAPERSAY", captor.getValue().getKeyword());
+        assertEquals(10003L, captor.getValue().getOperatorUserId());
+    }
+
+    @Test
     void saveShouldResolveOwnerAndOperatorBeforeCallingService() {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(serviceProvider.getIfAvailable()).thenReturn(service);
