@@ -98,6 +98,19 @@ class BusinessAccessResolverTest {
     }
 
     @Test
+    void salesDataCapabilityIncludesPostSaleProfitCenterPaths() {
+        BusinessAccessContext postSaleProfitApi = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/post-sale-profit/batches"))
+                .build();
+        BusinessAccessContext postSaleProfitPage = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/data/post-sale-profit"))
+                .build();
+
+        assertThat(postSaleProfitApi.hasCapability(BusinessCapability.SALES_DATA)).isTrue();
+        assertThat(postSaleProfitPage.hasCapability(BusinessCapability.SALES_DATA)).isTrue();
+    }
+
+    @Test
     void ali1688HistoricalOrdersCapabilityUsesDedicatedPurchaseMenu() {
         BusinessAccessContext exact = BusinessAccessContext.builder()
                 .menuPaths(Set.of("/purchase/ali1688-orders"))

@@ -35,7 +35,7 @@ public class ProductWorkbenchOpenService {
         String storeCode = identity.storeCode();
         String partnerSku = identity.partnerSku();
         String skuParent = identity.currentZCode();
-        String fallbackSkuParent = identity.currentZCode();
+        String fallbackSkuParent = identity.legacySkuParent();
         String key = workbenchKey(command.getOwnerUserId(), storeCode, identity.productKey());
         List<String> warnings = new ArrayList<>();
         ProductMasterSnapshotView baselineSnapshot =

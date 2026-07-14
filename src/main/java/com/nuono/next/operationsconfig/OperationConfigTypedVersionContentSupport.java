@@ -14,17 +14,18 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class OperationConfigTypedVersionContentSupport {
+public final class OperationConfigTypedVersionContentSupport {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Pattern DATE_RANGE_PATTERN = Pattern.compile(
             "(\\d{4}-\\d{2}-\\d{2})\\s*(?:~|至|到)\\s*(\\d{4}-\\d{2}-\\d{2})"
     );
     private static final Pattern DECIMAL_PATTERN = Pattern.compile("(?<![\\d.])-?\\d+\\.\\d+(?![\\d.])");
+    private static final Pattern FACTOR_SUFFIX_PATTERN = Pattern.compile("(?:/|系数[:：]?)\\s*(-?\\d+(?:\\.\\d+)?)\\s*$");
 
     private OperationConfigTypedVersionContentSupport() {
     }
 
-    static Optional<OperationConfigTypedVersion> resolveEffectiveVersion(
+    public static Optional<OperationConfigTypedVersion> resolveEffectiveVersion(
             OperationConfigTypedVersionRepository repository,
             OperationConfigVersionType configType,
             Long ownerUserId,
@@ -39,7 +40,14 @@ final class OperationConfigTypedVersionContentSupport {
         OperationConfigTypedVersion global = null;
         OperationConfigTypedVersion systemDefault = null;
         String defaultVersionNo = defaultVersionNo(configType);
-        for (OperationConfigTypedVersion version : repository.listVersions()) {
+        List<OperationConfigTypedVersion> versions = repository.listVersions();
+        if (versions == null || versions.isEmpty()) {
+            return Optional.empty();
+        }
+        for (OperationConfigTypedVersion version : versions) {
+            if (version == null) {
+                continue;
+            }
             if (!configType.name().equals(version.getConfigType())) {
                 continue;
             }
@@ -232,12 +240,27 @@ final class OperationConfigTypedVersionContentSupport {
     }
 
     private static Optional<BigDecimal> firstDecimal(String value) {
+        Optional<BigDecimal> suffixFactor = factorSuffix(value);
+        if (suffixFactor.isPresent()) {
+            return suffixFactor;
+        }
         List<BigDecimal> values = decimals(value);
         if (!values.isEmpty()) {
             return Optional.of(values.get(values.size() - 1));
         }
         if (value != null && value.trim().matches("-?\\d+")) {
             return Optional.of(new BigDecimal(value.trim()));
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<BigDecimal> factorSuffix(String value) {
+        if (!hasText(value)) {
+            return Optional.empty();
+        }
+        Matcher matcher = FACTOR_SUFFIX_PATTERN.matcher(value.trim());
+        if (matcher.find()) {
+            return Optional.of(new BigDecimal(matcher.group(1)));
         }
         return Optional.empty();
     }
@@ -295,9 +318,16 @@ final class OperationConfigTypedVersionContentSupport {
     }
 
     private static String defaultVersionNo(OperationConfigVersionType configType) {
-        return OperationConfigVersionType.PRODUCT_LIFECYCLE.equals(configType)
-                ? OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO
-                : OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO;
+        if (OperationConfigVersionType.BUSINESS_CALENDAR.equals(configType)) {
+            return OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO;
+        }
+        if (OperationConfigVersionType.PRODUCT_LIFECYCLE.equals(configType)) {
+            return OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO;
+        }
+        if (OperationConfigVersionType.REPLENISHMENT_PLAN.equals(configType)) {
+            return OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO;
+        }
+        throw new IllegalArgumentException("unsupported operation config version type");
     }
 
     private static String textValue(JsonNode node, String fieldName) {

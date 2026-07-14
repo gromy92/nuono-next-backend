@@ -17,6 +17,13 @@ public final class InTransitBatchRecords {
     private InTransitBatchRecords() {
     }
 
+    public static class AirArrivalDurationSampleRow {
+        private Long durationMinutes;
+
+        public Long getDurationMinutes() { return durationMinutes; }
+        public void setDurationMinutes(Long durationMinutes) { this.durationMinutes = durationMinutes; }
+    }
+
     public static class BatchRow {
         private Long id;
         private Long ownerUserId;
@@ -42,6 +49,10 @@ public final class InTransitBatchRecords {
         private LocalDateTime sourceCreatedAt;
         private LocalDateTime estimatedDepartureAt;
         private LocalDateTime estimatedArrivalAt;
+        private String estimatedArrivalSource;
+        private String estimatedArrivalSourceDetail;
+        private LocalDateTime estimatedArrivalUpdatedAt;
+        private Long estimatedArrivalUpdatedBy;
         private String deliveryAppointmentText;
         private String missingFieldsJson;
         private Integer boxCount;
@@ -55,6 +66,7 @@ public final class InTransitBatchRecords {
         private String latestNodeStatus;
         private LocalDateTime latestNodeHappenedAt;
         private String latestNodeDescription;
+        private LocalDateTime actualArrivalAt;
         private Long createdBy;
         private Long updatedBy;
 
@@ -106,6 +118,14 @@ public final class InTransitBatchRecords {
         public void setEstimatedDepartureAt(LocalDateTime estimatedDepartureAt) { this.estimatedDepartureAt = estimatedDepartureAt; }
         public LocalDateTime getEstimatedArrivalAt() { return estimatedArrivalAt; }
         public void setEstimatedArrivalAt(LocalDateTime estimatedArrivalAt) { this.estimatedArrivalAt = estimatedArrivalAt; }
+        public String getEstimatedArrivalSource() { return estimatedArrivalSource; }
+        public void setEstimatedArrivalSource(String estimatedArrivalSource) { this.estimatedArrivalSource = estimatedArrivalSource; }
+        public String getEstimatedArrivalSourceDetail() { return estimatedArrivalSourceDetail; }
+        public void setEstimatedArrivalSourceDetail(String estimatedArrivalSourceDetail) { this.estimatedArrivalSourceDetail = estimatedArrivalSourceDetail; }
+        public LocalDateTime getEstimatedArrivalUpdatedAt() { return estimatedArrivalUpdatedAt; }
+        public void setEstimatedArrivalUpdatedAt(LocalDateTime estimatedArrivalUpdatedAt) { this.estimatedArrivalUpdatedAt = estimatedArrivalUpdatedAt; }
+        public Long getEstimatedArrivalUpdatedBy() { return estimatedArrivalUpdatedBy; }
+        public void setEstimatedArrivalUpdatedBy(Long estimatedArrivalUpdatedBy) { this.estimatedArrivalUpdatedBy = estimatedArrivalUpdatedBy; }
         public String getDeliveryAppointmentText() { return deliveryAppointmentText; }
         public void setDeliveryAppointmentText(String deliveryAppointmentText) { this.deliveryAppointmentText = deliveryAppointmentText; }
         public String getMissingFieldsJson() { return missingFieldsJson; }
@@ -132,6 +152,8 @@ public final class InTransitBatchRecords {
         public void setLatestNodeHappenedAt(LocalDateTime latestNodeHappenedAt) { this.latestNodeHappenedAt = latestNodeHappenedAt; }
         public String getLatestNodeDescription() { return latestNodeDescription; }
         public void setLatestNodeDescription(String latestNodeDescription) { this.latestNodeDescription = latestNodeDescription; }
+        public LocalDateTime getActualArrivalAt() { return actualArrivalAt; }
+        public void setActualArrivalAt(LocalDateTime actualArrivalAt) { this.actualArrivalAt = actualArrivalAt; }
         public Long getCreatedBy() { return createdBy; }
         public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
         public Long getUpdatedBy() { return updatedBy; }
@@ -162,6 +184,10 @@ public final class InTransitBatchRecords {
         private LocalDateTime sourceCreatedAt;
         private LocalDateTime estimatedDepartureAt;
         private LocalDateTime estimatedArrivalAt;
+        private String estimatedArrivalSource;
+        private String estimatedArrivalSourceDetail;
+        private LocalDateTime estimatedArrivalUpdatedAt;
+        private Long estimatedArrivalUpdatedBy;
         private String deliveryAppointmentText;
         private List<String> missingFields = Collections.emptyList();
         private Integer boxCount;
@@ -175,6 +201,9 @@ public final class InTransitBatchRecords {
         private String latestNodeStatus;
         private LocalDateTime latestNodeHappenedAt;
         private String latestNodeDescription;
+        private LocalDateTime actualArrivalAt;
+        private LocalDateTime effectiveArrivalAt;
+        private String effectiveArrivalSource;
 
         public static BatchView from(BatchRow row) {
             BatchView view = new BatchView();
@@ -201,6 +230,10 @@ public final class InTransitBatchRecords {
             view.setSourceCreatedAt(row.getSourceCreatedAt());
             view.setEstimatedDepartureAt(row.getEstimatedDepartureAt());
             view.setEstimatedArrivalAt(row.getEstimatedArrivalAt());
+            view.setEstimatedArrivalSource(row.getEstimatedArrivalSource());
+            view.setEstimatedArrivalSourceDetail(row.getEstimatedArrivalSourceDetail());
+            view.setEstimatedArrivalUpdatedAt(row.getEstimatedArrivalUpdatedAt());
+            view.setEstimatedArrivalUpdatedBy(row.getEstimatedArrivalUpdatedBy());
             view.setDeliveryAppointmentText(row.getDeliveryAppointmentText());
             view.setMissingFields(parseMissingFields(row.getMissingFieldsJson()));
             view.setBoxCount(row.getBoxCount());
@@ -214,7 +247,41 @@ public final class InTransitBatchRecords {
             view.setLatestNodeStatus(row.getLatestNodeStatus());
             view.setLatestNodeHappenedAt(row.getLatestNodeHappenedAt());
             view.setLatestNodeDescription(row.getLatestNodeDescription());
+            view.setActualArrivalAt(resolveActualArrivalAt(row));
+            view.setEffectiveArrivalAt(resolveEffectiveArrivalAt(row));
+            view.setEffectiveArrivalSource(resolveEffectiveArrivalSource(row));
             return view;
+        }
+
+        private static LocalDateTime resolveActualArrivalAt(BatchRow row) {
+            if (row.getActualArrivalAt() != null) {
+                return row.getActualArrivalAt();
+            }
+            if ("warehouse_received".equals(row.getLatestNodeStatus())) {
+                return row.getLatestNodeHappenedAt();
+            }
+            return null;
+        }
+
+        private static LocalDateTime resolveEffectiveArrivalAt(BatchRow row) {
+            LocalDateTime actualArrivalAt = resolveActualArrivalAt(row);
+            if (actualArrivalAt != null) {
+                return actualArrivalAt;
+            }
+            if (row.getEstimatedArrivalAt() != null) {
+                return row.getEstimatedArrivalAt();
+            }
+            return row.getEtaDate() == null ? null : row.getEtaDate().atStartOfDay();
+        }
+
+        private static String resolveEffectiveArrivalSource(BatchRow row) {
+            if (resolveActualArrivalAt(row) != null) {
+                return "ACTUAL";
+            }
+            if (row.getEstimatedArrivalAt() != null || row.getEtaDate() != null) {
+                return row.getEstimatedArrivalSource() == null ? "ESTIMATED" : row.getEstimatedArrivalSource();
+            }
+            return null;
         }
 
         @JsonIgnore
@@ -275,6 +342,14 @@ public final class InTransitBatchRecords {
         public void setEstimatedDepartureAt(LocalDateTime estimatedDepartureAt) { this.estimatedDepartureAt = estimatedDepartureAt; }
         public LocalDateTime getEstimatedArrivalAt() { return estimatedArrivalAt; }
         public void setEstimatedArrivalAt(LocalDateTime estimatedArrivalAt) { this.estimatedArrivalAt = estimatedArrivalAt; }
+        public String getEstimatedArrivalSource() { return estimatedArrivalSource; }
+        public void setEstimatedArrivalSource(String estimatedArrivalSource) { this.estimatedArrivalSource = estimatedArrivalSource; }
+        public String getEstimatedArrivalSourceDetail() { return estimatedArrivalSourceDetail; }
+        public void setEstimatedArrivalSourceDetail(String estimatedArrivalSourceDetail) { this.estimatedArrivalSourceDetail = estimatedArrivalSourceDetail; }
+        public LocalDateTime getEstimatedArrivalUpdatedAt() { return estimatedArrivalUpdatedAt; }
+        public void setEstimatedArrivalUpdatedAt(LocalDateTime estimatedArrivalUpdatedAt) { this.estimatedArrivalUpdatedAt = estimatedArrivalUpdatedAt; }
+        public Long getEstimatedArrivalUpdatedBy() { return estimatedArrivalUpdatedBy; }
+        public void setEstimatedArrivalUpdatedBy(Long estimatedArrivalUpdatedBy) { this.estimatedArrivalUpdatedBy = estimatedArrivalUpdatedBy; }
         public String getDeliveryAppointmentText() { return deliveryAppointmentText; }
         public void setDeliveryAppointmentText(String deliveryAppointmentText) { this.deliveryAppointmentText = deliveryAppointmentText; }
         public List<String> getMissingFields() { return missingFields; }
@@ -301,6 +376,12 @@ public final class InTransitBatchRecords {
         public void setLatestNodeHappenedAt(LocalDateTime latestNodeHappenedAt) { this.latestNodeHappenedAt = latestNodeHappenedAt; }
         public String getLatestNodeDescription() { return latestNodeDescription; }
         public void setLatestNodeDescription(String latestNodeDescription) { this.latestNodeDescription = latestNodeDescription; }
+        public LocalDateTime getActualArrivalAt() { return actualArrivalAt; }
+        public void setActualArrivalAt(LocalDateTime actualArrivalAt) { this.actualArrivalAt = actualArrivalAt; }
+        public LocalDateTime getEffectiveArrivalAt() { return effectiveArrivalAt; }
+        public void setEffectiveArrivalAt(LocalDateTime effectiveArrivalAt) { this.effectiveArrivalAt = effectiveArrivalAt; }
+        public String getEffectiveArrivalSource() { return effectiveArrivalSource; }
+        public void setEffectiveArrivalSource(String effectiveArrivalSource) { this.effectiveArrivalSource = effectiveArrivalSource; }
     }
 
     public static class BatchListView {

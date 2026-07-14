@@ -8,6 +8,11 @@ import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
 import com.nuono.next.noonlog.NoonHttpCallLogView;
+import com.nuono.next.noonpull.NoonPullFailurePolicy;
+import com.nuono.next.noonpull.NoonPullFailureType;
+import com.nuono.next.noonpull.NoonRiskBackoffGuard;
+import com.nuono.next.noonpull.NoonRiskBackoffHold;
+import com.nuono.next.noonpull.NoonRiskBackoffScope;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CorrectAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnLineCommand;
@@ -49,7 +54,9 @@ import com.nuono.next.sales.NoonSalesReportRequest;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -76,6 +83,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
     private static final int DEFAULT_ASN_LIST_SYNC_PER_PAGE = 50;
     private static final int DEFAULT_ASN_LIST_SYNC_MAX_PAGES = 50;
+    private static final String APPOINTMENT_RISK_BACKOFF_STAGE = "NOON_RISK_BACKOFF";
+    private static final String APPOINTMENT_RISK_BACKOFF_SOURCE = "OFFICIAL_WAREHOUSE_APPOINTMENT";
 
     private final OfficialWarehouseMapper mapper;
     private final NoonSessionGateway noonSessionGateway;
@@ -84,6 +93,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private final OfficialWarehouseNoonInboundClient noonInboundClient;
     private final ObjectMapper objectMapper;
     private final OfficialWarehouseAppointmentRunner appointmentRunner;
+    private final NoonRiskBackoffGuard riskBackoffGuard;
+    private final NoonPullFailurePolicy failurePolicy;
 
     @Value("${nuono.official-warehouse.appointment.scheduler.enabled:false}")
     private boolean appointmentSchedulerEnabled;
@@ -106,7 +117,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             NoonSalesReportBindingResolver bindingResolver,
             NoonHttpCallLogService noonHttpCallLogService,
             OfficialWarehouseNoonInboundClient noonInboundClient,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            NoonRiskBackoffGuard riskBackoffGuard,
+            NoonPullFailurePolicy failurePolicy
     ) {
         this.mapper = mapper;
         this.noonSessionGateway = noonSessionGateway;
@@ -115,6 +128,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         this.noonInboundClient = noonInboundClient;
         this.objectMapper = objectMapper;
         this.appointmentRunner = new OfficialWarehouseAppointmentRunner(Clock.systemDefaultZone());
+        this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
+        this.failurePolicy = failurePolicy == null ? new NoonPullFailurePolicy() : failurePolicy;
     }
 
     public List<AsnView> listAsns(
@@ -177,7 +192,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 result.fetched += rows.size();
                 for (JsonNode rowNode : rows) {
                     NoonAsnListRow remoteRow = OfficialWarehouseAsnListSyncSupport.parseRow(rowNode);
-                    syncNoonAsnListRow(result, ownerUserId, site, binding, remoteRow, access.getSessionUserId());
+                    syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, false, access.getSessionUserId());
                 }
             }
             JsonNode pagination = data.path("pagination");
@@ -241,7 +256,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                     if (dryRun) {
                         continue;
                     }
-                    syncNoonAsnListRow(result, ownerUserId, site, binding, remoteRow, access.getSessionUserId());
+                    syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, true, access.getSessionUserId());
                 }
             }
             if (!found) {
@@ -508,6 +523,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             mapper.insertAsnShippingBatchLink(linkRow);
         }
 
+        boolean remoteAsnCreated = false;
         try {
             NoonSalesReportBinding binding = bindingResolver.resolve(new NoonSalesReportRequest(
                     ownerUserId,
@@ -524,6 +540,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             JsonNode createResponse = noonInboundClient.createAsn(session, binding, asnCallContext, totalQuantity);
             JsonNode createData = createResponse.path("data");
             String asnNr = requireText(text(createData, "asn_nr"), "Noon 创建 ASN 响应缺少 asn_nr。");
+            remoteAsnCreated = true;
             Long partnerAsnId = longValue(createData, "id_partner_asn");
             Integer noonTotalQty = intValue(createData, "total_qty");
             mapper.markAsnCreated(
@@ -566,14 +583,29 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             mapper.markProductSiteOfferLogisticsHistoryByAsn(asnId, access.getSessionUserId());
             return getAsn(access, String.valueOf(asnId));
         } catch (IllegalArgumentException exception) {
-            mapper.markAsnFailed(asnId, "VALIDATION", "VALIDATION", exception.getMessage(), access.getSessionUserId());
-            mapper.markPendingLinesFailed(asnId, exception.getMessage(), access.getSessionUserId());
+            failAsnCreation(asnId, remoteAsnCreated, "VALIDATION", "VALIDATION", exception.getMessage(), access.getSessionUserId());
             throw exception;
         } catch (Exception exception) {
             String message = shrinkMessage(exception);
-            mapper.markAsnFailed(asnId, resolveFailureStage(), exception.getClass().getSimpleName(), message, access.getSessionUserId());
-            mapper.markPendingLinesFailed(asnId, message, access.getSessionUserId());
+            failAsnCreation(asnId, remoteAsnCreated, resolveFailureStage(), exception.getClass().getSimpleName(), message, access.getSessionUserId());
             throw new IllegalStateException("Noon 官方仓 ASN 创建失败：" + message, exception);
+        }
+    }
+
+    private void failAsnCreation(
+            Long asnId,
+            boolean remoteAsnCreated,
+            String errorStage,
+            String failureType,
+            String errorMessage,
+            Long operatorUserId
+    ) {
+        mapper.markAsnFailed(asnId, errorStage, failureType, errorMessage, operatorUserId);
+        mapper.markPendingLinesFailed(asnId, errorMessage, operatorUserId);
+        if (!remoteAsnCreated) {
+            mapper.softDeleteAsnShippingBatchLinks(asnId, operatorUserId);
+            mapper.softDeleteAsnLines(asnId, operatorUserId);
+            mapper.softDeletePreSubmitAsn(asnId, operatorUserId);
         }
     }
 
@@ -757,7 +789,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             Long ownerUserId,
             StoreSiteRecord site,
             NoonSalesReportBinding binding,
+            NoonSession session,
             NoonAsnListRow remoteRow,
+            boolean allowExistingRoutingPrefill,
             Long operatorUserId
     ) {
         Long operatorId = operatorUserId == null ? ownerUserId : operatorUserId;
@@ -775,6 +809,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         AsnRecord existing = mapper.selectAsnByNoonAsnNr(ownerUserId, site.storeCode, site.siteCode, remoteRow.asnNr);
         Long asnId;
         String localAsnNo;
+        boolean insertedFromNoon = existing == null;
         if (existing == null) {
             asnId = mapper.nextAsnId();
             localAsnNo = "OWA-" + asnId;
@@ -808,6 +843,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 remoteRow,
                 operatorId
         );
+        boolean missingRoutingSnapshot = existing == null
+                || (!StringUtils.hasText(existing.routingResponseJson)
+                && !StringUtils.hasText(existing.selectedWarehousePartnerCode)
+                && !StringUtils.hasText(existing.selectedWarehouseCode));
         mapper.syncAsnFromNoonList(syncRecord);
         if ("FAILED".equals(syncRecord.status)) {
             result.failed += 1;
@@ -822,6 +861,66 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 remoteRow,
                 operatorId
         );
+        if (insertedFromNoon || (allowExistingRoutingPrefill && missingRoutingSnapshot)) {
+            prefillSyncedAsnRoutingWarehouses(
+                    session,
+                    binding,
+                    asnId,
+                    localAsnNo,
+                    syncRecord,
+                    remoteRow,
+                    operatorId
+            );
+        }
+    }
+
+    private void prefillSyncedAsnRoutingWarehouses(
+            NoonSession session,
+            NoonSalesReportBinding binding,
+            Long asnId,
+            String localAsnNo,
+            AsnNoonListSyncRecord syncRecord,
+            NoonAsnListRow remoteRow,
+            Long operatorUserId
+    ) {
+        if (session == null || syncRecord == null || remoteRow == null || !StringUtils.hasText(syncRecord.noonAsnNr)) {
+            return;
+        }
+        if (!"LINES_CREATED".equals(syncRecord.status)) {
+            return;
+        }
+        if (!OfficialWarehouseStatusPolicy.isNoonAsnReadyForAppointmentStatus(remoteRow.remoteStatus)) {
+            return;
+        }
+        if (StringUtils.hasText(remoteRow.warehouseToPartnerCode) || StringUtils.hasText(remoteRow.warehouseToCode)) {
+            return;
+        }
+        NoonCallContext context = NoonCallContext.asn(asnId, localAsnNo);
+        try {
+            JsonNode detail = noonInboundClient.queryAsnDetailRow(session, binding, context, syncRecord.noonAsnNr);
+            List<AsnLineInsertRecord> routingLines = OfficialWarehouseNoonInboundClient.routingLineRowsFromAsnDetail(detail);
+            if (routingLines.isEmpty()) {
+                return;
+            }
+            JsonNode routingResponse = noonInboundClient.routeWarehouse(session, binding, context, syncRecord.noonAsnNr, routingLines);
+            JsonNode firstWarehouse = firstWarehouse(routingResponse);
+            String selectedWarehousePartnerCode = text(firstWarehouse, "partner_code");
+            String selectedWarehouseCode = text(firstWarehouse, "code");
+            if (!StringUtils.hasText(selectedWarehousePartnerCode) && !StringUtils.hasText(selectedWarehouseCode)) {
+                return;
+            }
+            mapper.updateAsnRoutingSnapshot(
+                    asnId,
+                    writeJson(routingResponse),
+                    booleanValue(routingResponse, "is_transfer"),
+                    selectedWarehousePartnerCode,
+                    selectedWarehouseCode,
+                    firstNonBlank(selectedWarehousePartnerCode, selectedWarehouseCode),
+                    operatorUserId
+            );
+        } catch (RuntimeException exception) {
+            // Keep ASN list sync resilient; the Noon call log keeps the routing prefill failure detail.
+        }
     }
 
     private AsnNoonListSyncRecord buildAsnNoonListSyncRecord(
@@ -1160,6 +1259,39 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         return warehouses;
     }
 
+    private String resolveAppointmentWarehouseFromForRequest(
+            Long ownerUserId,
+            AsnRecord asnRecord,
+            AsnView asn,
+            AppointmentRecord existing,
+            UpsertAppointmentCommand command
+    ) {
+        String resolved = resolveAppointmentWarehouseFrom(
+                command == null ? null : command.warehouseFrom,
+                existing == null ? null : existing.warehouseFrom,
+                null
+        );
+        if (resolved != null) {
+            return resolved;
+        }
+        NoonSalesReportBinding binding = resolveBinding(ownerUserId, asnRecord.logicalStoreId, asn.storeCode, asn.siteCode);
+        NoonSession session = openNoonSession(ownerUserId, binding);
+        AsnDetail detail = noonInboundClient.queryAsnDetail(
+                session,
+                binding,
+                NoonCallContext.appointment(
+                        "OFFICIAL_WAREHOUSE_APPOINTMENT_WAREHOUSE_FROM",
+                        asn.id,
+                        asn.noonAsnNr
+                ),
+                requireText(asn.noonAsnNr, "ASN 缺少 Noon ASN 编号。")
+        );
+        return requireText(
+                resolveAppointmentWarehouseFrom(null, null, detail),
+                "Noon ASN 详情缺少出发仓库，不能约仓。"
+        );
+    }
+
     private AppointmentRecord upsertAppointmentRecord(
             BusinessAccessContext access,
             String asnId,
@@ -1175,10 +1307,15 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
         Long parsedAsnId = parseLongId(asn.id, "官方仓 ASN 不存在。");
         Long ownerUserId = requireOwnerUserId(access, asn.storeCode);
+        AsnRecord asnRecord = mapper.selectAsn(ownerUserId, parsedAsnId);
+        if (asnRecord == null) {
+            throw new IllegalArgumentException("官方仓 ASN 不存在。");
+        }
+        AppointmentRecord existing = mapper.selectLatestAppointmentByAsn(ownerUserId, parsedAsnId);
         AppointmentInsertRecord row = new AppointmentInsertRecord();
         row.asnId = parsedAsnId;
         row.ownerUserId = ownerUserId;
-        row.logicalStoreId = mapper.selectAsn(ownerUserId, parsedAsnId).logicalStoreId;
+        row.logicalStoreId = asnRecord.logicalStoreId;
         row.storeCode = asn.storeCode;
         row.storeName = asn.storeName;
         row.siteCode = asn.siteCode;
@@ -1187,7 +1324,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         row.localAsnNo = asn.localAsnNo;
         row.noonAsnNr = requireText(asn.noonAsnNr, "ASN 缺少 Noon ASN 编号。");
         row.totalUnits = asn.totalQuantity == null ? 0 : asn.totalQuantity;
-        row.warehouseFrom = requireText(command.warehouseFrom, "请填写出发仓库。");
         row.warehouseToPartnerCode = requireText(
                 resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
                 "请选择到达仓库。"
@@ -1200,10 +1336,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
         row.apTimeRange = trimToNull(command.apTimeRange);
         row.availableToday = Boolean.TRUE.equals(command.availableToday);
+        row.warehouseFrom = resolveAppointmentWarehouseFromForRequest(ownerUserId, asnRecord, asn, existing, command);
         row.status = "PENDING";
         row.operatorUserId = access.getSessionUserId();
 
-        AppointmentRecord existing = mapper.selectLatestAppointmentByAsn(ownerUserId, parsedAsnId);
         if (existing == null || "CANCELED".equals(existing.status)) {
             row.id = mapper.nextAppointmentId();
             mapper.insertAppointment(row);
@@ -1294,18 +1430,42 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         );
         List<AppointmentRecord> dueAppointments = mapper.listDueAppointments(Math.max(1, appointmentSchedulerMaxItems));
         for (AppointmentRecord appointment : dueAppointments) {
+            Long operatorId = schedulerOperatorUserId(appointment);
+            if (mapper.claimDueAppointmentForRun(appointment.id, operatorId) == 0) {
+                continue;
+            }
             try {
-                runAppointmentRecord(appointment, schedulerOperatorUserId(appointment), true);
+                runClaimedAppointmentRecord(appointment, operatorId, true);
             } catch (Exception ignored) {
-                // Individual appointment failures are persisted in runAppointmentRecord.
+                // Individual appointment failures are persisted in runClaimedAppointmentRecord.
             }
         }
     }
 
     private AppointmentView runAppointmentRecord(AppointmentRecord appointment, Long operatorUserId, boolean allowRetry) {
         Long operatorId = operatorUserId == null ? appointment.ownerUserId : operatorUserId;
+        if (allowRetry && shouldRetryAppointment(appointment, APPOINTMENT_RISK_BACKOFF_STAGE)) {
+            NoonRiskBackoffHold activeHold = currentAppointmentRiskBackoff(appointment);
+            if (activeHold != null) {
+                markAppointmentPendingRiskBackoff(appointment, activeHold, operatorId);
+                return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+            }
+        }
+        if (mapper.markAppointmentRunning(appointment.id, operatorId) == 0) {
+            return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+        }
+        return runClaimedAppointmentRecord(appointment, operatorId, allowRetry);
+    }
+
+    private AppointmentView runClaimedAppointmentRecord(AppointmentRecord appointment, Long operatorId, boolean allowRetry) {
         AppointmentTask task = null;
-        mapper.markAppointmentRunning(appointment.id, operatorId);
+        if (allowRetry && shouldRetryAppointment(appointment, APPOINTMENT_RISK_BACKOFF_STAGE)) {
+            NoonRiskBackoffHold activeHold = currentAppointmentRiskBackoff(appointment);
+            if (activeHold != null) {
+                markAppointmentPendingRiskBackoff(appointment, activeHold, operatorId);
+                return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+            }
+        }
         try {
             task = toAppointmentTask(appointment);
             NoonSalesReportBinding binding = resolveBinding(appointment);
@@ -1360,6 +1520,11 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         } catch (Exception exception) {
             persistResolvedWarehouseFrom(appointment, task, operatorId);
             String message = shrinkMessage(exception);
+            NoonRiskBackoffHold riskBackoffHold = recordAppointmentRiskBackoffIfNeeded(appointment, message);
+            if (riskBackoffHold != null && allowRetry && shouldRetryAppointment(appointment, riskBackoffHold.getRiskType())) {
+                markAppointmentPendingRiskBackoff(appointment, riskBackoffHold, operatorId);
+                return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+            }
             String retryFailureType = appointmentRetryFailureType("NOON_CALL", exception.getClass().getSimpleName(), message);
             String retryErrorStage = appointmentRetryErrorStage("NOON_CALL", retryFailureType);
             if (allowRetry && isRetryableNoonCallFailure(retryFailureType) && shouldRetryAppointment(appointment, retryFailureType)) {
@@ -1399,7 +1564,20 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     ) {
         Long operatorId = operatorUserId == null ? appointment.ownerUserId : operatorUserId;
         AppointmentTask task = null;
-        mapper.markAppointmentRunning(appointment.id, operatorId);
+        NoonRiskBackoffHold activeHold = currentAppointmentRiskBackoff(appointment);
+        if (activeHold != null) {
+            mapper.markAppointmentFailed(
+                    appointment.id,
+                    APPOINTMENT_RISK_BACKOFF_STAGE,
+                    activeHold.getRiskType(),
+                    appointmentRiskBackoffMessage(activeHold),
+                    operatorId
+            );
+            return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+        }
+        if (mapper.markAppointmentRunning(appointment.id, operatorId) == 0) {
+            return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+        }
         try {
             task = toAppointmentTask(appointment);
             NoonSalesReportBinding binding = resolveBinding(appointment);
@@ -1438,15 +1616,110 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             }
         } catch (Exception exception) {
             persistResolvedWarehouseFrom(appointment, task, operatorId);
+            String message = shrinkMessage(exception);
+            NoonRiskBackoffHold riskBackoffHold = recordAppointmentRiskBackoffIfNeeded(appointment, message);
+            if (riskBackoffHold != null) {
+                mapper.markAppointmentFailed(
+                        appointment.id,
+                        APPOINTMENT_RISK_BACKOFF_STAGE,
+                        riskBackoffHold.getRiskType(),
+                        appointmentRiskBackoffMessage(riskBackoffHold),
+                        operatorId
+                );
+                return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+            }
             mapper.markAppointmentFailed(
                     appointment.id,
                     "NOON_CALL",
                     exception.getClass().getSimpleName(),
-                    shrinkMessage(exception),
+                    message,
                     operatorId
             );
         }
         return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+    }
+
+    private NoonRiskBackoffHold currentAppointmentRiskBackoff(AppointmentRecord appointment) {
+        return riskBackoffGuard.currentHold(appointmentRiskBackoffScope(appointment)).orElse(null);
+    }
+
+    private NoonRiskBackoffHold recordAppointmentRiskBackoffIfNeeded(AppointmentRecord appointment, String rawFailure) {
+        NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
+        if (!isAppointmentRiskBackoffFailure(failureType)) {
+            return null;
+        }
+        return riskBackoffGuard.recordRiskSignal(
+                appointmentRiskBackoffScope(appointment),
+                failureType.code(),
+                APPOINTMENT_RISK_BACKOFF_SOURCE,
+                appointment == null ? null : appointment.id,
+                null,
+                appointmentRiskBackoffDiagnostic(appointment, rawFailure)
+        );
+    }
+
+    private NoonRiskBackoffScope appointmentRiskBackoffScope(AppointmentRecord appointment) {
+        if (appointment == null) {
+            return NoonRiskBackoffScope.allNoon(null, null, null);
+        }
+        return NoonRiskBackoffScope.allNoon(appointment.ownerUserId, appointment.storeCode, appointment.siteCode);
+    }
+
+    private boolean isAppointmentRiskBackoffFailure(NoonPullFailureType failureType) {
+        return failureType == NoonPullFailureType.RATE_LIMITED
+                || failureType == NoonPullFailureType.CAPTCHA_REQUIRED
+                || failureType == NoonPullFailureType.BLOCKED_BY_RISK_CONTROL;
+    }
+
+    private void markAppointmentPendingRiskBackoff(
+            AppointmentRecord appointment,
+            NoonRiskBackoffHold hold,
+            Long operatorUserId
+    ) {
+        mapper.markAppointmentPendingRetry(
+                appointment.id,
+                riskBackoffRetrySeconds(hold),
+                APPOINTMENT_RISK_BACKOFF_STAGE,
+                hold.getRiskType(),
+                appointmentRiskBackoffMessage(hold),
+                operatorUserId
+        );
+    }
+
+    private int riskBackoffRetrySeconds(NoonRiskBackoffHold hold) {
+        if (hold == null || hold.getBlockedUntil() == null) {
+            return safeRetryBaseSeconds();
+        }
+        long seconds = Duration.between(LocalDateTime.now(Clock.systemUTC()), hold.getBlockedUntil()).getSeconds();
+        if (seconds <= 0) {
+            return 1;
+        }
+        return (int) Math.min(Integer.MAX_VALUE, seconds);
+    }
+
+    private String appointmentRiskBackoffMessage(NoonRiskBackoffHold hold) {
+        if (hold == null) {
+            return "Noon 风控退避中。";
+        }
+        String riskType = firstNonBlank(hold.getRiskType(), "risk_backoff");
+        String blockedUntil = hold.getBlockedUntil() == null ? null : hold.getBlockedUntil().toString();
+        String diagnostic = trimToNull(hold.getDiagnosticSummary());
+        String message = "Noon 风控退避中：" + riskType
+                + (StringUtils.hasText(blockedUntil) ? "，冷却至 " + blockedUntil : "")
+                + (StringUtils.hasText(diagnostic) ? "，原因：" + diagnostic : "");
+        return message.length() > 900 ? message.substring(0, 900) : message;
+    }
+
+    private String appointmentRiskBackoffDiagnostic(AppointmentRecord appointment, String rawFailure) {
+        List<String> parts = new ArrayList<>();
+        if (appointment != null) {
+            parts.add("appointmentId=" + appointment.id);
+            parts.add("asn=" + appointment.noonAsnNr);
+            parts.add("store=" + appointment.storeCode);
+            parts.add("site=" + appointment.siteCode);
+        }
+        parts.add("failed=" + rawFailure);
+        return String.join(" ", parts);
     }
 
     private void persistResolvedWarehouseFrom(AppointmentRecord appointment, AppointmentTask task, Long operatorUserId) {
@@ -1537,7 +1810,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 || combined.contains("request timed out")
                 || combined.contains("read timed out")
                 || combined.contains("no route to host")
+                || combined.contains("buffer_underflow")
                 || combined.contains("header parser received no bytes")
+                || combined.contains("with eof")
+                || combined.contains("non decrypted")
                 || combined.contains("eof reached")
                 || combined.contains("unexpected end")
                 || combined.contains("connection closed")
@@ -1590,7 +1866,11 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
                 "请选择到达仓库。"
         );
-        task.warehouseFrom = requireText(command.warehouseFrom, "请填写出发仓库。");
+        task.warehouseFrom = resolveAppointmentWarehouseFrom(
+                command.warehouseFrom,
+                asn.appointment == null ? null : asn.appointment.warehouseFrom,
+                null
+        );
         task.apStartDate = parseLocalDate(command.apStartDate, "请选择约仓开始日期。");
         task.apEndDate = parseLocalDate(command.apEndDate, "请选择约仓结束日期。");
         if (task.apEndDate.isBefore(task.apStartDate)) {
@@ -2227,6 +2507,18 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
 
     static String resolveAppointmentWarehouseToCode(String selectedWarehouseCode, String requestedWarehouseToCode) {
         return firstNonBlank(requestedWarehouseToCode, selectedWarehouseCode);
+    }
+
+    static String resolveAppointmentWarehouseFrom(
+            String requestedWarehouseFrom,
+            String existingAppointmentWarehouseFrom,
+            AsnDetail asnDetail
+    ) {
+        return firstNonBlank(
+                requestedWarehouseFrom,
+                existingAppointmentWarehouseFrom,
+                asnDetail == null ? null : asnDetail.warehouseFrom
+        );
     }
 
     static List<String> resolveAppointmentWarehouseFromOptions(

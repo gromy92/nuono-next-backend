@@ -438,7 +438,7 @@ public class InTransitImportService {
         imported += saveImportedMilestoneNode(ownerUserId, operatorUserId, batchId, batch.getCustomsReleasedAt(),
                 InTransitNodeStatus.CUSTOMS_RELEASED.code(), "完成清关");
         imported += saveImportedMilestoneNode(ownerUserId, operatorUserId, batchId, batch.getEtWarehouseReceivedAt(),
-                InTransitNodeStatus.WAREHOUSE_RECEIVED.code(), "ET海外仓入库");
+                InTransitNodeStatus.IN_TRANSIT.code(), "ET海外仓入库");
         return imported;
     }
 
@@ -461,6 +461,9 @@ public class InTransitImportService {
                 description
         );
         if (existing != null) {
+            if (InTransitNodeStatus.isTerminalForBatchProjection(existing.getNodeStatus(), existing.getDescription())) {
+                batchService.refreshBatchLatestNodeProjection(ownerUserId, batchId);
+            }
             return 0;
         }
         SaveNodeCommand command = new SaveNodeCommand();

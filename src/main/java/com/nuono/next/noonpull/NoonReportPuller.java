@@ -206,11 +206,18 @@ public class NoonReportPuller {
                 return result;
             }
             if (processResult.getCode() == NoonReportProcessResult.Code.EMPTY_REPORT) {
-                NoonPullTaskRecord confirmedEmpty = foundationService.markReportExportConfirmedEmpty(
-                        taskId,
-                        sourceBatchId,
-                        emptyReportSummary(request, status, digest, processResult, totalRows) + "; confirmed_empty"
-                );
+                String emptySummary = emptyReportSummary(request, status, digest, processResult, totalRows) + "; confirmed_empty";
+                NoonPullTaskRecord confirmedEmpty = isAcceptedEmptyReport(request)
+                        ? foundationService.markReportExportAcceptedEmpty(
+                                taskId,
+                                sourceBatchId,
+                                emptySummary + "; accepted_empty_settlement_window"
+                        )
+                        : foundationService.markReportExportConfirmedEmpty(
+                                taskId,
+                                sourceBatchId,
+                                emptySummary
+                        );
                 result.setStatus(confirmedEmpty.getStatus());
                 return result;
             }
@@ -288,6 +295,10 @@ public class NoonReportPuller {
                 rawFailure
         );
         return Optional.of(hold);
+    }
+
+    private boolean isAcceptedEmptyReport(NoonReportPullRequest request) {
+        return request != null && request.getDataDomain() == NoonPullDataDomain.FINANCE_TRANSACTION;
     }
 
     private boolean isRiskBackoffFailure(NoonPullFailureType failureType) {

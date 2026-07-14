@@ -13,7 +13,16 @@ public enum BusinessCapability {
     )),
     STORE_SYNC(List.of("/api/user/role", "/user/store-noon")),
     MASTER_DATA_SYSTEM(List.of("/system/role", "/system/menu")),
-    SALES_DATA(List.of("/data/sales-analysis", "/data/sales-forecast", "/data/sales", "/data/order-analysis", "/api/sales-forecast", "/api/order-finance")),
+    SALES_DATA(List.of(
+            "/data/sales-analysis",
+            "/data/sales-forecast",
+            "/data/sales",
+            "/data/order-analysis",
+            "/data/post-sale-profit",
+            "/api/sales-forecast",
+            "/api/order-finance",
+            "/api/post-sale-profit"
+    )),
     SYSTEM_REPORTS(List.of("/system-reports", "/api/system-reports", "/noon-call", "/api/noon-call")),
     OPERATIONS_COMPETITOR_ANALYSIS(List.of("/operations/competitor-analysis", "/api/competitor-analysis")),
     PRODUCT_KEYWORD_MANAGEMENT(List.of("/operations/product-keywords", "/api/product-keywords")),

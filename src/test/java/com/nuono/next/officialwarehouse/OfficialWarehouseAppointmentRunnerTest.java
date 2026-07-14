@@ -48,7 +48,7 @@ class OfficialWarehouseAppointmentRunnerTest {
     }
 
     @Test
-    void alreadyScheduledNoonAsnIsRescheduledBeforeSchedulingAgain() {
+    void alreadyScheduledNoonAsnStopsAutomaticRunWithoutRescheduling() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "scheduled";
         client.dayCapacity = List.of("2026-06-16");
@@ -57,17 +57,9 @@ class OfficialWarehouseAppointmentRunnerTest {
         RunResult result = runner.runOnce(task(""), client);
 
         assertThat(result.status).isEqualTo("SCHEDULED");
-        assertThat(result.alreadyScheduled).isFalse();
-        assertThat(client.calls).containsExactly(
-                "detail",
-                "reschedule:A05531714PN",
-                "set-warehouses:JED01:ETWAREHOUSE",
-                "detail",
-                "days",
-                "slots:2026-06-16",
-                "schedule:2026-06-16:9",
-                "detail"
-        );
+        assertThat(result.alreadyScheduled).isTrue();
+        assertThat(result.failureType).isNull();
+        assertThat(client.calls).containsExactly("detail");
     }
 
     @Test

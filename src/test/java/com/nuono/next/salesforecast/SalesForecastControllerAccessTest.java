@@ -134,7 +134,6 @@ class SalesForecastControllerAccessTest {
                 "SA",
                 60,
                 "paper",
-                "growth",
                 "risk",
                 "low",
                 request
@@ -148,7 +147,6 @@ class SalesForecastControllerAccessTest {
         assertEquals(307L, queryCaptor.getValue().getOwnerUserId());
         assertEquals(60, exportCaptor.getValue().getForecastWindow());
         assertEquals("paper", exportCaptor.getValue().getSearchKeyword());
-        assertEquals("growth", exportCaptor.getValue().getLifecycleFilter());
         assertEquals("risk", exportCaptor.getValue().getRiskFilter());
         assertEquals("low", exportCaptor.getValue().getConfidenceFilter());
     }

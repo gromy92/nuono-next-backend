@@ -13,6 +13,18 @@ import org.springframework.scheduling.annotation.Scheduled;
 class OfficialWarehouseAppointmentSchedulerSqlTest {
 
     @Test
+    void bufferUnderflowEofFromNoonCallIsRetryableAccessFailure() {
+        String failureType = LocalDbOfficialWarehouseService.appointmentRetryFailureType(
+                "NOON_CALL",
+                "IllegalStateException",
+                "请求 Noon 失败：BUFFER_UNDERFLOW with EOF, 1253 bytes non decrypted."
+        );
+
+        assertThat(failureType).isEqualTo("NOON_ACCESS_FAILURE");
+        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure(failureType)).isTrue();
+    }
+
+    @Test
     void schedulerDueQueryOnlyConsumesPendingAppointments() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod("listDueAppointments", int.class);
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
@@ -22,6 +34,40 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
         assertThat(sql).doesNotContain("status IN ('PENDING', 'RUNNING', 'FAILED')");
         assertThat(sql).doesNotContain("'RUNNING'");
         assertThat(sql).doesNotContain("'FAILED'");
+    }
+
+    @Test
+    void schedulerDueClaimIsAtomicAndOnlyClaimsStillDuePendingAppointments() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "claimDueAppointmentForRun",
+                Long.class,
+                Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("UPDATE official_warehouse_appointment");
+        assertThat(sql).contains("SET status = 'RUNNING'");
+        assertThat(sql).contains("attempt_count = attempt_count + 1");
+        assertThat(sql).contains("WHERE id = #{appointmentId}");
+        assertThat(sql).contains("status = 'PENDING'");
+        assertThat(sql).contains("(next_attempt_at IS NULL OR next_attempt_at <= NOW())");
+        assertThat(sql).doesNotContain("status IN ('PENDING', 'FAILED', 'RUNNING')");
+    }
+
+    @Test
+    void manualRunCannotReclaimAlreadyRunningAppointment() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "markAppointmentRunning",
+                Long.class,
+                Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("status IN ('PENDING', 'FAILED')");
+        assertThat(sql).doesNotContain("status IN ('PENDING', 'FAILED', 'RUNNING')");
+        assertThat(sql).doesNotContain("status IN ('PENDING', 'RUNNING')");
     }
 
     @Test

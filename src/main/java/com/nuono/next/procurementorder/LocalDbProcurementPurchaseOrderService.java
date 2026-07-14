@@ -30,6 +30,7 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.Logistics
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsRecommendationInsertRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688HistoryRow;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688PurchaseBatchRow;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderDuplicateItemSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductArchiveRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductOfferRecord;
@@ -382,9 +383,14 @@ public class LocalDbProcurementPurchaseOrderService {
         PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
         Long operatorUserId = access.getSessionUserId();
         if (!isOrderSubmitted(order)) {
+            List<PurchaseOrderItemRecord> items = emptyIfNull(mapper.listItemsByOrder(order.id));
+            if (items.isEmpty()) {
+                throw new IllegalArgumentException("当前采购单还没有商品，不能封存。");
+            }
+            assertOrderReadyForSeal(order, items);
             int updated = mapper.submitOrder(order.id, operatorUserId);
             if (updated <= 0) {
-                throw new IllegalArgumentException("采购单提交失败，请刷新后重试。");
+                throw new IllegalArgumentException("采购单封存失败，请刷新后重试。");
             }
             log(order.id, null, "SUBMIT_ORDER", operatorUserId, order.status, ORDER_SUBMITTED, null);
         }
@@ -432,6 +438,7 @@ public class LocalDbProcurementPurchaseOrderService {
         if (allocations.isEmpty()) {
             throw new IllegalArgumentException("请填写 " + item.partnerSku + " 的站点和数量。");
         }
+        ensureNoDuplicateSitesInAllocations(item.partnerSku, allocations);
 
         Map<String, StoreSiteRecord> availableStoreSites = storeSitesByCode(order.logicalStoreId);
         LinkedHashSet<String> nextOrderSiteCodes = new LinkedHashSet<>(readStringList(order.siteCodesJson));
@@ -934,10 +941,10 @@ public class LocalDbProcurementPurchaseOrderService {
             }
             PurchaseOrderRecord order = requireOrderAccess(access, orderId);
             if (!ownerUserId.equals(order.ownerUserId)) {
-                throw new IllegalArgumentException("发货单不能跨老板合并采购单。");
+                throw new IllegalArgumentException("仓库单不能跨老板合并采购单。");
             }
             if (!isOrderSubmitted(order)) {
-                throw new IllegalArgumentException("提交后的采购单才可加入发货单。");
+                throw new IllegalArgumentException("已封存的采购单才可合并为仓库单。");
             }
             orders.add(order);
         }
@@ -955,11 +962,10 @@ public class LocalDbProcurementPurchaseOrderService {
                 .distinct()
                 .collect(Collectors.toList());
         if (itemSiteIds.isEmpty()) {
-            throw new IllegalArgumentException("所选采购单没有可加入发货单的商品行。");
+            throw new IllegalArgumentException("所选采购单没有可加入仓库单的商品行。");
         }
-        List<String> warnings = new ArrayList<>();
         if (mapper.countActiveShippingOrderLinesByItemSites(itemSiteIds) > 0) {
-            warnings.add("所选采购单中已有商品行加入过发货单，本次已按整单重新生成发货单。");
+            throw new IllegalArgumentException("所选采购单已在仓库单中，不能重复合并。");
         }
 
         Long shippingOrderId = mapper.nextShippingOrderId();
@@ -1049,7 +1055,6 @@ public class LocalDbProcurementPurchaseOrderService {
             );
         }
         ShippingOrderView view = toShippingOrderView(mapper.selectShippingOrderById(shippingOrderId), true);
-        view.warnings.addAll(warnings);
         return view;
     }
 
@@ -3803,8 +3808,8 @@ public class LocalDbProcurementPurchaseOrderService {
             return;
         }
         Map<String, StoreSiteRecord> availableStoreSites = storeSitesByCode(order.logicalStoreId);
-        Map<Long, Set<String>> existingSitesByItemId = existingSitesByItemId(order.id);
-        Map<String, Set<String>> pendingSitesByPartnerSku = new LinkedHashMap<>();
+        Map<Long, Map<String, PurchaseOrderItemSiteRecord>> existingSitesByItemId = existingSitesByItemId(order.id);
+        Map<String, Set<String>> pendingSiteTransportsByPartnerSku = new LinkedHashMap<>();
         LinkedHashSet<String> nextOrderSiteCodes = new LinkedHashSet<>(readStringList(order.siteCodesJson));
         for (ItemCommand itemCommand : itemCommands) {
             String psku = requiredText(itemCommand == null ? null : itemCommand.psku, "请选择 PSKU。");
@@ -3849,10 +3854,10 @@ public class LocalDbProcurementPurchaseOrderService {
                         + "，同一采购单商品只能选择一种到货方式。");
             }
 
-            Set<String> existingSites = itemAlreadyExisted
-                    ? existingSitesByItemId.getOrDefault(item.id, Collections.emptySet())
-                    : Collections.emptySet();
-            Set<String> pendingSites = pendingSitesByPartnerSku.computeIfAbsent(
+            Map<String, PurchaseOrderItemSiteRecord> existingSites = itemAlreadyExisted
+                    ? existingSitesByItemId.getOrDefault(item.id, Collections.emptyMap())
+                    : Collections.emptyMap();
+            Set<String> pendingSiteTransports = pendingSiteTransportsByPartnerSku.computeIfAbsent(
                     product.partnerSku,
                     ignored -> new LinkedHashSet<>()
             );
@@ -3861,11 +3866,19 @@ public class LocalDbProcurementPurchaseOrderService {
                 if (!availableStoreSites.containsKey(siteCode)) {
                     throw new IllegalArgumentException("站点 " + siteCode + " 不属于当前店铺。");
                 }
-                if (existingSites.contains(siteCode) || pendingSites.contains(siteCode)) {
+                String siteTransportKey = siteTransportKey(siteCode, allocation.transportMode);
+                if (pendingSiteTransports.contains(siteTransportKey)) {
                     throw new IllegalArgumentException(psku + " 已在站点 " + siteCode
-                            + " 加入采购单，不能重复添加相同商品相同站点。");
+                            + " 以 " + transportModeLabel(allocation.transportMode)
+                            + " 加入采购单，不能重复添加相同商品相同站点相同运输方式。");
                 }
                 nextOrderSiteCodes.add(siteCode);
+                PurchaseOrderItemSiteRecord existingSite = existingSites.get(siteTransportKey);
+                if (existingSite != null) {
+                    mapper.increaseItemSiteQuantity(existingSite.id, allocation.quantity, operatorUserId);
+                    pendingSiteTransports.add(siteTransportKey);
+                    continue;
+                }
                 ProductOfferRecord offer = mapper.selectProductOffer(order.logicalStoreId, product.partnerSku, product.productVariantId, siteCode);
                 if (offer == null) {
                     throw new IllegalArgumentException(psku + " 在站点 " + siteCode + " 没有商品 Offer，不能加入采购单。");
@@ -3886,7 +3899,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 site.createdBy = operatorUserId;
                 site.updatedBy = operatorUserId;
                 mapper.upsertItemSite(site);
-                pendingSites.add(siteCode);
+                pendingSiteTransports.add(siteTransportKey);
             }
             mapper.recalculateItemAggregates(item.id, operatorUserId);
             log(order.id, item.id, "UPSERT_ITEM", operatorUserId, null, null, psku);
@@ -3894,12 +3907,12 @@ public class LocalDbProcurementPurchaseOrderService {
         persistOrderSiteCodesIfChanged(order, nextOrderSiteCodes, operatorUserId);
     }
 
-    private Map<Long, Set<String>> existingSitesByItemId(Long orderId) {
+    private Map<Long, Map<String, PurchaseOrderItemSiteRecord>> existingSitesByItemId(Long orderId) {
         List<PurchaseOrderItemSiteRecord> sites = mapper.listItemSitesByOrder(orderId);
         if (sites == null || sites.isEmpty()) {
             return Collections.emptyMap();
         }
-        Map<Long, Set<String>> result = new LinkedHashMap<>();
+        Map<Long, Map<String, PurchaseOrderItemSiteRecord>> result = new LinkedHashMap<>();
         for (PurchaseOrderItemSiteRecord site : sites) {
             if (site == null || site.purchaseOrderItemId == null) {
                 continue;
@@ -3908,21 +3921,52 @@ public class LocalDbProcurementPurchaseOrderService {
             if (!StringUtils.hasText(siteCode)) {
                 continue;
             }
-            result.computeIfAbsent(site.purchaseOrderItemId, ignored -> new LinkedHashSet<>()).add(siteCode);
+            result.computeIfAbsent(site.purchaseOrderItemId, ignored -> new LinkedHashMap<>())
+                    .put(siteTransportKey(siteCode, site.transportMode), site);
         }
         return result;
     }
 
-    private void ensureNoDuplicateSitesInAllocations(String psku, List<SiteTransportQuantity> allocations) {
-        Set<String> seenSites = new LinkedHashSet<>();
+    private void ensureNoCurrentPurchaseOrderDuplicate(
+            PurchaseOrderRecord order,
+            String psku,
+            List<SiteTransportQuantity> allocations
+    ) {
         for (SiteTransportQuantity allocation : allocations) {
             String siteCode = normalizeSiteCode(allocation == null ? null : allocation.siteCode);
             if (!StringUtils.hasText(siteCode)) {
                 continue;
             }
-            if (!seenSites.add(siteCode)) {
+            String transportMode = normalizeTransportMode(allocation == null ? null : allocation.transportMode);
+            PurchaseOrderDuplicateItemSiteRecord duplicate = mapper.selectCurrentOrderItemSiteDuplicate(
+                    order.logicalStoreId,
+                    order.id,
+                    psku,
+                    siteCode,
+                    transportMode
+            );
+            if (duplicate != null) {
+                String purchaseOrderLabel = defaultText(firstText(duplicate.title, duplicate.orderNo), "其他采购单");
                 throw new IllegalArgumentException(psku + " 在站点 " + siteCode
-                        + " 重复填写，不能重复添加相同商品相同站点。");
+                        + " 以 " + transportModeLabel(transportMode)
+                        + " 已存在于采购单 " + purchaseOrderLabel
+                        + "，不能重复添加相同商品相同站点相同运输方式。");
+            }
+        }
+    }
+
+    private void ensureNoDuplicateSitesInAllocations(String psku, List<SiteTransportQuantity> allocations) {
+        Set<String> seenSiteTransports = new LinkedHashSet<>();
+        for (SiteTransportQuantity allocation : allocations) {
+            String siteCode = normalizeSiteCode(allocation == null ? null : allocation.siteCode);
+            if (!StringUtils.hasText(siteCode)) {
+                continue;
+            }
+            String transportMode = normalizeTransportMode(allocation.transportMode);
+            if (!seenSiteTransports.add(siteTransportKey(siteCode, transportMode))) {
+                throw new IllegalArgumentException(psku + " 在站点 " + siteCode
+                        + " 以 " + transportModeLabel(transportMode)
+                        + " 重复填写，不能重复添加相同商品相同站点相同运输方式。");
             }
         }
     }
@@ -4210,6 +4254,85 @@ public class LocalDbProcurementPurchaseOrderService {
                 .filter(line -> nonNull(line.seaQuantity) > 0)
                 .anyMatch(line -> line.missingFields != null && line.missingFields.stream()
                         .anyMatch(field -> field != null && field.contains("箱")));
+    }
+
+    private void assertOrderReadyForSeal(PurchaseOrderRecord order, List<PurchaseOrderItemRecord> items) {
+        Map<Long, List<PurchaseOrderItemSiteRecord>> sitesByItem = emptyIfNull(mapper.listItemSitesByOrder(order.id)).stream()
+                .collect(Collectors.groupingBy(row -> row.purchaseOrderItemId, LinkedHashMap::new, Collectors.toList()));
+        int issueItemCount = 0;
+        List<String> examples = new ArrayList<>();
+        for (PurchaseOrderItemRecord item : items) {
+            List<String> issues = purchaseOrderSealIssues(order, item, sitesByItem.getOrDefault(item.id, Collections.emptyList()));
+            if (issues.isEmpty()) {
+                continue;
+            }
+            issueItemCount++;
+            if (examples.size() < 3) {
+                examples.add(defaultText(item.partnerSku, "商品") + "（" + String.join("、", issues) + "）");
+            }
+        }
+        if (issueItemCount <= 0) {
+            return;
+        }
+        String exampleText = examples.isEmpty() ? "" : "：" + String.join("；", examples);
+        throw new IllegalArgumentException("采购单还有 " + issueItemCount
+                + " 个商品缺少封存必填信息，请先补齐采购规格、站点运输数量和商品物流规格" + exampleText);
+    }
+
+    private List<String> purchaseOrderSealIssues(
+            PurchaseOrderRecord order,
+            PurchaseOrderItemRecord item,
+            List<PurchaseOrderItemSiteRecord> sites
+    ) {
+        List<String> issues = new ArrayList<>();
+        if (item == null) {
+            issues.add("商品行缺失");
+            return issues;
+        }
+        if (!StringUtils.hasText(item.sourcingSpecText) && !StringUtils.hasText(item.sourcingColorText)) {
+            issues.add("采购规格缺失");
+        }
+        if (nonNull(item.totalQuantity) <= 0) {
+            issues.add("总数量异常");
+        }
+        if (sites == null || sites.isEmpty()) {
+            issues.add("站点运输缺失");
+        } else {
+            if (sites.stream().anyMatch(site -> normalizeTransportMode(site.transportMode).equals(TRANSPORT_UNSPECIFIED))) {
+                issues.add("运输方式未指定");
+            }
+            if (sites.stream().anyMatch(site -> nonNull(site.quantity) <= 0)) {
+                issues.add("站点数量异常");
+            }
+        }
+        ProductArchiveRecord product = mapper.selectProductArchiveByVariant(order.logicalStoreId, item.productVariantId);
+        appendSealLogisticsSpecIssues(issues, product);
+        return issues;
+    }
+
+    private void appendSealLogisticsSpecIssues(List<String> issues, ProductArchiveRecord product) {
+        if (product == null) {
+            issues.add("商品规格快照缺失");
+            return;
+        }
+        if (!allPositive(product.productLengthCm, product.productWidthCm, product.productHeightCm)) {
+            issues.add("商品尺寸缺失");
+        }
+        if (!positive(product.productWeightG)) {
+            issues.add("商品重量缺失");
+        }
+        if (!allPositive(product.cartonLengthCm, product.cartonWidthCm, product.cartonHeightCm)) {
+            issues.add("箱规尺寸缺失");
+        }
+        if (!positive(product.cartonWeightKg)) {
+            issues.add("箱重缺失");
+        }
+        if (product.cartonQuantity == null || product.cartonQuantity <= 0) {
+            issues.add("装箱数缺失");
+        }
+        if ("unknown".equalsIgnoreCase(trim(product.specSourceType))) {
+            issues.add("物流属性未确认");
+        }
     }
 
     private BigDecimal totalSeaLooseVolumeCbm(PurchaseOrderLogisticsPlanView view) {
@@ -4699,6 +4822,22 @@ public class LocalDbProcurementPurchaseOrderService {
         return true;
     }
 
+    private boolean allPositive(BigDecimal... values) {
+        if (values == null || values.length == 0) {
+            return false;
+        }
+        for (BigDecimal value : values) {
+            if (!positive(value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean positive(BigDecimal value) {
+        return value != null && value.compareTo(BigDecimal.ZERO) > 0;
+    }
+
     private void addHint(LinkedHashSet<String> hints, String label, String value) {
         if (!StringUtils.hasText(value)) {
             return;
@@ -4771,7 +4910,7 @@ public class LocalDbProcurementPurchaseOrderService {
 
     private void assertOrderEditable(PurchaseOrderRecord order) {
         if (isOrderSubmitted(order)) {
-            throw new IllegalArgumentException("采购单已提交，不能再更改。");
+            throw new IllegalArgumentException("采购单已封存，不能再更改。");
         }
     }
 
@@ -4950,6 +5089,10 @@ public class LocalDbProcurementPurchaseOrderService {
             default:
                 return TRANSPORT_UNSPECIFIED;
         }
+    }
+
+    private String siteTransportKey(String siteCode, String transportMode) {
+        return normalizeSiteCode(siteCode) + "|" + normalizeTransportMode(transportMode);
     }
 
     private String normalizeUpper(String value) {
@@ -5391,38 +5534,44 @@ public class LocalDbProcurementPurchaseOrderService {
             view.purchaseBatches = new ArrayList<>(purchaseBatches.values());
             view.history = new ArrayList<>(historyByOrder.values());
 
-            if (!view.purchaseBatches.isEmpty()) {
-                view.purchaseCount = view.purchaseBatches.size();
-                view.totalQuantity = view.purchaseBatches.stream()
-                        .map(batch -> batch.countedQuantity)
-                        .filter(quantity -> quantity != null)
-                        .mapToInt(Integer::intValue)
-                        .sum();
-                view.totalCost = view.purchaseBatches.stream()
-                        .map(batch -> batch.countedCost)
-                        .filter(cost -> cost != null)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                view.averageUnitPrice = unitPrice(view.totalCost, view.totalQuantity);
-                PurchaseOrderAli1688PurchaseBatchView latestBatch = latestBatch(view.purchaseBatches);
-                view.recentPurchaseTime = latestBatchSourceTime(latestBatch);
-                view.recentUnitPrice = latestBatch == null ? null : firstNonNull(latestBatch.unitPrice, view.averageUnitPrice);
-                return view;
-            }
-
-            view.purchaseCount = view.history.size();
-            view.totalQuantity = view.history.stream()
+            List<PurchaseOrderAli1688HistorySourceView> unbatchedHistory = unbatchedHistory(
+                    view.history,
+                    view.purchaseBatches
+            );
+            Integer batchQuantity = view.purchaseBatches.stream()
+                    .map(batch -> batch.countedQuantity)
+                    .filter(quantity -> quantity != null)
+                    .mapToInt(Integer::intValue)
+                    .sum();
+            BigDecimal batchCost = view.purchaseBatches.stream()
+                    .map(batch -> batch.countedCost)
+                    .filter(cost -> cost != null)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            Integer historyQuantity = unbatchedHistory.stream()
                     .map(source -> source.assignedQuantity)
                     .filter(quantity -> quantity != null)
                     .mapToInt(Integer::intValue)
                     .sum();
-            view.totalCost = view.history.stream()
+            BigDecimal historyCost = unbatchedHistory.stream()
                     .map(source -> source.allocatedCost)
                     .filter(cost -> cost != null)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            view.purchaseCount = view.purchaseBatches.size() + unbatchedHistory.size();
+            view.totalQuantity = batchQuantity + historyQuantity;
+            view.totalCost = batchCost.add(historyCost);
             view.averageUnitPrice = unitPrice(view.totalCost, view.totalQuantity);
-            PurchaseOrderAli1688HistorySourceView latestHistory = latestHistory(view.history);
-            view.recentPurchaseTime = latestHistory == null ? null : latestHistory.orderTime;
-            view.recentUnitPrice = latestHistory == null ? view.averageUnitPrice : firstNonNull(latestHistory.unitPrice, view.averageUnitPrice);
+            PurchaseOrderAli1688PurchaseBatchView latestBatch = latestBatch(view.purchaseBatches);
+            PurchaseOrderAli1688HistorySourceView latestHistory = latestHistory(unbatchedHistory);
+            String latestBatchTime = latestBatchSourceTime(latestBatch);
+            if (latestHistory != null && compareNullableText(latestHistory.orderTime, latestBatchTime) > 0) {
+                view.recentPurchaseTime = latestHistory.orderTime;
+                view.recentUnitPrice = firstNonNull(latestHistory.unitPrice, view.averageUnitPrice);
+            } else {
+                view.recentPurchaseTime = latestBatchTime;
+                view.recentUnitPrice = latestBatch == null
+                        ? view.averageUnitPrice
+                        : firstNonNull(latestBatch.unitPrice, view.averageUnitPrice);
+            }
             return view;
         }
 
@@ -5528,6 +5677,61 @@ public class LocalDbProcurementPurchaseOrderService {
             target.sourceLineLabel = firstNonBlank(target.sourceLineLabel, source.sourceLineLabel);
             target.allocationBasis = firstNonBlank(target.allocationBasis, source.allocationBasis);
             target.evidenceText = firstNonBlank(target.evidenceText, source.evidenceText);
+        }
+
+        private static List<PurchaseOrderAli1688HistorySourceView> unbatchedHistory(
+                List<PurchaseOrderAli1688HistorySourceView> history,
+                List<PurchaseOrderAli1688PurchaseBatchView> batches
+        ) {
+            if (history == null || history.isEmpty() || batches == null || batches.isEmpty()) {
+                return history == null ? List.of() : history;
+            }
+            Set<String> batchSourceKeys = new LinkedHashSet<>();
+            Set<String> batchOrderKeys = new LinkedHashSet<>();
+            for (PurchaseOrderAli1688PurchaseBatchView batch : batches) {
+                if (batch == null || batch.sources == null) {
+                    continue;
+                }
+                for (PurchaseOrderAli1688HistorySourceView source : batch.sources) {
+                    if (source == null) {
+                        continue;
+                    }
+                    batchSourceKeys.add(sourceKey(source));
+                    String orderKey = orderSourceKey(source);
+                    if (orderKey != null) {
+                        batchOrderKeys.add(orderKey);
+                    }
+                }
+            }
+            if (batchSourceKeys.isEmpty() && batchOrderKeys.isEmpty()) {
+                return history;
+            }
+            List<PurchaseOrderAli1688HistorySourceView> result = new ArrayList<>();
+            for (PurchaseOrderAli1688HistorySourceView source : history) {
+                if (source == null) {
+                    continue;
+                }
+                String orderKey = orderSourceKey(source);
+                if (batchSourceKeys.contains(sourceKey(source))
+                        || (orderKey != null && batchOrderKeys.contains(orderKey))) {
+                    continue;
+                }
+                result.add(source);
+            }
+            return result;
+        }
+
+        private static String orderSourceKey(PurchaseOrderAli1688HistorySourceView source) {
+            if (source == null) {
+                return null;
+            }
+            if (StringUtils.hasText(source.orderNo)) {
+                return "orderNo:" + source.orderNo;
+            }
+            if (source.orderId != null) {
+                return "orderId:" + source.orderId;
+            }
+            return null;
         }
 
         private static PurchaseOrderAli1688PurchaseBatchView latestBatch(

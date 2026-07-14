@@ -17,7 +17,6 @@ public class SalesFactQuery {
     private final String productFulltype;
     private final String dataQualityCode;
     private final List<String> partnerSkuList;
-    private final String lifecycleCode;
 
     public SalesFactQuery(
             Long ownerUserId,
@@ -74,24 +73,6 @@ public class SalesFactQuery {
             String dataQualityCode,
             List<String> partnerSkuList
     ) {
-        this(ownerUserId, storeCode, siteCode, dateFrom, dateTo, partnerSku, sku, searchKeyword, brand, productFulltype, dataQualityCode, partnerSkuList, null);
-    }
-
-    public SalesFactQuery(
-            Long ownerUserId,
-            String storeCode,
-            String siteCode,
-            LocalDate dateFrom,
-            LocalDate dateTo,
-            String partnerSku,
-            String sku,
-            String searchKeyword,
-            String brand,
-            String productFulltype,
-            String dataQualityCode,
-            List<String> partnerSkuList,
-            String lifecycleCode
-    ) {
         this.ownerUserId = ownerUserId;
         this.storeCode = storeCode;
         this.siteCode = siteCode;
@@ -104,7 +85,6 @@ public class SalesFactQuery {
         this.productFulltype = productFulltype;
         this.dataQualityCode = dataQualityCode;
         this.partnerSkuList = partnerSkuList == null ? List.of() : List.copyOf(partnerSkuList);
-        this.lifecycleCode = lifecycleCode;
     }
 
     public Long getOwnerUserId() {
@@ -155,7 +135,21 @@ public class SalesFactQuery {
         return partnerSkuList;
     }
 
-    public String getLifecycleCode() {
-        return lifecycleCode;
+    public SalesFactQuery withSku(String sku) {
+        return new SalesFactQuery(
+                ownerUserId,
+                storeCode,
+                siteCode,
+                dateFrom,
+                dateTo,
+                partnerSku,
+                sku,
+                searchKeyword,
+                brand,
+                productFulltype,
+                dataQualityCode,
+                partnerSkuList
+        );
     }
+
 }

@@ -138,6 +138,7 @@ public class ProductVariantLogisticsProfileService {
                     return resolved;
                 }
             }
+            return null;
         }
         return variantId;
     }

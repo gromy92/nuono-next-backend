@@ -15,6 +15,7 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.Logistics
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsRecommendationInsertRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688HistoryRow;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688PurchaseBatchRow;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderDuplicateItemSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
@@ -816,6 +817,19 @@ public interface ProcurementPurchaseOrderMapper {
     int upsertItemSite(@Param("row") PurchaseOrderItemSiteRecord row);
 
     @Update({
+            "UPDATE procurement_purchase_order_item_site",
+            "SET quantity = COALESCE(quantity, 0) + #{deltaQuantity},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{itemSiteId} AND is_deleted = b'0'"
+    })
+    int increaseItemSiteQuantity(
+            @Param("itemSiteId") Long itemSiteId,
+            @Param("deltaQuantity") Integer deltaQuantity,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
             "UPDATE procurement_purchase_order_item",
             "SET sourcing_spec_text = #{requirement.specText},",
             "    sourcing_size_text = #{requirement.sizeText},",
@@ -839,6 +853,35 @@ public interface ProcurementPurchaseOrderMapper {
             "ORDER BY purchase_order_item_id ASC, site_code ASC, transport_mode ASC"
     })
     List<PurchaseOrderItemSiteRecord> listItemSitesByOrder(@Param("orderId") Long orderId);
+
+    @Select({
+            "SELECT po.id AS purchaseOrderId, po.order_no AS orderNo, po.title AS title,",
+            "       item.partner_sku AS partnerSku, site.site_code AS siteCode, site.transport_mode AS transportMode",
+            "FROM procurement_purchase_order_item_site site",
+            "JOIN procurement_purchase_order_item item",
+            "  ON item.id = site.purchase_order_item_id",
+            " AND item.is_deleted = b'0'",
+            "JOIN procurement_purchase_order po",
+            "  ON po.id = site.purchase_order_id",
+            " AND po.is_deleted = b'0'",
+            "WHERE site.logical_store_id = #{logicalStoreId}",
+            "  AND site.purchase_order_id <> #{excludeOrderId}",
+            "  AND site.is_deleted = b'0'",
+            "  AND UPPER(item.partner_sku) = UPPER(#{partnerSku})",
+            "  AND UPPER(site.site_code) = UPPER(#{siteCode})",
+            "  AND UPPER(site.transport_mode) = UPPER(#{transportMode})",
+            "  AND (po.order_no IS NULL OR po.order_no NOT LIKE 'PO-HIST-%')",
+            "  AND (po.status IS NULL OR po.status <> 'COMPLETED')",
+            "ORDER BY po.gmt_create DESC, po.id DESC",
+            "LIMIT 1"
+    })
+    PurchaseOrderDuplicateItemSiteRecord selectCurrentOrderItemSiteDuplicate(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("excludeOrderId") Long excludeOrderId,
+            @Param("partnerSku") String partnerSku,
+            @Param("siteCode") String siteCode,
+            @Param("transportMode") String transportMode
+    );
 
     @Select({
             "<script>",

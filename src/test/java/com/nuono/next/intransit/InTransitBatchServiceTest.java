@@ -14,8 +14,11 @@ import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import com.nuono.next.intransit.InTransitBatchCommands.DeleteNodeCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveActualArrivalCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveEstimatedArrivalCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
+import com.nuono.next.intransit.InTransitBatchRecords.AirArrivalDurationSampleRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchAggregateRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchLatestNodeRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchListView;
@@ -250,6 +253,268 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldManuallyUpdateEstimatedArrivalAndAudit() {
+        SaveEstimatedArrivalCommand command = new SaveEstimatedArrivalCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setEstimatedArrivalAt(LocalDateTime.parse("2026-06-12T16:30:00"));
+        command.setNote("货代确认周五下午到仓");
+
+        BatchRow existing = batch(53001L, "in_transit", "义特", "forwarder_matched");
+        existing.setEstimatedArrivalAt(null);
+        BatchRow persisted = batch(53001L, "in_transit", "义特", "forwarder_matched");
+        persisted.setEstimatedArrivalAt(LocalDateTime.parse("2026-06-12T16:30:00"));
+        persisted.setEtaDate(LocalDate.parse("2026-06-12"));
+        persisted.setEstimatedArrivalSource("MANUAL");
+        persisted.setEstimatedArrivalSourceDetail("货代确认周五下午到仓");
+        persisted.setEstimatedArrivalUpdatedBy(90001L);
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(existing, persisted);
+
+        BatchView result = service.saveEstimatedArrival(command);
+
+        assertEquals(LocalDateTime.parse("2026-06-12T16:30:00"), result.getEstimatedArrivalAt());
+        assertEquals(LocalDate.parse("2026-06-12"), result.getEtaDate());
+        assertEquals("MANUAL", result.getEstimatedArrivalSource());
+        assertEquals("货代确认周五下午到仓", result.getEstimatedArrivalSourceDetail());
+        verify(mapper).updateEstimatedArrival(
+                10002L,
+                53001L,
+                LocalDateTime.parse("2026-06-12T16:30:00"),
+                LocalDate.parse("2026-06-12"),
+                "MANUAL",
+                "货代确认周五下午到仓",
+                90001L
+        );
+        assertAudit("estimated_arrival_manual_updated", "batch", 53001L);
+    }
+
+    @Test
+    void shouldManuallySaveActualArrivalAsWarehouseReceivedNodeAndAudit() {
+        SaveActualArrivalCommand command = new SaveActualArrivalCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setActualArrivalAt(LocalDateTime.parse("2026-06-13T09:15:00"));
+        command.setNote("人工确认已到仓");
+
+        BatchRow existing = batch(53001L, "in_transit", "义特", "forwarder_matched");
+        BatchRow persisted = batch(53001L, "warehouse_received", "义特", "forwarder_matched");
+        persisted.setLatestNodeStatus("warehouse_received");
+        persisted.setLatestNodeHappenedAt(LocalDateTime.parse("2026-06-13T09:15:00"));
+        persisted.setLatestNodeDescription("人工确认已到仓");
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(existing, existing, persisted);
+        when(mapper.nextNodeId()).thenReturn(55009L);
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(latestNode(
+                "warehouse_received",
+                LocalDateTime.parse("2026-06-13T09:15:00"),
+                "人工确认已到仓"
+        ));
+
+        BatchView result = service.saveActualArrival(command);
+
+        assertEquals("warehouse_received", result.getBatchStatus());
+        assertEquals("warehouse_received", result.getLatestNodeStatus());
+        assertEquals(LocalDateTime.parse("2026-06-13T09:15:00"), result.getLatestNodeHappenedAt());
+        assertEquals("人工确认已到仓", result.getLatestNodeDescription());
+        ArgumentCaptor<NodeRow> nodeCaptor = ArgumentCaptor.forClass(NodeRow.class);
+        verify(mapper).insertNode(nodeCaptor.capture());
+        assertEquals(55009L, nodeCaptor.getValue().getId());
+        assertEquals("warehouse_received", nodeCaptor.getValue().getNodeStatus());
+        assertEquals(LocalDateTime.parse("2026-06-13T09:15:00"), nodeCaptor.getValue().getNodeHappenedAt());
+        assertEquals("人工确认已到仓", nodeCaptor.getValue().getDescription());
+        assertEquals(90001L, nodeCaptor.getValue().getCreatedBy());
+        ArgumentCaptor<BatchLatestNodeRow> latestCaptor = ArgumentCaptor.forClass(BatchLatestNodeRow.class);
+        verify(mapper).refreshBatchLatestNode(eq(10002L), eq(53001L), latestCaptor.capture());
+        assertEquals("warehouse_received", latestCaptor.getValue().getDerivedBatchStatus());
+        assertAudit("actual_arrival_manual_updated", "batch", 53001L);
+    }
+
+    @Test
+    void shouldExposeActualArrivalAsEffectiveArrivalWhenWarehouseReceivedNodeExists() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        BatchRow arrived = batch(53011L, "warehouse_received", "义特", "forwarder_matched");
+        arrived.setEtaDate(null);
+        arrived.setEstimatedArrivalAt(null);
+        arrived.setLatestNodeStatus("warehouse_received");
+        arrived.setLatestNodeHappenedAt(LocalDateTime.parse("2026-06-01T00:40:46"));
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(1);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(arrived));
+
+        BatchListView result = service.listBatches(query);
+        BatchView view = result.getItems().get(0);
+
+        assertEquals(LocalDateTime.parse("2026-06-01T00:40:46"), view.getActualArrivalAt());
+        assertEquals(LocalDateTime.parse("2026-06-01T00:40:46"), view.getEffectiveArrivalAt());
+        assertEquals("ACTUAL", view.getEffectiveArrivalSource());
+    }
+
+    @Test
+    void shouldExposeActualArrivalFromReceivedNodeWhenLatestProjectionIsStale() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        BatchRow arrived = batch(53012L, "in_transit", "启客", "forwarder_matched");
+        arrived.setEtaDate(null);
+        arrived.setEstimatedArrivalAt(null);
+        arrived.setLatestNodeStatus("in_transit");
+        arrived.setLatestNodeHappenedAt(LocalDateTime.parse("2026-05-24T18:56:27"));
+        arrived.setActualArrivalAt(LocalDateTime.parse("2026-05-20T00:00:00"));
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(1);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(arrived));
+
+        BatchListView result = service.listBatches(query);
+        BatchView view = result.getItems().get(0);
+
+        assertEquals(LocalDateTime.parse("2026-05-20T00:00:00"), view.getActualArrivalAt());
+        assertEquals(LocalDateTime.parse("2026-05-20T00:00:00"), view.getEffectiveArrivalAt());
+        assertEquals("ACTUAL", view.getEffectiveArrivalSource());
+    }
+
+    @Test
+    void shouldEstimateMissingAirArrivalFromRecentHistoryWhenSavingBatch() {
+        SaveBatchCommand command = new SaveBatchCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setRawForwarderName("启客");
+        command.setTransportMode("AIR");
+        command.setTargetStoreCode("RUH");
+        command.setTargetSiteCode("SA");
+        command.setTargetWarehouseName("FBN-RUH");
+        command.setEstimatedDepartureAt(LocalDateTime.parse("2026-07-01T08:00:00"));
+        command.setBatchReferenceNo("XGGEKSA05001");
+        command.setBatchStatus("in_transit");
+
+        ForwarderResolveView matched = new ForwarderResolveView();
+        matched.setStandardForwarderId(51002L);
+        matched.setStandardForwarderCode("QIKE");
+        matched.setStandardForwarderName("启客");
+        matched.setRawForwarderName("启客");
+        matched.setNormalizedRawForwarderName("启客");
+        matched.setQualityStatus("forwarder_matched");
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matched);
+        when(mapper.selectRecentAirArrivalDurations(10002L, 51002L, "RUH", "SA", 10))
+                .thenReturn(List.of(airSample(5760L), airSample(7200L), airSample(8640L)));
+        when(mapper.nextBatchId()).thenReturn(53006L);
+        BatchRow persisted = batch(53006L, "in_transit", "启客", "forwarder_matched");
+        persisted.setStandardForwarderId(51002L);
+        persisted.setStandardForwarderCode("QIKE");
+        persisted.setStandardForwarderName("启客");
+        persisted.setTargetStoreCode("RUH");
+        persisted.setTargetSiteCode("SA");
+        persisted.setTargetWarehouseName("FBN-RUH");
+        persisted.setEstimatedDepartureAt(LocalDateTime.parse("2026-07-01T08:00:00"));
+        persisted.setEstimatedArrivalAt(LocalDateTime.parse("2026-07-06T08:00:00"));
+        persisted.setEtaDate(LocalDate.parse("2026-07-06"));
+        persisted.setEstimatedArrivalSource("AIR_HISTORY_ESTIMATE");
+        when(mapper.selectBatchById(10002L, 53006L)).thenReturn(persisted);
+
+        BatchView result = service.saveBatch(command);
+
+        assertEquals(LocalDateTime.parse("2026-07-06T08:00:00"), result.getEstimatedArrivalAt());
+        assertEquals(LocalDate.parse("2026-07-06"), result.getEtaDate());
+        assertEquals("AIR_HISTORY_ESTIMATE", result.getEstimatedArrivalSource());
+        ArgumentCaptor<BatchRow> rowCaptor = ArgumentCaptor.forClass(BatchRow.class);
+        verify(mapper).insertBatch(rowCaptor.capture());
+        assertEquals(LocalDateTime.parse("2026-07-06T08:00:00"), rowCaptor.getValue().getEstimatedArrivalAt());
+        assertEquals(LocalDate.parse("2026-07-06"), rowCaptor.getValue().getEtaDate());
+        assertEquals("AIR_HISTORY_ESTIMATE", rowCaptor.getValue().getEstimatedArrivalSource());
+    }
+
+    @Test
+    void shouldFallbackToForwarderAirHistoryWhenScopedHistoryIsMissing() {
+        SaveBatchCommand command = new SaveBatchCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setRawForwarderName("启客");
+        command.setTransportMode("AIR");
+        command.setTargetStoreCode("RUH");
+        command.setTargetSiteCode("SA");
+        command.setTargetWarehouseName("FBN-RUH");
+        command.setEstimatedDepartureAt(LocalDateTime.parse("2026-07-01T08:00:00"));
+        command.setBatchReferenceNo("XGGEKSA05002");
+        command.setBatchStatus("in_transit");
+
+        ForwarderResolveView matched = new ForwarderResolveView();
+        matched.setStandardForwarderId(51002L);
+        matched.setStandardForwarderCode("QIKE");
+        matched.setStandardForwarderName("启客");
+        matched.setRawForwarderName("启客");
+        matched.setNormalizedRawForwarderName("启客");
+        matched.setQualityStatus("forwarder_matched");
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matched);
+        when(mapper.selectRecentAirArrivalDurations(10002L, 51002L, "RUH", "SA", 10))
+                .thenReturn(List.of());
+        when(mapper.selectRecentAirArrivalDurations(10002L, 51002L, null, null, 10))
+                .thenReturn(List.of(airSample(4320L), airSample(5760L), airSample(7200L)));
+        when(mapper.nextBatchId()).thenReturn(53007L);
+        BatchRow persisted = batch(53007L, "in_transit", "启客", "forwarder_matched");
+        persisted.setStandardForwarderId(51002L);
+        persisted.setStandardForwarderCode("QIKE");
+        persisted.setStandardForwarderName("启客");
+        persisted.setTargetStoreCode("RUH");
+        persisted.setTargetSiteCode("SA");
+        persisted.setTargetWarehouseName("FBN-RUH");
+        persisted.setEstimatedDepartureAt(LocalDateTime.parse("2026-07-01T08:00:00"));
+        persisted.setEstimatedArrivalAt(LocalDateTime.parse("2026-07-05T08:00:00"));
+        persisted.setEtaDate(LocalDate.parse("2026-07-05"));
+        persisted.setEstimatedArrivalSource("AIR_HISTORY_ESTIMATE");
+        when(mapper.selectBatchById(10002L, 53007L)).thenReturn(persisted);
+
+        service.saveBatch(command);
+
+        ArgumentCaptor<BatchRow> rowCaptor = ArgumentCaptor.forClass(BatchRow.class);
+        verify(mapper).insertBatch(rowCaptor.capture());
+        assertEquals(LocalDateTime.parse("2026-07-05T08:00:00"), rowCaptor.getValue().getEstimatedArrivalAt());
+        assertEquals(LocalDate.parse("2026-07-05"), rowCaptor.getValue().getEtaDate());
+        assertEquals("AIR_HISTORY_ESTIMATE", rowCaptor.getValue().getEstimatedArrivalSource());
+    }
+
+    @Test
+    void shouldKeepManualEstimatedArrivalWhenSavingNonDraftBatch() {
+        SaveBatchCommand command = new SaveBatchCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setRawForwarderName("义特物流");
+        command.setTransportMode("SEA");
+        command.setTargetStoreCode("RUH");
+        command.setTargetSiteCode("SA");
+        command.setTargetWarehouseName("FBN-RUH");
+        command.setBatchStatus("in_transit");
+        command.setEstimatedArrivalAt(LocalDateTime.parse("2026-06-18T00:00:00"));
+        command.setEstimatedArrivalSource("OFFICIAL");
+
+        ForwarderResolveView matched = new ForwarderResolveView();
+        matched.setStandardForwarderId(51001L);
+        matched.setStandardForwarderCode("YITE");
+        matched.setStandardForwarderName("义特");
+        matched.setRawForwarderName("义特");
+        matched.setNormalizedRawForwarderName("义特物流");
+        matched.setQualityStatus("forwarder_matched");
+        BatchRow existing = batch(53001L, "in_transit", "义特物流", "forwarder_matched");
+        existing.setTransportMode("SEA");
+        existing.setTargetStoreCode("RUH");
+        existing.setTargetSiteCode("SA");
+        existing.setTargetWarehouseName("FBN-RUH");
+        existing.setEstimatedArrivalAt(LocalDateTime.parse("2026-06-20T14:00:00"));
+        existing.setEtaDate(LocalDate.parse("2026-06-20"));
+        existing.setEstimatedArrivalSource("MANUAL");
+        existing.setEstimatedArrivalSourceDetail("人工确认 ETA");
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(existing);
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matched);
+
+        service.saveBatch(command);
+
+        ArgumentCaptor<BatchRow> rowCaptor = ArgumentCaptor.forClass(BatchRow.class);
+        verify(mapper).updateBatch(rowCaptor.capture());
+        assertEquals(LocalDateTime.parse("2026-06-20T14:00:00"), rowCaptor.getValue().getEstimatedArrivalAt());
+        assertEquals(LocalDate.parse("2026-06-20"), rowCaptor.getValue().getEtaDate());
+        assertEquals("MANUAL", rowCaptor.getValue().getEstimatedArrivalSource());
+        assertEquals("人工确认 ETA", rowCaptor.getValue().getEstimatedArrivalSourceDetail());
+    }
+
+    @Test
     void shouldRejectNewBatchWhenActiveReferenceAlreadyExistsForOwner() {
         SaveBatchCommand command = new SaveBatchCommand();
         command.setOwnerUserId(10002L);
@@ -443,6 +708,23 @@ class InTransitBatchServiceTest {
         verify(mapper).listBatches(captor.capture());
         assertEquals("createdAt", captor.getValue().getSortField());
         assertEquals("DESC", captor.getValue().getSortDirectionSql());
+    }
+
+    @Test
+    void shouldKeepMissingEstimatedArrivalTodoFilterWhenListingBatches() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        query.setTodo("missingEstimatedArrival");
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(1);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(
+                batch(53010L, "in_transit", "义特", "forwarder_matched")
+        ));
+
+        service.listBatches(query);
+
+        ArgumentCaptor<InTransitBatchQuery> captor = ArgumentCaptor.forClass(InTransitBatchQuery.class);
+        verify(mapper).listBatches(captor.capture());
+        assertEquals("missingEstimatedArrival", captor.getValue().getTodo());
     }
 
     @Test
@@ -970,6 +1252,121 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldCloseIncompleteBatchWhenLatestNodeIsWarehouseReceived() {
+        SaveNodeCommand command = new SaveNodeCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setNodeStatus("warehouse_received");
+        command.setNodeHappenedAt(LocalDateTime.parse("2026-03-09T00:00:00"));
+        command.setDescription("ET海外仓入库");
+
+        BatchRow incompleteDraft = batch(53001L, "draft", "启客", "forwarder_matched");
+        incompleteDraft.setTransportMode(null);
+        incompleteDraft.setTargetStoreCode("RUH");
+        incompleteDraft.setTargetWarehouseName(null);
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(incompleteDraft);
+        when(mapper.nextNodeId()).thenReturn(55005L);
+        when(mapper.selectNodeById(10002L, 53001L, 55005L)).thenReturn(node(
+                55005L,
+                53001L,
+                "warehouse_received",
+                LocalDateTime.parse("2026-03-09T00:00:00"),
+                "ET海外仓入库"
+        ));
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(latestNode(
+                "warehouse_received",
+                LocalDateTime.parse("2026-03-09T00:00:00"),
+                "ET海外仓入库"
+        ));
+
+        service.saveNode(command);
+
+        ArgumentCaptor<BatchLatestNodeRow> latestCaptor = ArgumentCaptor.forClass(BatchLatestNodeRow.class);
+        verify(mapper).refreshBatchLatestNode(eq(10002L), eq(53001L), latestCaptor.capture());
+        assertEquals("warehouse_received", latestCaptor.getValue().getLatestNodeStatus());
+        assertEquals("warehouse_received", latestCaptor.getValue().getDerivedBatchStatus());
+    }
+
+    @Test
+    void shouldTreatFbnWarehouseAppointmentAsWarehouseReceived() {
+        SaveNodeCommand command = new SaveNodeCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setNodeStatus("delivering");
+        command.setNodeHappenedAt(LocalDateTime.parse("2026-03-03T00:00:00"));
+        command.setDescription("FBN预约送仓 A04883985PN 03 Mar 2026 4pm-6pm");
+
+        BatchRow incompleteDraft = batch(53001L, "draft", "众鸫", "forwarder_matched");
+        incompleteDraft.setTransportMode("SEA");
+        incompleteDraft.setTargetStoreCode("RUH");
+        incompleteDraft.setTargetWarehouseName("FBN-RUH");
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(incompleteDraft);
+        when(mapper.nextNodeId()).thenReturn(55006L);
+        when(mapper.selectNodeById(10002L, 53001L, 55006L)).thenReturn(node(
+                55006L,
+                53001L,
+                "warehouse_received",
+                LocalDateTime.parse("2026-03-03T00:00:00"),
+                "FBN预约送仓 A04883985PN 03 Mar 2026 4pm-6pm"
+        ));
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(latestNode(
+                "delivering",
+                LocalDateTime.parse("2026-03-03T00:00:00"),
+                "FBN预约送仓 A04883985PN 03 Mar 2026 4pm-6pm"
+        ));
+
+        service.saveNode(command);
+
+        ArgumentCaptor<NodeRow> nodeCaptor = ArgumentCaptor.forClass(NodeRow.class);
+        verify(mapper).insertNode(nodeCaptor.capture());
+        assertEquals("warehouse_received", nodeCaptor.getValue().getNodeStatus());
+
+        ArgumentCaptor<BatchLatestNodeRow> latestCaptor = ArgumentCaptor.forClass(BatchLatestNodeRow.class);
+        verify(mapper).refreshBatchLatestNode(eq(10002L), eq(53001L), latestCaptor.capture());
+        assertEquals("delivering", latestCaptor.getValue().getLatestNodeStatus());
+        assertEquals("warehouse_received", latestCaptor.getValue().getDerivedBatchStatus());
+    }
+
+    @Test
+    void shouldTreatPickedUpOverseasWarehouseBeforeDeliveryAsWarehouseReceived() {
+        SaveNodeCommand command = new SaveNodeCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setNodeStatus("in_transit");
+        command.setNodeHappenedAt(LocalDateTime.parse("2026-05-30T23:40:46"));
+        command.setDescription("已提回海外仓，待拆柜派送");
+
+        when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特", "forwarder_matched"));
+        when(mapper.nextNodeId()).thenReturn(55007L);
+        when(mapper.selectNodeById(10002L, 53001L, 55007L)).thenReturn(node(
+                55007L,
+                53001L,
+                "warehouse_received",
+                LocalDateTime.parse("2026-05-30T23:40:46"),
+                "已提回海外仓，待拆柜派送"
+        ));
+        when(mapper.selectLatestNode(10002L, 53001L)).thenReturn(latestNode(
+                "in_transit",
+                LocalDateTime.parse("2026-05-30T23:40:46"),
+                "已提回海外仓，待拆柜派送"
+        ));
+
+        service.saveNode(command);
+
+        ArgumentCaptor<NodeRow> nodeCaptor = ArgumentCaptor.forClass(NodeRow.class);
+        verify(mapper).insertNode(nodeCaptor.capture());
+        assertEquals("warehouse_received", nodeCaptor.getValue().getNodeStatus());
+
+        ArgumentCaptor<BatchLatestNodeRow> latestCaptor = ArgumentCaptor.forClass(BatchLatestNodeRow.class);
+        verify(mapper).refreshBatchLatestNode(eq(10002L), eq(53001L), latestCaptor.capture());
+        assertEquals("in_transit", latestCaptor.getValue().getLatestNodeStatus());
+        assertEquals("warehouse_received", latestCaptor.getValue().getDerivedBatchStatus());
+    }
+
+    @Test
     void shouldKeepBatchDraftWhenLatestNodeWouldPromoteBatchWithMissingPackageChargeableWeight() {
         SaveNodeCommand command = new SaveNodeCommand();
         command.setOwnerUserId(10002L);
@@ -1199,5 +1596,11 @@ class InTransitBatchServiceTest {
         assertEquals(targetId, auditCaptor.getValue().getTargetId());
         assertEquals(10002L, auditCaptor.getValue().getOwnerUserId());
         assertEquals(90001L, auditCaptor.getValue().getOperatorUserId());
+    }
+
+    private AirArrivalDurationSampleRow airSample(Long durationMinutes) {
+        AirArrivalDurationSampleRow row = new AirArrivalDurationSampleRow();
+        row.setDurationMinutes(durationMinutes);
+        return row;
     }
 }

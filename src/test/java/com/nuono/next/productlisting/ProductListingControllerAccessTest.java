@@ -14,6 +14,7 @@ import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.permission.access.BusinessCapability;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,11 +33,17 @@ class ProductListingControllerAccessTest {
     @Mock
     private BusinessAccessResolver businessAccessResolver;
 
+    @Mock
+    private ObjectProvider<ProductListingAiListingService> aiListingServiceProvider;
+
+    @Mock
+    private ProductListingAiListingService aiListingService;
+
     private ProductListingController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new ProductListingController(service, businessAccessResolver);
+        controller = new ProductListingController(service, businessAccessResolver, aiListingServiceProvider);
     }
 
     @Test
@@ -111,6 +118,42 @@ class ProductListingControllerAccessTest {
         );
 
         assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
+    }
+
+    @Test
+    void generateNoonListingUsesProductListingStoreAccess() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        ProductListingAiListingCommand command = new ProductListingAiListingCommand();
+        ProductListingDraftCommand draft = new ProductListingDraftCommand();
+        draft.setStoreCode("STR245027-NSA");
+        draft.setProductTitleCn("桌面收纳盒");
+        command.setDraft(draft);
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(90002L)
+                .businessOwnerUserId(10002L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .storeCodes(Set.of("STR245027-NSA"))
+                .storeOwnerUserIds(Map.of("STR245027-NSA", 10002L))
+                .menuPaths(Set.of("/purchase/listing"))
+                .build();
+        ProductListingAiListingView expected = ProductListingAiListingView.of(
+                ProductListingAiListingService.RULE_VERSION,
+                Map.of("warnings", java.util.List.of(), "needsHumanConfirmation", java.util.List.of()),
+                "ai",
+                java.util.List.of()
+        );
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_LISTING,
+                "STR245027-NSA"
+        )).thenReturn(context);
+        when(aiListingServiceProvider.getIfAvailable()).thenReturn(aiListingService);
+        when(aiListingService.generate(context, command)).thenReturn(expected);
+
+        ProductListingAiListingView actual = controller.generateNoonListing(command, request);
+
+        assertEquals(expected, actual);
+        verify(aiListingService).generate(context, command);
     }
 
     @Test

@@ -51,11 +51,13 @@ public class ProductReadModelService {
                 storeCode,
                 warnings
         );
+        applyDetailBaselineBackfillStates(command.getOwnerUserId(), storeCode, summaries);
 
         LinkedHashMap<String, LocalDbStoreInitializationService.StoreInitializationProductListItemView> itemsByProductIdentity =
                 new LinkedHashMap<>();
-        for (ProductListSummaryView summary : summaries) {
-            String identityKey = productIdentityKey(storeCode, summary);
+        for (int index = 0; index < summaries.size(); index++) {
+            ProductListSummaryView summary = summaries.get(index);
+            String identityKey = productIdentityKey(storeCode, summary, index);
             if (summary == null || !StringUtils.hasText(identityKey)) {
                 continue;
             }
@@ -153,32 +155,49 @@ public class ProductReadModelService {
         if (summaries == null || summaries.isEmpty()) {
             return;
         }
+        boolean hasEligibleSummary = summaries.stream()
+                .anyMatch((summary) -> isDetailBaselineBackfillStateEligible(ownerUserId, storeCode, summary));
+        if (!hasEligibleSummary) {
+            return;
+        }
+        Long logicalStoreId = resolveLogicalStoreId(ownerUserId, storeCode);
         for (ProductListSummaryView summary : summaries) {
-            applyDetailBaselineBackfillState(ownerUserId, storeCode, summary);
+            applyDetailBaselineBackfillState(ownerUserId, storeCode, logicalStoreId, summary);
         }
     }
 
     private void applyDetailBaselineBackfillState(
             Long ownerUserId,
             String storeCode,
+            Long logicalStoreId,
             ProductListSummaryView summary
     ) {
-        if (summary == null || ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(summary.getSkuParent())) {
-            return;
-        }
-        if ("ready".equalsIgnoreCase(summary.getDetailBaselineStatus())) {
+        if (!isDetailBaselineBackfillStateEligible(ownerUserId, storeCode, summary)) {
             return;
         }
         if (productDetailBaselineBackfillService == null) {
             return;
         }
-        ProductDetailBaselineBackfillService.BackfillState state =
-                productDetailBaselineBackfillService.state(ownerUserId, storeCode, summary.getSkuParent());
+        ProductDetailBaselineBackfillService.BackfillState state = logicalStoreId == null
+                ? productDetailBaselineBackfillService.state(ownerUserId, storeCode, summary.getSkuParent())
+                : productDetailBaselineBackfillService.stateForLogicalStore(ownerUserId, logicalStoreId, summary.getSkuParent());
         if (state == null || !StringUtils.hasText(state.getStatus())) {
             return;
         }
         summary.setDetailBaselineStatus(state.getStatus());
         summary.setDetailBaselineMessage(state.getMessage());
+    }
+
+    private boolean isDetailBaselineBackfillStateEligible(
+            Long ownerUserId,
+            String storeCode,
+            ProductListSummaryView summary
+    ) {
+        if (summary == null || ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(summary.getSkuParent())) {
+            return false;
+        }
+        return !"ready".equalsIgnoreCase(summary.getDetailBaselineStatus())
+                && !"public_detail_readonly".equalsIgnoreCase(summary.getDetailBaselineStatus());
     }
 
     private void applyDatasetStats(
@@ -275,6 +294,17 @@ public class ProductReadModelService {
         item.setStatusCode(mergeCurrentZValue(item.getStatusCode(), summary.getStatusCode(), currentZRow));
         item.setListingStartedAt(mergeCurrentZValue(item.getListingStartedAt(), summary.getListingStartedAt(), currentZRow));
         item.setListingStartedSource(mergeCurrentZValue(item.getListingStartedSource(), summary.getListingStartedSource(), currentZRow));
+        item.setOperationStageCode(mergeCurrentZValue(item.getOperationStageCode(), summary.getOperationStageCode(), currentZRow));
+        item.setOperationStageUpdatedAt(mergeCurrentZValue(
+                item.getOperationStageUpdatedAt(),
+                summary.getOperationStageUpdatedAt(),
+                currentZRow
+        ));
+        item.setOperationStageUpdatedBy(mergeCurrentZValue(
+                item.getOperationStageUpdatedBy(),
+                summary.getOperationStageUpdatedBy(),
+                currentZRow
+        ));
         item.setIsActive(mergeCurrentZValue(item.getIsActive(), summary.getIsActive(), currentZRow));
         item.setSyncStatus(mergeCurrentZValue(item.getSyncStatus(), summary.getSyncStatus(), currentZRow));
         item.setLastSyncedAt(mergeCurrentZValue(item.getLastSyncedAt(), summary.getLastSyncedAt(), currentZRow));
@@ -408,15 +438,16 @@ public class ProductReadModelService {
         return null;
     }
 
-    private String productIdentityKey(String storeCode, ProductListSummaryView summary) {
+    private String productIdentityKey(String storeCode, ProductListSummaryView summary, int index) {
         if (summary == null) {
             return null;
         }
-        String productKey = firstNonBlank(summary.getPartnerSku(), summary.getSkuParent());
-        if (!StringUtils.hasText(productKey)) {
-            return null;
+        String scopedStoreCode = firstNonBlank(summary.getStoreCode(), storeCode);
+        String stableKey = ProductIdentity.storeScopedStableKey(scopedStoreCode, summary.getPartnerSku());
+        if (StringUtils.hasText(stableKey)) {
+            return stableKey;
         }
-        return firstNonBlank(summary.getStoreCode(), storeCode) + "::" + productKey;
+        return firstNonBlank(scopedStoreCode, "store:unknown") + "|missing-psku-row:" + index;
     }
 
     private String normalize(String value) {
@@ -426,6 +457,17 @@ public class ProductReadModelService {
     private void requireText(String value, String message) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(message);
+        }
+    }
+
+    private Long resolveLogicalStoreId(Long ownerUserId, String storeCode) {
+        if (productManagementMapper == null || ownerUserId == null || !StringUtils.hasText(storeCode)) {
+            return null;
+        }
+        try {
+            return productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(ownerUserId, normalize(storeCode));
+        } catch (RuntimeException ignored) {
+            return null;
         }
     }
 }

@@ -102,6 +102,8 @@ public class NoonProductionSchedulerEnablementGate {
                         .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
                         .scheduleExpression(command.getScheduleBoundaries())
                         .build());
+            } else if (plan.isPaused()) {
+                plan = foundationService.resumePlan(plan.getId());
             }
             planIds.add(plan.getId());
         }
@@ -155,6 +157,10 @@ public class NoonProductionSchedulerEnablementGate {
             reasons.add("READY_SMOKE_RUN_REQUIRED");
             return;
         }
+        if (hasBlockingSmokeGateMiss(smokeRun, requiredDomains)
+                || (!smokeRun.isProductionSchedulingAllowed() && smokeRun.getMissingRequirements().isEmpty())) {
+            reasons.add("SMOKE_RUN_GATE_NOT_READY");
+        }
         Map<NoonPullDataDomain, NoonPullSmokeEvidenceRecord> evidenceByDomain = new EnumMap<>(NoonPullDataDomain.class);
         for (NoonPullSmokeEvidenceRecord evidence : smokeRun.getEvidence()) {
             if (StringUtils.hasText(evidence.getDataDomain())) {
@@ -170,6 +176,37 @@ public class NoonProductionSchedulerEnablementGate {
         if (!StringUtils.hasText(smokeRun.getRollbackOrGlobalPauseStrategy())) {
             reasons.add("SMOKE_RUN_ROLLBACK_OR_GLOBAL_PAUSE_REQUIRED");
         }
+    }
+
+    private boolean hasBlockingSmokeGateMiss(
+            NoonPullSmokeRunRecord smokeRun,
+            List<NoonPullDataDomain> requiredDomains
+    ) {
+        for (String missingRequirement : smokeRun.getMissingRequirements()) {
+            if (!isIgnorableMissingSmokeRequirement(missingRequirement, requiredDomains)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isIgnorableMissingSmokeRequirement(
+            String missingRequirement,
+            List<NoonPullDataDomain> requiredDomains
+    ) {
+        if (!StringUtils.hasText(missingRequirement)) {
+            return true;
+        }
+        if ("PRODUCT_SMOKE".equals(missingRequirement)) {
+            return !requiredDomains.contains(NoonPullDataDomain.PRODUCT);
+        }
+        if ("SALES_SMOKE".equals(missingRequirement)) {
+            return !requiredDomains.contains(NoonPullDataDomain.SALES);
+        }
+        if ("ORDER_SMOKE".equals(missingRequirement)) {
+            return !requiredDomains.contains(NoonPullDataDomain.ORDER);
+        }
+        return false;
     }
 
     private boolean isReadyEvidence(NoonPullSmokeEvidenceRecord evidence) {

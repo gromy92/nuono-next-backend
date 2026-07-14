@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class OfficialWarehouseAsnListSyncSupportTest {
@@ -99,5 +101,29 @@ class OfficialWarehouseAsnListSyncSupportTest {
 
         assertThat(parsed.localAsnStatus).isEqualTo("FAILED");
         assertThat(parsed.hasConfirmedAppointment()).isTrue();
+    }
+
+    @Test
+    void parsesRoutingWarehouseLinesFromNoonAsnDetail() throws Exception {
+        JsonNode detail = objectMapper.readTree("{"
+                + "\"asn_nr\":\"A05718626PN\","
+                + "\"lines\":["
+                + "{\"sku\":\"Z9F56DA86B5AEDA164B5BZ-1\",\"qty\":2,\"storage_type_code\":\"standard\"},"
+                + "{\"noon_sku\":\"Z75EEXAMPLE\",\"quantity\":1},"
+                + "{\"sku\":\"\",\"qty\":9},"
+                + "{\"sku\":\"ZIGNORED\",\"qty\":0}"
+                + "]"
+                + "}");
+
+        List<AsnLineInsertRecord> lines =
+                OfficialWarehouseNoonInboundClient.routingLineRowsFromAsnDetail(detail);
+
+        assertThat(lines).hasSize(2);
+        assertThat(lines.get(0).noonSku).isEqualTo("Z9F56DA86B5AEDA164B5BZ-1");
+        assertThat(lines.get(0).quantity).isEqualTo(2);
+        assertThat(lines.get(0).storageTypeCode).isEqualTo("standard");
+        assertThat(lines.get(1).noonSku).isEqualTo("Z75EEXAMPLE");
+        assertThat(lines.get(1).quantity).isEqualTo(1);
+        assertThat(lines.get(1).storageTypeCode).isEqualTo("standard");
     }
 }

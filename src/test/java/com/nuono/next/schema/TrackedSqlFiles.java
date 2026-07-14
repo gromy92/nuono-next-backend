@@ -13,7 +13,15 @@ final class TrackedSqlFiles {
     }
 
     static List<Path> initSqlFiles() throws IOException, InterruptedException {
-        Process process = new ProcessBuilder("git", "ls-files", "src/main/resources/db/init")
+        Process process = new ProcessBuilder(
+                "git",
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "src/main/resources/db/init"
+        )
                 .redirectErrorStream(true)
                 .start();
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

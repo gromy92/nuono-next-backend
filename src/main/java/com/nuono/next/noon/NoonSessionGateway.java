@@ -907,7 +907,7 @@ public class NoonSessionGateway {
         body.put("client_code", NOON_WEB_CLIENT_CODE);
         JsonNode root = state.postJson(null, null, identityPkceUrl, body, false, null);
         if (root == null || !root.path("success").asBoolean(false)) {
-            throw new IllegalStateException("Noon PKCE 初始化失败：" + text(root, "err"));
+            throw new IllegalStateException("Noon PKCE 初始化失败：" + partnerIdentityError(root));
         }
         String pkceKey = text(root, "pkce_key");
         if (!StringUtils.hasText(pkceKey)) {
@@ -933,10 +933,7 @@ public class NoonSessionGateway {
         body.put("pkce_key", pkce.getPkceKey());
         JsonNode root = state.postJson(null, null, identityValidateUrl, body, false, null);
         if (root == null || !root.path("success").asBoolean(false)) {
-            String error = root != null && root.path("err").isArray() && root.path("err").size() > 0
-                    ? root.path("err").get(0).asText()
-                    : text(root, "err");
-            throw new IllegalStateException("Noon password validate 失败：" + error);
+            throw new IllegalStateException("Noon password validate 失败：" + partnerIdentityError(root));
         }
         String accessToken = text(root, "access_token");
         if (!StringUtils.hasText(accessToken)) {
@@ -958,7 +955,7 @@ public class NoonSessionGateway {
         body.put("pkce_key", pkce.getPkceKey());
         JsonNode root = state.postJson(null, null, identityGenerateUrl, body, false, null);
         if (root == null || !"ok".equalsIgnoreCase(root.path("emailotp").asText(null))) {
-            throw new IllegalStateException("Noon emailotp 发送失败：" + text(root, "err"));
+            throw new IllegalStateException("Noon emailotp 发送失败：" + partnerIdentityError(root));
         }
     }
 
@@ -991,10 +988,7 @@ public class NoonSessionGateway {
         body.put("pkce_key", pkce.getPkceKey());
         JsonNode root = state.postJson(null, null, identityValidateUrl, body, false, null);
         if (root == null || !root.path("success").asBoolean(false)) {
-            String error = root != null && root.path("err").isArray() && root.path("err").size() > 0
-                    ? root.path("err").get(0).asText()
-                    : text(root, "err");
-            throw new IllegalStateException("Noon emailotp validate 失败：" + error);
+            throw new IllegalStateException("Noon emailotp validate 失败：" + partnerIdentityError(root));
         }
         String accessToken = text(root, "access_token");
         if (!StringUtils.hasText(accessToken)) {
@@ -1237,6 +1231,21 @@ public class NoonSessionGateway {
             }
         }
         return null;
+    }
+
+    private static String partnerIdentityError(JsonNode root) {
+        if (root == null || root.isMissingNode() || root.isNull()) {
+            return "empty response";
+        }
+        JsonNode err = root.path("err");
+        if (err.isArray() && err.size() > 0) {
+            String value = normalize(err.get(0).asText(null));
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        String value = firstText(root, "err", "error", "message", "errorMessage", "error_message");
+        return StringUtils.hasText(value) ? value : "provider response indicated failure";
     }
 
     private static boolean isRateLimitedMessage(String message) {

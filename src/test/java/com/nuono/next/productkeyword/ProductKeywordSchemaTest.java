@@ -1,5 +1,6 @@
 package com.nuono.next.productkeyword;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.permission.access.BusinessCapability;
@@ -71,19 +72,10 @@ class ProductKeywordSchemaTest {
 
     @Test
     void localDbBootstrapIncludesKeywordSchema() throws Exception {
-        String java = Files.readString(Path.of(
-                "src",
-                "main",
-                "java",
-                "com",
-                "nuono",
-                "next",
-                "system",
-                "LocalDbBootstrapStatusService.java"
-        ));
-
-        assertThat(java).contains("classpath:db/init/174_product_keyword_management.sql");
-        assertThat(java).contains("classpath:db/init/175_product_keyword_competitor_link.sql");
+        assertInitScriptsInclude(
+                "classpath:db/init/174_product_keyword_management.sql",
+                "classpath:db/init/175_product_keyword_competitor_link.sql"
+        );
     }
 
     @Test

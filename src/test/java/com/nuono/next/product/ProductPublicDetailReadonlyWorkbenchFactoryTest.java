@@ -1,6 +1,7 @@
 package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.productpublicdetail.ProductPublicDetailSnapshot;
@@ -35,10 +36,45 @@ class ProductPublicDetailReadonlyWorkbenchFactoryTest {
         assertEquals(ProductSourceTypeSupport.FOLLOW_SELL, baseline.getIdentity().get("productSourceType"));
         assertEquals("Public title", baseline.getContent().get("titleEn"));
         assertEquals(List.of("https://f.nooncdn.com/p/pzsku/Z203/main.jpg"), baseline.getContent().get("images"));
+        assertEquals("https://www.noon.com/saudi-en/Z203B08BE8C1E820A4CA6Z/p/", baseline.getContent().get("detailUrl"));
         assertEquals("88.50", baseline.getPricing().get("price"));
         assertEquals("SAR", baseline.getPricing().get("currency"));
         assertEquals("STR353172-NSA", baseline.getSiteOffers().get(0).get("storeCode"));
         assertEquals("SA", baseline.getSiteOffers().get(0).get("site"));
+    }
+
+    @Test
+    void siblingSitePublicDetailUsesOnlySharedCatalogFields() {
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(308L);
+        command.setStoreCode("STR353172-NAE");
+        command.setSkuParent("Z203B08BE8C1E820A4CA6Z");
+
+        ProductListProjectionRecord projection = projection();
+        StoreSyncStoreRecord store = store();
+        store.setStoreCode("STR353172-NAE");
+        store.setSite(null);
+
+        ProductPublicDetailSnapshot detail = publicDetail();
+        detail.setStoreCode("STR353172-NSA");
+        detail.setSiteCode("SA");
+        detail.setPriceAmount(new BigDecimal("88.50"));
+        detail.setCurrencyCode("SAR");
+        detail.setDetailUrl("https://www.noon.com/saudi-en/Z203B08BE8C1E820A4CA6Z/p/");
+
+        ProductMasterSnapshotView baseline = factory.buildBaseline(command, store, projection, detail);
+
+        assertEquals("Public title", baseline.getContent().get("titleEn"));
+        assertEquals(List.of("https://f.nooncdn.com/p/pzsku/Z203/main.jpg"), baseline.getContent().get("images"));
+        assertFalse(baseline.getContent().containsKey("detailUrl"));
+        assertEquals("STR353172-NAE", baseline.getStoreContext().get("storeCode"));
+        assertEquals("AE", baseline.getStoreContext().get("site"));
+        assertEquals("99.00", baseline.getPricing().get("price"));
+        assertFalse(baseline.getPricing().containsKey("currency"));
+        assertEquals("STR353172-NAE", baseline.getSiteOffers().get(0).get("storeCode"));
+        assertEquals("AE", baseline.getSiteOffers().get(0).get("site"));
+        assertEquals("99.00", baseline.getSiteOffers().get(0).get("price"));
+        assertFalse(baseline.getSiteOffers().get(0).containsKey("currency"));
     }
 
     private ProductListProjectionRecord projection() {

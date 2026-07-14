@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
@@ -69,10 +70,13 @@ class ProductManagementPskuIdentityMapperSqlTest {
 
         assertThat(sql)
                 .contains("anchor.store_code = #{storeCode}")
-                .contains("pv.logical_store_id = ls.id")
-                .contains("pv.partner_sku = #{partnerSku}")
+                .contains("pm.logical_store_id = ls.id")
+                .contains("pm.partner_sku = #{partnerSku}")
+                .contains("pso.logical_store_id = pm.logical_store_id")
+                .contains("pso.partner_sku = pm.partner_sku")
                 .contains("pso.site_id = anchor.id")
                 .contains("anchor.site AS siteCode")
+                .doesNotContain("JOIN product_variant")
                 .doesNotContain("pso.psku_code = #{partnerSku}")
                 .doesNotContain("psku_code = #{partnerSku}")
                 .doesNotContain("pm.sku_parent = #{partnerSku}");
@@ -113,11 +117,10 @@ class ProductManagementPskuIdentityMapperSqlTest {
 
     @Test
     void pskuIdentityMigrationIsLoadedAndStoreScoped() throws Exception {
-        String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
         String migration = Files.readString(Path.of("src/main/resources/db/init/149_product_variant_psku_identity.sql"));
         String baseline = Files.readString(Path.of("src/main/resources/db/init/003_product_management_v1.sql"));
 
-        assertThat(bootstrap).contains("classpath:db/init/149_product_variant_psku_identity.sql");
+        assertInitScriptsInclude("classpath:db/init/149_product_variant_psku_identity.sql");
         assertThat(migration)
                 .contains("business PSKU = product_variant.partner_sku")
                 .contains("product_variant_identity_merge_map")

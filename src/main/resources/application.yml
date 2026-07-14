@@ -104,6 +104,36 @@ nuono:
           recent-scheduled-days: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_RECENT_DAYS:6}
           stale-running-minutes: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_STALE_RUNNING_MINUTES:120}
           system-operator-user-id: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_OPERATOR_USER_ID:10003}
+  logistics-auto-sync:
+    credential-cipher-secret: ${NUONO_LOGISTICS_CREDENTIAL_CIPHER_SECRET:}
+    chic:
+      enabled: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_ENABLED:false}
+      base-url: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_BASE_URL:https://erp.chicexpressglobal.com}
+      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_PATH:/api/login}
+      login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_ACCOUNT_FIELD:username}
+      login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_PASSWORD_FIELD:password}
+      timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_TIMEOUT_SECONDS:30}
+    et:
+      enabled: ${NUONO_LOGISTICS_AUTO_SYNC_ET_ENABLED:false}
+      base-url: ${NUONO_LOGISTICS_AUTO_SYNC_ET_BASE_URL:https://wl.et-global.cn}
+      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_ET_LOGIN_PATH:}
+      login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_ET_LOGIN_ACCOUNT_FIELD:username}
+      login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_ET_LOGIN_PASSWORD_FIELD:password}
+      login-payload-type: ${NUONO_LOGISTICS_AUTO_SYNC_ET_LOGIN_PAYLOAD_TYPE:form}
+      timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_ET_TIMEOUT_SECONDS:30}
+    yite:
+      enabled: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_ENABLED:false}
+      base-url: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_BASE_URL:https://ywyite.nextsls.com}
+      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PATH:/rest/tms/wos/auth/login?redirect_url=%2Ftms%2Fwos}
+      login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_ACCOUNT_FIELD:username}
+      login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PASSWORD_FIELD:password}
+      login-payload-type: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PAYLOAD_TYPE:json}
+      timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_TIMEOUT_SECONDS:30}
+    scheduler:
+      enabled: ${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_ENABLED:false}
+      cron: "${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_CRON:0 */30 * * * *}"
+      zone: ${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_ZONE:Asia/Shanghai}
+      max-accounts-per-tick: ${NUONO_LOGISTICS_AUTO_SYNC_MAX_ACCOUNTS_PER_TICK:5}
   noon:
     auth:
       email-otp:
@@ -143,7 +173,9 @@ nuono:
       catalog-base-url: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CATALOG_BASE_URL:https://noon-catalog.noon.partners/_svc/catalog/api/u}
       customer-catalog-v3-base-url: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CUSTOMER_CATALOG_V3_BASE_URL:https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u}
       frontend-cookie-header: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_FRONTEND_COOKIE_HEADER:}
+      chrome-frontend-cookie-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CHROME_FRONTEND_COOKIE_ENABLED:false}
       curl-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CURL_ENABLED:true}
+      catalog-partner-fallback-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CATALOG_PARTNER_FALLBACK_ENABLED:false}
     scheduler:
       enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_ENABLED:false}
       cron: "${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_CRON:0 30 3 * * *}"

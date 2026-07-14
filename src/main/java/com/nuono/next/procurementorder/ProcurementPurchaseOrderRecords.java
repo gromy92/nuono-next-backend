@@ -621,4 +621,13 @@ public final class ProcurementPurchaseOrderRecords {
         public Long createdBy;
         public Long updatedBy;
     }
+
+    public static class PurchaseOrderDuplicateItemSiteRecord {
+        public Long purchaseOrderId;
+        public String orderNo;
+        public String title;
+        public String partnerSku;
+        public String siteCode;
+        public String transportMode;
+    }
 }

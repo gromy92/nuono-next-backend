@@ -12,6 +12,7 @@ public class NoonProductProjectionWriteCommand {
     private String sourceBatchId;
     private boolean preserveDrafts = true;
     private boolean publishFlowTriggered;
+    private boolean completeSiteScope;
     private List<ProductProjectionPersistenceService.SiteSeed> siteSeeds = new ArrayList<>();
     private List<ProductProjectionPersistenceService.ProductMasterSeed> productSeeds = new ArrayList<>();
     private List<String> warnings = new ArrayList<>();
@@ -70,6 +71,14 @@ public class NoonProductProjectionWriteCommand {
 
     public void setPublishFlowTriggered(boolean publishFlowTriggered) {
         this.publishFlowTriggered = publishFlowTriggered;
+    }
+
+    public boolean isCompleteSiteScope() {
+        return completeSiteScope;
+    }
+
+    public void setCompleteSiteScope(boolean completeSiteScope) {
+        this.completeSiteScope = completeSiteScope;
     }
 
     public List<ProductProjectionPersistenceService.SiteSeed> getSiteSeeds() {

@@ -1,5 +1,6 @@
 package com.nuono.next.intransit;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -65,6 +66,14 @@ class InTransitBatchSchemaContractTest {
             "init",
             "142_in_transit_batch_active_reference_unique.sql"
     );
+    private static final Path ESTIMATED_ARRIVAL_SOURCE_MIGRATION = Path.of(
+            "src",
+            "main",
+            "resources",
+            "db",
+            "init",
+            "177_in_transit_batch_estimated_arrival_source.sql"
+    );
     @Test
     void migrationDefinesBatchBasicsWithoutPurchaseFeeOrInventoryFields() throws IOException {
         String sql = Files.readString(MIGRATION);
@@ -81,11 +90,16 @@ class InTransitBatchSchemaContractTest {
         assertTrue(sql.contains("`source_created_at` DATETIME DEFAULT NULL"));
         assertTrue(sql.contains("`estimated_departure_at` DATETIME DEFAULT NULL"));
         assertTrue(sql.contains("`estimated_arrival_at` DATETIME DEFAULT NULL"));
+        assertTrue(sql.contains("`estimated_arrival_source` VARCHAR(40) DEFAULT NULL"));
+        assertTrue(sql.contains("`estimated_arrival_source_detail` VARCHAR(500) DEFAULT NULL"));
+        assertTrue(sql.contains("`estimated_arrival_updated_at` DATETIME DEFAULT NULL"));
+        assertTrue(sql.contains("`estimated_arrival_updated_by` BIGINT DEFAULT NULL"));
         assertTrue(sql.contains("`delivery_appointment_text` VARCHAR(120) DEFAULT NULL"));
         assertTrue(sql.contains("`box_count` INT DEFAULT NULL"));
         assertTrue(sql.contains("`sku_count` INT DEFAULT NULL"));
         assertTrue(sql.contains("KEY `idx_in_transit_batch_filter`"));
         assertTrue(sql.contains("KEY `idx_in_transit_batch_eta`"));
+        assertTrue(sql.contains("KEY `idx_in_transit_batch_eta_source`"));
         assertTrue(sql.contains("KEY `idx_in_transit_batch_external_shipment`"));
         assertFalse(sql.contains("`remark`"));
 
@@ -106,7 +120,13 @@ class InTransitBatchSchemaContractTest {
         assertTrue(selectSql.contains("batch.source_created_at"));
         assertTrue(selectSql.contains("batch.estimated_departure_at"));
         assertTrue(selectSql.contains("batch.estimated_arrival_at"));
+        assertTrue(selectSql.contains("batch.estimated_arrival_source"));
+        assertTrue(selectSql.contains("batch.estimated_arrival_source_detail"));
+        assertTrue(selectSql.contains("batch.estimated_arrival_updated_at"));
+        assertTrue(selectSql.contains("batch.estimated_arrival_updated_by"));
         assertTrue(selectSql.contains("batch.delivery_appointment_text"));
+        assertTrue(selectSql.contains("received.node_status = 'warehouse_received'"));
+        assertTrue(selectSql.contains("AS actual_arrival_at"));
 
         Method insertBatch = InTransitGoodsMapper.class.getMethod(
                 "insertBatch",
@@ -117,6 +137,10 @@ class InTransitBatchSchemaContractTest {
         assertTrue(insertSql.contains("source_created_at"));
         assertTrue(insertSql.contains("estimated_departure_at"));
         assertTrue(insertSql.contains("estimated_arrival_at"));
+        assertTrue(insertSql.contains("estimated_arrival_source"));
+        assertTrue(insertSql.contains("estimated_arrival_source_detail"));
+        assertTrue(insertSql.contains("estimated_arrival_updated_at"));
+        assertTrue(insertSql.contains("estimated_arrival_updated_by"));
         assertTrue(insertSql.contains("delivery_appointment_text"));
 
         Method updateBatch = InTransitGoodsMapper.class.getMethod(
@@ -129,7 +153,67 @@ class InTransitBatchSchemaContractTest {
         assertTrue(updateSql.contains("source_created_at"));
         assertTrue(updateSql.contains("estimated_departure_at"));
         assertTrue(updateSql.contains("estimated_arrival_at"));
+        assertTrue(updateSql.contains("estimated_arrival_source"));
+        assertTrue(updateSql.contains("estimated_arrival_source_detail"));
+        assertTrue(updateSql.contains("estimated_arrival_updated_at"));
+        assertTrue(updateSql.contains("estimated_arrival_updated_by"));
         assertTrue(updateSql.contains("delivery_appointment_text"));
+    }
+
+    @Test
+    void migrationAddsEstimatedArrivalSourcePriorityFields() throws IOException {
+        String sql = Files.readString(ESTIMATED_ARRIVAL_SOURCE_MIGRATION);
+        String lower = sql.toLowerCase(Locale.ROOT);
+
+        assertTrue(sql.contains("ADD COLUMN `estimated_arrival_source` VARCHAR(40) DEFAULT NULL"));
+        assertTrue(sql.contains("ADD COLUMN `estimated_arrival_source_detail` VARCHAR(500) DEFAULT NULL"));
+        assertTrue(sql.contains("ADD COLUMN `estimated_arrival_updated_at` DATETIME DEFAULT NULL"));
+        assertTrue(sql.contains("ADD COLUMN `estimated_arrival_updated_by` BIGINT DEFAULT NULL"));
+        assertTrue(sql.contains("ADD KEY `idx_in_transit_batch_eta_source`"));
+        assertTrue(sql.contains("UPDATE `in_transit_batch`"));
+        assertTrue(sql.contains("estimated_arrival_source = 'LEGACY_IMPORTED'"));
+        assertFalse(lower.contains("drop table"));
+        assertFalse(lower.contains("drop column"));
+        assertFalse(lower.contains("delete from"));
+        assertInitScriptsInclude("classpath:db/init/177_in_transit_batch_estimated_arrival_source.sql");
+    }
+
+    @Test
+    void batchMapperSqlCanUpdateEstimatedArrivalIndependently() throws NoSuchMethodException {
+        Method updateEstimatedArrival = InTransitGoodsMapper.class.getMethod(
+                "updateEstimatedArrival",
+                Long.class,
+                Long.class,
+                java.time.LocalDateTime.class,
+                java.time.LocalDate.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String updateSql = Arrays.stream(updateEstimatedArrival.getAnnotation(Update.class).value())
+                .reduce("", (left, right) -> left + " " + right);
+
+        assertTrue(updateSql.contains("estimated_arrival_at = #{estimatedArrivalAt}"));
+        assertTrue(updateSql.contains("eta_date = #{etaDate}"));
+        assertTrue(updateSql.contains("estimated_arrival_source = #{estimatedArrivalSource}"));
+        assertTrue(updateSql.contains("estimated_arrival_source_detail = #{estimatedArrivalSourceDetail}"));
+        assertTrue(updateSql.contains("estimated_arrival_updated_by = #{operatorUserId}"));
+        assertTrue(updateSql.contains("WHERE owner_user_id = #{ownerUserId} AND id = #{batchId} AND is_deleted = b'0'"));
+    }
+
+    @Test
+    void logisticsNodeMapperSqlKeepsTerminalArrivalAheadOfLaterOrdinaryTrackingNodes() throws NoSuchMethodException {
+        Method selectLatestNode = InTransitGoodsMapper.class.getMethod(
+                "selectLatestNode",
+                Long.class,
+                Long.class
+        );
+        String selectSql = Arrays.stream(selectLatestNode.getAnnotation(Select.class).value())
+                .reduce("", (left, right) -> left + " " + right);
+
+        assertTrue(selectSql.contains("ORDER BY CASE"));
+        assertTrue(selectSql.contains("node_status IN ('warehouse_received', 'cancelled')"));
+        assertTrue(selectSql.indexOf("ORDER BY CASE") < selectSql.indexOf("node_happened_at DESC"));
     }
 
     @Test
@@ -190,6 +274,19 @@ class InTransitBatchSchemaContractTest {
                 .contains(InTransitGoodsMapper.BATCH_FILTER_CONDITIONS));
         assertTrue(Arrays.asList(listBatches.getAnnotation(Select.class).value())
                 .contains(InTransitGoodsMapper.BATCH_FILTER_CONDITIONS));
+    }
+
+    @Test
+    void batchMapperSqlSupportsMissingEstimatedArrivalTodoFilter() {
+        String filterSql = InTransitGoodsMapper.BATCH_FILTER_CONDITIONS;
+
+        assertTrue(filterSql.contains("query.todo == \"missingEstimatedArrival\""));
+        assertTrue(filterSql.contains("batch.estimated_arrival_at IS NULL"));
+        assertTrue(filterSql.contains("batch.eta_date IS NULL"));
+        assertTrue(filterSql.contains("batch.batch_status NOT IN ('warehouse_received', 'completed', 'cancelled')"));
+        assertTrue(filterSql.contains("batch.latest_node_status NOT IN ('warehouse_received', 'cancelled')"));
+        assertTrue(filterSql.contains("AND NOT EXISTS"));
+        assertTrue(filterSql.contains("received.node_status = 'warehouse_received'"));
     }
 
     @Test

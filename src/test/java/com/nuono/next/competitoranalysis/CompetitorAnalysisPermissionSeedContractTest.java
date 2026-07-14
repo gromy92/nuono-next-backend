@@ -1,5 +1,6 @@
 package com.nuono.next.competitoranalysis;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,19 +49,10 @@ class CompetitorAnalysisPermissionSeedContractTest {
 
     @Test
     void localDbBootstrapStatusListsCompetitorAnalysisScripts() throws IOException {
-        String source = Files.readString(Path.of(
-                "src",
-                "main",
-                "java",
-                "com",
-                "nuono",
-                "next",
-                "system",
-                "LocalDbBootstrapStatusService.java"
-        ));
-
-        assertTrue(source.contains("classpath:db/init/099_operations_competitor_analysis.sql"));
-        assertTrue(source.contains("classpath:db/init/100_operations_competitor_analysis_menu_permission.sql"));
+        assertInitScriptsInclude(
+                "classpath:db/init/099_operations_competitor_analysis.sql",
+                "classpath:db/init/100_operations_competitor_analysis_menu_permission.sql"
+        );
     }
 
     private static Pattern roleGrant(int roleId, int menuId) {

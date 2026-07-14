@@ -1,5 +1,6 @@
 package com.nuono.next.officialwarehouse;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
@@ -11,11 +12,10 @@ class OfficialWarehouseStatisticsSchemaTest {
 
     @Test
     void officialWarehouseStatisticsSchemaAddsCorrectionEventsAndInventorySnapshots() throws Exception {
-        String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
         String sql = Files.readString(Path.of("src/main/resources/db/init/143_official_warehouse_statistics.sql"));
         String normalized = sql.toLowerCase(Locale.ROOT);
 
-        assertThat(bootstrap).contains("classpath:db/init/143_official_warehouse_statistics.sql");
+        assertInitScriptsInclude("classpath:db/init/143_official_warehouse_statistics.sql");
         assertThat(sql)
                 .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_stock_correction_event`")
                 .contains("`correction_type` VARCHAR(40) NOT NULL")

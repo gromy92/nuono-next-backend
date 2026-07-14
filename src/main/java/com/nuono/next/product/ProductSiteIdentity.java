@@ -31,6 +31,22 @@ public final class ProductSiteIdentity {
         return logicalStoreId != null && StringUtils.hasText(partnerSku) && StringUtils.hasText(siteCode);
     }
 
+    public ProductIdentity productIdentity() {
+        return new ProductIdentity(logicalStoreId, partnerSku);
+    }
+
+    public String stableProductKey() {
+        return productIdentity().stableKey();
+    }
+
+    public String stableSiteKey() {
+        String productKey = stableProductKey();
+        if (!StringUtils.hasText(productKey) || !StringUtils.hasText(siteCode)) {
+            return null;
+        }
+        return productKey + "|site:" + siteCode;
+    }
+
     @Override
     public boolean equals(Object other) {
         if (this == other) {

@@ -30,7 +30,7 @@ public class MyBatisSalesPriceTrendRepository implements SalesPriceTrendReposito
                 query.getStoreCode(),
                 query.getSiteCode(),
                 query.getPartnerSku(),
-                query.getSku(),
+                null,
                 dateFromStart,
                 dateToExclusive,
                 query.getDateFrom(),
@@ -41,7 +41,7 @@ public class MyBatisSalesPriceTrendRepository implements SalesPriceTrendReposito
                 query.getStoreCode(),
                 query.getSiteCode(),
                 query.getPartnerSku(),
-                query.getSku(),
+                null,
                 dateFromStart,
                 dateToExclusive
         );
@@ -80,8 +80,7 @@ public class MyBatisSalesPriceTrendRepository implements SalesPriceTrendReposito
                 && hasText(query.getSiteCode())
                 && query.getDateFrom() != null
                 && query.getDateTo() != null
-                && hasText(query.getPartnerSku())
-                && hasText(query.getSku());
+                && hasText(query.getPartnerSku());
     }
 
     private String bucketLabel(LocalDate bucketStart, String granularity) {

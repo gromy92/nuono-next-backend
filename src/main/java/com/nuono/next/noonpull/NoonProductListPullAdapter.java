@@ -8,6 +8,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -39,6 +40,7 @@ public class NoonProductListPullAdapter {
         writeCommand.setSourceBatchId(command.getSourceBatchId());
         writeCommand.setPreserveDrafts(true);
         writeCommand.setPublishFlowTriggered(false);
+        writeCommand.setCompleteSiteScope(false);
         writeCommand.setSiteSeeds(List.of(new ProductProjectionPersistenceService.SiteSeed(
                 command.getStoreCode(),
                 command.getSiteCode(),
@@ -139,7 +141,15 @@ public class NoonProductListPullAdapter {
     }
 
     private Boolean resolveActive(String liveStatus) {
-        return StringUtils.hasText(liveStatus) && "active".equalsIgnoreCase(liveStatus);
+        if (!StringUtils.hasText(liveStatus)) {
+            return false;
+        }
+        String normalized = liveStatus.trim().toLowerCase(Locale.ROOT);
+        return "active".equals(normalized)
+                || "true".equals(normalized)
+                || "1".equals(normalized)
+                || "yes".equals(normalized)
+                || "enabled".equals(normalized);
     }
 
     private String resolveImageUrl(String image) {

@@ -1,6 +1,7 @@
 package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -112,6 +113,47 @@ class ProductImageProfileServiceTest {
         org.junit.jupiter.api.Assertions.assertTrue(
                 profileCaptor.getValue().getProductFactText().contains("英文完整标题：3-piece white flameless LED candles")
         );
+    }
+
+    @Test
+    void listSummariesShouldReturnLightweightRowsWithoutDetailAssetQueries() {
+        ProductImageProductCandidateRecord candidate = candidateRecord();
+        candidate.setProductTitle("Candidate title");
+        ProductImageProfileSummaryRecord summary = new ProductImageProfileSummaryRecord();
+        summary.setId(7001L);
+        summary.setOwnerUserId(307L);
+        summary.setStoreCode("STR108065-NAE");
+        summary.setPskuCode("PAPERSAYSB024");
+        summary.setProductIdentityKey("psku:PAPERSAYSB024");
+        summary.setProductMasterId(9001L);
+        summary.setProductTitle("Magnetic Whiteboard Markers");
+        summary.setBrand("PAPERSAY");
+        summary.setCoverImageUrl("https://example.test/cover.jpg");
+        summary.setAssetCount(7);
+        summary.setSuiteCount(2);
+        summary.setHasAdoptedSuite(true);
+        when(mapper.selectAllProductCandidatesForStore(307L, "STR108065-NAE")).thenReturn(List.of(candidate));
+        when(mapper.selectProfileByIdentity(307L, "STR108065-NAE", "SGGRB291", "variant:92001")).thenReturn(profileRecord());
+        when(mapper.selectProfileSummariesForStore(307L, "STR108065-NAE", null)).thenReturn(List.of(summary));
+        when(mapper.selectProductCandidates(307L, "STR108065-NAE", null)).thenReturn(List.of());
+
+        ProductImageProfileListCommand command = new ProductImageProfileListCommand();
+        command.setOwnerUserId(307L);
+        command.setStoreCode("STR108065-NAE");
+        command.setOperatorUserId(10003L);
+
+        ProductImageProfileSummaryListView view = service.listSummaries(command);
+
+        assertEquals(1, view.getItems().size());
+        ProductImageProfileSummaryView item = view.getItems().get(0);
+        assertEquals(7001L, item.getId());
+        assertEquals("https://example.test/cover.jpg", item.getCoverImageUrl());
+        assertEquals(7, item.getAssetCount());
+        assertEquals(2, item.getSuiteCount());
+        assertTrue(item.getHasAdoptedSuite());
+        verify(mapper, never()).selectAssets(any());
+        verify(mapper, never()).selectSections(any());
+        verify(mapper, never()).selectSuites(any());
     }
 
     @Test
@@ -477,11 +519,17 @@ class ProductImageProfileServiceTest {
         ProductImageSectionRecord sizeSection = sectionRecord(ProductImageSectionType.SIZE, "4.3 x 2.8 in");
         ProductImageSectionRecord featureSection = sectionRecord(ProductImageSectionType.CORE_FEATURE, "Retractable reel");
         OperationsSkinRecord skin = skinRecord();
+        OperationsSkinComponentRecord detailFrame = skinComponent(
+                "DETAIL_IMAGE",
+                "DETAIL_FRAME",
+                "/operations-skins/papersay/detail-frame.png"
+        );
         List<OperationsSkinComponentRecord> components = List.of(
                 skinComponent("FRAME", "/operations-skins/papersay/frame.png"),
                 skinComponent("BRAND_LOCKUP", "/operations-skins/papersay/brand.png"),
                 skinComponent("SPEC_BG", "/operations-skins/papersay/spec.png"),
-                skinComponent("MAIN_TITLE_BG", "/operations-skins/papersay/title.png")
+                skinComponent("MAIN_TITLE_BG", "/operations-skins/papersay/title.png"),
+                detailFrame
         );
 
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
@@ -509,8 +557,17 @@ class ProductImageProfileServiceTest {
         assertEquals(ProductImageSuiteStatus.DRAFT, suite.getSuiteStatus());
         assertTrue(suite.getDraftPromptText().contains("图片要求"));
         assertTrue(suite.getDraftPromptText().contains("4.3 x 2.8 in"));
+        assertTrue(suite.getDraftPromptText().contains("每张细节图单独成图"));
+        assertTrue(suite.getDraftPromptText().contains("局部大图"));
+        assertTrue(suite.getDraftPromptText().contains("场景图使用 SCENE_IMAGE"));
         assertTrue(suite.getDraftPackageJson().contains("\"skinId\":3001"));
         assertTrue(suite.getDraftPackageJson().contains("\"componentKey\":\"FRAME\""));
+        assertTrue(suite.getDraftPackageJson().contains("\"templateRole\":\"DETAIL_IMAGE\""));
+        assertTrue(suite.getDraftPackageJson().contains("\"componentKey\":\"DETAIL_FRAME\""));
+        assertTrue(suite.getDraftPackageJson().contains("\"targetCount\":\"2-4\""));
+        assertTrue(suite.getDraftPackageJson().contains("每张细节图单独成图"));
+        assertTrue(suite.getDraftPackageJson().contains("局部大图"));
+        assertTrue(suite.getDraftPromptText().contains("DETAIL_IMAGE/DETAIL_FRAME"));
         assertTrue(suite.getDraftPackageJson().contains("https://example.test/product-main.jpg"));
         assertEquals(1, view.getSuites().size());
     }
@@ -523,6 +580,8 @@ class ProductImageProfileServiceTest {
         profile.setProductTitle("PAPERSAY 12 Pack Retractable Black Gel Ink Pens");
         profile.setProductFactText("Existing profile fact text");
         ProductPublicDetailSnapshot snapshot = new ProductPublicDetailSnapshot();
+        snapshot.setStoreCode("STR108065-NAE");
+        snapshot.setSiteCode("AE");
         snapshot.setTitleEn("12 Pack Retractable Black Gel Ink Pens");
         snapshot.setTitleAr("أقلام حبر جل سوداء قابلة للسحب 12 قطعة");
         snapshot.setRawPayloadJson("{\"feature_bullets\":[\"Smooth 0.5mm writing\",\"12 pieces in one pack\"],\"specifications\":{\"Ink Color\":\"Black\"}}");
@@ -562,6 +621,46 @@ class ProductImageProfileServiceTest {
         verify(productPublicDetailMapper, never()).selectLatestSnapshot(any(), any(), any(), any(), any());
         verify(mapper, never()).updateProfile(any());
         verify(mapper, never()).replaceSectionsAsDeleted(any());
+    }
+
+    @Test
+    void extractImageFactsShouldOmitSiblingSiteRawPublicDetailPayload() {
+        ProductImageProfileRecord profile = profileRecord();
+        profile.setProductMasterId(9001L);
+        profile.setProductVariantId(53001L);
+        profile.setProductTitle("PAPERSAY 12 Pack Retractable Black Gel Ink Pens");
+        ProductPublicDetailSnapshot snapshot = new ProductPublicDetailSnapshot();
+        snapshot.setStoreCode("STR108065-NSA");
+        snapshot.setSiteCode("SA");
+        snapshot.setTitleEn("Sibling public title");
+        snapshot.setBrand("PAPERSAY");
+        snapshot.setRawPayloadJson("{\"price\":\"88.50\",\"currency\":\"SAR\",\"url\":\"https://www.noon.com/saudi-en/Z/p/\",\"availability\":\"SA only\"}");
+        AiStructuredTextResult aiResult = AiStructuredTextResult.success();
+        Map<String, Object> parsedJson = new LinkedHashMap<>();
+        parsedJson.put("specSummary", "");
+        parsedJson.put("titleEn", "Sibling public title");
+        parsedJson.put("titleAr", "");
+        parsedJson.put("sizeText", "");
+        parsedJson.put("heroSellingPoints", List.of());
+        parsedJson.put("packageText", "");
+        aiResult.setParsedJson(parsedJson);
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(307L, "STR108065-NAE", "PAPERSAYSB024"))
+                .thenReturn(snapshot);
+        when(aiCapabilityService.createStructuredText(any(AiStructuredTextCommand.class))).thenReturn(aiResult);
+
+        service.extractImageFacts(307L, "STR108065-NAE", 7001L, 10003L);
+
+        ArgumentCaptor<AiStructuredTextCommand> commandCaptor = ArgumentCaptor.forClass(AiStructuredTextCommand.class);
+        verify(aiCapabilityService).createStructuredText(commandCaptor.capture());
+        String prompt = commandCaptor.getValue().getPrompt();
+        assertTrue(prompt.contains("Sibling public title"));
+        assertTrue(prompt.contains("该快照来自同店铺的兄弟站点"));
+        assertFalse(prompt.contains("\"price\""));
+        assertFalse(prompt.contains("SAR"));
+        assertFalse(prompt.contains("saudi-en"));
+        assertFalse(prompt.contains("SA only"));
     }
 
     private ProductImageProfileRecord profileRecord() {
@@ -632,9 +731,13 @@ class ProductImageProfileServiceTest {
     }
 
     private OperationsSkinComponentRecord skinComponent(String componentKey, String imageUrl) {
+        return skinComponent("HERO_MAIN", componentKey, imageUrl);
+    }
+
+    private OperationsSkinComponentRecord skinComponent(String templateRole, String componentKey, String imageUrl) {
         OperationsSkinComponentRecord record = new OperationsSkinComponentRecord();
         record.setSkinId(3001L);
-        record.setTemplateRole("HERO_MAIN");
+        record.setTemplateRole(templateRole);
         record.setComponentKey(componentKey);
         record.setImageUrl(imageUrl);
         record.setX(0);

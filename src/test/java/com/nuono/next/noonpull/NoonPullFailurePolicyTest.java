@@ -26,6 +26,11 @@ class NoonPullFailurePolicyTest {
     @Test
     void shouldClassifyKnownFailuresWithoutRelyingOnRawStrings() {
         assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify("HTTP 503 provider unavailable"));
+        assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify(
+                "provider unavailable: Noon Ads campaign metrics returned no campaigns for "
+                        + "projectCode=PRJ108065 siteCode=AE dateWindow=2026-07-06..2026-07-06; "
+                        + "verify Ad Manager Overview coverage before treating as zero business data"
+        ));
         assertEquals(NoonPullFailureType.PROVIDER_NOT_CONFIGURED, policy.classify("provider is not configured"));
         assertEquals(NoonPullFailureType.INVALID_PROJECT_CODE, policy.classify(
                 "provider unavailable: report export create failed: HTTP 400 {\"error\":\"Invalid project code\"}"
@@ -39,6 +44,9 @@ class NoonPullFailurePolicyTest {
         assertEquals(NoonPullFailureType.MAPPING_FAILED, policy.classify("mapping failed for row 3"));
         assertEquals(NoonPullFailureType.TIMEOUT, policy.classify("socket timeout"));
         assertEquals(NoonPullFailureType.RATE_LIMITED, policy.classify("429 too many requests"));
+        assertEquals(NoonPullFailureType.RATE_LIMITED, policy.classify(
+                "Noon emailotp 发送失败：Too many requests, please try again later"
+        ));
         assertEquals(NoonPullFailureType.BLOCKED_BY_RISK_CONTROL, policy.classify("blocked by risk control"));
         assertEquals(NoonPullFailureType.CAPTCHA_REQUIRED, policy.classify("captcha required"));
         assertEquals(NoonPullFailureType.PARTIAL_SUCCESS, policy.classify("imported with partial success"));

@@ -3,6 +3,7 @@ package com.nuono.next.officialwarehouse;
 import com.nuono.next.noonlog.NoonHttpCallLogView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CorrectAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnCommand;
+import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.SyncNoonAsnNumbersCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.UpsertAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnListSyncView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
@@ -75,6 +76,25 @@ public class OfficialWarehouseController {
     ) {
         try {
             return service().syncNoonAsnList(storeAccess(request, storeCode), storeCode, siteCode);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/asns/sync-noon-numbers")
+    public AsnListSyncView syncNoonAsnNumbers(
+            @RequestBody SyncNoonAsnNumbersCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            if (command == null) {
+                throw new IllegalArgumentException("缺少 ASN 定向同步参数。");
+            }
+            BusinessAccessContext access = storeAccess(request, command.storeCode);
+            boolean dryRun = command.dryRun == null || command.dryRun;
+            return service().syncNoonAsnNumbers(access, command.storeCode, command.siteCode, command.asnNumbers, dryRun);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {

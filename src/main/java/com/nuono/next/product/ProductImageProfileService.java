@@ -100,6 +100,34 @@ public class ProductImageProfileService {
         return view;
     }
 
+    @Transactional
+    public ProductImageProfileSummaryListView listSummaries(ProductImageProfileListCommand command) {
+        Long ownerUserId = requireOwnerUserId(command == null ? null : command.getOwnerUserId());
+        String storeCode = requireStoreCode(command == null ? null : command.getStoreCode());
+        String keyword = trimToNull(command == null ? null : command.getKeyword());
+        Long operatorUserId = command == null ? null : command.getOperatorUserId();
+
+        ensureStoreProfiles(ownerUserId, storeCode, operatorUserId);
+
+        ProductImageProfileSummaryListView view = new ProductImageProfileSummaryListView();
+        view.setOwnerUserId(ownerUserId);
+        view.setStoreCode(storeCode);
+
+        Map<String, ProductImageProfileSummaryView> byIdentity = new LinkedHashMap<>();
+        for (ProductImageProfileSummaryRecord summary : safeList(mapper.selectProfileSummariesForStore(ownerUserId, storeCode, keyword))) {
+            ProductImageProfileSummaryView item = toSummaryView(summary);
+            byIdentity.put(identityKey(summary.getPskuCode(), summary.getProductIdentityKey()), item);
+        }
+
+        for (ProductImageProductCandidateRecord candidate : safeList(mapper.selectProductCandidates(ownerUserId, storeCode, keyword))) {
+            String candidateKey = identityKey(candidate.getPskuCode(), candidate.getProductIdentityKey());
+            byIdentity.putIfAbsent(candidateKey, toTransientSummaryView(ownerUserId, storeCode, candidate));
+        }
+
+        view.setItems(new ArrayList<>(byIdentity.values()));
+        return view;
+    }
+
     private void ensureStoreProfiles(Long ownerUserId, String storeCode, Long operatorUserId) {
         LocalDateTime now = LocalDateTime.now();
         for (ProductImageProductCandidateRecord candidate : safeList(mapper.selectAllProductCandidatesForStore(ownerUserId, storeCode))) {
@@ -290,7 +318,14 @@ public class ProductImageProfileService {
         if (index < 0 || index == value.length() - 1) {
             return null;
         }
-        return value.substring(index + 1).toUpperCase(Locale.ROOT);
+        String suffix = value.substring(index + 1).trim().toUpperCase(Locale.ROOT);
+        if ("NAE".equals(suffix)) {
+            return "AE";
+        }
+        if ("NSA".equals(suffix)) {
+            return "SA";
+        }
+        return suffix;
     }
 
     private String productImageFactExtractionInstructions() {
@@ -330,12 +365,32 @@ public class ProductImageProfileService {
             appendPromptLine(lines, "详情阿语标题", snapshot.getTitleAr());
             appendPromptLine(lines, "详情品牌", snapshot.getBrand());
             appendPromptLine(lines, "详情分类", snapshot.getCategoryPath());
-            appendPromptLine(lines, "详情原始 JSON", truncate(snapshot.getRawPayloadJson(), 9000));
+            if (sameSite(profile, snapshot)) {
+                appendPromptLine(lines, "详情原始 JSON", truncate(snapshot.getRawPayloadJson(), 9000));
+            } else {
+                lines.add("详情原始 JSON：已省略；该快照来自同店铺的兄弟站点，只用于共享商品标题、品牌和分类。");
+            }
         }
         lines.add("");
         lines.add("输出 JSON 示例：");
         lines.add("{\"specSummary\":\"Black · 0.5mm · 12 Pieces\",\"titleEn\":\"Retractable Gel Ink Pens\",\"titleAr\":\"أقلام حبر جل قابلة للسحب\",\"sizeText\":\"\",\"heroSellingPoints\":[\"Smooth 0.5mm writing\"],\"packageText\":\"12 pens per pack\"}");
         return String.join("\n", lines);
+    }
+
+    private boolean sameSite(ProductImageProfileRecord profile, ProductPublicDetailSnapshot snapshot) {
+        if (profile == null || snapshot == null) {
+            return false;
+        }
+        String profileStore = trimToNull(profile.getStoreCode());
+        String snapshotStore = trimToNull(snapshot.getStoreCode());
+        String profileSite = siteCodeFromStoreCode(profileStore);
+        String snapshotSite = trimToNull(snapshot.getSiteCode());
+        return profileStore != null
+                && snapshotStore != null
+                && profileStore.equalsIgnoreCase(snapshotStore)
+                && profileSite != null
+                && snapshotSite != null
+                && profileSite.equalsIgnoreCase(snapshotSite);
     }
 
     private Map<String, Object> productImageFactExtractionSchema() {
@@ -1007,6 +1062,28 @@ public class ProductImageProfileService {
         return view;
     }
 
+    private ProductImageProfileSummaryView toSummaryView(ProductImageProfileSummaryRecord record) {
+        ProductImageProfileSummaryView view = new ProductImageProfileSummaryView();
+        view.setId(record.getId());
+        view.setOwnerUserId(record.getOwnerUserId());
+        view.setStoreCode(record.getStoreCode());
+        view.setPskuCode(record.getPskuCode());
+        view.setProductIdentityKey(record.getProductIdentityKey());
+        view.setProductMasterId(record.getProductMasterId());
+        view.setProductVariantId(record.getProductVariantId());
+        view.setProductTitle(record.getProductTitle());
+        view.setBrand(record.getBrand());
+        view.setTitleAr(record.getTitleAr());
+        view.setTitleEn(record.getTitleEn());
+        view.setSpecSummary(record.getSpecSummary());
+        view.setCoverImageUrl(record.getCoverImageUrl());
+        view.setAssetCount(record.getAssetCount() == null ? 0 : record.getAssetCount());
+        view.setSuiteCount(record.getSuiteCount() == null ? 0 : record.getSuiteCount());
+        view.setHasAdoptedSuite(Boolean.TRUE.equals(record.getHasAdoptedSuite()));
+        view.setUpdatedAt(format(record.getUpdatedAt()));
+        return view;
+    }
+
     private ProductImageProfileDetailView toTransientDetailView(
             Long ownerUserId,
             String storeCode,
@@ -1022,6 +1099,27 @@ public class ProductImageProfileService {
         view.setProductTitle(candidate.getProductTitle());
         view.setBrand(candidate.getBrand());
         view.setAssets(baseAssets(candidate.getProductMasterId(), candidate.getCoverImageUrl()));
+        return view;
+    }
+
+    private ProductImageProfileSummaryView toTransientSummaryView(
+            Long ownerUserId,
+            String storeCode,
+            ProductImageProductCandidateRecord candidate
+    ) {
+        ProductImageProfileSummaryView view = new ProductImageProfileSummaryView();
+        view.setOwnerUserId(ownerUserId);
+        view.setStoreCode(storeCode);
+        view.setPskuCode(candidate.getPskuCode());
+        view.setProductIdentityKey(candidate.getProductIdentityKey());
+        view.setProductMasterId(candidate.getProductMasterId());
+        view.setProductVariantId(candidate.getProductVariantId());
+        view.setProductTitle(candidate.getProductTitle());
+        view.setBrand(candidate.getBrand());
+        view.setCoverImageUrl(candidate.getCoverImageUrl());
+        view.setAssetCount(StringUtils.hasText(candidate.getCoverImageUrl()) ? 1 : 0);
+        view.setSuiteCount(0);
+        view.setHasAdoptedSuite(false);
         return view;
     }
 
@@ -1255,23 +1353,28 @@ public class ProductImageProfileService {
             if (skin == null || skin.getId() == null) {
                 continue;
             }
-            List<OperationsSkinComponentRecord> components = completedHeroComponents(
+            List<OperationsSkinComponentRecord> components = completedSkinComponents(
                     operationsSkinMapper.selectComponents(skin.getId(), ownerUserId, storeCode)
             );
-            if (hasRequiredHeroComponents(components)) {
+            if (hasRequiredHeroComponents(completedHeroComponents(components))) {
                 return new ActiveHeroSkin(skin, components);
             }
         }
         throw new IllegalArgumentException("当前店铺没有完整的主图皮肤。");
     }
 
-    private List<OperationsSkinComponentRecord> completedHeroComponents(List<OperationsSkinComponentRecord> rawComponents) {
+    private List<OperationsSkinComponentRecord> completedSkinComponents(List<OperationsSkinComponentRecord> rawComponents) {
         return safeList(rawComponents).stream()
                 .filter(Objects::nonNull)
-                .filter(component -> HERO_MAIN_TEMPLATE_ROLE.equalsIgnoreCase(trimToNull(component.getTemplateRole())))
+                .filter(component -> trimToNull(component.getTemplateRole()) != null)
                 .filter(component -> trimToNull(component.getComponentKey()) != null)
                 .filter(component -> trimToNull(component.getImageUrl()) != null)
                 .sorted((left, right) -> {
+                    int leftRoleOrder = templateRoleOrder(left.getTemplateRole());
+                    int rightRoleOrder = templateRoleOrder(right.getTemplateRole());
+                    if (leftRoleOrder != rightRoleOrder) {
+                        return Integer.compare(leftRoleOrder, rightRoleOrder);
+                    }
                     int leftOrder = componentOrder(left.getComponentKey());
                     int rightOrder = componentOrder(right.getComponentKey());
                     if (leftOrder != rightOrder) {
@@ -1287,6 +1390,12 @@ public class ProductImageProfileService {
                 .collect(Collectors.toList());
     }
 
+    private List<OperationsSkinComponentRecord> completedHeroComponents(List<OperationsSkinComponentRecord> components) {
+        return safeList(components).stream()
+                .filter(component -> HERO_MAIN_TEMPLATE_ROLE.equalsIgnoreCase(trimToNull(component.getTemplateRole())))
+                .collect(Collectors.toList());
+    }
+
     private boolean hasRequiredHeroComponents(List<OperationsSkinComponentRecord> components) {
         Set<String> keys = safeList(components).stream()
                 .map(component -> trimToNull(component.getComponentKey()))
@@ -1294,6 +1403,27 @@ public class ProductImageProfileService {
                 .map(value -> value.toUpperCase(Locale.ROOT))
                 .collect(Collectors.toSet());
         return keys.containsAll(REQUIRED_HERO_COMPONENT_KEYS);
+    }
+
+    private int templateRoleOrder(String templateRole) {
+        String normalized = trimToNull(templateRole);
+        if (normalized == null) {
+            return Integer.MAX_VALUE;
+        }
+        switch (normalized.toUpperCase(Locale.ROOT)) {
+            case HERO_MAIN_TEMPLATE_ROLE:
+                return 0;
+            case "SIZE_IMAGE":
+                return 10;
+            case "DETAIL_IMAGE":
+                return 20;
+            case "SCENE_IMAGE":
+                return 30;
+            case "PACKAGE_IMAGE":
+                return 40;
+            default:
+                return Integer.MAX_VALUE;
+        }
     }
 
     private int componentOrder(String componentKey) {
@@ -1353,13 +1483,13 @@ public class ProductImageProfileService {
         for (String value : combinedSectionTexts(sections, 4)) {
             lines.add("- " + value);
         }
-        lines.add("要求：使用 DETAIL_IMAGE 细节图皮肤，围绕材质、细节特写、核心功能和核心卖点展开。");
+        lines.add("要求：使用 DETAIL_IMAGE 细节图皮肤；每张细节图单独成图，必须是一处商品局部大图/特写，不做场景图、不做多细节拼版。");
         lines.add("");
         lines.add("第4部分 场景图 1-2张");
         for (String value : sectionTexts(sections, ProductImageSectionType.USAGE_SCENE, 2)) {
             lines.add("- " + value);
         }
-        lines.add("要求：使用 SCENE_IMAGE 场景图皮肤，场景必须符合商品真实用途。");
+        lines.add("要求：场景图使用 SCENE_IMAGE 场景图皮肤，场景必须符合商品真实用途。");
         lines.add("");
         lines.add("第5部分 包装图 1张");
         lines.add("文案：" + firstOrPlaceholder(sectionTexts(sections, ProductImageSectionType.PACKAGE_LIST, 1), "包装/套装清单待补充"));
@@ -1472,7 +1602,7 @@ public class ProductImageProfileService {
                 "skinTemplateRole", "DETAIL_IMAGE",
                 "copies", combinedSectionTexts(sections, 4),
                 "targetCount", "2-4",
-                "requirement", "细节图使用 DETAIL_IMAGE 细节图皮肤。"
+                "requirement", "细节图使用 DETAIL_IMAGE 细节图皮肤；每张细节图单独成图，必须是一处商品局部大图/特写，不做场景图、不做多细节拼版。"
         ));
         payload.put("usageScenes", Map.of(
                 "skinTemplateRole", "SCENE_IMAGE",

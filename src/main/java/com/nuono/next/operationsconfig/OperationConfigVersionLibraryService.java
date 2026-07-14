@@ -17,6 +17,25 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OperationConfigVersionLibraryService {
+    private static final List<String> REPLENISHMENT_REQUIRED_ITEM_NAMES = List.of(
+            "空运运输天数",
+            "空运覆盖天数",
+            "海运运输天数",
+            "海运覆盖天数",
+            "预测窗口天数",
+            "库存来源",
+            "在途必须有 ETA",
+            "空运只应急",
+            "建议数量取整"
+    );
+    private static final Set<String> REPLENISHMENT_POSITIVE_INTEGER_ITEM_NAMES = Set.of(
+            "空运运输天数",
+            "空运覆盖天数",
+            "海运运输天数",
+            "海运覆盖天数",
+            "预测窗口天数"
+    );
+
     private final OperationConfigDefaultVersionCatalog defaultVersionCatalog;
     private final OperationConfigTypedVersionRepository typedVersionRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -214,6 +233,7 @@ public class OperationConfigVersionLibraryService {
                 .orElseThrow(() -> new IllegalArgumentException("operation config version not found"));
         requireVersionVisible(context, draft);
         requireDraft(draft);
+        validateItems(draft.getConfigType(), parseItems(draft.getContentJson()));
         LocalDateTime now = LocalDateTime.now();
         String nextScopeSummary = publishScopeSummary(request);
         requirePublishScope(context, request);
@@ -360,6 +380,9 @@ public class OperationConfigVersionLibraryService {
         if (OperationConfigVersionType.PRODUCT_LIFECYCLE.name().equals(configType)) {
             return getDetail(context, OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO);
         }
+        if (OperationConfigVersionType.REPLENISHMENT_PLAN.name().equals(configType)) {
+            return getDetail(context, OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO);
+        }
         throw new IllegalArgumentException("unsupported operation config version type");
     }
 
@@ -396,7 +419,7 @@ public class OperationConfigVersionLibraryService {
         }
         ScopeKey scope = parseScope(scopeSummary);
         if (scope == null) {
-            return false;
+            return isCreatorDraft(context, version);
         }
         if (context.isBossAccount()) {
             return scope.ownerUserId != null
@@ -411,6 +434,12 @@ public class OperationConfigVersionLibraryService {
         return false;
     }
 
+    private boolean isCreatorDraft(BusinessAccessContext context, OperationConfigTypedVersion version) {
+        return "DRAFT".equals(version.getStatus())
+                && version.getCreatedBy() != null
+                && version.getCreatedBy().equals(context.getSessionUserId());
+    }
+
     private void requireVersionVisible(BusinessAccessContext context, OperationConfigTypedVersion version) {
         if (!canViewVersion(context, version)) {
             throw new BusinessAccessDeniedException("不能访问未授权范围的运营配置版本。");
@@ -419,7 +448,8 @@ public class OperationConfigVersionLibraryService {
 
     private boolean isSystemDefaultVersion(String versionNo) {
         return OperationConfigDefaultVersionCatalog.DEFAULT_CALENDAR_VERSION_NO.equals(versionNo)
-                || OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO.equals(versionNo);
+                || OperationConfigDefaultVersionCatalog.DEFAULT_LIFECYCLE_VERSION_NO.equals(versionNo)
+                || OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO.equals(versionNo);
     }
 
     private OperationConfigVersionDetailView updateSystemDefaultVersion(
@@ -632,6 +662,9 @@ public class OperationConfigVersionLibraryService {
                 validateCalendarTargetScope(item);
             }
         }
+        if (OperationConfigVersionType.REPLENISHMENT_PLAN.name().equals(configType)) {
+            validateReplenishmentPlanItems(items);
+        }
     }
 
     private void validateCalendarTargetScope(OperationConfigDefaultVersionItemView item) {
@@ -647,9 +680,13 @@ public class OperationConfigVersionLibraryService {
         int separator = trimmed.indexOf(':');
         String type = separator > 0 ? trimmed.substring(0, separator).trim().toLowerCase(Locale.ROOT) : lower;
         String value = separator > 0 ? trimmed.substring(separator + 1).trim() : "";
-        if ("brand".equals(type) || "product_fulltype".equals(type) || "fulltype".equals(type) || "category".equals(type)) {
+        if ("site".equals(type)) {
+            validateSiteCalendarTargetValue(value, rawScope);
+            return;
+        }
+        if ("brand".equals(type) || "product_fulltype".equals(type) || "fulltype".equals(type) || "category".equals(type) || "family".equals(type)) {
             if (value.isEmpty()) {
-                throw new IllegalArgumentException("品牌、Product Fulltype、类目范围必须填写范围值。");
+                throw new IllegalArgumentException("品牌、Product Fulltype、类目、大类目范围必须填写范围值。");
             }
             return;
         }
@@ -660,6 +697,135 @@ public class OperationConfigVersionLibraryService {
             return;
         }
         throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+    }
+
+    private void validateSiteCalendarTargetValue(String value, String rawScope) {
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("站点范围必须填写站点值。");
+        }
+        if (value.endsWith("|")) {
+            throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+        }
+        String[] parts = value.split("\\|");
+        if (parts.length == 0 || parts[0].trim().isEmpty()) {
+            throw new IllegalArgumentException("站点范围必须填写站点值。");
+        }
+        for (int index = 1; index < parts.length; index++) {
+            String part = parts[index].trim();
+            if (part.isEmpty()) {
+                throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+            }
+            int separator = part.indexOf(':');
+            if (separator <= 0 || separator == part.length() - 1) {
+                throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+            }
+            String dimensionType = part.substring(0, separator).trim().toLowerCase(Locale.ROOT);
+            if (!"brand".equals(dimensionType)
+                    && !"product_fulltype".equals(dimensionType)
+                    && !"fulltype".equals(dimensionType)
+                    && !"category".equals(dimensionType)
+                    && !"family".equals(dimensionType)) {
+                throw new IllegalArgumentException("不支持的业务日历范围类型：" + rawScope);
+            }
+        }
+    }
+
+    private void validateReplenishmentPlanItems(List<OperationConfigDefaultVersionItemView> items) {
+        Set<String> seenRequiredNames = new HashSet<>();
+        for (OperationConfigDefaultVersionItemView item : items) {
+            String itemName = item.getItemName().trim();
+            if (!REPLENISHMENT_REQUIRED_ITEM_NAMES.contains(itemName)) {
+                continue;
+            }
+            if (!seenRequiredNames.add(itemName)) {
+                throw new IllegalArgumentException("补货计划参数配置项重复：" + itemName + "。");
+            }
+            validateReplenishmentPlanItemValue(itemName, item.getDefaultValue());
+        }
+        for (String requiredItemName : REPLENISHMENT_REQUIRED_ITEM_NAMES) {
+            if (!seenRequiredNames.contains(requiredItemName)) {
+                throw new IllegalArgumentException("补货计划参数缺少必填配置项：" + requiredItemName + "。");
+            }
+        }
+    }
+
+    private void validateReplenishmentPlanItemValue(String itemName, String value) {
+        if (REPLENISHMENT_POSITIVE_INTEGER_ITEM_NAMES.contains(itemName)) {
+            validateReplenishmentPositiveInteger(itemName, value);
+            return;
+        }
+        if ("库存来源".equals(itemName)) {
+            validateReplenishmentInventorySources(value);
+            return;
+        }
+        if ("在途必须有 ETA".equals(itemName)) {
+            if (!"true".equals(normalizeText(value))) {
+                throw new IllegalArgumentException("补货计划参数「在途必须有 ETA」V1 只支持 true。");
+            }
+            return;
+        }
+        if ("空运只应急".equals(itemName)) {
+            String normalized = normalizeText(value);
+            if (!"true".equals(normalized) && !"false".equals(normalized)) {
+                throw new IllegalArgumentException("补货计划参数「空运只应急」必须填写 true 或 false。");
+            }
+            return;
+        }
+        if ("建议数量取整".equals(itemName) && !"ceil".equals(normalizeText(value))) {
+            throw new IllegalArgumentException("补货计划参数「建议数量取整」V1 只支持 ceil。");
+        }
+    }
+
+    private void validateReplenishmentPositiveInteger(String itemName, String value) {
+        if (!isPositiveIntegerText(value)) {
+            throw new IllegalArgumentException("补货计划参数「" + itemName + "」必须填写大于等于 1 的正整数。");
+        }
+    }
+
+    private void validateReplenishmentInventorySources(String value) {
+        Set<String> sources = new HashSet<>();
+        String trimmed = value == null ? "" : value.trim();
+        if (trimmed.isEmpty()) {
+            throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN。");
+        }
+        for (String token : trimmed.split("[,，\\s]+")) {
+            if (token == null || token.trim().isEmpty()) {
+                continue;
+            }
+            String normalized = token.trim().toUpperCase(Locale.ROOT);
+            if (!"FBN".equals(normalized)) {
+                throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN。");
+            }
+            sources.add(normalized);
+        }
+        if (sources.size() != 1 || !sources.contains("FBN")) {
+            throw new IllegalArgumentException("补货计划参数「库存来源」必须且只能包含 FBN。");
+        }
+    }
+
+    private boolean isPositiveIntegerText(String value) {
+        if (value == null) {
+            return false;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+        for (int index = 0; index < trimmed.length(); index++) {
+            char ch = trimmed.charAt(index);
+            if (ch < '0' || ch > '9') {
+                return false;
+            }
+        }
+        try {
+            return Integer.parseInt(trimmed) >= 1;
+        } catch (NumberFormatException exception) {
+            return false;
+        }
+    }
+
+    private String normalizeText(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private String summaryFor(String configType, int itemCount) {
@@ -763,6 +929,9 @@ public class OperationConfigVersionLibraryService {
         }
         if (OperationConfigVersionType.PRODUCT_LIFECYCLE.name().equals(configType)) {
             return "LIFECYCLE_CONFIG_";
+        }
+        if (OperationConfigVersionType.REPLENISHMENT_PLAN.name().equals(configType)) {
+            return "REPLENISHMENT_PLAN_";
         }
         throw new IllegalArgumentException("unsupported operation config version type");
     }

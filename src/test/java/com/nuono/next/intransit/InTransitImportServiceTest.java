@@ -17,12 +17,14 @@ import com.nuono.next.intransit.InTransitBatchCommands.ConfirmImportCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.PreviewImportCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
 import com.nuono.next.intransit.InTransitBatchRecords.ImportBatchRow;
 import com.nuono.next.intransit.InTransitBatchRecords.ImportConfirmView;
 import com.nuono.next.intransit.InTransitBatchRecords.ImportPreviewView;
 import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
+import com.nuono.next.intransit.InTransitBatchRecords.NodeRow;
 import com.nuono.next.intransit.InTransitForwarderCommands.ResolveForwarderCommand;
 import com.nuono.next.intransit.InTransitForwarderRecords.ForwarderResolveView;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -32,6 +34,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import org.apache.poi.ss.usermodel.Row;
@@ -293,6 +296,32 @@ class InTransitImportServiceTest {
     }
 
     @Test
+    void shouldSaveEtWarehouseImportMilestoneAsInTransitNode() throws Exception {
+        when(mapper.nextImportBatchId()).thenReturn(56016L);
+        when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matchedForwarder());
+        ImportPreviewView preview = service.preview(command("历史已到仓.csv", arrivedMilestoneCsv()));
+        ImportBatchRow row = importBatchRow(56016L, preview);
+        when(mapper.selectImportBatchById(10002L, 56016L)).thenReturn(row);
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53088L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        ConfirmImportCommand command = new ConfirmImportCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setImportBatchId(56016L);
+        ImportConfirmView result = service.confirm(command);
+
+        assertEquals(1, result.getImportedNodeCount());
+        ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
+        verify(batchService).saveNode(nodeCaptor.capture());
+        assertEquals("in_transit", nodeCaptor.getValue().getNodeStatus());
+        assertEquals(LocalDate.parse("2026-03-09").atStartOfDay(), nodeCaptor.getValue().getNodeHappenedAt());
+        assertEquals("ET海外仓入库", nodeCaptor.getValue().getDescription());
+        verify(batchService, never()).refreshBatchLatestNodeProjection(10002L, 53088L);
+    }
+
+    @Test
     void shouldReplayBoxNoWhenConfirmingQikeImport() throws Exception {
         when(mapper.nextImportBatchId()).thenReturn(56011L);
         when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(
@@ -464,6 +493,11 @@ class InTransitImportServiceTest {
                 + "XGGEKSA04074,已完成,XGGEKSA04074-1,义特物流,空运,STR245027-NAE,AE,FBN-DXB,XGGEKSA04074-1,PSKU-DONE-001,SKU-DONE-001,历史已完成商品,10,10\n";
     }
 
+    private String arrivedMilestoneCsv() {
+        return "批次号,原始货代,运输方式,目的地,店铺编码,站点,目的仓,ET海外仓入库日期,物流单号,箱号,PSKU,SKU,发货数量,已入仓数量\n"
+                + "BATCH-ARRIVED,义特物流,空运,DB,STR245027-NAE,AE,FBN-DXB,2026-03-09,TRK-ARRIVED,BATCH-ARRIVED-1,PSKU-ARRIVED-001,SKU-ARRIVED-001,10,10\n";
+    }
+
     private byte[] xlsxBytes() throws Exception {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("在途");
@@ -521,6 +555,17 @@ class InTransitImportServiceTest {
         row.setBoxNo(boxNo);
         row.setSku(sku);
         row.setPsku(psku);
+        return row;
+    }
+
+    private NodeRow node(Long id, Long batchId, String nodeStatus, java.time.LocalDateTime nodeHappenedAt, String description) {
+        NodeRow row = new NodeRow();
+        row.setId(id);
+        row.setOwnerUserId(10002L);
+        row.setBatchId(batchId);
+        row.setNodeStatus(nodeStatus);
+        row.setNodeHappenedAt(nodeHappenedAt);
+        row.setDescription(description);
         return row;
     }
 

@@ -54,6 +54,26 @@ class ProcurementPurchaseOrderMapperSqlTest {
     }
 
     @Test
+    void currentOrderItemSiteDuplicateLookupIgnoresHistoricalAndCompletedOrders() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "selectCurrentOrderItemSiteDuplicate",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                String.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("site.purchase_order_id <> #{excludeOrderId}");
+        assertThat(sql).contains("po.order_no NOT LIKE 'PO-HIST-%'");
+        assertThat(sql).contains("po.status <> 'COMPLETED'");
+        assertThat(sql).doesNotContain("po.status <> 'SUBMITTED'");
+    }
+
+    @Test
     void insertItemPersistsPurchaseOrderFulfillmentFields() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "insertItem",

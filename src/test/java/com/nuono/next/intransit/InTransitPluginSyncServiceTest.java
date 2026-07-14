@@ -152,8 +152,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals("已封箱", firstLine.getPackageStatus());
         assertEquals("发往海外", firstLine.getLogisticsStatus());
         assertEquals("SGGRB219", firstLine.getPsku());
-        assertEquals("RUH", firstLine.getStoreCode());
-        assertEquals("SA", firstLine.getSiteCode());
+        assertNull(firstLine.getStoreCode());
+        assertNull(firstLine.getSiteCode());
         assertNull(firstLine.getCartonWeightKg());
         assertNull(firstLine.getCartonVolumeCbm());
 
@@ -163,6 +163,62 @@ class InTransitPluginSyncServiceTest {
         assertEquals("departed_origin", nodeCaptor.getValue().getNodeStatus());
         assertEquals(LocalDateTime.parse("2026-06-02T12:00:00"), nodeCaptor.getValue().getNodeHappenedAt());
         assertEquals("发往海外", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
+    void shouldNotFallbackPluginLineScopeToForwarderDestination() {
+        PluginSyncCommand command = sampleCommand();
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
+        assertNull(firstLine.getStoreCode());
+        assertNull(firstLine.getSiteCode());
+    }
+
+    @Test
+    void shouldKeepTrueNuonoPluginLineScope() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine firstPayloadLine = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        firstPayloadLine.setStoreCode("str245027-nae");
+        firstPayloadLine.setSiteCode("");
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
+        assertEquals("STR245027-NAE", firstLine.getStoreCode());
+        assertEquals("AE", firstLine.getSiteCode());
+        verify(accessScopeService, times(2)).requireWritableLineScope(any(), any(SaveLineCommand.class));
+    }
+
+    @Test
+    void shouldParseFbnWarehouseAppointmentNodeAsWarehouseReceived() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncNode node = command.getBatches().get(0).getNodes().get(0);
+        node.setNodeStatus("派送中");
+        node.setNodeTime("2026-03-03 00:00:00");
+        node.setDescription("FBN预约送仓 A04883985PN 03 Mar 2026 4pm-6pm");
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
+        verify(batchService).saveNode(nodeCaptor.capture());
+        assertEquals("warehouse_received", nodeCaptor.getValue().getNodeStatus());
+        assertEquals(LocalDateTime.parse("2026-03-03T00:00:00"), nodeCaptor.getValue().getNodeHappenedAt());
+        assertEquals("FBN预约送仓 A04883985PN 03 Mar 2026 4pm-6pm", nodeCaptor.getValue().getDescription());
     }
 
     @Test
@@ -335,6 +391,54 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
+    void shouldUseSeaOfficialEtaDateAsEstimatedArrivalWhenPayloadOmitsTime() {
+        PluginSyncCommand command = sampleYiteCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setEstimatedArrivalAt(null);
+        batch.setOfficialEtaDate(LocalDate.parse("2026-06-30"));
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53030L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("SEA", batchCaptor.getValue().getTransportMode());
+        assertEquals(LocalDate.parse("2026-06-30"), batchCaptor.getValue().getEtaDate());
+        assertEquals(LocalDateTime.parse("2026-06-30T00:00:00"), batchCaptor.getValue().getEstimatedArrivalAt());
+        assertEquals("OFFICIAL", batchCaptor.getValue().getEstimatedArrivalSource());
+    }
+
+    @Test
+    void shouldNotOverwriteManualEstimatedArrivalDuringPluginSync() {
+        PluginSyncCommand command = sampleEtCommand();
+        BatchRow existingBatch = batch(53020L);
+        existingBatch.setBatchReferenceNo("F2604304851631");
+        existingBatch.setTransportMode("SEA");
+        existingBatch.setTargetStoreCode("RUH");
+        existingBatch.setTargetSiteCode("SA");
+        existingBatch.setTargetWarehouseName("ETRUH01整箱仓");
+        existingBatch.setEstimatedArrivalAt(LocalDateTime.parse("2026-06-20T14:00:00"));
+        existingBatch.setEtaDate(LocalDate.parse("2026-06-20"));
+        existingBatch.setEstimatedArrivalSource("MANUAL");
+        existingBatch.setEstimatedArrivalSourceDetail("人工确认 ETA");
+        when(mapper.selectBatchByReferenceNo(10002L, "F2604304851631")).thenReturn(existingBatch);
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53020L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals(LocalDateTime.parse("2026-06-20T14:00:00"), batchCaptor.getValue().getEstimatedArrivalAt());
+        assertEquals(LocalDate.parse("2026-06-20"), batchCaptor.getValue().getEtaDate());
+        assertEquals("MANUAL", batchCaptor.getValue().getEstimatedArrivalSource());
+        assertEquals("人工确认 ETA", batchCaptor.getValue().getEstimatedArrivalSourceDetail());
+    }
+
+    @Test
     void shouldKeepEtForwarderWarehouseReceiptAsInTransit() {
         PluginSyncCommand command = sampleEtCommand();
         PluginSyncBatch batch = command.getBatches().get(0);
@@ -390,7 +494,7 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldKeepYiteForwarderOverseasWarehouseBeforeDeliveryAsInTransit() {
+    void shouldTreatYitePickedUpOverseasWarehouseBeforeDeliveryAsReceived() {
         PluginSyncCommand command = sampleYiteCommand();
         PluginSyncBatch batch = command.getBatches().get(0);
         batch.setBatchStatus("warehouse_received");
@@ -410,11 +514,11 @@ class InTransitPluginSyncServiceTest {
 
         ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
         verify(batchService).saveBatch(batchCaptor.capture());
-        assertEquals("in_transit", batchCaptor.getValue().getBatchStatus());
+        assertEquals("warehouse_received", batchCaptor.getValue().getBatchStatus());
 
         ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
         verify(batchService).saveNode(nodeCaptor.capture());
-        assertEquals("in_transit", nodeCaptor.getValue().getNodeStatus());
+        assertEquals("warehouse_received", nodeCaptor.getValue().getNodeStatus());
         assertEquals("已提回海外仓，待拆柜派送", nodeCaptor.getValue().getDescription());
     }
 
@@ -440,6 +544,35 @@ class InTransitPluginSyncServiceTest {
         verify(batchService).saveNode(nodeCaptor.capture());
         assertEquals("warehouse_received", nodeCaptor.getValue().getNodeStatus());
         assertEquals("最终仓已入仓", nodeCaptor.getValue().getDescription());
+    }
+
+    @Test
+    void shouldRefreshBatchProjectionWhenPluginCommitFindsExistingTerminalNode() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncBatch batch = command.getBatches().get(0);
+        batch.setBatchStatus("已入仓");
+        batch.getNodes().get(0).setNodeStatus("已入仓");
+        batch.getNodes().get(0).setDescription("最终仓已入仓");
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+        NodeRow existingNode = node(55010L);
+        existingNode.setBatchId(53010L);
+        existingNode.setNodeStatus("warehouse_received");
+        existingNode.setDescription("最终仓已入仓");
+        when(mapper.selectNodeByStatusDescriptionAndHappenedAt(
+                10002L,
+                53010L,
+                "warehouse_received",
+                LocalDateTime.parse("2026-06-02T12:00:00"),
+                "最终仓已入仓"
+        )).thenReturn(existingNode);
+
+        service.commit(command);
+
+        verify(batchService, never()).saveNode(any(SaveNodeCommand.class));
+        verify(batchService).refreshBatchLatestNodeProjection(10002L, 53010L);
     }
 
     @Test
@@ -591,7 +724,7 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldRejectPluginLineWhenStoreSiteCannotBeResolved() {
+    void shouldKeepPluginLineScopeBlankWhenStoreSiteCannotBeResolved() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncBatch batch = command.getBatches().get(0);
         batch.setBatchNo("NO-ROUTE-001");
@@ -604,18 +737,19 @@ class InTransitPluginSyncServiceTest {
 
         PluginSyncPreviewView preview = service.preview(command);
 
-        assertEquals(false, preview.isCommittable());
-        assertTrue(preview.getIssues().stream().anyMatch(issue ->
-                "storeCode".equals(issue.getField())
-                        && issue.getMessage().contains("目的地店铺")
-        ));
-        assertTrue(preview.getIssues().stream().anyMatch(issue ->
-                "siteCode".equals(issue.getField())
-                        && issue.getMessage().contains("站点")
-        ));
-        assertThrows(IllegalStateException.class, () -> service.commit(command));
-        verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
-        verify(batchService, never()).saveLine(any(SaveLineCommand.class));
+        assertEquals(true, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().noneMatch(issue -> "error".equals(issue.getLevel())));
+
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
+
+        service.commit(command);
+
+        ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
+        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        assertNull(lineCaptor.getAllValues().get(0).getStoreCode());
+        assertNull(lineCaptor.getAllValues().get(0).getSiteCode());
     }
 
     @Test
@@ -900,8 +1034,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals("PAPERSAYSB293", line.getSku());
         assertEquals("PAPERSAYSB293", line.getMsku());
         assertEquals("粉盒马克笔24支48色", line.getProductName());
-        assertEquals("RUH", line.getStoreCode());
-        assertEquals("SA", line.getSiteCode());
+        assertNull(line.getStoreCode());
+        assertNull(line.getSiteCode());
         assertEquals(48, line.getShippedQuantity());
         assertEquals(0, line.getReceivedQuantity());
         assertEquals("已完结", line.getPackageStatus());

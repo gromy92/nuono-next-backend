@@ -84,9 +84,13 @@ public class NoonOrderReportAdapter {
         }
         if (factsToWrite.isEmpty()) {
             if (outsideWindowRows > 0) {
+                String diagnostic = outsideWindowDiagnostic(file, outsideWindowRows, actualDateFrom, actualDateTo);
+                if (actualWindowCoversRequestedWindow(file.getRequest(), actualDateFrom, actualDateTo)) {
+                    return emptyOrNotReady(diagnostic);
+                }
                 return NoonReportProcessResult.mappingFailed(
                         outsideWindowRows + exceptions,
-                        outsideWindowDiagnostic(file, outsideWindowRows, actualDateFrom, actualDateTo)
+                        diagnostic
                 );
             }
             if (exceptions == 0) {
@@ -155,6 +159,22 @@ public class NoonOrderReportAdapter {
         return actualDate.isBefore(request.getDateFrom()) || actualDate.isAfter(request.getDateTo());
     }
 
+    private boolean actualWindowCoversRequestedWindow(
+            NoonReportPullRequest request,
+            LocalDate actualDateFrom,
+            LocalDate actualDateTo
+    ) {
+        if (request == null
+                || request.getDateFrom() == null
+                || request.getDateTo() == null
+                || actualDateFrom == null
+                || actualDateTo == null) {
+            return false;
+        }
+        return !actualDateFrom.isAfter(request.getDateFrom())
+                && !actualDateTo.isBefore(request.getDateTo());
+    }
+
     private LocalDate min(LocalDate left, LocalDate right) {
         if (left == null) {
             return right;
@@ -194,11 +214,17 @@ public class NoonOrderReportAdapter {
     }
 
     private NoonReportProcessResult emptyOrNotReady() {
+        return emptyOrNotReady(null);
+    }
+
+    private NoonReportProcessResult emptyOrNotReady(String diagnosticMessage) {
         LocalTime localTime = LocalTime.now(clock.withZone(SHANGHAI));
         if (localTime.isBefore(ORDER_READY_AFTER)) {
             return NoonReportProcessResult.reportNotReady();
         }
-        return NoonReportProcessResult.emptyReport();
+        return StringUtils.hasText(diagnosticMessage)
+                ? NoonReportProcessResult.emptyReport(diagnosticMessage)
+                : NoonReportProcessResult.emptyReport();
     }
 
     private String[] split(String line) {

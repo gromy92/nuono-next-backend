@@ -294,6 +294,70 @@ class NoonReportPullerTest {
     }
 
     @Test
+    void shouldAcceptEmptyFinanceTransactionReportAsSuccessfulSettlementObservation() {
+        NoonPullTaskRecord task = createFinanceTask("finance:accepted-empty");
+        FakeReportProvider provider = FakeReportProvider.ready(
+                String.join(",", NoonFinanceTransactionReportDescriptor.requiredColumns()) + "\n"
+        );
+
+        NoonReportPullResult result = puller.execute(
+                task.getId(),
+                financeRequest(),
+                provider,
+                (file) -> NoonReportProcessResult.emptyReport("finance transaction report has no settlement rows")
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+        NoonPullPlanRecord plan = repository.selectPlan(task.getPlanId());
+
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, persisted.getStatus());
+        assertEquals(null, persisted.getFailureType());
+        assertEquals("confirmed_empty", persisted.getReadinessState());
+        assertTrue(persisted.getDiagnosticSummary().contains("confirmed_empty"));
+        assertTrue(persisted.getDiagnosticSummary().contains("accepted_empty_settlement_window"));
+        assertNotNull(plan.getLatestSuccessAt());
+        assertEquals(null, plan.getLatestFailureAt());
+        assertEquals(null, plan.getLatestFailureType());
+    }
+
+    @Test
+    void shouldMarkWideWindowOrderReportWithNoTargetDateRowsAsConfirmedEmpty() {
+        NoonPullTaskRecord task = createOrderTask("orders:2026-05-21..2026-05-21");
+        FakeReportProvider provider = FakeReportProvider.ready(
+                "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
+                        + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
+                        + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
+                        + "108065,SA,SA,SA,,NSAI50094671190-1,PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
+                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                        + "2026-05-20 23:29:16,,\n"
+                        + "108065,SA,SA,SA,,NSAI50094671191-1,PAPERSAYSB360,Z02AD5F198C0C2E813C31Z-1,"
+                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                        + "2026-05-22 00:01:00,,\n"
+        );
+
+        NoonReportPullResult result = puller.execute(
+                task.getId(),
+                orderRequest(),
+                provider,
+                new NoonOrderReportAdapter(
+                        (fact) -> {
+                        },
+                        clock
+                )::process
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
+        assertEquals("confirmed_empty", persisted.getFailureType());
+        assertEquals(Boolean.FALSE, persisted.getRetryable());
+        assertEquals(Boolean.FALSE, persisted.getRequiresManualAction());
+        assertEquals("confirmed_empty", stringProperty(persisted, "readinessState"));
+        assertTrue(persisted.getDiagnosticSummary().contains("provider_reused_latest_export"));
+        assertTrue(persisted.getDiagnosticSummary().contains("requested=2026-05-21..2026-05-21"));
+        assertTrue(persisted.getDiagnosticSummary().contains("confirmed_empty"));
+    }
+
+    @Test
     void shouldPersistMappingFailedDiagnosticFromReportHandler() {
         NoonPullTaskRecord task = createSalesTask("sales:reused-latest-export");
 
@@ -341,6 +405,19 @@ class NoonReportPullerTest {
                 .build();
     }
 
+    private NoonReportPullRequest financeRequest() {
+        return NoonReportPullRequest.builder()
+                .ownerUserId(307L)
+                .storeCode("STR69486")
+                .siteCode("SA")
+                .dataDomain(NoonPullDataDomain.FINANCE_TRANSACTION)
+                .reportType(NoonFinanceTransactionReportDescriptor.DEFAULT_REPORT_TYPE)
+                .dateFrom(LocalDate.of(2026, 5, 21))
+                .dateTo(LocalDate.of(2026, 5, 21))
+                .maxPollAttempts(2)
+                .build();
+    }
+
     private void executeRiskFailure(NoonPullTaskRecord task, String message) {
         NoonReportPullResult result = puller.execute(
                 task.getId(),
@@ -371,6 +448,29 @@ class NoonReportPullerTest {
                 .siteCode("AE")
                 .pullType(NoonPullType.REPORT)
                 .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .targetIdentity(target)
+                .targetDateFrom(LocalDate.of(2026, 5, 21))
+                .targetDateTo(LocalDate.of(2026, 5, 21))
+                .build()).orElseThrow();
+    }
+
+    private NoonPullTaskRecord createFinanceTask(String target) {
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR69486")
+                .siteCode("SA")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.FINANCE_TRANSACTION)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily")
+                .build());
+        return foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR69486")
+                .siteCode("SA")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.FINANCE_TRANSACTION)
                 .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
                 .targetIdentity(target)
                 .targetDateFrom(LocalDate.of(2026, 5, 21))

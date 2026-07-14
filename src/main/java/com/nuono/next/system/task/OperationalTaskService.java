@@ -116,11 +116,16 @@ public class OperationalTaskService {
     }
 
     public OperationalTask fail(Long taskId, String errorCode, String message) {
+        return fail(taskId, errorCode, message, null);
+    }
+
+    public OperationalTask fail(Long taskId, String errorCode, String message, String resultJson) {
         OperationalTask task = requireMutableTask(taskId);
         LocalDateTime now = now();
         task.setStatus(OperationalTaskStatus.FAILED);
         task.setErrorCode(normalize(errorCode));
         task.setMessage(normalize(message));
+        task.setResultJson(normalize(resultJson));
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
         repository.update(task);

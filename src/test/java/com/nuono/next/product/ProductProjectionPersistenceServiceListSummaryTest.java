@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -79,6 +80,9 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         record.setCurrentSiteStatusCode("LIVE");
         record.setListingStartedAt("2026-05-10 00:00:00");
         record.setListingStartedSource("pv");
+        record.setOperationStageCode("STABLE");
+        record.setOperationStageUpdatedAt("2026-07-06 11:30:00");
+        record.setOperationStageUpdatedBy(10003L);
         record.setSyncStatus("draft");
         record.setLastSyncedAt("2026-04-27 12:30:00");
         record.setDetailBaselineStatus("ready");
@@ -121,9 +125,39 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("LIVE", summary.getLiveStatus());
         assertEquals("2026-05-10 00:00:00", summary.getListingStartedAt());
         assertEquals("pv", summary.getListingStartedSource());
+        assertEquals("STABLE", summary.getOperationStageCode());
+        assertEquals("2026-07-06 11:30:00", summary.getOperationStageUpdatedAt());
+        assertEquals(10003L, summary.getOperationStageUpdatedBy());
         assertEquals("星耀琥珀香薰炉", summary.getTitleCn());
         assertEquals(List.of("AE"), summary.getSiteLabels());
         assertEquals(List.of("LIVE"), summary.getLiveStatuses());
+    }
+
+    @Test
+    void shouldDescribePublicDetailReadonlyBaselineAsUsableReadonlySummary() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZPUBLIC001");
+        record.setCurrentZCode("ZPUBLIC001");
+        record.setPartnerSku("PARTNER-PUBLIC-001");
+        record.setTitle("Public detail product");
+        record.setSyncStatus("synced");
+        record.setDetailBaselineStatus("public_detail_readonly");
+        record.setDetailBaselineSyncedAt("2026-07-05 05:30:23");
+
+        when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZPUBLIC001"))
+                .thenReturn(record);
+
+        ProductListSummaryView summary = service.loadProductListSummary(
+                10002L,
+                "STR245027-NAE",
+                "ZPUBLIC001",
+                new ArrayList<>()
+        );
+
+        assertTrue(summary.isReady());
+        assertEquals("public_detail_readonly", summary.getDetailBaselineStatus());
+        assertEquals("已有 Noon 前台公开详情，只读可查看。", summary.getDetailBaselineMessage());
+        assertEquals("2026-07-05 05:30:23", summary.getDetailBaselineSyncedAt());
     }
 
     @Test
@@ -160,6 +194,111 @@ class ProductProjectionPersistenceServiceListSummaryTest {
                 eq(10002L),
                 eq("STR245027-NAE"),
                 eq("PARTNER-PSKU-001")
+        );
+    }
+
+    @Test
+    void shouldNotFallbackToCurrentZCodeWhenPartnerSkuIsPresentButProjectionIsMissing() {
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectProductListProjectionByStorePartnerSku(
+                50001L,
+                "STR245027-NAE",
+                "PARTNER-MISSING-001"
+        )).thenReturn(null);
+        when(productManagementMapper.selectLatestVisibleProductRebuildTaskByStoreIdentity(
+                10002L,
+                "STR245027-NAE",
+                "PARTNER-MISSING-001",
+                null
+        )).thenReturn(null);
+
+        ProductListSummaryView summary = service.loadProductListSummary(
+                10002L,
+                "STR245027-NAE",
+                "PARTNER-MISSING-001",
+                "ZBELONGS-TO-OTHER-PSKU",
+                new ArrayList<>()
+        );
+
+        assertFalse(summary.isReady());
+        assertEquals("missing", summary.getSource());
+        assertEquals("PARTNER-MISSING-001", summary.getPartnerSku());
+        verify(productManagementMapper, never()).selectProductListProjectionBySkuParent(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("ZBELONGS-TO-OTHER-PSKU")
+        );
+        verify(productManagementMapper).selectLatestVisibleProductRebuildTaskByStoreIdentity(
+                10002L,
+                "STR245027-NAE",
+                "PARTNER-MISSING-001",
+                null
+        );
+    }
+
+    @Test
+    void shouldNotFallbackToCurrentZCodeWhenLoadingBaselineByPartnerSku() {
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50001L, "PARTNER-MISSING-001"))
+                .thenReturn(null);
+
+        ProductMasterSnapshotView snapshot = service.loadLatestBaselineSnapshot(
+                10002L,
+                "STR245027-NAE",
+                "PARTNER-MISSING-001",
+                "ZBELONGS-TO-OTHER-PSKU",
+                new ArrayList<>()
+        );
+
+        assertNull(snapshot);
+        verify(productManagementMapper, never()).selectProductMasterIdByStoreCode(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq("ZBELONGS-TO-OTHER-PSKU")
+        );
+        verify(productManagementMapper, never()).selectLatestProductMasterSnapshot(anyLong(), anyString());
+    }
+
+    @Test
+    void shouldPersistWorkbenchStateByPartnerSkuInsteadOfRequestZCode() {
+        when(productManagementMapper.selectLogicalStoreId(10002L, "PRJ245027"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50001L, "PARTNER-001"))
+                .thenReturn(64001L);
+        when(productManagementMapper.selectLatestProductMasterSnapshot(64001L, "baseline"))
+                .thenReturn(null);
+        when(productManagementMapper.nextProductMasterSnapshotId()).thenReturn(56001L);
+        when(productManagementMapper.selectProductMasterDraftByProductMasterId(64001L))
+                .thenReturn(null);
+        when(productManagementMapper.nextProductMasterDraftId()).thenReturn(57001L);
+
+        ProductMasterWorkbenchView workbench = workbench("PARTNER-001", "ZSTALE-BELONGS-OTHER-PSKU");
+
+        service.persistWorkbenchState(
+                10002L,
+                workbench,
+                List.of("STR245027-NAE"),
+                "edit-content",
+                "AE",
+                new ArrayList<>()
+        );
+
+        verify(productManagementMapper).selectProductMasterIdByStorePartnerSku(50001L, "PARTNER-001");
+        verify(productManagementMapper, never()).selectProductMasterId(
+                50001L,
+                "ZSTALE-BELONGS-OTHER-PSKU"
+        );
+        verify(productManagementMapper).upsertProductMasterDraft(
+                eq(57001L),
+                eq(64001L),
+                eq(56001L),
+                eq(1),
+                anyString(),
+                anyString(),
+                any(),
+                eq(10002L)
         );
     }
 
@@ -394,6 +533,50 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void listSummariesShouldNotHideRebuildTaskBySharedZCodeWhenPartnerSkuDiffers() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZREUSED001");
+        record.setCurrentZCode("ZREUSED001");
+        record.setPartnerSku("PARTNER-A");
+        record.setTitle("Current partner product");
+        record.setSyncStatus("synced");
+        ProductPublishTaskRecord task = new ProductPublishTaskRecord();
+        task.setId(64085L);
+        task.setProductMasterId(53264L);
+        task.setTaskType("product-delete");
+        task.setStatus("synced");
+        task.setSkuParent("ZREUSED001");
+        task.setPartnerSku("PARTNER-B");
+        task.setFinishedAt(LocalDateTime.of(2026, 7, 4, 18, 16, 34));
+        task.setRequestJson("{\"action\":\"product-delete\",\"rebuildAction\":\"product-rebuild\"}");
+        task.setResultJson("{\"status\":\"synced\"}");
+
+        when(productManagementMapper.selectProductListProjection(307L, "STR245027-NSA"))
+                .thenReturn(List.of(record));
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR245027-NSA"))
+                .thenReturn(50001L);
+        when(productManagementMapper.selectLatestProductPublishTasksByStorePartnerSkus(
+                eq(50001L),
+                eq(List.of("PARTNER-A"))
+        )).thenReturn(List.of());
+        when(productManagementMapper.selectVisibleProductRebuildTasksByStore(307L, "STR245027-NSA", 50))
+                .thenReturn(List.of(task));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                307L,
+                "STR245027-NSA",
+                new ArrayList<>()
+        );
+
+        assertEquals(2, summaries.size());
+        assertEquals("PARTNER-A", summaries.get(0).getPartnerSku());
+        assertEquals("projection", summaries.get(0).getSource());
+        assertEquals("PARTNER-B", summaries.get(1).getPartnerSku());
+        assertEquals("rebuild-task", summaries.get(1).getSource());
+        assertNotNull(summaries.get(1).getLastPublishTask());
+    }
+
+    @Test
     void historyShouldFallbackToVisibleRebuildTaskWhenSourceMasterWasDeleted() throws Exception {
         ProductMasterSnapshotView snapshot = historySnapshot("PIECE title", "عنوان", "Note");
         snapshot.getIdentity().put("skuParent", "Z85F0FCAE5F7CF01AEC82Z");
@@ -614,6 +797,89 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
+    void partialInitializationProjectionMustNotDeleteOtherLogicalStoreSites() {
+        ProductProjectionPersistenceService.ProductMasterSeed productSeed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        productSeed.setSkuParent("ZCHENWU-SA-001");
+        productSeed.setPartnerSku("PHO0A010");
+        productSeed.setChildSku("PHO0A010-CHILD");
+        productSeed.setTitleCache("chenwu SA payload");
+        productSeed.addSiteOffer(siteOffer("STR244978-NSA", "PSO-SA-001"));
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ244978")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR244978-NSA")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50006L, "STR244978-NSA"))
+                .thenReturn(51006L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 52006L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52006L);
+        when(productManagementMapper.selectProductVariantIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 53006L);
+        when(productManagementMapper.nextProductVariantId()).thenReturn(53006L);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(50006L, "PHO0A010", "SA"))
+                .thenReturn(null);
+        when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54006L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ244978",
+                "chenwu",
+                "STR244978-NSA",
+                List.of(new ProductProjectionPersistenceService.SiteSeed("STR244978-NSA", "SA", "LOCAL_READY", true)),
+                List.of(productSeed),
+                new ArrayList<>(),
+                true
+        );
+
+        verify(productManagementMapper, never()).markStaleLogicalStoreSitesDeleted(
+                eq(50006L),
+                anyList(),
+                eq(307L)
+        );
+    }
+
+    @Test
+    void completeInitializationProjectionStillDeletesStaleLogicalStoreSites() {
+        ProductProjectionPersistenceService.ProductMasterSeed productSeed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        productSeed.setSkuParent("ZCHENWU-AE-001");
+        productSeed.setPartnerSku("PHO0A010");
+        productSeed.setChildSku("PHO0A010-CHILD");
+        productSeed.setTitleCache("chenwu AE payload");
+        productSeed.addSiteOffer(siteOffer("STR244978-NAE", "PSO-AE-001"));
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ244978")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR244978-NAE")).thenReturn(50006L);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(50006L, "STR244978-NAE"))
+                .thenReturn(51007L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 52007L);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(52007L);
+        when(productManagementMapper.selectProductVariantIdByStorePartnerSku(50006L, "PHO0A010"))
+                .thenReturn(null, 53007L);
+        when(productManagementMapper.nextProductVariantId()).thenReturn(53007L);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(50006L, "PHO0A010", "AE"))
+                .thenReturn(null);
+        when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54007L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ244978",
+                "chenwu",
+                "STR244978-NAE",
+                List.of(new ProductProjectionPersistenceService.SiteSeed("STR244978-NAE", "AE", "LOCAL_READY", true)),
+                List.of(productSeed),
+                new ArrayList<>()
+        );
+
+        verify(productManagementMapper).markStaleLogicalStoreSitesDeleted(
+                eq(50006L),
+                eq(List.of("STR244978-NAE")),
+                eq(307L)
+        );
+    }
+
+    @Test
     void shouldCaptureArabicContentAndOfferNoteInModificationChanges() throws Exception {
         ProductMasterSnapshotView baseline = historySnapshot("Old title", "عنوان قديم", "Old note");
         ProductMasterSnapshotView draft = historySnapshot("Old title", "عنوان جديد", "New note");
@@ -653,6 +919,35 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         offer.setPskuCode(pskuCode);
         offer.setOfferCode(pskuCode + "-OFFER");
         return offer;
+    }
+
+    private static ProductMasterWorkbenchView workbench(String partnerSku, String skuParent) {
+        ProductMasterSnapshotView baseline = snapshot(partnerSku, skuParent);
+        ProductMasterSnapshotView draft = snapshot(partnerSku, skuParent);
+        draft.getContent().put("title", "Edited title");
+
+        ProductMasterWorkbenchView workbench = new ProductMasterWorkbenchView();
+        workbench.setReady(true);
+        workbench.setSyncStatus("draft");
+        workbench.setLastSyncedAt("2026-06-04 10:00:00");
+        workbench.setStoreContext(new LinkedHashMap<>(baseline.getStoreContext()));
+        workbench.setIdentity(new LinkedHashMap<>(baseline.getIdentity()));
+        workbench.setContent(new LinkedHashMap<>(draft.getContent()));
+        workbench.setBaselineSnapshot(baseline);
+        workbench.setDraftSnapshot(draft);
+        return workbench;
+    }
+
+    private static ProductMasterSnapshotView snapshot(String partnerSku, String skuParent) {
+        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+        snapshot.setReady(true);
+        snapshot.getStoreContext().put("projectCode", "PRJ245027");
+        snapshot.getStoreContext().put("projectName", "Canman");
+        snapshot.getStoreContext().put("storeCode", "STR245027-NAE");
+        snapshot.getIdentity().put("partnerSku", partnerSku);
+        snapshot.getIdentity().put("skuParent", skuParent);
+        snapshot.getContent().put("title", "Baseline title");
+        return snapshot;
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsInclude;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
@@ -51,6 +52,31 @@ class ProductImageProfileMapperSqlTest {
                 .contains("p2.logical_store_id = (")
                 .contains("GROUP BY p2.owner_user_id, p2.psku_code, p2.product_identity_key")
                 .contains("COALESCE(ac2.asset_count, 0) DESC");
+
+        new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
+    }
+
+    @Test
+    void profileSummaryListSelectsOnlyListFieldsCoverAndCounts() throws Exception {
+        Method method = ProductImageProfileMapper.class.getMethod(
+                "selectProfileSummariesForStore",
+                Long.class,
+                String.class,
+                String.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String rawSql = String.join("\n", select.value());
+        String sql = rawSql.replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("cover_image_url")
+                .contains("asset_count")
+                .contains("suite_count")
+                .contains("has_adopted_suite")
+                .contains("GROUP BY p2.owner_user_id, p2.psku_code, p2.product_identity_key")
+                .contains("product_image_profile_asset")
+                .contains("product_image_suite")
+                .doesNotContain("product_image_section");
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
     }
@@ -132,7 +158,6 @@ class ProductImageProfileMapperSqlTest {
     @Test
     void migrationAddsLogicalStoreScopeAndAssetSourceColumns() throws Exception {
         String sql = Files.readString(Path.of("src/main/resources/db/init/159_product_image_logical_store_scope.sql"));
-        String bootstrap = Files.readString(Path.of("src/main/java/com/nuono/next/system/LocalDbBootstrapStatusService.java"));
 
         assertThat(sql)
                 .contains("ADD COLUMN `logical_store_id`")
@@ -146,7 +171,7 @@ class ProductImageProfileMapperSqlTest {
                 .contains("ADD COLUMN `source_snapshot_id`")
                 .contains("ADD COLUMN `source_field`")
                 .contains("ADD COLUMN `source_kind`");
-        assertThat(bootstrap).contains("classpath:db/init/159_product_image_logical_store_scope.sql");
+        assertInitScriptsInclude("classpath:db/init/159_product_image_logical_store_scope.sql");
     }
 
     private static String annotationSql(Select select) {

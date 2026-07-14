@@ -237,6 +237,7 @@ public class InTransitPluginSyncService {
             }
         }
 
+        boolean shouldRefreshLatestNodeProjection = false;
         for (PluginSyncNode node : batch.getNodes()) {
             ParsedNode parsedNode = parseNode(resolved.getSourceSystem(), batchNo, node);
             if (parsedNode == null) {
@@ -250,6 +251,9 @@ public class InTransitPluginSyncService {
                     parsedNode.description
             );
             if (existingNode != null) {
+                if (InTransitNodeStatus.isTerminalForBatchProjection(existingNode.getNodeStatus(), existingNode.getDescription())) {
+                    shouldRefreshLatestNodeProjection = true;
+                }
                 continue;
             }
             SaveNodeCommand nodeCommand = new SaveNodeCommand();
@@ -261,6 +265,9 @@ public class InTransitPluginSyncService {
             nodeCommand.setDescription(parsedNode.description);
             nodeCommand.setOperatorName(clean(node.getOperatorName()));
             batchService.saveNode(nodeCommand);
+        }
+        if (shouldRefreshLatestNodeProjection) {
+            batchService.refreshBatchLatestNodeProjection(ownerUserId, savedBatch.getBatchId());
         }
     }
 
@@ -826,7 +833,8 @@ public class InTransitPluginSyncService {
         result.setBatchId(existingBatch == null ? null : existingBatch.getId());
         result.setRawForwarderName(forwarder.name());
         RouteDefaults routeDefaults = routeDefaults(command, batch);
-        result.setTransportMode(resolveTransportModeForSave(batch, existingBatch, routeDefaults));
+        String transportMode = resolveTransportModeForSave(batch, existingBatch, routeDefaults);
+        result.setTransportMode(transportMode);
         String targetStoreCode = resolveDestinationForSave(batch, existingBatch, routeDefaults);
         result.setTargetStoreCode(targetStoreCode);
         result.setTargetSiteCode(firstText(
@@ -835,14 +843,13 @@ public class InTransitPluginSyncService {
         ));
         result.setTargetWarehouseName(resolveWarehouseForSave(batch, existingBatch, routeDefaults));
         result.setDepartureDate(batch.getDepartureDate() == null && existingBatch != null ? existingBatch.getDepartureDate() : batch.getDepartureDate());
-        result.setEtaDate(batch.getOfficialEtaDate() == null && existingBatch != null ? existingBatch.getEtaDate() : batch.getOfficialEtaDate());
         result.setTrackingNo(firstText(batch.getTrackingNo(), existingBatch == null ? null : existingBatch.getTrackingNo()));
         result.setContainerNo(firstText(batch.getContainerNo(), existingBatch == null ? null : existingBatch.getContainerNo()));
         result.setBatchReferenceNo(clean(batch.getBatchNo()));
         result.setExternalShipmentNo(firstText(batch.getExternalShipmentNo(), existingBatch == null ? null : existingBatch.getExternalShipmentNo()));
         result.setSourceCreatedAt(firstDateTime(batch.getSourceCreatedAt(), existingBatch == null ? null : existingBatch.getSourceCreatedAt()));
         result.setEstimatedDepartureAt(firstDateTime(batch.getEstimatedDepartureAt(), existingBatch == null ? null : existingBatch.getEstimatedDepartureAt()));
-        result.setEstimatedArrivalAt(firstDateTime(batch.getEstimatedArrivalAt(), existingBatch == null ? null : existingBatch.getEstimatedArrivalAt()));
+        applyEstimatedArrivalForPluginSync(result, batch, existingBatch, transportMode);
         result.setDeliveryAppointmentText(firstText(batch.getDeliveryAppointmentText(), existingBatch == null ? null : existingBatch.getDeliveryAppointmentText()));
         String batchStatus = firstText(
                 resolveBatchStatus(command.getSourceSystem(), batch),
@@ -855,6 +862,65 @@ public class InTransitPluginSyncService {
         );
         result.setBatchStatus(resolveBatchStatusForSave(result, batchStatus, missingPackageChargeableWeight));
         return result;
+    }
+
+    private void applyEstimatedArrivalForPluginSync(
+            SaveBatchCommand command,
+            PluginSyncBatch batch,
+            BatchRow existingBatch,
+            String transportMode
+    ) {
+        if (existingBatch != null
+                && InTransitEstimatedArrivalSource.MANUAL.code().equals(existingBatch.getEstimatedArrivalSource())) {
+            command.setEtaDate(existingBatch.getEtaDate());
+            command.setEstimatedArrivalAt(existingBatch.getEstimatedArrivalAt());
+            command.setEstimatedArrivalSource(existingBatch.getEstimatedArrivalSource());
+            command.setEstimatedArrivalSourceDetail(existingBatch.getEstimatedArrivalSourceDetail());
+            command.setEstimatedArrivalUpdatedAt(existingBatch.getEstimatedArrivalUpdatedAt());
+            command.setEstimatedArrivalUpdatedBy(existingBatch.getEstimatedArrivalUpdatedBy());
+            return;
+        }
+        LocalDate officialEtaDate = batch.getOfficialEtaDate();
+        LocalDateTime parsedEstimatedArrivalAt = firstDateTime(batch.getEstimatedArrivalAt(), null);
+        if (InTransitTransportMode.SEA.code().equals(transportMode)) {
+            LocalDateTime estimatedArrivalAt = parsedEstimatedArrivalAt == null && officialEtaDate != null
+                    ? officialEtaDate.atStartOfDay()
+                    : parsedEstimatedArrivalAt;
+            LocalDate etaDate = firstDate(
+                    officialEtaDate,
+                    estimatedArrivalAt == null ? null : estimatedArrivalAt.toLocalDate(),
+                    existingBatch == null ? null : existingBatch.getEtaDate()
+            );
+            command.setEtaDate(etaDate);
+            command.setEstimatedArrivalAt(firstValue(
+                    estimatedArrivalAt,
+                    existingBatch == null ? null : existingBatch.getEstimatedArrivalAt()
+            ));
+            if (estimatedArrivalAt != null || officialEtaDate != null) {
+                command.setEstimatedArrivalSource(InTransitEstimatedArrivalSource.OFFICIAL.code());
+                command.setEstimatedArrivalSourceDetail("海运官方预计到达时间");
+            } else if (existingBatch != null) {
+                command.setEstimatedArrivalSource(existingBatch.getEstimatedArrivalSource());
+                command.setEstimatedArrivalSourceDetail(existingBatch.getEstimatedArrivalSourceDetail());
+                command.setEstimatedArrivalUpdatedAt(existingBatch.getEstimatedArrivalUpdatedAt());
+                command.setEstimatedArrivalUpdatedBy(existingBatch.getEstimatedArrivalUpdatedBy());
+            }
+            return;
+        }
+        command.setEtaDate(officialEtaDate == null && existingBatch != null ? existingBatch.getEtaDate() : officialEtaDate);
+        command.setEstimatedArrivalAt(firstValue(
+                parsedEstimatedArrivalAt,
+                existingBatch == null ? null : existingBatch.getEstimatedArrivalAt()
+        ));
+        if (parsedEstimatedArrivalAt != null) {
+            command.setEstimatedArrivalSource(InTransitEstimatedArrivalSource.PLUGIN_REPORTED.code());
+            command.setEstimatedArrivalSourceDetail("插件采集预计到达时间");
+        } else if (existingBatch != null) {
+            command.setEstimatedArrivalSource(existingBatch.getEstimatedArrivalSource());
+            command.setEstimatedArrivalSourceDetail(existingBatch.getEstimatedArrivalSourceDetail());
+            command.setEstimatedArrivalUpdatedAt(existingBatch.getEstimatedArrivalUpdatedAt());
+            command.setEstimatedArrivalUpdatedBy(existingBatch.getEstimatedArrivalUpdatedBy());
+        }
     }
 
     private String resolveBatchStatusForSave(
@@ -911,14 +977,13 @@ public class InTransitPluginSyncService {
         result.setPackageStatus(clean(itemPackage.getPackageStatus()));
         result.setLogisticsStatus(clean(itemPackage.getLogisticsStatus()));
         result.setPackageSnapshotAuthoritative(true);
-        String storeCode = firstText(line.getStoreCode(), storeCodeFromBatch(command, batch));
-        String siteCode = firstText(line.getSiteCode(), firstText(siteCodeFromDestination(storeCode), siteCodeFromBatch(command, batch)));
+        LineScope lineScope = lineScope(line);
         result.setSku(clean(barcode));
         result.setMsku(clean(line.getMsku()));
         result.setPsku(clean(psku));
         result.setProductName(clean(line.getProductName()));
-        result.setStoreCode(clean(storeCode));
-        result.setSiteCode(clean(siteCode));
+        result.setStoreCode(lineScope.storeCode);
+        result.setSiteCode(lineScope.siteCode);
         result.setShippedQuantity(line.getShippedQuantity());
         result.setReceivedQuantity(line.getReceivedQuantity());
         result.setCartonCount(line.getCartonCount() == null ? 1 : line.getCartonCount());
@@ -926,22 +991,6 @@ public class InTransitPluginSyncService {
         result.setCartonWeightKg(line.getCartonWeightKg());
         result.setCartonVolumeCbm(line.getCartonVolumeCbm());
         return result;
-    }
-
-    private String storeCodeFromBatch(PluginSyncCommand command, PluginSyncBatch batch) {
-        if (batch == null) {
-            return null;
-        }
-        String destinationCode = resolveDestination(batch.getBatchNo(), batch.getDestination(), batch.getTargetWarehouseName());
-        if (StringUtils.hasText(destinationCode)) {
-            return destinationCode;
-        }
-        RouteDefaults routeDefaults = routeDefaults(command, batch);
-        return routeDefaults.targetStoreCode;
-    }
-
-    private String siteCodeFromBatch(PluginSyncCommand command, PluginSyncBatch batch) {
-        return siteCodeFromDestination(storeCodeFromBatch(command, batch));
     }
 
     private String siteCodeFromDestination(String destinationCode) {
@@ -952,6 +1001,42 @@ public class InTransitPluginSyncService {
             return "AE";
         }
         return null;
+    }
+
+    private LineScope lineScope(PluginSyncLine line) {
+        String storeCode = clean(line == null ? null : line.getStoreCode());
+        if (!isNuonoStoreCode(storeCode)) {
+            return LineScope.empty();
+        }
+        String siteCode = firstText(normalizeStoreSiteCode(line.getSiteCode()), inferSiteCodeFromStoreCode(storeCode));
+        if (!StringUtils.hasText(siteCode)) {
+            return LineScope.empty();
+        }
+        return new LineScope(storeCode.toUpperCase(Locale.ROOT), siteCode);
+    }
+
+    private boolean isNuonoStoreCode(String storeCode) {
+        return StringUtils.hasText(storeCode) && storeCode.trim().toUpperCase(Locale.ROOT).matches("STR[A-Z0-9-]+");
+    }
+
+    private String normalizeStoreSiteCode(String siteCode) {
+        String normalized = normalizeCode(siteCode);
+        if ("SA".equals(normalized) || "AE".equals(normalized) || "EG".equals(normalized)) {
+            return normalized;
+        }
+        return null;
+    }
+
+    private String inferSiteCodeFromStoreCode(String storeCode) {
+        if (!StringUtils.hasText(storeCode)) {
+            return null;
+        }
+        String normalized = storeCode.trim().toUpperCase(Locale.ROOT);
+        int marker = normalized.lastIndexOf("-N");
+        if (marker < 0 || marker + 4 != normalized.length()) {
+            return null;
+        }
+        return normalizeStoreSiteCode(normalized.substring(marker + 2));
     }
 
     private SavePackageCommand toPackageCommand(
@@ -1051,26 +1136,6 @@ public class InTransitPluginSyncService {
         if (!StringUtils.hasText(barcode)) {
             issues.add(PluginSyncIssueView.error(batchNo, boxNo, null, "barcode", "物流商品 barcode 不能为空。"));
         }
-        String resolvedStoreCode = firstText(line.getStoreCode(), storeCodeFromBatch(command, batch));
-        String resolvedSiteCode = firstText(line.getSiteCode(), firstText(siteCodeFromDestination(resolvedStoreCode), siteCodeFromBatch(command, batch)));
-        if (!StringUtils.hasText(resolvedStoreCode)) {
-            issues.add(PluginSyncIssueView.error(
-                    batchNo,
-                    boxNo,
-                    barcode,
-                    "storeCode",
-                    "物流商品行必须能归属到目的地店铺；请检查批次目的地或行 storeCode。"
-            ));
-        }
-        if (!StringUtils.hasText(resolvedSiteCode)) {
-            issues.add(PluginSyncIssueView.error(
-                    batchNo,
-                    boxNo,
-                    barcode,
-                    "siteCode",
-                    "物流商品行必须能归属到站点；请检查批次目的地或行 siteCode。"
-            ));
-        }
         if (line.getShippedQuantity() != null && line.getShippedQuantity() < 0) {
             issues.add(PluginSyncIssueView.error(batchNo, boxNo, barcode, "shippedQuantity", "发货数量不能为负数。"));
         }
@@ -1141,7 +1206,8 @@ public class InTransitPluginSyncService {
         if (isPlaceholderDateTime(node.getNodeTime())) {
             return null;
         }
-        String nodeStatus = resolveNodeStatus(sourceSystem, node.getNodeStatus(), node.getDescription());
+        String description = clean(node.getDescription());
+        String nodeStatus = resolveNodeStatus(sourceSystem, node.getNodeStatus(), description);
         if (!StringUtils.hasText(nodeStatus)) {
             if (issues != null) {
                 issues.add(PluginSyncIssueView.warning(
@@ -1170,7 +1236,7 @@ public class InTransitPluginSyncService {
         if (!StringUtils.hasText(nodeStatus) || happenedAt == null) {
             return null;
         }
-        return new ParsedNode(nodeStatus, happenedAt, clean(node.getDescription()));
+        return new ParsedNode(InTransitNodeStatus.normalizeForPersistence(nodeStatus, description), happenedAt, description);
     }
 
     private InTransitForwarderCatalog.CanonicalForwarder resolveForwarder(PluginSyncCommand command) {
@@ -1390,6 +1456,9 @@ public class InTransitPluginSyncService {
         if (!StringUtils.hasText(value)) {
             return null;
         }
+        if (InTransitNodeStatus.isWarehouseArrivalMarker(value)) {
+            return InTransitBatchStatus.WAREHOUSE_RECEIVED.code();
+        }
         if (isForwarderWarehouseActiveTrackingStatus(sourceSystem, value)) {
             return InTransitBatchStatus.IN_TRANSIT.code();
         }
@@ -1501,6 +1570,20 @@ public class InTransitPluginSyncService {
         }
     }
 
+    private static final class LineScope {
+        private final String storeCode;
+        private final String siteCode;
+
+        private LineScope(String storeCode, String siteCode) {
+            this.storeCode = storeCode;
+            this.siteCode = siteCode;
+        }
+
+        private static LineScope empty() {
+            return new LineScope(null, null);
+        }
+    }
+
     private boolean isCancelledBatch(PluginSyncBatch batch) {
         if (batch == null) {
             return false;
@@ -1526,7 +1609,13 @@ public class InTransitPluginSyncService {
 
     private String resolveNodeStatus(String sourceSystem, String value, String description) {
         if (!StringUtils.hasText(value)) {
-            return null;
+            return InTransitNodeStatus.isWarehouseArrivalMarker(description)
+                    ? InTransitNodeStatus.WAREHOUSE_RECEIVED.code()
+                    : null;
+        }
+        if (InTransitNodeStatus.isWarehouseArrivalMarker(value)
+                || InTransitNodeStatus.isWarehouseArrivalMarker(description)) {
+            return InTransitNodeStatus.WAREHOUSE_RECEIVED.code();
         }
         if (isForwarderWarehouseActiveTrackingStatus(sourceSystem, value, description)) {
             return InTransitNodeStatus.IN_TRANSIT.code();
@@ -1628,6 +1717,20 @@ public class InTransitPluginSyncService {
 
     private static String firstText(String first, String second) {
         return StringUtils.hasText(first) ? first.trim() : clean(second);
+    }
+
+    private static LocalDate firstDate(LocalDate first, LocalDate second, LocalDate third) {
+        if (first != null) {
+            return first;
+        }
+        if (second != null) {
+            return second;
+        }
+        return third;
+    }
+
+    private static <T> T firstValue(T first, T second) {
+        return first == null ? second : first;
     }
 
     private static final class ParsedNode {

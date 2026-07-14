@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,6 +54,8 @@ class ProductReadModelServiceListDatasetTest {
     void listDatasetReadsLocalProjectionWithoutInitializationStatusOrBackfillSideEffects() {
         StoreSyncStoreRecord store = ownerStore();
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(51009L);
 
         ProductListSummaryView summary = new ProductListSummaryView();
         summary.setReady(true);
@@ -63,6 +66,9 @@ class ProductReadModelServiceListDatasetTest {
         summary.setTitle("Paper bag");
         summary.setSyncStatus("synced");
         summary.setDetailBaselineStatus("missing");
+        summary.setOperationStageCode("TESTING");
+        summary.setOperationStageUpdatedAt("2026-07-06 11:35:00");
+        summary.setOperationStageUpdatedBy(10003L);
         summary.setLastSyncedAt("2026-06-04 10:00:00");
         summary.setLastPublishTask(Map.of(
                 "taskType", "product-delete",
@@ -94,6 +100,9 @@ class ProductReadModelServiceListDatasetTest {
         assertEquals("PAPERSAYSB132", view.getItems().get(0).getPartnerSku());
         assertEquals("ZPAPER001", view.getItems().get(0).getCurrentZCode());
         assertEquals("missing", view.getItems().get(0).getDetailBaselineStatus());
+        assertEquals("TESTING", view.getItems().get(0).getOperationStageCode());
+        assertEquals("2026-07-06 11:35:00", view.getItems().get(0).getOperationStageUpdatedAt());
+        assertEquals(10003L, view.getItems().get(0).getOperationStageUpdatedBy());
         assertEquals("删除中", view.getItems().get(0).getLastPublishTask().get("statusLabel"));
 
         verify(productProjectionPersistenceService).loadProductListSummaries(
@@ -101,8 +110,48 @@ class ProductReadModelServiceListDatasetTest {
                 eq("STR245027-NAE"),
                 anyList()
         );
+        verify(productDetailBaselineBackfillService).stateForLogicalStore(10002L, 51009L, "PAPERSAYSB132");
         verify(productDetailBaselineBackfillService, never()).state(10002L, "STR245027-NAE", "PAPERSAYSB132");
         verify(productDetailBaselineBackfillService, never()).enqueue(any(), anyString(), any());
+    }
+
+    @Test
+    void listDatasetResolvesLogicalStoreOnceForMultipleEligibleBackfillSummaries() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+        when(productManagementMapper.selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE"))
+                .thenReturn(51009L);
+
+        ProductListSummaryView first = productSummary("STR245027-NAE", "ZPAPER001", "PAPERSAYSB132", "NOON-CODE-001");
+        first.setDetailBaselineStatus("missing");
+        ProductListSummaryView second = productSummary("STR245027-NAE", "ZPAPER002", "PAPERSAYSB133", "NOON-CODE-002");
+        second.setDetailBaselineStatus("missing");
+        ProductListSummaryView ready = productSummary("STR245027-NAE", "ZPAPER003", "PAPERSAYSB134", "NOON-CODE-003");
+        ready.setDetailBaselineStatus("ready");
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(first, second, ready));
+        when(productDetailBaselineBackfillService.stateForLogicalStore(10002L, 51009L, "ZPAPER001"))
+                .thenReturn(new ProductDetailBaselineBackfillService.BackfillState("preparing", "正在后台补齐详情基线。"));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListDatasetView view = service.loadListDataset(command);
+
+        assertEquals(3, view.getItems().size());
+        assertEquals("preparing", view.getItems().get(0).getDetailBaselineStatus());
+        assertEquals("missing", view.getItems().get(1).getDetailBaselineStatus());
+        assertEquals("ready", view.getItems().get(2).getDetailBaselineStatus());
+        verify(productManagementMapper, times(1))
+                .selectLogicalStoreIdByOwnerStoreCode(10002L, "STR245027-NAE");
+        verify(productDetailBaselineBackfillService).stateForLogicalStore(10002L, 51009L, "ZPAPER001");
+        verify(productDetailBaselineBackfillService).stateForLogicalStore(10002L, 51009L, "ZPAPER002");
+        verify(productDetailBaselineBackfillService, never()).stateForLogicalStore(10002L, 51009L, "ZPAPER003");
+        verify(productDetailBaselineBackfillService, never()).state(any(), anyString(), anyString());
     }
 
     @Test
@@ -161,6 +210,32 @@ class ProductReadModelServiceListDatasetTest {
         assertEquals("SGGRB113", view.getItems().get(0).getPartnerSku());
         assertEquals("NEW-NOON-CODE", view.getItems().get(0).getPskuCode());
         assertEquals("ZOTHERPSKU001", view.getItems().get(1).getSkuParent());
+    }
+
+    @Test
+    void listDatasetDoesNotMergeRowsByCurrentZCodeWhenPartnerSkuIsMissing() {
+        StoreSyncStoreRecord store = ownerStore();
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
+
+        ProductListSummaryView first = productSummary("STR245027-NAE", "ZSAME", null, "NOON-CODE-001");
+        first.setTitle("Missing PSKU first row");
+        ProductListSummaryView second = productSummary("STR245027-NAE", "ZSAME", "", "NOON-CODE-002");
+        second.setTitle("Missing PSKU second row");
+        when(productProjectionPersistenceService.loadProductListSummaries(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                anyList()
+        )).thenReturn(List.of(first, second));
+
+        ProductMasterFetchCommand command = new ProductMasterFetchCommand();
+        command.setOwnerUserId(10002L);
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListDatasetView view = service.loadListDataset(command);
+
+        assertEquals(2, view.getItems().size());
+        assertEquals("Missing PSKU first row", view.getItems().get(0).getTitle());
+        assertEquals("Missing PSKU second row", view.getItems().get(1).getTitle());
     }
 
     @Test

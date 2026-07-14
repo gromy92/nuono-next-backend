@@ -17,6 +17,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -29,9 +30,7 @@ import org.springframework.stereotype.Service;
 public class SalesAnalyticsService {
 
     private final SalesFactRepository salesFactRepository;
-    private final ProductLifecycleClassifier lifecycleClassifier;
     private final NoonBusinessSyncStatusService syncStatusService;
-    private final ProductLifecycleStateRepository lifecycleStateRepository;
     private final SalesProductDimensionRepository productDimensionRepository;
     private final SalesPriceTrendRepository priceTrendRepository;
     private final SalesHistoryBackfillService historyBackfillService;
@@ -40,16 +39,13 @@ public class SalesAnalyticsService {
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
             ObjectProvider<NoonBusinessSyncStatusService> syncStatusServiceProvider,
-            ObjectProvider<ProductLifecycleStateRepository> lifecycleStateRepositoryProvider,
             ObjectProvider<SalesProductDimensionRepository> productDimensionRepositoryProvider,
             ObjectProvider<SalesPriceTrendRepository> priceTrendRepositoryProvider,
             ObjectProvider<SalesHistoryBackfillService> historyBackfillServiceProvider
     ) {
         this(
                 salesFactRepository,
-                new ProductLifecycleClassifier(),
                 syncStatusServiceProvider == null ? null : syncStatusServiceProvider.getIfAvailable(),
-                lifecycleStateRepositoryProvider == null ? null : lifecycleStateRepositoryProvider.getIfAvailable(),
                 productDimensionRepositoryProvider == null ? null : productDimensionRepositoryProvider.getIfAvailable(),
                 priceTrendRepositoryProvider == null ? null : priceTrendRepositoryProvider.getIfAvailable(),
                 historyBackfillServiceProvider == null ? null : historyBackfillServiceProvider.getIfAvailable()
@@ -57,72 +53,49 @@ public class SalesAnalyticsService {
     }
 
     public SalesAnalyticsService(SalesFactRepository salesFactRepository) {
-        this(salesFactRepository, new ProductLifecycleClassifier(), null, null, null, null, null);
-    }
-
-    public SalesAnalyticsService(SalesFactRepository salesFactRepository, ProductLifecycleClassifier lifecycleClassifier) {
-        this(salesFactRepository, lifecycleClassifier, null, null, null, null, null);
+        this(salesFactRepository, (NoonBusinessSyncStatusService) null, null, null, null);
     }
 
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
-            ProductLifecycleClassifier lifecycleClassifier,
             NoonBusinessSyncStatusService syncStatusService
     ) {
-        this(salesFactRepository, lifecycleClassifier, syncStatusService, null, null, null, null);
+        this(salesFactRepository, syncStatusService, null, null, null);
     }
 
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
-            ProductLifecycleClassifier lifecycleClassifier,
-            NoonBusinessSyncStatusService syncStatusService,
-            ProductLifecycleStateRepository lifecycleStateRepository
-    ) {
-        this(salesFactRepository, lifecycleClassifier, syncStatusService, lifecycleStateRepository, null, null, null);
-    }
-
-    public SalesAnalyticsService(
-            SalesFactRepository salesFactRepository,
-            ProductLifecycleClassifier lifecycleClassifier,
-            NoonBusinessSyncStatusService syncStatusService,
-            ProductLifecycleStateRepository lifecycleStateRepository,
             SalesProductDimensionRepository productDimensionRepository
     ) {
-        this(salesFactRepository, lifecycleClassifier, syncStatusService, lifecycleStateRepository, productDimensionRepository, null, null);
+        this(salesFactRepository, null, productDimensionRepository, null, null);
     }
 
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
-            ProductLifecycleClassifier lifecycleClassifier,
             NoonBusinessSyncStatusService syncStatusService,
-            ProductLifecycleStateRepository lifecycleStateRepository,
+            SalesProductDimensionRepository productDimensionRepository
+    ) {
+        this(salesFactRepository, syncStatusService, productDimensionRepository, null, null);
+    }
+
+    public SalesAnalyticsService(
+            SalesFactRepository salesFactRepository,
+            NoonBusinessSyncStatusService syncStatusService,
             SalesProductDimensionRepository productDimensionRepository,
             SalesPriceTrendRepository priceTrendRepository
     ) {
-        this(
-                salesFactRepository,
-                lifecycleClassifier,
-                syncStatusService,
-                lifecycleStateRepository,
-                productDimensionRepository,
-                priceTrendRepository,
-                null
-        );
+        this(salesFactRepository, syncStatusService, productDimensionRepository, priceTrendRepository, null);
     }
 
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
-            ProductLifecycleClassifier lifecycleClassifier,
             NoonBusinessSyncStatusService syncStatusService,
-            ProductLifecycleStateRepository lifecycleStateRepository,
             SalesProductDimensionRepository productDimensionRepository,
             SalesPriceTrendRepository priceTrendRepository,
             SalesHistoryBackfillService historyBackfillService
     ) {
         this.salesFactRepository = salesFactRepository;
-        this.lifecycleClassifier = lifecycleClassifier;
         this.syncStatusService = syncStatusService;
-        this.lifecycleStateRepository = lifecycleStateRepository;
         this.productDimensionRepository = productDimensionRepository;
         this.priceTrendRepository = priceTrendRepository;
         this.historyBackfillService = historyBackfillService;
@@ -191,14 +164,14 @@ public class SalesAnalyticsService {
         SalesFactQuery productQuery = productDetailIdentityQuery(query);
         List<DailySalesFact> facts = filteredFacts(productQuery);
         Map<String, SalesProductDimensionSnapshot> dimensionsByProduct = dimensionsByProduct(productQuery);
-        SalesProductDimensionSnapshot queryDimension = dimensionsByProduct.get(productKey(productQuery.getPartnerSku(), productQuery.getSku()));
+        SalesProductDimensionSnapshot queryDimension = dimensionsByProduct.get(productKey(productQuery, productQuery.getPartnerSku()));
         SalesPriceTrendResult priceTrend = priceTrendFor(productQuery, "day");
         SalesHistoryCoverage historyCoverage = historyCoverageFor(productQuery, facts, priceTrend);
         if (facts.isEmpty()) {
             return new SalesProductDetail(
                     productQuery.getPartnerSku(),
                     queryDimension == null ? productQuery.getSku() : queryDimension.getSku(),
-                    null,
+                    queryDimension == null ? null : queryDimension.getProductTitle(),
                     null,
                     List.of(),
                     summarize(facts),
@@ -220,7 +193,7 @@ public class SalesAnalyticsService {
         return new SalesProductDetail(
                 latest.getPartnerSku(),
                 latest.getSku(),
-                latest.getProductTitle(),
+                productTitleFor(facts, dimension),
                 latest.getFactDate(),
                 sourceSystems(facts),
                 summary,
@@ -241,21 +214,7 @@ public class SalesAnalyticsService {
         if (query == null || !hasBusinessPartnerSku(query.getPartnerSku())) {
             return query;
         }
-        return new SalesFactQuery(
-                query.getOwnerUserId(),
-                query.getStoreCode(),
-                query.getSiteCode(),
-                query.getDateFrom(),
-                query.getDateTo(),
-                query.getPartnerSku(),
-                null,
-                query.getSearchKeyword(),
-                query.getBrand(),
-                query.getProductFulltype(),
-                query.getDataQualityCode(),
-                query.getPartnerSkuList(),
-                query.getLifecycleCode()
-        );
+        return query.withSku(null);
     }
 
     public SalesHistoryBackfillResult requestHistoryBackfill(SalesHistoryBackfillCommand command) {
@@ -349,6 +308,7 @@ public class SalesAnalyticsService {
                 buyBoxCount++;
             }
         }
+        boolean businessMetricsAvailable = hasBusinessMetrics(facts);
         return new SalesAnalyticsSummary(
                 netUnits,
                 grossUnits,
@@ -360,8 +320,18 @@ public class SalesAnalyticsService {
                 average(conversionTotal, conversionCount),
                 average(buyBoxTotal, buyBoxCount),
                 syncStatus,
-                syncStatus == null || syncStatus.isBusinessMetricsAllowed()
+                businessMetricsAvailable && (syncStatus == null || syncStatus.isBusinessMetricsAllowed())
         );
+    }
+
+    private boolean hasBusinessMetrics(List<DailySalesFact> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return false;
+        }
+        return facts.stream().anyMatch(fact -> fact.getYourVisitors() != null
+                || fact.getTotalVisitors() != null
+                || fact.getConversionVisitorsPercentage() != null
+                || fact.getBuyBoxVisitorPercentage() != null);
     }
 
     private NoonSalesSyncReadModel syncStatusFor(
@@ -435,10 +405,9 @@ public class SalesAnalyticsService {
         return new SalesProductRow(
                 latest.getPartnerSku(),
                 latest.getSku(),
-                latest.getProductTitle(),
+                productTitleFor(facts, dimension),
                 latest.getFactDate(),
                 sourceSystems(facts),
-                lifecycleForProduct(query, facts),
                 summary,
                 dimension == null ? null : dimension.getBrand(),
                 dimension == null ? null : dimension.getProductFulltype(),
@@ -454,6 +423,22 @@ public class SalesAnalyticsService {
                 dimension == null ? null : dimension.getFbpStock(),
                 stockCoverDays(dimension, summary, facts)
         );
+    }
+
+    private String productTitleFor(List<DailySalesFact> facts, SalesProductDimensionSnapshot dimension) {
+        if (dimension != null && hasText(dimension.getProductTitle())) {
+            return dimension.getProductTitle();
+        }
+        if (facts == null || facts.isEmpty()) {
+            return null;
+        }
+        for (int index = facts.size() - 1; index >= 0; index--) {
+            String title = facts.get(index).getProductTitle();
+            if (hasText(title)) {
+                return title;
+            }
+        }
+        return null;
     }
 
     private BigDecimal stockCoverDays(
@@ -497,18 +482,7 @@ public class SalesAnalyticsService {
     }
 
     private List<DailySalesFact> applyProductFilters(SalesFactQuery query, List<DailySalesFact> facts) {
-        List<DailySalesFact> dimensionFiltered = applyProductDimensionFilters(query, facts);
-        if (!hasText(query.getLifecycleCode())) {
-            return dimensionFiltered;
-        }
-        Map<String, List<DailySalesFact>> factsByProduct = new TreeMap<>();
-        for (DailySalesFact fact : dimensionFiltered) {
-            factsByProduct.computeIfAbsent(productKey(fact), ignored -> new ArrayList<>()).add(fact);
-        }
-        return factsByProduct.values().stream()
-                .filter(factsForProduct -> query.getLifecycleCode().equals(lifecycleForProduct(query, factsForProduct).getCode()))
-                .flatMap(List::stream)
-                .collect(Collectors.toList());
+        return applyProductDimensionFilters(query, facts);
     }
 
     private List<DailySalesFact> listFacts(SalesFactQuery query) {
@@ -532,7 +506,7 @@ public class SalesAnalyticsService {
         }
         Map<String, SalesProductDimensionSnapshot> values = new HashMap<>();
         for (SalesProductDimensionSnapshot snapshot : productDimensionRepository.list(query)) {
-            values.put(productKey(snapshot.getPartnerSku(), snapshot.getSku()), snapshot);
+            values.putIfAbsent(productKey(query, snapshot.getPartnerSku()), snapshot);
         }
         return values;
     }
@@ -600,66 +574,6 @@ public class SalesAnalyticsService {
         return value != null && !value.isBlank();
     }
 
-    private ProductLifecycleResult lifecycleForProduct(SalesFactQuery query, List<DailySalesFact> facts) {
-        DailySalesFact latest = latestFact(facts);
-        if (lifecycleStateRepository == null) {
-            return classifyLifecycle(query, facts);
-        }
-        ProductLifecycleCurrentState currentState = lifecycleStateRepository.findCurrentState(new ProductLifecycleStateQuery(
-                query.getOwnerUserId(),
-                query.getStoreCode(),
-                query.getSiteCode(),
-                latest.getPartnerSku(),
-                latest.getSku()
-        ));
-        if (currentState == null) {
-            return new ProductLifecycleResult(
-                    "pending",
-                    "待计算",
-                    "生命周期状态尚未完成计算。",
-                    ProductLifecycleResult.DEFAULT_RULE_VERSION,
-                    List.of(),
-                    "pending",
-                    "{\"reason\":\"lifecycle_pending\"}"
-            );
-        }
-        return new ProductLifecycleResult(
-                currentState.getLifecycleCode(),
-                currentState.getLifecycleLabel(),
-                currentState.getExplanation(),
-                currentState.getRuleVersion(),
-                lifecycleWarnings(currentState),
-                currentState.getQualityState(),
-                currentState.getEvidenceJson()
-        );
-    }
-
-    private List<String> lifecycleWarnings(ProductLifecycleCurrentState currentState) {
-        if ("stockout_hold".equals(currentState.getQualityState())) {
-            return List.of("lifecycle_stockout_hold");
-        }
-        if ("data_insufficient".equals(currentState.getLifecycleCode())
-                || "data_insufficient".equals(currentState.getQualityState())
-                || "pv_unresolvable".equals(currentState.getQualityState())) {
-            return List.of("lifecycle_data_insufficient");
-        }
-        return List.of();
-    }
-
-    private ProductLifecycleResult classifyLifecycle(SalesFactQuery query, List<DailySalesFact> facts) {
-        LocalDate firstFactDate = facts.stream()
-                .map(DailySalesFact::getFactDate)
-                .min(Comparator.naturalOrder())
-                .orElse(query.getDateFrom());
-        LocalDate analysisDate = query.getDateTo() == null ? latestFact(facts).getFactDate() : query.getDateTo();
-        return lifecycleClassifier.classify(new ProductLifecycleSignal(
-                analysisDate,
-                firstFactDate,
-                null,
-                facts
-        ));
-    }
-
     private DailySalesFact latestFact(List<DailySalesFact> facts) {
         return facts.stream()
                 .max(Comparator.comparing(DailySalesFact::getFactDate))
@@ -677,14 +591,27 @@ public class SalesAnalyticsService {
     }
 
     private String productKey(DailySalesFact fact) {
-        return productKey(fact.getPartnerSku(), fact.getSku());
+        if (fact == null) {
+            return "";
+        }
+        return productKey(
+                fact.getOwnerUserId() == null ? null : String.valueOf(fact.getOwnerUserId()),
+                fact.getStoreCode(),
+                fact.getSiteCode(),
+                fact.getPartnerSku()
+        );
     }
 
-    private String productKey(String partnerSku, String sku) {
-        if (hasBusinessPartnerSku(partnerSku)) {
-            return partnerSku.trim();
+    private String productKey(SalesFactQuery query, String partnerSku) {
+        if (query == null) {
+            return productKey(null, null, null, partnerSku);
         }
-        return "__missing_partner_sku__|" + nullSafe(sku);
+        return productKey(
+                query.getOwnerUserId() == null ? null : String.valueOf(query.getOwnerUserId()),
+                query.getStoreCode(),
+                query.getSiteCode(),
+                partnerSku
+        );
     }
 
     private boolean hasBusinessPartnerSku(DailySalesFact fact) {
@@ -693,6 +620,20 @@ public class SalesAnalyticsService {
 
     private boolean hasBusinessPartnerSku(String partnerSku) {
         return partnerSku != null && !partnerSku.isBlank() && !"-".equals(partnerSku.trim());
+    }
+
+    private String productKey(String partnerSku) {
+        return nullSafe(partnerSku).trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String productKey(String ownerUserId, String storeCode, String siteCode, String partnerSku) {
+        return productKey(ownerUserId)
+                + "|"
+                + productKey(storeCode)
+                + "|"
+                + productKey(siteCode)
+                + "|"
+                + productKey(partnerSku);
     }
 
     private String nullSafe(String value) {

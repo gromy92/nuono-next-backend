@@ -4,10 +4,13 @@ import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import com.nuono.next.intransit.InTransitBatchCommands.DeleteLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.DeleteNodeCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.InTransitBatchQuery;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveActualArrivalCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveBatchCommand;
+import com.nuono.next.intransit.InTransitBatchCommands.SaveEstimatedArrivalCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveLineCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SaveNodeCommand;
 import com.nuono.next.intransit.InTransitBatchCommands.SavePackageCommand;
+import com.nuono.next.intransit.InTransitBatchRecords.AirArrivalDurationSampleRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchAggregateRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchLatestNodeRow;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchListView;
@@ -39,6 +42,8 @@ public class InTransitBatchService {
 
     private static final int DEFAULT_BATCH_LIST_PAGE_SIZE = 20;
     private static final int MAX_BATCH_LIST_PAGE_SIZE = 100;
+    private static final int AIR_ARRIVAL_HISTORY_SAMPLE_LIMIT = 10;
+    private static final String TODO_MISSING_ESTIMATED_ARRIVAL = "missingEstimatedArrival";
 
     private final InTransitGoodsMapper mapper;
     private final InTransitForwarderService forwarderService;
@@ -65,6 +70,10 @@ public class InTransitBatchService {
         }
         if (StringUtils.hasText(resolved.getTargetStoreCode())) {
             resolved.setTargetStoreCode(InTransitDestination.require(resolved.getTargetStoreCode()).code());
+        }
+        if (StringUtils.hasText(resolved.getTodo())
+                && !TODO_MISSING_ESTIMATED_ARRIVAL.equals(resolved.getTodo())) {
+            throw new IllegalArgumentException("待办筛选不支持。");
         }
         normalizeBatchListPage(resolved);
         normalizeBatchListSort(resolved);
@@ -116,6 +125,7 @@ public class InTransitBatchService {
         }
         String batchReferenceNo = clean(resolved.getBatchReferenceNo());
         assertBatchReferenceUnique(ownerUserId, resolved.getBatchId(), batchReferenceNo);
+        resolveEstimatedArrival(ownerUserId, resolved, existingBatch, forwarder, transportMode);
 
         BatchRow row = new BatchRow();
         row.setId(resolved.getBatchId() == null ? mapper.nextBatchId() : resolved.getBatchId());
@@ -140,6 +150,10 @@ public class InTransitBatchService {
         row.setSourceCreatedAt(resolved.getSourceCreatedAt());
         row.setEstimatedDepartureAt(resolved.getEstimatedDepartureAt());
         row.setEstimatedArrivalAt(resolved.getEstimatedArrivalAt());
+        row.setEstimatedArrivalSource(clean(resolved.getEstimatedArrivalSource()));
+        row.setEstimatedArrivalSourceDetail(clean(resolved.getEstimatedArrivalSourceDetail()));
+        row.setEstimatedArrivalUpdatedAt(resolved.getEstimatedArrivalUpdatedAt());
+        row.setEstimatedArrivalUpdatedBy(resolved.getEstimatedArrivalUpdatedBy());
         row.setDeliveryAppointmentText(clean(resolved.getDeliveryAppointmentText()));
         row.setMissingFieldsJson(InTransitBatchRecords.toMissingFieldsJson(missingFields));
         row.setCreatedBy(operatorUserId);
@@ -170,6 +184,77 @@ public class InTransitBatchService {
                 detail("batchStatus", row.getBatchStatus(), "transportMode", row.getTransportMode())
         );
         return getBatch(ownerUserId, row.getId());
+    }
+
+    public BatchView saveEstimatedArrival(SaveEstimatedArrivalCommand command) {
+        SaveEstimatedArrivalCommand resolved = command == null ? new SaveEstimatedArrivalCommand() : command;
+        Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
+        Long batchId = requirePositiveId(resolved.getBatchId(), "在途批次不存在。");
+        if (resolved.getEstimatedArrivalAt() == null) {
+            throw new IllegalArgumentException("预计到达时间不能为空。");
+        }
+        BatchRow batch = requireBatch(ownerUserId, batchId);
+        LocalDateTime estimatedArrivalAt = resolved.getEstimatedArrivalAt();
+        String note = truncate(clean(resolved.getNote()), 500);
+        mapper.updateEstimatedArrival(
+                ownerUserId,
+                batchId,
+                estimatedArrivalAt,
+                estimatedArrivalAt.toLocalDate(),
+                InTransitEstimatedArrivalSource.MANUAL.code(),
+                note,
+                resolved.getOperatorUserId()
+        );
+        audit(
+                ownerUserId,
+                resolved.getOperatorUserId(),
+                "estimated_arrival_manual_updated",
+                "batch",
+                batchId,
+                batchId,
+                batch.getTargetStoreCode(),
+                batch.getTargetSiteCode(),
+                "预计到达时间已人工维护。",
+                detail("estimatedArrivalAt", estimatedArrivalAt, "note", note)
+        );
+        return getBatch(ownerUserId, batchId);
+    }
+
+    public BatchView saveActualArrival(SaveActualArrivalCommand command) {
+        SaveActualArrivalCommand resolved = command == null ? new SaveActualArrivalCommand() : command;
+        Long ownerUserId = requireOwnerUserId(resolved.getOwnerUserId());
+        Long batchId = requirePositiveId(resolved.getBatchId(), "在途批次不存在。");
+        if (resolved.getActualArrivalAt() == null) {
+            throw new IllegalArgumentException("实际到达时间不能为空。");
+        }
+        BatchRow batch = requireBatch(ownerUserId, batchId);
+        String note = truncate(clean(resolved.getNote()), 500);
+
+        NodeRow row = new NodeRow();
+        row.setId(mapper.nextNodeId());
+        row.setOwnerUserId(ownerUserId);
+        row.setBatchId(batchId);
+        row.setNodeStatus(InTransitNodeStatus.WAREHOUSE_RECEIVED.code());
+        row.setNodeHappenedAt(resolved.getActualArrivalAt());
+        row.setDescription(note);
+        row.setCreatedBy(resolved.getOperatorUserId());
+        row.setUpdatedBy(resolved.getOperatorUserId());
+
+        mapper.insertNode(row);
+        refreshBatchLatestNode(ownerUserId, batchId);
+        audit(
+                ownerUserId,
+                resolved.getOperatorUserId(),
+                "actual_arrival_manual_updated",
+                "batch",
+                batchId,
+                batchId,
+                batch.getTargetStoreCode(),
+                batch.getTargetSiteCode(),
+                "实际到达时间已人工维护。",
+                detail("actualArrivalAt", resolved.getActualArrivalAt(), "note", note)
+        );
+        return getBatch(ownerUserId, batchId);
     }
 
     private void assertBatchReferenceUnique(Long ownerUserId, Long currentBatchId, String batchReferenceNo) {
@@ -236,8 +321,140 @@ public class InTransitBatchService {
         if (command.getEstimatedArrivalAt() == null) {
             command.setEstimatedArrivalAt(existing.getEstimatedArrivalAt());
         }
+        if (!StringUtils.hasText(command.getEstimatedArrivalSource())) {
+            command.setEstimatedArrivalSource(existing.getEstimatedArrivalSource());
+        }
+        if (!StringUtils.hasText(command.getEstimatedArrivalSourceDetail())) {
+            command.setEstimatedArrivalSourceDetail(existing.getEstimatedArrivalSourceDetail());
+        }
+        if (command.getEstimatedArrivalUpdatedAt() == null) {
+            command.setEstimatedArrivalUpdatedAt(existing.getEstimatedArrivalUpdatedAt());
+        }
+        if (command.getEstimatedArrivalUpdatedBy() == null) {
+            command.setEstimatedArrivalUpdatedBy(existing.getEstimatedArrivalUpdatedBy());
+        }
         if (!StringUtils.hasText(command.getDeliveryAppointmentText())) {
             command.setDeliveryAppointmentText(existing.getDeliveryAppointmentText());
+        }
+    }
+
+    private void resolveEstimatedArrival(
+            Long ownerUserId,
+            SaveBatchCommand command,
+            BatchRow existingBatch,
+            ForwarderResolveView forwarder,
+            String transportMode
+    ) {
+        if (isManualEstimatedArrival(existingBatch)) {
+            command.setEstimatedArrivalAt(existingBatch.getEstimatedArrivalAt());
+            command.setEtaDate(existingBatch.getEtaDate());
+            command.setEstimatedArrivalSource(existingBatch.getEstimatedArrivalSource());
+            command.setEstimatedArrivalSourceDetail(existingBatch.getEstimatedArrivalSourceDetail());
+            command.setEstimatedArrivalUpdatedAt(existingBatch.getEstimatedArrivalUpdatedAt());
+            command.setEstimatedArrivalUpdatedBy(existingBatch.getEstimatedArrivalUpdatedBy());
+            return;
+        }
+        if (command.getEstimatedArrivalAt() != null) {
+            if (command.getEtaDate() == null) {
+                command.setEtaDate(command.getEstimatedArrivalAt().toLocalDate());
+            }
+            markEstimatedArrivalUpdatedByCommand(command);
+            return;
+        }
+        if (!InTransitTransportMode.AIR.code().equals(transportMode)) {
+            return;
+        }
+        LocalDateTime anchorAt = firstDateTime(
+                command.getEstimatedDepartureAt(),
+                command.getSourceCreatedAt(),
+                command.getDepartureDate() == null ? null : command.getDepartureDate().atStartOfDay()
+        );
+        if (anchorAt == null) {
+            return;
+        }
+        Long standardForwarderId = forwarder == null ? command.getStandardForwarderId() : forwarder.getStandardForwarderId();
+        List<AirArrivalDurationSampleRow> samples = mapper.selectRecentAirArrivalDurations(
+                ownerUserId,
+                standardForwarderId,
+                command.getTargetStoreCode(),
+                command.getTargetSiteCode(),
+                AIR_ARRIVAL_HISTORY_SAMPLE_LIMIT
+        );
+        if ((samples == null || samples.isEmpty())
+                && standardForwarderId != null
+                && (StringUtils.hasText(command.getTargetStoreCode()) || StringUtils.hasText(command.getTargetSiteCode()))) {
+            samples = mapper.selectRecentAirArrivalDurations(
+                    ownerUserId,
+                    standardForwarderId,
+                    null,
+                    null,
+                    AIR_ARRIVAL_HISTORY_SAMPLE_LIMIT
+            );
+        }
+        if ((samples == null || samples.isEmpty()) && standardForwarderId != null) {
+            samples = mapper.selectRecentAirArrivalDurations(
+                    ownerUserId,
+                    null,
+                    command.getTargetStoreCode(),
+                    command.getTargetSiteCode(),
+                    AIR_ARRIVAL_HISTORY_SAMPLE_LIMIT
+            );
+        }
+        Long medianDurationMinutes = medianDurationMinutes(samples);
+        if (medianDurationMinutes == null) {
+            return;
+        }
+        LocalDateTime estimatedArrivalAt = anchorAt.plusMinutes(medianDurationMinutes);
+        command.setEstimatedArrivalAt(estimatedArrivalAt);
+        command.setEtaDate(estimatedArrivalAt.toLocalDate());
+        command.setEstimatedArrivalSource(InTransitEstimatedArrivalSource.AIR_HISTORY_ESTIMATE.code());
+        command.setEstimatedArrivalSourceDetail("基于最近" + samples.size() + "个空运到仓批次中位耗时"
+                + formatDurationMinutes(medianDurationMinutes) + "推算");
+        markEstimatedArrivalUpdatedByCommand(command);
+    }
+
+    private static boolean isManualEstimatedArrival(BatchRow existingBatch) {
+        return existingBatch != null
+                && InTransitEstimatedArrivalSource.MANUAL.code().equals(existingBatch.getEstimatedArrivalSource());
+    }
+
+    private static Long medianDurationMinutes(List<AirArrivalDurationSampleRow> samples) {
+        if (samples == null || samples.isEmpty()) {
+            return null;
+        }
+        List<Long> durations = samples.stream()
+                .map(AirArrivalDurationSampleRow::getDurationMinutes)
+                .filter(value -> value != null && value > 0)
+                .sorted()
+                .collect(Collectors.toList());
+        if (durations.isEmpty()) {
+            return null;
+        }
+        return durations.get(durations.size() / 2);
+    }
+
+    private static String formatDurationMinutes(Long minutes) {
+        long safeMinutes = minutes == null ? 0L : minutes;
+        long days = safeMinutes / (24 * 60);
+        long hours = (safeMinutes % (24 * 60)) / 60;
+        if (days > 0 && hours > 0) {
+            return days + "天" + hours + "小时";
+        }
+        if (days > 0) {
+            return days + "天";
+        }
+        return hours + "小时";
+    }
+
+    private static void markEstimatedArrivalUpdatedByCommand(SaveBatchCommand command) {
+        if (command.getEstimatedArrivalAt() == null || !StringUtils.hasText(command.getEstimatedArrivalSource())) {
+            return;
+        }
+        if (command.getEstimatedArrivalUpdatedAt() == null) {
+            command.setEstimatedArrivalUpdatedAt(LocalDateTime.now());
+        }
+        if (command.getEstimatedArrivalUpdatedBy() == null) {
+            command.setEstimatedArrivalUpdatedBy(command.getOperatorUserId());
         }
     }
 
@@ -485,7 +702,8 @@ public class InTransitBatchService {
         Long batchId = requirePositiveId(resolved.getBatchId(), "在途批次不存在。");
         Long operatorUserId = resolved.getOperatorUserId();
         BatchRow batch = requireBatch(ownerUserId, batchId);
-        String nodeStatus = InTransitNodeStatus.require(resolved.getNodeStatus()).code();
+        String description = clean(resolved.getDescription());
+        String nodeStatus = InTransitNodeStatus.normalizeForPersistence(resolved.getNodeStatus(), description);
         LocalDateTime nodeHappenedAt = resolved.getNodeHappenedAt() == null
                 ? LocalDateTime.now()
                 : resolved.getNodeHappenedAt();
@@ -498,7 +716,7 @@ public class InTransitBatchService {
             row.setBatchId(batchId);
             row.setNodeStatus(nodeStatus);
             row.setNodeHappenedAt(nodeHappenedAt);
-            row.setDescription(clean(resolved.getDescription()));
+            row.setDescription(description);
             row.setOperatorName(clean(resolved.getOperatorName()));
             row.setUpdatedBy(operatorUserId);
 
@@ -525,7 +743,7 @@ public class InTransitBatchService {
         row.setBatchId(batchId);
         row.setNodeStatus(nodeStatus);
         row.setNodeHappenedAt(nodeHappenedAt);
-        row.setDescription(clean(resolved.getDescription()));
+        row.setDescription(description);
         row.setOperatorName(clean(resolved.getOperatorName()));
         row.setCreatedBy(operatorUserId);
         row.setUpdatedBy(operatorUserId);
@@ -864,6 +1082,10 @@ public class InTransitBatchService {
         mapper.refreshBatchAggregate(ownerUserId, batchId, aggregate == null ? new BatchAggregateRow() : aggregate);
     }
 
+    void refreshBatchLatestNodeProjection(Long ownerUserId, Long batchId) {
+        refreshBatchLatestNode(ownerUserId, batchId);
+    }
+
     private NodeRow requireNode(Long ownerUserId, Long batchId, Long nodeId) {
         Long resolvedNodeId = requirePositiveId(nodeId, "物流节点不存在。");
         NodeRow row = mapper.selectNodeById(ownerUserId, batchId, resolvedNodeId);
@@ -880,8 +1102,15 @@ public class InTransitBatchService {
             latestNode = new BatchLatestNodeRow();
             latestNode.setDerivedBatchStatus(InTransitBatchStatus.DRAFT.code());
         } else {
-            String derivedBatchStatus = deriveBatchStatusFromNode(latestNode.getLatestNodeStatus());
+            String derivedBatchStatus = deriveBatchStatusFromNode(
+                    latestNode.getLatestNodeStatus(),
+                    latestNode.getLatestNodeDescription()
+            );
             if (!InTransitBatchStatus.DRAFT.code().equals(derivedBatchStatus)
+                    && !InTransitNodeStatus.isTerminalForBatchProjection(
+                            latestNode.getLatestNodeStatus(),
+                            latestNode.getLatestNodeDescription()
+                    )
                     && !isReadyForTracking(batch)) {
                 derivedBatchStatus = InTransitBatchStatus.DRAFT.code();
             }
@@ -905,8 +1134,10 @@ public class InTransitBatchService {
         return mapper.countPackagesWithGoodsLinesMissingChargeable(batch.getOwnerUserId(), batch.getId()) == 0;
     }
 
-    private static String deriveBatchStatusFromNode(String nodeStatus) {
-        InTransitNodeStatus status = InTransitNodeStatus.require(nodeStatus);
+    private static String deriveBatchStatusFromNode(String nodeStatus, String description) {
+        InTransitNodeStatus status = InTransitNodeStatus.require(
+                InTransitNodeStatus.normalizeForPersistence(nodeStatus, description)
+        );
         switch (status) {
             case EXCEPTION:
                 return InTransitBatchStatus.EXCEPTION.code();
@@ -1005,6 +1236,23 @@ public class InTransitBatchService {
 
     private static <T> T firstValue(T first, T second) {
         return first == null ? second : first;
+    }
+
+    private static LocalDateTime firstDateTime(LocalDateTime first, LocalDateTime second, LocalDateTime third) {
+        if (first != null) {
+            return first;
+        }
+        if (second != null) {
+            return second;
+        }
+        return third;
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 
     private static boolean sameIdentifier(String left, String right) {

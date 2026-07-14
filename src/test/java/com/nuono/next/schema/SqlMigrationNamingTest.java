@@ -2,41 +2,22 @@ package com.nuono.next.schema;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.nuono.next.system.schema.DbInitMigrationRegistry;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class SqlMigrationNamingTest {
-    private static final Pattern MIGRATION = Pattern.compile("^(\\d{3})_.+\\.sql$");
-    private static final Set<String> LEGACY_DUPLICATE_PREFIXES = Set.of(
-            "101", "102", "103", "104",
-            "133", "134", "135", "136", "137", "138"
-    );
 
     @Test
-    void migrationPrefixesAreUnique() throws IOException, InterruptedException {
-        Map<String, List<String>> byPrefix = TrackedSqlFiles.initSqlFiles().stream()
+    void migrationNamesAndDuplicatePrefixesFollowGovernance() throws IOException, InterruptedException {
+        List<String> fileNames = TrackedSqlFiles.initSqlFiles().stream()
                 .map(path -> path.getFileName().toString())
-                .collect(Collectors.groupingBy(name -> {
-                    Matcher matcher = MIGRATION.matcher(name);
-                    assertTrue(matcher.matches(),
-                            "Migration filename must match NNN_description.sql: " + name);
-                    return matcher.group(1);
-                }));
+                .collect(Collectors.toList());
 
-        Map<String, List<String>> duplicates = new HashMap<>();
-        byPrefix.forEach((prefix, names) -> {
-            if (names.size() > 1 && !LEGACY_DUPLICATE_PREFIXES.contains(prefix)) {
-                duplicates.put(prefix, names);
-            }
-        });
-
-        assertTrue(duplicates.isEmpty(), "Duplicate migration prefixes: " + duplicates);
+        DbInitMigrationRegistry.MigrationGovernanceReport report =
+                DbInitMigrationRegistry.inspectFileNames(fileNames, DbInitMigrationRegistry.legacyDuplicatePrefixes());
+        assertTrue(report.isValid(), "Invalid db init migration governance: " + report.getViolations());
     }
 }

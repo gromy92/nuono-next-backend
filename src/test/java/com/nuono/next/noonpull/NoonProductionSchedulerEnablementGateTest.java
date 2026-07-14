@@ -112,6 +112,18 @@ class NoonProductionSchedulerEnablementGateTest {
     }
 
     @Test
+    void shouldRejectSchedulingWhenSmokeRunDoesNotAllowProductionScheduling() {
+        smokeRunRepository.savedRuns.add(smokeRun(140108L, false, readyEvidence()));
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(command(), 10001L);
+
+        assertFalse(result.isEnabled());
+        assertEquals(140108L, result.getSmokeRunId());
+        assertTrue(result.getRejectionReasons().contains("SMOKE_RUN_GATE_NOT_READY"));
+        assertEquals(0, scheduledPlans().size());
+    }
+
+    @Test
     void shouldEnableFinanceTransactionDailyScheduleWhenFinanceSmokeEvidenceIsReadyAndApproved() {
         smokeRunRepository.savedRuns.add(smokeRun(
                 140104L,
@@ -231,11 +243,13 @@ class NoonProductionSchedulerEnablementGateTest {
 
     @Test
     void shouldRequireSmokeEvidenceOnlyForRequestedSchedulableDomains() {
-        smokeRunRepository.savedRuns.add(smokeRun(
+        NoonPullSmokeRunRecord run = smokeRun(
                 140102L,
                 false,
                 List.of(evidence("SALES", NoonPullTaskStatus.SUCCEEDED.name(), "ready", null))
-        ));
+        );
+        run.setMissingRequirements(List.of("PRODUCT_SMOKE", "ORDER_SMOKE"));
+        smokeRunRepository.savedRuns.add(run);
         NoonProductionSchedulerEnablementCommand salesOnly = command();
         salesOnly.setEnabledDomains(List.of(NoonPullDataDomain.SALES));
 
@@ -271,6 +285,33 @@ class NoonProductionSchedulerEnablementGateTest {
         assertEquals(existingSalesReport.getId(), salesReportPlans.get(0).getId());
         assertTrue(result.getPlanIds().contains(existingSalesReport.getId()));
         assertEquals(2, scheduledPlans().size());
+    }
+
+    @Test
+    void shouldResumeExistingPausedScheduleWhenEnablementIsApproved() {
+        smokeRunRepository.savedRuns.add(smokeRun(140109L, true, readyEvidence()));
+        NoonPullPlanRecord existingSalesReport = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("latest-day report after 08:00 Asia/Shanghai")
+                .build());
+        foundationService.pausePlan(existingSalesReport.getId(), "store site deleted");
+
+        NoonProductionSchedulerEnablementResult result = gate.enable(command(), 10001L);
+
+        assertTrue(result.isEnabled());
+        assertTrue(result.getPlanIds().contains(existingSalesReport.getId()));
+        NoonPullPlanRecord resumedPlan = foundationService.listPlans().stream()
+                .filter((plan) -> plan.getId().equals(existingSalesReport.getId()))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(resumedPlan.isEnabled());
+        assertFalse(resumedPlan.isPaused());
+        assertEquals(null, resumedPlan.getPauseReason());
     }
 
     @Test
