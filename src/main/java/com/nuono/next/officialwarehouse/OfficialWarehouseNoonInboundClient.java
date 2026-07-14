@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonHttpException;
+import com.nuono.next.noon.NoonOperationException;
+import com.nuono.next.noon.NoonResponseClassifier;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.noonlog.NoonHttpCallLogContext;
 import com.nuono.next.noonlog.NoonHttpCallLogContextHolder;
@@ -39,9 +42,14 @@ public class OfficialWarehouseNoonInboundClient {
     private static final String SCHEDULE_APPOINTMENT_URL = "https://fbn.noon.partners/_svc/inbound-scheduler/slot/fbn/v1/schedule";
 
     private final ObjectMapper objectMapper;
+    private final NoonResponseClassifier responseClassifier;
 
-    public OfficialWarehouseNoonInboundClient(ObjectMapper objectMapper) {
+    public OfficialWarehouseNoonInboundClient(
+            ObjectMapper objectMapper,
+            NoonResponseClassifier responseClassifier
+    ) {
         this.objectMapper = objectMapper;
+        this.responseClassifier = responseClassifier;
     }
 
     JsonNode createAsn(
@@ -365,10 +373,24 @@ public class OfficialWarehouseNoonInboundClient {
                 .businessRef(context.businessRef)
                 .requestSummaryJson(writeJson(body))
                 .build();
-        return NoonHttpCallLogContextHolder.with(
-                logContext,
-                () -> session.postWriteJson(url, body, true, noonHeaders(binding))
-        );
+        try {
+            return NoonHttpCallLogContextHolder.with(
+                    logContext,
+                    () -> isReadOperation(context.operation)
+                            ? session.postJson(url, body, true, noonHeaders(binding))
+                            : session.postWriteJson(url, body, true, noonHeaders(binding))
+            );
+        } catch (NoonHttpException exception) {
+            throw new NoonOperationException(responseClassifier.classify(context.operation, exception), exception);
+        }
+    }
+
+    private static boolean isReadOperation(String operation) {
+        return "QUERY_ASN_DETAIL".equals(operation)
+                || "QUERY_DAY_CAPACITY".equals(operation)
+                || "QUERY_SLOT_CAPACITY".equals(operation)
+                || "SYNC_ASN_LIST".equals(operation)
+                || "PARTNER_WAREHOUSE_LIST".equals(operation);
     }
 
     private Map<String, String> noonHeaders(NoonSalesReportBinding binding) {
