@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -187,24 +188,28 @@ public class OfficialWarehouseNoonInboundClient {
     NoonAppointmentClient appointmentClient(
             NoonSession session,
             NoonSalesReportBinding binding,
-            NoonCallContext context
+            NoonCallContext context,
+            Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
     ) {
-        return new RealNoonAppointmentClient(session, binding, context);
+        return new RealNoonAppointmentClient(session, binding, context, onWarehousesSet);
     }
 
     private class RealNoonAppointmentClient implements NoonAppointmentClient {
         private final NoonSession session;
         private final NoonSalesReportBinding binding;
         private final NoonCallContext context;
+        private final Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet;
 
         private RealNoonAppointmentClient(
                 NoonSession session,
                 NoonSalesReportBinding binding,
-                NoonCallContext context
+                NoonCallContext context,
+                Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
         ) {
             this.session = session;
             this.binding = binding;
             this.context = context;
+            this.onWarehousesSet = onWarehousesSet;
         }
 
         @Override
@@ -252,6 +257,13 @@ public class OfficialWarehouseNoonInboundClient {
             JsonNode response = postNoonJson(session, binding, context.withOperation("SET_WAREHOUSES"), SET_WAREHOUSES_URL, body);
             Integer status = intValue(response, "status");
             return "ok".equalsIgnoreCase(text(response, "data")) || status != null && status == 200;
+        }
+
+        @Override
+        public void onWarehousesSet(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            if (onWarehousesSet != null) {
+                onWarehousesSet.accept(task);
+            }
         }
 
         @Override

@@ -109,6 +109,33 @@ class OfficialWarehouseAppointmentRunnerTest {
     }
 
     @Test
+    void confirmsWarehouseProjectionOnlyAfterNoonAcceptsSetWarehouses() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "created";
+        client.recordWarehouseConfirmation = true;
+
+        runner.queryAvailability(task(""), client);
+
+        assertThat(client.calls).containsSubsequence(
+                "set-warehouses:JED01:ETWAREHOUSE",
+                "warehouse-confirmed:JED01"
+        );
+    }
+
+    @Test
+    void doesNotConfirmWarehouseProjectionWhenNoonRejectsSetWarehouses() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "created";
+        client.setWarehousesAccepted = false;
+        client.recordWarehouseConfirmation = true;
+
+        runner.queryAvailability(task(""), client);
+
+        assertThat(client.calls).contains("set-warehouses:JED01:ETWAREHOUSE");
+        assertThat(client.calls).doesNotContain("warehouse-confirmed:JED01");
+    }
+
+    @Test
     void selectedSlotUsesWarehouseFromReturnedByNoonAsnDetail() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "created";
@@ -188,6 +215,8 @@ class OfficialWarehouseAppointmentRunnerTest {
         private String asnStatus;
         private String asnWarehouseFrom;
         private String asnStatusAfterSchedule = "scheduled";
+        private boolean setWarehousesAccepted = true;
+        private boolean recordWarehouseConfirmation;
         private List<String> dayCapacity = List.of();
         private final List<DatedSlots> slotsByDate = new ArrayList<>();
         private final List<String> calls = new ArrayList<>();
@@ -217,10 +246,17 @@ class OfficialWarehouseAppointmentRunnerTest {
         @Override
         public boolean setWarehouses(AppointmentTask task) {
             calls.add("set-warehouses:" + task.warehouseTo + ":" + task.warehouseFrom);
-            if ("created".equals(asnStatus)) {
+            if (setWarehousesAccepted && "created".equals(asnStatus)) {
                 asnStatus = "sealed";
             }
-            return true;
+            return setWarehousesAccepted;
+        }
+
+        @Override
+        public void onWarehousesSet(AppointmentTask task) {
+            if (recordWarehouseConfirmation) {
+                calls.add("warehouse-confirmed:" + task.warehouseTo);
+            }
         }
 
         @Override
