@@ -144,7 +144,7 @@ class OfficialWarehouseSchemaTest {
     }
 
     @Test
-    void officialWarehouseShippingBatchProductCandidatesUseScheduledQuantityAsAppointmentConsumed() throws Exception {
+    void officialWarehouseShippingBatchProductCandidatesRemainReusableAfterScheduledAppointment() throws Exception {
         String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
         String sourceAllocationQuery = mapper.substring(
                 mapper.indexOf("\"SELECT NULL AS shippingBatchId,"),
@@ -152,11 +152,10 @@ class OfficialWarehouseSchemaTest {
         );
 
         assertThat(sourceAllocationQuery)
-                .contains("scheduledAppointmentQuantity")
-                .contains("official_warehouse_appointment scheduledAppointment")
-                .contains("scheduledAppointment.status = 'SCHEDULED'")
-                .contains("GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.scheduledAppointmentQuantity, 0), 0), 0) AS quantity")
-                .doesNotContain("GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.linkedQuantity, 0), 0), 0) AS quantity");
+                .contains("GREATEST(COALESCE(line.shipped_quantity, 0), 0) AS quantity")
+                .doesNotContain("linked.scheduledAppointmentQuantity")
+                .doesNotContain("official_warehouse_appointment scheduledAppointment")
+                .doesNotContain("- GREATEST(COALESCE(linked.linkedQuantity, 0), 0)");
     }
 
     @Test
