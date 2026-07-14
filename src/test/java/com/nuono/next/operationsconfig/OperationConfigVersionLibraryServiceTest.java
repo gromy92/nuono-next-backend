@@ -85,7 +85,7 @@ class OperationConfigVersionLibraryServiceTest {
         assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO, detail.getVersionNo());
         assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), detail.getConfigType());
         assertEquals("SYSTEM_DEFAULT", detail.getStatus());
-        assertEquals(9, detail.getItems().size());
+        assertEquals(11, detail.getItems().size());
         assertTrue(detail.getActions().stream().anyMatch(action ->
                 "COPY".equals(action.getAction()) && action.isEnabled()
         ));
@@ -113,7 +113,7 @@ class OperationConfigVersionLibraryServiceTest {
         assertEquals("默认补货计划参数 副本", draft.getDisplayName());
 
         OperationConfigVersionDetailView copiedDetail = service.getDetail(adminContext(), draft.getVersionNo());
-        assertEquals(9, copiedDetail.getItems().size());
+        assertEquals(11, copiedDetail.getItems().size());
         assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), copiedDetail.getConfigType());
         assertTrue(copiedDetail.getItems().stream().anyMatch(item ->
                 "海运运输天数".equals(item.getItemName()) && "70".equals(item.getDefaultValue())
@@ -140,6 +140,27 @@ class OperationConfigVersionLibraryServiceTest {
         ));
 
         assertTrue(exception.getMessage().contains("空运运输天数"));
+    }
+
+    @Test
+    void replenishmentDraftUpdateRejectsFreshnessBlockingThresholdAtOrBelowWarningThreshold() {
+        InMemoryOperationConfigTypedVersionRepository repository = new InMemoryOperationConfigTypedVersionRepository();
+        OperationConfigVersionLibraryService service = new OperationConfigVersionLibraryService(
+                new OperationConfigDefaultVersionCatalog(),
+                repository
+        );
+        OperationConfigVersionRowView draft = service.copyVersion(
+                adminContext(),
+                OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO
+        );
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> service.updateVersion(
+                adminContext(),
+                draft.getVersionNo(),
+                replenishmentRequestWithValue("预测陈旧提醒天数", "7")
+        ));
+
+        assertTrue(exception.getMessage().contains("预测陈旧阻断天数"));
     }
 
     @Test
@@ -977,7 +998,7 @@ class OperationConfigVersionLibraryServiceTest {
         assertEquals(OperationConfigDefaultVersionCatalog.DEFAULT_REPLENISHMENT_PLAN_VERSION_NO, current.getVersionNo());
         assertEquals(OperationConfigVersionType.REPLENISHMENT_PLAN.name(), current.getConfigType());
         assertEquals("SYSTEM_DEFAULT", current.getStatus());
-        assertEquals(9, current.getItems().size());
+        assertEquals(11, current.getItems().size());
     }
 
     @Test
@@ -1308,7 +1329,11 @@ class OperationConfigVersionLibraryServiceTest {
                 replenishmentItem("建议数量", "建议数量取整", "枚举",
                         replenishmentValue("建议数量取整", "ceil", overrideItemName, overrideValue)),
                 replenishmentItem("预测窗口", "预测窗口天数", "数值",
-                        replenishmentValue("预测窗口天数", "100", overrideItemName, overrideValue))
+                        replenishmentValue("预测窗口天数", "100", overrideItemName, overrideValue)),
+                replenishmentItem("预测新鲜度", "预测陈旧提醒天数", "数值",
+                        replenishmentValue("预测陈旧提醒天数", "2", overrideItemName, overrideValue)),
+                replenishmentItem("预测新鲜度", "预测陈旧阻断天数", "数值",
+                        replenishmentValue("预测陈旧阻断天数", "7", overrideItemName, overrideValue))
         );
     }
 

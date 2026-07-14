@@ -54,7 +54,7 @@ class DefaultReplenishmentPlanServiceTest {
                 repository,
                 configResolver,
                 new ReplenishmentPlanCalculator(),
-                Clock.fixed(Instant.parse("2026-07-07T00:00:00Z"), ZoneOffset.UTC)
+                Clock.fixed(Instant.parse("2026-07-06T00:00:00Z"), ZoneOffset.UTC)
         );
         when(configResolver.resolve(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(ReplenishmentPlanConfig.defaultBasicV1());
@@ -123,8 +123,13 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(new BigDecimal("7"), row.getMissingEtaInboundQty());
         assertEquals(1, row.getMissingEtaBatchCount());
         assertEquals("BATCH-NO-ETA", row.getMissingEtaBatches().get(0).getBatchReferenceNo());
-        assertEquals(new BigDecimal("150"), row.getSeaCalculatedUnits());
-        assertEquals(new BigDecimal("150"), row.getSeaSuggestedUnits());
+        assertEquals(BigDecimal.ZERO, row.getAirWindowForecastUnits());
+        assertEquals(BigDecimal.ZERO, row.getAirCalculatedUnits());
+        assertEquals(BigDecimal.ZERO, row.getAirSuggestedUnits());
+        assertEquals(BigDecimal.ZERO, row.getSeaCalculatedUnits());
+        assertEquals(BigDecimal.ZERO, row.getSeaSuggestedUnits());
+        assertTrue(row.isCalculationBlocked());
+        assertTrue(row.getWarnings().contains("daily_forecast_missing"));
         assertTrue(row.getWarnings().contains("missing_eta_inbound_excluded"));
         assertEquals(SOURCE_DATE, row.getLatestFactDate());
         assertEquals(67, row.getObservedDays());
@@ -160,7 +165,7 @@ class DefaultReplenishmentPlanServiceTest {
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
         assertEquals("empty", overview.getState());
-        assertEquals(LocalDate.of(2026, 7, 7), overview.getAnchorDate());
+        assertEquals(LocalDate.of(2026, 7, 6), overview.getAnchorDate());
         assertTrue(overview.getRows().isEmpty());
         verify(forecastRunRepository, never()).listResults(any());
         verify(forecastRunRepository, never()).saveRun(any());
@@ -287,12 +292,15 @@ class DefaultReplenishmentPlanServiceTest {
 
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertEquals(SOURCE_DATE, overview.getAnchorDate());
-        assertEquals(new BigDecimal("40"), row.getKnownInboundUnits());
-        assertEquals(LocalDate.of(2026, 7, 7), row.getNearestInboundEtaDate());
-        assertEquals(2, row.getInboundBatches().size());
+        assertEquals(new BigDecimal("30"), row.getKnownInboundUnits());
+        assertEquals(LocalDate.of(2026, 7, 10), row.getNearestInboundEtaDate());
+        assertEquals(3, row.getInboundBatches().size());
+        ReplenishmentPlanRecords.InboundBatch oldEta = inboundBatch(row, "BATCH-OLD-ETA");
+        assertTrue(oldEta.isEtaReviewRequired());
+        assertFalse(oldEta.isCoverageIncluded());
         ReplenishmentPlanRecords.InboundBatch recentEta = inboundBatch(row, "BATCH-RECENT-ETA");
         assertTrue(recentEta.isEtaReviewRequired());
-        assertTrue(recentEta.isCoverageIncluded());
+        assertFalse(recentEta.isCoverageIncluded());
         ReplenishmentPlanRecords.InboundBatch futureEta = inboundBatch(row, "BATCH-FUTURE-ETA");
         assertFalse(futureEta.isEtaReviewRequired());
         assertTrue(futureEta.isCoverageIncluded());
@@ -330,8 +338,10 @@ class DefaultReplenishmentPlanServiceTest {
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertEquals(SOURCE_DATE, overview.getAnchorDate());
         assertEquals(new BigDecimal("9"), row.getAirWindowForecastUnits());
-        assertEquals(new BigDecimal("9"), row.getAirCalculatedUnits());
-        assertEquals(new BigDecimal("10"), row.getAirSuggestedUnits());
+        assertTrue(row.isCalculationBlocked());
+        assertTrue(row.getWarnings().contains("daily_forecast_gap"));
+        assertEquals(new BigDecimal("0"), row.getAirCalculatedUnits());
+        assertEquals(new BigDecimal("0"), row.getAirSuggestedUnits());
         assertEquals(new BigDecimal("7"), row.getSeaWindowForecastUnits());
         assertEquals(new BigDecimal("0"), row.getSeaCalculatedUnits());
         assertEquals(new BigDecimal("0"), row.getSeaSuggestedUnits());
@@ -339,7 +349,7 @@ class DefaultReplenishmentPlanServiceTest {
     }
 
     @Test
-    void demandCurveUsesForecastUnits90DividedByNinetyForNonzeroSeaSuggestion() {
+    void missingDailyForecastDoesNotFallBackToNinetyDayAverage() {
         when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
         when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-DEMAND", "SKU-DEMAND", 180)));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
@@ -355,8 +365,11 @@ class DefaultReplenishmentPlanServiceTest {
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
-        assertEquals(new BigDecimal("30"), overview.getRows().get(0).getSeaCalculatedUnits());
-        assertEquals(new BigDecimal("30"), overview.getRows().get(0).getSeaSuggestedUnits());
+        ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
+        assertTrue(row.isCalculationBlocked());
+        assertTrue(row.getWarnings().contains("daily_forecast_missing"));
+        assertEquals(BigDecimal.ZERO, row.getSeaCalculatedUnits());
+        assertEquals(BigDecimal.ZERO, row.getSeaSuggestedUnits());
     }
 
     @Test
@@ -380,12 +393,28 @@ class DefaultReplenishmentPlanServiceTest {
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
-        assertEquals(new BigDecimal("58"), overview.getRows().get(0).getSeaCalculatedUnits());
+        assertEquals(new BigDecimal("60"), overview.getRows().get(0).getSeaCalculatedUnits());
         assertEquals(new BigDecimal("60"), overview.getRows().get(0).getSeaSuggestedUnits());
     }
 
     @Test
-    void demandCurveFallsBackToDetailFactorBreakdownWhenForecastUnits90IsMissing() {
+    void businessDateUsesAsiaShanghaiAcrossUtcBoundary() {
+        DefaultReplenishmentPlanService boundaryService = new DefaultReplenishmentPlanService(
+                forecastRunRepository,
+                repository,
+                configResolver,
+                new ReplenishmentPlanCalculator(),
+                Clock.fixed(Instant.parse("2026-07-06T16:30:00Z"), ZoneOffset.UTC)
+        );
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(null);
+
+        ReplenishmentPlanRecords.PlanOverviewView overview = boundaryService.getOverview(query());
+
+        assertEquals(LocalDate.of(2026, 7, 7), overview.getAnchorDate());
+    }
+
+    @Test
+    void missingDailyForecastDoesNotFallBackToFactorBreakdown() {
         when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
         when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithFactors(
                 "PSKU-DETAIL",
@@ -408,8 +437,11 @@ class DefaultReplenishmentPlanServiceTest {
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
-        assertEquals(new BigDecimal("45"), overview.getRows().get(0).getSeaCalculatedUnits());
-        assertEquals(new BigDecimal("50"), overview.getRows().get(0).getSeaSuggestedUnits());
+        ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
+        assertTrue(row.isCalculationBlocked());
+        assertTrue(row.getWarnings().contains("daily_forecast_missing"));
+        assertEquals(BigDecimal.ZERO, row.getSeaCalculatedUnits());
+        assertEquals(BigDecimal.ZERO, row.getSeaSuggestedUnits());
     }
 
     private static ReplenishmentPlanRecords.PlanQuery query() {

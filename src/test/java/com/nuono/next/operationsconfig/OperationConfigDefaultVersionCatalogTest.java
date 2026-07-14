@@ -125,6 +125,8 @@ class OperationConfigDefaultVersionCatalogTest {
         assertEquals("true", defaultValue(detail, "空运只应急"));
         assertEquals("ceil", defaultValue(detail, "建议数量取整"));
         assertEquals("100", defaultValue(detail, "预测窗口天数"));
+        assertEquals("2", defaultValue(detail, "预测陈旧提醒天数"));
+        assertEquals("7", defaultValue(detail, "预测陈旧阻断天数"));
     }
 
     private static String defaultValue(OperationConfigVersionDetailView detail, String itemName) {
