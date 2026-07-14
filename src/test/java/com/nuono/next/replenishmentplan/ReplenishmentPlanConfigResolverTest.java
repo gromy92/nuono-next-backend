@@ -58,7 +58,9 @@ class ReplenishmentPlanConfigResolverTest {
                         "库存来源", "fbn",
                         "在途必须有 ETA", "true",
                         "空运只应急", "true",
-                        "建议数量取整", "ceil"
+                        "建议数量取整", "ceil",
+                        "预测陈旧提醒天数", "3",
+                        "预测陈旧阻断天数", "9"
                 ),
                 LocalDateTime.of(2026, 7, 6, 10, 0)
         ));
@@ -76,6 +78,8 @@ class ReplenishmentPlanConfigResolverTest {
         assertEquals(true, config.isRequireInboundEtaDate());
         assertEquals(true, config.isAirEmergencyOnly());
         assertEquals("ceil", config.getRoundingMode());
+        assertEquals(3, config.getForecastStaleWarningDays());
+        assertEquals(9, config.getForecastStaleBlockingDays());
     }
 
     @Test
@@ -317,5 +321,7 @@ class ReplenishmentPlanConfigResolverTest {
         assertEquals(defaults.isRequireInboundEtaDate(), config.isRequireInboundEtaDate());
         assertEquals(defaults.isAirEmergencyOnly(), config.isAirEmergencyOnly());
         assertEquals(defaults.getRoundingMode(), config.getRoundingMode());
+        assertEquals(defaults.getForecastStaleWarningDays(), config.getForecastStaleWarningDays());
+        assertEquals(defaults.getForecastStaleBlockingDays(), config.getForecastStaleBlockingDays());
     }
 }

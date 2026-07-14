@@ -18,6 +18,9 @@ public interface ReplenishmentPlanMapper {
 
     String ACTIVE_BATCH_FILTER = "AND batch.batch_status NOT IN ('draft', 'warehouse_received', 'completed', 'cancelled') "
             + "AND (batch.latest_node_status IS NULL OR batch.latest_node_status NOT IN ('warehouse_received', 'cancelled')) "
+            + "AND NOT EXISTS (SELECT 1 FROM in_transit_logistics_node received "
+            + "WHERE received.owner_user_id = batch.owner_user_id AND received.batch_id = batch.id "
+            + "AND received.node_status IN ('warehouse_received', 'cancelled') AND received.is_deleted = b'0') "
             + "AND (batch.eta_date IS NOT NULL OR " + DEPARTURE_DATE_EXPRESSION + " IS NULL OR "
             + DEPARTURE_DATE_EXPRESSION + " >= DATE_SUB(CURDATE(), INTERVAL 7 MONTH))";
 

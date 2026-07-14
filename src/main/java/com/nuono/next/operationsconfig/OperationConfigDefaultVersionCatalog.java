@@ -231,7 +231,9 @@ public class OperationConfigDefaultVersionCatalog {
                 defaultItem("在途口径", "在途必须有 ETA", "随时", "布尔", "true", null, "无 ETA 在途不参与可用库存覆盖"),
                 defaultItem("空运策略", "空运只应急", "随时", "布尔", "true", null, "海运到货前断货才建议空运"),
                 defaultItem("建议数量", "建议数量取整", "随时", "枚举", "ceil", null, "建议数量向上取整"),
-                defaultItem("预测窗口", "预测窗口天数", "随时", "数值", "100", null, "基础版至少覆盖海运 70+30 天")
+                defaultItem("预测窗口", "预测窗口天数", "随时", "数值", "100", null, "基础版至少覆盖海运 70+30 天"),
+                defaultItem("预测新鲜度", "预测陈旧提醒天数", "随时", "数值", "2", null, "超过阈值提示预测事实偏旧"),
+                defaultItem("预测新鲜度", "预测陈旧阻断天数", "随时", "数值", "7", null, "超过阈值停止生成补货建议")
         );
     }
 

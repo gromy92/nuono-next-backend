@@ -7,7 +7,7 @@ import java.util.Locale;
 
 public final class ReplenishmentPlanConfig {
 
-    public static final String CALCULATION_VERSION = "REPLENISHMENT_PLAN_BASIC_V1";
+    public static final String CALCULATION_VERSION = "REPLENISHMENT_PLAN_BASIC_V1_1";
     public static final String DEFAULT_VERSION_NO = "DEFAULT_REPLENISHMENT_PLAN_BASIC_V1";
 
     private static final List<String> DEFAULT_INVENTORY_SOURCES = Collections.singletonList("FBN");
@@ -21,7 +21,9 @@ public final class ReplenishmentPlanConfig {
             DEFAULT_INVENTORY_SOURCES,
             true,
             true,
-            "ceil"
+            "ceil",
+            2,
+            7
     );
 
     private final String versionNo;
@@ -34,6 +36,8 @@ public final class ReplenishmentPlanConfig {
     private final boolean requireInboundEtaDate;
     private final boolean airEmergencyOnly;
     private final String roundingMode;
+    private final int forecastStaleWarningDays;
+    private final int forecastStaleBlockingDays;
 
     public ReplenishmentPlanConfig(
             String versionNo,
@@ -47,11 +51,46 @@ public final class ReplenishmentPlanConfig {
             boolean airEmergencyOnly,
             String roundingMode
     ) {
+        this(
+                versionNo,
+                airLeadDays,
+                airCoverDays,
+                seaLeadDays,
+                seaCoverDays,
+                forecastHorizonDays,
+                inventorySources,
+                requireInboundEtaDate,
+                airEmergencyOnly,
+                roundingMode,
+                2,
+                7
+        );
+    }
+
+    public ReplenishmentPlanConfig(
+            String versionNo,
+            int airLeadDays,
+            int airCoverDays,
+            int seaLeadDays,
+            int seaCoverDays,
+            int forecastHorizonDays,
+            List<String> inventorySources,
+            boolean requireInboundEtaDate,
+            boolean airEmergencyOnly,
+            String roundingMode,
+            int forecastStaleWarningDays,
+            int forecastStaleBlockingDays
+    ) {
         validatePositive("airLeadDays", airLeadDays);
         validatePositive("airCoverDays", airCoverDays);
         validatePositive("seaLeadDays", seaLeadDays);
         validatePositive("seaCoverDays", seaCoverDays);
         validatePositive("forecastHorizonDays", forecastHorizonDays);
+        validatePositive("forecastStaleWarningDays", forecastStaleWarningDays);
+        validatePositive("forecastStaleBlockingDays", forecastStaleBlockingDays);
+        if (forecastStaleBlockingDays <= forecastStaleWarningDays) {
+            throw new IllegalArgumentException("forecastStaleBlockingDays must be greater than forecastStaleWarningDays");
+        }
         if (!requireInboundEtaDate) {
             throw new IllegalArgumentException("requireInboundEtaDate must be true for basic V1");
         }
@@ -71,6 +110,8 @@ public final class ReplenishmentPlanConfig {
         this.requireInboundEtaDate = requireInboundEtaDate;
         this.airEmergencyOnly = airEmergencyOnly;
         this.roundingMode = resolvedRoundingMode;
+        this.forecastStaleWarningDays = forecastStaleWarningDays;
+        this.forecastStaleBlockingDays = forecastStaleBlockingDays;
     }
 
     public static ReplenishmentPlanConfig defaultBasicV1() {
@@ -115,6 +156,14 @@ public final class ReplenishmentPlanConfig {
 
     public String getRoundingMode() {
         return roundingMode;
+    }
+
+    public int getForecastStaleWarningDays() {
+        return forecastStaleWarningDays;
+    }
+
+    public int getForecastStaleBlockingDays() {
+        return forecastStaleBlockingDays;
     }
 
     private static void validatePositive(String fieldName, int value) {

@@ -33,7 +33,9 @@ public class OperationConfigVersionLibraryService {
             "空运覆盖天数",
             "海运运输天数",
             "海运覆盖天数",
-            "预测窗口天数"
+            "预测窗口天数",
+            "预测陈旧提醒天数",
+            "预测陈旧阻断天数"
     );
 
     private final OperationConfigDefaultVersionCatalog defaultVersionCatalog;
@@ -731,22 +733,41 @@ public class OperationConfigVersionLibraryService {
     }
 
     private void validateReplenishmentPlanItems(List<OperationConfigDefaultVersionItemView> items) {
-        Set<String> seenRequiredNames = new HashSet<>();
+        Set<String> seenItemNames = new HashSet<>();
         for (OperationConfigDefaultVersionItemView item : items) {
             String itemName = item.getItemName().trim();
-            if (!REPLENISHMENT_REQUIRED_ITEM_NAMES.contains(itemName)) {
+            boolean required = REPLENISHMENT_REQUIRED_ITEM_NAMES.contains(itemName);
+            boolean optionalValidated = REPLENISHMENT_POSITIVE_INTEGER_ITEM_NAMES.contains(itemName);
+            if (!required && !optionalValidated) {
                 continue;
             }
-            if (!seenRequiredNames.add(itemName)) {
+            if (!seenItemNames.add(itemName)) {
                 throw new IllegalArgumentException("补货计划参数配置项重复：" + itemName + "。");
             }
             validateReplenishmentPlanItemValue(itemName, item.getDefaultValue());
         }
         for (String requiredItemName : REPLENISHMENT_REQUIRED_ITEM_NAMES) {
-            if (!seenRequiredNames.contains(requiredItemName)) {
+            if (!seenItemNames.contains(requiredItemName)) {
                 throw new IllegalArgumentException("补货计划参数缺少必填配置项：" + requiredItemName + "。");
             }
         }
+        Integer warningDays = replenishmentIntegerValue(items, "预测陈旧提醒天数");
+        Integer blockingDays = replenishmentIntegerValue(items, "预测陈旧阻断天数");
+        if (warningDays != null && blockingDays != null && blockingDays <= warningDays) {
+            throw new IllegalArgumentException("补货计划参数「预测陈旧阻断天数」必须大于「预测陈旧提醒天数」。");
+        }
+    }
+
+    private Integer replenishmentIntegerValue(
+            List<OperationConfigDefaultVersionItemView> items,
+            String itemName
+    ) {
+        for (OperationConfigDefaultVersionItemView item : items) {
+            if (itemName.equals(item.getItemName())) {
+                return Integer.valueOf(item.getDefaultValue().trim());
+            }
+        }
+        return null;
     }
 
     private void validateReplenishmentPlanItemValue(String itemName, String value) {
