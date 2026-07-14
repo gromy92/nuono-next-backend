@@ -1231,6 +1231,12 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                                         "OFFICIAL_WAREHOUSE_APPOINTMENT_AVAILABILITY",
                                         asn.id,
                                         asn.noonAsnNr
+                                ),
+                                confirmedTask -> persistAsnCurrentWarehouse(
+                                        ownerUserId,
+                                        asnRecord.id,
+                                        confirmedTask,
+                                        access.getSessionUserId()
                                 )
                         )
                 )
@@ -1499,6 +1505,12 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                                     "OFFICIAL_WAREHOUSE_APPOINTMENT",
                                     String.valueOf(appointment.id),
                                     appointment.noonAsnNr
+                            ),
+                            confirmedTask -> persistAsnCurrentWarehouse(
+                                    appointment.ownerUserId,
+                                    appointment.asnId,
+                                    confirmedTask,
+                                    operatorId
                             )
                     )
             );
@@ -1617,6 +1629,12 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                                     "OFFICIAL_WAREHOUSE_APPOINTMENT",
                                     String.valueOf(appointment.id),
                                     appointment.noonAsnNr
+                            ),
+                            confirmedTask -> persistAsnCurrentWarehouse(
+                                    appointment.ownerUserId,
+                                    appointment.asnId,
+                                    confirmedTask,
+                                    operatorId
                             )
                     ),
                     appointmentDate,
@@ -1759,6 +1777,26 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
     }
 
+    private void persistAsnCurrentWarehouse(
+            Long ownerUserId,
+            Long asnId,
+            AppointmentTask task,
+            Long operatorUserId
+    ) {
+        if (ownerUserId == null || asnId == null || task == null || !StringUtils.hasText(task.warehouseTo)) {
+            return;
+        }
+        String warehouseToPartnerCode = task.warehouseTo.trim();
+        mapper.updateAsnCurrentWarehouse(
+                ownerUserId,
+                asnId,
+                warehouseToPartnerCode,
+                trimToNull(task.warehouseToCode),
+                warehouseToPartnerCode,
+                operatorUserId == null ? ownerUserId : operatorUserId
+        );
+    }
+
     private boolean shouldRetryAppointment(AppointmentRecord appointment, String failureType) {
         if (failureType != null && failureType.startsWith("NOON_ASN_")) {
             return false;
@@ -1888,6 +1926,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         task.noonAsnNr = appointment.noonAsnNr;
         task.totalUnits = appointment.totalUnits;
         task.warehouseTo = appointment.warehouseToPartnerCode;
+        task.warehouseToCode = appointment.warehouseToCode;
         task.warehouseFrom = appointment.warehouseFrom;
         task.apStartDate = appointment.apStartDateValue;
         task.apEndDate = appointment.apEndDateValue;
@@ -1904,6 +1943,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         task.warehouseTo = requireText(
                 resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
                 "请选择到达仓库。"
+        );
+        task.warehouseToCode = resolveAppointmentWarehouseToCode(
+                asn.selectedWarehouseCode,
+                command.warehouseToCode
         );
         task.warehouseFrom = resolveAppointmentWarehouseFrom(
                 command.warehouseFrom,

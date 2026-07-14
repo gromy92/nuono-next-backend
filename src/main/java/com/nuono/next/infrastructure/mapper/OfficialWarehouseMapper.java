@@ -612,6 +612,25 @@ public interface OfficialWarehouseMapper {
 
     @Update({
             "UPDATE official_warehouse_asn",
+            "SET selected_warehouse_partner_code = #{warehouseToPartnerCode},",
+            "    selected_warehouse_code = COALESCE(NULLIF(#{warehouseToCode}, ''), selected_warehouse_code),",
+            "    selected_warehouse_name = COALESCE(NULLIF(#{warehouseName}, ''), selected_warehouse_name),",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAsnCurrentWarehouse(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("asnId") Long asnId,
+            @Param("warehouseToPartnerCode") String warehouseToPartnerCode,
+            @Param("warehouseToCode") String warehouseToCode,
+            @Param("warehouseName") String warehouseName,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
             "SET status = 'LINES_CREATED', finished_at = NOW(), error_stage = NULL, failure_type = NULL, error_message = NULL,",
             "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{asnId}",

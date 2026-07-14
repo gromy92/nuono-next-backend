@@ -255,6 +255,25 @@ class OfficialWarehouseSchemaTest {
     }
 
     @Test
+    void successfulAppointmentWarehouseSelectionUpdatesAsnCurrentWarehouseProjection() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
+        String runner = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java"));
+
+        assertThat(runner)
+                .contains("client.onWarehousesSet(task);")
+                .contains("default void onWarehousesSet(AppointmentTask task)");
+        assertThat(mapper)
+                .contains("int updateAsnCurrentWarehouse(")
+                .contains("selected_warehouse_partner_code = #{warehouseToPartnerCode}")
+                .contains("AND owner_user_id = #{ownerUserId}");
+        assertThat(service)
+                .contains("persistAsnCurrentWarehouse(")
+                .contains("task.warehouseToCode = appointment.warehouseToCode")
+                .contains("task.warehouseToCode = resolveAppointmentWarehouseToCode(");
+    }
+
+    @Test
     void officialWarehouseHasOwnBusinessCapability() {
         assertThat(BusinessCapability.OFFICIAL_WAREHOUSE.getMenuPathPrefixes())
                 .contains("/warehouse/official-warehouse", "/api/warehouse/official-warehouse");
