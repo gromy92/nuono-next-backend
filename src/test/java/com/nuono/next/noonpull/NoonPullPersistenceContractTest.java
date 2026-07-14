@@ -116,8 +116,14 @@ class NoonPullPersistenceContractTest {
         assertTrue(sql.contains("npp.site_code"));
         assertTrue(sql.contains("npp.gmt_create AS created_at"));
         assertTrue(sql.contains("LEFT JOIN logical_store_site lss"));
-        assertTrue(sql.contains("UPPER(lss.store_code) = UPPER(npp.store_code)"));
-        assertTrue(sql.contains("UPPER(lss.site) = UPPER(npp.site_code)"));
+        assertTrue(sql.contains(
+                "UPPER(lss.store_code) COLLATE utf8mb4_unicode_ci "
+                        + "= UPPER(npp.store_code) COLLATE utf8mb4_unicode_ci"
+        ));
+        assertTrue(sql.contains(
+                "UPPER(lss.site) COLLATE utf8mb4_unicode_ci "
+                        + "= UPPER(npp.site_code) COLLATE utf8mb4_unicode_ci"
+        ));
         assertTrue(sql.contains("COALESCE(lss.site_enabled, b'1') = b'1'"));
         assertTrue(sql.contains("lss.id IS NOT NULL"));
     }
