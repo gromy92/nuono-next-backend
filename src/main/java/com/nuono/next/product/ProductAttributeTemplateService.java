@@ -260,38 +260,10 @@ public class ProductAttributeTemplateService {
                     owner != null ? owner.getNoonPartnerUser() : null,
                     owner != null ? owner.getNoonPartnerProjectUser() : null
             );
-            String noonEmailAuthCode = firstNonBlank(
-                    store != null ? store.getNoonPartnerMailAuthCode() : null,
-                    owner != null ? owner.getNoonPartnerMailAuthCode() : null
-            );
-            String noonPassword = firstNonBlank(
-                    store != null ? store.getNoonPartnerPwd() : null,
-                    owner != null ? owner.getNoonPartnerPwd() : null
-            );
-            String cookie = firstNonBlank(
-                    store != null ? store.getNoonPartnerCookie() : null,
-                    owner != null ? owner.getNoonPartnerCookie() : null
-            );
-            NoonSession session = StringUtils.hasText(noonEmailAuthCode)
-                    ? productNoonAdapter.loginWithEmailAuthCode(
+            String cookie = store != null ? store.getNoonPartnerCookie() : null;
+            NoonSession session = productNoonAdapter.loginWithPersistedCookie(
                     candidate.getOwnerUserId(),
                     noonUser,
-                    noonEmailAuthCode,
-                    cookie,
-                    candidate.getProjectCode(),
-                    candidate.getStoreCode()
-            )
-                    : productNoonAdapter.hasConfiguredMerchantEmailLogin()
-                    ? productNoonAdapter.loginWithConfiguredEmailAuthCode(
-                    candidate.getOwnerUserId(),
-                    cookie,
-                    candidate.getProjectCode(),
-                    candidate.getStoreCode()
-            )
-                    : productNoonAdapter.login(
-                    candidate.getOwnerUserId(),
-                    noonUser,
-                    noonPassword,
                     cookie,
                     candidate.getProjectCode(),
                     candidate.getStoreCode()

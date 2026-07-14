@@ -8,7 +8,6 @@ import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 @Profile("local-db")
@@ -22,26 +21,9 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
 
     @Override
     public NoonPullGatewaySession login(NoonPullStoreBinding binding) {
-        NoonSession session = StringUtils.hasText(binding.getNoonEmailAuthCode())
-                ? noonSessionGateway.loginWithEmailAuthCode(
+        NoonSession session = noonSessionGateway.loginWithPersistedCookie(
                 binding.getOwnerUserId(),
                 binding.getNoonUser(),
-                binding.getNoonEmailAuthCode(),
-                binding.getPersistedCookie(),
-                binding.getProjectCode(),
-                binding.getStoreCode()
-        )
-                : noonSessionGateway.hasConfiguredMerchantEmailLogin()
-                ? noonSessionGateway.loginWithConfiguredEmailAuthCode(
-                binding.getOwnerUserId(),
-                binding.getPersistedCookie(),
-                binding.getProjectCode(),
-                binding.getStoreCode()
-        )
-                : noonSessionGateway.login(
-                binding.getOwnerUserId(),
-                binding.getNoonUser(),
-                binding.getNoonPassword(),
                 binding.getPersistedCookie(),
                 binding.getProjectCode(),
                 binding.getStoreCode()

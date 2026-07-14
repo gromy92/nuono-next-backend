@@ -166,6 +166,110 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldUseValidPersistedCookieWithoutEmailOtp() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer()) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setEmailOtpReader((email, mailAuthCode) -> {
+                throw new AssertionError("cookie-only session must not read email OTP");
+            });
+
+            NoonSessionGateway.NoonSession session = gateway.loginWithPersistedCookie(
+                    308L,
+                    "merchant@example.com",
+                    "sid=valid",
+                    "PRJ313934",
+                    "STR313934-NAE"
+            );
+
+            assertEquals("PRJ313934", session.getProjectCode());
+            assertEquals(0, server.generateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
+    void shouldRejectInvalidPersistedCookieWithoutEmailOtp() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(true)) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setEmailOtpReader((email, mailAuthCode) -> {
+                throw new AssertionError("cookie-only session must not read email OTP");
+            });
+
+            NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
+                    NoonSessionGateway.NoonCookieAuthRequiredException.class,
+                    () -> gateway.loginWithPersistedCookie(
+                            308L,
+                            "merchant@example.com",
+                            "sid=expired",
+                            "PRJ313934",
+                            "STR313934-NAE"
+                    )
+            );
+
+            assertTrue(exception.getMessage().contains("auth_required"));
+            assertTrue(exception.getMessage().contains("PRJ313934"));
+            assertEquals(0, server.generateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
+    void shouldPreserveRateLimitClassificationWhenCookieValidationIsThrottled() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(429)) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setEmailOtpReader((email, mailAuthCode) -> {
+                throw new AssertionError("cookie-only session must not read email OTP");
+            });
+
+            IllegalStateException exception = assertThrows(
+                    IllegalStateException.class,
+                    () -> gateway.loginWithPersistedCookie(
+                            308L,
+                            "merchant@example.com",
+                            "sid=expired",
+                            "PRJ313934",
+                            "STR313934-NAE"
+                    )
+            );
+
+            assertTrue(exception.getMessage().contains("429"));
+            assertFalse(exception.getMessage().contains("auth_required"));
+            assertEquals(0, server.generateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
+    void shouldNotRefreshEmailOtpWhenCookieOnlySessionExpiresDuringRequest() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer()) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setEmailOtpReader((email, mailAuthCode) -> {
+                throw new AssertionError("cookie-only session must not read email OTP");
+            });
+            NoonSessionGateway.NoonSession session = gateway.loginWithPersistedCookie(
+                    308L,
+                    "merchant@example.com",
+                    "sid=old",
+                    "PRJ313934",
+                    "STR313934-NAE"
+            );
+
+            NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
+                    NoonSessionGateway.NoonCookieAuthRequiredException.class,
+                    () -> session.getJson(server.url("/protected"), false)
+            );
+
+            assertTrue(exception.getMessage().contains("auth_required"));
+            assertEquals(0, server.generateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
     void shouldPersistCookieWhenRefreshingExpiredRuntimeSession() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         try (AuthRefreshServer server = new AuthRefreshServer()) {
@@ -497,25 +601,48 @@ class NoonSessionGatewayTest {
         private final String generateBody;
         private final AtomicInteger sessionCreateCount = new AtomicInteger();
         private final AtomicInteger generateCount = new AtomicInteger();
+        private final int whoamiStatus;
         private volatile JsonNode lastValidateBody;
 
         private AuthRefreshServer() throws IOException {
-            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/");
+            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", 200);
+        }
+
+        private AuthRefreshServer(boolean rejectWhoami) throws IOException {
+            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", rejectWhoami ? 403 : 200);
+        }
+
+        private AuthRefreshServer(int whoamiStatus) throws IOException {
+            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", whoamiStatus);
         }
 
         private AuthRefreshServer(String projectsBody, String sessionCookie) throws IOException {
-            this(projectsBody, sessionCookie, "{\"emailotp\":\"ok\"}");
+            this(projectsBody, sessionCookie, "{\"emailotp\":\"ok\"}", 200);
         }
 
         private AuthRefreshServer(String projectsBody, String sessionCookie, String generateBody) throws IOException {
+            this(projectsBody, sessionCookie, generateBody, 200);
+        }
+
+        private AuthRefreshServer(
+                String projectsBody,
+                String sessionCookie,
+                String generateBody,
+                int whoamiStatus
+        ) throws IOException {
             this.projectsBody = projectsBody;
             this.sessionCookie = sessionCookie;
             this.generateBody = generateBody;
+            this.whoamiStatus = whoamiStatus;
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
             server.createContext("/", (exchange) -> {
                 String path = exchange.getRequestURI().getPath();
                 if ("/whoami".equals(path)) {
-                    sendJson(exchange, 200, "{\"ok\":true}", null);
+                    if (this.whoamiStatus != 200) {
+                        sendJson(exchange, this.whoamiStatus, "{\"message\":\"whoami rejected\"}", null);
+                    } else {
+                        sendJson(exchange, 200, "{\"ok\":true}", null);
+                    }
                     return;
                 }
                 if ("/protected".equals(path)) {

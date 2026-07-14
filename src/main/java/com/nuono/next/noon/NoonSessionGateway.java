@@ -209,6 +209,41 @@ public class NoonSessionGateway {
         return new NoonSession(ownerUserId, normalizedUser, noonPassword, state, normalize(projectCode), normalize(storeCode));
     }
 
+    public NoonSession loginWithPersistedCookie(
+            Long ownerUserId,
+            String noonUser,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        String normalizedProjectCode = normalize(projectCode);
+        if (!StringUtils.hasText(normalizedProjectCode)) {
+            throw cookieAuthRequired(normalizedProjectCode, normalize(storeCode), "missing_project");
+        }
+        String normalizedCookie = normalizeCookie(persistedCookie);
+        if (!StringUtils.hasText(normalizedCookie)) {
+            throw cookieAuthRequired(normalizedProjectCode, normalize(storeCode), "missing_cookie");
+        }
+        String normalizedUser = normalizeUser(noonUser);
+        AuthSessionState state = getOrCreateCookieOnlyState(
+                ownerUserId,
+                normalizedUser,
+                normalizedCookie,
+                normalizedProjectCode,
+                normalize(storeCode),
+                false
+        );
+        return new NoonSession(
+                ownerUserId,
+                normalizedUser,
+                cookieFingerprint(normalizedCookie),
+                state,
+                normalizedProjectCode,
+                normalize(storeCode),
+                SessionRefreshMode.COOKIE_ONLY
+        );
+    }
+
     public NoonSession loginWithEmailAuthCode(
             Long ownerUserId,
             String noonEmail,
@@ -544,6 +579,76 @@ public class NoonSessionGateway {
             );
             sessionCache.put(cacheKey, created);
             return created;
+        }
+    }
+
+    private AuthSessionState getOrCreateCookieOnlyState(
+            Long ownerUserId,
+            String noonUser,
+            String persistedCookie,
+            String projectCode,
+            String storeCode,
+            boolean forceRefresh
+    ) {
+        String cacheKey = "cookie:" + ownerUserId + ":" + normalize(projectCode);
+        String cookieFingerprint = cookieFingerprint(persistedCookie);
+        synchronized (accountLocks.computeIfAbsent(cacheKey, key -> new Object())) {
+            AuthSessionState existing = sessionCache.get(cacheKey);
+            if (!forceRefresh
+                    && existing != null
+                    && !existing.isExpired()
+                    && existing.matchesPassword(cookieFingerprint)) {
+                return existing;
+            }
+
+            AuthSessionState created = createCookieOnlyState(
+                    noonUser,
+                    cookieFingerprint,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+            sessionCache.put(cacheKey, created);
+            return created;
+        }
+    }
+
+    private AuthSessionState createCookieOnlyState(
+            String noonUser,
+            String cookieFingerprint,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        if (!StringUtils.hasText(persistedCookie)) {
+            throw cookieAuthRequired(projectCode, storeCode, "missing_cookie");
+        }
+        try {
+            CookieManager cookieManager = new CookieManager();
+            cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
+            HttpClient httpClient = newHttpClient(cookieManager);
+            AuthSessionState state = new AuthSessionState(
+                    objectMapper,
+                    firstNonBlank(noonUser, "cookie-only"),
+                    cookieFingerprint,
+                    httpClient,
+                    cookieManager,
+                    accountMinRequestIntervalMillis,
+                    requestUserAgent,
+                    acceptLanguage,
+                    localeHeader,
+                    langHeader,
+                    this::recordRequest,
+                    this::recordHttpCall
+            );
+            state.importCookieHeader(persistedCookie);
+            state.applyContextCookies(projectCode, storeCode);
+            state.getJson(projectCode, storeCode, whoamiUrl, false, null);
+            return state;
+        } catch (SessionExpiredException exception) {
+            throw cookieAuthRequired(projectCode, storeCode, safeCookieFailureReason(exception), exception);
+        } catch (RuntimeException exception) {
+            throw exception;
         }
     }
 
@@ -884,6 +989,51 @@ public class NoonSessionGateway {
         }
     }
 
+    private static String cookieFingerprint(String cookie) {
+        if (!StringUtils.hasText(cookie)) {
+            return "missing";
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    digest.digest(cookie.getBytes(StandardCharsets.UTF_8))
+            );
+        } catch (Exception exception) {
+            throw new IllegalStateException("无法计算 Noon Cookie 指纹。", exception);
+        }
+    }
+
+    private static String safeCookieFailureReason(Throwable throwable) {
+        if (throwable == null || !StringUtils.hasText(throwable.getMessage())) {
+            return "cookie_rejected";
+        }
+        String normalized = throwable.getMessage().replace('\r', ' ').replace('\n', ' ').trim();
+        return normalized.length() <= 180 ? normalized : normalized.substring(0, 180);
+    }
+
+    private static NoonCookieAuthRequiredException cookieAuthRequired(
+            String projectCode,
+            String storeCode,
+            String reason
+    ) {
+        return cookieAuthRequired(projectCode, storeCode, reason, null);
+    }
+
+    private static NoonCookieAuthRequiredException cookieAuthRequired(
+            String projectCode,
+            String storeCode,
+            String reason,
+            Throwable cause
+    ) {
+        String message = "auth_required: Noon Cookie 无效或已过期，请人工重新授权"
+                + "; project=" + firstNonBlank(normalize(projectCode), "unknown")
+                + "; store=" + firstNonBlank(normalize(storeCode), "unknown")
+                + "; reason=" + firstNonBlank(reason, "cookie_rejected");
+        return cause == null
+                ? new NoonCookieAuthRequiredException(message)
+                : new NoonCookieAuthRequiredException(message, cause);
+    }
+
     private PartnerIdentityUser lookupPartnerIdentityUser(AuthSessionState state, String noonUser) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("channelIdentifier", noonUser);
@@ -1198,6 +1348,19 @@ public class NoonSessionGateway {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = normalize(value);
+            if (StringUtils.hasText(normalized)) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
     private static String defaultIfBlank(String value, String defaultValue) {
         String normalized = normalize(value);
         return StringUtils.hasText(normalized) ? normalized : defaultValue;
@@ -1340,7 +1503,7 @@ public class NoonSessionGateway {
         private volatile AuthSessionState state;
         private final String projectCode;
         private final String storeCode;
-        private final boolean emailOtpSession;
+        private final SessionRefreshMode refreshMode;
 
         private NoonSession(
                 Long ownerUserId,
@@ -1350,7 +1513,7 @@ public class NoonSessionGateway {
                 String projectCode,
                 String storeCode
         ) {
-            this(ownerUserId, noonUser, noonPassword, state, projectCode, storeCode, false);
+            this(ownerUserId, noonUser, noonPassword, state, projectCode, storeCode, SessionRefreshMode.PASSWORD);
         }
 
         private NoonSession(
@@ -1362,13 +1525,33 @@ public class NoonSessionGateway {
                 String storeCode,
                 boolean emailOtpSession
         ) {
+            this(
+                    ownerUserId,
+                    noonUser,
+                    noonPassword,
+                    state,
+                    projectCode,
+                    storeCode,
+                    emailOtpSession ? SessionRefreshMode.EMAIL_OTP : SessionRefreshMode.PASSWORD
+            );
+        }
+
+        private NoonSession(
+                Long ownerUserId,
+                String noonUser,
+                String noonPassword,
+                AuthSessionState state,
+                String projectCode,
+                String storeCode,
+                SessionRefreshMode refreshMode
+        ) {
             this.ownerUserId = ownerUserId;
             this.noonUser = noonUser;
             this.noonPassword = noonPassword;
             this.state = state;
             this.projectCode = projectCode;
             this.storeCode = storeCode;
-            this.emailOtpSession = emailOtpSession;
+            this.refreshMode = refreshMode;
         }
 
         public NoonSession withProjectCode(String nextProjectCode) {
@@ -1379,7 +1562,7 @@ public class NoonSessionGateway {
                     state,
                     normalize(nextProjectCode),
                     storeCode,
-                    emailOtpSession
+                    refreshMode
             );
         }
 
@@ -1391,7 +1574,7 @@ public class NoonSessionGateway {
                     state,
                     projectCode,
                     normalize(nextStoreCode),
-                    emailOtpSession
+                    refreshMode
             );
         }
 
@@ -1480,6 +1663,9 @@ public class NoonSessionGateway {
                 try {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
+                    if (refreshMode == SessionRefreshMode.COOKIE_ONLY) {
+                        throw cookieAuthRequired(projectCode, storeCode, safeCookieFailureReason(exception), exception);
+                    }
                     if (authRefreshed) {
                         throw exception.toHttpException();
                     }
@@ -1518,6 +1704,9 @@ public class NoonSessionGateway {
                 try {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
+                    if (refreshMode == SessionRefreshMode.COOKIE_ONLY) {
+                        throw cookieAuthRequired(projectCode, storeCode, safeCookieFailureReason(exception), exception);
+                    }
                     if (authRefreshed) {
                         throw exception.toHttpException();
                     }
@@ -1541,6 +1730,9 @@ public class NoonSessionGateway {
                 try {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
+                    if (refreshMode == SessionRefreshMode.COOKIE_ONLY) {
+                        throw cookieAuthRequired(projectCode, storeCode, safeCookieFailureReason(exception), exception);
+                    }
                     if (authRefreshed) {
                         throw exception.toHttpException();
                     }
@@ -1558,7 +1750,17 @@ public class NoonSessionGateway {
         }
 
         private AuthSessionState refreshAuthenticatedState(String persistedCookie, boolean forceRefresh) {
-            if (emailOtpSession) {
+            if (refreshMode == SessionRefreshMode.COOKIE_ONLY) {
+                return getOrCreateCookieOnlyState(
+                        ownerUserId,
+                        noonUser,
+                        persistedCookie,
+                        projectCode,
+                        storeCode,
+                        forceRefresh
+                );
+            }
+            if (refreshMode == SessionRefreshMode.EMAIL_OTP) {
                 return getOrCreateEmailOtpState(
                         ownerUserId,
                         noonUser,
@@ -1579,6 +1781,12 @@ public class NoonSessionGateway {
                     forceRefresh
             );
         }
+    }
+
+    private enum SessionRefreshMode {
+        PASSWORD,
+        EMAIL_OTP,
+        COOKIE_ONLY
     }
 
     private boolean shouldRefreshAfterTransientTransportFailure(IllegalStateException exception) {
@@ -2545,6 +2753,16 @@ public class NoonSessionGateway {
 
         private NoonHttpException toHttpException() {
             return new NoonHttpException(statusCode, responseBody, requestPath);
+        }
+    }
+
+    public static final class NoonCookieAuthRequiredException extends IllegalStateException {
+        private NoonCookieAuthRequiredException(String message) {
+            super(message);
+        }
+
+        private NoonCookieAuthRequiredException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
