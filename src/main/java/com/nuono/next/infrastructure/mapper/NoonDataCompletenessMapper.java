@@ -32,6 +32,7 @@ public interface NoonDataCompletenessMapper extends NoonDataCompletenessAuditSco
             "  AND lss.store_code <> ''",
             "  AND lss.site IS NOT NULL",
             "  AND lss.site <> ''",
+            "  AND COALESCE(lss.site_enabled, b'1') = b'1'",
             "ORDER BY ls.owner_user_id ASC, lss.store_code ASC, lss.site ASC"
     })
     @Override

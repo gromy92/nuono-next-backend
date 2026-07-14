@@ -87,6 +87,42 @@ class NoonPullPersistenceContractTest {
     }
 
     @Test
+    void selectPlanShouldUseConsistentPlanAlias() {
+        Method method = Arrays.stream(NoonPullMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectPlan".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("npp.id"));
+        assertTrue(sql.contains("FROM noon_pull_plan npp"));
+        assertTrue(sql.contains("WHERE npp.id = #{planId}"));
+        assertTrue(sql.contains("npp.is_deleted = b'0'"));
+    }
+
+    @Test
+    void listPlansShouldSkipDisabledStoreSitesForScheduledPullBoundary() {
+        Method method = Arrays.stream(NoonPullMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "listPlans".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("FROM noon_pull_plan npp"));
+        assertTrue(sql.contains("npp.id"));
+        assertTrue(sql.contains("npp.store_code"));
+        assertTrue(sql.contains("npp.site_code"));
+        assertTrue(sql.contains("npp.gmt_create AS created_at"));
+        assertTrue(sql.contains("LEFT JOIN logical_store_site lss"));
+        assertTrue(sql.contains("UPPER(lss.store_code) = UPPER(npp.store_code)"));
+        assertTrue(sql.contains("UPPER(lss.site) = UPPER(npp.site_code)"));
+        assertTrue(sql.contains("COALESCE(lss.site_enabled, b'1') = b'1'"));
+        assertTrue(sql.contains("lss.id IS NOT NULL"));
+    }
+
+    @Test
     void updatePlanAndTaskShouldPersistLifecycleAndRetryFields() {
         Method updatePlan = Arrays.stream(NoonPullMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "updatePlan".equals(candidate.getName()))

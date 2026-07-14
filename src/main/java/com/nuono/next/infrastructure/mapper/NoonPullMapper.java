@@ -45,14 +45,14 @@ public interface NoonPullMapper {
 
     @Select({
             "SELECT",
-            "  id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  schedule_expression, enabled, paused, pause_reason, latest_success_at, latest_failure_at,",
-            "  latest_failure_type, next_retry_at, max_pages_per_run, max_products_per_run,",
-            "  max_detail_fetches_per_run, max_requests_per_run, cooldown_seconds, concurrency_limit,",
-            "  gmt_create AS created_at, gmt_updated AS updated_at",
-            "FROM noon_pull_plan",
-            "WHERE id = #{planId}",
-            "  AND is_deleted = b'0'",
+            "  npp.id, npp.owner_user_id, npp.store_code, npp.site_code, npp.pull_type, npp.data_domain, npp.trigger_mode,",
+            "  npp.schedule_expression, npp.enabled, npp.paused, npp.pause_reason, npp.latest_success_at, npp.latest_failure_at,",
+            "  npp.latest_failure_type, npp.next_retry_at, npp.max_pages_per_run, npp.max_products_per_run,",
+            "  npp.max_detail_fetches_per_run, npp.max_requests_per_run, npp.cooldown_seconds, npp.concurrency_limit,",
+            "  npp.gmt_create AS created_at, npp.gmt_updated AS updated_at",
+            "FROM noon_pull_plan npp",
+            "WHERE npp.id = #{planId}",
+            "  AND npp.is_deleted = b'0'",
             "LIMIT 1"
     })
     NoonPullPlanRecord selectPlan(@Param("planId") Long planId);
@@ -196,14 +196,23 @@ public interface NoonPullMapper {
 
     @Select({
             "SELECT",
-            "  id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  schedule_expression, enabled, paused, pause_reason, latest_success_at, latest_failure_at,",
-            "  latest_failure_type, next_retry_at, max_pages_per_run, max_products_per_run,",
-            "  max_detail_fetches_per_run, max_requests_per_run, cooldown_seconds, concurrency_limit,",
-            "  gmt_create AS created_at, gmt_updated AS updated_at",
-            "FROM noon_pull_plan",
-            "WHERE is_deleted = b'0'",
-            "ORDER BY owner_user_id ASC, store_code ASC, site_code ASC, data_domain ASC, id ASC"
+            "  npp.id, npp.owner_user_id, npp.store_code, npp.site_code, npp.pull_type, npp.data_domain, npp.trigger_mode,",
+            "  npp.schedule_expression, npp.enabled, npp.paused, npp.pause_reason, npp.latest_success_at, npp.latest_failure_at,",
+            "  npp.latest_failure_type, npp.next_retry_at, npp.max_pages_per_run, npp.max_products_per_run,",
+            "  npp.max_detail_fetches_per_run, npp.max_requests_per_run, npp.cooldown_seconds, npp.concurrency_limit,",
+            "  npp.gmt_create AS created_at, npp.gmt_updated AS updated_at",
+            "FROM noon_pull_plan npp",
+            "LEFT JOIN logical_store_site lss",
+            "  ON UPPER(lss.store_code) = UPPER(npp.store_code)",
+            " AND UPPER(lss.site) = UPPER(npp.site_code)",
+            " AND lss.is_deleted = b'0'",
+            "WHERE npp.is_deleted = b'0'",
+            "  AND (",
+            "    NULLIF(TRIM(npp.store_code), '') IS NULL",
+            "    OR NULLIF(TRIM(npp.site_code), '') IS NULL",
+            "    OR (lss.id IS NOT NULL AND COALESCE(lss.site_enabled, b'1') = b'1')",
+            "  )",
+            "ORDER BY npp.owner_user_id ASC, npp.store_code ASC, npp.site_code ASC, npp.data_domain ASC, npp.id ASC"
     })
     List<NoonPullPlanRecord> listPlans();
 

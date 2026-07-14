@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS `logical_store_site` (
     `site` VARCHAR(20) NOT NULL,
     `is_reference_site` BIT(1) DEFAULT b'0',
     `is_mounted` BIT(1) DEFAULT b'1',
+    `site_enabled` BIT(1) NOT NULL DEFAULT b'1',
     `site_status` VARCHAR(30) DEFAULT NULL,
     `is_deleted` BIT(1) DEFAULT b'0',
     `created_by` BIGINT DEFAULT NULL,
@@ -39,7 +40,8 @@ CREATE TABLE IF NOT EXISTS `logical_store_site` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_logical_store_site_store_code` (`store_code`),
     UNIQUE KEY `uk_logical_store_site_logical_site` (`logical_store_id`, `site`),
-    KEY `idx_logical_store_site_logical_store_id` (`logical_store_id`)
+    KEY `idx_logical_store_site_logical_store_id` (`logical_store_id`),
+    KEY `idx_logical_store_site_enabled` (`logical_store_id`, `site_enabled`, `site`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `product_master` (
@@ -124,6 +126,7 @@ CREATE TABLE IF NOT EXISTS `product_site_offer` (
     `id_warranty` INT DEFAULT NULL,
     `offer_note` VARCHAR(500) DEFAULT NULL,
     `is_active` BIT(1) DEFAULT NULL,
+    `maintenance_enabled` BIT(1) NOT NULL DEFAULT b'1',
     `live_status` VARCHAR(50) DEFAULT NULL,
     `status_code` VARCHAR(50) DEFAULT NULL,
     `fbn_stock` INT DEFAULT NULL,

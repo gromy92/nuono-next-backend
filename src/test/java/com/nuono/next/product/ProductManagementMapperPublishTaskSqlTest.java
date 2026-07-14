@@ -229,6 +229,58 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
+    void productListProjectionShouldExposeReadOnlyMaintenanceBoundaryAndFilterDisabledSites() {
+        for (String methodName : Arrays.asList(
+                "selectProductListProjection",
+                "selectProductListProjectionByProductMasterId",
+                "selectProductGroupCandidates"
+        )) {
+            Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                    .filter((candidate) -> methodName.equals(candidate.getName()))
+                    .findFirst()
+                    .orElseThrow();
+            Select select = method.getAnnotation(Select.class);
+            String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+            assertTrue(sql.contains("currentSiteMaintenanceEnabledFlag"), methodName);
+            assertTrue(sql.contains("COALESCE(pso.maintenance_enabled, b'1') = b'1'"), methodName);
+            assertTrue(sql.contains("COALESCE(anchor.site_enabled, b'1') = b'1'"), methodName);
+            assertTrue(sql.contains("pso.id IS NULL OR COALESCE(lss.site_enabled, b'1') = b'1'"), methodName);
+        }
+    }
+
+    @Test
+    void productSiteOfferProjectionRowsShouldExposeMaintenanceBoundaryAndFilterDisabledSites() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectProductSiteOfferProjectionRows".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("maintenanceEnabledFlag"));
+        assertTrue(sql.contains("COALESCE(pso.maintenance_enabled, b'1') = b'1'"));
+        assertTrue(sql.contains("COALESCE(lss.site_enabled, b'1') = b'1'"));
+    }
+
+    @Test
+    void productMaintenanceBoundaryMigrationShouldBeAdditiveAndDefaultEnabled() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/183_product_maintenance_boundary.sql"))
+                .replaceAll("\\s+", " ");
+        String baseSchema = Files.readString(Path.of("src/main/resources/db/init/003_product_management_v1.sql"))
+                .replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("ALTER TABLE `logical_store_site` ADD COLUMN `site_enabled` BIT(1) NOT NULL DEFAULT b''1''"));
+        assertTrue(sql.contains("ALTER TABLE `product_site_offer` ADD COLUMN `maintenance_enabled` BIT(1) NOT NULL DEFAULT b''1''"));
+        assertTrue(sql.contains("idx_logical_store_site_enabled"));
+        assertTrue(sql.contains("idx_product_site_offer_maintenance"));
+        assertTrue(!sql.toLowerCase().contains("drop table"));
+        assertTrue(!sql.toLowerCase().contains("drop column"));
+        assertTrue(baseSchema.contains("`site_enabled` BIT(1) NOT NULL DEFAULT b'1'"));
+        assertTrue(baseSchema.contains("`maintenance_enabled` BIT(1) NOT NULL DEFAULT b'1'"));
+    }
+
+    @Test
     void listingStartedSalesFactRefreshShouldRevisitMissingOrNotListedOffers() {
         Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "refreshProductSiteOfferListingStartedAtBySalesFact".equals(candidate.getName()))

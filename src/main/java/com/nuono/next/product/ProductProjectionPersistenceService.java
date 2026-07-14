@@ -1119,6 +1119,10 @@ public class ProductProjectionPersistenceService {
         if (activeFlag != null) {
             target.put("isActive", activeFlag > 0);
         }
+        Integer maintenanceEnabledFlag = asInteger(row.get("maintenanceEnabledFlag"));
+        if (maintenanceEnabledFlag != null) {
+            target.put("maintenanceEnabled", maintenanceEnabledFlag > 0);
+        }
         putIfNotBlank(target, "liveStatus", text(row.get("liveStatus")));
         putIfNotBlank(target, "statusCode", text(row.get("statusCode")));
         putIfNotBlank(target, "listingStartedAt", text(row.get("listingStartedAt")));
@@ -1888,6 +1892,8 @@ public class ProductProjectionPersistenceService {
         view.setIssueCount(record.getIssueCount());
         view.setIssueTags(new ArrayList<>(record.issueTags()));
         view.setIsActive(record.getCurrentSiteActiveFlag() == null ? null : record.getCurrentSiteActiveFlag() > 0);
+        view.setMaintenanceEnabled(record.getCurrentSiteMaintenanceEnabledFlag() == null
+                || record.getCurrentSiteMaintenanceEnabledFlag() > 0);
         view.setLiveStatus(firstNonBlank(record.getCurrentSiteLiveStatus(), firstListItem(record.liveStatuses())));
         view.setStatusCode(record.getCurrentSiteStatusCode());
         view.setListingStartedAt(record.getListingStartedAt());

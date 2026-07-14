@@ -306,6 +306,11 @@ public class ProductReadModelService {
                 currentZRow
         ));
         item.setIsActive(mergeCurrentZValue(item.getIsActive(), summary.getIsActive(), currentZRow));
+        item.setMaintenanceEnabled(mergeCurrentZValue(
+                item.getMaintenanceEnabled(),
+                summary.getMaintenanceEnabled(),
+                currentZRow
+        ));
         item.setSyncStatus(mergeCurrentZValue(item.getSyncStatus(), summary.getSyncStatus(), currentZRow));
         item.setLastSyncedAt(mergeCurrentZValue(item.getLastSyncedAt(), summary.getLastSyncedAt(), currentZRow));
         item.setLastDraftSavedAt(mergeCurrentZValue(item.getLastDraftSavedAt(), summary.getLastDraftSavedAt(), currentZRow));
