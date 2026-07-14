@@ -30,7 +30,10 @@ public class NoonPullFailurePolicy {
             return NoonPullFailureType.INVALID_PROJECT_CODE;
         }
         if (value.contains("auth required") || value.contains("auth_required") || value.contains("401")
-                || value.contains("unauthorized")) {
+                || value.contains("unauthorized")
+                || value.contains("账号不包含当前项目")
+                || value.contains("account does not contain current project")
+                || value.contains("account does not include current project")) {
             return NoonPullFailureType.AUTH_REQUIRED;
         }
         if (value.contains("empty report pending confirmation")
@@ -45,6 +48,9 @@ public class NoonPullFailurePolicy {
         }
         if (value.contains("report not ready") || value.contains("report_not_ready") || value.contains("not ready")) {
             return NoonPullFailureType.REPORT_NOT_READY;
+        }
+        if (value.contains("report lifecycle exceeded") || value.contains("report_lifecycle_exceeded")) {
+            return NoonPullFailureType.REPORT_LIFECYCLE_EXCEEDED;
         }
         if (value.contains("retention") || value.contains("history_unavailable")) {
             return NoonPullFailureType.PROVIDER_RETENTION_LIMIT;
@@ -131,6 +137,7 @@ public class NoonPullFailurePolicy {
                         type.code() + ": pause or cool down; manual/operator action required"
                 );
             case AUTH_REQUIRED:
+            case REPORT_LIFECYCLE_EXCEEDED:
             case MISSING_COLUMNS:
             case PROVIDER_RETENTION_LIMIT:
             case PROVIDER_NOT_CONFIGURED:

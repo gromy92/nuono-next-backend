@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 public class NoonReportPuller {
     private static final Duration EXPORT_PENDING_POLL_DELAY = Duration.ofMinutes(20);
     private static final Duration EMPTY_CONFIRMATION_POLL_DELAY = Duration.ofHours(6);
+    private static final Duration REPORT_MAX_ACTIVE_AGE = Duration.ofDays(2);
 
     private final NoonPullFoundationService foundationService;
     private final NoonRiskBackoffGuard riskBackoffGuard;
@@ -56,6 +57,19 @@ public class NoonReportPuller {
     ) {
         NoonPullTaskRecord task = foundationService.markRunning(taskId, "noon-report-puller");
         NoonReportPullResult result = new NoonReportPullResult();
+        int pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
+        if (pollAttempts >= request.getMaxPollAttempts()
+                || foundationService.isTaskOlderThan(task, REPORT_MAX_ACTIVE_AGE)) {
+            NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
+                    taskId,
+                    "report lifecycle exceeded: pollAttempts=" + pollAttempts
+                            + "; maxPollAttempts=" + request.getMaxPollAttempts()
+                            + "; maximumActiveAgeHours=" + REPORT_MAX_ACTIVE_AGE.toHours(),
+                    Math.max(1, pollAttempts)
+            );
+            result.setStatus(failed.getStatus());
+            return result;
+        }
         Optional<NoonRiskBackoffHold> activeHold = riskBackoffGuard.currentHold(NoonRiskBackoffScope.report(request));
         if (activeHold.isPresent()) {
             NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
@@ -67,7 +81,6 @@ public class NoonReportPuller {
             return result;
         }
         String exportId = task.getReportExportId();
-        int pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
         try {
             if (!StringUtils.hasText(exportId)) {
                 exportId = provider.createExport(request);
@@ -89,7 +102,8 @@ public class NoonReportPuller {
                     NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
                             taskId,
                             hold.get(),
-                            request.descriptor()
+                            request.descriptor(),
+                            pollAttempts
                     );
                     result.setStatus(delayed.getStatus());
                     return result;
@@ -154,7 +168,8 @@ public class NoonReportPuller {
                     NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
                             taskId,
                             hold.get(),
-                            request.descriptor()
+                            request.descriptor(),
+                            pollAttempts
                     );
                     result.setStatus(delayed.getStatus());
                     return result;
@@ -234,7 +249,8 @@ public class NoonReportPuller {
                 NoonPullTaskRecord delayed = foundationService.recordReportRiskBackoffDelay(
                         taskId,
                         hold.get(),
-                        request.descriptor()
+                        request.descriptor(),
+                        Math.max(1, pollAttempts)
                 );
                 result.setStatus(delayed.getStatus());
                 return result;
@@ -274,7 +290,7 @@ public class NoonReportPuller {
                 null,
                 rawFailure
         );
-        return foundationService.recordReportRiskBackoffDelay(taskId, hold, request.descriptor());
+        return foundationService.recordReportRiskBackoffDelay(taskId, hold, request.descriptor(), attempt);
     }
 
     private Optional<NoonRiskBackoffHold> recordRiskBackoffIfNeeded(

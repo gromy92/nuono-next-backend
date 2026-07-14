@@ -36,6 +36,9 @@ class NoonPullFailurePolicyTest {
                 "provider unavailable: report export create failed: HTTP 400 {\"error\":\"Invalid project code\"}"
         ));
         assertEquals(NoonPullFailureType.AUTH_REQUIRED, policy.classify("401 auth required"));
+        assertEquals(NoonPullFailureType.AUTH_REQUIRED, policy.classify(
+                "provider unavailable: Noon 账号不包含当前项目：PRJ67811"
+        ));
         assertEquals(NoonPullFailureType.EMPTY_REPORT, policy.classify("empty report"));
         assertEquals(NoonPullFailureType.EMPTY_REPORT_PENDING_CONFIRMATION, policy.classify("empty report pending confirmation"));
         assertEquals(NoonPullFailureType.REPORT_NOT_READY, policy.classify("export report not ready"));
@@ -103,6 +106,11 @@ class NoonPullFailurePolicyTest {
         assertManualNonRetry(policy.decide(NoonPullFailureType.AUTH_REQUIRED, 1));
         assertManualNonRetry(policy.decide(NoonPullFailureType.MISSING_COLUMNS, 1));
         assertManualNonRetry(policy.decide(NoonPullFailureType.PROVIDER_RETENTION_LIMIT, 1));
+    }
+
+    @Test
+    void shouldRequireManualActionWhenReportLifecycleLimitIsExceeded() {
+        assertManualNonRetry(policy.decide(NoonPullFailureType.REPORT_LIFECYCLE_EXCEEDED, 19));
     }
 
     @Test
