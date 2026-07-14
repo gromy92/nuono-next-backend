@@ -1432,7 +1432,7 @@ public class NoonSessionGateway {
         }
 
         public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            return executeWithRefresh(
+            return executeWriteWithAuthRefresh(
                     () -> state.postJson(
                             projectCode,
                             storeCode,
@@ -1454,7 +1454,7 @@ public class NoonSessionGateway {
                 boolean withProject,
                 Map<String, String> extraHeaders
         ) {
-            return executeWithRefresh(
+            return executeWriteWithAuthRefresh(
                     () -> state.postMultipartFile(
                             projectCode,
                             storeCode,
@@ -1481,7 +1481,7 @@ public class NoonSessionGateway {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
                     if (authRefreshed) {
-                        throw exception;
+                        throw exception.toHttpException();
                     }
                     state = refreshAuthenticatedState(null, true);
                     authRefreshed = true;
@@ -1496,6 +1496,21 @@ public class NoonSessionGateway {
             }
         }
 
+        private JsonNode executeWriteWithAuthRefresh(SessionCall sessionCall) {
+            boolean authRefreshed = false;
+            while (true) {
+                try {
+                    return sessionCall.execute();
+                } catch (SessionExpiredException exception) {
+                    if (authRefreshed) {
+                        throw exception.toHttpException();
+                    }
+                    state = refreshAuthenticatedState(null, true);
+                    authRefreshed = true;
+                }
+            }
+        }
+
         private String executeTextWithRefresh(TextSessionCall sessionCall) {
             boolean authRefreshed = false;
             boolean transportRefreshed = false;
@@ -1504,7 +1519,7 @@ public class NoonSessionGateway {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
                     if (authRefreshed) {
-                        throw exception;
+                        throw exception.toHttpException();
                     }
                     state = refreshAuthenticatedState(null, true);
                     authRefreshed = true;
@@ -1527,7 +1542,7 @@ public class NoonSessionGateway {
                     return sessionCall.execute();
                 } catch (SessionExpiredException exception) {
                     if (authRefreshed) {
-                        throw exception;
+                        throw exception.toHttpException();
                     }
                     state = refreshAuthenticatedState(null, true);
                     authRefreshed = true;
@@ -2084,7 +2099,8 @@ public class NoonSessionGateway {
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         attempt++;
-                        if (shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
+                        if (retryTransientReadFailures
+                                && shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
                             sleepForRateLimit(attempt);
                             continue;
                         }
@@ -2099,7 +2115,9 @@ public class NoonSessionGateway {
                                     "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                             );
                             throw new SessionExpiredException(
-                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
+                                    response.statusCode(),
+                                    responseBody,
+                                    request.uri().getPath()
                             );
                         }
                         if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
@@ -2115,8 +2133,10 @@ public class NoonSessionGateway {
                                 "HTTP_STATUS",
                                 "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                         );
-                        throw new IllegalStateException(
-                                "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
+                        throw new NoonHttpException(
+                                response.statusCode(),
+                                responseBody,
+                                request.uri().getPath()
                         );
                     }
                     recordAttempt(request, response.statusCode(), responseBody, startedNanos, "SUCCESS", null, null);
@@ -2161,7 +2181,8 @@ public class NoonSessionGateway {
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         attempt++;
-                        if (shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
+                        if (retryTransientReadFailures
+                                && shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
                             sleepForRateLimit(attempt);
                             continue;
                         }
@@ -2176,7 +2197,9 @@ public class NoonSessionGateway {
                                     "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                             );
                             throw new SessionExpiredException(
-                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
+                                    response.statusCode(),
+                                    responseBody,
+                                    request.uri().getPath()
                             );
                         }
                         if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
@@ -2192,8 +2215,10 @@ public class NoonSessionGateway {
                                 "HTTP_STATUS",
                                 "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                         );
-                        throw new IllegalStateException(
-                                "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
+                        throw new NoonHttpException(
+                                response.statusCode(),
+                                responseBody,
+                                request.uri().getPath()
                         );
                     }
                     recordAttempt(request, response.statusCode(), responseBody, startedNanos, "SUCCESS", null, null);
@@ -2236,7 +2261,8 @@ public class NoonSessionGateway {
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         String responseText = new String(responseBody, StandardCharsets.UTF_8);
                         attempt++;
-                        if (shouldRetryRateLimit(response.statusCode(), responseText, attempt)) {
+                        if (retryTransientReadFailures
+                                && shouldRetryRateLimit(response.statusCode(), responseText, attempt)) {
                             sleepForRateLimit(attempt);
                             continue;
                         }
@@ -2251,7 +2277,9 @@ public class NoonSessionGateway {
                                     "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
                             );
                             throw new SessionExpiredException(
-                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
+                                    response.statusCode(),
+                                    responseText,
+                                    request.uri().getPath()
                             );
                         }
                         if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
@@ -2267,8 +2295,10 @@ public class NoonSessionGateway {
                                 "HTTP_STATUS",
                                 "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
                         );
-                        throw new IllegalStateException(
-                                "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
+                        throw new NoonHttpException(
+                                response.statusCode(),
+                                responseText,
+                                request.uri().getPath()
                         );
                     }
                     recordAttempt(
@@ -2502,8 +2532,19 @@ public class NoonSessionGateway {
     }
 
     private static final class SessionExpiredException extends IllegalStateException {
-        private SessionExpiredException(String message) {
-            super(message);
+        private final int statusCode;
+        private final String responseBody;
+        private final String requestPath;
+
+        private SessionExpiredException(int statusCode, String responseBody, String requestPath) {
+            super("Noon session expired with HTTP " + statusCode);
+            this.statusCode = statusCode;
+            this.responseBody = responseBody;
+            this.requestPath = requestPath;
+        }
+
+        private NoonHttpException toHttpException() {
+            return new NoonHttpException(statusCode, responseBody, requestPath);
         }
     }
 

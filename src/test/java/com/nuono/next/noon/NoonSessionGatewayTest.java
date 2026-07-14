@@ -329,6 +329,47 @@ class NoonSessionGatewayTest {
         verifyNoInteractions(mapper);
     }
 
+    @Test
+    void shouldFailFastWithoutRetryingRateLimitedWriteRequest() throws Exception {
+        AtomicInteger writeCount = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", exchange -> {
+            if ("/whoami".equals(exchange.getRequestURI().getPath())) {
+                AuthRefreshServer.sendJson(exchange, 200, "{\"ok\":true}", null);
+                return;
+            }
+            writeCount.incrementAndGet();
+            AuthRefreshServer.sendJson(exchange, 429, "{\"error\":\"Too many requests\"}", null);
+        });
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            NoonSessionGateway gateway = directGateway(baseUrl + "/whoami");
+            NoonSessionGateway.NoonSession session = gateway.login(
+                    10001L,
+                    "merchant@example.com",
+                    "password",
+                    "sid=existing",
+                    "PRJ1",
+                    "STORE1"
+            );
+
+            NoonHttpException exception = assertThrows(
+                    NoonHttpException.class,
+                    () -> session.postWriteJson(
+                            baseUrl + "/write",
+                            objectMapper.createObjectNode(),
+                            false
+                    )
+            );
+
+            assertEquals(429, exception.getStatusCode());
+            assertEquals(1, writeCount.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private NoonSessionGateway gateway(String proxyProviderUrl) {
         return gateway(mock(StoreSyncMapper.class), proxyProviderUrl);
     }
@@ -388,6 +429,35 @@ class NoonSessionGatewayTest {
                 "",
                 0,
                 proxyProviderUrl
+        );
+    }
+
+    private NoonSessionGateway directGateway(String whoamiUrl) {
+        return new NoonSessionGateway(
+                objectMapper,
+                mock(StoreSyncMapper.class),
+                false,
+                0L,
+                true,
+                "",
+                "",
+                "",
+                "",
+                false,
+                false,
+                "",
+                whoamiUrl,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false,
+                "HTTP",
+                "",
+                0,
+                ""
         );
     }
 

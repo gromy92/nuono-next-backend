@@ -33,6 +33,17 @@ import org.springframework.test.util.ReflectionTestUtils;
 class LocalDbOfficialWarehouseServiceRiskBackoffTest {
 
     @Test
+    void classifiedNoCapacityRemainsNormalAppointmentWaitingState() {
+        String failureType = LocalDbOfficialWarehouseService.appointmentRetryFailureType(
+                "NOON_CALL",
+                "NOON_NO_CAPACITY",
+                "Noon 当前没有匹配的可约仓日期或时段。"
+        );
+
+        assertThat(failureType).isEqualTo("NO_CAPACITY");
+    }
+
+    @Test
     void appointmentEmailOtpRateLimitRecordsAccountWideNoonBackoffAndQueuesRetry() {
         OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
         NoonSessionGateway noonSessionGateway = mock(NoonSessionGateway.class);
