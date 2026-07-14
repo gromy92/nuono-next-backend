@@ -44,7 +44,7 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
     }
 
     @Test
-    void appointmentEmailOtpRateLimitRecordsAccountWideNoonBackoffAndQueuesRetry() {
+    void appointmentExpiredCookieRequiresManualAuthorizationWithoutEmailOtpOrRiskBackoff() {
         OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
         NoonSessionGateway noonSessionGateway = mock(NoonSessionGateway.class);
         NoonSalesReportBindingResolver bindingResolver = mock(NoonSalesReportBindingResolver.class);
@@ -67,15 +67,14 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
         when(mapper.markAppointmentRunning(611049L, 901L)).thenReturn(1);
         when(bindingResolver.resolve(any())).thenReturn(binding());
-        when(noonSessionGateway.loginWithEmailAuthCode(
+        when(noonSessionGateway.loginWithPersistedCookie(
                 eq(307L),
                 eq("merchant@example.com"),
-                eq("mail-auth-code"),
-                eq(null),
+                eq("persisted-cookie"),
                 eq("PRJ108065"),
                 eq("STR108065-NSA")
         )).thenThrow(new IllegalStateException(
-                "Noon emailotp 发送失败：Too many requests, please try again later. | Error Reference: ERR-RYBQ5479"
+                "auth_required: Noon Cookie 无效或已过期，请人工重新授权; project=PRJ108065"
         ));
 
         service.runAppointmentOnce(access(), "611049");
@@ -83,19 +82,15 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         NoonRiskBackoffHold hold = riskRepository.selectLatestHold(
                 NoonRiskBackoffScope.allNoon(307L, "STR108065-NSA", "SA").getScopeKey()
         );
-        assertThat(hold).isNotNull();
-        assertThat(hold.getRiskType()).isEqualTo("rate_limited");
-        assertThat(hold.getSourceDomain()).isEqualTo("OFFICIAL_WAREHOUSE_APPOINTMENT");
-        assertThat(hold.getSourceTaskId()).isEqualTo(611049L);
-        assertThat(hold.getDiagnosticSummary()).contains("Too many requests");
-        verify(mapper).markAppointmentPendingRetry(
+        assertThat(hold).isNull();
+        verify(mapper).markAppointmentFailed(
                 eq(611049L),
-                intThat(seconds -> seconds > 0),
-                eq("NOON_RISK_BACKOFF"),
-                eq("rate_limited"),
-                contains("Too many requests"),
+                eq("NOON_CALL"),
+                eq("IllegalStateException"),
+                contains("auth_required"),
                 eq(901L)
         );
+        verify(noonSessionGateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -218,7 +213,7 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 "merchant@example.com",
                 null,
                 "mail-auth-code",
-                null
+                "persisted-cookie"
         );
     }
 

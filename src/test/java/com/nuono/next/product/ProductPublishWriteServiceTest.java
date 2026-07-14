@@ -74,10 +74,9 @@ class ProductPublishWriteServiceTest {
                 actionWarnings
         );
 
-        verify(productNoonAdapter).login(
+        verify(productNoonAdapter).loginWithPersistedCookie(
                 307L,
                 "store-project-user",
-                "store-pwd",
                 "store-cookie",
                 "PRJ-LOCAL",
                 "STR245027-NAE"
@@ -111,10 +110,9 @@ class ProductPublishWriteServiceTest {
         );
 
         assertEquals("老板账号不存在，无法执行商品发布。", exception.getMessage());
-        verify(productNoonAdapter, never()).login(
+        verify(productNoonAdapter, never()).loginWithPersistedCookie(
                 307L,
                 "project-user",
-                "pwd",
                 "cookie",
                 "PRJ-LOCAL",
                 "STR245027-NAE"

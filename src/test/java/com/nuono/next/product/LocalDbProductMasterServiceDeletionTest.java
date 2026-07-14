@@ -534,7 +534,7 @@ class LocalDbProductMasterServiceDeletionTest {
         when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
         when(storeSyncMapper.listOwnerStores(10002L)).thenReturn(List.of(store));
         when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
-        when(productNoonAdapter.login(any(), anyString(), anyString(), any(), anyString(), anyString()))
+        when(productNoonAdapter.loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(session);
         when(productNoonAdapter.getJson(any(), eq(NoonProductGateway.WHOAMI_URL), anyBoolean()))
                 .thenReturn(objectMapper.createObjectNode());
@@ -620,7 +620,7 @@ class LocalDbProductMasterServiceDeletionTest {
         when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
         when(storeSyncMapper.listOwnerStores(10002L)).thenReturn(List.of(store));
         when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
-        when(productNoonAdapter.login(any(), anyString(), anyString(), any(), anyString(), anyString()))
+        when(productNoonAdapter.loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(session);
         when(productNoonAdapter.getJson(any(), eq(NoonProductGateway.WHOAMI_URL), anyBoolean()))
                 .thenReturn(objectMapper.createObjectNode());
@@ -723,7 +723,7 @@ class LocalDbProductMasterServiceDeletionTest {
         when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
         when(storeSyncMapper.listOwnerStores(10002L)).thenReturn(List.of(store));
         when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
-        when(productNoonAdapter.login(any(), anyString(), anyString(), any(), anyString(), anyString()))
+        when(productNoonAdapter.loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(session);
         when(productNoonAdapter.getJson(any(), eq(NoonProductGateway.WHOAMI_URL), anyBoolean()))
                 .thenReturn(objectMapper.createObjectNode());

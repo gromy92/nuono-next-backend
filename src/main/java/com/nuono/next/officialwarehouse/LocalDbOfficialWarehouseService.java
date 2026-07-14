@@ -1936,28 +1936,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     private NoonSession openNoonSession(Long ownerUserId, NoonSalesReportBinding binding) {
-        if (StringUtils.hasText(binding.getNoonEmailAuthCode())) {
-            return noonSessionGateway.loginWithEmailAuthCode(
-                    ownerUserId,
-                    binding.getNoonUser(),
-                    binding.getNoonEmailAuthCode(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
-        }
-        if (noonSessionGateway.hasConfiguredMerchantEmailLogin()) {
-            return noonSessionGateway.loginWithConfiguredEmailAuthCode(
-                    ownerUserId,
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
-        }
-        return noonSessionGateway.login(
+        return noonSessionGateway.loginWithPersistedCookie(
                 ownerUserId,
                 binding.getNoonUser(),
-                binding.getNoonPassword(),
                 binding.getPersistedCookie(),
                 binding.getProjectCode(),
                 binding.getStoreCode()

@@ -1,6 +1,7 @@
 package com.nuono.next.product.noon;
 
 public enum NoonProductErrorCode {
+    NOON_AUTH_REQUIRED,
     NOON_CREDENTIAL_INVALID,
     NOON_TLS_CERTIFICATE_FAILURE,
     NOON_PROJECT_SCOPE_MISSING,

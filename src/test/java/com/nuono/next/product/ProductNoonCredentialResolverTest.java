@@ -1,6 +1,7 @@
 package com.nuono.next.product;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -71,7 +72,7 @@ class ProductNoonCredentialResolverTest {
     }
 
     @Test
-    void resolveFallsBackToOwnerAggregateWhenStoreCredentialIsMissing() {
+    void resolveNeverFallsBackToOwnerAggregateCookieWhenStoreCookieIsMissing() {
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
         StoreSyncStoreRecord store = storeCredential(
                 "STR353172-NSA",
@@ -95,7 +96,7 @@ class ProductNoonCredentialResolverTest {
 
         assertEquals("owner-project-user", credential.getNoonUser());
         assertEquals("owner-password", credential.getNoonPassword());
-        assertEquals("owner-cookie", credential.getNoonCookie());
+        assertNull(credential.getNoonCookie());
         assertEquals("owner-partner", credential.getProjectCode());
     }
 

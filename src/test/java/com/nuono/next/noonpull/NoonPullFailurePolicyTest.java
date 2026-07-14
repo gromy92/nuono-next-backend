@@ -37,6 +37,9 @@ class NoonPullFailurePolicyTest {
         ));
         assertEquals(NoonPullFailureType.AUTH_REQUIRED, policy.classify("401 auth required"));
         assertEquals(NoonPullFailureType.AUTH_REQUIRED, policy.classify(
+                "auth_required: Noon Cookie 无效或已过期，请人工重新授权; project=PRJ313934"
+        ));
+        assertEquals(NoonPullFailureType.AUTH_REQUIRED, policy.classify(
                 "provider unavailable: Noon 账号不包含当前项目：PRJ67811"
         ));
         assertEquals(NoonPullFailureType.EMPTY_REPORT, policy.classify("empty report"));

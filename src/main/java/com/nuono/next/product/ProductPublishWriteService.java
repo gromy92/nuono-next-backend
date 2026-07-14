@@ -50,43 +50,16 @@ class ProductPublishWriteService {
                 owner.getNoonPartnerProjectUser(),
                 owner.getNoonPartnerUser()
         );
-        String noonEmailAuthCode = firstNonBlank(
-                normalize(store.getNoonPartnerMailAuthCode()),
-                normalize(owner.getNoonPartnerMailAuthCode())
-        );
-        String noonPassword = firstNonBlank(
-                normalize(command.getNoonPassword()),
-                normalize(store.getNoonPartnerPwd()),
-                normalize(owner.getNoonPartnerPwd())
-        );
         requireText(noonUser, "当前店铺缺少 Noon 账号上下文，暂时不能发布。");
-        requireNoonLoginCredential(noonEmailAuthCode, noonPassword);
 
         String storeCode = normalize(store.getStoreCode());
         String projectCode = firstNonBlank(store.getProjectCode(), store.getNoonPartnerId(), owner.getNoonPartnerId());
         requireText(projectCode, "当前店铺缺少 Noon projectCode，暂时不能发布。");
 
-        String persistedCookie = firstNonBlank(store.getNoonPartnerCookie(), owner.getNoonPartnerCookie());
-        NoonSession session = StringUtils.hasText(noonEmailAuthCode)
-                ? productNoonAdapter.loginWithEmailAuthCode(
+        String persistedCookie = normalize(store.getNoonPartnerCookie());
+        NoonSession session = productNoonAdapter.loginWithPersistedCookie(
                 owner.getId(),
                 noonUser,
-                noonEmailAuthCode,
-                persistedCookie,
-                projectCode,
-                storeCode
-        )
-                : productNoonAdapter.hasConfiguredMerchantEmailLogin()
-                ? productNoonAdapter.loginWithConfiguredEmailAuthCode(
-                owner.getId(),
-                persistedCookie,
-                projectCode,
-                storeCode
-        )
-                : productNoonAdapter.login(
-                owner.getId(),
-                noonUser,
-                noonPassword,
                 persistedCookie,
                 projectCode,
                 storeCode
@@ -170,14 +143,6 @@ class ProductPublishWriteService {
     private void requireText(String value, String message) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(message);
-        }
-    }
-
-    private void requireNoonLoginCredential(String noonEmailAuthCode, String noonPassword) {
-        if (!StringUtils.hasText(noonEmailAuthCode)
-                && !productNoonAdapter.hasConfiguredMerchantEmailLogin()
-                && !StringUtils.hasText(noonPassword)) {
-            throw new IllegalArgumentException("当前店铺缺少 Noon 邮箱授权码或历史登录密码，暂时不能发布。");
         }
     }
 
