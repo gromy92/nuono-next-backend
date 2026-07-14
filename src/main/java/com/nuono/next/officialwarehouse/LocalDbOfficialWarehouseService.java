@@ -1259,6 +1259,39 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         return warehouses;
     }
 
+    private String resolveAppointmentWarehouseFromForRequest(
+            Long ownerUserId,
+            AsnRecord asnRecord,
+            AsnView asn,
+            AppointmentRecord existing,
+            UpsertAppointmentCommand command
+    ) {
+        String resolved = resolveAppointmentWarehouseFrom(
+                command == null ? null : command.warehouseFrom,
+                existing == null ? null : existing.warehouseFrom,
+                null
+        );
+        if (resolved != null) {
+            return resolved;
+        }
+        NoonSalesReportBinding binding = resolveBinding(ownerUserId, asnRecord.logicalStoreId, asn.storeCode, asn.siteCode);
+        NoonSession session = openNoonSession(ownerUserId, binding);
+        AsnDetail detail = noonInboundClient.queryAsnDetail(
+                session,
+                binding,
+                NoonCallContext.appointment(
+                        "OFFICIAL_WAREHOUSE_APPOINTMENT_WAREHOUSE_FROM",
+                        asn.id,
+                        asn.noonAsnNr
+                ),
+                requireText(asn.noonAsnNr, "ASN 缺少 Noon ASN 编号。")
+        );
+        return requireText(
+                resolveAppointmentWarehouseFrom(null, null, detail),
+                "Noon ASN 详情缺少出发仓库，不能约仓。"
+        );
+    }
+
     private AppointmentRecord upsertAppointmentRecord(
             BusinessAccessContext access,
             String asnId,
@@ -1274,10 +1307,15 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
         Long parsedAsnId = parseLongId(asn.id, "官方仓 ASN 不存在。");
         Long ownerUserId = requireOwnerUserId(access, asn.storeCode);
+        AsnRecord asnRecord = mapper.selectAsn(ownerUserId, parsedAsnId);
+        if (asnRecord == null) {
+            throw new IllegalArgumentException("官方仓 ASN 不存在。");
+        }
+        AppointmentRecord existing = mapper.selectLatestAppointmentByAsn(ownerUserId, parsedAsnId);
         AppointmentInsertRecord row = new AppointmentInsertRecord();
         row.asnId = parsedAsnId;
         row.ownerUserId = ownerUserId;
-        row.logicalStoreId = mapper.selectAsn(ownerUserId, parsedAsnId).logicalStoreId;
+        row.logicalStoreId = asnRecord.logicalStoreId;
         row.storeCode = asn.storeCode;
         row.storeName = asn.storeName;
         row.siteCode = asn.siteCode;
@@ -1286,7 +1324,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         row.localAsnNo = asn.localAsnNo;
         row.noonAsnNr = requireText(asn.noonAsnNr, "ASN 缺少 Noon ASN 编号。");
         row.totalUnits = asn.totalQuantity == null ? 0 : asn.totalQuantity;
-        row.warehouseFrom = requireText(command.warehouseFrom, "请填写出发仓库。");
         row.warehouseToPartnerCode = requireText(
                 resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
                 "请选择到达仓库。"
@@ -1299,10 +1336,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
         row.apTimeRange = trimToNull(command.apTimeRange);
         row.availableToday = Boolean.TRUE.equals(command.availableToday);
+        row.warehouseFrom = resolveAppointmentWarehouseFromForRequest(ownerUserId, asnRecord, asn, existing, command);
         row.status = "PENDING";
         row.operatorUserId = access.getSessionUserId();
 
-        AppointmentRecord existing = mapper.selectLatestAppointmentByAsn(ownerUserId, parsedAsnId);
         if (existing == null || "CANCELED".equals(existing.status)) {
             row.id = mapper.nextAppointmentId();
             mapper.insertAppointment(row);
@@ -1829,7 +1866,11 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
                 "请选择到达仓库。"
         );
-        task.warehouseFrom = requireText(command.warehouseFrom, "请填写出发仓库。");
+        task.warehouseFrom = resolveAppointmentWarehouseFrom(
+                command.warehouseFrom,
+                asn.appointment == null ? null : asn.appointment.warehouseFrom,
+                null
+        );
         task.apStartDate = parseLocalDate(command.apStartDate, "请选择约仓开始日期。");
         task.apEndDate = parseLocalDate(command.apEndDate, "请选择约仓结束日期。");
         if (task.apEndDate.isBefore(task.apStartDate)) {
@@ -2466,6 +2507,18 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
 
     static String resolveAppointmentWarehouseToCode(String selectedWarehouseCode, String requestedWarehouseToCode) {
         return firstNonBlank(requestedWarehouseToCode, selectedWarehouseCode);
+    }
+
+    static String resolveAppointmentWarehouseFrom(
+            String requestedWarehouseFrom,
+            String existingAppointmentWarehouseFrom,
+            AsnDetail asnDetail
+    ) {
+        return firstNonBlank(
+                requestedWarehouseFrom,
+                existingAppointmentWarehouseFrom,
+                asnDetail == null ? null : asnDetail.warehouseFrom
+        );
     }
 
     static List<String> resolveAppointmentWarehouseFromOptions(

@@ -28,6 +28,28 @@ class OfficialWarehouseAppointmentWarehouseResolutionTest {
     }
 
     @Test
+    void appointmentRequestCanResolveWarehouseFromFromAsnDetailWhenFrontendDoesNotSendIt() {
+        String warehouseFrom = LocalDbOfficialWarehouseService.resolveAppointmentWarehouseFrom(
+                null,
+                null,
+                new OfficialWarehouseAppointmentRunner.AsnDetail("sealed", "69486-1", "W00055867A")
+        );
+
+        assertThat(warehouseFrom).isEqualTo("69486-1");
+    }
+
+    @Test
+    void existingAppointmentWarehouseFromIsUsedBeforeQueryDetailFallback() {
+        String warehouseFrom = LocalDbOfficialWarehouseService.resolveAppointmentWarehouseFrom(
+                null,
+                "EXISTING-WH",
+                new OfficialWarehouseAppointmentRunner.AsnDetail("sealed", "ASN-CURRENT", "W00055867A")
+        );
+
+        assertThat(warehouseFrom).isEqualTo("EXISTING-WH");
+    }
+
+    @Test
     void currentAsnWarehouseFromIsFallbackWhenPartnerWarehouseListIsEmpty() {
         List<String> warehouses = LocalDbOfficialWarehouseService.resolveAppointmentWarehouseFromOptions(
                 List.of(),
