@@ -6,6 +6,7 @@ import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,13 +23,16 @@ public class ProductListingController {
 
     private final ProductListingService service;
     private final BusinessAccessResolver businessAccessResolver;
+    private final ObjectProvider<ProductListingAiListingService> aiListingServiceProvider;
 
     public ProductListingController(
             ProductListingService service,
-            BusinessAccessResolver businessAccessResolver
+            BusinessAccessResolver businessAccessResolver,
+            ObjectProvider<ProductListingAiListingService> aiListingServiceProvider
     ) {
         this.service = service;
         this.businessAccessResolver = businessAccessResolver;
+        this.aiListingServiceProvider = aiListingServiceProvider;
     }
 
     @PostMapping("/drafts")
@@ -80,6 +84,29 @@ public class ProductListingController {
                     command == null ? null : command.getStoreCode()
             );
             return service.submitDryRun(context, command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/ai/noon-listing")
+    public ProductListingAiListingView generateNoonListing(
+            @RequestBody(required = false) ProductListingAiListingCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING,
+                    command == null || command.getDraft() == null ? null : command.getDraft().getStoreCode()
+            );
+            ProductListingAiListingService aiListingService = aiListingServiceProvider.getIfAvailable();
+            if (aiListingService == null) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品上架 AI 暂时不可用。");
+            }
+            return aiListingService.generate(context, command);
         } catch (BusinessAccessDeniedException exception) {
             throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
