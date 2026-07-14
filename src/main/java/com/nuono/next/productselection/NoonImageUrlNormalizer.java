@@ -5,6 +5,9 @@ import org.springframework.util.StringUtils;
 
 public final class NoonImageUrlNormalizer {
 
+    private static final String HTTPS_NOON_PRODUCT_PREFIX = "https://f.nooncdn.com/p/";
+    private static final String HTTP_NOON_PRODUCT_PREFIX = "http://f.nooncdn.com/p/";
+
     private NoonImageUrlNormalizer() {
     }
 
@@ -44,6 +47,10 @@ public final class NoonImageUrlNormalizer {
     }
 
     private static String normalizeNoonCdnPath(String value) {
+        String collapsed = collapseRepeatedNoonProductCdnPrefixes(value);
+        if (!collapsed.equals(value)) {
+            return collapsed;
+        }
         String normalized = normalizeNoonCdnPath(value, "https://f.nooncdn.com/");
         if (!normalized.equals(value)) {
             return normalized;
@@ -66,6 +73,37 @@ public final class NoonImageUrlNormalizer {
             return isNoonProductImagePath(nestedProductPath) ? cdnPrefix + "p/" + nestedProductPath : value;
         }
         return isNoonProductImagePath(strippedPath) ? cdnPrefix + "p/" + strippedPath : value;
+    }
+
+    private static String collapseRepeatedNoonProductCdnPrefixes(String value) {
+        String lower = value.toLowerCase(Locale.ROOT);
+        String firstPrefix = null;
+        if (lower.startsWith(HTTPS_NOON_PRODUCT_PREFIX)) {
+            firstPrefix = value.substring(0, HTTPS_NOON_PRODUCT_PREFIX.length());
+        } else if (lower.startsWith(HTTP_NOON_PRODUCT_PREFIX)) {
+            firstPrefix = value.substring(0, HTTP_NOON_PRODUCT_PREFIX.length());
+        }
+        if (firstPrefix == null) {
+            return value;
+        }
+
+        String path = value.substring(firstPrefix.length());
+        boolean collapsed = false;
+        while (true) {
+            String lowerPath = path.toLowerCase(Locale.ROOT);
+            if (lowerPath.startsWith(HTTPS_NOON_PRODUCT_PREFIX)) {
+                path = path.substring(HTTPS_NOON_PRODUCT_PREFIX.length());
+                collapsed = true;
+                continue;
+            }
+            if (lowerPath.startsWith(HTTP_NOON_PRODUCT_PREFIX)) {
+                path = path.substring(HTTP_NOON_PRODUCT_PREFIX.length());
+                collapsed = true;
+                continue;
+            }
+            break;
+        }
+        return collapsed && isNoonProductImagePath(path) ? firstPrefix + path : value;
     }
 
     private static String stripLeadingSlash(String value) {
