@@ -165,6 +165,67 @@ class NoonReportPullerTest {
     }
 
     @Test
+    void shouldStopBeforeProviderCallWhenReportPollLimitIsExhausted() {
+        NoonPullTaskRecord task = createSalesTask("sales:poll-limit");
+        FakeReportProvider provider = FakeReportProvider.pending();
+
+        puller.execute(task.getId(), salesRequest(), provider, (file) -> NoonReportProcessResult.succeeded(0, 0));
+        puller.execute(task.getId(), salesRequest(), provider, (file) -> NoonReportProcessResult.succeeded(0, 0));
+        NoonReportPullResult exhausted = puller.execute(
+                task.getId(),
+                salesRequest(),
+                provider,
+                (file) -> NoonReportProcessResult.succeeded(0, 0)
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.FAILED, exhausted.getStatus());
+        assertEquals("report_lifecycle_exceeded", persisted.getFailureType());
+        assertEquals(Boolean.FALSE, persisted.getRetryable());
+        assertEquals(Boolean.TRUE, persisted.getRequiresManualAction());
+        assertEquals(List.of("create", "poll:EXP-1", "poll:EXP-1"), provider.calls);
+    }
+
+    @Test
+    void shouldStopBeforeProviderCallWhenRunningReportIsOlderThanTwoDays() {
+        NoonPullTaskRecord task = createSalesTask("sales:age-limit");
+        FakeReportProvider provider = FakeReportProvider.pending();
+
+        puller.execute(task.getId(), salesRequest(18), provider, (file) -> NoonReportProcessResult.succeeded(0, 0));
+        clock.setInstant(Instant.parse("2026-05-24T09:00:01Z"));
+        NoonReportPullResult exhausted = puller.execute(
+                task.getId(),
+                salesRequest(18),
+                provider,
+                (file) -> NoonReportProcessResult.succeeded(0, 0)
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.FAILED, exhausted.getStatus());
+        assertEquals("report_lifecycle_exceeded", persisted.getFailureType());
+        assertEquals(List.of("create", "poll:EXP-1"), provider.calls);
+    }
+
+    @Test
+    void shouldTerminateMissingProjectAccessInsteadOfKeepingTaskRunning() {
+        NoonPullTaskRecord task = createSalesTask("sales:missing-project-access");
+        FakeReportProvider provider = FakeReportProvider.throwingOnPoll("Noon 账号不包含当前项目：PRJ67811");
+
+        NoonReportPullResult result = puller.execute(
+                task.getId(),
+                salesRequest(),
+                provider,
+                (file) -> NoonReportProcessResult.succeeded(0, 0)
+        );
+        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
+        assertEquals("auth_required", persisted.getFailureType());
+        assertEquals(Boolean.FALSE, persisted.getRetryable());
+        assertEquals(Boolean.TRUE, persisted.getRequiresManualAction());
+    }
+
+    @Test
     void shouldRecordReportRiskBackoffWhenSalesPollHitsNoonRiskControl() {
         NoonPullTaskRecord task = createSalesTask("sales:risk-control");
         FakeReportProvider provider = FakeReportProvider.throwingOnPoll("blocked by risk control");
@@ -185,6 +246,7 @@ class NoonReportPullerTest {
         assertEquals(Boolean.TRUE, persisted.getRetryable());
         assertEquals(Boolean.FALSE, persisted.getRequiresManualAction());
         assertEquals("risk_backoff", stringProperty(persisted, "readinessState"));
+        assertEquals(1, intProperty(persisted, "reportPollAttempts"));
         assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), property(persisted, "reportNextPollAt"));
         assertTrue(persisted.getDiagnosticSummary().contains("blocked by risk control"));
     }
@@ -380,6 +442,10 @@ class NoonReportPullerTest {
     }
 
     private NoonReportPullRequest salesRequest() {
+        return salesRequest(2);
+    }
+
+    private NoonReportPullRequest salesRequest(int maxPollAttempts) {
         return NoonReportPullRequest.builder()
                 .ownerUserId(307L)
                 .storeCode("STR245027")
@@ -388,7 +454,7 @@ class NoonReportPullerTest {
                 .reportType("productviewsandsalesdata")
                 .dateFrom(LocalDate.of(2026, 5, 21))
                 .dateTo(LocalDate.of(2026, 5, 21))
-                .maxPollAttempts(2)
+                .maxPollAttempts(maxPollAttempts)
                 .build();
     }
 
@@ -421,7 +487,7 @@ class NoonReportPullerTest {
     private void executeRiskFailure(NoonPullTaskRecord task, String message) {
         NoonReportPullResult result = puller.execute(
                 task.getId(),
-                salesRequest(),
+                salesRequest(18),
                 FakeReportProvider.throwingOnPoll(message),
                 (file) -> NoonReportProcessResult.succeeded(1, 0)
         );
