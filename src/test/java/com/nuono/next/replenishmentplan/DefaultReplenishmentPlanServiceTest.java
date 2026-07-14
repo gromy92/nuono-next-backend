@@ -68,7 +68,7 @@ class DefaultReplenishmentPlanServiceTest {
                 .thenReturn(List.of(new StockRow(
                         " psku-001 ",
                         "SKU-001",
-                        "https://f.nooncdn.com/p/test-image.jpg",
+                        "https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca|pzsku/Z930F2C6D839E70FE2653Z/45/1769591448/41897da8-e52a-4e7a-b654-13fb35dfdcd6.jpg",
                         LocalDate.of(2026, 3, 12),
                         new BigDecimal("15"),
                         new BigDecimal("10"),
@@ -112,7 +112,10 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(1, overview.getRows().size());
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertEquals("PSKU-001", row.getPartnerSku());
-        assertEquals("https://f.nooncdn.com/p/test-image.jpg", row.getImageUrl());
+        assertEquals(
+                "https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca%7Cpzsku/Z930F2C6D839E70FE2653Z/45/1769591448/41897da8-e52a-4e7a-b654-13fb35dfdcd6.jpg",
+                row.getImageUrl()
+        );
         assertEquals(LocalDate.of(2026, 3, 12), row.getListingAt());
         assertEquals(new BigDecimal("10"), row.getCurrentStockUnits());
         assertEquals(new BigDecimal("10"), row.getFbnStockUnits());
