@@ -51,6 +51,36 @@ class NoonPullSchedulerTest {
     }
 
     @Test
+    void shouldSkipScheduledDailyPlanUnderStoreSiteMaintenance() {
+        createPlan(NoonPullType.INTERFACE, NoonPullDataDomain.PRODUCT, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
+        NoonPullScheduler scheduler = scheduler();
+        scheduler.setMaintenanceGate((ownerUserId, storeCode, siteCode) -> true);
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(1, result.getMaintenanceSkippedPlanCount());
+        assertEquals(0, repository.listTasks().size());
+    }
+
+    @Test
+    void shouldNotApplyMaintenanceFileToGapBackfillPlan() {
+        createPlan(
+                NoonPullType.REPORT,
+                NoonPullDataDomain.ORDER,
+                NoonPullTriggerMode.GAP_BACKFILL,
+                "backfill:2026-05-01..2026-05-01;maxDays=1;maxWindows=1"
+        );
+        NoonPullScheduler scheduler = scheduler();
+        scheduler.setMaintenanceGate((ownerUserId, storeCode, siteCode) -> true);
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+        assertEquals(0, result.getMaintenanceSkippedPlanCount());
+    }
+
+    @Test
     void shouldNotRecreateCompletedSalesDailyTargetsOnRepeatedTicks() {
         clock = Clock.fixed(Instant.parse("2026-05-22T12:01:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();

@@ -135,6 +135,8 @@ nuono:
       zone: ${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_ZONE:Asia/Shanghai}
       max-accounts-per-tick: ${NUONO_LOGISTICS_AUTO_SYNC_MAX_ACCOUNTS_PER_TICK:5}
   noon:
+    maintenance-scope:
+      file: ${NUONO_NOON_MAINTENANCE_SCOPE_FILE:}
     auth:
       email-otp:
         email: ${NUONO_NOON_MERCHANT_EMAIL_OTP_EMAIL:}

@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.noonmaintenance.StoreSiteMaintenanceGate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -39,6 +40,7 @@ public class NoonPullScheduler {
     private final NoonProviderAvailability providerAvailability;
     private final Duration staleRunningTaskMaxAge;
     private final Duration staleQueuedTaskMaxAge;
+    private StoreSiteMaintenanceGate maintenanceGate = StoreSiteMaintenanceGate.allowAll();
 
     @Autowired
     public NoonPullScheduler(
@@ -121,12 +123,21 @@ public class NoonPullScheduler {
         this.staleQueuedTaskMaxAge = safeMaxAge(staleQueuedTaskMaxAge, STALE_QUEUED_TASK_MAX_AGE);
     }
 
+    @Autowired(required = false)
+    void setMaintenanceGate(StoreSiteMaintenanceGate maintenanceGate) {
+        this.maintenanceGate = maintenanceGate == null ? StoreSiteMaintenanceGate.allowAll() : maintenanceGate;
+    }
+
     public NoonPullSchedulerResult runDuePlans() {
         NoonPullSchedulerResult result = new NoonPullSchedulerResult();
         foundationService.recoverStaleRunningTasks(staleRunningTaskMaxAge);
         foundationService.recoverStaleQueuedTasks(staleQueuedTaskMaxAge);
         for (NoonPullPlanRecord plan : foundationService.listPlans()) {
             result.scanned();
+            if (isScheduledMaintenance(plan)) {
+                result.maintenanceSkipped();
+                continue;
+            }
             if (!isRunnable(plan)) {
                 result.skipped();
                 continue;
@@ -147,6 +158,16 @@ public class NoonPullScheduler {
             }
         }
         return result;
+    }
+
+    private boolean isScheduledMaintenance(NoonPullPlanRecord plan) {
+        return plan != null
+                && plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY
+                && maintenanceGate.isUnderMaintenance(
+                        plan.getOwnerUserId(),
+                        plan.getStoreCode(),
+                        plan.getSiteCode()
+                );
     }
 
     private void createTasksForPlan(NoonPullPlanRecord plan) {
