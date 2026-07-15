@@ -67,6 +67,7 @@ public class ProductListSummaryView {
     private Integer issueCount;
     private List<String> issueTags = new ArrayList<>();
     private Map<String, Object> lastPublishTask;
+    private Map<String, Object> listingPublishTask;
 
     public boolean isReady() {
         return ready;
@@ -554,5 +555,13 @@ public class ProductListSummaryView {
 
     public void setLastPublishTask(Map<String, Object> lastPublishTask) {
         this.lastPublishTask = lastPublishTask;
+    }
+
+    public Map<String, Object> getListingPublishTask() {
+        return listingPublishTask;
+    }
+
+    public void setListingPublishTask(Map<String, Object> listingPublishTask) {
+        this.listingPublishTask = listingPublishTask;
     }
 }

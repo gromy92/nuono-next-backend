@@ -41,6 +41,31 @@ class AiCapabilityServiceTest {
     }
 
     @Test
+    void shouldRetryTransientProviderRequestFailureOnce() {
+        AiStructuredTextResult transientFailure = AiStructuredTextResult.failure(
+                AiResultStatus.AI_PROVIDER_ERROR,
+                "OPENAI_REQUEST_FAILED",
+                "AI request failed for https://aicodelink.top/v1/responses: Remote host terminated the handshake"
+        );
+        transientFailure.setProvider("openai");
+        transientFailure.setModel("gpt-5.5");
+        AiStructuredTextResult modelResult = AiStructuredTextResult.success();
+        modelResult.setProvider("openai");
+        modelResult.setModel("gpt-5.5");
+        modelResult.setOutputText("{\"summary\":\"ok\"}");
+        modelResult.setParsedJson(object("summary", "ok", "score", 9));
+        StubModelClient client = new StubModelClient(transientFailure, modelResult);
+        AiCapabilityService service = new AiCapabilityService(properties(true), client, new AiJsonSchemaValidator(), entry -> {
+        });
+
+        AiStructuredTextResult result = service.createStructuredText(command());
+
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals("ok", result.getParsedJson().get("summary"));
+        Assertions.assertEquals(2, client.getCallCount());
+    }
+
+    @Test
     void shouldRejectModelOutputThatMissesRequiredSchemaField() {
         AiStructuredTextResult modelResult = AiStructuredTextResult.success();
         modelResult.setProvider("openai");
@@ -92,17 +117,17 @@ class AiCapabilityServiceTest {
 
     private static class StubModelClient implements AiModelClient {
 
-        private final AiStructuredTextResult result;
+        private final java.util.List<AiStructuredTextResult> results;
         private int callCount;
 
-        StubModelClient(AiStructuredTextResult result) {
-            this.result = result;
+        StubModelClient(AiStructuredTextResult... results) {
+            this.results = Arrays.asList(results);
         }
 
         @Override
         public AiStructuredTextResult createStructuredText(AiStructuredTextCommand command) {
             callCount += 1;
-            return result;
+            return results.get(Math.min(callCount - 1, results.size() - 1));
         }
 
         int getCallCount() {

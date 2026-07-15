@@ -128,7 +128,7 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
     }
 
     @Test
-    void shouldBlockLocalUploadedImagePublish() throws Exception {
+    void shouldAllowLocalUploadedImagePublishPreparation() throws Exception {
         ProductMasterSnapshotView baseline = snapshot("Same title", "STR245027-NAE", "188.00", "168.00", 33, 0, "LIVE");
         ProductMasterSnapshotView draft = copySnapshot(baseline);
         draft.getContent().put(
@@ -141,11 +141,11 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
 
         List<String> errors = invokeValidatePublishSnapshot(draft, baseline, "STR245027-NAE");
 
-        assertTrue(errors.stream().anyMatch((item) -> item.contains("本地上传图片")));
+        assertFalse(errors.stream().anyMatch((item) -> item.contains("本地上传图片")));
     }
 
     @Test
-    void shouldReturnClearPublishPlannerBlockerMessageForLocalImages() throws Exception {
+    void shouldNotReturnPublishPlannerBlockerForLocalImages() throws Exception {
         ProductMasterSnapshotView baseline = snapshot("Same title", "STR245027-NAE", "188.00", "168.00", 33, 0, "LIVE");
         ProductMasterSnapshotView draft = copySnapshot(baseline);
         List<String> localImages = List.of("/api/product-master/image-assets/local-image.png");
@@ -156,9 +156,7 @@ class LocalDbProductMasterServiceSharedOnlySkipTest {
         invokePublishableSnapshotForSupportedChanges(draft, baseline, unsupportedChanges);
         List<String> errors = invokeValidatePublishWriteCoverage(unsupportedChanges);
 
-        assertTrue(errors.contains("本地上传图片仍是系统相对地址，不能发布到 Noon。"));
-        assertFalse(errors.stream().anyMatch((item) ->
-                item.contains("本地上传图片") && item.contains("当前没有 Noon 写回适配")));
+        assertFalse(errors.stream().anyMatch((item) -> item.contains("本地上传图片")));
     }
 
     @Test

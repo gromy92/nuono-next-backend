@@ -65,6 +65,7 @@ public class ProductSelectionGroupMaterialRow extends ProductSelectionSourceColl
         setUnitCount(source.getUnitCount());
         setColorName(source.getColorName());
         setSpecHintsJson(source.getSpecHintsJson());
+        setCategoryLinksJson(source.getCategoryLinksJson());
         setSpecAttributeCount(source.getSpecAttributeCount());
         setSourceDescriptionEn(source.getSourceDescriptionEn());
         setSourceDescriptionAr(source.getSourceDescriptionAr());

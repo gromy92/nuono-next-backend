@@ -2,7 +2,9 @@ package com.nuono.next.productselection;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -36,48 +38,52 @@ public class NoonPublicProductPayloadParser {
 
     NoonPublicProductSnapshot parse(Document document, String pageUrl) {
         NoonPublicProductSnapshot snapshot = new NoonPublicProductSnapshot();
-        collectStructuredJson(snapshot, document);
-        collectHtmlFallback(snapshot, document);
+        collectStructuredJson(snapshot, document, pageUrl);
+        collectHtmlFallback(snapshot, document, pageUrl);
         parseLongDescriptionSpecs(snapshot);
         return snapshot;
     }
 
     NoonPublicProductSnapshot parseJson(String json) {
+        return parseJson(json, "");
+    }
+
+    NoonPublicProductSnapshot parseJson(String json, String pageUrl) {
         NoonPublicProductSnapshot snapshot = new NoonPublicProductSnapshot();
-        collectJson(snapshot, json);
+        collectJson(snapshot, json, pageUrl);
         parseLongDescriptionSpecs(snapshot);
         return snapshot;
     }
 
-    private void collectStructuredJson(NoonPublicProductSnapshot snapshot, Document document) {
+    private void collectStructuredJson(NoonPublicProductSnapshot snapshot, Document document, String pageUrl) {
         for (Element script : document.select("script[type=application/ld+json], script#__NEXT_DATA__, script[type=application/json]")) {
             String json = htmlParser.compactText(script.data());
             if (!StringUtils.hasText(json)) {
                 json = htmlParser.compactText(script.html());
             }
-            collectJson(snapshot, json);
+            collectJson(snapshot, json, pageUrl);
         }
     }
 
-    private void collectJson(NoonPublicProductSnapshot snapshot, String json) {
+    private void collectJson(NoonPublicProductSnapshot snapshot, String json, String pageUrl) {
         if (!StringUtils.hasText(json)) {
             return;
         }
         try {
             JsonNode root = objectMapper.readTree(json);
-            collectFromNode(snapshot, root);
+            collectFromNode(snapshot, root, pageUrl);
         } catch (Exception ignored) {
             // Public page scripts are best-effort. HTML fallback still runs.
         }
     }
 
-    private void collectFromNode(NoonPublicProductSnapshot snapshot, JsonNode node) {
+    private void collectFromNode(NoonPublicProductSnapshot snapshot, JsonNode node, String pageUrl) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return;
         }
         if (node.isArray()) {
             for (JsonNode item : node) {
-                collectFromNode(snapshot, item);
+                collectFromNode(snapshot, item, pageUrl);
             }
             return;
         }
@@ -86,7 +92,7 @@ public class NoonPublicProductPayloadParser {
         }
 
         if (isProductLikeNode(node)) {
-            mapProductNode(snapshot, node);
+            mapProductNode(snapshot, node, pageUrl);
         } else if (isOfferLikeNode(node)) {
             mapOfferNode(snapshot, node);
         } else if (isRatingLikeNode(node)) {
@@ -95,7 +101,7 @@ public class NoonPublicProductPayloadParser {
 
         Iterator<Map.Entry<String, JsonNode>> iterator = node.fields();
         while (iterator.hasNext()) {
-            collectFromNode(snapshot, iterator.next().getValue());
+            collectFromNode(snapshot, iterator.next().getValue(), pageUrl);
         }
     }
 
@@ -131,7 +137,7 @@ public class NoonPublicProductPayloadParser {
                 || (node.has("value") && node.has("count"));
     }
 
-    private void mapProductNode(NoonPublicProductSnapshot snapshot, JsonNode node) {
+    private void mapProductNode(NoonPublicProductSnapshot snapshot, JsonNode node, String pageUrl) {
         snapshot.title = firstText(
                 snapshot.title,
                 textAny(node, "product_title", "productTitle", "title", "name")
@@ -153,10 +159,37 @@ public class NoonPublicProductPayloadParser {
         addImages(snapshot, node.path("imageUrls"));
         addImages(snapshot, node.path("image_urls"));
         addSpecifications(snapshot, node.path("specifications"));
+        addBreadcrumbs(snapshot, node.path("breadcrumbs"), pageUrl);
         mapRatingNode(snapshot, node.path("product_rating"));
         mapRatingNode(snapshot, node.path("aggregateRating"));
         mapOfferNode(snapshot, node.path("offers"));
         mapOfferNode(snapshot, node.path("variants"));
+    }
+
+    private void addBreadcrumbs(NoonPublicProductSnapshot snapshot, JsonNode node, String pageUrl) {
+        if (!node.isArray()) {
+            return;
+        }
+        List<String> pathParts = new ArrayList<>();
+        String leafName = "";
+        String leafCode = "";
+        for (JsonNode item : node) {
+            String name = htmlParser.compactText(textAny(item, "name", "title", "label"));
+            String code = htmlParser.compactText(textAny(item, "code", "path", "slug"));
+            if (!StringUtils.hasText(name) || (!StringUtils.hasText(code) && "home".equalsIgnoreCase(name))) {
+                continue;
+            }
+            pathParts.add(name);
+            leafName = name;
+            leafCode = code;
+        }
+        if (StringUtils.hasText(leafName)) {
+            snapshot.addCategoryLink(new ProductSelectionCompetitorCategoryLink(
+                    leafName,
+                    String.join(" > ", pathParts),
+                    NoonPublicProductUrlSupport.categoryUrl(pageUrl, leafCode)
+            ));
+        }
     }
 
     private void mapOfferNode(NoonPublicProductSnapshot snapshot, JsonNode node) {
@@ -269,7 +302,7 @@ public class NoonPublicProductPayloadParser {
         }
     }
 
-    private void collectHtmlFallback(NoonPublicProductSnapshot snapshot, Document document) {
+    private void collectHtmlFallback(NoonPublicProductSnapshot snapshot, Document document, String pageUrl) {
         snapshot.title = firstText(
                 snapshot.title,
                 htmlParser.firstText(
@@ -310,6 +343,25 @@ public class NoonPublicProductPayloadParser {
             if (text.length() >= 16 && text.length() <= 360) {
                 snapshot.addFeatureBullet(text);
             }
+        }
+        List<String> pathParts = new ArrayList<>();
+        String leafName = "";
+        String leafUrl = "";
+        for (Element link : document.select("nav[aria-label*=breadcrumb] a, [class*=breadcrumb] a, [data-qa*=breadcrumb] a")) {
+            String name = htmlParser.compactText(link.text());
+            if (!StringUtils.hasText(name) || "home".equalsIgnoreCase(name)) {
+                continue;
+            }
+            pathParts.add(name);
+            leafName = name;
+            leafUrl = htmlParser.firstText(link.absUrl("href"), link.attr("href"));
+        }
+        if (StringUtils.hasText(leafName)) {
+            snapshot.addCategoryLink(new ProductSelectionCompetitorCategoryLink(
+                    leafName,
+                    String.join(" > ", pathParts),
+                    leafUrl
+            ));
         }
     }
 

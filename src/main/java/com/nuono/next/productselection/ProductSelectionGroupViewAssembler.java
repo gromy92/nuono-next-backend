@@ -106,6 +106,10 @@ public class ProductSelectionGroupViewAssembler {
             view.setFetchedSellingPointsAr(payload.getFetchedSellingPointsAr());
             view.setFetchedSourceHost(defaultText(payload.getFetchedSourceHost(), ""));
             view.setFetchedPriceSummary(defaultText(payload.getFetchedPriceSummary(), ""));
+            view.setFetchedCategoryName(defaultText(payload.getFetchedCategoryName(), ""));
+            view.setFetchedCategoryPath(defaultText(payload.getFetchedCategoryPath(), ""));
+            view.setFetchedCategoryUrl(defaultText(payload.getFetchedCategoryUrl(), ""));
+            view.setFetchedCategoryLinks(payload.getFetchedCategoryLinks());
             view.setFetchedCompleteness(defaultText(payload.getFetchedCompleteness(), ""));
             view.setFetchedCollectionSource(defaultText(payload.getFetchedCollectionSource(), ""));
             view.setFetchMessage(defaultText(payload.getFetchMessage(), ""));

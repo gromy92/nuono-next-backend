@@ -50,8 +50,30 @@ public class AiCapabilityService {
             return finish(normalized, startedAt, result);
         }
         result = modelClient.createStructuredText(normalized);
+        if (shouldRetryTransientProviderRequestFailure(result)) {
+            result = modelClient.createStructuredText(normalized);
+        }
         result = validateSchemaIfNeeded(normalized, result);
         return finish(normalized, startedAt, result);
+    }
+
+    private boolean shouldRetryTransientProviderRequestFailure(AiStructuredTextResult result) {
+        if (result == null
+                || !AiResultStatus.AI_PROVIDER_ERROR.equals(result.getStatus())
+                || !"OPENAI_REQUEST_FAILED".equals(result.getErrorCode())) {
+            return false;
+        }
+        String message = result.getErrorMessage();
+        if (!StringUtils.hasText(message)) {
+            return false;
+        }
+        String normalized = message.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("remote host terminated the handshake")
+                || normalized.contains("handshake")
+                || normalized.contains("connection reset")
+                || normalized.contains("unexpected end of file")
+                || normalized.contains("header parser received no bytes")
+                || normalized.contains("eof");
     }
 
     private AiStructuredTextResult validateSchemaIfNeeded(AiStructuredTextCommand command, AiStructuredTextResult result) {

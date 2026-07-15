@@ -67,20 +67,28 @@ public class NoonPullStoreBindingResolver {
                 owner == null ? null : owner.getNoonPartnerId(),
                 derivePartnerId(projectCode)
         );
-        String noonUser = firstNonBlank(
+        String storeNoonUser = firstNonBlank(
                 store.getNoonPartnerUser(),
-                store.getNoonPartnerProjectUser(),
+                store.getNoonPartnerProjectUser()
+        );
+        String ownerNoonUser = firstNonBlank(
                 owner == null ? null : owner.getNoonPartnerUser(),
-                owner == null ? null : owner.getNoonPartnerProjectUser(),
+                owner == null ? null : owner.getNoonPartnerProjectUser()
+        );
+        boolean allowOwnerCredentialFallback = !StringUtils.hasText(storeNoonUser)
+                || sameLoginUser(storeNoonUser, ownerNoonUser);
+        String noonUser = firstNonBlank(
+                storeNoonUser,
+                ownerNoonUser,
                 configuredMerchantEmailLoginAvailable ? configuredMerchantEmail : null
         );
         String noonEmailAuthCode = firstNonBlank(
                 store.getNoonPartnerMailAuthCode(),
-                owner == null ? null : owner.getNoonPartnerMailAuthCode()
+                allowOwnerCredentialFallback && owner != null ? owner.getNoonPartnerMailAuthCode() : null
         );
         String noonPassword = firstNonBlank(
                 store.getNoonPartnerPwd(),
-                owner == null ? null : owner.getNoonPartnerPwd()
+                allowOwnerCredentialFallback && owner != null ? owner.getNoonPartnerPwd() : null
         );
         String persistedCookie = firstNonBlank(store.getNoonPartnerCookie());
 
@@ -168,6 +176,14 @@ public class NoonPullStoreBindingResolver {
 
     private static String normalize(String value) {
         return value == null ? null : value.trim();
+    }
+
+    private static boolean sameLoginUser(String left, String right) {
+        String normalizedLeft = normalize(left);
+        String normalizedRight = normalize(right);
+        return StringUtils.hasText(normalizedLeft)
+                && StringUtils.hasText(normalizedRight)
+                && normalizedLeft.equalsIgnoreCase(normalizedRight);
     }
 
     private static void requireText(String value, String reason) {

@@ -163,6 +163,10 @@ class ProductPublishPreparationService {
             errors.add("当前商品只拿到 Noon 前台公开详情，尚未拿到可写的 Noon catalog 详情基线，暂时不能保存发布。");
             return errors;
         }
+        if (hasLocalDraftNoonIdentity(snapshot) || hasLocalDraftNoonIdentity(baseline)) {
+            errors.add("当前商品还没有完成真实上架，不能发布当前修改；请先从上架入口提交，上架成功后再编辑发布。");
+            return errors;
+        }
         String titleEn = textValue(snapshot.getContent().get("titleEn"));
         String brand = textValue(snapshot.getIdentity().get("brand"));
         String productFulltype = textValue(snapshot.getTaxonomy().get("productFulltype"));
@@ -179,11 +183,6 @@ class ProductPublishPreparationService {
         }
         if (images.isEmpty()) {
             errors.add("共享主档至少需要保留 1 张图片。");
-        }
-        List<String> baselineImages = baseline == null ? List.of() : stringList(baseline.getContent().get("images"));
-        if (!objectMapper.valueToTree(images).equals(objectMapper.valueToTree(baselineImages))
-                && images.stream().anyMatch(this::isLocalProductImageAssetUrl)) {
-            errors.add("本地上传图片还没有 Noon 可访问 URL，暂时不能发布；请先删除本地上传图片或等待图片外链适配。");
         }
 
         Map<String, Map<String, Object>> baselineOffers = siteOfferMap(baseline != null ? baseline.getSiteOffers() : null);
@@ -219,6 +218,33 @@ class ProductPublishPreparationService {
     private boolean isPublicDetailReadonlySnapshot(ProductMasterSnapshotView snapshot) {
         return snapshot != null
                 && ProductPublicDetailReadonlyWorkbenchFactory.MODE.equalsIgnoreCase(textValue(snapshot.getMode()));
+    }
+
+    private boolean hasLocalDraftNoonIdentity(ProductMasterSnapshotView snapshot) {
+        if (snapshot == null) {
+            return false;
+        }
+        Map<String, Object> identity = snapshot.getIdentity();
+        if (identity != null && (isLocalDraftNoonCode(identity.get("skuParent"))
+                || isLocalDraftNoonCode(identity.get("currentZCode"))
+                || isLocalDraftNoonCode(identity.get("parentSku")))) {
+            return true;
+        }
+        if (snapshot.getSiteOffers() == null) {
+            return false;
+        }
+        for (Map<String, Object> siteOffer : snapshot.getSiteOffers()) {
+            if (siteOffer != null && (isLocalDraftNoonCode(siteOffer.get("skuParent"))
+                    || isLocalDraftNoonCode(siteOffer.get("currentZCode")))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isLocalDraftNoonCode(Object value) {
+        String text = textValue(value);
+        return StringUtils.hasText(text) && text.regionMatches(true, 0, "LOCAL-", 0, "LOCAL-".length());
     }
 
     List<String> validatePublishOperationalKeys(
@@ -934,10 +960,6 @@ class ProductPublishPreparationService {
             return null;
         }
         return textValue(snapshot.getStoreContext().get("fetchedAt"));
-    }
-
-    private boolean isLocalProductImageAssetUrl(String url) {
-        return StringUtils.hasText(url) && url.trim().startsWith("/api/product-master/image-assets/");
     }
 
     private List<String> stringList(Object value) {

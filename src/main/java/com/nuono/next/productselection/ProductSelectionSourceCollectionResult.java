@@ -21,6 +21,7 @@ public class ProductSelectionSourceCollectionResult {
     private String sourceDescriptionAr;
     private List<String> sourceSellingPointsEn = new ArrayList<>();
     private List<String> sourceSellingPointsAr = new ArrayList<>();
+    private List<ProductSelectionCompetitorCategoryLink> categoryLinks = new ArrayList<>();
     private String selectedText;
     private String selectedTextAr;
 
@@ -150,6 +151,14 @@ public class ProductSelectionSourceCollectionResult {
 
     public void setSourceSellingPointsAr(List<String> sourceSellingPointsAr) {
         this.sourceSellingPointsAr = sourceSellingPointsAr;
+    }
+
+    public List<ProductSelectionCompetitorCategoryLink> getCategoryLinks() {
+        return categoryLinks;
+    }
+
+    public void setCategoryLinks(List<ProductSelectionCompetitorCategoryLink> categoryLinks) {
+        this.categoryLinks = categoryLinks == null ? new ArrayList<>() : new ArrayList<>(categoryLinks);
     }
 
     public String getSelectedText() {

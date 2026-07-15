@@ -3140,6 +3140,7 @@ public class LocalDbStoreInitializationService {
         private String salesAmount;
         private String salesCurrency;
         private Map<String, Object> lastPublishTask;
+        private Map<String, Object> listingPublishTask;
 
         public String getSkuParent() {
             return skuParent;
@@ -3595,6 +3596,14 @@ public class LocalDbStoreInitializationService {
 
         public void setLastPublishTask(Map<String, Object> lastPublishTask) {
             this.lastPublishTask = lastPublishTask;
+        }
+
+        public Map<String, Object> getListingPublishTask() {
+            return listingPublishTask;
+        }
+
+        public void setListingPublishTask(Map<String, Object> listingPublishTask) {
+            this.listingPublishTask = listingPublishTask;
         }
     }
 }

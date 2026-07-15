@@ -39,15 +39,15 @@ class ProductManagementGoldenRegressionTest {
     }
 
     @Test
-    void shouldKeepLocalImagePublishBlockedInGoldenFlow() {
+    void shouldAllowLocalImagePublishInGoldenFlow() {
         ProductPublishPlanner planner = new ProductPublishPlanner(new ProductDraftMergePolicy());
         ProductMasterSnapshotView baseline = snapshot(List.of("https://f.nooncdn.com/p/pnsku/MILKYWAYA17/main.jpg"));
         ProductMasterSnapshotView draft = snapshot(List.of("/api/product-master/image-assets/local-milkyway.png"));
 
         ProductPublishPlan plan = planner.plan(draft, baseline, "STR245027-NAE");
 
-        assertFalse(plan.isPublishable());
-        assertTrue(plan.getBlockers().contains("本地上传图片仍是系统相对地址，不能发布到 Noon。"));
+        assertTrue(plan.isPublishable());
+        assertTrue(plan.getBlockers().isEmpty());
     }
 
     private ProductMasterSnapshotView snapshot(List<String> images) {

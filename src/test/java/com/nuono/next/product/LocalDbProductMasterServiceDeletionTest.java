@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -777,6 +778,174 @@ class LocalDbProductMasterServiceDeletionTest {
                 eq(true)
         );
         inOrder.verify(productManagementMapper).markProductMasterDeletedById(64001L, 10002L);
+    }
+
+    @Test
+    void productRebuildDeleteTaskShouldCompleteWhenLocalSkuParentHasNoNoonPsku() throws Exception {
+        ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
+        StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
+        ProductNoonAdapter productNoonAdapter = mock(ProductNoonAdapter.class);
+        ProductPublishCommandService publishCommandService = mock(ProductPublishCommandService.class);
+        NoonSessionGateway noonSessionGateway = testNoonSessionGateway();
+        LocalDbProductMasterService service = new LocalDbProductMasterService(
+                productManagementMapper,
+                null,
+                null,
+                storeSyncMapper,
+                null,
+                objectMapper,
+                productNoonAdapter,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                publishCommandService,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        ProductPublishTaskRecord task = productDeleteTask();
+        task.setSkuParent("LOCAL-test1101-BB94AFB3");
+        task.setPskuCode(null);
+        task.setCurrentSiteCode("SA");
+        task.setRequestJson("{\"action\":\"product-delete\",\"rebuildAction\":\"product-rebuild\"}");
+        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+        snapshot.setMode("product-delete-task");
+        snapshot.setReady(true);
+        snapshot.getStoreContext().put("storeCode", "STR245027-NSA");
+        snapshot.getStoreContext().put("projectCode", "PRJ245027");
+        snapshot.getIdentity().put("skuParent", "LOCAL-test1101-BB94AFB3");
+        snapshot.getIdentity().put("partnerSku", "test1101");
+        task.setBaselineJson(objectMapper.writeValueAsString(snapshot));
+        task.setDraftJson(objectMapper.writeValueAsString(snapshot));
+        when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
+        when(publishCommandService.buildTaskView(any(), anyBoolean(), any(), any())).thenReturn(new ProductPublishTaskView());
+
+        invokeExecuteProductDeleteTask(service, task, "queued");
+
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        verify(publishCommandService).updateStatus(
+                eq(task),
+                eq("synced"),
+                isNull(),
+                isNull(),
+                resultCaptor.capture(),
+                isNull(),
+                any(),
+                eq(0)
+        );
+        JsonNode result = objectMapper.readTree(resultCaptor.getValue());
+        assertEquals("synced", result.path("status").asText());
+        assertEquals("local_noon_identity_missing", result.path("stage").asText());
+        assertTrue(result.path("warnings").path(0).asText().contains("跳过删除旧品"));
+        verify(productNoonAdapter, never()).loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString());
+        verify(productNoonAdapter, never()).postWriteJson(any(), anyString(), any(JsonNode.class), anyBoolean());
+        verify(productNoonAdapter, never()).postJson(any(), anyString(), any(JsonNode.class), anyBoolean());
+        verify(productManagementMapper, never()).markProductMasterDeletedById(any(), any());
+    }
+
+    @Test
+    void productDeleteTaskShouldCleanLocalDraftWhenLocalSkuParentHasNoNoonPsku() throws Exception {
+        ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
+        StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
+        ProductNoonAdapter productNoonAdapter = mock(ProductNoonAdapter.class);
+        ProductPublishCommandService publishCommandService = mock(ProductPublishCommandService.class);
+        NoonSessionGateway noonSessionGateway = testNoonSessionGateway();
+        LocalDbProductMasterService service = new LocalDbProductMasterService(
+                productManagementMapper,
+                null,
+                null,
+                storeSyncMapper,
+                null,
+                objectMapper,
+                productNoonAdapter,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                publishCommandService,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+        ProductPublishTaskRecord task = productDeleteTask();
+        task.setSkuParent("LOCAL-CODEX-LISTING-SMOKE-1783156735-8AA9AEF1");
+        task.setPartnerSku("CODEX-LISTING-SMOKE-1783156735");
+        task.setPskuCode(null);
+        task.setCurrentSiteCode("SA");
+        task.setRequestJson("{\"action\":\"product-delete\"}");
+        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
+        snapshot.setMode("product-delete-task");
+        snapshot.setReady(true);
+        snapshot.getStoreContext().put("storeCode", "STR108065-NSA");
+        snapshot.getStoreContext().put("projectCode", "PRJ108065");
+        snapshot.getIdentity().put("skuParent", "LOCAL-CODEX-LISTING-SMOKE-1783156735-8AA9AEF1");
+        snapshot.getIdentity().put("partnerSku", "CODEX-LISTING-SMOKE-1783156735");
+        task.setBaselineJson(objectMapper.writeValueAsString(snapshot));
+        task.setDraftJson(objectMapper.writeValueAsString(snapshot));
+        when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
+        when(productManagementMapper.markProductMasterDeletedById(64001L, 10002L)).thenReturn(1);
+        when(productManagementMapper.selectProductActionLogIdByIdempotency("product-delete-task:77001"))
+                .thenReturn(null);
+        when(productManagementMapper.nextProductActionLogId()).thenReturn(58460L);
+        when(publishCommandService.buildTaskView(any(), anyBoolean(), any(), any()))
+                .thenReturn(new ProductPublishTaskView());
+
+        invokeExecuteProductDeleteTask(service, task, ProductPublishCommandService.PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED);
+
+        ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
+        verify(publishCommandService).updateStatus(
+                eq(task),
+                eq("synced"),
+                isNull(),
+                isNull(),
+                resultCaptor.capture(),
+                isNull(),
+                any(),
+                eq(0)
+        );
+        JsonNode result = objectMapper.readTree(resultCaptor.getValue());
+        assertEquals("synced", result.path("status").asText());
+        assertEquals("local_noon_identity_missing", result.path("stage").asText());
+        assertTrue(result.path("warnings").toString().contains("清理本地目录"));
+        verify(productManagementMapper).markProductMasterDeletedById(64001L, 10002L);
+        ArgumentCaptor<String> requestJsonCaptor = ArgumentCaptor.forClass(String.class);
+        verify(productManagementMapper).insertProductActionLog(
+                eq(58460L),
+                eq(64001L),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq("delete-product"),
+                eq("local"),
+                eq("product-delete-task:77001"),
+                eq("local_delete"),
+                eq("synced"),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq(0),
+                anyString(),
+                isNull(),
+                requestJsonCaptor.capture(),
+                isNull(),
+                any(),
+                any(),
+                any(),
+                eq(10002L)
+        );
+        assertEquals("local-only", objectMapper.readTree(requestJsonCaptor.getValue()).path("mode").asText());
+        verify(productNoonAdapter, never()).loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString());
+        verify(productNoonAdapter, never()).postWriteJson(any(), anyString(), any(JsonNode.class), anyBoolean());
+        verify(productNoonAdapter, never()).postJson(any(), anyString(), any(JsonNode.class), anyBoolean());
     }
 
     private void invokeExecuteProductDeleteTask(

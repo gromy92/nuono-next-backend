@@ -39,6 +39,7 @@ public class AiProperties {
         private int timeoutSeconds = 180;
         private boolean storeResponses;
         private boolean includeMetadata;
+        private boolean curlFallbackEnabled;
         private Integer maxOutputTokens = 1200;
 
         public String getApiKey() {
@@ -103,6 +104,14 @@ public class AiProperties {
 
         public void setIncludeMetadata(boolean includeMetadata) {
             this.includeMetadata = includeMetadata;
+        }
+
+        public boolean isCurlFallbackEnabled() {
+            return curlFallbackEnabled;
+        }
+
+        public void setCurlFallbackEnabled(boolean curlFallbackEnabled) {
+            this.curlFallbackEnabled = curlFallbackEnabled;
         }
 
         public Integer getMaxOutputTokens() {

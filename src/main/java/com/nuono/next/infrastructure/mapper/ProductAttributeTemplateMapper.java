@@ -68,7 +68,7 @@ public interface ProductAttributeTemplateMapper {
     @Select({
             "SELECT",
             "  id, project_code, store_code, product_fulltype, attribute_code,",
-            "  label_en, label_ar, group_name, input_kind, `required`, `grouping`, visible_seller,",
+            "  label_en, label_ar, label_zh, group_name, input_kind, `required`, `grouping`, visible_seller,",
             "  dictionary_source, sort_order, fetched_at",
             "FROM noon_attribute_field",
             "WHERE is_deleted = 0",
@@ -89,7 +89,7 @@ public interface ProductAttributeTemplateMapper {
     @Select({
             "SELECT",
             "  id, project_code, store_code, product_fulltype, attribute_code,",
-            "  label_en, label_ar, group_name, input_kind, `required`, `grouping`, visible_seller,",
+            "  label_en, label_ar, label_zh, group_name, input_kind, `required`, `grouping`, visible_seller,",
             "  dictionary_source, sort_order, fetched_at",
             "FROM noon_attribute_field",
             "WHERE project_code = #{projectCode}",
@@ -107,7 +107,7 @@ public interface ProductAttributeTemplateMapper {
 
     @Select({
             "<script>",
-            "SELECT field_id, option_value, label_en, label_ar, sort_order",
+            "SELECT field_id, option_value, label_en, label_ar, label_zh, sort_order",
             "FROM noon_attribute_option",
             "WHERE is_deleted = 0",
             "  AND field_id IN",
@@ -121,7 +121,7 @@ public interface ProductAttributeTemplateMapper {
 
     @Select({
             "<script>",
-            "SELECT field_id, unit_value AS option_value, label_en, label_ar, sort_order",
+            "SELECT field_id, unit_value AS option_value, label_en, label_ar, label_zh, sort_order",
             "FROM noon_attribute_unit_option",
             "WHERE is_deleted = 0",
             "  AND field_id IN",
@@ -261,13 +261,36 @@ public interface ProductAttributeTemplateMapper {
 
     @Select({
             "SELECT",
-            "  ls.owner_user_id, t.project_code, t.store_code, t.product_fulltype",
-            "FROM noon_attribute_template t",
-            "JOIN logical_store_site lss ON lss.store_code = t.store_code AND lss.is_deleted = b'0'",
-            "JOIN logical_store ls ON ls.id = lss.logical_store_id AND ls.is_deleted = b'0'",
-            "WHERE t.status = 'ready'",
-            "  AND t.fetched_at < DATE_SUB(NOW(), INTERVAL #{staleDays} DAY)",
-            "ORDER BY t.fetched_at ASC",
+            "  ranked.ownerUserId, ranked.projectCode, ranked.storeCode, ranked.productFulltype,",
+            "  ranked.authProjectCode, ranked.authStoreCode",
+            "FROM (",
+            "  SELECT",
+            "    auth.owner_user_id AS ownerUserId,",
+            "    '*' AS projectCode,",
+            "    '*' AS storeCode,",
+            "    t.product_fulltype AS productFulltype,",
+            "    auth.project_code AS authProjectCode,",
+            "    auth.store_code AS authStoreCode,",
+            "    t.fetched_at AS fetchedAt,",
+            "    ROW_NUMBER() OVER (",
+            "      PARTITION BY t.product_fulltype",
+            "      ORDER BY",
+            "        CASE WHEN t.project_code = '*' AND t.store_code = '*' THEN 0 ELSE 1 END,",
+            "        t.fetched_at ASC, auth.owner_user_id ASC, auth.store_code ASC",
+            "    ) AS templateRank",
+            "  FROM noon_attribute_template t",
+            "  JOIN (",
+            "    SELECT ls.owner_user_id, ls.project_code, lss.store_code",
+            "    FROM logical_store_site lss",
+            "    JOIN logical_store ls ON ls.id = lss.logical_store_id AND ls.is_deleted = b'0'",
+            "    WHERE lss.is_deleted = b'0'",
+            "  ) auth ON (t.project_code = '*' OR auth.project_code = t.project_code)",
+            "    AND (t.store_code = '*' OR auth.store_code = t.store_code)",
+            "  WHERE t.status = 'ready'",
+            "    AND t.fetched_at < DATE_SUB(NOW(), INTERVAL #{staleDays} DAY)",
+            ") ranked",
+            "WHERE ranked.templateRank = 1",
+            "ORDER BY ranked.fetchedAt ASC",
             "LIMIT #{limit}"
     })
     List<ProductAttributeTemplateRefreshCandidate> selectRefreshCandidates(

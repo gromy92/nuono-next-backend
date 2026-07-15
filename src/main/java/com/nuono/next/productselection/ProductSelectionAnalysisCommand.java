@@ -47,6 +47,10 @@ public class ProductSelectionAnalysisCommand {
         private List<String> fetchedSellingPointsAr = new ArrayList<>();
         private String fetchedSourceHost;
         private String fetchedPriceSummary;
+        private String fetchedCategoryName;
+        private String fetchedCategoryPath;
+        private String fetchedCategoryUrl;
+        private List<ProductSelectionCompetitorCategoryLink> fetchedCategoryLinks = new ArrayList<>();
         private String fetchedCompleteness;
         private String fetchedCollectionSource;
         private String fetchedAt;
@@ -160,6 +164,40 @@ public class ProductSelectionAnalysisCommand {
 
         public void setFetchedPriceSummary(String fetchedPriceSummary) {
             this.fetchedPriceSummary = fetchedPriceSummary;
+        }
+
+        public String getFetchedCategoryName() {
+            return fetchedCategoryName;
+        }
+
+        public void setFetchedCategoryName(String fetchedCategoryName) {
+            this.fetchedCategoryName = fetchedCategoryName;
+        }
+
+        public String getFetchedCategoryPath() {
+            return fetchedCategoryPath;
+        }
+
+        public void setFetchedCategoryPath(String fetchedCategoryPath) {
+            this.fetchedCategoryPath = fetchedCategoryPath;
+        }
+
+        public String getFetchedCategoryUrl() {
+            return fetchedCategoryUrl;
+        }
+
+        public void setFetchedCategoryUrl(String fetchedCategoryUrl) {
+            this.fetchedCategoryUrl = fetchedCategoryUrl;
+        }
+
+        public List<ProductSelectionCompetitorCategoryLink> getFetchedCategoryLinks() {
+            return fetchedCategoryLinks;
+        }
+
+        public void setFetchedCategoryLinks(List<ProductSelectionCompetitorCategoryLink> fetchedCategoryLinks) {
+            this.fetchedCategoryLinks = fetchedCategoryLinks == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(fetchedCategoryLinks);
         }
 
         public String getFetchedCompleteness() {

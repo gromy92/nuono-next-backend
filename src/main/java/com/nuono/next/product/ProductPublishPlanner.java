@@ -37,9 +37,6 @@ public class ProductPublishPlanner {
         ProductMasterSnapshotView publishable = draft;
         hydrateOffers(publishable, baseline, currentSiteCode);
         List<String> blockers = new ArrayList<>();
-        if (hasLocalImageUrl(publishable)) {
-            blockers.add("本地上传图片仍是系统相对地址，不能发布到 Noon。");
-        }
         return new ProductPublishPlan(publishable, blockers);
     }
 
@@ -73,23 +70,6 @@ public class ProductPublishPlanner {
             hydratedOffers.add(hydrated);
         }
         publishable.setSiteOffers(hydratedOffers);
-    }
-
-    private boolean hasLocalImageUrl(ProductMasterSnapshotView snapshot) {
-        if (snapshot == null || snapshot.getContent() == null) {
-            return false;
-        }
-        Object images = snapshot.getContent().get("images");
-        if (!(images instanceof List<?>)) {
-            return false;
-        }
-        for (Object image : (List<?>) images) {
-            String url = text(image);
-            if (url.startsWith("/api/product-master/image-assets/")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private Map<String, Map<String, Object>> offersByStoreCode(List<Map<String, Object>> offers) {

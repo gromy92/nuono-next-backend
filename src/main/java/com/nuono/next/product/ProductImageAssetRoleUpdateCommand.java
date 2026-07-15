@@ -4,6 +4,7 @@ public class ProductImageAssetRoleUpdateCommand {
     private Long assetId;
     private String imageUrl;
     private ProductImageRole imageRole;
+    private Integer sortOrder;
 
     public Long getAssetId() {
         return assetId;
@@ -27,5 +28,13 @@ public class ProductImageAssetRoleUpdateCommand {
 
     public void setImageRole(ProductImageRole imageRole) {
         this.imageRole = imageRole;
+    }
+
+    public Integer getSortOrder() {
+        return sortOrder;
+    }
+
+    public void setSortOrder(Integer sortOrder) {
+        this.sortOrder = sortOrder;
     }
 }

@@ -172,6 +172,7 @@ public interface ProductLiteMapper {
             "  AND ls.is_deleted = b'0'",
             "  AND pm.product_fulltype_cache IS NOT NULL",
             "  AND pm.product_fulltype_cache != ''",
+            "  AND pm.product_fulltype_cache REGEXP '^[a-z0-9_]+-[a-z0-9_]+-[a-z0-9_]+$'",
             "  <if test='query != null and query != \"\"'>",
             "    AND pm.product_fulltype_cache LIKE CONCAT('%', #{query}, '%')",
             "  </if>",

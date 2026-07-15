@@ -81,7 +81,12 @@ class ProductKeywordSchemaTest {
     @Test
     void keywordCapabilityCoversPageAndApiRoutes() {
         assertThat(BusinessCapability.PRODUCT_KEYWORD_MANAGEMENT.getMenuPathPrefixes())
-                .contains("/operations/product-keywords", "/api/product-keywords");
+                .contains(
+                        "/operations/product-keywords",
+                        "/api/product-keywords",
+                        "/product/manage",
+                        "/purchase/listing"
+                );
     }
 
     private static Pattern roleGrant(int roleId, int menuId) {

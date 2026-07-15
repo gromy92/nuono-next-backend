@@ -105,6 +105,16 @@ class ProductKeywordTitleIndexerTest {
     }
 
     private static final class FakeProductKeywordMapper implements ProductKeywordMapper {
+
+        @Override
+        public int archiveKeyword(Long ownerUserId, String storeCode, String siteCode, String partnerSku, Long keywordId, Long updatedBy) {
+            return 0;
+        }
+
+        @Override
+        public int archiveKeywordEvents(Long ownerUserId, String storeCode, String siteCode, String partnerSku, Long keywordId, Long updatedBy) {
+            return 0;
+        }
         private long nextEventId = 320001L;
         private final List<ProductKeywordRecord> titleTargets = new ArrayList<>();
         private final List<ProductKeywordUsageEventRecord> events = new ArrayList<>();

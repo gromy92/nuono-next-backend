@@ -39,6 +39,15 @@ public class ProductContentTranslationService {
         AiStructuredTextResult aiResult = translateWithAi(command, targetLang);
         String aiText = aiTranslationText(aiResult);
         if (StringUtils.hasText(aiText)) {
+            if (!translatedTextMatchesTargetLang(aiText, targetLang)) {
+                List<String> warnings = new ArrayList<>(warningsFrom(aiResult));
+                warnings.add("AI_TRANSLATION_TARGET_LANG_MISMATCH");
+                return ProductContentTranslateView.unavailable(
+                        "ai",
+                        targetLanguageMismatchMessage(targetLang),
+                        warnings
+                );
+            }
             return ProductContentTranslateView.of(aiText.trim(), "ai", warningsFrom(aiResult));
         }
 
@@ -173,6 +182,49 @@ public class ProductContentTranslationService {
             ));
         }
         return text;
+    }
+
+    private boolean translatedTextMatchesTargetLang(String text, String targetLang) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        if ("ZH".equals(targetLang)) {
+            return containsChinese(text);
+        }
+        if ("AR".equals(targetLang)) {
+            return containsArabic(text);
+        }
+        if ("EN".equals(targetLang)) {
+            return containsLatin(text) && !containsArabic(text) && !containsChinese(text);
+        }
+        return true;
+    }
+
+    private String targetLanguageMismatchMessage(String targetLang) {
+        if ("ZH".equals(targetLang)) {
+            return "AI 返回的翻译不是中文，请重试。";
+        }
+        if ("AR".equals(targetLang)) {
+            return "AI 返回的翻译不是阿语，请重试。";
+        }
+        if ("EN".equals(targetLang)) {
+            return "AI 返回的翻译不是英文，请重试。";
+        }
+        return "AI 返回的翻译目标语言不正确，请重试。";
+    }
+
+    private boolean containsChinese(String value) {
+        return value.codePoints().anyMatch(codePoint -> codePoint >= 0x4E00 && codePoint <= 0x9FFF);
+    }
+
+    private boolean containsArabic(String value) {
+        return value.codePoints().anyMatch(codePoint -> codePoint >= 0x0600 && codePoint <= 0x06FF);
+    }
+
+    private boolean containsLatin(String value) {
+        return value.codePoints().anyMatch(codePoint ->
+                (codePoint >= 'A' && codePoint <= 'Z') || (codePoint >= 'a' && codePoint <= 'z')
+        );
     }
 
     private String replaceWords(String source, Map<String, String> dictionary) {

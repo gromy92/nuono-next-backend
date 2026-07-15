@@ -54,6 +54,44 @@ public class ProductListingController {
         }
     }
 
+    @GetMapping("/drafts")
+    public List<ProductListingDraftView> drafts(
+            @RequestParam String storeCode,
+            @RequestParam(defaultValue = "30") int limit,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING,
+                    storeCode
+            );
+            return service.listDrafts(context, storeCode, limit);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @GetMapping("/drafts/{draftId}")
+    public ProductListingDraftView draft(
+            @PathVariable Long draftId,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING
+            );
+            return service.loadDraft(context, draftId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PostMapping("/drafts/{draftId}/validate")
     public ProductListingDraftView validateDraft(
             @PathVariable Long draftId,
@@ -65,6 +103,25 @@ public class ProductListingController {
                     BusinessCapability.PRODUCT_LISTING
             );
             return service.validateDraft(context, draftId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/field-validation")
+    public ProductListingFieldValidationView validateFields(
+            @RequestBody(required = false) ProductListingDraftCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
+                    request,
+                    BusinessCapability.PRODUCT_LISTING,
+                    command == null ? null : command.getStoreCode()
+            );
+            return service.validateFields(context, command);
         } catch (BusinessAccessDeniedException exception) {
             throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
@@ -208,6 +265,7 @@ public class ProductListingController {
     @GetMapping("/tasks/recent")
     public List<ProductListingTaskView> recentTasks(
             @RequestParam String storeCode,
+            @RequestParam(required = false) Long draftId,
             @RequestParam(defaultValue = "20") int limit,
             HttpServletRequest request
     ) {
@@ -217,7 +275,7 @@ public class ProductListingController {
                     BusinessCapability.PRODUCT_LISTING,
                     storeCode
             );
-            return service.recentTasks(context, storeCode, limit);
+            return service.recentTasks(context, storeCode, draftId, limit);
         } catch (BusinessAccessDeniedException exception) {
             throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
