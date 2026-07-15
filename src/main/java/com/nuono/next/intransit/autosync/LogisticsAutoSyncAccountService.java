@@ -179,6 +179,10 @@ public class LogisticsAutoSyncAccountService {
             case "YITE":
             case "YI_TE":
                 return "YITE";
+            case "ZD":
+            case "ZDSEA":
+            case "ZHONGDONG":
+                return "ZD";
             default:
                 throw new IllegalArgumentException("不支持的物流自动同步渠道：" + value);
         }

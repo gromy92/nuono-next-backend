@@ -42,6 +42,25 @@ class LogisticsAutoSyncSchemaContractTest {
                 .contains("last_synced_at = COALESCE(#{lastSyncedAt}, last_synced_at)");
     }
 
+    @Test
+    void zdDefaultsToDisabledRollingReadWindow() throws Exception {
+        LogisticsAutoSyncProperties.Zd zd = new LogisticsAutoSyncProperties().getZd();
+
+        assertThat(zd.isEnabled()).isFalse();
+        assertThat(zd.getBaseUrl()).isEqualTo("http://www.erpzd.com");
+        assertThat(zd.getLoginPath()).isEqualTo("/api/v1/login");
+        assertThat(zd.getExpressPath()).isEqualTo("/api/v1/customer/wuliu/express/integral/q");
+        assertThat(zd.getBoxPath()).isEqualTo("/api/v1/customer/wuliu/box/q");
+        assertThat(zd.getLookbackDays()).isEqualTo(59);
+        assertThat(zd.getLookaheadDays()).isEqualTo(1);
+
+        String applicationYaml = Files.readString(Path.of("src", "main", "resources", "application.yml"));
+        assertThat(applicationYaml)
+                .contains("NUONO_LOGISTICS_AUTO_SYNC_ZD_ENABLED:false")
+                .contains("NUONO_LOGISTICS_AUTO_SYNC_ZD_LOOKBACK_DAYS:59")
+                .contains("NUONO_LOGISTICS_AUTO_SYNC_ZD_LOOKAHEAD_DAYS:1");
+    }
+
     private static String updateSql(String methodName) {
         Method method = Arrays.stream(LogisticsAutoSyncMapper.class.getDeclaredMethods())
                 .filter(candidate -> candidate.getName().equals(methodName))
