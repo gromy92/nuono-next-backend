@@ -250,8 +250,8 @@ class ProductListingMapperSqlTest {
     }
 
     @Test
-    void realRunMigrationShouldEnforceOneWriteAttemptPerDryRun() throws IOException {
-        String sql = Files.readString(Path.of("src/main/resources/db/init/162_product_listing_real_run.sql"));
+    void realRunRetryGuardMigrationShouldEnforceOneWriteAttemptPerDryRun() throws IOException {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/186_product_listing_real_run_retry_guard.sql"));
 
         assertTrue(sql.contains("real_write_attempt_source_task_id"));
         assertTrue(sql.contains("uk_product_listing_real_write_attempt"));
