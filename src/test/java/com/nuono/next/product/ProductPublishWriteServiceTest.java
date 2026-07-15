@@ -90,6 +90,35 @@ class ProductPublishWriteServiceTest {
     }
 
     @Test
+    void shouldNotFallbackToOwnerCookieWhenStoreCookieIsMissing() {
+        StoreSyncOwnerContext owner = ownerContext();
+        StoreSyncStoreRecord store = storeRecord();
+        store.setNoonPartnerCookie(null);
+        ProductMasterActionCommand command = command();
+
+        when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(owner);
+
+        service.publishSupportedChanges(
+                command,
+                store,
+                snapshot(),
+                snapshot(),
+                snapshot(),
+                "STR245027-NAE",
+                new ProductPublishUnsupportedChanges(),
+                new ArrayList<>()
+        );
+
+        verify(productNoonAdapter).loginWithPersistedCookie(
+                307L,
+                "store-project-user",
+                null,
+                "PRJ-LOCAL",
+                "STR245027-NAE"
+        );
+    }
+
+    @Test
     void shouldFailBeforeLoginWhenOwnerContextIsMissing() {
         StoreSyncStoreRecord store = storeRecord();
         ProductMasterActionCommand command = command();

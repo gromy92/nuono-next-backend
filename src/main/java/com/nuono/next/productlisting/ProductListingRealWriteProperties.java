@@ -87,6 +87,8 @@ public class ProductListingRealWriteProperties {
                 "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-offermgmt/offer/upsert/is_active";
         public static final String DEFAULT_UPSERT_BARCODE_URL =
                 "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/pbarcode/upsert";
+        public static final String DEFAULT_OFFER_LIST_URL =
+                "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
 
         private String createProductUrl = DEFAULT_CREATE_PRODUCT_URL;
         private String skuCacheUrl = DEFAULT_SKU_CACHE_URL;
@@ -101,6 +103,7 @@ public class ProductListingRealWriteProperties {
         private String upsertOfferNoteUrl = DEFAULT_UPSERT_OFFER_NOTE_URL;
         private String upsertIsActiveUrl = DEFAULT_UPSERT_IS_ACTIVE_URL;
         private String upsertBarcodeUrl = DEFAULT_UPSERT_BARCODE_URL;
+        private String offerListUrl = DEFAULT_OFFER_LIST_URL;
 
         public String getCreateProductUrl() {
             return createProductUrl;
@@ -204,6 +207,14 @@ public class ProductListingRealWriteProperties {
 
         public void setUpsertBarcodeUrl(String upsertBarcodeUrl) {
             this.upsertBarcodeUrl = upsertBarcodeUrl;
+        }
+
+        public String getOfferListUrl() {
+            return offerListUrl;
+        }
+
+        public void setOfferListUrl(String offerListUrl) {
+            this.offerListUrl = offerListUrl;
         }
     }
 }

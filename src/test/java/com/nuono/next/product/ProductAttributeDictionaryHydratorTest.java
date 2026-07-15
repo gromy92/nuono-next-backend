@@ -43,9 +43,10 @@ class ProductAttributeDictionaryHydratorTest {
                 + "\"code\":\"color\","
                 + "\"labelEn\":\"Color\","
                 + "\"labelAr\":\"لون\","
+                + "\"labelZh\":\"颜色\","
                 + "\"groupName\":\"Basics\","
                 + "\"dictionarySource\":\"dictionary-table\","
-                + "\"options\":[{\"value\":\"red\",\"en\":\"Red\",\"ar\":\"أحمر\"}]"
+                + "\"options\":[{\"value\":\"red\",\"en\":\"Red\",\"ar\":\"أحمر\",\"zh\":\"红色\"}]"
                 + "},"
                 + "{"
                 + "\"code\":\"width\","
@@ -71,10 +72,11 @@ class ProductAttributeDictionaryHydratorTest {
 
         assertEquals("Color", color.get("labelEn"));
         assertEquals("لون", color.get("labelAr"));
+        assertEquals("颜色", color.get("labelZh"));
         assertEquals("Basics", color.get("groupName"));
         assertEquals("dictionary-table", color.get("dictionarySource"));
         assertEquals("select", color.get("kind"));
-        assertEquals(List.of(Map.of("value", "red", "en", "Red", "ar", "أحمر")), color.get("options"));
+        assertEquals(List.of(Map.of("value", "red", "en", "Red", "ar", "أحمر", "zh", "红色")), color.get("options"));
         assertEquals("dimension", width.get("kind"));
         assertEquals(List.of(Map.of("value", "cm", "en", "cm"), Map.of("value", "m", "en", "m")), width.get("unitOptions"));
     }

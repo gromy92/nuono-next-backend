@@ -14,14 +14,14 @@ class ProductPublishPlannerTest {
     private final ProductPublishPlanner planner = new ProductPublishPlanner(new ProductDraftMergePolicy());
 
     @Test
-    void shouldBlockLocalUploadedImageUrl() {
+    void shouldAllowLocalUploadedImageUrlBecausePublishUploadsIt() {
         ProductMasterSnapshotView baseline = snapshotWithImages(List.of("https://f.nooncdn.com/p/main.jpg"));
         ProductMasterSnapshotView draft = snapshotWithImages(List.of("/api/product-master/image-assets/local.png"));
 
         ProductPublishPlan plan = planner.plan(draft, baseline, "STR245027-NAE");
 
-        assertFalse(plan.isPublishable());
-        assertTrue(plan.getBlockers().contains("本地上传图片仍是系统相对地址，不能发布到 Noon。"));
+        assertTrue(plan.isPublishable());
+        assertTrue(plan.getBlockers().isEmpty());
     }
 
     @Test

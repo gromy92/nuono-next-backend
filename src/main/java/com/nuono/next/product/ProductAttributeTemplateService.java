@@ -44,6 +44,8 @@ public class ProductAttributeTemplateService {
     private static final String FULLTYPE_ATTRS_URL =
             "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-mpcatalog/catalog/get-fulltype-attributes-new";
     private static final Duration CACHE_TTL = Duration.ofDays(7);
+    private static final String GLOBAL_PROJECT_CODE = "*";
+    private static final String GLOBAL_STORE_CODE = "*";
 
     private final ProductAttributeTemplateMapper templateMapper;
     private final ProductManagementMapper productManagementMapper;
@@ -83,30 +85,26 @@ public class ProductAttributeTemplateService {
             Long operatorUserId,
             List<String> warnings
     ) {
-        String normalizedProjectCode = normalize(projectCode);
-        String normalizedStoreCode = normalize(storeCode);
         String normalizedFulltype = normalize(productFulltype);
-        if (!StringUtils.hasText(normalizedFulltype)
-                || !StringUtils.hasText(normalizedProjectCode)
-                || !StringUtils.hasText(normalizedStoreCode)) {
+        if (!StringUtils.hasText(normalizedFulltype)) {
             return MissingNode.getInstance();
         }
 
-        String cacheKey = cacheKey(normalizedProjectCode, normalizedStoreCode, normalizedFulltype);
+        String cacheKey = cacheKey(GLOBAL_PROJECT_CODE, GLOBAL_STORE_CODE, normalizedFulltype);
         JsonNode memoryTemplate = memoryCache.get(cacheKey);
         if (usable(memoryTemplate)) {
             return memoryTemplate;
         }
 
         ProductAttributeTemplateRecord storedTemplate =
-                templateMapper.selectByScope(normalizedProjectCode, normalizedStoreCode, normalizedFulltype);
+                templateMapper.selectByScope(GLOBAL_PROJECT_CODE, GLOBAL_STORE_CODE, normalizedFulltype);
         if (storedTemplate != null && fresh(storedTemplate)) {
             JsonNode rawTemplate = parseStoredTemplate(storedTemplate, warnings);
             if (usable(rawTemplate)) {
                 JsonNode templateWithDictionary = attachDictionary(
                         rawTemplate,
-                        normalizedProjectCode,
-                        normalizedStoreCode,
+                        GLOBAL_PROJECT_CODE,
+                        GLOBAL_STORE_CODE,
                         normalizedFulltype
                 );
                 memoryCache.put(cacheKey, templateWithDictionary);
@@ -117,8 +115,8 @@ public class ProductAttributeTemplateService {
         JsonNode liveTemplate = fetchTemplate(session, normalizedFulltype, warnings);
         if (usable(liveTemplate)) {
             upsertTemplate(
-                    normalizedProjectCode,
-                    normalizedStoreCode,
+                    GLOBAL_PROJECT_CODE,
+                    GLOBAL_STORE_CODE,
                     normalizedFulltype,
                     liveTemplate,
                     operatorUserId,
@@ -126,8 +124,8 @@ public class ProductAttributeTemplateService {
             );
             JsonNode templateWithDictionary = attachDictionary(
                     liveTemplate,
-                    normalizedProjectCode,
-                    normalizedStoreCode,
+                    GLOBAL_PROJECT_CODE,
+                    GLOBAL_STORE_CODE,
                     normalizedFulltype
             );
             memoryCache.put(cacheKey, templateWithDictionary);
@@ -143,8 +141,8 @@ public class ProductAttributeTemplateService {
                 }
                 JsonNode templateWithDictionary = attachDictionary(
                         staleTemplate,
-                        normalizedProjectCode,
-                        normalizedStoreCode,
+                        GLOBAL_PROJECT_CODE,
+                        GLOBAL_STORE_CODE,
                         normalizedFulltype
                 );
                 memoryCache.put(cacheKey, templateWithDictionary);
@@ -153,8 +151,8 @@ public class ProductAttributeTemplateService {
         }
         JsonNode dictionaryOnlyTemplate = attachDictionary(
                 objectMapper.createObjectNode(),
-                normalizedProjectCode,
-                normalizedStoreCode,
+                GLOBAL_PROJECT_CODE,
+                GLOBAL_STORE_CODE,
                 normalizedFulltype
         );
         return usable(dictionaryOnlyTemplate.path("_nuonoAttributeDictionary"))
@@ -191,7 +189,7 @@ public class ProductAttributeTemplateService {
 
     @Scheduled(
             initialDelayString = "${nuono.product-management.attribute-template.scheduler.initial-delay-ms:900000}",
-            fixedDelayString = "${nuono.product-management.attribute-template.scheduler.fixed-delay-ms:86400000}"
+            fixedDelayString = "${nuono.product-management.attribute-template.scheduler.fixed-delay-ms:604800000}"
     )
     public void refreshStaleTemplates() {
         if (!schedulerEnabled) {
@@ -252,7 +250,9 @@ public class ProductAttributeTemplateService {
         LocalDateTime startedAt = LocalDateTime.now();
         String errorMessage = null;
         try {
-            StoreSyncStoreRecord store = storeSyncMapper.selectOwnerStore(candidate.getOwnerUserId(), candidate.getStoreCode());
+            String authProjectCode = firstNonBlank(candidate.getAuthProjectCode(), candidate.getProjectCode());
+            String authStoreCode = firstNonBlank(candidate.getAuthStoreCode(), candidate.getStoreCode());
+            StoreSyncStoreRecord store = storeSyncMapper.selectOwnerStore(candidate.getOwnerUserId(), authStoreCode);
             StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(candidate.getOwnerUserId());
             String noonUser = firstNonBlank(
                     store != null ? store.getNoonPartnerUser() : null,
@@ -265,8 +265,8 @@ public class ProductAttributeTemplateService {
                     candidate.getOwnerUserId(),
                     noonUser,
                     cookie,
-                    candidate.getProjectCode(),
-                    candidate.getStoreCode()
+                    authProjectCode,
+                    authStoreCode
             );
             List<String> warnings = new ArrayList<>();
             JsonNode template = fetchTemplate(session, candidate.getProductFulltype(), warnings);
@@ -274,14 +274,14 @@ public class ProductAttributeTemplateService {
                 throw new IllegalStateException(warnings.isEmpty() ? "Noon 未返回可用模板。" : String.join("；", warnings));
             }
             upsertTemplate(
-                    candidate.getProjectCode(),
-                    candidate.getStoreCode(),
+                    GLOBAL_PROJECT_CODE,
+                    GLOBAL_STORE_CODE,
                     candidate.getProductFulltype(),
                     template,
                     candidate.getOwnerUserId(),
                     warnings
             );
-            memoryCache.remove(cacheKey(candidate.getProjectCode(), candidate.getStoreCode(), candidate.getProductFulltype()));
+            memoryCache.remove(cacheKey(GLOBAL_PROJECT_CODE, GLOBAL_STORE_CODE, candidate.getProductFulltype()));
             insertSyncLog(candidate, "scheduled", "success", null, startedAt, LocalDateTime.now());
         } catch (RuntimeException exception) {
             errorMessage = shrink(exception.getMessage());
@@ -459,6 +459,7 @@ public class ProductAttributeTemplateService {
             mergeArrayIfEmpty(node, "unitOptions", optionArray(unitOptionsByFieldId.get(field.getId())));
             putIfMissing(node, "labelEn", field.getLabelEn());
             putIfMissing(node, "labelAr", field.getLabelAr());
+            putIfMissing(node, "labelZh", field.getLabelZh());
             putIfMissing(node, "groupName", field.getGroupName());
             putIfMissing(node, "kind", field.getInputKind());
         }
@@ -487,6 +488,7 @@ public class ProductAttributeTemplateService {
         putIfNotBlank(node, "code", field.getAttributeCode());
         putIfNotBlank(node, "labelEn", field.getLabelEn());
         putIfNotBlank(node, "labelAr", field.getLabelAr());
+        putIfNotBlank(node, "labelZh", field.getLabelZh());
         putIfNotBlank(node, "groupName", field.getGroupName());
         putIfNotBlank(node, "kind", field.getInputKind());
         putIfNotBlank(node, "dictionarySource", field.getDictionarySource());
@@ -519,6 +521,7 @@ public class ProductAttributeTemplateService {
             putIfNotBlank(node, "value", value);
             putIfNotBlank(node, "en", firstNonBlank(row.getLabelEn(), value));
             putIfNotBlank(node, "ar", row.getLabelAr());
+            putIfNotBlank(node, "zh", row.getLabelZh());
             array.add(node);
         }
         return array;

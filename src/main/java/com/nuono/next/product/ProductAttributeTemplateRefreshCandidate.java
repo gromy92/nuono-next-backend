@@ -6,6 +6,8 @@ public class ProductAttributeTemplateRefreshCandidate {
     private String projectCode;
     private String storeCode;
     private String productFulltype;
+    private String authProjectCode;
+    private String authStoreCode;
 
     public Long getOwnerUserId() {
         return ownerUserId;
@@ -37,5 +39,21 @@ public class ProductAttributeTemplateRefreshCandidate {
 
     public void setProductFulltype(String productFulltype) {
         this.productFulltype = productFulltype;
+    }
+
+    public String getAuthProjectCode() {
+        return authProjectCode;
+    }
+
+    public void setAuthProjectCode(String authProjectCode) {
+        this.authProjectCode = authProjectCode;
+    }
+
+    public String getAuthStoreCode() {
+        return authStoreCode;
+    }
+
+    public void setAuthStoreCode(String authStoreCode) {
+        this.authStoreCode = authStoreCode;
     }
 }

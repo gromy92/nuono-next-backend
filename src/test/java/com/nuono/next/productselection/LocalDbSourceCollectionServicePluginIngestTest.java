@@ -1,6 +1,7 @@
 package com.nuono.next.productselection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -99,6 +100,58 @@ class LocalDbSourceCollectionServicePluginIngestTest {
         assertEquals("plugin", response.getSourceCollection().getCollectionSource());
         assertEquals("AE", response.getSourceCollection().getSiteCode());
         assertEquals(1, response.getWarnings().size());
+    }
+
+    @Test
+    void pluginIngestDropsNoonNavigationLabelsFromSellingPoints() throws Exception {
+        ProductSelectionPluginIngestCommand command = new ProductSelectionPluginIngestCommand();
+        command.setStoreCode("STR245027-NSA");
+        command.setSourcePlatform("Noon");
+        command.setSourceUrl("https://www.noon.com/saudi-en/48-colours-acrylic-paint-marker-set/ZF69057049A17BC4C8ED6Z/p/");
+        command.setPageUrl("https://www.noon.com/saudi-en/48-colours-acrylic-paint-marker-set/ZF69057049A17BC4C8ED6Z/p/");
+        command.setSourceTitle("48 Colours Acrylic Paint Marker Set with Brush Tip");
+        command.setSourceSellingPointsEn(List.of(
+                "Electronics Mobiles & Accessories Galaxy AI",
+                "iPhone 17 Series",
+                "›",
+                "'> ' class='nav_a'>",
+                "Quick-drying water-based acrylic ink works on wood, rock and canvas"
+        ));
+        command.setSourceSellingPointsAr(List.of(
+                "الإلكترونيات الجوالات والاكسسوارات جالاكسي Al",
+                "شواحن",
+                "عن هذه السلعة",
+                "عربة التسوق shift + opt + C",
+                "حبر أكريليك مائي سريع الجفاف مناسب للخشب والصخور والقماش"
+        ));
+        command.setOperatorUserId(307L);
+        when(permissionGuard.requireWritableStore(307L, "STR245027-NSA")).thenReturn(storeScope("SA"));
+        when(productSelectionMapper.nextSourceCollectionId()).thenReturn(86490L);
+
+        ProductSelectionPluginIngestResponse response = service.pluginIngestSourceCollection(command);
+
+        ArgumentCaptor<ProductSelectionSourceCollectionRow> rowCaptor =
+                ArgumentCaptor.forClass(ProductSelectionSourceCollectionRow.class);
+        verify(productSelectionMapper).insertSourceCollection(rowCaptor.capture());
+        ProductSelectionSourceCollectionRow row = rowCaptor.getValue();
+        assertFalse(row.getSourceSellingPointsEnJson().contains("Electronics Mobiles"));
+        assertFalse(row.getSourceSellingPointsEnJson().contains("iPhone 17 Series"));
+        assertFalse(row.getSourceSellingPointsEnJson().contains("nav_a"));
+        assertTrue(row.getSourceSellingPointsEnJson().contains("Quick-drying water-based acrylic ink"));
+        assertFalse(row.getSourceSellingPointsArJson().contains("الإلكترونيات الجوالات والاكسسوارات"));
+        assertFalse(row.getSourceSellingPointsArJson().contains("شواحن\""));
+        assertFalse(row.getSourceSellingPointsArJson().contains("عن هذه السلعة"));
+        assertFalse(row.getSourceSellingPointsArJson().contains("عربة التسوق"));
+        assertTrue(row.getSourceSellingPointsArJson().contains("حبر أكريليك مائي سريع الجفاف"));
+
+        assertEquals(
+                List.of("Quick-drying water-based acrylic ink works on wood, rock and canvas"),
+                response.getSourceCollection().getSourceSellingPointsEn()
+        );
+        assertEquals(
+                List.of("حبر أكريليك مائي سريع الجفاف مناسب للخشب والصخور والقماش"),
+                response.getSourceCollection().getSourceSellingPointsAr()
+        );
     }
 
     @Test

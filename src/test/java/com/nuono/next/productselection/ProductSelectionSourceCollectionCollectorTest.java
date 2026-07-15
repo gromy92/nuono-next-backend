@@ -68,6 +68,11 @@ class ProductSelectionSourceCollectionCollectorTest {
                     Map.entry("sku", "N53335547A"),
                     Map.entry("product_title", arabic ? "سماعات لايف كيو 30 بلوتوث" : "Life Q30 Hybrid Active Noise Cancelling Headphones"),
                     Map.entry("brand", "Soundcore"),
+                    Map.entry("breadcrumbs", List.of(
+                            Map.of("code", "", "name", "Home"),
+                            Map.of("code", "electronics", "name", "Electronics"),
+                            Map.of("code", "electronics/headphones", "name", "Headphones")
+                    )),
                     Map.entry("long_description", arabic
                             ? "اسم اللون\tأزرق\nنوع الاتصال\tلاسلكي\nعدد القطع\t1"
                             : "Colour Name\tBlue\nConnection Type\tWireless\nItem Quantity\t1"),
@@ -123,6 +128,7 @@ class ProductSelectionSourceCollectionCollectorTest {
             assertTrue(result.getSpecHints().contains("Noon SKU: N53335547A"));
             assertTrue(result.getSpecHints().contains("Brand: Soundcore"));
             assertTrue(result.getSpecHints().contains("Colour Name: Blue"));
+            assertEquals("Electronics > Headphones", result.getCategoryLinks().get(0).getPath());
             assertTrue(result.getSpecHints().contains("Item Quantity: 1"));
             assertTrue(result.getSpecHints().contains("Rating: 4.5 out of 5"));
             assertTrue(result.getSpecHints().contains("Review Count: 6257"));

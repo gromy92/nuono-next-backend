@@ -337,6 +337,7 @@ public class LocalDbSourceCollectionService {
         row.setUnitCount(completenessCalculator.firstSpecValue(specHints, SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS));
         row.setColorName(completenessCalculator.firstSpecValue(specHints, Set.of("color", "colour")));
         row.setSpecHintsJson(writeStringListJson(specHints));
+        row.setCategoryLinksJson(writeCategoryLinksJson(List.of()));
         row.setSpecAttributeCount(completenessCalculator.countSpecAttributes(specHints));
         row.setSourceDescriptionEn(defaultText(source.getSourceDescriptionEn(), ""));
         row.setSourceDescriptionAr(defaultText(source.getSourceDescriptionAr(), source.getSelectedTextAr()));
@@ -380,8 +381,8 @@ public class LocalDbSourceCollectionService {
             imageUrls.add(0, mainImageUrl);
         }
         List<String> specHints = normalizeList(source.getSpecHints(), 30);
-        List<String> sellingPointsEn = normalizeList(source.getSourceSellingPointsEn(), 12);
-        List<String> sellingPointsAr = normalizeList(source.getSourceSellingPointsAr(), 12);
+        List<String> sellingPointsEn = normalizeSourceSellingPoints(source.getSourceSellingPointsEn(), 12);
+        List<String> sellingPointsAr = normalizeSourceSellingPoints(source.getSourceSellingPointsAr(), 12);
         if (!hasPluginCollectedFacts(source, imageUrls, specHints, sellingPointsEn, sellingPointsAr)) {
             throw new IllegalArgumentException("插件未采集到有效商品信息，请确认当前页是商品详情页。");
         }
@@ -413,6 +414,7 @@ public class LocalDbSourceCollectionService {
         row.setUnitCount(completenessCalculator.firstSpecValue(specHints, SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS));
         row.setColorName(completenessCalculator.firstSpecValue(specHints, Set.of("color", "colour", "color name", "colour name")));
         row.setSpecHintsJson(writeStringListJson(specHints));
+        row.setCategoryLinksJson(writeCategoryLinksJson(List.of()));
         row.setSpecAttributeCount(completenessCalculator.countSpecAttributes(specHints));
         row.setSourceDescriptionEn(defaultText(source.getSourceDescriptionEn(), ""));
         row.setSourceDescriptionAr(defaultText(source.getSourceDescriptionAr(), source.getSelectedTextAr()));
@@ -514,11 +516,18 @@ public class LocalDbSourceCollectionService {
             imageUrls.add(0, row.getSourceImageUrl());
         }
         List<String> specHints = readStringListJson(row.getSpecHintsJson());
-        List<String> sourceSellingPointsEn = readStringListJson(row.getSourceSellingPointsEnJson());
+        List<ProductSelectionCompetitorCategoryLink> categoryLinks = readCategoryLinksJson(row.getCategoryLinksJson());
+        List<String> sourceSellingPointsEn = normalizeSourceSellingPoints(
+                readStringListJson(row.getSourceSellingPointsEnJson()),
+                12
+        );
         if (sourceSellingPointsEn.isEmpty()) {
             sourceSellingPointsEn = extractLegacySellingPointsFromSpecHints(specHints);
         }
-        List<String> sourceSellingPointsAr = readStringListJson(row.getSourceSellingPointsArJson());
+        List<String> sourceSellingPointsAr = normalizeSourceSellingPoints(
+                readStringListJson(row.getSourceSellingPointsArJson()),
+                12
+        );
         if (sourceSellingPointsAr.isEmpty()) {
             sourceSellingPointsAr = extractLegacySellingPointsFromText(row.getSelectedTextAr());
         }
@@ -547,6 +556,7 @@ public class LocalDbSourceCollectionService {
         view.setUnitCount(defaultText(row.getUnitCount(), completenessCalculator.firstSpecValue(specHints, SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS)));
         view.setColorName(defaultText(row.getColorName(), completenessCalculator.firstSpecValue(specHints, Set.of("color", "colour", "color name", "colour name"))));
         view.setSpecHints(specHints);
+        applyCategoryLinks(view, categoryLinks);
         view.setSourceDescriptionEn(defaultText(row.getSourceDescriptionEn(), englishDescriptionFallback(row)));
         view.setSourceDescriptionAr(defaultText(row.getSourceDescriptionAr(), row.getSelectedTextAr()));
         view.setSourceSellingPointsEn(sourceSellingPointsEn);
@@ -577,6 +587,7 @@ public class LocalDbSourceCollectionService {
             imageUrls.add(0, result.getSourceImageUrl());
         }
         List<String> specHints = normalizeList(result.getSpecHints(), 80);
+        List<ProductSelectionCompetitorCategoryLink> categoryLinks = normalizeCategoryLinks(result.getCategoryLinks());
         ProductSelectionSourceCollectionView view = new ProductSelectionSourceCollectionView();
         view.setSiteCode(normalizeSiteCode(row.getSiteCode()));
         view.setSourceType(defaultText(row.getSourceType(), "image-search-source"));
@@ -596,10 +607,11 @@ public class LocalDbSourceCollectionService {
         view.setUnitCount(completenessCalculator.firstSpecValue(specHints, SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS));
         view.setColorName(completenessCalculator.firstSpecValue(specHints, Set.of("color", "colour", "color name", "colour name")));
         view.setSpecHints(specHints);
+        applyCategoryLinks(view, categoryLinks);
         view.setSourceDescriptionEn(defaultText(result.getSourceDescriptionEn(), row.getSourceDescriptionEn()));
         view.setSourceDescriptionAr(defaultText(result.getSourceDescriptionAr(), row.getSourceDescriptionAr()));
-        view.setSourceSellingPointsEn(normalizeList(result.getSourceSellingPointsEn(), 12));
-        view.setSourceSellingPointsAr(normalizeList(result.getSourceSellingPointsAr(), 12));
+        view.setSourceSellingPointsEn(normalizeSourceSellingPoints(result.getSourceSellingPointsEn(), 12));
+        view.setSourceSellingPointsAr(normalizeSourceSellingPoints(result.getSourceSellingPointsAr(), 12));
         view.setSelectedText(defaultText(result.getSelectedText(), row.getSelectedText()));
         view.setSelectedTextAr(defaultText(result.getSelectedTextAr(), row.getSelectedTextAr()));
         view.setStatus("success");
@@ -671,11 +683,12 @@ public class LocalDbSourceCollectionService {
             updateRow.setUnitCount(defaultText(completenessCalculator.firstSpecValue(result.getSpecHints(), SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS), row.getUnitCount()));
             updateRow.setColorName(defaultText(completenessCalculator.firstSpecValue(result.getSpecHints(), Set.of("color", "colour", "color name", "colour name")), row.getColorName()));
             updateRow.setSpecHintsJson(writeStringListJson(result.getSpecHints()));
+            updateRow.setCategoryLinksJson(writeCategoryLinksJson(normalizeCategoryLinks(result.getCategoryLinks())));
             updateRow.setSpecAttributeCount(completenessCalculator.countSpecAttributes(result.getSpecHints()));
             updateRow.setSourceDescriptionEn(defaultText(result.getSourceDescriptionEn(), row.getSourceDescriptionEn()));
             updateRow.setSourceDescriptionAr(defaultText(result.getSourceDescriptionAr(), row.getSourceDescriptionAr()));
-            updateRow.setSourceSellingPointsEnJson(writeStringListJson(normalizeList(result.getSourceSellingPointsEn(), 12)));
-            updateRow.setSourceSellingPointsArJson(writeStringListJson(normalizeList(result.getSourceSellingPointsAr(), 12)));
+            updateRow.setSourceSellingPointsEnJson(writeStringListJson(normalizeSourceSellingPoints(result.getSourceSellingPointsEn(), 12)));
+            updateRow.setSourceSellingPointsArJson(writeStringListJson(normalizeSourceSellingPoints(result.getSourceSellingPointsAr(), 12)));
             updateRow.setSelectedText(shrink(defaultText(row.getSelectedText(), result.getSelectedText()), 1900));
             updateRow.setSelectedTextAr(shrink(defaultText(result.getSelectedTextAr(), defaultText(result.getSourceDescriptionAr(), row.getSelectedTextAr())), 1900));
             productSelectionMapper.markSourceCollectionSuccess(updateRow, lockOwner);
@@ -955,6 +968,68 @@ public class LocalDbSourceCollectionService {
         }
     }
 
+    private String writeCategoryLinksJson(List<ProductSelectionCompetitorCategoryLink> values) {
+        try {
+            return objectMapper.writeValueAsString(values == null ? List.of() : values);
+        } catch (JsonProcessingException exception) {
+            return "[]";
+        }
+    }
+
+    private List<ProductSelectionCompetitorCategoryLink> readCategoryLinksJson(String json) {
+        if (!StringUtils.hasText(json)) {
+            return new ArrayList<>();
+        }
+        try {
+            return normalizeCategoryLinks(objectMapper.readValue(
+                    json,
+                    new TypeReference<List<ProductSelectionCompetitorCategoryLink>>() {
+                    }
+            ));
+        } catch (JsonProcessingException exception) {
+            return new ArrayList<>();
+        }
+    }
+
+    private List<ProductSelectionCompetitorCategoryLink> normalizeCategoryLinks(
+            List<ProductSelectionCompetitorCategoryLink> values
+    ) {
+        if (values == null || values.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<ProductSelectionCompetitorCategoryLink> normalized = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (ProductSelectionCompetitorCategoryLink value : values) {
+            if (value == null) {
+                continue;
+            }
+            String name = defaultText(value.getName(), "");
+            String path = defaultText(value.getPath(), name);
+            String url = defaultText(value.getUrl(), "");
+            String key = (path + "\n" + url).toLowerCase(Locale.ROOT);
+            if (!StringUtils.hasText(name) || !seen.add(key)) {
+                continue;
+            }
+            normalized.add(new ProductSelectionCompetitorCategoryLink(name, path, url));
+        }
+        return normalized;
+    }
+
+    private void applyCategoryLinks(
+            ProductSelectionSourceCollectionView view,
+            List<ProductSelectionCompetitorCategoryLink> categoryLinks
+    ) {
+        List<ProductSelectionCompetitorCategoryLink> normalized = normalizeCategoryLinks(categoryLinks);
+        view.setCategoryLinks(normalized);
+        if (normalized.isEmpty()) {
+            return;
+        }
+        ProductSelectionCompetitorCategoryLink leaf = normalized.get(normalized.size() - 1);
+        view.setCategoryName(leaf.getName());
+        view.setCategoryPath(leaf.getPath());
+        view.setCategoryUrl(leaf.getUrl());
+    }
+
     private List<String> readStringListJson(String json) {
         if (!StringUtils.hasText(json)) {
             return new ArrayList<>();
@@ -980,6 +1055,47 @@ public class LocalDbSourceCollectionService {
                 .distinct()
                 .limit(Math.max(0, limit))
                 .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private List<String> normalizeSourceSellingPoints(List<String> values, int limit) {
+        return normalizeList(values, limit).stream()
+                .filter(value -> !isNoonNavigationSellingPoint(value))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private boolean isNoonNavigationSellingPoint(String value) {
+        String normalized = defaultText(value, "").toLowerCase();
+        if (!StringUtils.hasText(normalized)) {
+            return false;
+        }
+        return normalized.contains("electronics mobiles & accessories")
+                || normalized.equals("›")
+                || normalized.equals("2+")
+                || normalized.contains("class='nav_a'")
+                || normalized.equals("galaxy ai")
+                || normalized.equals("iphone 17 series")
+                || normalized.equals("premium androids")
+                || normalized.equals("tablets")
+                || normalized.equals("headsets & speakers")
+                || normalized.equals("wearables")
+                || normalized.equals("power banks")
+                || normalized.equals("chargers")
+                || normalized.contains("الإلكترونيات الجوالات والاكسسوارات")
+                || normalized.equals("سلسة أيفون 17")
+                || normalized.equals("جوالات أندرويد فخمة")
+                || normalized.equals("تابلت")
+                || normalized.equals("سماعات ومكبرات صوت")
+                || normalized.equals("أجهزة الارتداء")
+                || normalized.equals("شواحن متنقلة")
+                || normalized.equals("شواحن")
+                || normalized.equals("المحتوى الرئيسي")
+                || normalized.equals("عن هذه السلعة")
+                || normalized.equals("خيارات الشراء")
+                || normalized.equals("مقارنة مع سلع مماثلة")
+                || normalized.equals("مقاطع الفيديو")
+                || normalized.equals("التقييمات")
+                || normalized.startsWith("بحث opt")
+                || normalized.startsWith("عربة التسوق");
     }
 
     private List<Long> normalizeSourceCollectionIds(List<String> ids) {

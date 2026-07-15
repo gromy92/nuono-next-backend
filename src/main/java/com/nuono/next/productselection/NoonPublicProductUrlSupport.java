@@ -77,6 +77,24 @@ class NoonPublicProductUrlSupport {
         }
     }
 
+    static String categoryUrl(String pageUrl, String categoryCode) {
+        if (pageUrl == null || pageUrl.isBlank() || categoryCode == null || categoryCode.isBlank()) {
+            return "";
+        }
+        try {
+            URI uri = new URI(pageUrl);
+            String host = uri.getHost() == null ? "www.noon.com" : uri.getHost();
+            Matcher matcher = NOON_LOCALE_PATTERN.matcher(uri.getPath() == null ? "" : uri.getPath());
+            String locale = matcher.find()
+                    ? matcher.group(1).toLowerCase(Locale.ROOT) + "-" + matcher.group(2).toLowerCase(Locale.ROOT)
+                    : "saudi-en";
+            String normalizedCode = categoryCode.trim().replaceFirst("^/+", "").replaceFirst("/+$", "");
+            return "https://" + host + "/" + locale + "/" + normalizedCode + "/";
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
     private static String normalizeCatalogBaseUrl(String catalogBaseUrl) {
         String baseUrl = catalogBaseUrl == null || catalogBaseUrl.isBlank()
                 ? "https://noon-catalog.noon.partners/_svc/catalog/api/u/"

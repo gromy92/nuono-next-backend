@@ -24,6 +24,7 @@ public class ProductSelectionSourceCollectionRow {
     private String unitCount;
     private String colorName;
     private String specHintsJson;
+    private String categoryLinksJson;
     private Integer specAttributeCount;
     private String sourceDescriptionEn;
     private String sourceDescriptionAr;
@@ -216,6 +217,14 @@ public class ProductSelectionSourceCollectionRow {
 
     public void setSpecHintsJson(String specHintsJson) {
         this.specHintsJson = specHintsJson;
+    }
+
+    public String getCategoryLinksJson() {
+        return categoryLinksJson;
+    }
+
+    public void setCategoryLinksJson(String categoryLinksJson) {
+        this.categoryLinksJson = categoryLinksJson;
     }
 
     public Integer getSpecAttributeCount() {

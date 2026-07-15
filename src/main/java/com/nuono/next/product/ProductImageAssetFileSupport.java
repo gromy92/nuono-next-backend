@@ -23,21 +23,25 @@ final class ProductImageAssetFileSupport {
     }
 
     static String imageExtension(MultipartFile file) {
-        String originalExtension = StringUtils.getFilenameExtension(file.getOriginalFilename());
+        return imageExtension(file.getOriginalFilename(), file.getContentType());
+    }
+
+    static String imageExtension(String originalFileName, String contentType) {
+        String originalExtension = StringUtils.getFilenameExtension(originalFileName);
         if (originalExtension != null && originalExtension.matches("(?i)avif|gif|jpe?g|png|webp")) {
             return originalExtension.toLowerCase();
         }
-        String contentType = String.valueOf(file.getContentType()).toLowerCase();
-        if (contentType.contains("png")) {
+        String normalizedContentType = String.valueOf(contentType).toLowerCase();
+        if (normalizedContentType.contains("png")) {
             return "png";
         }
-        if (contentType.contains("gif")) {
+        if (normalizedContentType.contains("gif")) {
             return "gif";
         }
-        if (contentType.contains("webp")) {
+        if (normalizedContentType.contains("webp")) {
             return "webp";
         }
-        if (contentType.contains("avif")) {
+        if (normalizedContentType.contains("avif")) {
             return "avif";
         }
         return "jpg";

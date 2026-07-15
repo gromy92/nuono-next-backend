@@ -115,6 +115,7 @@ class ProductKeyAttributeBuilder {
                     resolveAttributeLabel(propertyNode, code, "ar"),
                     text(dictionaryNode, "labelAr")
             ));
+            putIfNotBlank(attribute, "labelZh", text(dictionaryNode, "labelZh"));
             putIfNotBlank(attribute, "groupName", firstNonBlank(
                     text(propertyNode.path("attribute_group_name"), "en"),
                     text(dictionaryNode, "groupName")
@@ -320,7 +321,7 @@ class ProductKeyAttributeBuilder {
                     ? new String[]{"g", "KG", "lb", "lbs"}
                     : new String[]{"mm", "cm", "m", "in", "ft"};
             for (String unit : fallbackUnits) {
-                addOption(unitOptions, seen, unit, unit, null);
+                addOption(unitOptions, seen, unit, unit, null, null);
             }
         }
         return unitOptions;
@@ -342,7 +343,7 @@ class ProductKeyAttributeBuilder {
                 Map.Entry<String, JsonNode> entry = iterator.next();
                 JsonNode item = entry.getValue();
                 if (item.isValueNode()) {
-                    addOption(options, seen, entry.getKey(), item.asText(), null);
+                    addOption(options, seen, entry.getKey(), item.asText(), null, null);
                 } else {
                     collectSingleOption(options, seen, item);
                 }
@@ -358,7 +359,7 @@ class ProductKeyAttributeBuilder {
         }
         if (item.isValueNode()) {
             String value = item.asText();
-            addOption(options, seen, value, value, null);
+            addOption(options, seen, value, value, null, null);
             return;
         }
         String en = firstNonBlank(
@@ -379,6 +380,15 @@ class ProductKeyAttributeBuilder {
                 text(item, "label_ar"),
                 text(item, "ar")
         );
+        String zh = firstNonBlank(
+                localizedText(item, "option_name", "zh"),
+                localizedText(item, "name", "zh"),
+                localizedText(item, "label", "zh"),
+                text(item, "option_name_zh"),
+                text(item, "name_zh"),
+                text(item, "label_zh"),
+                text(item, "zh")
+        );
         String value = firstNonBlank(
                 text(item, "value"),
                 text(item, "option_value"),
@@ -386,10 +396,10 @@ class ProductKeyAttributeBuilder {
                 text(item, "option_code"),
                 en
         );
-        addOption(options, seen, value, firstNonBlank(en, value), ar);
+        addOption(options, seen, value, firstNonBlank(en, value), ar, zh);
     }
 
-    private void addOption(List<Map<String, Object>> options, Set<String> seen, String value, String en, String ar) {
+    private void addOption(List<Map<String, Object>> options, Set<String> seen, String value, String en, String ar, String zh) {
         if (!StringUtils.hasText(value) || !StringUtils.hasText(en)) {
             return;
         }
@@ -402,6 +412,7 @@ class ProductKeyAttributeBuilder {
         option.put("value", value.trim());
         option.put("en", en.trim());
         putIfNotBlank(option, "ar", ar);
+        putIfNotBlank(option, "zh", zh);
         options.add(option);
     }
 
