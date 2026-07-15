@@ -20,6 +20,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnLineC
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.UpsertAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAsnListSyncSupport.NoonAsnListRow;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
@@ -39,6 +40,9 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.RunRe
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotCapacity;
 import com.nuono.next.officialwarehouse.OfficialWarehouseNoonInboundClient.NoonCallContext;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnLineView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundDetailView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundLineView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundSummaryView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnListSyncView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnShippingBatchLinkView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnValidationView;
@@ -146,16 +150,24 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     ) {
         Long ownerUserId = requireOwnerUserId(access, storeCode);
         Collection<String> storeCodes = trimToNull(storeCode) == null ? access.getStoreCodes() : List.of(storeCode);
-        return mapper.listAsns(
+        List<AsnRecord> records = mapper.listAsns(
                         ownerUserId,
                         storeCodes,
                         trimToNull(storeCode),
                         normalizeSite(siteCode),
                         keywordLike(keyword),
                         200
-                )
-                .stream()
-                .map(record -> toAsnView(record, true))
+                );
+        Map<Long, List<AsnInboundReceiptRecord>> receiptsByAsn = inboundReceiptsByAsn(
+                ownerUserId,
+                records.stream().map(record -> record.id).collect(Collectors.toList())
+        );
+        return records.stream()
+                .map(record -> {
+                    AsnView view = toAsnView(record, true);
+                    view.inboundSummary = inboundSummary(record, receiptsByAsn.getOrDefault(record.id, List.of()));
+                    return view;
+                })
                 .collect(Collectors.toList());
     }
 
@@ -283,8 +295,65 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             throw new IllegalArgumentException("当前账号不能查看该店铺官方仓 ASN。");
         }
         AsnView view = toAsnView(record, true);
+        view.inboundSummary = inboundSummary(record, inboundReceipts(ownerUserId, List.of(record.id)));
         view.noonUser = resolveNoonUser(record);
         return view;
+    }
+
+    public AsnInboundDetailView getAsnInboundDetail(BusinessAccessContext access, String asnId) {
+        Long parsedAsnId = parseLongId(asnId, "官方仓 ASN 不存在。");
+        Long ownerUserId = requireOwnerUserId(access, null);
+        AsnRecord asn = mapper.selectAsn(ownerUserId, parsedAsnId);
+        if (asn == null) {
+            throw new IllegalArgumentException("官方仓 ASN 不存在或无权访问。");
+        }
+        if (!access.canAccessStore(asn.storeCode)) {
+            throw new IllegalArgumentException("当前账号不能查看该店铺官方仓 ASN。");
+        }
+
+        List<AsnLineRecord> localLines = mapper.listAsnLines(asn.id);
+        List<AsnInboundReceiptRecord> receipts = inboundReceipts(ownerUserId, List.of(asn.id));
+        AsnInboundDetailView detail = new AsnInboundDetailView();
+        detail.asnId = String.valueOf(asn.id);
+        detail.localAsnNo = asn.localAsnNo;
+        detail.noonAsnNr = asn.noonAsnNr;
+        detail.storeCode = asn.storeCode;
+        detail.siteCode = asn.siteCode;
+        detail.sourceType = asn.sourceType;
+        detail.summary = inboundSummary(asn, receipts);
+
+        Map<Long, AsnInboundLineView> linesById = new LinkedHashMap<>();
+        Map<String, AsnInboundLineView> uniqueLinesByKey = new LinkedHashMap<>();
+        Set<String> ambiguousKeys = new LinkedHashSet<>();
+        for (AsnLineRecord line : localLines) {
+            AsnInboundLineView view = inboundLine(line);
+            detail.lines.add(view);
+            linesById.put(line.id, view);
+            registerInboundLineKeys(uniqueLinesByKey, ambiguousKeys, view, line.childSku);
+        }
+        Map<String, AsnInboundLineView> reportOnlyLines = new LinkedHashMap<>();
+        for (AsnInboundReceiptRecord receipt : receipts) {
+            AsnInboundLineView target = receipt.asnLineId == null ? null : linesById.get(receipt.asnLineId);
+            boolean matchedByBusinessKey = false;
+            if (target == null) {
+                target = findInboundLineByBusinessKey(uniqueLinesByKey, ambiguousKeys, receipt);
+                matchedByBusinessKey = target != null;
+            }
+            if (target == null) {
+                String reportKey = inboundReportOnlyKey(receipt);
+                target = reportOnlyLines.computeIfAbsent(reportKey, ignored -> inboundReportOnlyLine(receipt));
+            }
+            accumulateInboundReceipt(target, receipt, matchedByBusinessKey);
+        }
+        detail.lines.addAll(reportOnlyLines.values());
+        for (AsnInboundLineView line : detail.lines) {
+            finalizeInboundLine(line);
+        }
+        detail.summary.unmatchedLineCount = (int) detail.lines.stream().filter(line -> line.reportOnly).count();
+        detail.summary.exceptionLineCount = (int) detail.lines.stream()
+                .filter(line -> !"NO_RECEIPT".equals(line.inboundStatus) && !"NORMAL".equals(line.inboundStatus))
+                .count();
+        return detail;
     }
 
     public List<ProductCandidateView> listProductCandidates(
@@ -2288,6 +2357,215 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                     operatorUserId
             );
         }
+    }
+
+    private Map<Long, List<AsnInboundReceiptRecord>> inboundReceiptsByAsn(
+            Long ownerUserId,
+            List<Long> asnIds
+    ) {
+        List<AsnInboundReceiptRecord> receipts = inboundReceipts(ownerUserId, asnIds);
+        return receipts.stream().collect(Collectors.groupingBy(
+                receipt -> receipt.asnId,
+                LinkedHashMap::new,
+                Collectors.toList()
+        ));
+    }
+
+    private List<AsnInboundReceiptRecord> inboundReceipts(Long ownerUserId, List<Long> asnIds) {
+        if (asnIds == null || asnIds.isEmpty()) {
+            return List.of();
+        }
+        List<AsnInboundReceiptRecord> receipts = mapper.listAsnInboundReceipts(ownerUserId, asnIds);
+        return receipts == null ? List.of() : receipts;
+    }
+
+    private AsnInboundSummaryView inboundSummary(AsnRecord asn, List<AsnInboundReceiptRecord> receipts) {
+        AsnInboundSummaryView summary = new AsnInboundSummaryView();
+        summary.asnQuantity = inboundQuantity(asn.noonTotalQty == null ? asn.totalQuantity : asn.noonTotalQty);
+        summary.reportConnected = receipts != null && !receipts.isEmpty();
+        if (receipts == null) {
+            return summary;
+        }
+        for (AsnInboundReceiptRecord receipt : receipts) {
+            long expected = inboundQuantity(receipt.qtyExpected);
+            long received = inboundQuantity(receipt.receivedQty);
+            summary.expectedQuantity += expected;
+            summary.receivedQuantity += received;
+            summary.qcFailedQuantity += inboundQuantity(receipt.qcFailedQty);
+            summary.unidentifiedQuantity += inboundQuantity(receipt.unidentifiedQty);
+            summary.shortQuantity += Math.max(expected - received, 0);
+            summary.overQuantity += Math.max(received - expected, 0);
+            summary.receiptLineCount += 1;
+            if (!"NORMAL".equals(normalizeInboundCode(receipt.receiptStatus))) {
+                summary.exceptionLineCount += 1;
+            }
+            summary.latestImportedAt = latestInboundTimestamp(summary.latestImportedAt, receipt.importedAt);
+        }
+        return summary;
+    }
+
+    private AsnInboundLineView inboundLine(AsnLineRecord row) {
+        AsnInboundLineView view = new AsnInboundLineView();
+        view.asnLineId = String.valueOf(row.id);
+        view.productVariantId = row.productVariantId == null ? null : String.valueOf(row.productVariantId);
+        view.productSiteOfferId = row.productSiteOfferId == null ? null : String.valueOf(row.productSiteOfferId);
+        view.partnerSku = row.partnerSku;
+        view.pskuCode = row.pskuCode;
+        view.noonSku = row.noonSku;
+        view.title = row.titleCache;
+        view.imageUrl = ProductImageUrlSupport.normalize(row.imageUrlCache);
+        view.asnQuantity = inboundQuantity(row.qty);
+        view.reportOnly = false;
+        view.inboundStatus = "NO_RECEIPT";
+        view.matchStatus = "NO_RECEIPT";
+        return view;
+    }
+
+    private AsnInboundLineView inboundReportOnlyLine(AsnInboundReceiptRecord receipt) {
+        AsnInboundLineView view = new AsnInboundLineView();
+        view.productVariantId = receipt.productVariantId == null ? null : String.valueOf(receipt.productVariantId);
+        view.productSiteOfferId = receipt.productSiteOfferId == null ? null : String.valueOf(receipt.productSiteOfferId);
+        view.partnerSku = receipt.partnerSku;
+        view.pskuCode = receipt.pskuCode;
+        view.noonSku = receipt.noonSku;
+        view.reportOnly = true;
+        view.matchStatus = "REPORT_ONLY";
+        return view;
+    }
+
+    private void registerInboundLineKeys(
+            Map<String, AsnInboundLineView> uniqueLinesByKey,
+            Set<String> ambiguousKeys,
+            AsnInboundLineView line,
+            String childSku
+    ) {
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundNoonKey(line.noonSku), line);
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundNoonKey(line.pskuCode), line);
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundNoonKey(childSku), line);
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundPartnerKey(line.partnerSku), line);
+    }
+
+    private void registerInboundLineKey(
+            Map<String, AsnInboundLineView> uniqueLinesByKey,
+            Set<String> ambiguousKeys,
+            String key,
+            AsnInboundLineView line
+    ) {
+        if (key == null || ambiguousKeys.contains(key)) {
+            return;
+        }
+        AsnInboundLineView existing = uniqueLinesByKey.putIfAbsent(key, line);
+        if (existing != null && existing != line) {
+            uniqueLinesByKey.remove(key);
+            ambiguousKeys.add(key);
+        }
+    }
+
+    private AsnInboundLineView findInboundLineByBusinessKey(
+            Map<String, AsnInboundLineView> uniqueLinesByKey,
+            Set<String> ambiguousKeys,
+            AsnInboundReceiptRecord receipt
+    ) {
+        for (String key : new String[] {
+                inboundNoonKey(receipt.noonSku),
+                inboundNoonKey(receipt.pskuCode),
+                inboundPartnerKey(receipt.partnerSku)
+        }) {
+            if (key != null && !ambiguousKeys.contains(key) && uniqueLinesByKey.containsKey(key)) {
+                return uniqueLinesByKey.get(key);
+            }
+        }
+        return null;
+    }
+
+    private String inboundReportOnlyKey(AsnInboundReceiptRecord receipt) {
+        return firstNonBlank(
+                inboundPartnerKey(receipt.partnerSku),
+                inboundNoonKey(receipt.noonSku),
+                inboundNoonKey(receipt.pskuCode),
+                inboundNoonKey(receipt.pbarcodeCanonical),
+                receipt.reportRowId == null ? null : "ROW:" + receipt.reportRowId
+        );
+    }
+
+    private void accumulateInboundReceipt(
+            AsnInboundLineView line,
+            AsnInboundReceiptRecord receipt,
+            boolean matchedByBusinessKey
+    ) {
+        long expected = inboundQuantity(receipt.qtyExpected);
+        long received = inboundQuantity(receipt.receivedQty);
+        line.expectedQuantity += expected;
+        line.receivedQuantity += received;
+        line.qcFailedQuantity += inboundQuantity(receipt.qcFailedQty);
+        line.unidentifiedQuantity += inboundQuantity(receipt.unidentifiedQty);
+        line.receiptLineCount += 1;
+        line.partnerSku = firstNonBlank(line.partnerSku, receipt.partnerSku);
+        line.pskuCode = firstNonBlank(line.pskuCode, receipt.pskuCode);
+        line.noonSku = firstNonBlank(line.noonSku, receipt.noonSku);
+        line.qcFailedReason = firstNonBlank(line.qcFailedReason, receipt.qcFailedReason);
+        line.partnerWarehouse = firstNonBlank(line.partnerWarehouse, receipt.partnerWarehouse);
+        line.noonWarehouse = firstNonBlank(line.noonWarehouse, receipt.noonWarehouse);
+        line.asnCompletedAt = latestInboundTimestamp(line.asnCompletedAt, receipt.asnCompletedAt);
+        line.latestImportedAt = latestInboundTimestamp(line.latestImportedAt, receipt.importedAt);
+        if (!line.reportOnly) {
+            line.matchStatus = matchedByBusinessKey ? "MATCHED_BY_BUSINESS_KEY" : "MATCHED";
+        }
+    }
+
+    private void finalizeInboundLine(AsnInboundLineView line) {
+        line.shortQuantity = Math.max(line.expectedQuantity - line.receivedQuantity, 0);
+        line.overQuantity = Math.max(line.receivedQuantity - line.expectedQuantity, 0);
+        if (line.receiptLineCount <= 0) {
+            line.inboundStatus = "NO_RECEIPT";
+        } else if (line.reportOnly) {
+            line.inboundStatus = "UNMATCHED";
+        } else if (line.unidentifiedQuantity > 0) {
+            line.inboundStatus = "UNIDENTIFIED";
+        } else if (line.qcFailedQuantity > 0) {
+            line.inboundStatus = "QC_FAILED";
+        } else if (line.shortQuantity > 0) {
+            line.inboundStatus = "SHORT_RECEIVED";
+        } else if (line.overQuantity > 0) {
+            line.inboundStatus = "OVER_RECEIVED";
+        } else {
+            line.inboundStatus = "NORMAL";
+        }
+    }
+
+    private String inboundNoonKey(String value) {
+        String normalized = normalizeInboundIdentity(value);
+        return normalized == null ? null : "NOON:" + normalized;
+    }
+
+    private String inboundPartnerKey(String value) {
+        String normalized = normalizeInboundIdentity(value);
+        return normalized == null ? null : "PARTNER:" + normalized;
+    }
+
+    private String normalizeInboundIdentity(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeInboundCode(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? "" : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String latestInboundTimestamp(String current, String candidate) {
+        String normalizedCandidate = trimToNull(candidate);
+        if (normalizedCandidate == null) {
+            return current;
+        }
+        String normalizedCurrent = trimToNull(current);
+        return normalizedCurrent == null || normalizedCandidate.compareTo(normalizedCurrent) > 0
+                ? normalizedCandidate
+                : normalizedCurrent;
+    }
+
+    private int inboundQuantity(Integer value) {
+        return value == null ? 0 : Math.max(value, 0);
     }
 
     private AsnView toAsnView(AsnRecord row, boolean withLines) {

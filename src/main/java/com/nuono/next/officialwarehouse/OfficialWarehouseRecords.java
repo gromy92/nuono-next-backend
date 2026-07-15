@@ -321,6 +321,32 @@ public final class OfficialWarehouseRecords {
         public String errorMessage;
     }
 
+    public static class AsnInboundReceiptRecord {
+        public Long asnId;
+        public Long asnLineId;
+        public Long importId;
+        public Long reportRowId;
+        public String noonAsnNr;
+        public Long productMasterId;
+        public Long productVariantId;
+        public Long productSiteOfferId;
+        public String partnerSku;
+        public String pskuCode;
+        public String noonSku;
+        public String pbarcodeCanonical;
+        public String partnerWarehouse;
+        public String noonWarehouse;
+        public Integer qtyExpected;
+        public Integer receivedQty;
+        public Integer qcFailedQty;
+        public Integer unidentifiedQty;
+        public String qcFailedReason;
+        public String receiptStatus;
+        public String matchStatus;
+        public String asnCompletedAt;
+        public String importedAt;
+    }
+
     public static class AppointmentInsertRecord {
         public Long id;
         public Long asnId;

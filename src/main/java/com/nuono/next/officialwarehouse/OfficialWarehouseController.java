@@ -7,6 +7,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnComma
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.SyncNoonAsnNumbersCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.UpsertAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnListSyncView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundDetailView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnValidationView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentAvailabilityView;
@@ -66,6 +67,18 @@ public class OfficialWarehouseController {
     ) {
         try {
             return service().getAsn(access(request), asnId);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @GetMapping("/asns/{asnId}/inbound-detail")
+    public AsnInboundDetailView getAsnInboundDetail(
+            @PathVariable String asnId,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().getAsnInboundDetail(access(request), asnId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

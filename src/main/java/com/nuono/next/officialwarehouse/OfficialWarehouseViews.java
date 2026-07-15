@@ -122,7 +122,61 @@ public final class OfficialWarehouseViews {
         public List<RoutingWarehouseView> routingWarehouses = new ArrayList<>();
         public List<AsnLineView> lines = new ArrayList<>();
         public List<AsnShippingBatchLinkView> shippingBatchLinks = new ArrayList<>();
+        public AsnInboundSummaryView inboundSummary;
         public AppointmentView appointment;
+    }
+
+    public static class AsnInboundDetailView {
+        public String asnId;
+        public String localAsnNo;
+        public String noonAsnNr;
+        public String storeCode;
+        public String siteCode;
+        public String sourceType;
+        public AsnInboundSummaryView summary = new AsnInboundSummaryView();
+        public List<AsnInboundLineView> lines = new ArrayList<>();
+    }
+
+    public static class AsnInboundSummaryView {
+        public boolean reportConnected;
+        public int asnQuantity;
+        public long expectedQuantity;
+        public long receivedQuantity;
+        public long qcFailedQuantity;
+        public long unidentifiedQuantity;
+        public long shortQuantity;
+        public long overQuantity;
+        public int receiptLineCount;
+        public int exceptionLineCount;
+        public int unmatchedLineCount;
+        public String latestImportedAt;
+    }
+
+    public static class AsnInboundLineView {
+        public String asnLineId;
+        public String productVariantId;
+        public String productSiteOfferId;
+        public String partnerSku;
+        public String pskuCode;
+        public String noonSku;
+        public String title;
+        public String imageUrl;
+        public int asnQuantity;
+        public long expectedQuantity;
+        public long receivedQuantity;
+        public long qcFailedQuantity;
+        public long unidentifiedQuantity;
+        public long shortQuantity;
+        public long overQuantity;
+        public int receiptLineCount;
+        public boolean reportOnly;
+        public String inboundStatus;
+        public String matchStatus;
+        public String qcFailedReason;
+        public String partnerWarehouse;
+        public String noonWarehouse;
+        public String asnCompletedAt;
+        public String latestImportedAt;
     }
 
     public static class AsnLineView {

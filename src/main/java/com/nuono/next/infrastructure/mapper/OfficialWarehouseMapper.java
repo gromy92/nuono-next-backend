@@ -1,6 +1,7 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
@@ -1028,6 +1029,64 @@ public interface OfficialWarehouseMapper {
             "ORDER BY asn_line_id ASC, shipping_batch_id ASC, id ASC"
     })
     List<AsnShippingBatchLinkRecord> listAsnShippingBatchLinks(@Param("asnId") Long asnId);
+
+    @Select({
+            "<script>",
+            "SELECT a.id AS asnId, receipt.asn_line_id AS asnLineId, receipt.import_id AS importId,",
+            "       receipt.report_row_id AS reportRowId, receipt.noon_asn_nr AS noonAsnNr,",
+            "       receipt.product_master_id AS productMasterId, receipt.product_variant_id AS productVariantId,",
+            "       receipt.product_site_offer_id AS productSiteOfferId, receipt.partner_sku AS partnerSku,",
+            "       receipt.psku_code AS pskuCode, receipt.noon_sku AS noonSku,",
+            "       receipt.pbarcode_canonical AS pbarcodeCanonical, receipt.partner_warehouse AS partnerWarehouse,",
+            "       receipt.noon_warehouse AS noonWarehouse, receipt.qty_expected AS qtyExpected,",
+            "       receipt.received_qty AS receivedQty, receipt.qc_failed_qty AS qcFailedQty,",
+            "       receipt.unidentified_qty AS unidentifiedQty, receipt.qc_failed_reason AS qcFailedReason,",
+            "       receipt.receipt_status AS receiptStatus, receipt.match_status AS matchStatus,",
+            "       DATE_FORMAT(receipt.asn_completed_at, '%Y-%m-%d %H:%i:%s') AS asnCompletedAt,",
+            "       DATE_FORMAT(receipt.imported_at, '%Y-%m-%d %H:%i:%s') AS importedAt",
+            "FROM official_warehouse_asn a",
+            "JOIN (",
+            "  SELECT ranked.*",
+            "  FROM (",
+            "    SELECT l.*, i.snapshot_at AS imported_at,",
+            "           ROW_NUMBER() OVER (",
+            "             PARTITION BY l.owner_user_id, BINARY l.store_code, UPPER(l.site_code),",
+            "                          COALESCE(l.noon_asn_nr, ''), COALESCE(l.partner_sku, ''),",
+            "                          COALESCE(l.noon_sku, ''), COALESCE(l.pbarcode_canonical, ''),",
+            "                          COALESCE(l.partner_warehouse, ''), COALESCE(l.noon_warehouse, ''),",
+            "                          COALESCE(l.country_code, ''), COALESCE(CAST(l.asn_schedule_date AS CHAR), ''),",
+            "                          GREATEST(COALESCE(l.qty_expected, 0), 0),",
+            "                          GREATEST(COALESCE(l.received_qty, 0), 0),",
+            "                          GREATEST(COALESCE(l.qc_failed_qty, 0), 0),",
+            "                          GREATEST(COALESCE(l.unidentified_qty, 0), 0)",
+            "             ORDER BY i.snapshot_at DESC, l.import_id DESC, l.id DESC",
+            "           ) AS receipt_business_rank",
+            "    FROM official_warehouse_inbound_receipt_line l",
+            "    JOIN official_warehouse_report_import i ON i.id = l.import_id AND i.is_deleted = b'0'",
+            "    WHERE l.is_deleted = b'0'",
+            "      AND i.report_type = 'FBN_INBOUND_FBNRECEIVEDREPORT'",
+            "      AND l.owner_user_id = #{ownerUserId}",
+            "  ) ranked",
+            "  WHERE ranked.receipt_business_rank = 1",
+            ") receipt",
+            "  ON receipt.owner_user_id = a.owner_user_id",
+            " AND BINARY receipt.store_code = BINARY a.store_code",
+            " AND UPPER(receipt.site_code) = UPPER(a.site_code)",
+            " AND (receipt.asn_id = a.id OR (receipt.asn_id IS NULL AND a.noon_asn_nr IS NOT NULL",
+            "      AND BINARY receipt.noon_asn_nr = BINARY a.noon_asn_nr))",
+            "WHERE a.is_deleted = b'0'",
+            "  AND a.owner_user_id = #{ownerUserId}",
+            "  AND a.id IN",
+            "  <foreach item='asnId' collection='asnIds' open='(' separator=',' close=')'>",
+            "    #{asnId}",
+            "  </foreach>",
+            "ORDER BY a.id ASC, COALESCE(receipt.asn_completed_at, receipt.imported_at) DESC, receipt.id DESC",
+            "</script>"
+    })
+    List<AsnInboundReceiptRecord> listAsnInboundReceipts(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("asnIds") Collection<Long> asnIds
+    );
 
     @Insert({
             "INSERT INTO official_warehouse_appointment (",
