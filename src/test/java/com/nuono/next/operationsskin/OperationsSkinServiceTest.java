@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 class OperationsSkinServiceTest {
 
     private static final String STORE_CODE = "STR108065-NAE";
+    private static final String SIBLING_SITE_STORE_CODE = "STR108065-KSA";
     private static final String ASSET_A = "/api/operations/skin-management/assets/a.png";
     private static final String ASSET_B = "/api/operations/skin-management/assets/b.png";
 
@@ -83,6 +84,95 @@ class OperationsSkinServiceTest {
         IllegalArgumentException error = assertThrows(
                 IllegalArgumentException.class,
                 () -> service.create(context(307L, 90003L, STORE_CODE), saveRequest(STORE_CODE, " 统一参考皮肤 "))
+        );
+
+        assertEquals("当前店铺已存在同名皮肤。", error.getMessage());
+    }
+
+    @Test
+    void skinCanBeReadAndMutatedFromSiblingSiteOfSameLogicalStore() {
+        FakeOperationsSkinMapper mapper = new FakeOperationsSkinMapper();
+        mapper.linkLogicalStoreSites(STORE_CODE, SIBLING_SITE_STORE_CODE);
+        OperationsSkinService service = new OperationsSkinService(mapper);
+
+        OperationsSkinView created = service.create(
+                context(307L, 90003L, STORE_CODE),
+                saveRequest(STORE_CODE, "跨站点共用皮肤")
+        );
+
+        List<OperationsSkinView> visibleFromSiblingSite = service.list(
+                context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                SIBLING_SITE_STORE_CODE,
+                null,
+                null
+        );
+
+        assertEquals(List.of(created.getId()), visibleFromSiblingSite.stream()
+                .map(OperationsSkinView::getId)
+                .collect(Collectors.toList()));
+
+        assertEquals(
+                created.getId(),
+                service.detail(
+                        context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                        created.getId(),
+                        SIBLING_SITE_STORE_CODE
+                ).getId()
+        );
+
+        OperationsSkinSaveRequest update = saveRequest(SIBLING_SITE_STORE_CODE, "跨站点更新皮肤");
+        OperationsSkinView updated = service.update(
+                context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                created.getId(),
+                update
+        );
+        assertEquals("跨站点更新皮肤", updated.getSkinName());
+        assertEquals(STORE_CODE, mapper.skins.get(created.getId()).getStoreCode());
+
+        OperationsSkinView inactive = service.updateStatus(
+                context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                created.getId(),
+                statusRequest(SIBLING_SITE_STORE_CODE, "INACTIVE")
+        );
+        assertEquals("INACTIVE", inactive.getStatus());
+
+        OperationsSkinComponentsSaveRequest components = new OperationsSkinComponentsSaveRequest();
+        components.setStoreCode(SIBLING_SITE_STORE_CODE);
+        components.setComponents(List.of(
+                component("HERO_MAIN", "FRAME", "/api/operations/skin-management/assets/frame.png", 0, 0, 1247, 1706, 40)
+        ));
+        OperationsSkinView withComponents = service.saveComponents(
+                context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                created.getId(),
+                components
+        );
+        assertEquals(1, withComponents.getComponents().size());
+
+        service.delete(
+                context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                created.getId(),
+                SIBLING_SITE_STORE_CODE
+        );
+        assertEquals(true, mapper.skins.get(created.getId()).getDeleted());
+    }
+
+    @Test
+    void duplicateNameAcrossSiblingSitesOfSameLogicalStoreFails() {
+        FakeOperationsSkinMapper mapper = new FakeOperationsSkinMapper();
+        mapper.linkLogicalStoreSites(STORE_CODE, SIBLING_SITE_STORE_CODE);
+        OperationsSkinService service = new OperationsSkinService(mapper);
+
+        service.create(
+                context(307L, 90003L, STORE_CODE),
+                saveRequest(STORE_CODE, "逻辑店铺唯一皮肤")
+        );
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.create(
+                        context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                        saveRequest(SIBLING_SITE_STORE_CODE, "逻辑店铺唯一皮肤")
+                )
         );
 
         assertEquals("当前店铺已存在同名皮肤。", error.getMessage());
@@ -383,9 +473,17 @@ class OperationsSkinServiceTest {
         private final Map<Long, OperationsSkinRecord> skins = new LinkedHashMap<>();
         private final Map<Long, List<OperationsSkinAssetRecord>> assetsBySkinId = new LinkedHashMap<>();
         private final Map<Long, List<OperationsSkinComponentRecord>> componentsBySkinId = new LinkedHashMap<>();
+        private final Map<String, Set<String>> logicalStoreSites = new LinkedHashMap<>();
         private long nextSkinId = 1000L;
         private long nextAssetId = 5000L;
         private long nextComponentId = 8000L;
+
+        private void linkLogicalStoreSites(String... storeCodes) {
+            Set<String> linkedSites = Set.of(storeCodes);
+            for (String storeCode : storeCodes) {
+                logicalStoreSites.put(storeCode, linkedSites);
+            }
+        }
 
         @Override
         public Long insertSkin(OperationsSkinRecord record) {
@@ -439,7 +537,7 @@ class OperationsSkinServiceTest {
         public List<OperationsSkinRecord> selectSkins(Long ownerUserId, String storeCode, String keyword, String status) {
             String trimmedKeyword = keyword == null ? null : keyword.trim();
             return skins.values().stream()
-                    .filter(item -> matchesScope(item, ownerUserId, storeCode))
+                    .filter(item -> matchesRequestedScope(item, ownerUserId, storeCode))
                     .filter(item -> status == null || status.equals(item.getStatus()))
                     .filter(item -> trimmedKeyword == null
                             || item.getSkinName().contains(trimmedKeyword)
@@ -455,7 +553,7 @@ class OperationsSkinServiceTest {
         @Override
         public OperationsSkinRecord selectSkinById(Long id, Long ownerUserId, String storeCode) {
             OperationsSkinRecord record = skins.get(id);
-            if (!matchesScope(record, ownerUserId, storeCode)) {
+            if (!matchesRequestedScope(record, ownerUserId, storeCode)) {
                 return null;
             }
             return copyWithAssetCount(record);
@@ -464,7 +562,7 @@ class OperationsSkinServiceTest {
         @Override
         public int countByName(Long ownerUserId, String storeCode, String skinName, Long excludeId) {
             return (int) skins.values().stream()
-                    .filter(item -> matchesScope(item, ownerUserId, storeCode))
+                    .filter(item -> matchesRequestedScope(item, ownerUserId, storeCode))
                     .filter(item -> Objects.equals(skinName, item.getSkinName()))
                     .filter(item -> excludeId == null || !Objects.equals(excludeId, item.getId()))
                     .count();
@@ -519,6 +617,16 @@ class OperationsSkinServiceTest {
                     && !Boolean.TRUE.equals(record.getDeleted())
                     && Objects.equals(ownerUserId, record.getOwnerUserId())
                     && Objects.equals(storeCode, record.getStoreCode());
+        }
+
+        private boolean matchesRequestedScope(OperationsSkinRecord record, Long ownerUserId, String requestedStoreCode) {
+            if (record == null
+                    || Boolean.TRUE.equals(record.getDeleted())
+                    || !Objects.equals(ownerUserId, record.getOwnerUserId())) {
+                return false;
+            }
+            Set<String> visibleSites = logicalStoreSites.getOrDefault(requestedStoreCode, Set.of(requestedStoreCode));
+            return visibleSites.contains(record.getStoreCode());
         }
 
         private OperationsSkinRecord copyWithAssetCount(OperationsSkinRecord source) {
