@@ -82,10 +82,36 @@ public class InTransitBatchService {
         view.setTotalCount(totalCount);
         view.setPage(resolved.getPage());
         view.setPageSize(resolved.getPageSize());
-        view.setItems(mapper.listBatches(resolved).stream()
+        List<BatchView> items = mapper.listBatches(resolved).stream()
                 .map(BatchView::from)
-                .collect(Collectors.toList()));
+                .collect(Collectors.toList());
+        attachNodeHistory(resolved.getOwnerUserId(), items);
+        view.setItems(items);
         return view;
+    }
+
+    private void attachNodeHistory(Long ownerUserId, List<BatchView> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        List<Long> batchIds = items.stream()
+                .map(BatchView::getBatchId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+        if (batchIds.isEmpty()) {
+            return;
+        }
+        Map<Long, List<NodeView>> historyByBatchId = new LinkedHashMap<>();
+        List<NodeRow> rows = mapper.listNodesByBatchIds(ownerUserId, batchIds);
+        if (rows != null) {
+            for (NodeRow row : rows) {
+                historyByBatchId.computeIfAbsent(row.getBatchId(), ignored -> new ArrayList<>())
+                        .add(NodeView.from(row));
+            }
+        }
+        for (BatchView item : items) {
+            item.setNodeHistory(historyByBatchId.getOrDefault(item.getBatchId(), List.of()));
+        }
     }
 
     public BatchView getBatch(Long ownerUserId, Long batchId) {
