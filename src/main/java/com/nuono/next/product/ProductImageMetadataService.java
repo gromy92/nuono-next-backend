@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
 import java.awt.image.BufferedImage;
+import java.awt.color.ColorSpace;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -10,6 +11,7 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.util.Locale;
+import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,6 +20,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.metadata.IIOMetadata;
+import javax.imageio.stream.ImageInputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -47,11 +56,7 @@ public class ProductImageMetadataService {
         view.setContentType(normalizeContentType(file.getContentType()));
         view.setSizeBytes(file.getSize());
         try (InputStream input = file.getInputStream()) {
-            BufferedImage image = ImageIO.read(input);
-            if (image != null) {
-                view.setWidthPx(image.getWidth());
-                view.setHeightPx(image.getHeight());
-            }
+            applyImageMetadata(view, input.readAllBytes());
         }
         return view;
     }
@@ -131,6 +136,9 @@ public class ProductImageMetadataService {
         view.setSizeBytes(record.getSizeBytes());
         view.setWidthPx(record.getWidthPx());
         view.setHeightPx(record.getHeightPx());
+        view.setHorizontalPpi(record.getHorizontalPpi());
+        view.setVerticalPpi(record.getVerticalPpi());
+        view.setColorSpace(record.getColorSpace());
         return view;
     }
 
@@ -139,7 +147,10 @@ public class ProductImageMetadataService {
                 && (StringUtils.hasText(view.getContentType())
                 || view.getSizeBytes() != null
                 || view.getWidthPx() != null
-                || view.getHeightPx() != null);
+                || view.getHeightPx() != null
+                || view.getHorizontalPpi() != null
+                || view.getVerticalPpi() != null
+                || StringUtils.hasText(view.getColorSpace()));
     }
 
     private boolean isCompleteMetadata(ProductImageAssetMetadataView view) {
@@ -197,7 +208,7 @@ public class ProductImageMetadataService {
             if (countBodyWhenNeeded) {
                 byte[] bytes = readResponseBody(connection);
                 view.setSizeBytes(contentLength >= 0 ? contentLength : (long) bytes.length);
-                applyImageDimensions(view, bytes);
+                applyImageMetadata(view, bytes);
             } else if (contentLength >= 0) {
                 view.setSizeBytes(contentLength);
             }
@@ -222,14 +233,127 @@ public class ProductImageMetadataService {
         return output.toByteArray();
     }
 
-    private void applyImageDimensions(ProductImageAssetMetadataView view, byte[] bytes) throws IOException {
+    private void applyImageMetadata(ProductImageAssetMetadataView view, byte[] bytes) throws IOException {
         try (ByteArrayInputStream input = new ByteArrayInputStream(bytes)) {
             BufferedImage image = ImageIO.read(input);
             if (image != null) {
                 view.setWidthPx(image.getWidth());
                 view.setHeightPx(image.getHeight());
+                ColorSpace colorSpace = image.getColorModel().getColorSpace();
+                if (colorSpace != null) {
+                    if (colorSpace.isCS_sRGB()) {
+                        view.setColorSpace("sRGB");
+                    } else if (colorSpace.getType() == ColorSpace.TYPE_RGB) {
+                        view.setColorSpace("RGB");
+                    } else {
+                        view.setColorSpace("OTHER");
+                    }
+                }
             }
         }
+        applyResolutionMetadata(view, bytes);
+    }
+
+    private void applyResolutionMetadata(ProductImageAssetMetadataView view, byte[] bytes) {
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            if (input == null) {
+                return;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) {
+                return;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, true, true);
+                IIOMetadata metadata = reader.getImageMetadata(0);
+                applyStandardResolution(view, metadata);
+                if (view.getHorizontalPpi() == null || view.getVerticalPpi() == null) {
+                    applyJpegResolution(view, metadata);
+                }
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException | RuntimeException exception) {
+            log.debug("Product image PPI metadata unavailable", exception);
+        }
+    }
+
+    private void applyStandardResolution(ProductImageAssetMetadataView view, IIOMetadata metadata) {
+        if (metadata == null || !metadata.isStandardMetadataFormatSupported()) {
+            return;
+        }
+        Node dimension = findNode(metadata.getAsTree("javax_imageio_1.0"), "Dimension");
+        BigDecimal horizontalMillimeters = decimalAttribute(findNode(dimension, "HorizontalPixelSize"), "value");
+        BigDecimal verticalMillimeters = decimalAttribute(findNode(dimension, "VerticalPixelSize"), "value");
+        view.setHorizontalPpi(ppiFromMillimeters(horizontalMillimeters));
+        view.setVerticalPpi(ppiFromMillimeters(verticalMillimeters));
+    }
+
+    private void applyJpegResolution(ProductImageAssetMetadataView view, IIOMetadata metadata) {
+        if (metadata == null) {
+            return;
+        }
+        for (String formatName : metadata.getMetadataFormatNames()) {
+            if (!"javax_imageio_jpeg_image_1.0".equals(formatName)) {
+                continue;
+            }
+            Node jfif = findNode(metadata.getAsTree(formatName), "app0JFIF");
+            BigDecimal xDensity = decimalAttribute(jfif, "Xdensity");
+            BigDecimal yDensity = decimalAttribute(jfif, "Ydensity");
+            String units = stringAttribute(jfif, "resUnits");
+            if (xDensity == null || yDensity == null || units == null) {
+                return;
+            }
+            if ("1".equals(units)) {
+                view.setHorizontalPpi(xDensity);
+                view.setVerticalPpi(yDensity);
+            } else if ("2".equals(units)) {
+                view.setHorizontalPpi(xDensity.multiply(BigDecimal.valueOf(2.54)));
+                view.setVerticalPpi(yDensity.multiply(BigDecimal.valueOf(2.54)));
+            }
+        }
+    }
+
+    private BigDecimal ppiFromMillimeters(BigDecimal millimetersPerPixel) {
+        if (millimetersPerPixel == null || millimetersPerPixel.signum() <= 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(25.4).divide(millimetersPerPixel, 2, RoundingMode.HALF_UP);
+    }
+
+    private Node findNode(Node root, String name) {
+        if (root == null) {
+            return null;
+        }
+        if (name.equals(root.getNodeName())) {
+            return root;
+        }
+        for (Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
+            Node found = findNode(child, name);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal decimalAttribute(Node node, String name) {
+        String value = stringAttribute(node, name);
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    private String stringAttribute(Node node, String name) {
+        NamedNodeMap attributes = node == null ? null : node.getAttributes();
+        Node attribute = attributes == null ? null : attributes.getNamedItem(name);
+        return attribute == null ? null : attribute.getNodeValue();
     }
 
     private Long requireOwnerUserId(Long value) {

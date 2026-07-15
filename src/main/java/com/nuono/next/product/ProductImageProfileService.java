@@ -52,6 +52,7 @@ public class ProductImageProfileService {
     private final ProductPublicDetailMapper productPublicDetailMapper;
     private final AiCapabilityService aiCapabilityService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final NoonImageTechnicalComplianceEvaluator noonComplianceEvaluator = new NoonImageTechnicalComplianceEvaluator();
 
     @Autowired
     public ProductImageProfileService(
@@ -700,6 +701,9 @@ public class ProductImageProfileService {
                 command.getSizeBytes(),
                 command.getWidthPx(),
                 command.getHeightPx(),
+                command.getHorizontalPpi(),
+                command.getVerticalPpi(),
+                trimToNull(command.getColorSpace()),
                 command.getImageRole() == null ? ProductImageRole.MAIN : command.getImageRole(),
                 command.getSortOrder() == null ? 0 : command.getSortOrder(),
                 command.getOperatorUserId(),
@@ -741,13 +745,45 @@ public class ProductImageProfileService {
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
 
-    private void insertProfileAsset(
+    private ProductImageProfileAssetRecord insertProfileAsset(
             Long profileId,
             String imageUrl,
             String contentType,
             Long sizeBytes,
             Integer widthPx,
             Integer heightPx,
+            ProductImageRole imageRole,
+            Integer sortOrder,
+            Long operatorUserId,
+            LocalDateTime now
+    ) {
+        return insertProfileAsset(
+                profileId,
+                imageUrl,
+                contentType,
+                sizeBytes,
+                widthPx,
+                heightPx,
+                null,
+                null,
+                null,
+                imageRole,
+                sortOrder,
+                operatorUserId,
+                now
+        );
+    }
+
+    private ProductImageProfileAssetRecord insertProfileAsset(
+            Long profileId,
+            String imageUrl,
+            String contentType,
+            Long sizeBytes,
+            Integer widthPx,
+            Integer heightPx,
+            java.math.BigDecimal horizontalPpi,
+            java.math.BigDecimal verticalPpi,
+            String colorSpace,
             ProductImageRole imageRole,
             Integer sortOrder,
             Long operatorUserId,
@@ -760,6 +796,9 @@ public class ProductImageProfileService {
         record.setSizeBytes(sizeBytes);
         record.setWidthPx(widthPx);
         record.setHeightPx(heightPx);
+        record.setHorizontalPpi(horizontalPpi);
+        record.setVerticalPpi(verticalPpi);
+        record.setColorSpace(colorSpace);
         record.setImageRole(imageRole == null ? ProductImageRole.MAIN : imageRole);
         record.setSortOrder(sortOrder == null ? 0 : sortOrder);
         record.setAssetStatus(ProductImageAssetStatus.ACTIVE);
@@ -768,6 +807,183 @@ public class ProductImageProfileService {
         record.setCreatedAt(now);
         record.setUpdatedAt(now);
         mapper.insertAsset(record);
+        if (record.getId() != null) {
+            ensureAssetUsage(record, record.getImageRole(), operatorUserId, now);
+        }
+        return record;
+    }
+
+    @Transactional
+    public ProductImageProfileDetailView addAssetUsages(
+            Long ownerUserId,
+            String storeCode,
+            Long profileId,
+            ProductImageAssetUsageCreateCommand command,
+            Long operatorUserId
+    ) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
+        List<ProductImageRole> roles = safeList(command == null ? null : command.getImageRoles()).stream()
+                .filter(Objects::nonNull)
+                .filter(role -> role != ProductImageRole.OTHER)
+                .distinct()
+                .collect(Collectors.toList());
+        if (roles.isEmpty()) {
+            throw new IllegalArgumentException("复用目标不能为空。");
+        }
+        ProductImageRole sourceRole = command == null || command.getSourceRole() == null
+                ? ProductImageRole.MAIN
+                : command.getSourceRole();
+        ProductImageProfileAssetRecord asset = resolveUsageAsset(
+                profile,
+                command == null ? null : command.getAssetId(),
+                command == null ? null : command.getImageUrl(),
+                sourceRole,
+                operatorUserId
+        );
+        LocalDateTime now = LocalDateTime.now();
+        ensureAssetUsage(asset, sourceRole, operatorUserId, now);
+        for (ProductImageRole role : roles) {
+            ensureAssetUsage(asset, role, operatorUserId, now);
+        }
+        return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
+    }
+
+    @Transactional
+    public ProductImageProfileDetailView updateAssetUsage(
+            Long ownerUserId,
+            String storeCode,
+            Long profileId,
+            Long usageId,
+            ProductImageAssetUsageUpdateCommand command,
+            Long operatorUserId
+    ) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
+        ProductImageProfileAssetUsageRecord usage = mapper.selectAssetUsageById(profile.getId(), usageId);
+        if (usage == null) {
+            throw notFound();
+        }
+        ProductImageRole nextRole = command == null || command.getImageRole() == null
+                ? usage.getImageRole()
+                : command.getImageRole();
+        if (nextRole == ProductImageRole.OTHER) {
+            throw new IllegalArgumentException("图片用途不能为空。");
+        }
+        if (nextRole != usage.getImageRole()
+                && mapper.countActiveAssetUsage(profile.getId(), usage.getAssetId(), nextRole) > 0) {
+            throw new IllegalArgumentException("该图片已用于目标分类。");
+        }
+        ProductImageProcessingStatus nextStatus = command == null || command.getProcessingStatus() == null
+                ? usage.getProcessingStatus()
+                : command.getProcessingStatus();
+        if (nextStatus == null) {
+            nextStatus = ProductImageProcessingStatus.PENDING;
+        }
+        usage.setImageRole(nextRole);
+        usage.setProcessingNote(trimToNull(command == null ? null : command.getProcessingNote()));
+        usage.setProcessingStatus(nextStatus);
+        usage.setUpdatedBy(operatorUserId);
+        if (nextStatus == ProductImageProcessingStatus.PROCESSED) {
+            usage.setProcessedBy(operatorUserId);
+            usage.setProcessedAt(LocalDateTime.now());
+        } else {
+            usage.setProcessedBy(null);
+            usage.setProcessedAt(null);
+        }
+        if (mapper.updateAssetUsage(usage) == 0) {
+            throw notFound();
+        }
+        return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
+    }
+
+    @Transactional
+    public ProductImageProfileDetailView removeAssetUsage(
+            Long ownerUserId,
+            String storeCode,
+            Long profileId,
+            Long usageId,
+            Long operatorUserId
+    ) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
+        if (mapper.softDeleteAssetUsage(profile.getId(), usageId, operatorUserId) == 0) {
+            throw notFound();
+        }
+        return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
+    }
+
+    private ProductImageProfileAssetRecord resolveUsageAsset(
+            ProductImageProfileRecord profile,
+            Long assetId,
+            String rawImageUrl,
+            ProductImageRole sourceRole,
+            Long operatorUserId
+    ) {
+        ProductImageProfileAssetRecord existing = assetId == null
+                ? null
+                : mapper.selectAssetById(profile.getId(), assetId);
+        String imageUrl = trimToNull(rawImageUrl);
+        if (existing != null && imageUrl != null && !imageUrl.equals(existing.getImageUrl())) {
+            existing = null;
+        }
+        if (existing == null && imageUrl != null) {
+            existing = mapper.selectAssetByUrl(profile.getId(), imageUrl);
+        }
+        if (existing != null) {
+            return existing;
+        }
+        if (imageUrl == null || profile.getProductMasterId() == null) {
+            throw notFound();
+        }
+        ProductImageProfileAssetRecord current = mapper.selectCurrentProductImageByUrl(profile.getProductMasterId(), imageUrl);
+        if (current == null) {
+            throw notFound();
+        }
+        return insertProfileAsset(
+                profile.getId(),
+                imageUrl,
+                current.getContentType(),
+                current.getSizeBytes(),
+                current.getWidthPx(),
+                current.getHeightPx(),
+                current.getHorizontalPpi(),
+                current.getVerticalPpi(),
+                current.getColorSpace(),
+                sourceRole,
+                current.getSortOrder(),
+                operatorUserId,
+                LocalDateTime.now()
+        );
+    }
+
+    private void ensureAssetUsage(
+            ProductImageProfileAssetRecord asset,
+            ProductImageRole role,
+            Long operatorUserId,
+            LocalDateTime now
+    ) {
+        if (asset == null || asset.getId() == null || role == null || role == ProductImageRole.OTHER) {
+            return;
+        }
+        if (mapper.countActiveAssetUsage(asset.getProfileId(), asset.getId(), role) > 0) {
+            return;
+        }
+        ProductImageProfileAssetUsageRecord usage = new ProductImageProfileAssetUsageRecord();
+        usage.setProfileId(asset.getProfileId());
+        usage.setAssetId(asset.getId());
+        usage.setImageRole(role);
+        usage.setSortOrder(asset.getSortOrder() == null ? 0 : asset.getSortOrder());
+        usage.setProcessingStatus(ProductImageProcessingStatus.PENDING);
+        usage.setCreatedBy(operatorUserId);
+        usage.setUpdatedBy(operatorUserId);
+        usage.setCreatedAt(now);
+        usage.setUpdatedAt(now);
+        usage.setDeleted(false);
+        mapper.insertAssetUsage(usage);
     }
 
     @Transactional
@@ -788,7 +1004,10 @@ public class ProductImageProfileService {
         String imageUrl = trimToNull(command.getImageUrl());
         boolean updated = false;
         if (command.getAssetId() != null) {
-            updated = mapper.updateAssetRole(profile.getId(), command.getAssetId(), imageRole, operatorUserId) > 0;
+            ProductImageProfileAssetRecord target = mapper.selectAssetById(profile.getId(), command.getAssetId());
+            if (imageUrl == null || (target != null && imageUrl.equals(target.getImageUrl()))) {
+                updated = mapper.updateAssetRole(profile.getId(), command.getAssetId(), imageRole, operatorUserId) > 0;
+            }
         }
         if (!updated && imageUrl != null) {
             updated = mapper.updateAssetRoleByUrl(profile.getId(), imageUrl, imageRole, operatorUserId) > 0;
@@ -800,6 +1019,22 @@ public class ProductImageProfileService {
         if (!updated) {
             throw notFound();
         }
+        ProductImageProfileAssetRecord updatedAsset = imageUrl == null
+                ? mapper.selectAssetById(profile.getId(), command.getAssetId())
+                : mapper.selectAssetByUrl(profile.getId(), imageUrl);
+        if (updatedAsset != null) {
+            List<ProductImageProfileAssetUsageRecord> usages = safeList(mapper.selectAssetUsages(profile.getId())).stream()
+                    .filter(usage -> Objects.equals(updatedAsset.getId(), usage.getAssetId()))
+                    .collect(Collectors.toList());
+            if (usages.isEmpty()) {
+                ensureAssetUsage(updatedAsset, imageRole, operatorUserId, LocalDateTime.now());
+            } else if (usages.size() == 1) {
+                ProductImageProfileAssetUsageRecord usage = usages.get(0);
+                usage.setImageRole(imageRole);
+                usage.setUpdatedBy(operatorUserId);
+                mapper.updateAssetUsage(usage);
+            }
+        }
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
 
@@ -809,22 +1044,28 @@ public class ProductImageProfileService {
             ProductImageRole imageRole,
             Long operatorUserId
     ) {
-        if (profile.getProductMasterId() == null
-                || mapper.countCurrentProductImageByUrl(profile.getProductMasterId(), imageUrl) == 0) {
+        if (profile.getProductMasterId() == null) {
             throw notFound();
         }
-        LocalDateTime now = LocalDateTime.now();
-        ProductImageProfileAssetRecord overlay = new ProductImageProfileAssetRecord();
-        overlay.setProfileId(profile.getId());
-        overlay.setImageUrl(imageUrl);
-        overlay.setImageRole(imageRole);
-        overlay.setSortOrder(0);
-        overlay.setAssetStatus(ProductImageAssetStatus.ACTIVE);
-        overlay.setCreatedBy(operatorUserId);
-        overlay.setUpdatedBy(operatorUserId);
-        overlay.setCreatedAt(now);
-        overlay.setUpdatedAt(now);
-        mapper.insertAsset(overlay);
+        ProductImageProfileAssetRecord current = mapper.selectCurrentProductImageByUrl(profile.getProductMasterId(), imageUrl);
+        if (current == null) {
+            throw notFound();
+        }
+        insertProfileAsset(
+                profile.getId(),
+                imageUrl,
+                current.getContentType(),
+                current.getSizeBytes(),
+                current.getWidthPx(),
+                current.getHeightPx(),
+                current.getHorizontalPpi(),
+                current.getVerticalPpi(),
+                current.getColorSpace(),
+                imageRole,
+                current.getSortOrder(),
+                operatorUserId,
+                LocalDateTime.now()
+        );
     }
 
     @Transactional
@@ -874,12 +1115,15 @@ public class ProductImageProfileService {
         String imageUrl = trimToNull(item.getImageUrl());
         boolean removed = false;
         if (item.getAssetId() != null) {
-            removed = mapper.updateAssetStatus(
-                    profile.getId(),
-                    item.getAssetId(),
-                    ProductImageAssetStatus.REMOVED,
-                    operatorUserId
-            ) > 0;
+            ProductImageProfileAssetRecord target = mapper.selectAssetById(profile.getId(), item.getAssetId());
+            if (imageUrl == null || (target != null && imageUrl.equals(target.getImageUrl()))) {
+                removed = mapper.updateAssetStatus(
+                        profile.getId(),
+                        item.getAssetId(),
+                        ProductImageAssetStatus.REMOVED,
+                        operatorUserId
+                ) > 0;
+            }
         }
         if (!removed && imageUrl != null) {
             removed = mapper.updateAssetStatusByUrl(
@@ -1180,6 +1424,14 @@ public class ProductImageProfileService {
                 .filter(StringUtils::hasText)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         List<ProductImageProfileAssetRecord> profileAssets = safeList(mapper.selectAssets(record.getId()));
+        Map<Long, List<ProductImageProfileAssetUsageRecord>> usagesByAsset = safeList(mapper.selectAssetUsages(record.getId())).stream()
+                .filter(Objects::nonNull)
+                .filter(usage -> usage.getAssetId() != null)
+                .collect(Collectors.groupingBy(
+                        ProductImageProfileAssetUsageRecord::getAssetId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
         Set<String> profileAssetUrls = profileAssets.stream()
                 .map(ProductImageProfileAssetRecord::getImageUrl)
                 .filter(StringUtils::hasText)
@@ -1187,15 +1439,16 @@ public class ProductImageProfileService {
         Set<String> baseSkippedUrls = new LinkedHashSet<>(removedUrls);
         baseSkippedUrls.addAll(profileAssetUrls);
         List<ProductImageProfileAssetView> result = baseAssets(record.getProductMasterId(), null, baseSkippedUrls);
-        Set<String> seen = result.stream()
-                .map(ProductImageProfileAssetView::getImageUrl)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
         for (ProductImageProfileAssetRecord asset : profileAssets) {
             if (asset == null || !StringUtils.hasText(asset.getImageUrl())) {
                 continue;
             }
-            if (seen.add(asset.getImageUrl())) {
+            List<ProductImageProfileAssetUsageRecord> usages = safeList(usagesByAsset.get(asset.getId()));
+            if (!usages.isEmpty()) {
+                for (ProductImageProfileAssetUsageRecord usage : usages) {
+                    result.add(toAssetView(asset, true, usage));
+                }
+            } else if (asset.getId() == null || mapper.countAssetUsageHistory(record.getId(), asset.getId()) == 0) {
                 result.add(toAssetView(asset, true));
             }
         }
@@ -1249,10 +1502,32 @@ public class ProductImageProfileService {
         view.setSizeBytes(record.getSizeBytes());
         view.setWidthPx(record.getWidthPx());
         view.setHeightPx(record.getHeightPx());
+        view.setHorizontalPpi(record.getHorizontalPpi());
+        view.setVerticalPpi(record.getVerticalPpi());
+        view.setColorSpace(record.getColorSpace());
         view.setImageRole(record.getImageRole() == null ? ProductImageRole.OTHER : record.getImageRole());
         view.setSortOrder(record.getSortOrder() == null ? 0 : record.getSortOrder());
         view.setAssetStatus(record.getAssetStatus() == null ? ProductImageAssetStatus.ACTIVE : record.getAssetStatus());
         view.setRemovable(removable);
+        view.setProcessingStatus(ProductImageProcessingStatus.PENDING);
+        view.setNoonTechnicalCompliance(noonComplianceEvaluator.evaluate(record));
+        return view;
+    }
+
+    private ProductImageProfileAssetView toAssetView(
+            ProductImageProfileAssetRecord record,
+            boolean removable,
+            ProductImageProfileAssetUsageRecord usage
+    ) {
+        ProductImageProfileAssetView view = toAssetView(record, removable);
+        view.setUsageId(usage.getId());
+        view.setImageRole(usage.getImageRole() == null ? view.getImageRole() : usage.getImageRole());
+        view.setSortOrder(usage.getSortOrder() == null ? view.getSortOrder() : usage.getSortOrder());
+        view.setProcessingNote(usage.getProcessingNote());
+        view.setProcessingStatus(usage.getProcessingStatus() == null
+                ? ProductImageProcessingStatus.PENDING
+                : usage.getProcessingStatus());
+        view.setProcessedAt(format(usage.getProcessedAt()));
         return view;
     }
 
