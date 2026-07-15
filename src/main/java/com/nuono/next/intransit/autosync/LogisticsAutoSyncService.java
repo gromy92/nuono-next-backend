@@ -93,8 +93,8 @@ public class LogisticsAutoSyncService {
             if (preview == null || !preview.isCommittable()) {
                 summary.setStatus("preview_blocked");
                 summary.setFailureCode(LogisticsProviderFailureCode.PREVIEW_BLOCKED);
-                summary.setFailureMessage("物流自动同步预览未通过，未提交。");
                 applyPreviewIssues(summary, preview, account, password);
+                summary.setFailureMessage(previewFailureMessage(preview));
                 updateRunState(
                         account,
                         task,
@@ -326,6 +326,20 @@ public class LogisticsAutoSyncService {
             }
         }
         summary.setPreviewIssues(sanitized);
+    }
+
+    private static String previewFailureMessage(PluginSyncPreviewView preview) {
+        long barcodeErrorCount = preview == null || preview.getIssues() == null
+                ? 0L
+                : preview.getIssues().stream()
+                        .filter(issue -> issue != null
+                                && "error".equalsIgnoreCase(issue.getLevel())
+                                && "barcode".equalsIgnoreCase(issue.getField()))
+                        .count();
+        if (barcodeErrorCount > 0) {
+            return "物流商品 barcode 未匹配 " + barcodeErrorCount + " 条，自动同步已阻断，未提交。";
+        }
+        return "物流自动同步预览未通过，未提交。";
     }
 
     private LogisticsAutoSyncTaskSummary.PreviewIssueSummary toPreviewIssueSummary(
