@@ -49,7 +49,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class InTransitPluginSyncService {
 
-    private static final Set<String> SUPPORTED_SOURCE_SYSTEMS = Set.of("CHIC", "ET", "YITONG", "YITE");
+    private static final Set<String> SUPPORTED_SOURCE_SYSTEMS = Set.of("CHIC", "ET", "YITONG", "YITE", "ZD");
     private static final int PLUGIN_SYNC_BATCH_LOCK_TIMEOUT_SECONDS = 10;
 
     private final InTransitGoodsMapper mapper;
@@ -350,7 +350,7 @@ public class InTransitPluginSyncService {
         if (!StringUtils.hasText(resolved.getSourceSystem())) {
             issues.add(PluginSyncIssueView.error(null, null, null, "sourceSystem", "插件来源系统不能为空。"));
         } else if (!SUPPORTED_SOURCE_SYSTEMS.contains(normalizeCode(resolved.getSourceSystem()))) {
-            issues.add(PluginSyncIssueView.error(null, null, null, "sourceSystem", "插件来源系统只支持 CHIC、ET、YITONG、YITE。"));
+            issues.add(PluginSyncIssueView.error(null, null, null, "sourceSystem", "物流同步来源只支持 CHIC、ET、YITONG、YITE、ZD。"));
         }
         if (resolved.getBatches().isEmpty()) {
             issues.add(PluginSyncIssueView.error(null, null, null, "batches", "插件同步批次不能为空。"));
@@ -1271,6 +1271,8 @@ public class InTransitPluginSyncService {
             fallbackName = "易通";
         } else if ("YITE".equals(sourceSystem)) {
             fallbackName = "义特";
+        } else if ("ZD".equals(sourceSystem)) {
+            fallbackName = "众鸫";
         }
         return InTransitForwarderCatalog.require(sourceSystem, firstText(forwarderName, fallbackName));
     }

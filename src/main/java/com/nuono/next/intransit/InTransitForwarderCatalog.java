@@ -9,7 +9,8 @@ public final class InTransitForwarderCatalog {
     private static final List<CanonicalForwarder> MANAGED = List.of(
             new CanonicalForwarder("QIKE", "启客"),
             new CanonicalForwarder("YITONG", "易通"),
-            new CanonicalForwarder("YITE", "义特")
+            new CanonicalForwarder("YITE", "义特"),
+            new CanonicalForwarder("ZHONGDONG", "众鸫")
     );
 
     private InTransitForwarderCatalog() {
@@ -22,7 +23,7 @@ public final class InTransitForwarderCatalog {
     public static CanonicalForwarder require(String code, String name) {
         CanonicalForwarder forwarder = match(code, name);
         if (forwarder == null) {
-            throw new IllegalArgumentException("物流方只支持启客、易通、义特。");
+            throw new IllegalArgumentException("物流方只支持启客、易通、义特、众鸫。");
         }
         return forwarder;
     }
@@ -45,6 +46,12 @@ public final class InTransitForwarderCatalog {
         }
         if (normalized.contains("义特") || normalized.contains("yite")) {
             return MANAGED.get(2);
+        }
+        if (normalized.contains("众鸫")
+                || normalized.contains("zhongdong")
+                || "zd".equals(normalized)
+                || "zdsea".equals(normalized)) {
+            return MANAGED.get(3);
         }
         for (CanonicalForwarder forwarder : MANAGED) {
             if (forwarder.code().toLowerCase(Locale.ROOT).equals(normalized)) {

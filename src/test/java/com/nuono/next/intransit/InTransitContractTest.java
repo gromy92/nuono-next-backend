@@ -2,6 +2,7 @@ package com.nuono.next.intransit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -48,5 +49,14 @@ class InTransitContractTest {
         assertEquals("forwarder_unmatched", view.getQualityStatuses().get(0).getCode());
         assertEquals(List.of(), view.getPurchaseOrderFields());
         assertEquals(List.of(), view.getFeeFields());
+    }
+
+    @Test
+    void forwarderCatalogRecognizesZhongdongAliases() {
+        assertEquals("ZHONGDONG", InTransitForwarderCatalog.require("ZD", null).code());
+        assertEquals("众鸫", InTransitForwarderCatalog.require("ZDSEA", null).name());
+        assertEquals("ZHONGDONG", InTransitForwarderCatalog.require(null, "深圳市众鸫供应链有限公司").code());
+        assertTrue(InTransitForwarderCatalog.managedForwarders().stream()
+                .anyMatch(item -> "ZHONGDONG".equals(item.code()) && "众鸫".equals(item.name())));
     }
 }
