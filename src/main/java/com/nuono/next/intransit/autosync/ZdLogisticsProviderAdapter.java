@@ -3,6 +3,7 @@ package com.nuono.next.intransit.autosync;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.intransit.InTransitBatchStatus;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncBatch;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncCommand;
 import com.nuono.next.intransit.InTransitPluginSyncCommands.PluginSyncPackage;
@@ -125,9 +126,12 @@ public class ZdLogisticsProviderAdapter implements LogisticsProviderAdapter {
     PluginSyncCommand normalize(String expressBody, String boxBody) {
         List<JsonNode> expressRows = dataRows(requireProviderSuccess(expressBody, "众鸫物流批次接口返回异常。"));
         List<JsonNode> boxRows = dataRows(requireProviderSuccess(boxBody, "众鸫箱子接口返回异常。"));
+        List<PluginSyncBatch> batches = new ArrayList<>();
         Map<String, PluginSyncBatch> batchesByEntryNumber = new LinkedHashMap<>();
+        Map<String, PluginSyncBatch> batchesByTrackingNumber = new LinkedHashMap<>();
         Map<String, String> trackingByEntryNumber = new LinkedHashMap<>();
         Map<String, Integer> expectedBoxesByEntryNumber = new LinkedHashMap<>();
+        Set<String> supplementalTrackingKeys = new HashSet<>();
 
         for (JsonNode row : expressRows) {
             String entryNumber = requiredText(row, "entryNumber", "众鸫物流批次缺少入仓号。");
@@ -152,32 +156,64 @@ public class ZdLogisticsProviderAdapter implements LogisticsProviderAdapter {
             batch.setExternalShipmentNo(firstText(text(row, "id"), trackingNo));
             batch.setSourceCreatedAt(text(row, "gmtCreate"));
             batch.setPackages(new ArrayList<>());
+            String trackingKey = normalizeKey(trackingNo);
+            if (batchesByTrackingNumber.containsKey(trackingKey)) {
+                throw providerError("众鸫物流批次存在重复物流单号。");
+            }
+            batches.add(batch);
             batchesByEntryNumber.put(key, batch);
+            batchesByTrackingNumber.put(trackingKey, batch);
             trackingByEntryNumber.put(key, trackingNo);
             expectedBoxesByEntryNumber.put(key, integerValue(row, "quantity"));
         }
 
         Set<String> packageKeys = new HashSet<>();
         for (JsonNode row : boxRows) {
-            String entryNumber = requiredText(row, "entryNumber", "众鸫箱子缺少入仓号。");
-            String entryKey = normalizeKey(entryNumber);
-            PluginSyncBatch batch = batchesByEntryNumber.get(entryKey);
-            if (batch == null) {
-                throw providerError("众鸫箱子无法匹配物流批次。");
-            }
             String boxCode = requiredText(row, "boxCode", "众鸫箱子缺少箱号。");
-            if (!packageKeys.add(entryKey + "\n" + normalizeKey(boxCode))) {
-                throw providerError("众鸫同一物流批次存在重复箱号。");
-            }
+            String entryNumber = text(row, "entryNumber");
             String boxTrackingNo = text(row, "expressNumber");
-            if (StringUtils.hasText(boxTrackingNo)
-                    && !sameText(boxTrackingNo, trackingByEntryNumber.get(entryKey))) {
-                throw providerError("众鸫箱子物流单号与批次不一致。");
+            PluginSyncBatch batch;
+            String batchKey;
+
+            if (StringUtils.hasText(entryNumber)) {
+                String entryKey = normalizeKey(entryNumber);
+                batch = batchesByEntryNumber.get(entryKey);
+                if (batch == null) {
+                    throw providerError("众鸫箱子无法匹配物流批次。");
+                }
+                if (StringUtils.hasText(boxTrackingNo)
+                        && !sameText(boxTrackingNo, trackingByEntryNumber.get(entryKey))) {
+                    throw providerError("众鸫箱子物流单号与批次不一致。");
+                }
+                batchKey = entryKey;
+            } else {
+                boxTrackingNo = requiredText(row, "expressNumber", "众鸫箱子缺少入仓号和物流单号。");
+                if (!boxCodeContainsTrackingNumber(boxCode, boxTrackingNo)) {
+                    throw providerError("众鸫箱号与物流单号不一致，无法生成待订正批次。");
+                }
+                String trackingKey = normalizeKey(boxTrackingNo);
+                batch = batchesByTrackingNumber.get(trackingKey);
+                if (batch == null) {
+                    if (batchesByEntryNumber.containsKey(trackingKey)) {
+                        throw providerError("众鸫箱子物流单号与已返回批次标识冲突。");
+                    }
+                    batch = supplementalBatch(row, boxTrackingNo);
+                    batches.add(batch);
+                    batchesByTrackingNumber.put(trackingKey, batch);
+                    supplementalTrackingKeys.add(trackingKey);
+                } else if (supplementalTrackingKeys.contains(trackingKey)) {
+                    mergeSupplementalWarehouse(batch, row);
+                }
+                batchKey = normalizeKey(batch.getBatchNo());
+            }
+
+            if (!packageKeys.add(batchKey + "\n" + normalizeKey(boxCode))) {
+                throw providerError("众鸫同一物流批次存在重复箱号。");
             }
             PluginSyncPackage itemPackage = new PluginSyncPackage();
             itemPackage.setBoxNo(boxCode);
             itemPackage.setExternalBoxNo(boxCode);
-            itemPackage.setTrackingNo(firstText(boxTrackingNo, trackingByEntryNumber.get(entryKey)));
+            itemPackage.setTrackingNo(firstText(boxTrackingNo, batch.getTrackingNo()));
             itemPackage.setLines(List.of());
             batch.getPackages().add(itemPackage);
         }
@@ -185,7 +221,7 @@ public class ZdLogisticsProviderAdapter implements LogisticsProviderAdapter {
         PluginSyncCommand command = new PluginSyncCommand();
         command.setSourceSystem("ZD");
         command.setForwarderName("众鸫");
-        command.setBatches(new ArrayList<>(batchesByEntryNumber.values()));
+        command.setBatches(batches);
         List<PluginSyncSourceBatchExpectation> expectations = new ArrayList<>();
         for (Map.Entry<String, PluginSyncBatch> entry : batchesByEntryNumber.entrySet()) {
             PluginSyncSourceBatchExpectation expectation = new PluginSyncSourceBatchExpectation();
@@ -196,6 +232,32 @@ public class ZdLogisticsProviderAdapter implements LogisticsProviderAdapter {
         }
         command.setSourceBatchExpectations(expectations);
         return command;
+    }
+
+    private PluginSyncBatch supplementalBatch(JsonNode row, String trackingNo) {
+        PluginSyncBatch batch = new PluginSyncBatch();
+        batch.setBatchNo(trackingNo);
+        batch.setBatchStatus(InTransitBatchStatus.DRAFT.code());
+        batch.setRawStatus("批次接口未返回，待人工订正");
+        batch.setTrackingNo(trackingNo);
+        batch.setExternalShipmentNo(trackingNo);
+        batch.setPackages(new ArrayList<>());
+        mergeSupplementalWarehouse(batch, row);
+        return batch;
+    }
+
+    private void mergeSupplementalWarehouse(PluginSyncBatch batch, JsonNode row) {
+        String incomingWarehouse = text(row, "warehouseName");
+        String existingWarehouse = batch.getTargetWarehouseName();
+        if (StringUtils.hasText(existingWarehouse)
+                && StringUtils.hasText(incomingWarehouse)
+                && !sameText(existingWarehouse, incomingWarehouse)) {
+            throw providerError("众鸫同一待订正批次的箱子目的仓不一致。");
+        }
+        if (!StringUtils.hasText(existingWarehouse) && StringUtils.hasText(incomingWarehouse)) {
+            batch.setTargetWarehouseName(incomingWarehouse);
+            batch.setDestination(mapDestination(incomingWarehouse));
+        }
     }
 
     private String login(
@@ -408,6 +470,30 @@ public class ZdLogisticsProviderAdapter implements LogisticsProviderAdapter {
 
     private boolean sameText(String left, String right) {
         return normalizeKey(left).equals(normalizeKey(right));
+    }
+
+    private boolean boxCodeContainsTrackingNumber(String boxCode, String trackingNo) {
+        String normalizedBoxCode = normalizeKey(boxCode);
+        String normalizedTrackingNo = normalizeKey(trackingNo);
+        if (!StringUtils.hasText(normalizedTrackingNo)) {
+            return false;
+        }
+        int fromIndex = 0;
+        while (fromIndex <= normalizedBoxCode.length() - normalizedTrackingNo.length()) {
+            int index = normalizedBoxCode.indexOf(normalizedTrackingNo, fromIndex);
+            if (index < 0) {
+                return false;
+            }
+            int afterIndex = index + normalizedTrackingNo.length();
+            boolean startsAtBoundary = index == 0 || !Character.isLetterOrDigit(normalizedBoxCode.charAt(index - 1));
+            boolean endsAtBoundary = afterIndex == normalizedBoxCode.length()
+                    || !Character.isLetterOrDigit(normalizedBoxCode.charAt(afterIndex));
+            if (startsAtBoundary && endsAtBoundary) {
+                return true;
+            }
+            fromIndex = index + 1;
+        }
+        return false;
     }
 
     private String base64(String value) {
