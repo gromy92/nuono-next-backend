@@ -3,6 +3,7 @@ package com.nuono.next.productpublicdetail;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
@@ -41,5 +42,25 @@ class ProductPublicDetailSyncSchedulerTest {
         assertEquals(1, scheduler.runOnce());
 
         verify(syncService).submitScheduled(501L, "CANMAN", "SA");
+    }
+
+    @Test
+    void enabledSchedulerSkipsMaintenanceScopes() {
+        ProductPublicDetailSyncScheduler scheduler = new ProductPublicDetailSyncScheduler(mapper, syncService, true, 50, 1, 12);
+        scheduler.setMaintenanceGate((ownerUserId, storeCode, siteCode) -> "MAINTAINED".equals(storeCode));
+        ProductPublicDetailScope maintained = new ProductPublicDetailScope();
+        maintained.setOwnerUserId(501L);
+        maintained.setStoreCode("MAINTAINED");
+        maintained.setSiteCode("SA");
+        ProductPublicDetailScope active = new ProductPublicDetailScope();
+        active.setOwnerUserId(501L);
+        active.setStoreCode("ACTIVE");
+        active.setSiteCode("AE");
+        when(mapper.listDueScopes(50, 1, 12)).thenReturn(List.of(maintained, active));
+
+        assertEquals(1, scheduler.runOnce());
+
+        verify(syncService, never()).submitScheduled(501L, "MAINTAINED", "SA");
+        verify(syncService).submitScheduled(501L, "ACTIVE", "AE");
     }
 }

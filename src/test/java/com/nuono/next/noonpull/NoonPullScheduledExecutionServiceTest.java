@@ -132,6 +132,38 @@ class NoonPullScheduledExecutionServiceTest {
     }
 
     @Test
+    void shouldNotExecuteExistingScheduledTaskUnderMaintenance() {
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.SALES)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily")
+                .build());
+        NoonPullTaskRecord queued = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("sales:2026-05-22")
+                .targetDateFrom(LocalDate.of(2026, 5, 22))
+                .targetDateTo(LocalDate.of(2026, 5, 22))
+                .build()).orElseThrow();
+        service.setMaintenanceGate((ownerUserId, storeCode, siteCode) -> true);
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(0, result.getExecutedTaskCount());
+        assertEquals(1, result.getSkippedTaskCount());
+        assertEquals(NoonPullTaskStatus.QUEUED, repository.selectTask(queued.getId()).getStatus());
+        assertEquals(0, writer.facts.size());
+    }
+
+    @Test
     void shouldExecuteExistingQueuedTaskOutsideRecentTaskWindow() {
         NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
                 .ownerUserId(10002L)
