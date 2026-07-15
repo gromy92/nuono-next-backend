@@ -216,6 +216,33 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldClassifyWhoamiRedirectAsAuthRequired() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(307)) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setEmailOtpReader((email, mailAuthCode) -> {
+                throw new AssertionError("cookie-only session must not read email OTP");
+            });
+
+            NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
+                    NoonSessionGateway.NoonCookieAuthRequiredException.class,
+                    () -> gateway.loginWithPersistedCookie(
+                            308L,
+                            "merchant@example.com",
+                            "sid=expired",
+                            "PRJ313934",
+                            "STR313934-NAE"
+                    )
+            );
+
+            assertTrue(exception.getMessage().contains("auth_required"));
+            assertTrue(exception.getMessage().contains("307"));
+            assertEquals(0, server.generateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
     void shouldPreserveRateLimitClassificationWhenCookieValidationIsThrottled() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         try (AuthRefreshServer server = new AuthRefreshServer(429)) {
