@@ -41,6 +41,23 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
+    void updatePublishTaskStatusShouldSetStatusOnlyOnce() {
+        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "updateProductPublishTaskStatus".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Update update = method.getAnnotation(Update.class);
+        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
+        String marker = "SET status = #{status},";
+
+        assertTrue(sql.contains(marker));
+        assertTrue(
+                sql.indexOf(marker) == sql.lastIndexOf(marker),
+                "updateProductPublishTaskStatus must not emit duplicate SET status clauses"
+        );
+    }
+
+    @Test
     void publishTaskQueriesShouldTreatWriteRetryScheduledAsActiveAndRunnable() {
         Method activeMethod = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "selectActiveProductPublishTask".equals(candidate.getName()))

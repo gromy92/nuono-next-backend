@@ -3,10 +3,12 @@ package com.nuono.next.product;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,10 +16,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.NoonProductGateway;
 import com.nuono.next.product.noon.ProductNoonAdapter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -158,6 +163,70 @@ class ProductPublishSharedZskuWriterTest {
                 .path("variants").get(0)
                 .path("attributes")
                 .path("size").asText());
+    }
+
+    @Test
+    void shouldUploadLocalImageAssetsBeforePublishingImageUrls() throws Exception {
+        Path uploadDir = ProductImageAssetFileSupport.productImageUploadDir();
+        Files.createDirectories(uploadDir);
+        String filename = UUID.randomUUID() + ".jpg";
+        Path localImage = uploadDir.resolve(filename);
+        Files.write(localImage, new byte[] {1, 2, 3});
+        try {
+            ProductMasterSnapshotView baseline = snapshot(
+                    "Same Brand",
+                    "same_fulltype",
+                    "Same title",
+                    List.of("Same bullet"),
+                    List.of("https://img.example/old.jpg"),
+                    "Small"
+            );
+            ProductMasterSnapshotView draft = snapshot(
+                    "Same Brand",
+                    "same_fulltype",
+                    "Same title",
+                    List.of("Same bullet"),
+                    List.of("/api/product-master/image-assets/" + filename),
+                    "Small"
+            );
+            ObjectNode uploadResponse = objectMapper.createObjectNode();
+            uploadResponse.put("upload_path", "noon-uploaded/" + filename);
+            when(productNoonAdapter.postMultipartFile(
+                    nullable(NoonSession.class),
+                    eq("https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload"),
+                    eq("file"),
+                    eq(filename),
+                    eq("image/jpeg"),
+                    any(byte[].class),
+                    eq(true),
+                    nullable(Map.class)
+            )).thenReturn(uploadResponse);
+            List<String> warnings = new ArrayList<>();
+
+            writer.publishSharedAttributes(
+                    null,
+                    draft,
+                    baseline,
+                    baseline,
+                    new ProductPublishUnsupportedChanges(),
+                    warnings
+            );
+
+            ArgumentCaptor<JsonNode> bodyCaptor = ArgumentCaptor.forClass(JsonNode.class);
+            verify(productNoonAdapter).postWriteJson(
+                    nullable(NoonSession.class),
+                    eq(NoonProductGateway.ZSKU_UPSERT_URL),
+                    bodyCaptor.capture(),
+                    eq(true)
+            );
+            assertEquals(
+                    "noon-uploaded/" + filename,
+                    bodyCaptor.getValue().path("attributes").path("image_url_1").asText()
+            );
+            assertTrue(warnings.stream().anyMatch((warning) -> warning.contains("本地上传图片")));
+        } finally {
+            Files.deleteIfExists(localImage);
+        }
     }
 
     private ProductMasterSnapshotView snapshot(

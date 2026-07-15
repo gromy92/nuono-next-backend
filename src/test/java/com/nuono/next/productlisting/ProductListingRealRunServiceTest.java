@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -256,6 +258,58 @@ class ProductListingRealRunServiceTest {
     }
 
     @Test
+    void failedRealRunBeforeRemoteWriteCanBeRetriedForSameDryRun() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(noonFailureBeforeRemoteWriteResult());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+
+        ProductListingTaskView submitted = service.confirmRealRun(context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand());
+        ProductListingTaskView failed = service.executeSubmittedRealRunTask(submitted.getTaskId());
+        ProductListingTaskView retry = service.confirmRealRun(context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand());
+
+        assertEquals("failed", failed.getStatus());
+        assertEquals("submitted", retry.getStatus());
+        assertEquals(dryRun.getTaskId(), retry.getSourceTaskId());
+        assertEquals(1, adapter.callCount());
+    }
+
+    @Test
+    void partnerSkuAlreadyExistsFailureLocksSameDryRunAndShowsChineseMessage() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(partnerSkuAlreadyExistsResult());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+
+        ProductListingTaskView submitted = service.confirmRealRun(context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand());
+        ProductListingTaskView failed = service.executeSubmittedRealRunTask(submitted.getTaskId());
+        ProductListingTaskView retry = service.confirmRealRun(context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand());
+
+        assertEquals("failed", failed.getStatus());
+        assertEquals("partner_sku_already_exists", failed.getFailureCode());
+        assertTrue(failed.getFailureMessage().contains("PSKU 已存在"));
+        assertTrue(failed.getFailureMessage().contains("NN-TEST-PSKU"));
+        assertEquals("rejected", retry.getStatus());
+        assertEquals("partner_sku_already_exists", retry.getFailureCode());
+        assertTrue(retry.getFailureMessage().contains("PSKU 已存在"));
+        assertEquals(1, adapter.callCount());
+    }
+
+    @Test
     void imageUploadFailureAfterRemoteCreateKeepsWrittenVerificationState() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
@@ -377,6 +431,63 @@ class ProductListingRealRunServiceTest {
         assertEquals(1, adapter.callCount());
     }
 
+    @Test
+    void workerExecutesSubmittedRealRunTasksFromDurableQueue() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(successResult());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView submitted = service.confirmRealRun(
+                context,
+                dryRun.getTaskId(),
+                ProductListingTestFixtures.confirmedCommand()
+        );
+
+        List<ProductListingTaskView> executed = service.executeRunnableRealRunTasks(5);
+
+        assertEquals(1, executed.size());
+        assertEquals(submitted.getTaskId(), executed.get(0).getTaskId());
+        assertEquals("succeeded", executed.get(0).getStatus());
+        assertEquals(1, adapter.callCount());
+    }
+
+    @Test
+    void staleRunningRealRunTasksAreRecoveredAndExecutedByWorkerQueue() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(successResult());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L,
+                90001L,
+                "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView submitted = service.confirmRealRun(
+                context,
+                dryRun.getTaskId(),
+                ProductListingTestFixtures.confirmedCommand()
+        );
+        mapper.forceRunning(submitted.getTaskId(), LocalDateTime.now().minusHours(2));
+
+        int recovered = service.recoverStaleRunningRealRunTasks(Duration.ofMinutes(30));
+        List<ProductListingTaskView> executed = service.executeRunnableRealRunTasks(5);
+
+        assertEquals(1, recovered);
+        assertEquals(1, executed.size());
+        assertEquals(submitted.getTaskId(), executed.get(0).getTaskId());
+        assertEquals("succeeded", executed.get(0).getStatus());
+        assertEquals(1, adapter.callCount());
+    }
+
     private ProductListingNoonWriteResult successResult() {
         ProductListingNoonWriteStepResult create = new ProductListingNoonWriteStepResult();
         create.setStepKey("create_product");
@@ -405,6 +516,34 @@ class ProductListingRealRunServiceTest {
                 "readback_mismatch",
                 "Noon product was created but readback fields differ.",
                 List.of(create, readBack)
+        );
+    }
+
+    private ProductListingNoonWriteResult noonFailureBeforeRemoteWriteResult() {
+        ProductListingNoonWriteStepResult create = new ProductListingNoonWriteStepResult();
+        create.setStepKey("create_product");
+        create.setStatus("failed");
+        create.setFailureCode("noon_write_failed");
+        create.setFailureMessage("HTTP 503 temporary Noon error.");
+        return ProductListingNoonWriteResult.failed(
+                "noon_api",
+                "noon_write_failed",
+                "HTTP 503 temporary Noon error.",
+                List.of(create)
+        );
+    }
+
+    private ProductListingNoonWriteResult partnerSkuAlreadyExistsResult() {
+        ProductListingNoonWriteStepResult create = new ProductListingNoonWriteStepResult();
+        create.setStepKey("create_product");
+        create.setStatus("failed");
+        create.setFailureCode("noon_write_failed");
+        create.setFailureMessage("HTTP 400 {\"error\":\"Partner skus already exists: [['NN-TEST-PSKU']]\"}");
+        return ProductListingNoonWriteResult.failed(
+                "noon_api",
+                "noon_write_failed",
+                "HTTP 400 {\"error\":\"Partner skus already exists: [['NN-TEST-PSKU']]\"}",
+                List.of(create)
         );
     }
 

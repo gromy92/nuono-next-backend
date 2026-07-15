@@ -6,6 +6,9 @@ import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -14,6 +17,7 @@ import java.util.Locale;
 import org.springframework.util.StringUtils;
 
 final class HttpClientProductListingImageDownloader implements ProductListingImageDownloader {
+    private static final String LOCAL_PRODUCT_IMAGE_ASSET_PREFIX = "/api/product-master/image-assets/";
     private static final Duration IMAGE_DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
     private static final int MAX_IMAGE_BYTES = 10 * 1024 * 1024;
     private static final String IMAGE_DOWNLOAD_USER_AGENT =
@@ -37,6 +41,10 @@ final class HttpClientProductListingImageDownloader implements ProductListingIma
 
     @Override
     public ProductListingImageDownload download(String imageUrl) {
+        String source = StringUtils.hasText(imageUrl) ? imageUrl.trim() : "";
+        if (source.startsWith(LOCAL_PRODUCT_IMAGE_ASSET_PREFIX)) {
+            return downloadLocalProductImageAsset(source);
+        }
         URI uri = URI.create(StringUtils.hasText(imageUrl) ? imageUrl.trim() : "");
         validateImageUri(uri);
         HttpRequest request = HttpRequest.newBuilder(uri)
@@ -70,6 +78,54 @@ final class HttpClientProductListingImageDownloader implements ProductListingIma
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Download product listing image interrupted: " + exception.getMessage(), exception);
         }
+    }
+
+    private ProductListingImageDownload downloadLocalProductImageAsset(String imageUrl) {
+        String filename = imageUrl.substring(LOCAL_PRODUCT_IMAGE_ASSET_PREFIX.length()).trim();
+        if (!StringUtils.hasText(filename)
+                || filename.contains("..")
+                || filename.contains("/")
+                || filename.contains("\\")) {
+            throw new IllegalArgumentException("Image URL is required.");
+        }
+        Path file = productImageUploadDir().resolve(filename).normalize();
+        if (!file.startsWith(productImageUploadDir())) {
+            throw new IllegalArgumentException("Image URL is required.");
+        }
+        if (!Files.exists(file) || !Files.isRegularFile(file)) {
+            throw new IllegalStateException("Local product image asset does not exist.");
+        }
+        try {
+            byte[] content = Files.readAllBytes(file);
+            if (content.length == 0) {
+                throw new IllegalStateException("empty image response");
+            }
+            validateContentLength(content.length);
+            String contentType = Files.probeContentType(file);
+            if (!StringUtils.hasText(contentType)) {
+                contentType = contentTypeFromFileName(filename);
+            }
+            validateContentType(contentType);
+            return new ProductListingImageDownload(filename, contentType, content);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Read local product image asset failed: " + exception.getMessage(), exception);
+        }
+    }
+
+    private static Path productImageUploadDir() {
+        String configuredDir = System.getenv("NUONO_NEXT_PRODUCT_IMAGE_UPLOAD_DIR");
+        if (StringUtils.hasText(configuredDir)) {
+            return Paths.get(configuredDir).normalize();
+        }
+        return Paths.get(System.getProperty("java.io.tmpdir"), "nuono-next-product-images").normalize();
+    }
+
+    private static String contentTypeFromFileName(String filename) {
+        String lower = StringUtils.hasText(filename) ? filename.toLowerCase(Locale.ROOT) : "";
+        if (lower.endsWith(".png")) {
+            return "image/png";
+        }
+        return "image/jpeg";
     }
 
     private static void validateImageUri(URI uri) {

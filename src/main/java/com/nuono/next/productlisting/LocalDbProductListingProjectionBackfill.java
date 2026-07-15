@@ -1,15 +1,18 @@
 package com.nuono.next.productlisting;
 
 import com.nuono.next.infrastructure.mapper.ProductListingProjectionMapper;
+import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
+import com.nuono.next.product.ProductImageAssetRoleUpdateCommand;
+import com.nuono.next.product.ProductImageProfileSaveCommand;
+import com.nuono.next.product.ProductImageProfileService;
+import com.nuono.next.product.ProductMasterIdentityRecord;
 import com.nuono.next.product.ProductMasterSnapshotView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
@@ -26,13 +29,21 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
 
     private final ProductProjectionPersistenceService projectionPersistenceService;
     private final ProductListingProjectionMapper projectionMapper;
+    private final ProductImageProfileService productImageProfileService;
+    private final ProductManagementMapper productManagementMapper;
+    private final ProductListingDraftSnapshotAssembler draftSnapshotAssembler;
 
     public LocalDbProductListingProjectionBackfill(
             ProductProjectionPersistenceService projectionPersistenceService,
-            ProductListingProjectionMapper projectionMapper
+            ProductListingProjectionMapper projectionMapper,
+            ProductImageProfileService productImageProfileService,
+            ProductManagementMapper productManagementMapper
     ) {
         this.projectionPersistenceService = projectionPersistenceService;
         this.projectionMapper = projectionMapper;
+        this.productImageProfileService = productImageProfileService;
+        this.productManagementMapper = productManagementMapper;
+        this.draftSnapshotAssembler = new ProductListingDraftSnapshotAssembler();
     }
 
     @Override
@@ -57,12 +68,11 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
         }
 
         String now = TIME_FORMATTER.format(LocalDateTime.now());
-        ProductMasterSnapshotView snapshot = draftSnapshot(
+        ProductMasterSnapshotView snapshot = draftSnapshotAssembler.toDraftSnapshot(
                 record,
                 draft,
                 storeContext,
-                partnerSku,
-                localDraftSkuParent(partnerSku)
+                partnerSku
         );
         projectionPersistenceService.persistSnapshotProjection(
                 record.getOwnerUserId(),
@@ -70,6 +80,12 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
                 "draft",
                 now,
                 new ArrayList<>()
+        );
+        reconcileProductBarcodes(
+                record.getOwnerUserId(),
+                record.getStoreCode(),
+                partnerSku,
+                ProductListingDraftProjectionFields.from(draft, partnerSku).barcode()
         );
     }
 
@@ -122,6 +138,41 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
                 new ArrayList<>(),
                 true
         );
+        reconcileProductBarcodes(
+                task.getOwnerUserId(),
+                task.getStoreCode(),
+                partnerSku,
+                ProductListingDraftProjectionFields.from(draft, partnerSku).barcode()
+        );
+        syncProductImageProfile(task, draft, partnerSku);
+    }
+
+    private void reconcileProductBarcodes(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String retainedBarcode
+    ) {
+        ProductMasterIdentityRecord identity = productManagementMapper.selectProductMasterIdentityByStorePartnerSku(
+                ownerUserId,
+                storeCode,
+                partnerSku
+        );
+        if (identity == null || identity.getProductMasterId() == null) {
+            return;
+        }
+        if (StringUtils.hasText(retainedBarcode)) {
+            productManagementMapper.markOtherProductBarcodesDeletedByProductMasterId(
+                    identity.getProductMasterId(),
+                    retainedBarcode.trim(),
+                    ownerUserId
+            );
+            return;
+        }
+        productManagementMapper.markProductBarcodesDeletedByProductMasterId(
+                identity.getProductMasterId(),
+                ownerUserId
+        );
     }
 
     private List<ProductProjectionPersistenceService.SiteSeed> siteSeeds(
@@ -166,29 +217,33 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
             String pskuCode
     ) {
         String now = TIME_FORMATTER.format(LocalDateTime.now());
+        ProductListingDraftProjectionFields fields = ProductListingDraftProjectionFields.from(draft, partnerSku);
         ProductProjectionPersistenceService.ProductMasterSeed seed =
                 new ProductProjectionPersistenceService.ProductMasterSeed();
         seed.setSkuParent(skuParent);
-        seed.setProductSourceType("SELF_BUILT");
-        seed.setPartnerSku(partnerSku);
-        seed.setChildSku(partnerSku);
-        seed.setBarcode(firstNonBlank(draft.getBarcode(), barcodeFromAttributes(draft.getKeyAttributes())));
+        seed.setProductSourceType(fields.productSourceType());
+        seed.setPartnerSku(fields.partnerSku());
+        seed.setChildSku(fields.partnerSku());
+        seed.setSizeEn(fields.sizeEn());
+        seed.setSizeAr(fields.sizeAr());
+        seed.setBarcode(fields.barcode());
         seed.setPskuCode(pskuCode);
         seed.setOfferCode(skuParent);
         seed.setReferenceStoreCode(task.getStoreCode());
-        seed.setBrandCache(firstNonBlank(draft.getProductBrand(), draft.getProductBrandCode()));
-        seed.setTitleCache(draft.getProductTitleEn());
-        seed.setTitleCnCache(draft.getProductTitleCn());
-        seed.setProductFulltypeCache(draft.getProductFullType());
-        seed.setCoverImageUrl(firstImage(draft.getImageUrls()));
+        seed.setBrandCache(fields.brand());
+        seed.setTitleCache(fields.titleEn());
+        seed.setTitleCnCache(fields.titleCn());
+        seed.setProductFulltypeCache(fields.productFullType());
+        seed.setCoverImageUrl(fields.coverImageUrl());
+        seed.setImageUrls(fields.imageUrls());
         seed.setVariantCountCache(1);
         seed.setSyncStatus("synced");
         seed.setLastSyncedAt(now);
-        seed.setOriginalPrice(decimalText(draft.getPrice()));
-        seed.setSalePrice(decimalText(draft.getSalePrice()));
-        seed.setFinalPrice(firstNonBlank(decimalText(draft.getSalePrice()), decimalText(draft.getPrice())));
-        seed.setFinalPriceSource(draft.getSalePrice() == null ? "listing_price" : "listing_sale_price");
-        seed.setIsActive(draft.getIsActive());
+        seed.setOriginalPrice(fields.priceText());
+        seed.setSalePrice(fields.salePriceText());
+        seed.setFinalPrice(fields.finalPriceText());
+        seed.setFinalPriceSource(fields.finalPriceSource());
+        seed.setIsActive(fields.isActive());
         seed.setStatusCode("listing_written");
         seed.setLiveStatus("local_projection_from_listing");
         ProductProjectionPersistenceService.SiteOfferSeed offerSeed =
@@ -198,6 +253,45 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
         offerSeed.setListingStartedSource(listingStartedSource(draft));
         seed.setSiteOffers(List.of(offerSeed));
         return seed;
+    }
+
+    private void syncProductImageProfile(
+            ProductListingTaskRecord task,
+            ProductListingDraftCommand draft,
+            String partnerSku
+    ) {
+        ProductListingDraftProjectionFields fields = ProductListingDraftProjectionFields.from(draft, partnerSku);
+        List<ProductListingImageRoleAssignment> assignments = fields.imageRoleAssignments();
+        if (assignments.isEmpty() || productImageProfileService == null || productManagementMapper == null) {
+            return;
+        }
+
+        ProductMasterIdentityRecord identity = productManagementMapper.selectProductMasterIdentityByStorePartnerSku(
+                task.getOwnerUserId(),
+                task.getStoreCode(),
+                partnerSku
+        );
+        ProductImageProfileSaveCommand profileCommand = new ProductImageProfileSaveCommand();
+        profileCommand.setOwnerUserId(task.getOwnerUserId());
+        profileCommand.setStoreCode(task.getStoreCode());
+        profileCommand.setPskuCode(partnerSku);
+        profileCommand.setProductIdentityKey("psku:" + partnerSku);
+        profileCommand.setProductMasterId(identity == null ? null : identity.getProductMasterId());
+        profileCommand.setProductTitle(firstNonBlank(fields.titleEn(), fields.titleCn(), partnerSku));
+        profileCommand.setTitleEn(fields.titleEn());
+        profileCommand.setTitleAr(fields.titleAr());
+        profileCommand.setBrand(fields.brand());
+        profileCommand.setOperatorUserId(task.getOwnerUserId());
+
+        List<ProductImageAssetRoleUpdateCommand> roleCommands = new ArrayList<>();
+        for (ProductListingImageRoleAssignment assignment : assignments) {
+            ProductImageAssetRoleUpdateCommand roleCommand = new ProductImageAssetRoleUpdateCommand();
+            roleCommand.setImageUrl(assignment.getImageUrl());
+            roleCommand.setImageRole(assignment.getImageRole());
+            roleCommand.setSortOrder(assignment.getSortOrder());
+            roleCommands.add(roleCommand);
+        }
+        productImageProfileService.saveAndSyncAssetRoles(profileCommand, roleCommands);
     }
 
     private String listingStartedAt(ProductListingTaskRecord task, ProductListingDraftCommand draft) {
@@ -234,124 +328,6 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
             return normalized;
         }
         return normalized.substring(0, LISTING_STARTED_SOURCE_MAX_LENGTH);
-    }
-
-    private ProductMasterSnapshotView draftSnapshot(
-            ProductListingDraftRecord record,
-            ProductListingDraftCommand draft,
-            ProductListingStoreProjectionContext storeContext,
-            String partnerSku,
-            String skuParent
-    ) {
-        ProductMasterSnapshotView snapshot = new ProductMasterSnapshotView();
-        snapshot.setMode("listing-draft");
-        snapshot.setReady(true);
-        snapshot.setMessage("本地上架草稿已保存，可继续编辑后发布。");
-
-        Map<String, Object> context = new LinkedHashMap<>();
-        putIfNotNull(context, "ownerUserId", record.getOwnerUserId());
-        putIfNotBlank(context, "projectCode", storeContext.getProjectCode());
-        putIfNotBlank(context, "projectName", storeContext.getProjectName());
-        putIfNotBlank(context, "storeCode", record.getStoreCode());
-        putIfNotBlank(context, "site", storeContext.getSite());
-        snapshot.setStoreContext(context);
-
-        Map<String, Object> identity = new LinkedHashMap<>();
-        putIfNotBlank(identity, "skuParent", skuParent);
-        putIfNotBlank(identity, "partnerSku", partnerSku);
-        putIfNotBlank(identity, "childSku", partnerSku);
-        putIfNotBlank(identity, "productSourceType", "SELF_BUILT");
-        putIfNotBlank(identity, "brand", firstNonBlank(draft.getProductBrand(), draft.getProductBrandCode()));
-        putIfNotBlank(identity, "brandCode", draft.getProductBrandCode());
-        putIfNotBlank(identity, "barcode", firstNonBlank(draft.getBarcode(), barcodeFromAttributes(draft.getKeyAttributes())));
-        putIfNotNull(identity, "variantCount", 1);
-        putIfNotBlank(identity, "listingDraftNo", record.getDraftNo());
-        putIfNotNull(identity, "listingDraftId", record.getId());
-        snapshot.setIdentity(identity);
-
-        Map<String, Object> taxonomy = new LinkedHashMap<>();
-        putIfNotNull(taxonomy, "idProductFullType", draft.getIdProductFullType());
-        putIfNotBlank(taxonomy, "productFulltype", draft.getProductFullType());
-        putIfNotBlank(taxonomy, "family", draft.getFamily());
-        putIfNotBlank(taxonomy, "productType", draft.getProductType());
-        putIfNotBlank(taxonomy, "productSubtype", draft.getProductSubType());
-        snapshot.setTaxonomy(taxonomy);
-
-        Map<String, Object> content = new LinkedHashMap<>();
-        putIfNotBlank(content, "titleCn", draft.getProductTitleCn());
-        putIfNotBlank(content, "titleZh", draft.getProductTitleCn());
-        putIfNotBlank(content, "titleEn", draft.getProductTitleEn());
-        putIfNotBlank(content, "titleAr", draft.getProductTitleAr());
-        putIfNotBlank(content, "descriptionCn", draft.getProductDescriptionCn());
-        putIfNotBlank(content, "descriptionEn", draft.getProductDescriptionEn());
-        putIfNotBlank(content, "descriptionAr", draft.getProductDescriptionAr());
-        putIfNotNull(content, "highlightsCn", draft.getProductHighlightsCn());
-        putIfNotNull(content, "highlightsEn", draft.getProductHighlightsEn());
-        putIfNotNull(content, "highlightsAr", draft.getProductHighlightsAr());
-        putIfNotNull(content, "images", draft.getImageUrls());
-        snapshot.setContent(content);
-
-        if (draft.getKeyAttributes() != null) {
-            snapshot.setKeyAttributes(new ArrayList<>(draft.getKeyAttributes()));
-        }
-
-        Map<String, Object> variant = new LinkedHashMap<>();
-        putIfNotBlank(variant, "partnerSku", partnerSku);
-        putIfNotBlank(variant, "childSku", partnerSku);
-        putIfNotBlank(variant, "barcode", firstNonBlank(draft.getBarcode(), barcodeFromAttributes(draft.getKeyAttributes())));
-        putIfNotNull(variant, "isActive", draft.getIsActive());
-        snapshot.setVariants(List.of(variant));
-
-        Map<String, Object> pricing = new LinkedHashMap<>();
-        putIfNotBlank(pricing, "partnerSku", partnerSku);
-        putIfNotBlank(pricing, "currency", currencyForSite(storeContext.getSite()));
-        putIfNotNull(pricing, "price", decimalText(draft.getPrice()));
-        putIfNotNull(pricing, "salePrice", decimalText(draft.getSalePrice()));
-        putIfNotNull(pricing, "priceMin", decimalText(draft.getPriceMin()));
-        putIfNotNull(pricing, "priceMax", decimalText(draft.getPriceMax()));
-        putIfNotNull(pricing, "purchasePrice", decimalText(draft.getPurchasePrice()));
-        putIfNotBlank(pricing, "saleStart", draft.getSaleStart());
-        putIfNotBlank(pricing, "saleEnd", draft.getSaleEnd());
-        snapshot.setPricing(pricing);
-
-        Map<String, Object> stock = new LinkedHashMap<>();
-        putIfNotNull(stock, "fbp", draft.getFbp());
-        putIfNotBlank(stock, "warehouseId", draft.getWarehouseId());
-        putIfNotBlank(stock, "warehouseCode", draft.getWarehouseCode());
-        putIfNotNull(stock, "quantity", draft.getQuantity());
-        snapshot.setStock(stock);
-
-        Map<String, Object> siteOffer = new LinkedHashMap<>();
-        putIfNotBlank(siteOffer, "storeCode", record.getStoreCode());
-        putIfNotBlank(siteOffer, "site", storeContext.getSite());
-        putIfNotBlank(siteOffer, "partnerSku", partnerSku);
-        putIfNotBlank(siteOffer, "childSku", partnerSku);
-        putIfNotBlank(siteOffer, "currency", currencyForSite(storeContext.getSite()));
-        putIfNotNull(siteOffer, "price", decimalText(draft.getPrice()));
-        putIfNotNull(siteOffer, "salePrice", decimalText(draft.getSalePrice()));
-        putIfNotNull(siteOffer, "priceMin", decimalText(draft.getPriceMin()));
-        putIfNotNull(siteOffer, "priceMax", decimalText(draft.getPriceMax()));
-        putIfNotBlank(siteOffer, "saleStart", draft.getSaleStart());
-        putIfNotBlank(siteOffer, "saleEnd", draft.getSaleEnd());
-        putIfNotNull(siteOffer, "idWarranty", draft.getIdWarranty());
-        putIfNotBlank(siteOffer, "offerNote", draft.getOfferNote());
-        putIfNotNull(siteOffer, "isActive", draft.getIsActive());
-        putIfNotBlank(siteOffer, "statusCode", "listing_draft");
-        putIfNotBlank(siteOffer, "liveStatus", "draft");
-        if (Boolean.TRUE.equals(draft.getFbp())) {
-            putIfNotNull(siteOffer, "fbpStock", draft.getQuantity());
-        }
-        snapshot.setSiteOffers(List.of(siteOffer));
-        return snapshot;
-    }
-
-    private String localDraftSkuParent(String partnerSku) {
-        String sanitized = partnerSku.replaceAll("[^A-Za-z0-9_-]", "-");
-        if (sanitized.length() > 70) {
-            sanitized = sanitized.substring(0, 70);
-        }
-        String hash = Integer.toHexString(partnerSku.hashCode()).toUpperCase(Locale.ROOT);
-        return "LOCAL-" + sanitized + "-" + hash;
     }
 
     private Map<String, String> noonReferences(ProductListingNoonWriteResult result) {
@@ -395,30 +371,6 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
         return parsed;
     }
 
-    private String barcodeFromAttributes(List<Map<String, Object>> keyAttributes) {
-        if (keyAttributes == null) {
-            return null;
-        }
-        for (Map<String, Object> attribute : keyAttributes) {
-            if (attribute == null) {
-                continue;
-            }
-            String code = normalize(String.valueOf(attribute.get("code")));
-            if (!StringUtils.hasText(code) || !code.toLowerCase(Locale.ROOT).contains("barcode")) {
-                continue;
-            }
-            String value = firstNonBlank(
-                    text(attribute.get("commonValue")),
-                    text(attribute.get("enValue")),
-                    text(attribute.get("arValue"))
-            );
-            if (StringUtils.hasText(value)) {
-                return value;
-            }
-        }
-        return null;
-    }
-
     private String currencyForSite(String site) {
         String normalizedSite = normalize(site);
         if ("AE".equalsIgnoreCase(normalizedSite)) {
@@ -430,20 +382,11 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
         return null;
     }
 
-    private String firstImage(List<String> imageUrls) {
-        if (imageUrls == null) {
+    private String normalize(String value) {
+        if (!StringUtils.hasText(value)) {
             return null;
         }
-        for (String imageUrl : imageUrls) {
-            if (StringUtils.hasText(imageUrl)) {
-                return imageUrl.trim();
-            }
-        }
-        return null;
-    }
-
-    private String decimalText(BigDecimal value) {
-        return value == null ? null : value.stripTrailingZeros().toPlainString();
+        return value.trim();
     }
 
     private String firstNonBlank(String... values) {
@@ -451,33 +394,11 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
             return null;
         }
         for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
+            String normalized = normalize(value);
+            if (StringUtils.hasText(normalized)) {
+                return normalized;
             }
         }
         return null;
-    }
-
-    private void putIfNotBlank(Map<String, Object> target, String key, String value) {
-        if (StringUtils.hasText(value)) {
-            target.put(key, value.trim());
-        }
-    }
-
-    private void putIfNotNull(Map<String, Object> target, String key, Object value) {
-        if (value != null) {
-            target.put(key, value);
-        }
-    }
-
-    private String text(Object value) {
-        return value == null ? null : String.valueOf(value).trim();
-    }
-
-    private String normalize(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        return value.trim();
     }
 }

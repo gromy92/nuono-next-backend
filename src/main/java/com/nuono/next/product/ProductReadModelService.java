@@ -373,6 +373,7 @@ public class ProductReadModelService {
         item.setSalesAmount(mergeCurrentZValue(item.getSalesAmount(), summary.getSalesAmount(), currentZRow));
         item.setSalesCurrency(mergeCurrentZValue(item.getSalesCurrency(), summary.getSalesCurrency(), currentZRow));
         item.setLastPublishTask(mergeCurrentZValue(item.getLastPublishTask(), summary.getLastPublishTask(), currentZRow));
+        item.setListingPublishTask(mergeCurrentZValue(item.getListingPublishTask(), summary.getListingPublishTask(), currentZRow));
         return item;
     }
 

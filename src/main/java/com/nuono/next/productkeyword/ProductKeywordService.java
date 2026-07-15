@@ -4,8 +4,10 @@ import com.nuono.next.infrastructure.mapper.ProductKeywordMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -45,6 +47,46 @@ public class ProductKeywordService {
                 sourceType,
                 ProductKeywordEventStatus.OBSERVED
         );
+    }
+
+    public ProductKeywordViews.KeywordListView addCompetitorKeywords(
+            BusinessAccessContext context,
+            ProductKeywordCompetitorKeywordCommand command
+    ) {
+        if (command == null) {
+            throw new IllegalArgumentException("请求体不能为空");
+        }
+        List<ProductKeywordRecord> records = new ArrayList<>();
+        Set<String> seenKeywordNorms = new LinkedHashSet<>();
+        if (command.getKeywords() != null) {
+            for (String keyword : command.getKeywords()) {
+                String displayKeyword = trimToNull(keyword);
+                String keywordNorm = normalizer.normalize(displayKeyword);
+                if (!StringUtils.hasText(keywordNorm) || !seenKeywordNorms.add(keywordNorm)) {
+                    continue;
+                }
+                ProductKeywordCommand item = new ProductKeywordCommand();
+                item.setStoreCode(command.getStoreCode());
+                item.setSiteCode(command.getSiteCode());
+                item.setPartnerSku(command.getPartnerSku());
+                item.setKeyword(displayKeyword);
+                item.setIntentTags(List.of("COMPETITOR_TRACK"));
+                records.add(upsertKeywordWithEvent(
+                        context,
+                        item,
+                        ProductKeywordStatus.OBSERVED,
+                        ProductKeywordSourceType.COMPETITOR_KEYWORD,
+                        ProductKeywordEventStatus.OBSERVED,
+                        command.getCompetitorSources()
+                ));
+            }
+        }
+        if (records.isEmpty()) {
+            throw new IllegalArgumentException("关键词不能为空");
+        }
+        return new ProductKeywordViews.KeywordListView(records.stream()
+                .map(ProductKeywordViews::keyword)
+                .collect(Collectors.toList()));
     }
 
     public ProductKeywordViews.KeywordListView listKeywords(
@@ -161,6 +203,17 @@ public class ProductKeywordService {
             ProductKeywordSourceType sourceType,
             ProductKeywordEventStatus eventStatus
     ) {
+        return upsertKeywordWithEvent(context, command, targetStatus, sourceType, eventStatus, List.of());
+    }
+
+    private ProductKeywordRecord upsertKeywordWithEvent(
+            BusinessAccessContext context,
+            ProductKeywordCommand command,
+            ProductKeywordStatus targetStatus,
+            ProductKeywordSourceType sourceType,
+            ProductKeywordEventStatus eventStatus,
+            List<ProductKeywordCompetitorKeywordCommand.CompetitorSource> competitorSources
+    ) {
         ProductKeywordScope scope = resolveScope(context, command);
         String displayKeyword = requireText(command.getKeyword(), "关键词不能为空");
         String keywordNorm = normalizer.normalize(displayKeyword);
@@ -168,6 +221,10 @@ public class ProductKeywordService {
             throw new IllegalArgumentException("关键词不能为空");
         }
         List<String> tags = normalizeTags(command.getIntentTags());
+        if (sourceType == ProductKeywordSourceType.COMPETITOR_KEYWORD && !tags.contains("COMPETITOR_TRACK")) {
+            tags = new ArrayList<>(tags);
+            tags.add("COMPETITOR_TRACK");
+        }
         validateWildcardScope(scope, tags);
 
         LocalDateTime now = LocalDateTime.now();
@@ -198,6 +255,11 @@ public class ProductKeywordService {
             record.setLocale(trimToNull(command.getLocale()));
             record.setStatus(targetStatus.name());
             record.setIntentTagsJson(tagsJson(tags));
+        } else if (sourceType == ProductKeywordSourceType.COMPETITOR_KEYWORD) {
+            record.setIntentTagsJson(ProductKeywordTagJson.merge(
+                    record.getIntentTagsJson(),
+                    List.of("COMPETITOR_TRACK")
+            ));
         }
         record.setLastSeenAt(now);
         record.setUpdatedBy(context.getSessionUserId());
@@ -211,7 +273,8 @@ public class ProductKeywordService {
                 now,
                 tags,
                 displayKeyword,
-                keywordNorm
+                keywordNorm,
+                competitorSources
         );
         mapper.upsertUsageEvent(event);
         return record;
@@ -226,6 +289,20 @@ public class ProductKeywordService {
             List<String> tags,
             String eventKeyword,
             String eventKeywordNorm
+    ) {
+        return buildUsageEvent(context, keyword, sourceType, eventStatus, occurredAt, tags, eventKeyword, eventKeywordNorm, List.of());
+    }
+
+    private ProductKeywordUsageEventRecord buildUsageEvent(
+            BusinessAccessContext context,
+            ProductKeywordRecord keyword,
+            ProductKeywordSourceType sourceType,
+            ProductKeywordEventStatus eventStatus,
+            LocalDateTime occurredAt,
+            List<String> tags,
+            String eventKeyword,
+            String eventKeywordNorm,
+            List<ProductKeywordCompetitorKeywordCommand.CompetitorSource> competitorSources
     ) {
         ProductKeywordUsageEventRecord event = new ProductKeywordUsageEventRecord();
         event.setId(mapper.nextUsageEventId());
@@ -243,7 +320,7 @@ public class ProductKeywordService {
                 + keyword.getSiteCode() + ":" + keyword.getPartnerSku() + ":" + keyword.getKeywordNorm());
         event.setEventStatus(eventStatus.name());
         event.setOccurredAt(occurredAt);
-        event.setPayloadJson(payloadJson(keyword, tags));
+        event.setPayloadJson(payloadJson(keyword, tags, competitorSources));
         event.setMetricsJson("{}");
         event.setEventNaturalKey(naturalKey(sourceType, eventStatus, keyword));
         event.setCreatedBy(context.getSessionUserId());
@@ -371,11 +448,57 @@ public class ProductKeywordService {
     }
 
     private String payloadJson(ProductKeywordRecord keyword, List<String> tags) {
+        return payloadJson(keyword, tags, List.of());
+    }
+
+    private String payloadJson(
+            ProductKeywordRecord keyword,
+            List<String> tags,
+            List<ProductKeywordCompetitorKeywordCommand.CompetitorSource> competitorSources
+    ) {
         return "{"
                 + "\"keyword\":" + quoteJson(keyword.getKeyword()) + ","
                 + "\"keywordNorm\":" + quoteJson(keyword.getKeywordNorm()) + ","
                 + "\"intentTags\":" + tagsJson(tags)
+                + competitorSourcesJsonField(competitorSources)
                 + "}";
+    }
+
+    private String competitorSourcesJsonField(List<ProductKeywordCompetitorKeywordCommand.CompetitorSource> competitorSources) {
+        if (competitorSources == null || competitorSources.isEmpty()) {
+            return "";
+        }
+        List<String> entries = competitorSources.stream()
+                .filter(source -> source != null)
+                .map(this::competitorSourceJson)
+                .filter(StringUtils::hasText)
+                .limit(20)
+                .collect(Collectors.toList());
+        if (entries.isEmpty()) {
+            return "";
+        }
+        return ",\"competitorSources\":[" + String.join(",", entries) + "]";
+    }
+
+    private String competitorSourceJson(ProductKeywordCompetitorKeywordCommand.CompetitorSource source) {
+        String label = trimToNull(source.getLabel());
+        String url = trimToNull(source.getUrl());
+        String sourceText = trimToNull(source.getSourceText());
+        if (label == null && url == null && sourceText == null) {
+            return "";
+        }
+        return "{"
+                + "\"label\":" + quoteJson(label) + ","
+                + "\"url\":" + quoteJson(url) + ","
+                + "\"sourceText\":" + quoteJson(truncate(sourceText, 1000))
+                + "}";
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength);
     }
 
     private String quoteJson(String value) {

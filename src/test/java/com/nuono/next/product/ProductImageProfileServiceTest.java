@@ -304,6 +304,65 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
+    void saveAndSyncAssetRolesShouldUpsertListingImageRolesByUrl() {
+        ProductImageProfileRecord existing = profileRecord();
+        existing.setId(7001L);
+        ProductImageProfileSaveCommand command = new ProductImageProfileSaveCommand();
+        command.setOwnerUserId(307L);
+        command.setStoreCode("STR108065-NAE");
+        command.setPskuCode("PAPERSAYSB024");
+        command.setProductIdentityKey("psku:PAPERSAYSB024");
+        command.setOperatorUserId(10003L);
+        ProductImageAssetRoleUpdateCommand existingRole = new ProductImageAssetRoleUpdateCommand();
+        existingRole.setImageUrl("https://example.test/main.jpg");
+        existingRole.setImageRole(ProductImageRole.MAIN);
+        existingRole.setSortOrder(0);
+        ProductImageAssetRoleUpdateCommand newRole = new ProductImageAssetRoleUpdateCommand();
+        newRole.setImageUrl("https://example.test/size.jpg");
+        newRole.setImageRole(ProductImageRole.SIZE);
+        newRole.setSortOrder(1);
+
+        when(mapper.selectProfileByIdentity(307L, "STR108065-NAE", "PAPERSAYSB024", "psku:PAPERSAYSB024"))
+                .thenReturn(existing);
+        when(mapper.updateProfile(any())).thenReturn(1);
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(existing);
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+        when(mapper.selectSections(7001L)).thenReturn(List.of());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of());
+        when(mapper.updateAssetRoleAndSortOrderByUrl(
+                7001L,
+                "https://example.test/main.jpg",
+                ProductImageRole.MAIN,
+                0,
+                10003L
+        )).thenReturn(1);
+        when(mapper.updateAssetRoleAndSortOrderByUrl(
+                7001L,
+                "https://example.test/size.jpg",
+                ProductImageRole.SIZE,
+                1,
+                10003L
+        )).thenReturn(0);
+
+        service.saveAndSyncAssetRoles(command, List.of(existingRole, newRole));
+
+        verify(mapper).updateAssetRoleAndSortOrderByUrl(
+                7001L,
+                "https://example.test/main.jpg",
+                ProductImageRole.MAIN,
+                0,
+                10003L
+        );
+        ArgumentCaptor<ProductImageProfileAssetRecord> assetCaptor =
+                ArgumentCaptor.forClass(ProductImageProfileAssetRecord.class);
+        verify(mapper).insertAsset(assetCaptor.capture());
+        assertEquals("https://example.test/size.jpg", assetCaptor.getValue().getImageUrl());
+        assertEquals(ProductImageRole.SIZE, assetCaptor.getValue().getImageRole());
+        assertEquals(1, assetCaptor.getValue().getSortOrder());
+        assertEquals(ProductImageAssetStatus.ACTIVE, assetCaptor.getValue().getAssetStatus());
+    }
+
+    @Test
     void updateAssetRoleShouldPersistProfileAssetRole() {
         ProductImageAssetRoleUpdateCommand command = new ProductImageAssetRoleUpdateCommand();
         command.setAssetId(62001L);

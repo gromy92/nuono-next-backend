@@ -60,19 +60,22 @@ class ProductLiteMapperSqlTest {
         assertClassificationFallbackSql(
                 "selectBrandProjectionClassificationOptions",
                 "pm.brand_cache",
-                "GROUP BY pm.brand_cache"
+                "GROUP BY pm.brand_cache",
+                false
         );
         assertClassificationFallbackSql(
                 "selectFulltypeProjectionClassificationOptions",
                 "pm.product_fulltype_cache",
-                "GROUP BY pm.product_fulltype_cache"
+                "GROUP BY pm.product_fulltype_cache",
+                true
         );
     }
 
     private static void assertClassificationFallbackSql(
             String methodName,
             String selectedColumn,
-            String groupByColumn
+            String groupByColumn,
+            boolean officialFulltypeOnly
     ) throws Exception {
         Method method = ProductLiteMapper.class.getMethod(
                 methodName,
@@ -99,6 +102,10 @@ class ProductLiteMapperSqlTest {
                 .doesNotContain("offer_code")
                 .doesNotContain("stock")
                 .doesNotContain("price");
+        if (officialFulltypeOnly) {
+            assertThat(sql)
+                    .contains("pm.product_fulltype_cache REGEXP '^[a-z0-9_]+-[a-z0-9_]+-[a-z0-9_]+$'");
+        }
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
     }

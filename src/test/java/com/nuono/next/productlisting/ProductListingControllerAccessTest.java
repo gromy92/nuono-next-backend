@@ -12,6 +12,7 @@ import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.permission.access.BusinessCapability;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
@@ -138,9 +139,9 @@ class ProductListingControllerAccessTest {
                 .build();
         ProductListingAiListingView expected = ProductListingAiListingView.of(
                 ProductListingAiListingService.RULE_VERSION,
-                Map.of("warnings", java.util.List.of(), "needsHumanConfirmation", java.util.List.of()),
+                Map.of("warnings", List.of(), "needsHumanConfirmation", List.of()),
                 "ai",
-                java.util.List.of()
+                List.of()
         );
         when(businessAccessResolver.requireStoreAccess(
                 request,

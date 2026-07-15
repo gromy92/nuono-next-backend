@@ -93,6 +93,24 @@ public interface ProductListingMapper {
     );
 
     @Select({
+            "SELECT",
+            "  id, owner_user_id, store_code, draft_no, source_type, source_ref_id,",
+            "  optional_purchase_order_id, status, draft_json, validation_json,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            "FROM product_listing_draft",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND status IN ('draft', 'validation_failed', 'ready_for_dry_run')",
+            "ORDER BY gmt_updated DESC, id DESC",
+            "LIMIT #{limit}"
+    })
+    List<ProductListingDraftRecord> selectRecentDrafts(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("limit") int limit
+    );
+
+    @Select({
             "SELECT id",
             "FROM product_listing_draft",
             "WHERE owner_user_id = #{ownerUserId}",
@@ -183,13 +201,164 @@ public interface ProductListingMapper {
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND source_task_id = #{sourceTaskId}",
             "  AND mode = 'REAL_RUN'",
-            "  AND status IN ('running', 'submitted', 'succeeded', 'failed', 'written_verify_failed')",
+            "  AND (",
+            "    status IN ('running', 'submitted', 'succeeded', 'written_verify_failed')",
+            "    OR (status = 'failed' AND failure_code = 'partner_sku_already_exists')",
+            "  )",
             "ORDER BY submitted_at DESC",
             "LIMIT 1"
     })
     ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(
             @Param("ownerUserId") Long ownerUserId,
             @Param("sourceTaskId") Long sourceTaskId
+    );
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND (",
+            "    status IN ('succeeded', 'written_verify_failed')",
+            "    OR (status = 'failed' AND failure_code = 'partner_sku_already_exists')",
+            "  )",
+            "  AND UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(input_snapshot_json, '$.psku')))) = UPPER(TRIM(#{partnerSku}))",
+            "  AND NOT EXISTS (",
+            "      SELECT 1",
+            "      FROM product_publish_task delete_task",
+            "      WHERE delete_task.owner_user_id = product_listing_task.owner_user_id",
+            "        AND UPPER(delete_task.store_code) = UPPER(product_listing_task.store_code)",
+            "        AND UPPER(TRIM(delete_task.partner_sku)) = UPPER(TRIM(#{partnerSku}))",
+            "        AND delete_task.task_type = 'product-delete'",
+            "        AND delete_task.status = 'synced'",
+            "        AND delete_task.is_deleted = b'0'",
+            "        AND delete_task.finished_at >= product_listing_task.completed_at",
+            "  )",
+            "ORDER BY completed_at DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectListedPartnerSkuTask(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("partnerSku") String partnerSku
+    );
+
+    @Select({
+            "SELECT pm.id",
+            "FROM logical_store_site lss",
+            "JOIN logical_store ls",
+            "  ON ls.id = lss.logical_store_id",
+            " AND ls.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = lss.logical_store_id",
+            " AND pm.is_deleted = b'0'",
+            "LEFT JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = b'0'",
+            "LEFT JOIN product_master_draft pmd",
+            "  ON pmd.product_master_id = pm.id",
+            " AND pmd.is_deleted = b'0'",
+            "LEFT JOIN product_master_snapshot pms",
+            "  ON pms.product_master_id = pm.id",
+            " AND pms.snapshot_type = 'baseline'",
+            " AND pms.is_deleted = b'0'",
+            " AND pms.id = (",
+            "      SELECT MAX(pms_latest.id)",
+            "      FROM product_master_snapshot pms_latest",
+            "      WHERE pms_latest.product_master_id = pm.id",
+            "        AND pms_latest.snapshot_type = 'baseline'",
+            "        AND pms_latest.is_deleted = b'0'",
+            " )",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND lss.is_deleted = b'0'",
+            "  AND UPPER(lss.store_code) = UPPER(#{storeCode})",
+            "  AND UPPER(TRIM(COALESCE(NULLIF(pm.partner_sku, ''), pv.partner_sku))) = UPPER(TRIM(#{partnerSku}))",
+            "  AND (",
+            "    #{excludeListingDraftId} IS NULL",
+            "    OR (",
+            "      (",
+            "        pmd.id IS NULL",
+            "        OR JSON_EXTRACT(pmd.draft_json, '$.identity.listingDraftId') IS NULL",
+            "        OR CAST(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.identity.listingDraftId')) AS UNSIGNED) <> #{excludeListingDraftId}",
+            "      )",
+            "      AND (",
+            "        pms.id IS NULL",
+            "        OR JSON_EXTRACT(pms.snapshot_json, '$.identity.listingDraftId') IS NULL",
+            "        OR CAST(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.identity.listingDraftId')) AS UNSIGNED) <> #{excludeListingDraftId}",
+            "      )",
+            "    )",
+            "  )",
+            "ORDER BY pm.id ASC",
+            "LIMIT 1"
+    })
+    Long selectLocalProductIdByPartnerSku(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("excludeListingDraftId") Long excludeListingDraftId
+    );
+
+    @Select({
+            "SELECT pm.id",
+            "FROM logical_store_site lss",
+            "JOIN logical_store ls",
+            "  ON ls.id = lss.logical_store_id",
+            " AND ls.is_deleted = b'0'",
+            "JOIN product_master pm",
+            "  ON pm.logical_store_id = lss.logical_store_id",
+            " AND pm.is_deleted = b'0'",
+            "JOIN product_variant pv",
+            "  ON pv.product_master_id = pm.id",
+            " AND pv.is_deleted = b'0'",
+            "JOIN product_barcode pb",
+            "  ON pb.variant_id = pv.id",
+            " AND pb.is_deleted = b'0'",
+            "LEFT JOIN product_master_draft pmd",
+            "  ON pmd.product_master_id = pm.id",
+            " AND pmd.is_deleted = b'0'",
+            "LEFT JOIN product_master_snapshot pms",
+            "  ON pms.product_master_id = pm.id",
+            " AND pms.snapshot_type = 'baseline'",
+            " AND pms.is_deleted = b'0'",
+            " AND pms.id = (",
+            "      SELECT MAX(pms_latest.id)",
+            "      FROM product_master_snapshot pms_latest",
+            "      WHERE pms_latest.product_master_id = pm.id",
+            "        AND pms_latest.snapshot_type = 'baseline'",
+            "        AND pms_latest.is_deleted = b'0'",
+            " )",
+            "WHERE ls.owner_user_id = #{ownerUserId}",
+            "  AND lss.is_deleted = b'0'",
+            "  AND UPPER(lss.store_code) = UPPER(#{storeCode})",
+            "  AND UPPER(TRIM(pb.barcode)) = UPPER(TRIM(#{barcode}))",
+            "  AND (",
+            "    #{excludeListingDraftId} IS NULL",
+            "    OR (",
+            "      (",
+            "        pmd.id IS NULL",
+            "        OR JSON_EXTRACT(pmd.draft_json, '$.identity.listingDraftId') IS NULL",
+            "        OR CAST(JSON_UNQUOTE(JSON_EXTRACT(pmd.draft_json, '$.identity.listingDraftId')) AS UNSIGNED) <> #{excludeListingDraftId}",
+            "      )",
+            "      AND (",
+            "        pms.id IS NULL",
+            "        OR JSON_EXTRACT(pms.snapshot_json, '$.identity.listingDraftId') IS NULL",
+            "        OR CAST(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.identity.listingDraftId')) AS UNSIGNED) <> #{excludeListingDraftId}",
+            "      )",
+            "    )",
+            "  )",
+            "ORDER BY pm.id ASC",
+            "LIMIT 1"
+    })
+    Long selectLocalProductIdByBarcode(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("barcode") String barcode,
+            @Param("excludeListingDraftId") Long excludeListingDraftId
     );
 
     @Select({
@@ -216,6 +385,32 @@ public interface ProductListingMapper {
             @Param("sourceType") String sourceType,
             @Param("sourceRefId") Long sourceRefId
     );
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE mode = 'REAL_RUN'",
+            "  AND status = 'submitted'",
+            "ORDER BY submitted_at ASC, id ASC",
+            "LIMIT #{limit}"
+    })
+    List<ProductListingTaskRecord> selectRunnableRealRunTasks(@Param("limit") int limit);
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET status = 'submitted',",
+            "    started_at = NULL,",
+            "    gmt_updated = NOW()",
+            "WHERE mode = 'REAL_RUN'",
+            "  AND status = 'running'",
+            "  AND started_at IS NOT NULL",
+            "  AND started_at < #{staleBefore}"
+    })
+    int recoverStaleRunningRealRunTasks(@Param("staleBefore") LocalDateTime staleBefore);
 
     @Update({
             "UPDATE product_listing_task",

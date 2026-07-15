@@ -133,6 +133,23 @@ public class ProductNoonAdapter {
         }
     }
 
+    public JsonNode postMultipartFile(
+            NoonSession session,
+            String url,
+            String fieldName,
+            String fileName,
+            String contentType,
+            byte[] content,
+            boolean withProject,
+            Map<String, String> headers
+    ) {
+        try {
+            return session.postMultipartFile(url, fieldName, fileName, contentType, content, withProject, headers);
+        } catch (RuntimeException exception) {
+            throw noonProductGateway.toException(exception);
+        }
+    }
+
     public String userMessage(Throwable throwable) {
         return noonProductGateway.classify(throwable).getMessage();
     }

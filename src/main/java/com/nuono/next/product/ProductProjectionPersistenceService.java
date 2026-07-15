@@ -7,6 +7,7 @@ import com.nuono.next.infrastructure.mapper.CoreTableStatusMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.product.ProductKeyContentHistoryAssembler.KeyContentHistoryCandidate;
 import com.nuono.next.productkeyword.ProductKeywordTitleIndexer;
+import com.nuono.next.productlisting.ProductListingTaskRecord;
 import com.nuono.next.system.BootstrapProperties;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -57,6 +58,9 @@ public class ProductProjectionPersistenceService {
             "product_master_draft",
             "product_action_log",
             "product_key_content_history"
+    );
+    private static final List<String> PRODUCT_LISTING_TASK_TABLES = List.of(
+            "product_listing_task"
     );
     private static final List<String> CLASSIFICATION_DICTIONARY_TABLES = List.of(
             "noon_brand_dictionary",
@@ -209,6 +213,7 @@ public class ProductProjectionPersistenceService {
             if (!preserveDrafts) {
                 productManagementMapper.deleteProductMasterDraftByProductMasterId(productMasterId);
             }
+            persistImageAssets(productMasterId, productSeed.getImageUrls(), ownerUserId);
             persistIssues(productMasterId, productSeed.getIssueTags(), ownerUserId);
             persistRepresentativeOffer(logicalStoreId, productMasterId, siteIdMap, siteCodeMap, productSeed, ownerUserId);
         }
@@ -641,10 +646,13 @@ public class ProductProjectionPersistenceService {
                 : productManagementMapper.selectLogicalStoreIdBySiteStoreCode(normalizedStoreCode);
         Map<String, ProductPublishTaskRecord> latestPublishTasksByPartnerSku =
                 loadLatestListPublishTasksByPartnerSku(logicalStoreId, records);
+        Map<String, ProductListingTaskRecord> latestListingPublishTasksByPartnerSku =
+                loadLatestListingPublishTasksByPartnerSku(ownerUserId, normalizedStoreCode, records, warnings);
         List<ProductListSummaryView> summaries = new ArrayList<>();
         for (ProductListProjectionRecord record : records) {
             ProductListSummaryView summary = toListSummaryView(record, normalizedStoreCode);
             hydrateListPublishTaskSummary(summary, latestPublishTasksByPartnerSku);
+            hydrateListingPublishTaskSummary(summary, latestListingPublishTasksByPartnerSku);
             summaries.add(summary);
         }
         appendVisibleRebuildTaskSummaries(ownerUserId, normalizedStoreCode, summaries, warnings);
@@ -1533,6 +1541,10 @@ public class ProductProjectionPersistenceService {
         return ensureTablesReady(WORKBENCH_TABLES, warnings, "商品详情持久化表尚未初始化：");
     }
 
+    private boolean ensureProductListingTaskTablesReady(List<String> warnings) {
+        return ensureTablesReady(PRODUCT_LISTING_TASK_TABLES, warnings, "商品上架任务表尚未初始化：");
+    }
+
     private boolean ensureClassificationDictionaryTablesReady(List<String> warnings) {
         return ensureTablesReady(CLASSIFICATION_DICTIONARY_TABLES, warnings, "商品品牌/类目字典表尚未初始化：");
     }
@@ -2099,6 +2111,170 @@ public class ProductProjectionPersistenceService {
             return;
         }
         view.setLastPublishTask(buildLastPublishTaskSummary(task, null));
+    }
+
+    private Map<String, ProductListingTaskRecord> loadLatestListingPublishTasksByPartnerSku(
+            Long ownerUserId,
+            String storeCode,
+            List<ProductListProjectionRecord> records,
+            List<String> warnings
+    ) {
+        if (ownerUserId == null || !StringUtils.hasText(storeCode) || records == null || records.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        if (!ensureProductListingTaskTablesReady(warnings)) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> partnerSkuLookup = new LinkedHashMap<>();
+        for (ProductListProjectionRecord record : records) {
+            String partnerSku = normalize(record == null ? null : record.getPartnerSku());
+            if (StringUtils.hasText(partnerSku)) {
+                partnerSkuLookup.putIfAbsent(partnerSku, partnerSku);
+            }
+        }
+        if (partnerSkuLookup.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<ProductListingTaskRecord> tasks = productManagementMapper.selectLatestProductListingTasksByStorePartnerSkus(
+                ownerUserId,
+                normalize(storeCode),
+                new ArrayList<>(partnerSkuLookup.values())
+        );
+        if (tasks == null || tasks.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, ProductListingTaskRecord> result = new LinkedHashMap<>();
+        for (ProductListingTaskRecord task : tasks) {
+            String partnerSku = listingTaskPartnerSku(task);
+            if (StringUtils.hasText(partnerSku)) {
+                result.putIfAbsent(partnerSku, task);
+            }
+        }
+        return result;
+    }
+
+    private void hydrateListingPublishTaskSummary(
+            ProductListSummaryView view,
+            Map<String, ProductListingTaskRecord> latestListingTasksByPartnerSku
+    ) {
+        if (view == null || latestListingTasksByPartnerSku == null || !StringUtils.hasText(view.getPartnerSku())) {
+            return;
+        }
+        ProductListingTaskRecord task = latestListingTasksByPartnerSku.get(normalize(view.getPartnerSku()));
+        if (task == null) {
+            return;
+        }
+        view.setListingPublishTask(buildListingPublishTaskSummary(task));
+    }
+
+    private Map<String, Object> buildListingPublishTaskSummary(ProductListingTaskRecord task) {
+        if (task == null) {
+            return null;
+        }
+        String statusLabel = listingPublishStatusLabel(task.getStatus());
+        if (!StringUtils.hasText(statusLabel)) {
+            return null;
+        }
+        Map<String, Object> noonResult = readJsonMap(task.getNoonResultJson());
+        Map<String, Object> summary = new LinkedHashMap<>();
+        putIfNotNull(summary, "taskId", task.getId());
+        putIfNotBlank(summary, "taskNo", task.getTaskNo());
+        putIfNotBlank(summary, "mode", normalize(task.getMode()));
+        putIfNotBlank(summary, "status", normalize(task.getStatus()));
+        putIfNotBlank(summary, "statusLabel", statusLabel);
+        putIfNotBlank(summary, "partnerSku", listingTaskPartnerSku(task));
+        putIfNotBlank(summary, "storeCode", task.getStoreCode());
+        putIfNotBlank(summary, "skuParent", firstNonBlank(
+                text(noonResult.get("skuParent")),
+                listingNoonReference(noonResult, "skuParent")
+        ));
+        putIfNotBlank(summary, "pskuCode", firstNonBlank(
+                text(noonResult.get("pskuCode")),
+                listingNoonReference(noonResult, "pskuCode")
+        ));
+        putIfNotBlank(summary, "failureCode", firstNonBlank(task.getFailureCode(), text(noonResult.get("failureCode"))));
+        putIfNotBlank(summary, "failureMessage", firstNonBlank(task.getFailureMessage(), text(noonResult.get("failureMessage"))));
+        putIfNotBlank(summary, "submittedAt", formatDateTime(task.getSubmittedAt()));
+        putIfNotBlank(summary, "finishedAt", formatDateTime(listingTaskFinishedAt(task)));
+        return summary;
+    }
+
+    private LocalDateTime listingTaskFinishedAt(ProductListingTaskRecord task) {
+        if (task == null) {
+            return null;
+        }
+        if (task.getCompletedAt() != null) {
+            return task.getCompletedAt();
+        }
+        if (task.getStartedAt() != null) {
+            return task.getStartedAt();
+        }
+        return task.getSubmittedAt();
+    }
+
+    private String listingTaskPartnerSku(ProductListingTaskRecord task) {
+        if (task == null) {
+            return null;
+        }
+        Map<String, Object> input = readJsonMap(task.getInputSnapshotJson());
+        return firstNonBlank(
+                text(input.get("psku")),
+                text(input.get("partnerSku")),
+                text(input.get("partner_sku"))
+        );
+    }
+
+    private String listingNoonReference(Map<String, Object> noonResult, String key) {
+        if (noonResult == null || !StringUtils.hasText(key)) {
+            return null;
+        }
+        Object stepsValue = noonResult.get("steps");
+        if (!(stepsValue instanceof List<?>)) {
+            return null;
+        }
+        for (Object stepValue : (List<?>) stepsValue) {
+            Map<String, Object> step = objectMap(stepValue);
+            String value = externalReferenceValue(text(step.get("externalReference")), key);
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String externalReferenceValue(String externalReference, String key) {
+        if (!StringUtils.hasText(externalReference) || !StringUtils.hasText(key)) {
+            return null;
+        }
+        String[] tokens = externalReference.split(";");
+        for (String token : tokens) {
+            int index = token == null ? -1 : token.indexOf('=');
+            if (index <= 0) {
+                continue;
+            }
+            String candidateKey = token.substring(0, index).trim();
+            if (key.equalsIgnoreCase(candidateKey)) {
+                return normalize(token.substring(index + 1));
+            }
+        }
+        return null;
+    }
+
+    private String listingPublishStatusLabel(String status) {
+        String normalized = normalize(status);
+        if ("succeeded".equalsIgnoreCase(normalized)) {
+            return "上架成功";
+        }
+        if ("failed".equalsIgnoreCase(normalized) || "rejected".equalsIgnoreCase(normalized)) {
+            return "上架失败";
+        }
+        if ("written_verify_failed".equalsIgnoreCase(normalized)) {
+            return "已写入，回读异常";
+        }
+        if ("submitted".equalsIgnoreCase(normalized) || "running".equalsIgnoreCase(normalized)) {
+            return "上架中";
+        }
+        return null;
     }
 
     private void appendVisibleRebuildTaskSummaries(
@@ -3313,8 +3489,15 @@ public class ProductProjectionPersistenceService {
         if (task == null || !StringUtils.hasText(task.getResultJson())) {
             return Collections.emptyMap();
         }
+        return readJsonMap(task.getResultJson());
+    }
+
+    private Map<String, Object> readJsonMap(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Collections.emptyMap();
+        }
         try {
-            return objectMapper.readValue(task.getResultJson(), new TypeReference<Map<String, Object>>() {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {
             });
         } catch (JsonProcessingException exception) {
             return Collections.emptyMap();
@@ -4530,6 +4713,8 @@ public class ProductProjectionPersistenceService {
         private String lastSyncedAt;
         private String partnerSku;
         private String childSku;
+        private String sizeEn;
+        private String sizeAr;
         private String barcode;
         private String pskuCode;
         private String offerCode;
@@ -4549,6 +4734,7 @@ public class ProductProjectionPersistenceService {
         private String listingStartedAt;
         private String listingStartedSource;
         private Boolean isActive;
+        private List<String> imageUrls = new ArrayList<>();
         private Integer fbnStock;
         private Integer supermallStock;
         private Integer fbpStock;
@@ -4591,6 +4777,9 @@ public class ProductProjectionPersistenceService {
             seed.setLastSyncedAt(lastSyncedAt);
             seed.setPartnerSku(stringValue(snapshot.getIdentity().get("partnerSku")));
             seed.setChildSku(stringValue(snapshot.getIdentity().get("childSku")));
+            VariantSeed variantSeed = VariantSeed.fromSnapshot(snapshot);
+            seed.setSizeEn(variantSeed.getSizeEn());
+            seed.setSizeAr(variantSeed.getSizeAr());
             seed.setPskuCode(stringValue(snapshot.getIdentity().get("pskuCode")));
             return seed;
         }
@@ -4787,6 +4976,22 @@ public class ProductProjectionPersistenceService {
             this.childSku = childSku;
         }
 
+        public String getSizeEn() {
+            return sizeEn;
+        }
+
+        public void setSizeEn(String sizeEn) {
+            this.sizeEn = sizeEn;
+        }
+
+        public String getSizeAr() {
+            return sizeAr;
+        }
+
+        public void setSizeAr(String sizeAr) {
+            this.sizeAr = sizeAr;
+        }
+
         public String getBarcode() {
             return barcode;
         }
@@ -4939,6 +5144,14 @@ public class ProductProjectionPersistenceService {
             this.isActive = isActive;
         }
 
+        public List<String> getImageUrls() {
+            return imageUrls;
+        }
+
+        public void setImageUrls(List<String> imageUrls) {
+            this.imageUrls = imageUrls == null ? new ArrayList<>() : imageUrls;
+        }
+
         public Integer getFbnStock() {
             return fbnStock;
         }
@@ -4993,6 +5206,8 @@ public class ProductProjectionPersistenceService {
             VariantSeed seed = new VariantSeed();
             seed.setPartnerSku(partnerSku);
             seed.setChildSku(childSku);
+            seed.setSizeEn(sizeEn);
+            seed.setSizeAr(sizeAr);
             return seed;
         }
     }

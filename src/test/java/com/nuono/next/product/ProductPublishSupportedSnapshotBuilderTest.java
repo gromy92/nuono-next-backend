@@ -38,7 +38,7 @@ class ProductPublishSupportedSnapshotBuilderTest {
         assertFalse(draft.getSiteOffers().get(0).containsKey("saleStart"));
         assertEquals("2026-05-19 00:00:00", publishable.getSiteOffers().get(0).get("saleStart"));
         assertEquals("2036-05-19 23:59:59", publishable.getSiteOffers().get(0).get("saleEnd"));
-        assertTrue(unsupportedChanges.getPublishBlockers().contains("本地上传图片仍是系统相对地址，不能发布到 Noon。"));
+        assertTrue(unsupportedChanges.getPublishBlockers().isEmpty());
     }
 
     @Test

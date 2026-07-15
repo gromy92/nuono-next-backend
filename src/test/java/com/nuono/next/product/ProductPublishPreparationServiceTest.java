@@ -143,7 +143,7 @@ class ProductPublishPreparationServiceTest {
         List<String> snapshotErrors = service.validatePublishSnapshot(draft, baseline, "STR245027-NAE");
         List<String> operationalErrors = service.validatePublishOperationalKeys(draft, baseline, "STR245027-NAE");
 
-        assertFalse(snapshotErrors.isEmpty());
+        assertFalse(snapshotErrors.stream().anyMatch((error) -> error.contains("本地上传图片")));
         assertTrue(operationalErrors.stream().anyMatch((error) -> error.contains("pskuCode")));
     }
 
@@ -157,6 +157,19 @@ class ProductPublishPreparationServiceTest {
         List<String> errors = service.validatePublishSnapshot(draft, baseline, "STR245027-NAE");
 
         assertTrue(errors.stream().anyMatch((error) -> error.contains("前台公开详情")));
+    }
+
+    @Test
+    void shouldRejectLocalDraftNoonIdentityForPublish() {
+        ProductMasterSnapshotView baseline = snapshot("Base title", "STR245027-NAE", "48.00", "39.20");
+        baseline.getIdentity().put("skuParent", "LOCAL-PAPERSAYSB442-13423D84");
+        baseline.getIdentity().put("currentZCode", "LOCAL-PAPERSAYSB442-13423D84");
+        ProductMasterSnapshotView draft = copySnapshot(baseline);
+        draft.getContent().put("titleEn", "Changed title");
+
+        List<String> errors = service.validatePublishSnapshot(draft, baseline, "STR245027-NAE");
+
+        assertTrue(errors.stream().anyMatch((error) -> error.contains("还没有完成真实上架")));
     }
 
     @Test

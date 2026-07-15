@@ -15,6 +15,7 @@ class NoonPublicProductSnapshot {
     final List<String> imageUrls = new ArrayList<>();
     final List<String> featureBullets = new ArrayList<>();
     final List<String> specHints = new ArrayList<>();
+    final List<ProductSelectionCompetitorCategoryLink> categoryLinks = new ArrayList<>();
 
     boolean hasStableProductData() {
         return hasText(title) || hasText(sku) || !imageUrls.isEmpty();
@@ -32,6 +33,19 @@ class NoonPublicProductSnapshot {
         addUnique(specHints, value);
     }
 
+    void addCategoryLink(ProductSelectionCompetitorCategoryLink value) {
+        if (value == null || !hasText(value.getName())) {
+            return;
+        }
+        boolean duplicate = categoryLinks.stream().anyMatch(existing ->
+                compactText(existing.getPath()).equalsIgnoreCase(compactText(value.getPath()))
+                        && compactText(existing.getUrl()).equalsIgnoreCase(compactText(value.getUrl()))
+        );
+        if (!duplicate) {
+            categoryLinks.add(value);
+        }
+    }
+
     void mergeMissingFrom(NoonPublicProductSnapshot fallback) {
         if (fallback == null) {
             return;
@@ -46,6 +60,7 @@ class NoonPublicProductSnapshot {
         fallback.imageUrls.forEach(this::addImageUrl);
         fallback.featureBullets.forEach(this::addFeatureBullet);
         fallback.specHints.forEach(this::addSpecHint);
+        fallback.categoryLinks.forEach(this::addCategoryLink);
     }
 
     private void addUnique(List<String> target, String value) {

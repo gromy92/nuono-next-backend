@@ -91,6 +91,23 @@ public class ProductKeywordController {
         }
     }
 
+    @PostMapping("/competitor-keywords")
+    public ProductKeywordViews.KeywordListView addCompetitorKeywords(
+            @RequestBody(required = false) ProductKeywordCompetitorKeywordCommand body,
+            HttpServletRequest request
+    ) {
+        ProductKeywordCompetitorKeywordCommand command = requireCompetitorCommand(body);
+        command.setStoreCode(requireStoreCode(command.getStoreCode()));
+        command.setSiteCode(requireSiteCode(command.getSiteCode()));
+        command.setPartnerSku(requirePartnerSku(command.getPartnerSku()));
+        BusinessAccessContext context = requireStoreAccess(request, command.getStoreCode());
+        try {
+            return service.addCompetitorKeywords(context, command);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PatchMapping("/{keywordId}")
     public ProductKeywordViews.KeywordItemView update(
             @PathVariable Long keywordId,
@@ -135,6 +152,13 @@ public class ProductKeywordController {
     }
 
     private ProductKeywordCommand requireCommand(ProductKeywordCommand command) {
+        if (command == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体不能为空。");
+        }
+        return command;
+    }
+
+    private ProductKeywordCompetitorKeywordCommand requireCompetitorCommand(ProductKeywordCompetitorKeywordCommand command) {
         if (command == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体不能为空。");
         }

@@ -67,30 +67,33 @@ class ProductPublishWriteService {
         requireText(projectCode, "当前店铺缺少 Noon projectCode，暂时不能发布。");
 
         String persistedCookie = firstNonBlank(store.getNoonPartnerCookie(), owner.getNoonPartnerCookie());
-        NoonSession session = StringUtils.hasText(noonEmailAuthCode)
-                ? productNoonAdapter.loginWithEmailAuthCode(
-                owner.getId(),
-                noonUser,
-                noonEmailAuthCode,
-                persistedCookie,
-                projectCode,
-                storeCode
-        )
-                : productNoonAdapter.hasConfiguredMerchantEmailLogin()
-                ? productNoonAdapter.loginWithConfiguredEmailAuthCode(
-                owner.getId(),
-                persistedCookie,
-                projectCode,
-                storeCode
-        )
-                : productNoonAdapter.login(
-                owner.getId(),
-                noonUser,
-                noonPassword,
-                persistedCookie,
-                projectCode,
-                storeCode
-        );
+        NoonSession session;
+        if (StringUtils.hasText(noonEmailAuthCode)) {
+            session = productNoonAdapter.loginWithEmailAuthCode(
+                    owner.getId(),
+                    noonUser,
+                    noonEmailAuthCode,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+        } else if (StringUtils.hasText(noonPassword)) {
+            session = productNoonAdapter.login(
+                    owner.getId(),
+                    noonUser,
+                    noonPassword,
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+        } else {
+            session = productNoonAdapter.loginWithConfiguredEmailAuthCode(
+                    owner.getId(),
+                    persistedCookie,
+                    projectCode,
+                    storeCode
+            );
+        }
         String resolvedProjectCode = writeOperations.resolveProjectCode(session, projectCode, store, actionWarnings);
         session = writeOperations.withProjectAndStore(session, resolvedProjectCode, storeCode);
 

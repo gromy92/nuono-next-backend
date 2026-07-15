@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS `product_selection_source_collection` (
     `unit_count` VARCHAR(100) DEFAULT NULL,
     `color_name` VARCHAR(200) DEFAULT NULL,
     `spec_hints_json` TEXT DEFAULT NULL,
+    `category_links_json` TEXT DEFAULT NULL,
     `spec_attribute_count` INT NOT NULL DEFAULT 0,
     `source_description_en` TEXT DEFAULT NULL,
     `source_description_ar` TEXT DEFAULT NULL,

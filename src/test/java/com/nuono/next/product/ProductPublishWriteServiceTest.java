@@ -91,6 +91,42 @@ class ProductPublishWriteServiceTest {
     }
 
     @Test
+    void shouldPreferStorePasswordBeforeConfiguredMerchantEmailLogin() {
+        StoreSyncOwnerContext owner = ownerContext();
+        StoreSyncStoreRecord store = storeRecord();
+        ProductMasterActionCommand command = command();
+
+        when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(owner);
+        when(productNoonAdapter.hasConfiguredMerchantEmailLogin()).thenReturn(true);
+
+        service.publishSupportedChanges(
+                command,
+                store,
+                snapshot(),
+                snapshot(),
+                snapshot(),
+                "STR245027-NAE",
+                new ProductPublishUnsupportedChanges(),
+                new ArrayList<>()
+        );
+
+        verify(productNoonAdapter).login(
+                307L,
+                "store-project-user",
+                "store-pwd",
+                "store-cookie",
+                "PRJ-LOCAL",
+                "STR245027-NAE"
+        );
+        verify(productNoonAdapter, never()).loginWithConfiguredEmailAuthCode(
+                307L,
+                "store-cookie",
+                "PRJ-LOCAL",
+                "STR245027-NAE"
+        );
+    }
+
+    @Test
     void shouldFailBeforeLoginWhenOwnerContextIsMissing() {
         StoreSyncStoreRecord store = storeRecord();
         ProductMasterActionCommand command = command();

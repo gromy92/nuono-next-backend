@@ -404,7 +404,7 @@ class ProductPskuProductIdentityMapperSqlTest {
     }
 
     @Test
-    void barcodeCleanupByProductMasterUsesBarcodeRowAddressWithoutVariantJoin() throws Exception {
+    void barcodeCleanupByProductMasterUsesVariantOwnerJoin() throws Exception {
         Method method = ProductManagementMapper.class.getMethod(
                 "markProductBarcodesDeletedByProductMasterId",
                 Long.class,
@@ -415,8 +415,8 @@ class ProductPskuProductIdentityMapperSqlTest {
 
         assertThat(sql)
                 .contains("UPDATE product_barcode pb")
-                .contains("pb.product_master_id = #{productMasterId}")
-                .doesNotContain("JOIN product_variant")
-                .doesNotContain("pv.product_master_id");
+                .contains("JOIN product_variant pv ON pv.id = pb.variant_id")
+                .contains("pv.product_master_id = #{productMasterId}")
+                .doesNotContain("pb.product_master_id");
     }
 }

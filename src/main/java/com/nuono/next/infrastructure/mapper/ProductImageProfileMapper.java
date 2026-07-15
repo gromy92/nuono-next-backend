@@ -612,6 +612,25 @@ public interface ProductImageProfileMapper {
             @Param("updatedBy") Long updatedBy
     );
 
+    @Update({
+            "UPDATE product_image_profile_asset",
+            "SET image_role = #{imageRole},",
+            "    sort_order = #{sortOrder},",
+            "    asset_status = 'ACTIVE',",
+            "    updated_by = #{updatedBy},",
+            "    updated_at = NOW()",
+            "WHERE profile_id = #{profileId}",
+            "  AND image_url = #{imageUrl}",
+            "  AND asset_status = 'ACTIVE'"
+    })
+    int updateAssetRoleAndSortOrderByUrl(
+            @Param("profileId") Long profileId,
+            @Param("imageUrl") String imageUrl,
+            @Param("imageRole") ProductImageRole imageRole,
+            @Param("sortOrder") Integer sortOrder,
+            @Param("updatedBy") Long updatedBy
+    );
+
     @Select({
             "SELECT COUNT(1)",
             "FROM product_image_profile_asset",

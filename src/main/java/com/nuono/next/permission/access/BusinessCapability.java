@@ -25,7 +25,12 @@ public enum BusinessCapability {
     )),
     SYSTEM_REPORTS(List.of("/system-reports", "/api/system-reports", "/noon-call", "/api/noon-call")),
     OPERATIONS_COMPETITOR_ANALYSIS(List.of("/operations/competitor-analysis", "/api/competitor-analysis")),
-    PRODUCT_KEYWORD_MANAGEMENT(List.of("/operations/product-keywords", "/api/product-keywords")),
+    PRODUCT_KEYWORD_MANAGEMENT(List.of(
+            "/operations/product-keywords",
+            "/api/product-keywords",
+            "/product/manage",
+            "/purchase/listing"
+    )),
     OPERATIONS_SKIN_MANAGEMENT(List.of("/operations/skin-management", "/api/operations/skin-management")),
     ADVANCED_OPERATIONS_CONFIG(List.of("/operations/config", "/api/operations-config")),
     FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),

@@ -42,7 +42,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -1375,10 +1374,6 @@ public class LocalDbProductMasterService {
         return productPublishTaskViewBuilder.cancel(taskId, ownerUserId);
     }
 
-    @Scheduled(
-            fixedDelayString = "${nuono.product-management.publish-task.scheduler.fixed-delay-ms:5000}",
-            initialDelayString = "${nuono.product-management.publish-task.scheduler.initial-delay-ms:3000}"
-    )
     public void runProductPublishTaskScheduler() {
         try {
             runProductPublishTaskSchedulerTick();
@@ -1806,6 +1801,23 @@ public class LocalDbProductMasterService {
                 || "product-rebuild".equalsIgnoreCase(text(request, "action"));
     }
 
+    private boolean shouldCompleteRebuildDeleteWithoutNoonIdentity(ProductPublishTaskRecord task) {
+        return isProductRebuildDeleteTask(task)
+                && !StringUtils.hasText(task == null ? null : task.getPskuCode())
+                && isLocalSkuParent(task == null ? null : task.getSkuParent());
+    }
+
+    private boolean shouldCompleteLocalDeleteWithoutNoonIdentity(ProductPublishTaskRecord task) {
+        return !isProductRebuildDeleteTask(task)
+                && !StringUtils.hasText(task == null ? null : task.getPskuCode())
+                && isLocalSkuParent(task == null ? null : task.getSkuParent());
+    }
+
+    private boolean isLocalSkuParent(String skuParent) {
+        return StringUtils.hasText(skuParent)
+                && skuParent.trim().toUpperCase(Locale.ROOT).startsWith("LOCAL-");
+    }
+
     private String productRebuildDeleteListStatusLabel(String status) {
         String normalized = normalizeProductDeleteStatus(status);
         if ("failed".equalsIgnoreCase(normalized)) {
@@ -1897,6 +1909,14 @@ public class LocalDbProductMasterService {
         NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         List<String> actionWarnings = new ArrayList<>();
         try {
+            if (shouldCompleteRebuildDeleteWithoutNoonIdentity(task)) {
+                completeRebuildDeleteWithoutNoonIdentity(task, requestCountScope.snapshot(), actionWarnings);
+                return;
+            }
+            if (shouldCompleteLocalDeleteWithoutNoonIdentity(task)) {
+                completeLocalDeleteWithoutNoonIdentity(task, requestCountScope.snapshot(), actionWarnings);
+                return;
+            }
             StoreSyncStoreRecord store = requirePublishStore(task.getOwnerUserId(), task.getStoreCode());
             NoonSession session = openNoonProductDeleteSession(command, store, actionWarnings);
             ProductMasterSnapshotView preDeleteSnapshot = readProductDeletePreDeleteSnapshot(task);
@@ -2649,10 +2669,106 @@ public class LocalDbProductMasterService {
         productWorkbenchRecordStore.remove(workbenchKey(task));
     }
 
+    private void completeRebuildDeleteWithoutNoonIdentity(
+            ProductPublishTaskRecord task,
+            Map<String, Integer> requestCounts,
+            List<String> actionWarnings
+    ) {
+        addLocalWarning(
+                actionWarnings,
+                "当前商品没有可删除的 Noon pskuCode，系统跳过删除旧品，直接进入重建上架。"
+        );
+        updatePublishTaskStatus(
+                task,
+                "synced",
+                null,
+                null,
+                buildTaskResultJson(
+                        "synced",
+                        requestCounts,
+                        actionWarnings,
+                        productDeleteResultExtras("local_noon_identity_missing", null, null)
+                ),
+                null,
+                LocalDateTime.now(),
+                task == null || task.getVerifyAttemptCount() == null ? 0 : task.getVerifyAttemptCount()
+        );
+        productWorkbenchRecordStore.remove(workbenchKey(task));
+    }
+
+    private void completeLocalDeleteWithoutNoonIdentity(
+            ProductPublishTaskRecord task,
+            Map<String, Integer> requestCounts,
+            List<String> actionWarnings
+    ) {
+        addLocalWarning(
+                actionWarnings,
+                "当前商品没有可删除的 Noon pskuCode，系统按本地草稿商品直接清理本地目录。"
+        );
+        deleteLocalProductWithoutNoonIdentity(task, actionWarnings);
+        updatePublishTaskStatus(
+                task,
+                "synced",
+                null,
+                null,
+                buildTaskResultJson(
+                        "synced",
+                        requestCounts,
+                        actionWarnings,
+                        productDeleteResultExtras("local_noon_identity_missing", null, null)
+                ),
+                null,
+                LocalDateTime.now(),
+                task == null || task.getVerifyAttemptCount() == null ? 0 : task.getVerifyAttemptCount()
+        );
+        productWorkbenchRecordStore.remove(workbenchKey(task));
+    }
+
     private void deleteLocalProductAfterNoonDelete(
             ProductPublishTaskRecord task,
             ProductMasterSnapshotView preDeleteSnapshot,
             List<String> actionWarnings
+    ) {
+        deleteLocalProductDirectory(
+                task,
+                preDeleteSnapshot,
+                actionWarnings,
+                "已执行真实 Noon 删除，并同步清理本地商品目录。",
+                "本地商品目录已经清理过，本次只确认 Noon 删除任务完成。",
+                "商品已从 Noon 后台删除，并已清理本地商品目录。",
+                "Noon 删除已确认，本地商品目录此前已清理。",
+                "商品已从 Noon 后台删除，并已清理本地商品目录。",
+                false
+        );
+    }
+
+    private void deleteLocalProductWithoutNoonIdentity(
+            ProductPublishTaskRecord task,
+            List<String> actionWarnings
+    ) {
+        deleteLocalProductDirectory(
+                task,
+                null,
+                actionWarnings,
+                "已清理本地草稿商品目录；该商品没有 Noon pskuCode，未调用 Noon 删除接口。",
+                "本地商品目录已经清理过；该商品没有 Noon pskuCode，未调用 Noon 删除接口。",
+                "商品没有 Noon pskuCode，已清理本地商品目录。",
+                "本地商品目录此前已清理；该商品没有 Noon pskuCode。",
+                "商品没有 Noon pskuCode，已清理本地商品目录。",
+                true
+        );
+    }
+
+    private void deleteLocalProductDirectory(
+            ProductPublishTaskRecord task,
+            ProductMasterSnapshotView preDeleteSnapshot,
+            List<String> actionWarnings,
+            String deletedWarning,
+            String alreadyDeletedWarning,
+            String deletedActionMessage,
+            String alreadyDeletedActionMessage,
+            String backfillCancelMessage,
+            boolean localNoonIdentityMissing
     ) {
         Long productMasterId = task == null ? null : task.getProductMasterId();
         if (productMasterId == null) {
@@ -2670,15 +2786,24 @@ public class LocalDbProductMasterService {
         productManagementMapper.markProductVariantsDeletedByProductMasterId(productMasterId, updatedBy);
         int deleted = productManagementMapper.markProductMasterDeletedById(productMasterId, updatedBy);
         if (deleted == 0) {
-            addLocalWarning(actionWarnings, "本地商品目录已经清理过，本次只确认 Noon 删除任务完成。");
+            addLocalWarning(actionWarnings, alreadyDeletedWarning);
         } else {
-            addLocalWarning(actionWarnings, "已执行真实 Noon 删除，并同步清理本地商品目录。");
+            addLocalWarning(actionWarnings, deletedWarning);
         }
 
-        insertProductDeleteActionLogIfAbsent(task, productMasterId, preDeleteSnapshot, actionWarnings, updatedBy, deleted == 0);
+        insertProductDeleteActionLogIfAbsent(
+                task,
+                productMasterId,
+                preDeleteSnapshot,
+                actionWarnings,
+                updatedBy,
+                deleted == 0,
+                localNoonIdentityMissing,
+                deleted == 0 ? alreadyDeletedActionMessage : deletedActionMessage
+        );
 
         if (deleted > 0 && productDetailBaselineBackfillService != null) {
-            productDetailBaselineBackfillService.cancel(buildFetchCommand(task), "商品已从 Noon 后台删除，并已清理本地商品目录。");
+            productDetailBaselineBackfillService.cancel(buildFetchCommand(task), backfillCancelMessage);
         }
     }
 
@@ -2690,22 +2815,43 @@ public class LocalDbProductMasterService {
             Long updatedBy,
             boolean localAlreadyDeleted
     ) {
+        insertProductDeleteActionLogIfAbsent(
+                task,
+                productMasterId,
+                preDeleteSnapshot,
+                actionWarnings,
+                updatedBy,
+                localAlreadyDeleted,
+                false,
+                localAlreadyDeleted
+                        ? "Noon 删除已确认，本地商品目录此前已清理。"
+                        : "商品已从 Noon 后台删除，并已清理本地商品目录。"
+        );
+    }
+
+    private void insertProductDeleteActionLogIfAbsent(
+            ProductPublishTaskRecord task,
+            Long productMasterId,
+            ProductMasterSnapshotView preDeleteSnapshot,
+            List<String> actionWarnings,
+            Long updatedBy,
+            boolean localAlreadyDeleted,
+            boolean localNoonIdentityMissing,
+            String actionMessage
+    ) {
         String idempotencyKey = "product-delete-task:" + (task == null ? productMasterId : task.getId());
         if (productManagementMapper.selectProductActionLogIdByIdempotency(idempotencyKey) != null) {
             return;
         }
         Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put(
-                "message",
-                localAlreadyDeleted
-                        ? "Noon 删除已确认，本地商品目录此前已清理。"
-                        : "商品已从 Noon 后台删除，并已清理本地商品目录。"
-        );
+        summary.put("message", actionMessage);
         summary.put("skuParent", task.getSkuParent());
         summary.put("partnerSku", task.getPartnerSku());
         summary.put("storeCode", task.getStoreCode());
-        summary.put("unmapEndpoint", "psku/map");
-        summary.put("deleteEndpoint", "psku/delete");
+        if (!localNoonIdentityMissing) {
+            summary.put("unmapEndpoint", "psku/map");
+            summary.put("deleteEndpoint", "psku/delete");
+        }
         summary.put("warnings", actionWarnings);
         summary.put("preDeleteSnapshot", preDeleteSnapshot);
         productManagementMapper.insertProductActionLog(
@@ -2715,9 +2861,9 @@ public class LocalDbProductMasterService {
                 null,
                 null,
                 "delete-product",
-                "noon_delete",
+                localNoonIdentityMissing ? "local" : "noon+local",
                 idempotencyKey,
-                "noon+local",
+                localNoonIdentityMissing ? "local_delete" : "noon_delete",
                 "synced",
                 null,
                 firstNonBlank(
@@ -2730,13 +2876,35 @@ public class LocalDbProductMasterService {
                 0,
                 writeJson(summary),
                 null,
-                writeJson(productDeleteRequestBuilder.buildDeleteBody(task, preDeleteSnapshot)),
+                writeJson(localNoonIdentityMissing
+                        ? buildLocalOnlyProductDeleteRequest(task)
+                        : productDeleteRequestBuilder.buildDeleteBody(task, preDeleteSnapshot)),
                 null,
                 LocalDateTime.now(),
                 LocalDateTime.now(),
                 LocalDateTime.now(),
                 updatedBy
         );
+    }
+
+    private ObjectNode buildLocalOnlyProductDeleteRequest(ProductPublishTaskRecord task) {
+        ObjectNode request = objectMapper.createObjectNode();
+        request.put("action", "product-delete");
+        request.put("mode", "local-only");
+        request.put("reason", "local_noon_identity_missing");
+        if (task != null) {
+            putObjectNodeTextIfNotBlank(request, "skuParent", task.getSkuParent());
+            putObjectNodeTextIfNotBlank(request, "partnerSku", task.getPartnerSku());
+            putObjectNodeTextIfNotBlank(request, "storeCode", task.getStoreCode());
+            putObjectNodeTextIfNotBlank(request, "currentSiteCode", task.getCurrentSiteCode());
+        }
+        return request;
+    }
+
+    private void putObjectNodeTextIfNotBlank(ObjectNode target, String key, String value) {
+        if (target != null && StringUtils.hasText(value)) {
+            target.put(key, value.trim());
+        }
     }
 
     private void handleProductDeleteFailure(

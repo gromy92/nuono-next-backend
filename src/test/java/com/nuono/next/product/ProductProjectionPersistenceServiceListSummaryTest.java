@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.CoreTableStatusMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
+import com.nuono.next.productlisting.ProductListingTaskRecord;
 import com.nuono.next.system.BootstrapProperties;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
@@ -437,6 +438,99 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         );
         verify(productManagementMapper, never()).selectProductMasterIdByStorePartnerSku(anyLong(), eq("PARTNER-001"));
         verify(productManagementMapper, never()).selectRecentProductPublishTasks(anyLong());
+    }
+
+    @Test
+    void listSummariesShouldAttachLatestListingPublishTaskByPartnerSku() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setCurrentZCode("ZTEST001");
+        record.setPartnerSku("PARTNER-001");
+        record.setTitle("Amber Burner");
+        record.setDetailBaselineStatus("ready");
+        record.setSyncStatus("synced");
+
+        ProductListingTaskRecord task = new ProductListingTaskRecord();
+        task.setId(10153L);
+        task.setTaskNo("PLT-10153");
+        task.setMode("REAL_RUN");
+        task.setStatus("succeeded");
+        task.setStoreCode("STR245027-NAE");
+        task.setInputSnapshotJson("{\"psku\":\"PARTNER-001\"}");
+        task.setNoonResultJson("{\"skuParent\":\"ZNOON123\",\"pskuCode\":\"a0eb6dc54597eeecd3e4b26451e731da\"}");
+        task.setSubmittedAt(LocalDateTime.of(2026, 7, 10, 15, 0));
+        task.setCompletedAt(LocalDateTime.of(2026, 7, 10, 15, 3));
+
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR245027-NAE"))
+                .thenReturn(50003L);
+        when(productManagementMapper.selectLatestProductListingTasksByStorePartnerSkus(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq(List.of("PARTNER-001"))
+        ))
+                .thenReturn(List.of(task));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        assertEquals(1, summaries.size());
+        Map<String, Object> listingTask = summaries.get(0).getListingPublishTask();
+        assertNotNull(listingTask);
+        assertEquals(10153L, listingTask.get("taskId"));
+        assertEquals("PLT-10153", listingTask.get("taskNo"));
+        assertEquals("succeeded", listingTask.get("status"));
+        assertEquals("上架成功", listingTask.get("statusLabel"));
+        assertEquals("PARTNER-001", listingTask.get("partnerSku"));
+        assertEquals("ZNOON123", listingTask.get("skuParent"));
+        assertEquals("a0eb6dc54597eeecd3e4b26451e731da", listingTask.get("pskuCode"));
+        assertEquals("2026-07-10 15:03:00", listingTask.get("finishedAt"));
+    }
+
+    @Test
+    void listSummariesShouldReadListingNoonReferencesFromStepExternalReference() {
+        ProductListProjectionRecord record = new ProductListProjectionRecord();
+        record.setSkuParent("ZTEST001");
+        record.setCurrentZCode("ZTEST001");
+        record.setPartnerSku("PARTNER-001");
+        record.setTitle("Amber Burner");
+        record.setDetailBaselineStatus("ready");
+        record.setSyncStatus("synced");
+
+        ProductListingTaskRecord task = new ProductListingTaskRecord();
+        task.setId(10154L);
+        task.setTaskNo("PLT-10154");
+        task.setMode("REAL_RUN");
+        task.setStatus("succeeded");
+        task.setStoreCode("STR245027-NAE");
+        task.setInputSnapshotJson("{\"psku\":\"PARTNER-001\"}");
+        task.setNoonResultJson("{\"status\":\"succeeded\",\"steps\":[{\"stepKey\":\"create_product\",\"status\":\"succeeded\",\"externalReference\":\"skuParent=ZNOON456;pskuCode=b1eb6dc54597eeecd3e4b26451e731db\"}]}");
+        task.setSubmittedAt(LocalDateTime.of(2026, 7, 10, 16, 0));
+        task.setCompletedAt(LocalDateTime.of(2026, 7, 10, 16, 3));
+
+        when(productManagementMapper.selectProductListProjection(10002L, "STR245027-NAE"))
+                .thenReturn(List.of(record));
+        when(productManagementMapper.selectLatestProductListingTasksByStorePartnerSkus(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq(List.of("PARTNER-001"))
+        ))
+                .thenReturn(List.of(task));
+
+        List<ProductListSummaryView> summaries = service.loadProductListSummaries(
+                10002L,
+                "STR245027-NAE",
+                new ArrayList<>()
+        );
+
+        Map<String, Object> listingTask = summaries.get(0).getListingPublishTask();
+        assertNotNull(listingTask);
+        assertEquals("ZNOON456", listingTask.get("skuParent"));
+        assertEquals("b1eb6dc54597eeecd3e4b26451e731db", listingTask.get("pskuCode"));
     }
 
     @Test

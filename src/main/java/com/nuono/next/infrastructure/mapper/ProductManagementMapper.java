@@ -17,6 +17,7 @@ import com.nuono.next.product.ProductVariantSpecCommand;
 import com.nuono.next.product.ProductVariantSpecRecord;
 import com.nuono.next.product.ProductVariantSpecSourceCommand;
 import com.nuono.next.product.ProductVariantSpecSourceRecord;
+import com.nuono.next.productlisting.ProductListingTaskRecord;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -93,6 +94,17 @@ public interface ProductManagementMapper {
         }
         return id;
     }
+
+    @Update({
+            "UPDATE product_management_id_sequence",
+            "SET next_id = GREATEST(next_id, #{minimumAllocatedId}),",
+            "    gmt_updated = NOW()",
+            "WHERE sequence_name = #{sequenceName}"
+    })
+    int advanceProductManagementIdSequence(
+            @Param("sequenceName") String sequenceName,
+            @Param("minimumAllocatedId") Long minimumAllocatedId
+    );
 
     default Long nextLogicalStoreId() {
         return nextProductManagementId("logical_store", 50000L);
@@ -1358,14 +1370,31 @@ public interface ProductManagementMapper {
 
     @Update({
             "UPDATE product_barcode pb",
+            "JOIN product_variant pv ON pv.id = pb.variant_id",
             "SET pb.is_deleted = 1,",
             "    pb.updated_by = #{updatedBy},",
             "    pb.gmt_updated = NOW()",
-            "WHERE pb.product_master_id = #{productMasterId}",
+            "WHERE pv.product_master_id = #{productMasterId}",
             "  AND pb.is_deleted = 0"
     })
     int markProductBarcodesDeletedByProductMasterId(
             @Param("productMasterId") Long productMasterId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_barcode pb",
+            "JOIN product_variant pv ON pv.id = pb.variant_id",
+            "SET pb.is_deleted = 1,",
+            "    pb.updated_by = #{updatedBy},",
+            "    pb.gmt_updated = NOW()",
+            "WHERE pv.product_master_id = #{productMasterId}",
+            "  AND pb.barcode <> #{retainedBarcode}",
+            "  AND pb.is_deleted = 0"
+    })
+    int markOtherProductBarcodesDeletedByProductMasterId(
+            @Param("productMasterId") Long productMasterId,
+            @Param("retainedBarcode") String retainedBarcode,
             @Param("updatedBy") Long updatedBy
     );
 
@@ -1668,6 +1697,51 @@ public interface ProductManagementMapper {
     List<ProductListProjectionRecord> selectProductListProjection(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode
+    );
+
+    @Select({
+            "<script>",
+            "SELECT",
+            "  t.id, t.draft_id, t.owner_user_id, t.store_code, t.task_no, t.mode, t.status,",
+            "  t.source_task_id, t.input_snapshot_json, t.validation_json, t.confirmation_json,",
+            "  t.noon_result_json, t.failure_category, t.failure_code, t.failure_message,",
+            "  t.submitted_by, t.submitted_at, t.started_at, t.completed_at, t.gmt_create, t.gmt_updated",
+            "FROM product_listing_task t",
+            "WHERE t.owner_user_id = #{ownerUserId}",
+            "  AND t.store_code = #{storeCode}",
+            "  AND t.mode = 'REAL_RUN'",
+            "  AND JSON_VALID(t.input_snapshot_json)",
+            "  AND COALESCE(",
+            "        NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.input_snapshot_json, '$.psku')), ''),",
+            "        NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.input_snapshot_json, '$.partnerSku')), '')",
+            "      ) IN",
+            "  <foreach collection='partnerSkus' item='partnerSku' open='(' separator=',' close=')'>",
+            "    #{partnerSku}",
+            "  </foreach>",
+            "  AND t.id = (",
+            "    SELECT latest.id",
+            "    FROM product_listing_task latest",
+            "    WHERE latest.owner_user_id = t.owner_user_id",
+            "      AND latest.store_code = t.store_code",
+            "      AND latest.mode = 'REAL_RUN'",
+            "      AND JSON_VALID(latest.input_snapshot_json)",
+            "      AND COALESCE(",
+            "            NULLIF(JSON_UNQUOTE(JSON_EXTRACT(latest.input_snapshot_json, '$.psku')), ''),",
+            "            NULLIF(JSON_UNQUOTE(JSON_EXTRACT(latest.input_snapshot_json, '$.partnerSku')), '')",
+            "          ) = COALESCE(",
+            "            NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.input_snapshot_json, '$.psku')), ''),",
+            "            NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.input_snapshot_json, '$.partnerSku')), '')",
+            "          )",
+            "    ORDER BY COALESCE(latest.completed_at, latest.started_at, latest.submitted_at, latest.gmt_updated, latest.gmt_create) DESC, latest.id DESC",
+            "    LIMIT 1",
+            "  )",
+            "ORDER BY COALESCE(t.completed_at, t.started_at, t.submitted_at, t.gmt_updated, t.gmt_create) DESC, t.id DESC",
+            "</script>"
+    })
+    List<ProductListingTaskRecord> selectLatestProductListingTasksByStorePartnerSkus(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("partnerSkus") List<String> partnerSkus
     );
 
     @Select({
@@ -2000,13 +2074,14 @@ public interface ProductManagementMapper {
             "SELECT",
             "  product_fulltype AS value,",
             "  COALESCE(label_en, product_fulltype) AS label,",
-            "  MAX(family) AS family,",
-            "  MAX(product_type) AS productType,",
-            "  MAX(product_subtype) AS productSubtype,",
+            "  SUBSTRING_INDEX(product_fulltype, '-', 1) AS family,",
+            "  SUBSTRING_INDEX(SUBSTRING_INDEX(product_fulltype, '-', 2), '-', -1) AS productType,",
+            "  SUBSTRING_INDEX(product_fulltype, '-', -1) AS productSubtype,",
             "  SUM(usage_count) AS usageCount",
             "FROM noon_product_fulltype_dictionary",
             "WHERE is_deleted = 0",
             "  AND status = 'active'",
+            "  AND product_fulltype REGEXP '^[a-z0-9_]+-[a-z0-9_]+-[a-z0-9_]+$'",
             "  <if test='query != null and query != \"\"'>",
             "    AND (product_fulltype LIKE CONCAT('%', #{query}, '%') OR label_en LIKE CONCAT('%', #{query}, '%'))",
             "  </if>",
@@ -2076,6 +2151,7 @@ public interface ProductManagementMapper {
             "WHERE ls.is_deleted = 0",
             "  AND pm.product_fulltype_cache IS NOT NULL",
             "  AND pm.product_fulltype_cache != ''",
+            "  AND pm.product_fulltype_cache REGEXP '^[a-z0-9_]+-[a-z0-9_]+-[a-z0-9_]+$'",
             "  <if test='query != null and query != \"\"'>",
             "    AND pm.product_fulltype_cache LIKE CONCAT('%', #{query}, '%')",
             "  </if>",
@@ -3087,7 +3163,14 @@ public interface ProductManagementMapper {
     int upsertProductVariantSpec(ProductVariantSpecCommand command);
 
     default Long nextProductBarcodeId() {
-        return nextProductManagementId("product_barcode", 54000L);
+        Long allocatedId = nextProductManagementId("product_barcode", 54000L);
+        Long currentMaxId = selectMaxProductBarcodeId();
+        if (currentMaxId != null && allocatedId <= currentMaxId) {
+            Long safeId = currentMaxId + 1;
+            advanceProductManagementIdSequence("product_barcode", safeId);
+            return safeId;
+        }
+        return allocatedId;
     }
 
     @Insert({
@@ -3099,7 +3182,6 @@ public interface ProductManagementMapper {
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
-            "  variant_id = VALUES(variant_id),",
             "  barcode_type = VALUES(barcode_type),",
             "  is_primary = VALUES(is_primary),",
             "  is_deleted = 0,",
@@ -3123,6 +3205,12 @@ public interface ProductManagementMapper {
             "LIMIT 1"
     })
     Long selectProductBarcodeIdByBarcode(@Param("barcode") String barcode);
+
+    @Select({
+            "SELECT COALESCE(MAX(id), 0)",
+            "FROM product_barcode"
+    })
+    Long selectMaxProductBarcodeId();
 
     @Insert({
             "INSERT INTO product_image_asset (",

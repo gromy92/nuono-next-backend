@@ -109,6 +109,52 @@ class ProductKeywordServiceTest {
     }
 
     @Test
+    void competitorKeywordsCreateCompetitorEvidenceWithoutDowngradingActiveAssets() {
+        FakeProductKeywordMapper mapper = new FakeProductKeywordMapper();
+        ProductKeywordService service = new ProductKeywordService(mapper, new ProductKeywordNormalizer());
+        ProductKeywordRecord active = service.addManualKeyword(
+                context(),
+                command("STR108065-NSA", "SA", "PSKU-1", "MagSafe", List.of("CORE"))
+        );
+
+        ProductKeywordCompetitorKeywordCommand command = new ProductKeywordCompetitorKeywordCommand();
+        command.setStoreCode(" str108065-nsa ");
+        command.setSiteCode(" sa ");
+        command.setPartnerSku(" PSKU-1 ");
+        command.setKeywords(List.of("magsafe", "Shockproof", " "));
+        ProductKeywordCompetitorKeywordCommand.CompetitorSource source =
+                new ProductKeywordCompetitorKeywordCommand.CompetitorSource();
+        source.setLabel("Amazon SA");
+        source.setUrl("https://www.amazon.sa/item");
+        source.setSourceText("MagSafe military grade competitor title");
+        command.setCompetitorSources(List.of(source));
+
+        ProductKeywordViews.KeywordListView result = service.addCompetitorKeywords(context(), command);
+
+        assertThat(result.getItems()).hasSize(2);
+        assertThat(mapper.keywords).hasSize(2);
+        assertThat(mapper.events.values())
+                .filteredOn(event -> "COMPETITOR_KEYWORD".equals(event.getSourceType()))
+                .hasSize(2)
+                .allSatisfy(event -> {
+                    assertThat(event.getEventStatus()).isEqualTo("OBSERVED");
+                    assertThat(event.getPayloadJson()).contains("competitorSources", "Amazon SA", "https://www.amazon.sa/item",
+                            "MagSafe military grade competitor title");
+                });
+        assertThat(mapper.keywords.values())
+                .anySatisfy(keyword -> {
+                    assertThat(keyword.getId()).isEqualTo(active.getId());
+                    assertThat(keyword.getStatus()).isEqualTo("ACTIVE");
+                    assertThat(keyword.getIntentTagsJson()).contains("CORE", "COMPETITOR_TRACK");
+                })
+                .anySatisfy(keyword -> {
+                    assertThat(keyword.getKeywordNorm()).isEqualTo("shockproof");
+                    assertThat(keyword.getStatus()).isEqualTo("OBSERVED");
+                    assertThat(keyword.getIntentTagsJson()).contains("COMPETITOR_TRACK");
+                });
+    }
+
+    @Test
     void productLevelWildcardScopeIsOnlyAllowedForTitleTargets() {
         ProductKeywordService service = new ProductKeywordService(new FakeProductKeywordMapper(), new ProductKeywordNormalizer());
 

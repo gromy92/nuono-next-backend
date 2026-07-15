@@ -21,6 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -35,8 +36,12 @@ import org.springframework.util.StringUtils;
 public class RealProductListingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
     private static final int MAX_IMAGE_UPLOADS = 15;
     private static final DateTimeFormatter NOON_OFFER_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final int DEFAULT_SALE_WINDOW_YEARS = 20;
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final String MISSING_SESSION_FACTORY_MESSAGE =
+            "Product listing real Noon writes require nuono.noon.pull.real-provider.enabled=true "
+                    + "so a NoonPullGatewaySessionFactory bean is available.";
 
     private final ObjectMapper objectMapper;
     private final NoonPullStoreBindingResolver bindingResolver;
@@ -56,7 +61,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         this(
                 objectMapper,
                 bindingResolver,
-                sessionFactoryProvider == null ? null : sessionFactoryProvider.getIfAvailable(),
+                requireAvailableSessionFactory(sessionFactoryProvider),
                 properties,
                 new HttpClientProductListingImageDownloader(),
                 offerStockWriteAdapter
@@ -453,13 +458,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 text(common, "brand"),
                 true
         );
-        requireReadBackText(
-                fields,
-                "product_fulltype",
-                draft.getProductFullType(),
-                text(common, "product_fulltype"),
-                false
-        );
+        requireReadBackProductFullType(fields, draft, common);
         requireReadBackText(
                 fields,
                 "product_title_en",
@@ -510,6 +509,38 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         }
     }
 
+    private void requireReadBackProductFullType(
+            List<String> fields,
+            ProductListingDraftCommand draft,
+            JsonNode common
+    ) {
+        if (!StringUtils.hasText(draft.getProductFullType())) {
+            return;
+        }
+        String actualFullType = firstNonBlank(
+                text(common, "product_fulltype_code"),
+                text(common, "productFulltypeCode"),
+                text(common, "product_fulltype"),
+                text(common, "productFulltype")
+        );
+        if (sameText(draft.getProductFullType(), actualFullType, false)) {
+            return;
+        }
+        String actualFullTypeId = firstNonBlank(
+                text(common, "id_product_fulltype"),
+                text(common, "idProductFulltype"),
+                text(common, "idProductFullType")
+        );
+        if (draft.getIdProductFullType() != null
+                && String.valueOf(draft.getIdProductFullType()).equals(actualFullTypeId)) {
+            return;
+        }
+        if (!StringUtils.hasText(actualFullType) && !StringUtils.hasText(actualFullTypeId)) {
+            return;
+        }
+        fields.add("product_fulltype");
+    }
+
     private boolean sameBrandText(String expected, String actual) {
         String normalizedExpected = normalizeBrand(expected);
         String normalizedActual = normalizeBrand(actual);
@@ -520,9 +551,21 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
 
     private NoonPullGatewaySessionFactory requireSessionFactory() {
         if (sessionFactory == null) {
-            throw new IllegalStateException("Product listing Noon session factory is not available.");
+            throw new IllegalStateException(MISSING_SESSION_FACTORY_MESSAGE);
         }
         return sessionFactory;
+    }
+
+    private static NoonPullGatewaySessionFactory requireAvailableSessionFactory(
+            ObjectProvider<NoonPullGatewaySessionFactory> sessionFactoryProvider
+    ) {
+        NoonPullGatewaySessionFactory available = sessionFactoryProvider == null
+                ? null
+                : sessionFactoryProvider.getIfAvailable();
+        if (available == null) {
+            throw new IllegalStateException(MISSING_SESSION_FACTORY_MESSAGE);
+        }
+        return available;
     }
 
     private String normalizeBrand(String value) {
@@ -809,6 +852,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             putIfHasText(attributes, "product_title", draft.getProductTitleAr());
             putIfHasMeaningfulText(attributes, "long_description", draft.getProductDescriptionAr());
             putFeatureBullets(attributes, draft.getProductHighlightsAr());
+            putDetailedAttributes(attributes, draft, lang);
             return root;
         }
 
@@ -829,7 +873,31 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 }
             }
         }
+        putDetailedAttributes(attributes, draft, lang);
         return root;
+    }
+
+    private void putDetailedAttributes(ObjectNode attributes, ProductListingDraftCommand draft, String lang) {
+        List<Map<String, Object>> keyAttributes = draft.getKeyAttributes();
+        if (keyAttributes == null || keyAttributes.isEmpty()) {
+            return;
+        }
+        for (Map<String, Object> attribute : keyAttributes) {
+            if (attribute == null) {
+                continue;
+            }
+            String code = normalizeAttributeCode(attribute.get("code"));
+            if (!StringUtils.hasText(code) || isCoreAttribute(code) || isBarcodeAttribute(code)) {
+                continue;
+            }
+            Object value = "ar".equals(lang)
+                    ? firstLocalizedAttributeValue(attribute.get("arValue"), attribute.get("commonValue"))
+                    : firstLocalizedAttributeValue(attribute.get("enValue"), attribute.get("commonValue"));
+            putScalarAttributeValue(attributes, code, value);
+            if (StringUtils.hasText(textValue(attribute.get("unit")))) {
+                putScalarAttributeValue(attributes, code + "_unit", attribute.get("unit"));
+            }
+        }
     }
 
     private void putFeatureBullets(ObjectNode attributes, List<String> highlights) {
@@ -844,6 +912,69 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             attributes.put("feature_bullet_" + index, highlight.trim());
             index++;
         }
+    }
+
+    private Object firstLocalizedAttributeValue(Object localizedValue, Object commonValue) {
+        if (isScalarAttributeValue(localizedValue) && StringUtils.hasText(textValue(localizedValue))) {
+            return localizedValue;
+        }
+        return commonValue;
+    }
+
+    private boolean isScalarAttributeValue(Object value) {
+        return value == null
+                || value instanceof String
+                || value instanceof Number
+                || value instanceof Boolean;
+    }
+
+    private void putScalarAttributeValue(ObjectNode target, String field, Object value) {
+        if (!StringUtils.hasText(field) || !isScalarAttributeValue(value) || !StringUtils.hasText(textValue(value))) {
+            return;
+        }
+        if (value instanceof Number || value instanceof Boolean) {
+            target.set(field, objectMapper.valueToTree(value));
+            return;
+        }
+        target.put(field, textValue(value));
+    }
+
+    private String normalizeAttributeCode(Object value) {
+        String text = textValue(value);
+        return StringUtils.hasText(text) ? text.trim() : "";
+    }
+
+    private String textValue(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private boolean isCoreAttribute(String code) {
+        String normalized = code == null ? "" : code.trim().toLowerCase(Locale.ROOT);
+        return "brand".equals(normalized)
+                || "family".equals(normalized)
+                || "product_type".equals(normalized)
+                || "product_subtype".equals(normalized)
+                || "product_fulltype".equals(normalized)
+                || "item_condition".equals(normalized)
+                || "grade".equals(normalized)
+                || "product_title".equals(normalized)
+                || "long_description".equals(normalized);
+    }
+
+    private boolean isBarcodeAttribute(String code) {
+        if (!StringUtils.hasText(code)) {
+            return false;
+        }
+        String normalized = code.trim().toLowerCase(Locale.ROOT);
+        if (normalized.contains("barcode")) {
+            return true;
+        }
+        for (String token : normalized.split("[^a-z0-9]+")) {
+            if ("gtin".equals(token) || "ean".equals(token) || "upc".equals(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private ObjectNode upsertPriceBody(
@@ -862,13 +993,63 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             root.put("price", draft.getPrice());
         }
         if (properties.isOfferUpsertEnabled()) {
-            putDecimalOrNull(root, "priceMin", draft.getPriceMin());
-            putDecimalOrNull(root, "priceMax", draft.getPriceMax());
+            putDecimalOrNull(root, "priceMin", priceMinForNoon(draft));
+            putDecimalOrNull(root, "priceMax", priceMaxForNoon(draft));
             putDecimalOrNull(root, "salePrice", draft.getSalePrice());
-            putTextOrNull(root, "saleStart", normalizeOfferDateForNoon(draft.getSaleStart()));
-            putTextOrNull(root, "saleEnd", normalizeOfferDateForNoon(draft.getSaleEnd()));
+            putTextOrNull(root, "saleStart", saleStartForPrice(draft));
+            putTextOrNull(root, "saleEnd", saleEndForPrice(draft));
         }
         return root;
+    }
+
+    private BigDecimal priceMinForNoon(ProductListingDraftCommand draft) {
+        if (draft.getPriceMin() != null) {
+            return draft.getPriceMin();
+        }
+        return draft.getPrice();
+    }
+
+    private BigDecimal priceMaxForNoon(ProductListingDraftCommand draft) {
+        if (draft.getPriceMax() != null) {
+            return draft.getPriceMax();
+        }
+        return draft.getPrice();
+    }
+
+    private String saleStartForPrice(ProductListingDraftCommand draft) {
+        String explicitSaleStart = normalizeOfferDateForNoon(draft.getSaleStart());
+        if (StringUtils.hasText(explicitSaleStart)) {
+            return explicitSaleStart;
+        }
+        if (draft.getSalePrice() == null) {
+            return null;
+        }
+        return LocalDate.now().format(NOON_OFFER_DATE_FORMATTER);
+    }
+
+    private String saleEndForPrice(ProductListingDraftCommand draft) {
+        String explicitSaleEnd = normalizeOfferDateForNoon(draft.getSaleEnd());
+        if (StringUtils.hasText(explicitSaleEnd)) {
+            return explicitSaleEnd;
+        }
+        String explicitSaleStart = normalizeOfferDateForNoon(draft.getSaleStart());
+        if (StringUtils.hasText(explicitSaleStart)) {
+            return parseNoonOfferDate(explicitSaleStart)
+                    .plusYears(DEFAULT_SALE_WINDOW_YEARS)
+                    .format(NOON_OFFER_DATE_FORMATTER);
+        }
+        if (draft.getSalePrice() == null) {
+            return null;
+        }
+        return LocalDate.now().plusYears(DEFAULT_SALE_WINDOW_YEARS).format(NOON_OFFER_DATE_FORMATTER);
+    }
+
+    private LocalDate parseNoonOfferDate(String value) {
+        try {
+            return LocalDate.parse(value, NOON_OFFER_DATE_FORMATTER);
+        } catch (DateTimeParseException ignored) {
+            return LocalDate.now();
+        }
     }
 
     private void putDecimalOrNull(ObjectNode target, String key, BigDecimal value) {
@@ -927,6 +1108,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     ) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("pskuCode", pskuCode);
+        root.put("partnerSku", draft.getPsku());
         root.put("idWarranty", draft.getIdWarranty());
         root.put("countryCode", upper(binding.getSiteCode()));
         root.put("baseCountryCode", upper(binding.getSiteCode()));
@@ -947,9 +1129,9 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         String[] parts = StringUtils.hasText(draft.getProductFullType())
                 ? draft.getProductFullType().split("-")
                 : new String[0];
-        String family = firstNonBlank(draft.getFamily(), parts.length > 0 ? parts[0] : null);
-        String productType = firstNonBlank(draft.getProductType(), parts.length > 1 ? parts[1] : null);
-        String productSubType = firstNonBlank(draft.getProductSubType(), parts.length > 2 ? parts[2] : null);
+        String family = firstNonBlank(parts.length > 0 ? parts[0] : null, draft.getFamily());
+        String productType = firstNonBlank(parts.length > 1 ? parts[1] : null, draft.getProductType());
+        String productSubType = firstNonBlank(parts.length > 2 ? parts[2] : null, draft.getProductSubType());
         return new ProductFullTypeParts(family, productType, productSubType);
     }
 
@@ -1004,15 +1186,14 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         List<String> urls = new ArrayList<>();
         String suggestUrl = normalize(endpoints.getProductFulltypeSuggestUrl());
         if (StringUtils.hasText(suggestUrl)) {
-            if (draft.getIdProductFullType() != null) {
-                addUrl(urls, appendQuery(suggestUrl, "id_product_fulltype", String.valueOf(draft.getIdProductFullType())));
-            }
             if (StringUtils.hasText(draft.getProductFullType())) {
                 addUrl(urls, appendQuery(suggestUrl, "query", draft.getProductFullType()));
                 ProductFullTypeParts parts = productFullTypeParts(draft);
                 addSuggestQuery(urls, suggestUrl, humanizeCode(parts.productSubType));
                 addSuggestQuery(urls, suggestUrl, humanizeCode(parts.productType));
                 addSuggestQuery(urls, suggestUrl, humanizeCode(parts.family));
+            } else if (draft.getIdProductFullType() != null) {
+                addUrl(urls, appendQuery(suggestUrl, "id_product_fulltype", String.valueOf(draft.getIdProductFullType())));
             }
         }
         String taxonomyUrl = normalize(endpoints.getProductFulltypeTaxonomyUrl());
@@ -1134,9 +1315,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                     text(candidate, "product_fulltype"),
                     text(candidate, "productFulltype")
             );
-            if (sameText(expectedFullType, actualFullType, false)) {
-                return true;
-            }
+            return sameText(expectedFullType, actualFullType, false);
         }
         if (draft.getIdProductFullType() == null) {
             return false;

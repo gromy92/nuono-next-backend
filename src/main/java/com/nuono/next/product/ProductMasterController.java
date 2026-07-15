@@ -15,9 +15,10 @@ import java.util.Map;
 import java.util.UUID;
 import javax.servlet.http.HttpServletRequest;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -42,22 +43,50 @@ public class ProductMasterController {
 
     private final ObjectProvider<LocalDbProductMasterService> localDbProductMasterServiceProvider;
     private final ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider;
+    private final ObjectProvider<ProductCompetitorContentMergeService> productCompetitorContentMergeServiceProvider;
     private final AuthSessionTokenService sessionTokenService;
     private final ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider;
     private final ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider;
+    private final ProductImageAssetRemoteDownloader remoteImageDownloader;
 
+    @Autowired
     public ProductMasterController(
             ObjectProvider<LocalDbProductMasterService> localDbProductMasterServiceProvider,
             ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider,
+            ObjectProvider<ProductCompetitorContentMergeService> productCompetitorContentMergeServiceProvider,
             AuthSessionTokenService sessionTokenService,
             ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider,
             ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider
     ) {
+        this(
+                localDbProductMasterServiceProvider,
+                productContentTranslationServiceProvider,
+                productCompetitorContentMergeServiceProvider,
+                sessionTokenService,
+                productMasterAccessGuardProvider,
+                businessAccessResolverProvider,
+                new ProductImageAssetRemoteDownloader()
+        );
+    }
+
+    ProductMasterController(
+            ObjectProvider<LocalDbProductMasterService> localDbProductMasterServiceProvider,
+            ObjectProvider<ProductContentTranslationService> productContentTranslationServiceProvider,
+            ObjectProvider<ProductCompetitorContentMergeService> productCompetitorContentMergeServiceProvider,
+            AuthSessionTokenService sessionTokenService,
+            ObjectProvider<ProductMasterAccessGuard> productMasterAccessGuardProvider,
+            ObjectProvider<BusinessAccessResolver> businessAccessResolverProvider,
+            ProductImageAssetRemoteDownloader remoteImageDownloader
+    ) {
         this.localDbProductMasterServiceProvider = localDbProductMasterServiceProvider;
         this.productContentTranslationServiceProvider = productContentTranslationServiceProvider;
+        this.productCompetitorContentMergeServiceProvider = productCompetitorContentMergeServiceProvider;
         this.sessionTokenService = sessionTokenService;
         this.productMasterAccessGuardProvider = productMasterAccessGuardProvider;
         this.businessAccessResolverProvider = businessAccessResolverProvider;
+        this.remoteImageDownloader = remoteImageDownloader == null
+                ? new ProductImageAssetRemoteDownloader()
+                : remoteImageDownloader;
     }
 
     @PostMapping("/snapshot")
@@ -462,6 +491,30 @@ public class ProductMasterController {
         }
     }
 
+    @PostMapping("/competitor-content/merge")
+    public ProductCompetitorContentMergeView mergeCompetitorContent(
+            @RequestBody ProductCompetitorContentMergeCommand command,
+            HttpServletRequest request
+    ) {
+        ProductCompetitorContentMergeService mergeService = productCompetitorContentMergeServiceProvider.getIfAvailable();
+        if (mergeService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "竞品 AI 整合服务暂时不可用");
+        }
+        try {
+            AuthenticatedSession session = requireSession(request);
+            businessAccessResolver().requireBusinessContext(request, BusinessCapability.PRODUCT_MASTER);
+            if (command == null) {
+                command = new ProductCompetitorContentMergeCommand();
+            }
+            command.setOperatorUserId(session.getUserId());
+            return mergeService.merge(command);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
     @PostMapping(value = "/image-assets", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> uploadImageAsset(
             @RequestParam("file") MultipartFile file,
@@ -481,52 +534,49 @@ public class ProductMasterController {
         }
 
         try {
-            LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
-            Long resolvedOwnerUserId = null;
-            if (productMasterService != null && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
-                BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
-                        request,
-                        BusinessCapability.PRODUCT_MASTER,
-                        storeCode
-                );
-                resolvedOwnerUserId = resolveOwnerUserId(access, storeCode);
-            }
-            Path uploadDir = ProductImageAssetFileSupport.productImageUploadDir();
-            Files.createDirectories(uploadDir);
-            String filename = UUID.randomUUID() + "." + ProductImageAssetFileSupport.imageExtension(file);
-            Path target = uploadDir.resolve(filename).normalize();
-            file.transferTo(target);
-            String url = "/api/product-master/image-assets/" + filename;
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("url", url);
-            response.put("filename", filename);
-            response.put("contentType", file.getContentType());
-            response.put("size", file.getSize());
-            List<String> warnings = new ArrayList<>();
-            if (productMasterService != null && resolvedOwnerUserId != null
-                    && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
-                Long assetId = productMasterService.persistUploadedImageAsset(
-                        resolvedOwnerUserId,
-                        storeCode,
-                        skuParent,
-                        url,
-                        filename,
-                        file.getOriginalFilename(),
-                        file.getContentType(),
-                        file.getSize(),
-                        ProductImageAssetFileSupport.sha256Hex(target),
-                        warnings
-                );
-                if (assetId != null) {
-                    response.put("assetId", assetId);
-                }
-            }
-            if (!warnings.isEmpty()) {
-                response.put("warnings", warnings);
-            }
+            return saveImageAsset(
+                    file.getBytes(),
+                    file.getContentType(),
+                    file.getOriginalFilename(),
+                    file.getOriginalFilename(),
+                    storeCode,
+                    skuParent,
+                    request
+            );
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "保存图片失败", exception);
+        }
+    }
+
+    @PostMapping("/image-assets/import")
+    public Map<String, Object> importImageAsset(
+            @RequestBody ProductImageAssetImportCommand command,
+            HttpServletRequest request
+    ) {
+        if (command == null || !StringUtils.hasText(command.getImageUrl())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片 URL 不能为空");
+        }
+        try {
+            ProductImageAssetRemoteDownload download = remoteImageDownloader.download(command.getImageUrl());
+            Map<String, Object> response = saveImageAsset(
+                    download.content,
+                    download.contentType,
+                    download.fileName,
+                    download.fileName,
+                    command.getStoreCode(),
+                    command.getSkuParent(),
+                    request
+            );
+            response.put("sourceUrl", command.getImageUrl().trim());
             return response;
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
         } catch (IOException exception) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "保存图片失败", exception);
         }
@@ -555,6 +605,72 @@ public class ProductMasterController {
         } catch (IOException exception) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "读取图片失败", exception);
         }
+    }
+
+    private Map<String, Object> saveImageAsset(
+            byte[] content,
+            String contentType,
+            String sourceFileName,
+            String originalFileName,
+            String storeCode,
+            String skuParent,
+            HttpServletRequest request
+    ) throws IOException {
+        byte[] safeContent = content == null ? new byte[0] : content;
+        if (safeContent.length == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片文件不能为空");
+        }
+        if (safeContent.length > MAX_IMAGE_BYTES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片不能超过 8MB");
+        }
+        if (!String.valueOf(contentType).startsWith("image/")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持图片文件");
+        }
+
+        LocalDbProductMasterService productMasterService = localDbProductMasterServiceProvider.getIfAvailable();
+        Long resolvedOwnerUserId = null;
+        if (productMasterService != null && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
+            BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+                    request,
+                    BusinessCapability.PRODUCT_MASTER,
+                    storeCode
+            );
+            resolvedOwnerUserId = resolveOwnerUserId(access, storeCode);
+        }
+        Path uploadDir = ProductImageAssetFileSupport.productImageUploadDir();
+        Files.createDirectories(uploadDir);
+        String filename = UUID.randomUUID() + "." + ProductImageAssetFileSupport.imageExtension(sourceFileName, contentType);
+        Path target = uploadDir.resolve(filename).normalize();
+        Files.write(target, safeContent);
+        String url = "/api/product-master/image-assets/" + filename;
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("url", url);
+        response.put("filename", filename);
+        response.put("contentType", contentType);
+        response.put("size", safeContent.length);
+        List<String> warnings = new ArrayList<>();
+        if (productMasterService != null && resolvedOwnerUserId != null
+                && StringUtils.hasText(storeCode) && StringUtils.hasText(skuParent)) {
+            Long assetId = productMasterService.persistUploadedImageAsset(
+                    resolvedOwnerUserId,
+                    storeCode,
+                    skuParent,
+                    url,
+                    filename,
+                    originalFileName,
+                    contentType,
+                    Long.valueOf(safeContent.length),
+                    ProductImageAssetFileSupport.sha256Hex(target),
+                    warnings
+            );
+            if (assetId != null) {
+                response.put("assetId", assetId);
+            }
+        }
+        if (!warnings.isEmpty()) {
+            response.put("warnings", warnings);
+        }
+        return response;
     }
 
     private void applyProductScope(ProductMasterFetchCommand command, HttpServletRequest request) {
