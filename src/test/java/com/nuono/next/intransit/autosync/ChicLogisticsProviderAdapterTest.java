@@ -91,6 +91,7 @@ class ChicLogisticsProviderAdapterTest {
         assertThat(firstPackage.getChargeableWeightKg()).isEqualByComparingTo(new BigDecimal("16"));
 
         PluginSyncLine line = firstPackage.getLines().get(0);
+        assertThat(line.getBarcode()).isEqualTo("SGGRB219");
         assertThat(line.getPsku()).isEqualTo("SGGRB219");
         assertThat(line.getSku()).isEqualTo("SGGRB219");
         assertThat(line.getStoreCode()).isEqualTo("STR245027-NSA");

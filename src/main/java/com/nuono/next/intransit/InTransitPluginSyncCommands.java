@@ -240,6 +240,7 @@ public final class InTransitPluginSyncCommands {
     }
 
     public static class PluginSyncLine {
+        private String barcode;
         private String psku;
         private String sku;
         private String msku;
@@ -253,6 +254,8 @@ public final class InTransitPluginSyncCommands {
         private BigDecimal cartonWeightKg;
         private BigDecimal cartonVolumeCbm;
 
+        public String getBarcode() { return barcode; }
+        public void setBarcode(String barcode) { this.barcode = barcode; }
         public String getPsku() { return psku; }
         public void setPsku(String psku) { this.psku = psku; }
         public String getSku() { return sku; }
