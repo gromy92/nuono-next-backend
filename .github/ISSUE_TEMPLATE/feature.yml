@@ -43,6 +43,28 @@ body:
     validations:
       required: true
   - type: textarea
+    id: actor_scope
+    attributes:
+      label: Actor and business scope
+      description: Name the actor/role, environment, store/site/project, and representative SKU/order/batch/task.
+      placeholder: "Actor: boss; Environment: test; Store/site: STR... / SA; Business key: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Scope, data, and external-write boundaries
+      description: State non-scope, facts that must not be overwritten, and whether external writes are disabled, dry-run, or human-triggered.
+    validations:
+      required: true
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Rollback or disable path
+      description: Describe how to remove, disable, or safely roll back the slice.
+    validations:
+      required: true
+  - type: textarea
     id: source
     attributes:
       label: Source context

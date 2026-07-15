@@ -174,6 +174,7 @@ public class OfficialWarehouseAppointmentRunner {
         if (!client.setWarehouses(task)) {
             return RunResult.failed("SET_WAREHOUSES", "Noon 设置约仓仓库失败。");
         }
+        client.onWarehousesSet(task);
         return waitUntilReadyForSchedule(task, client);
     }
 
@@ -314,6 +315,9 @@ public class OfficialWarehouseAppointmentRunner {
 
         boolean setWarehouses(AppointmentTask task);
 
+        default void onWarehousesSet(AppointmentTask task) {
+        }
+
         boolean reschedule(AppointmentTask task);
 
         boolean schedule(AppointmentTask task, LocalDate capacityDate, SlotCapacity slot);
@@ -325,6 +329,7 @@ public class OfficialWarehouseAppointmentRunner {
         public String noonAsnNr;
         public Integer totalUnits;
         public String warehouseTo;
+        public String warehouseToCode;
         public String warehouseFrom;
         public LocalDate apStartDate;
         public LocalDate apEndDate;

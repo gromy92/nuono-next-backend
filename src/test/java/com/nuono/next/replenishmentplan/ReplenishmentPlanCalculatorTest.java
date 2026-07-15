@@ -37,6 +37,7 @@ class ReplenishmentPlanCalculatorTest {
         demand.put(12, new BigDecimal("40"));
         demand.put(50, new BigDecimal("110"));
         demand.put(70, new BigDecimal("200"));
+        demand = completeDemand(demand, 100);
 
         PlanInput input = new PlanInput(
                 "PSKU-001",
@@ -58,7 +59,7 @@ class ReplenishmentPlanCalculatorTest {
 
         PlanItemView result = calculator.calculate(input, null);
 
-        assertEquals("REPLENISHMENT_PLAN_BASIC_V1", result.getCalculationVersion());
+        assertEquals("REPLENISHMENT_PLAN_BASIC_V1_1", result.getCalculationVersion());
         assertEquals("PSKU-001", result.getPartnerSku());
         assertEquals("SKU-001", result.getSku());
         assertEquals("Example Product", result.getProductTitle());
@@ -79,16 +80,16 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(70, result.getSeaWindowStartDay());
         assertEquals(100, result.getSeaWindowEndDay());
         assertEquals(new BigDecimal("200"), result.getSeaWindowForecastUnits());
-        assertEquals(new BigDecimal("160"), result.getSeaCalculatedUnits());
-        assertEquals(new BigDecimal("160"), result.getSeaSuggestedUnits());
+        assertEquals(new BigDecimal("200"), result.getSeaCalculatedUnits());
+        assertEquals(new BigDecimal("200"), result.getSeaSuggestedUnits());
         assertEquals(0, result.getForecastUnits100().compareTo(new BigDecimal("360")));
         assertEquals(100, result.getDailyProjection().size());
-        assertEquals(new BigDecimal("100"), result.getDailyProjection().get(23).getInboundUnits());
-        assertTrue(result.getWarnings().contains("daily_forecast_gap"));
+        assertEquals(new BigDecimal("100"), result.getDailyProjection().get(19).getInboundUnits());
+        assertFalse(result.getWarnings().contains("daily_forecast_gap"));
         assertFalse(result.getWarnings().contains("daily_forecast_missing"));
         assertEquals(70, result.getConfigSnapshot().getSeaLeadDays());
         assertTrue(result.getExplanation().contains("70-100"));
-        assertTrue(result.getExplanation().contains("air emergency triggered"));
+        assertTrue(result.getExplanation().contains("air suggestion uses net shortage 40"));
     }
 
     @Test
@@ -155,6 +156,7 @@ class ReplenishmentPlanCalculatorTest {
         for (int day = 70; day < 100; day++) {
             demand.put(day, BigDecimal.ONE);
         }
+        demand = completeDemand(demand, 100);
 
         PlanItemView result = calculator.calculate(new PlanInput(
                 "PSKU-NO-AIR",
@@ -173,7 +175,7 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(new BigDecimal("0"), result.getAirSuggestedUnits());
         assertEquals(new BigDecimal("30"), result.getSeaWindowForecastUnits());
         assertEquals(new BigDecimal("0"), result.getSeaSuggestedUnits());
-        assertTrue(result.getExplanation().contains("air emergency not triggered"));
+        assertTrue(result.getExplanation().contains("air suggestion not needed"));
     }
 
     @Test
@@ -186,6 +188,7 @@ class ReplenishmentPlanCalculatorTest {
         for (int day = 70; day < 100; day++) {
             demand.put(day, BigDecimal.ONE);
         }
+        demand = completeDemand(demand, 100);
 
         PlanItemView result = calculator.calculate(new PlanInput(
                 "PSKU-LATE-STOCKOUT",
@@ -203,11 +206,189 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(new BigDecimal("0"), result.getAirSuggestedUnits());
         assertEquals(new BigDecimal("30"), result.getSeaWindowForecastUnits());
         assertEquals(new BigDecimal("30"), result.getSeaSuggestedUnits());
-        assertTrue(result.getExplanation().contains("air emergency not triggered"));
+        assertTrue(result.getExplanation().contains("air suggestion not needed"));
     }
 
     @Test
-    void shouldDelaySameDayEtaInboundByReceivingBuffer() {
+    void shouldKeepAirSuggestionZeroWhenInboundCoversAirWindowNetShortage() {
+        LocalDate planDate = LocalDate.of(2026, 7, 14);
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        for (int day = 1; day < 27; day++) {
+            demand.put(day, new BigDecimal("3.34071827"));
+        }
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "SGGRB032",
+                "ZBA4C707B499F0C0F5468Z-1",
+                "360°磁吸充电LED射灯",
+                planDate,
+                new StockSnapshot(new BigDecimal("15"), new BigDecimal("15"), new BigDecimal("32")),
+                demand,
+                Arrays.asList(
+                        new InboundBatch(
+                                901234L,
+                                "YT2605306913-A",
+                                "SEA",
+                                "in_transit",
+                                LocalDate.of(2026, 7, 17),
+                                new BigDecimal("50")
+                        ),
+                        new InboundBatch(
+                                901234L,
+                                "YT2605306913-B",
+                                "SEA",
+                                "in_transit",
+                                LocalDate.of(2026, 7, 17),
+                                new BigDecimal("50")
+                        ),
+                        new InboundBatch(
+                                901235L,
+                                "YT2605793678",
+                                "SEA",
+                                "in_transit",
+                                LocalDate.of(2026, 7, 19),
+                                new BigDecimal("50")
+                        ),
+                        new InboundBatch(
+                                901380L,
+                                "YT2606201216",
+                                "SEA",
+                                "shipped",
+                                LocalDate.of(2026, 7, 31),
+                                new BigDecimal("50")
+                        )
+                ),
+                Collections.emptyList()
+        ), ReplenishmentPlanConfig.defaultBasicV1());
+
+        assertNull(result.getFirstStockoutDay());
+        assertEquals(new BigDecimal("50.11077405"), result.getAirWindowForecastUnits());
+        assertEquals(new BigDecimal("200"), result.getKnownInboundUnits());
+        assertEquals(new BigDecimal("100"), result.getDailyProjection().get(2).getInboundUnits());
+        assertEquals(new BigDecimal("50"), result.getDailyProjection().get(4).getInboundUnits());
+        assertEquals(new BigDecimal("50"), result.getDailyProjection().get(16).getInboundUnits());
+        assertTrue(result.getDailyProjection().get(11).getProjectedStock().compareTo(BigDecimal.ZERO) > 0);
+        assertEquals(new BigDecimal("0"), result.getAirCalculatedUnits());
+        assertEquals(new BigDecimal("0"), result.getAirSuggestedUnits());
+    }
+
+    @Test
+    void shouldUseEtaDateDirectlyWhenInboundCoversAirWindowNetShortage() {
+        LocalDate planDate = LocalDate.of(2026, 7, 14);
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        for (int day = 1; day < 28; day++) {
+            demand.put(day, new BigDecimal("1.79677682"));
+        }
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "SGGRB318",
+                "Z9F56DA86B5AEDA164B5BZ-1",
+                "5件金色不锈钢公用餐具",
+                planDate,
+                new StockSnapshot(new BigDecimal("14"), new BigDecimal("14"), new BigDecimal("15")),
+                demand,
+                Arrays.asList(
+                        new InboundBatch(
+                                901375L,
+                                "YT2606133690",
+                                "SEA",
+                                "in_transit",
+                                LocalDate.of(2026, 7, 23),
+                                new BigDecimal("60")
+                        ),
+                        new InboundBatch(
+                                901380L,
+                                "YT2606201216",
+                                "SEA",
+                                "shipped",
+                                LocalDate.of(2026, 7, 31),
+                                new BigDecimal("64")
+                        )
+                ),
+                Collections.emptyList()
+        ), ReplenishmentPlanConfig.defaultBasicV1());
+
+        assertEquals(8, result.getFirstStockoutDay());
+        assertEquals(new BigDecimal("26.95165230"), result.getAirWindowForecastUnits());
+        assertEquals(new BigDecimal("124"), result.getKnownInboundUnits());
+        assertEquals(new BigDecimal("60"), result.getDailyProjection().get(8).getInboundUnits());
+        assertEquals(new BigDecimal("64"), result.getDailyProjection().get(16).getInboundUnits());
+        assertTrue(result.getDailyProjection().get(11).getProjectedStock().compareTo(BigDecimal.ZERO) > 0);
+        assertEquals(new BigDecimal("0"), result.getAirCalculatedUnits());
+        assertEquals(new BigDecimal("0"), result.getAirSuggestedUnits());
+        assertTrue(result.getWarnings().contains("sea_eta_uncertain_air_window_coverage"));
+    }
+
+    @Test
+    void shouldNotFlagSeaEtaRiskWhenAirInboundCoversAirWindowNetShortage() {
+        LocalDate planDate = LocalDate.of(2026, 7, 14);
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        for (int day = 1; day < 28; day++) {
+            demand.put(day, new BigDecimal("1.79677682"));
+        }
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "SGGRB318-AIR",
+                "Z9F56DA86B5AEDA164B5BZ-1",
+                "5件金色不锈钢公用餐具",
+                planDate,
+                new StockSnapshot(new BigDecimal("14"), new BigDecimal("14"), new BigDecimal("15")),
+                demand,
+                Collections.singletonList(new InboundBatch(
+                        901375L,
+                        "YT2606133690",
+                        "AIR",
+                        "in_transit",
+                        LocalDate.of(2026, 7, 23),
+                        new BigDecimal("60")
+                )),
+                Collections.emptyList()
+        ), ReplenishmentPlanConfig.defaultBasicV1());
+
+        assertEquals(8, result.getFirstStockoutDay());
+        assertEquals(new BigDecimal("26.95165230"), result.getAirWindowForecastUnits());
+        assertEquals(new BigDecimal("60"), result.getKnownInboundUnits());
+        assertEquals(new BigDecimal("60"), result.getDailyProjection().get(8).getInboundUnits());
+        assertTrue(result.getDailyProjection().get(11).getProjectedStock().compareTo(BigDecimal.ZERO) > 0);
+        assertEquals(new BigDecimal("0"), result.getAirCalculatedUnits());
+        assertEquals(new BigDecimal("0"), result.getAirSuggestedUnits());
+        assertFalse(result.getWarnings().contains("sea_eta_uncertain_air_window_coverage"));
+    }
+
+    @Test
+    void shouldCalculateAirSuggestionFromAirWindowNetShortageOnly() {
+        LocalDate planDate = LocalDate.of(2026, 7, 14);
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        for (int day = 12; day < 27; day++) {
+            demand.put(day, new BigDecimal("10"));
+        }
+        demand = completeDemand(demand, 100);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-AIR-NET-SHORTAGE",
+                "SKU-AIR-NET-SHORTAGE",
+                "Air Net Shortage Product",
+                planDate,
+                new StockSnapshot(new BigDecimal("40"), new BigDecimal("40"), BigDecimal.ZERO),
+                demand,
+                Collections.singletonList(new InboundBatch(
+                        5001L,
+                        "BATCH-AIR-WINDOW",
+                        "SEA",
+                        "in_transit",
+                        planDate.plusDays(10),
+                        new BigDecimal("50")
+                )),
+                Collections.emptyList()
+        ), ReplenishmentPlanConfig.defaultBasicV1());
+
+        assertEquals(new BigDecimal("150"), result.getAirWindowForecastUnits());
+        assertEquals(new BigDecimal("60"), result.getAirCalculatedUnits());
+        assertEquals(new BigDecimal("60"), result.getAirSuggestedUnits());
+    }
+
+    @Test
+    void shouldCountSameDayEtaInboundAsStartingStock() {
         LocalDate anchorDate = LocalDate.of(2026, 7, 6);
         Map<Integer, BigDecimal> demand = new HashMap<>();
         demand.put(1, new BigDecimal("2"));
@@ -232,14 +413,12 @@ class ReplenishmentPlanCalculatorTest {
 
         assertEquals(new BigDecimal("2"), result.getKnownInboundUnits());
         assertEquals(new BigDecimal("0"), result.getDailyProjection().get(0).getInboundUnits());
-        assertEquals(new BigDecimal("-1"), result.getDailyProjection().get(0).getProjectedStock());
-        assertEquals(new BigDecimal("2"), result.getDailyProjection().get(3).getInboundUnits());
-        assertEquals(new BigDecimal("1"), result.getDailyProjection().get(3).getProjectedStock());
-        assertEquals(1, result.getFirstStockoutDay());
+        assertEquals(new BigDecimal("1"), result.getDailyProjection().get(0).getProjectedStock());
+        assertNull(result.getFirstStockoutDay());
     }
 
     @Test
-    void shouldExcludePastEtaInboundByPlanDateAndKeepRecentPastEtaForReview() {
+    void shouldExcludePastEtaInboundByPlanDate() {
         LocalDate anchorDate = LocalDate.of(2026, 7, 5);
         LocalDate planDate = LocalDate.of(2026, 7, 8);
 
@@ -280,12 +459,16 @@ class ReplenishmentPlanCalculatorTest {
                 Collections.emptyList()
         ), null);
 
-        assertEquals(new BigDecimal("40"), result.getKnownInboundUnits());
-        assertEquals(LocalDate.of(2026, 7, 6), result.getNearestInboundEtaDate());
-        assertEquals(2, result.getInboundBatches().size());
+        assertEquals(new BigDecimal("30"), result.getKnownInboundUnits());
+        assertEquals(LocalDate.of(2026, 7, 10), result.getNearestInboundEtaDate());
+        assertEquals(3, result.getInboundBatches().size());
+        InboundBatch oldEta = inboundBatch(result, "BATCH-OLD-ETA");
+        assertNotNull(oldEta);
+        assertFalse(oldEta.isCoverageIncluded());
+        assertTrue(oldEta.isEtaReviewRequired());
         InboundBatch recentEta = inboundBatch(result, "BATCH-RECENT-ETA");
         assertNotNull(recentEta);
-        assertTrue(recentEta.isCoverageIncluded());
+        assertFalse(recentEta.isCoverageIncluded());
         assertTrue(recentEta.isEtaReviewRequired());
         InboundBatch futureEta = inboundBatch(result, "BATCH-FUTURE-ETA");
         assertNotNull(futureEta);
@@ -297,12 +480,11 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(LocalDate.of(2026, 7, 10), result.getDailyProjection().get(1).getDate());
         assertEquals(new BigDecimal("0"), result.getDailyProjection().get(0).getInboundUnits());
         assertEquals(new BigDecimal("0"), result.getDailyProjection().get(0).getProjectedStock());
-        assertEquals(new BigDecimal("10"), result.getDailyProjection().get(1).getInboundUnits());
-        assertEquals(new BigDecimal("30"), result.getDailyProjection().get(5).getInboundUnits());
+        assertEquals(new BigDecimal("30"), result.getDailyProjection().get(1).getInboundUnits());
     }
 
     @Test
-    void shouldUseRecentPastEtaInboundAsStartingStockForSeaWindowShortage() {
+    void shouldUseEtaInboundAsStartingStockForSeaWindowShortage() {
         LocalDate anchorDate = LocalDate.of(2026, 7, 5);
         LocalDate planDate = LocalDate.of(2026, 7, 11);
         Map<Integer, BigDecimal> demand = new HashMap<>();
@@ -327,7 +509,7 @@ class ReplenishmentPlanCalculatorTest {
                                 "F2604304851631",
                                 "SEA",
                                 "in_transit",
-                                LocalDate.of(2026, 7, 10),
+                                planDate,
                                 new BigDecimal("80")
                         ),
                         new InboundBatch(
@@ -346,7 +528,7 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(0, result.getSeaWindowForecastUnits().compareTo(new BigDecimal("19.050")));
         assertEquals(new BigDecimal("0"), result.getSeaCalculatedUnits());
         assertEquals(new BigDecimal("0"), result.getSeaSuggestedUnits());
-        assertTrue(result.getWarnings().contains("recent_eta_review_required"));
+        assertFalse(result.getWarnings().contains("recent_eta_review_required"));
     }
 
     @Test
@@ -375,19 +557,20 @@ class ReplenishmentPlanCalculatorTest {
     }
 
     @Test
-    void shouldRoundAirSuggestionByFiveUnitStepWhileKeepingRawCalculation() {
-        assertAirSuggestion(1, "1", "5");
-        assertAirSuggestion(4, "4", "5");
+    void shouldUseExactCeiledAirWindowNetShortageAsSuggestion() {
+        assertAirSuggestion(1, "1", "1");
+        assertAirSuggestion(4, "4", "4");
         assertAirSuggestion(5, "5", "5");
-        assertAirSuggestion(12, "12", "15");
-        assertAirSuggestion(16, "16", "20");
+        assertAirSuggestion(12, "12", "12");
+        assertAirSuggestion(16, "16", "16");
     }
 
     @Test
-    void shouldDeductSuggestedAirUnitsFromSeaPlan() {
+    void shouldReplayPlannedAirArrivalBeforeCalculatingSeaNeed() {
         Map<Integer, BigDecimal> demand = new HashMap<>();
         demand.put(12, new BigDecimal("12"));
         demand.put(70, new BigDecimal("22"));
+        demand = completeDemand(demand, 100);
 
         PlanItemView result = calculator.calculate(new PlanInput(
                 "PSKU-DEDUCT-AIR",
@@ -412,14 +595,94 @@ class ReplenishmentPlanCalculatorTest {
         ), ReplenishmentPlanConfig.defaultBasicV1());
 
         assertEquals(new BigDecimal("12"), result.getAirCalculatedUnits());
-        assertEquals(new BigDecimal("15"), result.getAirSuggestedUnits());
+        assertEquals(new BigDecimal("12"), result.getAirSuggestedUnits());
         assertEquals(new BigDecimal("22"), result.getSeaWindowForecastUnits());
-        assertEquals(new BigDecimal("7"), result.getSeaCalculatedUnits());
-        assertEquals(new BigDecimal("10"), result.getSeaSuggestedUnits());
+        assertEquals(new BigDecimal("22"), result.getSeaCalculatedUnits());
+        assertEquals(new BigDecimal("30"), result.getSeaSuggestedUnits());
     }
 
     @Test
-    void shouldDelayEtaCoverageByFourDaysForWarehouseReceivingBuffer() {
+    void shouldBlockSuggestionsWhenDailyForecastIsIncomplete() {
+        Map<Integer, BigDecimal> demand = new HashMap<>();
+        demand.put(12, new BigDecimal("10"));
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-INCOMPLETE-FORECAST",
+                "SKU-INCOMPLETE-FORECAST",
+                "Incomplete Forecast Product",
+                LocalDate.of(2026, 7, 14),
+                new StockSnapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO),
+                demand,
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), ReplenishmentPlanConfig.defaultBasicV1());
+
+        assertTrue(result.isCalculationBlocked());
+        assertTrue(result.getWarnings().contains("daily_forecast_gap"));
+        assertEquals(BigDecimal.ZERO, result.getAirCalculatedUnits());
+        assertEquals(BigDecimal.ZERO, result.getAirSuggestedUnits());
+        assertEquals(BigDecimal.ZERO, result.getSeaCalculatedUnits());
+        assertEquals(BigDecimal.ZERO, result.getSeaSuggestedUnits());
+    }
+
+    @Test
+    void shouldBlockSuggestionsWhenFbnStockFactIsMissing() {
+        Map<Integer, BigDecimal> demand = completeDemand(Collections.singletonMap(12, new BigDecimal("10")), 100);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-MISSING-STOCK",
+                "SKU-MISSING-STOCK",
+                "Missing Stock Product",
+                LocalDate.of(2026, 7, 14),
+                new StockSnapshot(null, null, BigDecimal.ZERO),
+                demand,
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), ReplenishmentPlanConfig.defaultBasicV1());
+
+        assertTrue(result.isCalculationBlocked());
+        assertTrue(result.getWarnings().contains("fbn_stock_fact_missing"));
+        assertEquals(BigDecimal.ZERO, result.getAirSuggestedUnits());
+        assertEquals(BigDecimal.ZERO, result.getSeaSuggestedUnits());
+    }
+
+    @Test
+    void shouldWarnAndBlockUsingConfiguredForecastFreshnessThresholds() {
+        LocalDate planDate = LocalDate.of(2026, 7, 14);
+        Map<Integer, BigDecimal> demand = completeDemand(Collections.singletonMap(12, new BigDecimal("10")), 100);
+
+        PlanItemView result = calculator.calculate(new PlanInput(
+                "PSKU-STALE-FORECAST",
+                "SKU-STALE-FORECAST",
+                "Stale Forecast Product",
+                planDate.minusDays(8),
+                30,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                "low",
+                null,
+                planDate,
+                new StockSnapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO),
+                demand,
+                Collections.emptyList(),
+                Collections.emptyList()
+        ), ReplenishmentPlanConfig.defaultBasicV1());
+
+        assertEquals(2, result.getConfigSnapshot().getForecastStaleWarningDays());
+        assertEquals(7, result.getConfigSnapshot().getForecastStaleBlockingDays());
+        assertTrue(result.getWarnings().contains("forecast_fact_stale"));
+        assertTrue(result.getWarnings().contains("forecast_fact_expired"));
+        assertTrue(result.isCalculationBlocked());
+        assertEquals(BigDecimal.ZERO, result.getAirSuggestedUnits());
+    }
+
+    @Test
+    void shouldUseEtaDateDirectlyForInboundCoverage() {
         LocalDate planDate = LocalDate.of(2026, 7, 11);
 
         PlanItemView result = calculator.calculate(new PlanInput(
@@ -435,7 +698,7 @@ class ReplenishmentPlanCalculatorTest {
                         "BATCH-ETA-0710",
                         "SEA",
                         "in_transit",
-                        LocalDate.of(2026, 7, 10),
+                        LocalDate.of(2026, 7, 14),
                         new BigDecimal("80")
                 )),
                 Collections.emptyList()
@@ -447,7 +710,7 @@ class ReplenishmentPlanCalculatorTest {
         assertEquals(LocalDate.of(2026, 7, 14), result.getDailyProjection().get(2).getDate());
         assertEquals(new BigDecimal("80"), result.getDailyProjection().get(2).getInboundUnits());
         assertEquals(new BigDecimal("80"), result.getDailyProjection().get(2).getProjectedStock());
-        assertTrue(result.getWarnings().contains("recent_eta_review_required"));
+        assertFalse(result.getWarnings().contains("recent_eta_review_required"));
     }
 
     @Test
@@ -658,6 +921,7 @@ class ReplenishmentPlanCalculatorTest {
         Map<Integer, BigDecimal> demand = new HashMap<>();
         demand.put(1, BigDecimal.ZERO);
         demand.put(2, BigDecimal.ZERO);
+        demand.put(3, BigDecimal.ZERO);
 
         PlanItemView result = calculator.calculate(new PlanInput(
                 "PSKU-ZERO",
@@ -730,11 +994,12 @@ class ReplenishmentPlanCalculatorTest {
     }
 
     @Test
-    void shouldCalculateAirWindowWhenEmergencyOnlyIsDisabled() {
+    void shouldKeepAirSuggestionZeroWithoutNetShortageWhenEmergencyOnlyIsDisabled() {
         Map<Integer, BigDecimal> demand = new HashMap<>();
         for (int day = 12; day < 27; day++) {
             demand.put(day, BigDecimal.ONE);
         }
+        demand = completeDemand(demand, 100);
 
         PlanItemView result = calculator.calculate(new PlanInput(
                 "PSKU-AIR-REGULAR",
@@ -748,12 +1013,15 @@ class ReplenishmentPlanCalculatorTest {
         ), config(12, 15, 70, 30, 100, false, "ceil"));
 
         assertNull(result.getFirstStockoutDay());
-        assertEquals(new BigDecimal("15"), result.getAirSuggestedUnits());
+        assertEquals(new BigDecimal("15"), result.getAirWindowForecastUnits());
+        assertEquals(new BigDecimal("0"), result.getAirCalculatedUnits());
+        assertEquals(new BigDecimal("0"), result.getAirSuggestedUnits());
     }
 
     private void assertAirSuggestion(int rawAirForecast, String expectedCalculated, String expectedSuggested) {
         Map<Integer, BigDecimal> demand = new HashMap<>();
         demand.put(12, new BigDecimal(rawAirForecast));
+        demand = completeDemand(demand, 100);
 
         PlanItemView result = calculator.calculate(new PlanInput(
                 "PSKU-AIR-TIER-" + rawAirForecast,
@@ -773,6 +1041,7 @@ class ReplenishmentPlanCalculatorTest {
     private void assertSeaSuggestion(int historyUnits30, int rawSeaShortage, String expectedCalculated, String expectedSuggested) {
         Map<Integer, BigDecimal> demand = new HashMap<>();
         demand.put(70, new BigDecimal(rawSeaShortage));
+        demand = completeDemand(demand, 100);
 
         PlanItemView result = calculator.calculate(new PlanInput(
                 "PSKU-TIER-" + historyUnits30 + "-" + rawSeaShortage,
@@ -821,6 +1090,14 @@ class ReplenishmentPlanCalculatorTest {
                 airEmergencyOnly,
                 roundingMode
         );
+    }
+
+    private static Map<Integer, BigDecimal> completeDemand(Map<Integer, BigDecimal> demand, int horizonDays) {
+        Map<Integer, BigDecimal> completed = new HashMap<>();
+        for (int day = 1; day <= horizonDays; day++) {
+            completed.put(day, demand.getOrDefault(day, BigDecimal.ZERO));
+        }
+        return completed;
     }
 
     private static InboundBatch inboundBatch(PlanItemView result, String batchReferenceNo) {

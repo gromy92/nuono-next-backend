@@ -966,6 +966,7 @@ public class LocalDbStoreInitializationService {
             item.setListingStartedAt(firstNonBlank(summary.getListingStartedAt(), item.getListingStartedAt()));
             item.setListingStartedSource(firstNonBlank(summary.getListingStartedSource(), item.getListingStartedSource()));
             item.setIsActive(firstNonNull(summary.getIsActive(), item.getIsActive()));
+            item.setMaintenanceEnabled(firstNonNull(summary.getMaintenanceEnabled(), item.getMaintenanceEnabled()));
             item.setSyncStatus(firstNonBlank(summary.getSyncStatus(), item.getSyncStatus()));
             item.setLastSyncedAt(firstNonBlank(summary.getLastSyncedAt(), item.getLastSyncedAt()));
             item.setVariantCount(firstNonNull(summary.getVariantCount(), item.getVariantCount()));
@@ -3111,6 +3112,7 @@ public class LocalDbStoreInitializationService {
         private String operationStageUpdatedAt;
         private Long operationStageUpdatedBy;
         private Boolean isActive;
+        private Boolean maintenanceEnabled;
         private String syncStatus;
         private String lastSyncedAt;
         private String lastDraftSavedAt;
@@ -3370,6 +3372,14 @@ public class LocalDbStoreInitializationService {
 
         public void setIsActive(Boolean isActive) {
             this.isActive = isActive;
+        }
+
+        public Boolean getMaintenanceEnabled() {
+            return maintenanceEnabled;
+        }
+
+        public void setMaintenanceEnabled(Boolean maintenanceEnabled) {
+            this.maintenanceEnabled = maintenanceEnabled;
         }
 
         public String getSyncStatus() {

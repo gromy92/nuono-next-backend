@@ -1,5 +1,6 @@
 package com.nuono.next.officialwarehouse;
 
+import com.nuono.next.noon.NoonOperationException;
 import com.nuono.next.noonlog.NoonHttpCallLogView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CorrectAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnCommand;
@@ -14,6 +15,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ShippingBatchCand
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.web.ApiProblemException;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
@@ -79,7 +81,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -98,7 +100,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -113,7 +115,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -184,7 +186,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -199,7 +201,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -214,7 +216,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -228,7 +230,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -242,7 +244,7 @@ public class OfficialWarehouseController {
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
+            throw upstreamFailure(exception);
         }
     }
 
@@ -301,5 +303,12 @@ public class OfficialWarehouseController {
 
     private ResponseStatusException badRequest(IllegalArgumentException exception) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+    }
+
+    private RuntimeException upstreamFailure(IllegalStateException exception) {
+        if (exception instanceof NoonOperationException) {
+            return ApiProblemException.fromNoon((NoonOperationException) exception);
+        }
+        return new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
     }
 }

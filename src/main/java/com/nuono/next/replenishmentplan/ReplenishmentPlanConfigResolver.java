@@ -83,7 +83,9 @@ public class ReplenishmentPlanConfigResolver {
                     inventorySources(requiredValue(values, "库存来源"), defaults.getInventorySources()),
                     booleanValue(requiredValue(values, "在途必须有 ETA"), defaults.isRequireInboundEtaDate()),
                     booleanValue(requiredValue(values, "空运只应急"), defaults.isAirEmergencyOnly()),
-                    roundingMode(requiredValue(values, "建议数量取整"), defaults.getRoundingMode())
+                    roundingMode(requiredValue(values, "建议数量取整"), defaults.getRoundingMode()),
+                    positiveInt(values.get("预测陈旧提醒天数"), defaults.getForecastStaleWarningDays()),
+                    positiveInt(values.get("预测陈旧阻断天数"), defaults.getForecastStaleBlockingDays())
             );
         } catch (RuntimeException exception) {
             logInvalidSelectedVersion(version, exception);

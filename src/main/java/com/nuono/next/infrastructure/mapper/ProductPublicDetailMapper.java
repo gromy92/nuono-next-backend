@@ -15,6 +15,10 @@ import org.apache.ibatis.annotations.Update;
 public interface ProductPublicDetailMapper {
     String SYNCABLE_SITE_STATUS_CONDITION =
             "  AND UPPER(COALESCE(lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')";
+    String SITE_ENABLED_CONDITION =
+            "  AND COALESCE(lss.site_enabled, b'1') = b'1'";
+    String PRODUCT_MAINTENANCE_ENABLED_CONDITION =
+            "  AND COALESCE(pso.maintenance_enabled, b'1') = b'1'";
     String FRESH_LOGICAL_STORE_PUBLIC_DETAIL_NOT_EXISTS_CONDITION =
             "  AND NOT EXISTS ("
                     + " SELECT 1"
@@ -39,7 +43,9 @@ public interface ProductPublicDetailMapper {
                     + "   AND preferred_lss.is_deleted = b'0'"
                     + "   AND preferred_pso.is_deleted = b'0'"
                     + "   AND COALESCE(preferred_lss.is_mounted, b'1') = b'1'"
+                    + "   AND COALESCE(preferred_lss.site_enabled, b'1') = b'1'"
                     + "   AND COALESCE(preferred_pso.is_active, b'0') = b'1'"
+                    + "   AND COALESCE(preferred_pso.maintenance_enabled, b'1') = b'1'"
                     + "   AND UPPER(COALESCE(preferred_lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')"
                     + "   AND NOT EXISTS ("
                     + "     SELECT 1"
@@ -93,6 +99,7 @@ public interface ProductPublicDetailMapper {
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
             SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
+            SITE_ENABLED_CONDITION,
             "LIMIT 1"
     })
     ProductPublicDetailScope selectActiveScope(
@@ -123,7 +130,9 @@ public interface ProductPublicDetailMapper {
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
             SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
+            SITE_ENABLED_CONDITION,
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
+            PRODUCT_MAINTENANCE_ENABLED_CONDITION,
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
             SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
             "  AND NOT EXISTS (",
@@ -174,7 +183,9 @@ public interface ProductPublicDetailMapper {
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
             SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
+            SITE_ENABLED_CONDITION,
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
+            PRODUCT_MAINTENANCE_ENABLED_CONDITION,
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
             SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
             FRESH_LOGICAL_STORE_PUBLIC_DETAIL_NOT_EXISTS_CONDITION,
@@ -235,7 +246,9 @@ public interface ProductPublicDetailMapper {
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
             SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
+            SITE_ENABLED_CONDITION,
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
+            PRODUCT_MAINTENANCE_ENABLED_CONDITION,
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
             "  <if test='enforcePreferredSite'>",
             SINGLE_PUBLIC_DETAIL_SITE_CONDITION,
@@ -287,7 +300,9 @@ public interface ProductPublicDetailMapper {
             "  AND UPPER(COALESCE(ls.status, 'ACTIVE')) = 'ACTIVE'",
             SYNCABLE_SITE_STATUS_CONDITION,
             "  AND COALESCE(lss.is_mounted, b'1') = b'1'",
+            SITE_ENABLED_CONDITION,
             "  AND COALESCE(pso.is_active, b'0') = b'1'",
+            PRODUCT_MAINTENANCE_ENABLED_CONDITION,
             "  AND NULLIF(TRIM(pm.sku_parent), '') IS NOT NULL",
             "  <if test='enforcePreferredSite'>",
             SINGLE_PUBLIC_DETAIL_SITE_CONDITION,

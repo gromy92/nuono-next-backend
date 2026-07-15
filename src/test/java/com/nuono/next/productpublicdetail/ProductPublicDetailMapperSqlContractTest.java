@@ -198,6 +198,42 @@ class ProductPublicDetailMapperSqlContractTest {
         assertTrue(sql.contains("UPPER(COALESCE(lss.site_status, 'ACTIVE')) IN ('ACTIVE', 'LOCAL_READY')"));
     }
 
+    @Test
+    void publicDetailCandidatesRespectStoreSiteAndProductMaintenanceBoundary() throws NoSuchMethodException {
+        for (String methodName : new String[] {"selectPreferredScope", "listDueScopes", "listCandidates", "countCandidates"}) {
+            Method method = publicDetailScopeMethod(methodName);
+            Select select = method.getAnnotation(Select.class);
+            String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+            assertTrue(sql.contains("COALESCE(lss.site_enabled, b'1') = b'1'"), methodName);
+            assertTrue(sql.contains("COALESCE(pso.maintenance_enabled, b'1') = b'1'"), methodName);
+        }
+
+        Method activeScope = ProductPublicDetailMapper.class.getMethod("selectActiveScope", Long.class, String.class, String.class);
+        String activeScopeSql = String.join(" ", activeScope.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertTrue(activeScopeSql.contains("COALESCE(lss.site_enabled, b'1') = b'1'"));
+    }
+
+    @Test
+    void preferredSiteConditionAlsoRespectsMaintenanceBoundary() throws NoSuchMethodException {
+        Method method = ProductPublicDetailMapper.class.getMethod(
+                "listCandidates",
+                Long.class,
+                String.class,
+                String.class,
+                int.class,
+                int.class,
+                int.class,
+                boolean.class,
+                boolean.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("COALESCE(preferred_lss.site_enabled, b'1') = b'1'"));
+        assertTrue(sql.contains("COALESCE(preferred_pso.maintenance_enabled, b'1') = b'1'"));
+    }
+
     private static void assertSyncableSiteStatusCondition(String methodName, Class<?>... parameterTypes)
             throws NoSuchMethodException {
         Method method = ProductPublicDetailMapper.class.getMethod(methodName, parameterTypes);
@@ -207,5 +243,38 @@ class ProductPublicDetailMapperSqlContractTest {
                 sql.contains(SYNCABLE_SITE_STATUS_CONDITION),
                 methodName + " should allow LOCAL_READY product sites to sync public detail snapshots."
         );
+    }
+
+    private static Method publicDetailScopeMethod(String methodName) throws NoSuchMethodException {
+        if ("selectPreferredScope".equals(methodName)) {
+            return ProductPublicDetailMapper.class.getMethod(methodName, Long.class, Long.class, int.class);
+        }
+        if ("listDueScopes".equals(methodName)) {
+            return ProductPublicDetailMapper.class.getMethod(methodName, int.class, int.class, int.class);
+        }
+        if ("listCandidates".equals(methodName)) {
+            return ProductPublicDetailMapper.class.getMethod(
+                    methodName,
+                    Long.class,
+                    String.class,
+                    String.class,
+                    int.class,
+                    int.class,
+                    int.class,
+                    boolean.class,
+                    boolean.class
+            );
+        }
+        if ("countCandidates".equals(methodName)) {
+            return ProductPublicDetailMapper.class.getMethod(
+                    methodName,
+                    Long.class,
+                    String.class,
+                    String.class,
+                    int.class,
+                    boolean.class
+            );
+        }
+        throw new IllegalArgumentException(methodName);
     }
 }

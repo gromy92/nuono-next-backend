@@ -675,6 +675,7 @@ public final class ReplenishmentPlanRecords {
         private final BigDecimal seaSuggestedUnits;
         private final List<DailyProjectionView> dailyProjection;
         private final List<MissingEtaBatch> missingEtaBatches;
+        private final boolean calculationBlocked;
         private final List<String> warnings;
         private final String explanation;
 
@@ -724,6 +725,7 @@ public final class ReplenishmentPlanRecords {
                 BigDecimal seaSuggestedUnits,
                 List<DailyProjectionView> dailyProjection,
                 List<MissingEtaBatch> missingEtaBatches,
+                boolean calculationBlocked,
                 List<String> warnings,
                 String explanation
         ) {
@@ -772,6 +774,7 @@ public final class ReplenishmentPlanRecords {
             this.seaSuggestedUnits = nonNegative(seaSuggestedUnits);
             this.dailyProjection = immutableList(dailyProjection);
             this.missingEtaBatches = immutableList(missingEtaBatches);
+            this.calculationBlocked = calculationBlocked;
             this.warnings = immutableList(warnings);
             this.explanation = explanation;
         }
@@ -954,6 +957,10 @@ public final class ReplenishmentPlanRecords {
 
         public List<MissingEtaBatch> getMissingEtaBatches() {
             return missingEtaBatches;
+        }
+
+        public boolean isCalculationBlocked() {
+            return calculationBlocked;
         }
 
         public List<String> getWarnings() {

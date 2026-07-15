@@ -18,10 +18,9 @@ import com.nuono.next.salesforecast.SalesForecastResultRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRepository;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,7 +34,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class DefaultReplenishmentPlanService implements ReplenishmentPlanService {
 
-    private static final int DAILY_DEMAND_SCALE = 8;
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final SalesForecastRunRepository forecastRunRepository;
     private final ReplenishmentPlanRepository repository;
@@ -54,7 +53,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                 repository,
                 configResolver,
                 new ReplenishmentPlanCalculator(),
-                Clock.system(ZoneOffset.UTC)
+                Clock.system(BUSINESS_ZONE)
         );
     }
 
@@ -69,7 +68,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         this.repository = repository;
         this.configResolver = configResolver;
         this.calculator = calculator;
-        this.clock = clock;
+        this.clock = clock == null ? Clock.system(BUSINESS_ZONE) : clock.withZone(BUSINESS_ZONE);
     }
 
     @Override
@@ -155,7 +154,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                     anchorDate,
                     planDate,
                     stockSnapshot(stockByPartnerSku.get(partnerSkuKey)),
-                    dailyDemandByDay(forecastRow, forecastResultByPartnerSku.get(partnerSkuKey), config, anchorDate, planDate),
+                    dailyDemandByDay(forecastResultByPartnerSku.get(partnerSkuKey), config, anchorDate, planDate),
                     knownInboundBatches(inboundRows),
                     missingEtaBatches(inboundRows)
             ), config));
@@ -317,23 +316,13 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
     }
 
     private static Map<Integer, BigDecimal> dailyDemandByDay(
-            SalesForecastOverviewRow row,
             SalesForecastResultRecord result,
             ReplenishmentPlanConfig config,
             LocalDate anchorDate,
             LocalDate planDate
     ) {
         int horizonDays = Math.max(config.getForecastHorizonDays(), config.getSeaLeadDays() + config.getSeaCoverDays());
-        Map<Integer, BigDecimal> demandByDay = dailyForecastDemandByDay(result, horizonDays, anchorDate, planDate);
-        if (!demandByDay.isEmpty()) {
-            return demandByDay;
-        }
-        BigDecimal dailyDemand = fallbackDailyDemand(row);
-        demandByDay = new HashMap<>();
-        for (int day = 1; day <= horizonDays; day++) {
-            demandByDay.put(day, dailyDemand);
-        }
-        return demandByDay;
+        return dailyForecastDemandByDay(result, horizonDays, anchorDate, planDate);
     }
 
     private static Map<Integer, BigDecimal> dailyForecastDemandByDay(
@@ -380,25 +369,6 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
             return null;
         }
         return (int) dayIndex;
-    }
-
-    private static BigDecimal fallbackDailyDemand(SalesForecastOverviewRow row) {
-        if (row.getForecastUnits90() > 0) {
-            return BigDecimal.valueOf(row.getForecastUnits90())
-                    .divide(BigDecimal.valueOf(90), DAILY_DEMAND_SCALE, RoundingMode.HALF_UP);
-        }
-        SalesForecastDetailView detail = row.getDetail();
-        SalesForecastFactorBreakdownView factors = detail == null ? null : detail.getFactorBreakdown();
-        if (factors == null
-                || factors.getBaseDailySales() == null
-                || factors.getTrendFactor() == null
-                || factors.getFutureFactor() == null) {
-            return BigDecimal.ZERO;
-        }
-        BigDecimal demand = factors.getBaseDailySales()
-                .multiply(factors.getTrendFactor())
-                .multiply(factors.getFutureFactor());
-        return demand.signum() <= 0 ? BigDecimal.ZERO : demand.setScale(DAILY_DEMAND_SCALE, RoundingMode.HALF_UP);
     }
 
     private static BigDecimal zeroIfNull(BigDecimal value) {

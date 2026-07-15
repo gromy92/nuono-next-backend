@@ -55,6 +55,8 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("batch.batch_status NOT IN"));
         assertTrue(sql.contains("batch.latest_node_status IS NULL"));
         assertTrue(sql.contains("batch.latest_node_status NOT IN"));
+        assertTrue(sql.contains("NOT EXISTS (SELECT 1 FROM in_transit_logistics_node received"));
+        assertTrue(sql.contains("received.node_status IN ('warehouse_received', 'cancelled')"));
         assertTrue(sql.contains("DATE_SUB(CURDATE(), INTERVAL 7 MONTH)"));
         assertTrue(sql.contains("DATE(batch.estimated_departure_at)"));
         assertTrue(sql.contains("batch.departure_date"));

@@ -8,7 +8,6 @@ import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 @Profile("local-db")
@@ -22,33 +21,13 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
 
     @Override
     public NoonPullGatewaySession login(NoonPullStoreBinding binding) {
-        NoonSession session;
-        if (StringUtils.hasText(binding.getNoonEmailAuthCode())) {
-            session = noonSessionGateway.loginWithEmailAuthCode(
-                    binding.getOwnerUserId(),
-                    binding.getNoonUser(),
-                    binding.getNoonEmailAuthCode(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
-        } else if (StringUtils.hasText(binding.getNoonPassword())) {
-            session = noonSessionGateway.login(
-                    binding.getOwnerUserId(),
-                    binding.getNoonUser(),
-                    binding.getNoonPassword(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
-        } else {
-            session = noonSessionGateway.loginWithConfiguredEmailAuthCode(
-                    binding.getOwnerUserId(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
-        }
+        NoonSession session = noonSessionGateway.loginWithPersistedCookie(
+                binding.getOwnerUserId(),
+                binding.getNoonUser(),
+                binding.getPersistedCookie(),
+                binding.getProjectCode(),
+                binding.getStoreCode()
+        );
         return new GatewaySessionAdapter(session);
     }
 

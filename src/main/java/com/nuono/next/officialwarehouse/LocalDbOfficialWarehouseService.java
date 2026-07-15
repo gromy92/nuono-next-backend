@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
+import com.nuono.next.noon.NoonOperationException;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
@@ -524,6 +525,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
 
         boolean remoteAsnCreated = false;
+        String noonAsnNo = null;
         try {
             NoonSalesReportBinding binding = bindingResolver.resolve(new NoonSalesReportRequest(
                     ownerUserId,
@@ -540,6 +542,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             JsonNode createResponse = noonInboundClient.createAsn(session, binding, asnCallContext, totalQuantity);
             JsonNode createData = createResponse.path("data");
             String asnNr = requireText(text(createData, "asn_nr"), "Noon 创建 ASN 响应缺少 asn_nr。");
+            noonAsnNo = asnNr;
             remoteAsnCreated = true;
             Long partnerAsnId = longValue(createData, "id_partner_asn");
             Integer noonTotalQty = intValue(createData, "total_qty");
@@ -585,6 +588,23 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         } catch (IllegalArgumentException exception) {
             failAsnCreation(asnId, remoteAsnCreated, "VALIDATION", "VALIDATION", exception.getMessage(), access.getSessionUserId());
             throw exception;
+        } catch (NoonOperationException exception) {
+            String message = shrinkMessage(exception);
+            failAsnCreation(
+                    asnId,
+                    remoteAsnCreated,
+                    exception.getClassification().getOperation(),
+                    exception.getClassification().getCode(),
+                    message,
+                    access.getSessionUserId()
+            );
+            throw OfficialWarehouseNoonProblemTranslator.createAsnProblem(
+                    exception,
+                    asnId,
+                    localAsnNo,
+                    noonAsnNo,
+                    lineRows
+            );
         } catch (Exception exception) {
             String message = shrinkMessage(exception);
             failAsnCreation(asnId, remoteAsnCreated, resolveFailureStage(), exception.getClass().getSimpleName(), message, access.getSessionUserId());
@@ -1211,6 +1231,12 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                                         "OFFICIAL_WAREHOUSE_APPOINTMENT_AVAILABILITY",
                                         asn.id,
                                         asn.noonAsnNr
+                                ),
+                                confirmedTask -> persistAsnCurrentWarehouse(
+                                        ownerUserId,
+                                        asnRecord.id,
+                                        confirmedTask,
+                                        access.getSessionUserId()
                                 )
                         )
                 )
@@ -1479,6 +1505,12 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                                     "OFFICIAL_WAREHOUSE_APPOINTMENT",
                                     String.valueOf(appointment.id),
                                     appointment.noonAsnNr
+                            ),
+                            confirmedTask -> persistAsnCurrentWarehouse(
+                                    appointment.ownerUserId,
+                                    appointment.asnId,
+                                    confirmedTask,
+                                    operatorId
                             )
                     )
             );
@@ -1525,9 +1557,15 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 markAppointmentPendingRiskBackoff(appointment, riskBackoffHold, operatorId);
                 return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
             }
-            String retryFailureType = appointmentRetryFailureType("NOON_CALL", exception.getClass().getSimpleName(), message);
+            String retryFailureType = appointmentRetryFailureType(
+                    "NOON_CALL",
+                    noonFailureType(exception),
+                    message
+            );
             String retryErrorStage = appointmentRetryErrorStage("NOON_CALL", retryFailureType);
-            if (allowRetry && isRetryableNoonCallFailure(retryFailureType) && shouldRetryAppointment(appointment, retryFailureType)) {
+            if (allowRetry
+                    && (isNoCapacityFailure(retryFailureType) || isRetryableNoonCallFailure(retryFailureType))
+                    && shouldRetryAppointment(appointment, retryFailureType)) {
                 mapper.markAppointmentPendingRetry(
                         appointment.id,
                         nextAppointmentRetrySeconds(
@@ -1591,6 +1629,12 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                                     "OFFICIAL_WAREHOUSE_APPOINTMENT",
                                     String.valueOf(appointment.id),
                                     appointment.noonAsnNr
+                            ),
+                            confirmedTask -> persistAsnCurrentWarehouse(
+                                    appointment.ownerUserId,
+                                    appointment.asnId,
+                                    confirmedTask,
+                                    operatorId
                             )
                     ),
                     appointmentDate,
@@ -1733,6 +1777,26 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
     }
 
+    private void persistAsnCurrentWarehouse(
+            Long ownerUserId,
+            Long asnId,
+            AppointmentTask task,
+            Long operatorUserId
+    ) {
+        if (ownerUserId == null || asnId == null || task == null || !StringUtils.hasText(task.warehouseTo)) {
+            return;
+        }
+        String warehouseToPartnerCode = task.warehouseTo.trim();
+        mapper.updateAsnCurrentWarehouse(
+                ownerUserId,
+                asnId,
+                warehouseToPartnerCode,
+                trimToNull(task.warehouseToCode),
+                warehouseToPartnerCode,
+                operatorUserId == null ? ownerUserId : operatorUserId
+        );
+    }
+
     private boolean shouldRetryAppointment(AppointmentRecord appointment, String failureType) {
         if (failureType != null && failureType.startsWith("NOON_ASN_")) {
             return false;
@@ -1770,6 +1834,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     static String appointmentRetryFailureType(String errorStage, String failureType, String errorMessage) {
+        if ("NOON_NO_CAPACITY".equalsIgnoreCase(trimToNull(failureType))) {
+            return "NO_CAPACITY";
+        }
         if (isNoonAccessBlocked(errorStage, failureType, errorMessage)) {
             return "NOON_ACCESS_BLOCKED";
         }
@@ -1784,7 +1851,17 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     private static String appointmentRetryErrorStage(String fallbackStage, String retryFailureType) {
+        if (isNoCapacityFailure(retryFailureType)) {
+            return "SCHEDULE";
+        }
         return isNoonAccessFailureType(retryFailureType) ? "NOON_ACCESS" : fallbackStage;
+    }
+
+    private static String noonFailureType(Exception exception) {
+        if (exception instanceof NoonOperationException) {
+            return ((NoonOperationException) exception).getClassification().getCode();
+        }
+        return exception == null ? "UNKNOWN" : exception.getClass().getSimpleName();
     }
 
     private static boolean isNoCapacityFailure(String failureType) {
@@ -1849,6 +1926,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         task.noonAsnNr = appointment.noonAsnNr;
         task.totalUnits = appointment.totalUnits;
         task.warehouseTo = appointment.warehouseToPartnerCode;
+        task.warehouseToCode = appointment.warehouseToCode;
         task.warehouseFrom = appointment.warehouseFrom;
         task.apStartDate = appointment.apStartDateValue;
         task.apEndDate = appointment.apEndDateValue;
@@ -1865,6 +1943,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         task.warehouseTo = requireText(
                 resolveAppointmentWarehouseToPartnerCode(asn.selectedWarehousePartnerCode, command.warehouseToPartnerCode),
                 "请选择到达仓库。"
+        );
+        task.warehouseToCode = resolveAppointmentWarehouseToCode(
+                asn.selectedWarehouseCode,
+                command.warehouseToCode
         );
         task.warehouseFrom = resolveAppointmentWarehouseFrom(
                 command.warehouseFrom,
@@ -1897,28 +1979,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     private NoonSession openNoonSession(Long ownerUserId, NoonSalesReportBinding binding) {
-        if (StringUtils.hasText(binding.getNoonEmailAuthCode())) {
-            return noonSessionGateway.loginWithEmailAuthCode(
-                    ownerUserId,
-                    binding.getNoonUser(),
-                    binding.getNoonEmailAuthCode(),
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
-        }
-        if (noonSessionGateway.hasConfiguredMerchantEmailLogin()) {
-            return noonSessionGateway.loginWithConfiguredEmailAuthCode(
-                    ownerUserId,
-                    binding.getPersistedCookie(),
-                    binding.getProjectCode(),
-                    binding.getStoreCode()
-            );
-        }
-        return noonSessionGateway.login(
+        return noonSessionGateway.loginWithPersistedCookie(
                 ownerUserId,
                 binding.getNoonUser(),
-                binding.getNoonPassword(),
                 binding.getPersistedCookie(),
                 binding.getProjectCode(),
                 binding.getStoreCode()

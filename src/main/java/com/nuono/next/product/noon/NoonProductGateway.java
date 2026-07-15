@@ -59,6 +59,17 @@ public class NoonProductGateway {
         String normalized = details.toLowerCase(Locale.ROOT);
         if (containsAny(
                 normalized,
+                "auth_required",
+                "noon cookie 无效或已过期"
+        )) {
+            return new NoonProductError(
+                    NoonProductErrorCode.NOON_AUTH_REQUIRED,
+                    false,
+                    "Noon 授权已失效，请在店铺管理中人工重新连接。"
+            );
+        }
+        if (containsAny(
+                normalized,
                 "invalid username or password",
                 "password validate",
                 "invalid password",

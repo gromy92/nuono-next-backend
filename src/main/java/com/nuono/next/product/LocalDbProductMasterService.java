@@ -413,7 +413,7 @@ public class LocalDbProductMasterService {
         requireText(credential.getProjectCode(), "当前店铺缺少 Noon projectCode，无法读取真实商品主档。");
 
         long stageStartedAt = System.nanoTime();
-        NoonSession session = openProductNoonSession(owner.getId(), credential, storeCode, "读取真实商品主档");
+        NoonSession session = openProductNoonSession(owner.getId(), credential, storeCode);
         recordFetchStage(timingEntries, timingBreakdownMs, traceLabel, reason, "login", stageStartedAt);
 
         stageStartedAt = System.nanoTime();
@@ -4294,7 +4294,7 @@ public class LocalDbProductMasterService {
         ProductNoonCredential credential = productNoonCredentialResolver.resolve(command, store, owner);
         requireText(credential.getNoonUser(), "当前店铺还没有 Noon 账号上下文，暂时不能" + actionLabel + "。");
         requireText(credential.getProjectCode(), "当前店铺缺少 Noon projectCode，暂时不能" + actionLabel + "。");
-        NoonSession session = openProductNoonSession(owner.getId(), credential, normalize(store.getStoreCode()), actionLabel);
+        NoonSession session = openProductNoonSession(owner.getId(), credential, normalize(store.getStoreCode()));
         String resolvedProjectCode = resolveProjectCode(session, credential.getProjectCode(), store, warnings);
         return session.withProjectCode(resolvedProjectCode).withStoreCode(normalize(store.getStoreCode()));
     }
@@ -4302,32 +4302,11 @@ public class LocalDbProductMasterService {
     private NoonSession openProductNoonSession(
             Long ownerUserId,
             ProductNoonCredential credential,
-            String storeCode,
-            String actionLabel
+            String storeCode
     ) {
-        if (StringUtils.hasText(credential.getNoonEmailAuthCode())) {
-            return productNoonAdapter.loginWithEmailAuthCode(
-                    ownerUserId,
-                    credential.getNoonUser(),
-                    credential.getNoonEmailAuthCode(),
-                    credential.getNoonCookie(),
-                    credential.getProjectCode(),
-                    storeCode
-            );
-        }
-        if (productNoonAdapter.hasConfiguredMerchantEmailLogin()) {
-            return productNoonAdapter.loginWithConfiguredEmailAuthCode(
-                    ownerUserId,
-                    credential.getNoonCookie(),
-                    credential.getProjectCode(),
-                    storeCode
-            );
-        }
-        requireText(credential.getNoonPassword(), "当前店铺还没有 Noon 登录密码，暂时不能" + actionLabel + "。");
-        return productNoonAdapter.login(
+        return productNoonAdapter.loginWithPersistedCookie(
                 ownerUserId,
                 credential.getNoonUser(),
-                credential.getNoonPassword(),
                 credential.getNoonCookie(),
                 credential.getProjectCode(),
                 storeCode

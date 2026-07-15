@@ -265,6 +265,9 @@ public class NoonPullFoundationService {
     ) {
         NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
         NoonPullFailureDecision decision = failurePolicy.decide(failureType, Math.max(1, pollAttempts));
+        if (!decision.isRetryable()) {
+            return markFailedWithPolicy(taskId, rawFailure, Math.max(1, pollAttempts));
+        }
         LocalDateTime nextPollAt = decision.getNextRetryAt() == null ? now().plusMinutes(30) : decision.getNextRetryAt();
         NoonPullTaskRecord task = updateReportExportTask(
                 taskId,
@@ -328,6 +331,15 @@ public class NoonPullFoundationService {
             NoonRiskBackoffHold hold,
             String diagnosticPrefix
     ) {
+        return recordReportRiskBackoffDelay(taskId, hold, diagnosticPrefix, null);
+    }
+
+    public NoonPullTaskRecord recordReportRiskBackoffDelay(
+            Long taskId,
+            NoonRiskBackoffHold hold,
+            String diagnosticPrefix,
+            Integer pollAttempts
+    ) {
         if (hold == null) {
             throw new IllegalArgumentException("Noon risk backoff hold is required.");
         }
@@ -343,7 +355,7 @@ public class NoonPullFoundationService {
                 null,
                 null,
                 hold.getBlockedUntil(),
-                null,
+                pollAttempts,
                 riskType,
                 NoonPullRetryAction.DELAY.name(),
                 Boolean.TRUE,
@@ -361,6 +373,13 @@ public class NoonPullFoundationService {
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
         return task;
+    }
+
+    public boolean isTaskOlderThan(NoonPullTaskRecord task, Duration maximumAge) {
+        if (task == null || task.getCreatedAt() == null || maximumAge == null || maximumAge.isNegative()) {
+            return false;
+        }
+        return !task.getCreatedAt().plus(maximumAge).isAfter(now());
     }
 
     public NoonPullTaskRecord recordInterfaceRiskBackoffDelay(

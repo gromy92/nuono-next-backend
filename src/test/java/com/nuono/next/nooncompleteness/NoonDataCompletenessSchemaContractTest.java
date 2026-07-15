@@ -81,4 +81,18 @@ class NoonDataCompletenessSchemaContractTest {
         assertTrue(insertGapSql.contains("linked_pull_task_id"));
         assertTrue(insertGapSql.contains("linked_source_batch_id"));
     }
+
+    @Test
+    void auditScopesShouldOnlyIncludeEnabledStoreSites() {
+        Method method = Arrays.stream(NoonDataCompletenessMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "listAuditScopes".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join(" ", select.value()).replaceAll("\\s+", " ");
+
+        assertTrue(sql.contains("FROM logical_store ls"));
+        assertTrue(sql.contains("JOIN logical_store_site lss"));
+        assertTrue(sql.contains("COALESCE(lss.site_enabled, b'1') = b'1'"));
+    }
 }

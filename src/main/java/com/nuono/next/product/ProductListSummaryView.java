@@ -31,6 +31,7 @@ public class ProductListSummaryView {
     private String groupRef;
     private String groupRefCanonical;
     private Boolean isActive;
+    private Boolean maintenanceEnabled;
     private String liveStatus;
     private String statusCode;
     private String listingStartedAt;
@@ -266,6 +267,14 @@ public class ProductListSummaryView {
 
     public void setIsActive(Boolean isActive) {
         this.isActive = isActive;
+    }
+
+    public Boolean getMaintenanceEnabled() {
+        return maintenanceEnabled;
+    }
+
+    public void setMaintenanceEnabled(Boolean maintenanceEnabled) {
+        this.maintenanceEnabled = maintenanceEnabled;
     }
 
     public String getLiveStatus() {

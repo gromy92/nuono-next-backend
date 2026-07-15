@@ -358,6 +358,8 @@ public interface OfficialWarehouseMapper {
             @Param("limit") int limit
     );
 
+    // Appointment history is advisory for batch reuse. Each operator-confirmed ASN creation
+    // may allocate up to the physical shipped quantity without consuming it permanently.
     @Select({
             "<script>",
             "SELECT NULL AS shippingBatchId,",
@@ -375,7 +377,7 @@ public interface OfficialWarehouseMapper {
             "       pm.cover_image_url AS imageUrlCache, COALESCE(NULLIF(line.site_code, ''), #{siteCode}) AS siteCode,",
             "       b.transport_mode AS plannedTransportMode,",
             "       'FBN' AS fulfillmentType, COALESCE(f.forwarder_name, b.raw_forwarder_name) AS sourcePartyName,",
-            "       GREATEST(GREATEST(COALESCE(line.shipped_quantity, 0), 0) - GREATEST(COALESCE(linked.scheduledAppointmentQuantity, 0), 0), 0) AS quantity",
+            "       GREATEST(COALESCE(line.shipped_quantity, 0), 0) AS quantity",
             "FROM in_transit_batch b",
             "JOIN in_transit_goods_line line",
             "  ON line.batch_id = b.id",
@@ -403,29 +405,6 @@ public interface OfficialWarehouseMapper {
             "  ON f.id = b.standard_forwarder_id",
             " AND f.owner_user_id = b.owner_user_id",
             " AND f.is_deleted = b'0'",
-            "LEFT JOIN (",
-            "  SELECT link.owner_user_id, link.in_transit_goods_line_id,",
-            "         SUM(GREATEST(COALESCE(link.quantity, 0), 0)) AS linkedQuantity,",
-            "         SUM(CASE WHEN EXISTS (",
-            "           SELECT 1",
-            "           FROM official_warehouse_appointment scheduledAppointment",
-            "           WHERE scheduledAppointment.asn_id = link.asn_id",
-            "             AND scheduledAppointment.owner_user_id = link.owner_user_id",
-            "             AND scheduledAppointment.is_deleted = b'0'",
-            "             AND scheduledAppointment.status = 'SCHEDULED'",
-            "         ) THEN GREATEST(COALESCE(link.quantity, 0), 0) ELSE 0 END) AS scheduledAppointmentQuantity",
-            "  FROM official_warehouse_asn_shipping_batch_link link",
-            "  JOIN official_warehouse_asn linkedAsn",
-            "    ON linkedAsn.id = link.asn_id",
-            "   AND linkedAsn.owner_user_id = link.owner_user_id",
-            "   AND linkedAsn.is_deleted = b'0'",
-            "   AND UPPER(COALESCE(linkedAsn.status, '')) NOT IN ('FAILED', 'CANCELED', 'CANCELLED')",
-            "  WHERE link.is_deleted = b'0'",
-            "    AND link.in_transit_goods_line_id IS NOT NULL",
-            "  GROUP BY link.owner_user_id, link.in_transit_goods_line_id",
-            ") linked",
-            "  ON linked.owner_user_id = b.owner_user_id",
-            " AND linked.in_transit_goods_line_id = line.id",
             "LEFT JOIN (",
             "  SELECT owner_user_id, in_transit_goods_line_id,",
             "         MIN(purchase_batch_id) AS purchaseBatchId, MIN(source_id) AS sourceId",
@@ -505,7 +484,7 @@ public interface OfficialWarehouseMapper {
             "GROUP BY b.id, b.batch_reference_no, b.tracking_no, b.external_shipment_no, b.batch_status, b.transport_mode,",
             "         b.latest_node_status, f.forwarder_name, b.raw_forwarder_name, line.id, line.store_code, line.site_code,",
             "         ls.project_name, purchase.purchaseBatchId, purchase.sourceId, pm.id, pv.id, pv.partner_sku, pm.sku_parent, pm.title_cn_cache,",
-            "         pm.title_cache, pm.cover_image_url, line.shipped_quantity, linked.scheduledAppointmentQuantity",
+            "         pm.title_cache, pm.cover_image_url, line.shipped_quantity",
             "HAVING quantity &gt; 0",
             "ORDER BY b.gmt_updated DESC, b.id DESC, line.id ASC",
             "</script>"
@@ -628,6 +607,25 @@ public interface OfficialWarehouseMapper {
             @Param("selectedWarehousePartnerCode") String selectedWarehousePartnerCode,
             @Param("selectedWarehouseCode") String selectedWarehouseCode,
             @Param("selectedWarehouseName") String selectedWarehouseName,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE official_warehouse_asn",
+            "SET selected_warehouse_partner_code = #{warehouseToPartnerCode},",
+            "    selected_warehouse_code = COALESCE(NULLIF(#{warehouseToCode}, ''), selected_warehouse_code),",
+            "    selected_warehouse_name = COALESCE(NULLIF(#{warehouseName}, ''), selected_warehouse_name),",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{asnId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateAsnCurrentWarehouse(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("asnId") Long asnId,
+            @Param("warehouseToPartnerCode") String warehouseToPartnerCode,
+            @Param("warehouseToCode") String warehouseToCode,
+            @Param("warehouseName") String warehouseName,
             @Param("operatorUserId") Long operatorUserId
     );
 

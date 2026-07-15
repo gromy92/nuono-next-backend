@@ -38,6 +38,35 @@ body:
     validations:
       required: true
   - type: textarea
+    id: actor_scope
+    attributes:
+      label: Actor and business scope
+      description: Name the actor/role, environment, store/site/project, and representative SKU/order/batch/task.
+      placeholder: "Actor: operator; Environment: test; Store/site: STR... / SA; Business key: ..."
+    validations:
+      required: true
+  - type: textarea
+    id: data_boundary
+    attributes:
+      label: Data and external-write boundary
+      description: State which facts must exist, which must not be overwritten, and whether external writes are disabled, dry-run, or human-triggered.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Include backend/API behavior, authenticated UI behavior, and the representative business-key checks.
+    validations:
+      required: true
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Rollback or containment
+      description: Describe the code rollback, feature switch, scoped data reversal, or containment path.
+    validations:
+      required: true
+  - type: textarea
     id: evidence
     attributes:
       label: Evidence

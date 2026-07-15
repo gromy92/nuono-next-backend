@@ -535,7 +535,7 @@ class LocalDbProductMasterServiceDeletionTest {
         when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
         when(storeSyncMapper.listOwnerStores(10002L)).thenReturn(List.of(store));
         when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
-        when(productNoonAdapter.login(any(), anyString(), anyString(), any(), anyString(), anyString()))
+        when(productNoonAdapter.loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(session);
         when(productNoonAdapter.getJson(any(), eq(NoonProductGateway.WHOAMI_URL), anyBoolean()))
                 .thenReturn(objectMapper.createObjectNode());
@@ -621,7 +621,7 @@ class LocalDbProductMasterServiceDeletionTest {
         when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
         when(storeSyncMapper.listOwnerStores(10002L)).thenReturn(List.of(store));
         when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
-        when(productNoonAdapter.login(any(), anyString(), anyString(), any(), anyString(), anyString()))
+        when(productNoonAdapter.loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(session);
         when(productNoonAdapter.getJson(any(), eq(NoonProductGateway.WHOAMI_URL), anyBoolean()))
                 .thenReturn(objectMapper.createObjectNode());
@@ -724,7 +724,7 @@ class LocalDbProductMasterServiceDeletionTest {
         when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
         when(storeSyncMapper.listOwnerStores(10002L)).thenReturn(List.of(store));
         when(productNoonAdapter.openRequestCountScope()).thenReturn(noonSessionGateway.openRequestCountScope());
-        when(productNoonAdapter.login(any(), anyString(), anyString(), any(), anyString(), anyString()))
+        when(productNoonAdapter.loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString()))
                 .thenReturn(session);
         when(productNoonAdapter.getJson(any(), eq(NoonProductGateway.WHOAMI_URL), anyBoolean()))
                 .thenReturn(objectMapper.createObjectNode());
@@ -842,7 +842,7 @@ class LocalDbProductMasterServiceDeletionTest {
         assertEquals("synced", result.path("status").asText());
         assertEquals("local_noon_identity_missing", result.path("stage").asText());
         assertTrue(result.path("warnings").path(0).asText().contains("跳过删除旧品"));
-        verify(productNoonAdapter, never()).login(any(), anyString(), anyString(), any(), anyString(), anyString());
+        verify(productNoonAdapter, never()).loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString());
         verify(productNoonAdapter, never()).postWriteJson(any(), anyString(), any(JsonNode.class), anyBoolean());
         verify(productNoonAdapter, never()).postJson(any(), anyString(), any(JsonNode.class), anyBoolean());
         verify(productManagementMapper, never()).markProductMasterDeletedById(any(), any());
@@ -943,7 +943,7 @@ class LocalDbProductMasterServiceDeletionTest {
                 eq(10002L)
         );
         assertEquals("local-only", objectMapper.readTree(requestJsonCaptor.getValue()).path("mode").asText());
-        verify(productNoonAdapter, never()).login(any(), anyString(), anyString(), any(), anyString(), anyString());
+        verify(productNoonAdapter, never()).loginWithPersistedCookie(any(), anyString(), any(), anyString(), anyString());
         verify(productNoonAdapter, never()).postWriteJson(any(), anyString(), any(JsonNode.class), anyBoolean());
         verify(productNoonAdapter, never()).postJson(any(), anyString(), any(JsonNode.class), anyBoolean());
     }

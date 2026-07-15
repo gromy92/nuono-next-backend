@@ -23,7 +23,7 @@ import java.util.Set;
 
 public final class ReplenishmentPlanCalculator {
 
-    private static final int ETA_WAREHOUSE_RECEIVING_BUFFER_DAYS = 4;
+    private static final String SEA_ETA_UNCERTAIN_AIR_WINDOW_WARNING = "sea_eta_uncertain_air_window_coverage";
 
     private static final Set<String> INACTIVE_INBOUND_STATUSES = new HashSet<>(Arrays.asList(
             "draft",
@@ -48,6 +48,7 @@ public final class ReplenishmentPlanCalculator {
         Map<Integer, BigDecimal> dailyDemandByDay = normalizeDemand(input.getDailyDemandByDay());
         LocalDate planDate = input.getPlanDate() == null ? input.getAnchorDate() : input.getPlanDate();
         Map<Integer, BigDecimal> inboundByDay = groupInboundByDay(planDate, input.getInboundBatches());
+        Map<Integer, BigDecimal> nonSeaInboundByDay = groupNonSeaInboundByDay(planDate, input.getInboundBatches());
         BigDecimal knownInboundUnits = sumValues(inboundByDay);
         List<InboundBatch> knownInboundBatches = collectKnownInboundBatches(input.getInboundBatches(), planDate);
         List<MissingEtaBatch> missingEtaBatches = collectMissingEtaBatches(input.getInboundBatches(), input.getMissingEtaBatches());
@@ -56,17 +57,22 @@ public final class ReplenishmentPlanCalculator {
         List<String> warnings = buildWarnings(
                 dailyDemandByDay,
                 missingEtaInboundQty,
-                seaWindowEndDay,
+                horizon,
                 stockSnapshot,
                 hasExcludedPastEtaInbound(input.getInboundBatches(), planDate),
-                hasRecentPastEtaReview(knownInboundBatches)
+                hasRecentPastEtaReview(knownInboundBatches),
+                input.getLatestFactDate(),
+                planDate,
+                resolvedConfig
         );
+        boolean calculationBlocked = isCalculationBlocked(warnings);
 
         BigDecimal fbnStockUnits = stockSnapshot.getFbnStockUnits();
         BigDecimal supermallStockUnits = stockSnapshot.getSupermallStockUnits();
         BigDecimal currentStockUnits = stockSnapshot.getCurrentStockUnits();
         BigDecimal projectionStockUnits = projectionStockUnits(stockSnapshot);
         BigDecimal startingProjectionStockUnits = projectionStockUnits.add(inboundByDay.getOrDefault(0, BigDecimal.ZERO));
+        BigDecimal nonSeaStartingProjectionStockUnits = projectionStockUnits.add(nonSeaInboundByDay.getOrDefault(0, BigDecimal.ZERO));
 
         BigDecimal projectedStock = startingProjectionStockUnits;
         Integer firstStockoutDay = projectedStock.compareTo(BigDecimal.ZERO) <= 0 ? 0 : null;
@@ -90,21 +96,44 @@ public final class ReplenishmentPlanCalculator {
         BigDecimal airWindowForecastUnits = sumDemand(dailyDemandByDay, airWindowStartDay, airWindowEndDay);
         BigDecimal seaWindowForecastUnits = sumDemand(dailyDemandByDay, seaWindowStartDay, seaWindowEndDay);
         BigDecimal forecastUnits100 = sumDemand(dailyDemandByDay, 1, 101);
-        BigDecimal seaCalculatedBeforeAirDeduction = ceilDemand(windowShortage(
+        BigDecimal airWindowNetShortage = ceilDemand(windowShortage(
                 dailyDemandByDay,
                 inboundByDay,
+                airWindowStartDay,
+                airWindowEndDay,
+                stockBeforeDay(startingProjectionStockUnits, dailyDemandByDay, inboundByDay, airWindowStartDay)
+        ));
+        BigDecimal airWindowNetShortageWithoutSea = ceilDemand(windowShortage(
+                dailyDemandByDay,
+                nonSeaInboundByDay,
+                airWindowStartDay,
+                airWindowEndDay,
+                stockBeforeDay(nonSeaStartingProjectionStockUnits, dailyDemandByDay, nonSeaInboundByDay, airWindowStartDay)
+        ));
+        if (airWindowNetShortageWithoutSea.compareTo(airWindowNetShortage) > 0) {
+            warnings.add(SEA_ETA_UNCERTAIN_AIR_WINDOW_WARNING);
+        }
+        BigDecimal airCalculatedUnits = calculationBlocked ? BigDecimal.ZERO : airWindowNetShortage;
+        BigDecimal airSuggestedUnits = airCalculatedUnits;
+        Map<Integer, BigDecimal> inboundWithPlannedAirByDay = new HashMap<>(inboundByDay);
+        if (airSuggestedUnits.compareTo(BigDecimal.ZERO) > 0) {
+            inboundWithPlannedAirByDay.merge(airWindowStartDay, airSuggestedUnits, BigDecimal::add);
+        }
+        BigDecimal seaCalculatedUnits = calculationBlocked ? BigDecimal.ZERO : ceilDemand(windowShortage(
+                dailyDemandByDay,
+                inboundWithPlannedAirByDay,
                 seaWindowStartDay,
                 seaWindowEndDay,
-                stockBeforeDay(startingProjectionStockUnits, dailyDemandByDay, inboundByDay, seaWindowStartDay)
+                stockBeforeDay(
+                        startingProjectionStockUnits,
+                        dailyDemandByDay,
+                        inboundWithPlannedAirByDay,
+                        seaWindowStartDay
+                )
         ));
-        boolean airEmergencyTriggered = firstStockoutDay != null && firstStockoutDay < airWindowEndDay;
-        boolean shouldCalculateAirSuggestion = !resolvedConfig.isAirEmergencyOnly() || airEmergencyTriggered;
-        BigDecimal airCalculatedUnits = shouldCalculateAirSuggestion
-                ? ceilDemand(airWindowForecastUnits)
-                : BigDecimal.ZERO;
-        BigDecimal airSuggestedUnits = applyAirSuggestionTier(airCalculatedUnits);
-        BigDecimal seaCalculatedUnits = nonNegative(seaCalculatedBeforeAirDeduction.subtract(airSuggestedUnits));
-        BigDecimal seaSuggestedUnits = applySeaSuggestionTier(input.getHistoryUnits30(), seaCalculatedUnits);
+        BigDecimal seaSuggestedUnits = calculationBlocked
+                ? BigDecimal.ZERO
+                : applySeaSuggestionTier(input.getHistoryUnits30(), seaCalculatedUnits);
         String stockoutWindowLabel = firstStockoutDay != null && firstStockoutDay < resolvedConfig.getAirLeadDays()
                 ? firstStockoutDay + "-" + resolvedConfig.getAirLeadDays() + " 天"
                 : null;
@@ -155,15 +184,16 @@ public final class ReplenishmentPlanCalculator {
                 seaSuggestedUnits,
                 dailyProjection,
                 missingEtaBatches,
+                calculationBlocked,
                 warnings,
                 buildExplanation(
                         seaWindowStartDay,
                         seaWindowEndDay,
-                        resolvedConfig.isAirEmergencyOnly(),
-                        airEmergencyTriggered,
                         firstStockoutDay,
                         airWindowStartDay,
-                        airWindowEndDay
+                        airWindowEndDay,
+                        airWindowNetShortage,
+                        calculationBlocked
                 )
         );
     }
@@ -201,11 +231,26 @@ public final class ReplenishmentPlanCalculator {
     }
 
     private static Map<Integer, BigDecimal> groupInboundByDay(LocalDate planDate, List<InboundBatch> inboundBatches) {
+        return groupInboundByDay(planDate, inboundBatches, false);
+    }
+
+    private static Map<Integer, BigDecimal> groupNonSeaInboundByDay(LocalDate planDate, List<InboundBatch> inboundBatches) {
+        return groupInboundByDay(planDate, inboundBatches, true);
+    }
+
+    private static Map<Integer, BigDecimal> groupInboundByDay(
+            LocalDate planDate,
+            List<InboundBatch> inboundBatches,
+            boolean excludeSea
+    ) {
         Map<Integer, BigDecimal> inboundByDay = new HashMap<>();
         if (planDate == null || inboundBatches == null || inboundBatches.isEmpty()) {
             return inboundByDay;
         }
         for (InboundBatch batch : inboundBatches) {
+            if (excludeSea && isSeaTransportMode(batch.getTransportMode())) {
+                continue;
+            }
             if (!isCountableEtaInbound(batch, planDate)) {
                 continue;
             }
@@ -220,6 +265,16 @@ public final class ReplenishmentPlanCalculator {
             inboundByDay.merge((int) day, remainingQuantity, BigDecimal::add);
         }
         return inboundByDay;
+    }
+
+    private static boolean isSeaTransportMode(String transportMode) {
+        if (transportMode == null) {
+            return false;
+        }
+        String normalized = transportMode.trim().toUpperCase(Locale.ROOT);
+        return normalized.contains("SEA")
+                || normalized.contains("OCEAN")
+                || normalized.contains("海运");
     }
 
     private static List<MissingEtaBatch> collectMissingEtaBatches(
@@ -265,9 +320,6 @@ public final class ReplenishmentPlanCalculator {
                 continue;
             }
             boolean pastEta = isPastEta(batch, planDate);
-            if (!isCountableEtaInbound(batch, planDate)) {
-                continue;
-            }
             knownBatches.add(new InboundBatch(
                     batch.getBatchId(),
                     batch.getBatchReferenceNo(),
@@ -275,7 +327,7 @@ public final class ReplenishmentPlanCalculator {
                     batch.getBatchStatus(),
                     batch.getEtaDate(),
                     batch.getRemainingQuantity(),
-                    true,
+                    !pastEta,
                     pastEta
             ));
         }
@@ -314,10 +366,13 @@ public final class ReplenishmentPlanCalculator {
     private static List<String> buildWarnings(
             Map<Integer, BigDecimal> dailyDemandByDay,
             BigDecimal missingEtaInboundQty,
-            int seaWindowEndDay,
+            int requiredForecastDays,
             StockSnapshot stockSnapshot,
             boolean hasPastEtaInbound,
-            boolean hasRecentPastEtaReview
+            boolean hasRecentPastEtaReview,
+            LocalDate latestFactDate,
+            LocalDate planDate,
+            ReplenishmentPlanConfig config
     ) {
         List<String> warnings = new ArrayList<>();
         if (missingEtaInboundQty.compareTo(BigDecimal.ZERO) > 0) {
@@ -332,7 +387,7 @@ public final class ReplenishmentPlanCalculator {
         if (dailyDemandByDay == null || dailyDemandByDay.isEmpty()) {
             warnings.add("daily_forecast_missing");
         }
-        if (hasForecastGap(dailyDemandByDay, seaWindowEndDay)) {
+        if (hasForecastGap(dailyDemandByDay, requiredForecastDays)) {
             warnings.add("daily_forecast_gap");
         }
         if (stockSnapshot == null || stockSnapshot.getCurrentStockUnits() == null || stockSnapshot.currentStockFactMissing()) {
@@ -341,7 +396,24 @@ public final class ReplenishmentPlanCalculator {
         if (stockSnapshot == null || stockSnapshot.getFbnStockUnits() == null) {
             warnings.add("fbn_stock_fact_missing");
         }
+        if (latestFactDate != null && planDate != null) {
+            long forecastAgeDays = ChronoUnit.DAYS.between(latestFactDate, planDate);
+            if (forecastAgeDays > config.getForecastStaleWarningDays()) {
+                warnings.add("forecast_fact_stale");
+            }
+            if (forecastAgeDays > config.getForecastStaleBlockingDays()) {
+                warnings.add("forecast_fact_expired");
+            }
+        }
         return warnings;
+    }
+
+    private static boolean isCalculationBlocked(List<String> warnings) {
+        return warnings.contains("daily_forecast_missing")
+                || warnings.contains("daily_forecast_gap")
+                || warnings.contains("stock_fact_missing")
+                || warnings.contains("fbn_stock_fact_missing")
+                || warnings.contains("forecast_fact_expired");
     }
 
     private static boolean hasExcludedPastEtaInbound(List<InboundBatch> inboundBatches, LocalDate planDate) {
@@ -399,7 +471,7 @@ public final class ReplenishmentPlanCalculator {
     }
 
     private static LocalDate effectiveInboundDate(LocalDate etaDate) {
-        return etaDate.plusDays(ETA_WAREHOUSE_RECEIVING_BUFFER_DAYS);
+        return etaDate;
     }
 
     private static BigDecimal projectionStockUnits(StockSnapshot stockSnapshot) {
@@ -409,11 +481,11 @@ public final class ReplenishmentPlanCalculator {
         return nonNegative(stockSnapshot.getFbnStockUnits());
     }
 
-    private static boolean hasForecastGap(Map<Integer, BigDecimal> dailyDemandByDay, int seaWindowEndDay) {
+    private static boolean hasForecastGap(Map<Integer, BigDecimal> dailyDemandByDay, int requiredForecastDays) {
         if (dailyDemandByDay == null) {
             return true;
         }
-        for (int day = 1; day < seaWindowEndDay; day++) {
+        for (int day = 1; day <= requiredForecastDays; day++) {
             if (!dailyDemandByDay.containsKey(day)) {
                 return true;
             }
@@ -487,13 +559,6 @@ public final class ReplenishmentPlanCalculator {
         return demand.setScale(0, RoundingMode.CEILING);
     }
 
-    private static BigDecimal applyAirSuggestionTier(BigDecimal calculatedUnits) {
-        if (calculatedUnits == null || calculatedUnits.compareTo(BigDecimal.ZERO) <= 0) {
-            return BigDecimal.ZERO;
-        }
-        return BigDecimal.valueOf(Math.max(5, ceilToFive(calculatedUnits)));
-    }
-
     private static BigDecimal applySeaSuggestionTier(int historyUnits30, BigDecimal calculatedUnits) {
         if (calculatedUnits == null || calculatedUnits.compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
@@ -517,16 +582,6 @@ public final class ReplenishmentPlanCalculator {
             return BigDecimal.valueOf(Math.max(roundedCalculation, cappedRamp));
         }
         return BigDecimal.valueOf(Math.max(minimumSuggestion, roundedCalculation));
-    }
-
-    private static int ceilToFive(BigDecimal units) {
-        if (units == null || units.compareTo(BigDecimal.ZERO) <= 0) {
-            return 0;
-        }
-        return units
-                .divide(new BigDecimal("5"), 0, RoundingMode.CEILING)
-                .multiply(new BigDecimal("5"))
-                .intValue();
     }
 
     private static int ceilToTen(BigDecimal units) {
@@ -556,20 +611,23 @@ public final class ReplenishmentPlanCalculator {
     private static String buildExplanation(
             int seaWindowStartDay,
             int seaWindowEndDay,
-            boolean airEmergencyOnly,
-            boolean airEmergencyTriggered,
             Integer firstStockoutDay,
             int airWindowStartDay,
-            int airWindowEndDay
+            int airWindowEndDay,
+            BigDecimal airWindowNetShortage,
+            boolean calculationBlocked
     ) {
         String airExplanation;
-        if (!airEmergencyOnly) {
-            airExplanation = "air emergency mode disabled; air window calculated without stockout trigger.";
-        } else if (airEmergencyTriggered) {
-            airExplanation = "air emergency triggered because first stockout day "
-                    + firstStockoutDay + " is before the air cover window ends.";
+        if (calculationBlocked) {
+            airExplanation = "suggestions unavailable because required forecast or FBN stock facts are incomplete or expired.";
+        } else if (airWindowNetShortage != null && airWindowNetShortage.compareTo(BigDecimal.ZERO) > 0) {
+            airExplanation = "air suggestion uses net shortage "
+                    + airWindowNetShortage.toPlainString()
+                    + " in the air window after known inbound coverage.";
+        } else if (firstStockoutDay != null && firstStockoutDay < airWindowStartDay) {
+            airExplanation = "projected stock runs out before air arrival, but known inbound covers the air window net shortage.";
         } else {
-            airExplanation = "air emergency not triggered because projected stock does not run out during air window "
+            airExplanation = "air suggestion not needed because projected stock has no net shortage during air window "
                     + airWindowStartDay + "-" + airWindowEndDay + " days.";
         }
         return "Sea window " + seaWindowStartDay + "-" + seaWindowEndDay

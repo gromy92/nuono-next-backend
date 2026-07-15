@@ -1,4 +1,4 @@
-package com.nuono.next.noonpull;
+package com.nuono.next.sales;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -8,14 +8,15 @@ import static org.mockito.Mockito.verify;
 import com.nuono.next.noon.NoonSessionGateway;
 import org.junit.jupiter.api.Test;
 
-class NoonSessionGatewayPullSessionFactoryTest {
+class NoonSessionGatewaySalesReportSessionFactoryTest {
 
     @Test
-    void backgroundPullMustNotUseEmailOtpWhenCookieNeedsAuthentication() {
+    void backgroundSalesReportMustNotUseEmailOtpWhenCookieNeedsAuthentication() {
         NoonSessionGateway gateway = mock(NoonSessionGateway.class);
-        NoonSessionGatewayPullSessionFactory factory = new NoonSessionGatewayPullSessionFactory(gateway);
-        NoonPullStoreBinding binding = new NoonPullStoreBinding(
+        NoonSessionGatewaySalesReportSessionFactory factory = new NoonSessionGatewaySalesReportSessionFactory(gateway);
+        NoonSalesReportBinding binding = new NoonSalesReportBinding(
                 308L,
+                50023L,
                 "PRJ313934",
                 "STR313934-NAE",
                 "AE",

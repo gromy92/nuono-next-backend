@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonHttpException;
+import com.nuono.next.noon.NoonOperationException;
+import com.nuono.next.noon.NoonResponseClassifier;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.noonlog.NoonHttpCallLogContext;
 import com.nuono.next.noonlog.NoonHttpCallLogContextHolder;
@@ -18,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -39,9 +43,14 @@ public class OfficialWarehouseNoonInboundClient {
     private static final String SCHEDULE_APPOINTMENT_URL = "https://fbn.noon.partners/_svc/inbound-scheduler/slot/fbn/v1/schedule";
 
     private final ObjectMapper objectMapper;
+    private final NoonResponseClassifier responseClassifier;
 
-    public OfficialWarehouseNoonInboundClient(ObjectMapper objectMapper) {
+    public OfficialWarehouseNoonInboundClient(
+            ObjectMapper objectMapper,
+            NoonResponseClassifier responseClassifier
+    ) {
         this.objectMapper = objectMapper;
+        this.responseClassifier = responseClassifier;
     }
 
     JsonNode createAsn(
@@ -179,24 +188,28 @@ public class OfficialWarehouseNoonInboundClient {
     NoonAppointmentClient appointmentClient(
             NoonSession session,
             NoonSalesReportBinding binding,
-            NoonCallContext context
+            NoonCallContext context,
+            Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
     ) {
-        return new RealNoonAppointmentClient(session, binding, context);
+        return new RealNoonAppointmentClient(session, binding, context, onWarehousesSet);
     }
 
     private class RealNoonAppointmentClient implements NoonAppointmentClient {
         private final NoonSession session;
         private final NoonSalesReportBinding binding;
         private final NoonCallContext context;
+        private final Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet;
 
         private RealNoonAppointmentClient(
                 NoonSession session,
                 NoonSalesReportBinding binding,
-                NoonCallContext context
+                NoonCallContext context,
+                Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
         ) {
             this.session = session;
             this.binding = binding;
             this.context = context;
+            this.onWarehousesSet = onWarehousesSet;
         }
 
         @Override
@@ -244,6 +257,13 @@ public class OfficialWarehouseNoonInboundClient {
             JsonNode response = postNoonJson(session, binding, context.withOperation("SET_WAREHOUSES"), SET_WAREHOUSES_URL, body);
             Integer status = intValue(response, "status");
             return "ok".equalsIgnoreCase(text(response, "data")) || status != null && status == 200;
+        }
+
+        @Override
+        public void onWarehousesSet(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            if (onWarehousesSet != null) {
+                onWarehousesSet.accept(task);
+            }
         }
 
         @Override
@@ -365,10 +385,24 @@ public class OfficialWarehouseNoonInboundClient {
                 .businessRef(context.businessRef)
                 .requestSummaryJson(writeJson(body))
                 .build();
-        return NoonHttpCallLogContextHolder.with(
-                logContext,
-                () -> session.postWriteJson(url, body, true, noonHeaders(binding))
-        );
+        try {
+            return NoonHttpCallLogContextHolder.with(
+                    logContext,
+                    () -> isReadOperation(context.operation)
+                            ? session.postJson(url, body, true, noonHeaders(binding))
+                            : session.postWriteJson(url, body, true, noonHeaders(binding))
+            );
+        } catch (NoonHttpException exception) {
+            throw new NoonOperationException(responseClassifier.classify(context.operation, exception), exception);
+        }
+    }
+
+    private static boolean isReadOperation(String operation) {
+        return "QUERY_ASN_DETAIL".equals(operation)
+                || "QUERY_DAY_CAPACITY".equals(operation)
+                || "QUERY_SLOT_CAPACITY".equals(operation)
+                || "SYNC_ASN_LIST".equals(operation)
+                || "PARTNER_WAREHOUSE_LIST".equals(operation);
     }
 
     private Map<String, String> noonHeaders(NoonSalesReportBinding binding) {

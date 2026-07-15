@@ -37,6 +37,7 @@ public class ProductListProjectionRecord {
     private Integer issueCount;
     private String issueTagsCsv;
     private Integer currentSiteActiveFlag;
+    private Integer currentSiteMaintenanceEnabledFlag;
     private String currentSiteLiveStatus;
     private String currentSiteStatusCode;
     private String listingStartedAt;
@@ -307,6 +308,14 @@ public class ProductListProjectionRecord {
 
     public void setCurrentSiteActiveFlag(Integer currentSiteActiveFlag) {
         this.currentSiteActiveFlag = currentSiteActiveFlag;
+    }
+
+    public Integer getCurrentSiteMaintenanceEnabledFlag() {
+        return currentSiteMaintenanceEnabledFlag;
+    }
+
+    public void setCurrentSiteMaintenanceEnabledFlag(Integer currentSiteMaintenanceEnabledFlag) {
+        this.currentSiteMaintenanceEnabledFlag = currentSiteMaintenanceEnabledFlag;
     }
 
     public String getCurrentSiteLiveStatus() {
