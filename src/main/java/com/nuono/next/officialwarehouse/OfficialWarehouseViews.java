@@ -71,6 +71,25 @@ public final class OfficialWarehouseViews {
         public String updatedAt;
     }
 
+    public static class AsnValidationView {
+        public Boolean valid;
+        public Boolean completeBatchSelection;
+        public List<MissingBatchView> missingBatches = new ArrayList<>();
+    }
+
+    public static class MissingBatchView {
+        public String shippingBatchId;
+        public String batchNo;
+        public List<MissingBatchItemView> items = new ArrayList<>();
+    }
+
+    public static class MissingBatchItemView {
+        public String title;
+        public String partnerSku;
+        public String noonSku;
+        public Integer missingQuantity;
+    }
+
     public static class AsnView {
         public String id;
         public String inboundNo;

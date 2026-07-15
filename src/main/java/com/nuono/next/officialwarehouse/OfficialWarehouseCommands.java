@@ -12,6 +12,7 @@ public final class OfficialWarehouseCommands {
         public String storeCode;
         public String siteCode;
         public String sourceType;
+        public Boolean partialBatchConfirmed;
         public List<String> shippingBatchIds = new ArrayList<>();
         public List<CreateAsnLineCommand> lines = new ArrayList<>();
     }
