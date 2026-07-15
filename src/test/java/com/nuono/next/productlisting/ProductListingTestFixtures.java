@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.ObjectProvider;
 
 final class ProductListingTestFixtures {
 
@@ -29,8 +30,51 @@ final class ProductListingTestFixtures {
                 new ObjectMapper(),
                 new ProductListingValidator(),
                 properties,
-                adapter
+                adapter,
+                null,
+                successfulProjectionProvider()
         );
+    }
+
+    private static ObjectProvider<ProductListingProjectionBackfill> successfulProjectionProvider() {
+        ProductListingProjectionBackfill backfill = new ProductListingProjectionBackfill() {
+            @Override
+            public void backfillDraftListing(
+                    ProductListingDraftRecord record,
+                    ProductListingDraftCommand draft
+            ) {
+            }
+
+            @Override
+            public boolean backfillSuccessfulListing(
+                    ProductListingTaskRecord task,
+                    ProductListingDraftCommand draft,
+                    ProductListingNoonWriteResult result
+            ) {
+                return true;
+            }
+        };
+        return new ObjectProvider<>() {
+            @Override
+            public ProductListingProjectionBackfill getObject(Object... args) {
+                return backfill;
+            }
+
+            @Override
+            public ProductListingProjectionBackfill getIfAvailable() {
+                return backfill;
+            }
+
+            @Override
+            public ProductListingProjectionBackfill getIfUnique() {
+                return backfill;
+            }
+
+            @Override
+            public ProductListingProjectionBackfill getObject() {
+                return backfill;
+            }
+        };
     }
 
     static ProductListingTaskView validatedDryRun(
@@ -62,6 +106,11 @@ final class ProductListingTestFixtures {
         command.setProductTitleEn("Wired headphones with microphone");
         command.setProductTitleAr("Arabic wired headphones title");
         command.setImageUrls(List.of("https://example.test/images/sku-main.jpg"));
+        command.setImageAssetMetadata(List.of(Map.of(
+                "imageUrl", "https://example.test/images/sku-main.jpg",
+                "width", 1247,
+                "height", 1706
+        )));
         command.setPrice(new BigDecimal("49.90"));
         command.setPurchasePrice(new BigDecimal("19.90"));
         command.setSupplyEvidenceType("1688_OFFER");
@@ -106,6 +155,8 @@ final class ProductListingTestFixtures {
         private int callCount;
         private int continueAfterCreateCallCount;
         private int verifyReadBackCallCount;
+        private int resolveCreateReferenceCallCount;
+        private ProductListingNoonWriteStepResult createReferenceStep;
         private ProductListingNoonWriteRequest lastRequest;
         private String lastContinueSkuParent;
         private String lastContinuePskuCode;
@@ -154,6 +205,13 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public ProductListingNoonWriteStepResult resolveCreateReference(ProductListingNoonWriteRequest request) {
+            resolveCreateReferenceCallCount++;
+            lastRequest = request;
+            return createReferenceStep;
+        }
+
+        @Override
         public ProductListingNoonWriteStepResult verifyReadBack(
                 ProductListingNoonWriteRequest request,
                 String skuParent,
@@ -177,6 +235,15 @@ final class ProductListingTestFixtures {
 
         int verifyReadBackCallCount() {
             return verifyReadBackCallCount;
+        }
+
+        int resolveCreateReferenceCallCount() {
+            return resolveCreateReferenceCallCount;
+        }
+
+        TrackingNoonWriteAdapter withCreateReferenceStep(ProductListingNoonWriteStepResult step) {
+            this.createReferenceStep = step;
+            return this;
         }
 
         String lastContinueSkuParent() {
@@ -204,6 +271,7 @@ final class ProductListingTestFixtures {
 
         private long nextDraftId = 10001L;
         private long nextTaskId = 20001L;
+        private final ObjectMapper objectMapper = new ObjectMapper();
         private final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
         private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
         private ProductListingTaskRecord insertedTask;
@@ -251,6 +319,23 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public List<ProductListingDraftRecord> selectRecentDrafts(Long ownerUserId, String storeCode, int limit) {
+            List<ProductListingDraftRecord> result = new ArrayList<>();
+            for (ProductListingDraftRecord draft : drafts.values()) {
+                if (ownerUserId.equals(draft.getOwnerUserId())
+                        && storeCode.equals(draft.getStoreCode())
+                        && List.of("draft", "validation_failed", "ready_for_dry_run").contains(draft.getStatus())) {
+                    result.add(draft);
+                }
+            }
+            result.sort((left, right) -> Long.compare(right.getId(), left.getId()));
+            if (result.size() <= limit) {
+                return result;
+            }
+            return new ArrayList<>(result.subList(0, limit));
+        }
+
+        @Override
         public int insertTask(ProductListingTaskRecord task) {
             insertedTask = task;
             tasks.put(task.getId(), task);
@@ -283,19 +368,94 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public List<ProductListingTaskRecord> selectRecentTasksByDraftId(
+                Long ownerUserId,
+                String storeCode,
+                Long draftId,
+                int limit
+        ) {
+            return selectRecentTasks(ownerUserId, storeCode, limit).stream()
+                    .filter(task -> draftId.equals(task.getDraftId()))
+                    .limit(limit)
+                    .collect(java.util.stream.Collectors.toList());
+        }
+
+        @Override
         public ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(Long ownerUserId, Long sourceTaskId) {
             for (ProductListingTaskRecord task : tasks.values()) {
                 if (ownerUserId.equals(task.getOwnerUserId())
                         && sourceTaskId.equals(task.getSourceTaskId())
                         && "REAL_RUN".equals(task.getMode())
-                        && ("running".equals(task.getStatus())
-                        || "submitted".equals(task.getStatus())
-                        || "succeeded".equals(task.getStatus())
-                        || "failed".equals(task.getStatus())
-                        || "written_verify_failed".equals(task.getStatus()))) {
+                        && isRealWriteAttemptLocked(task)) {
                     return task;
                 }
             }
+            return null;
+        }
+
+        @Override
+        public ProductListingTaskRecord selectListedPartnerSkuTask(Long ownerUserId, String storeCode, String partnerSku) {
+            ProductListingTaskRecord latest = null;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (!ownerUserId.equals(task.getOwnerUserId())
+                        || !storeCode.equals(task.getStoreCode())
+                        || !"REAL_RUN".equals(task.getMode())
+                        || !isKnownListedPartnerSkuTask(task)
+                        || !normalize(partnerSku).equalsIgnoreCase(normalize(readPartnerSku(task)))) {
+                    continue;
+                }
+                if (latest == null || task.getId() > latest.getId()) {
+                    latest = task;
+                }
+            }
+            return latest;
+        }
+
+        @Override
+        public ProductListingTaskRecord selectReservedBarcodeTask(Long ownerUserId, String storeCode, String barcode) {
+            ProductListingTaskRecord latest = null;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (!ownerUserId.equals(task.getOwnerUserId())
+                        || !storeCode.equals(task.getStoreCode())
+                        || !"REAL_RUN".equals(task.getMode())
+                        || !List.of("submitted", "running", "succeeded", "written_verify_failed").contains(task.getStatus())
+                        || !normalize(barcode).equalsIgnoreCase(normalize(readBarcode(task)))) {
+                    continue;
+                }
+                if (latest == null || task.getId() > latest.getId()) {
+                    latest = task;
+                }
+            }
+            return latest;
+        }
+
+        @Override
+        public Integer acquireIdentityLock(String lockKey, int timeoutSeconds) {
+            return 1;
+        }
+
+        @Override
+        public Integer releaseIdentityLock(String lockKey) {
+            return 1;
+        }
+
+        @Override
+        public Long selectLocalProductIdByPartnerSku(
+                Long ownerUserId,
+                String storeCode,
+                String partnerSku,
+                Long excludeListingDraftId
+        ) {
+            return null;
+        }
+
+        @Override
+        public Long selectLocalProductIdByBarcode(
+                Long ownerUserId,
+                String storeCode,
+                String barcode,
+                Long excludeListingDraftId
+        ) {
             return null;
         }
 
@@ -325,6 +485,40 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public List<ProductListingTaskRecord> selectRunnableRealRunTasks(int limit) {
+            List<ProductListingTaskRecord> result = new ArrayList<>();
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if ("REAL_RUN".equals(task.getMode()) && "submitted".equals(task.getStatus())) {
+                    result.add(task);
+                }
+            }
+            result.sort((left, right) -> Long.compare(left.getId(), right.getId()));
+            if (result.size() <= limit) {
+                return result;
+            }
+            return new ArrayList<>(result.subList(0, limit));
+        }
+
+        @Override
+        public int recoverStaleRunningRealRunTasks(java.time.LocalDateTime staleBefore) {
+            int recovered = 0;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if ("REAL_RUN".equals(task.getMode())
+                        && "running".equals(task.getStatus())
+                        && task.getStartedAt() != null
+                        && task.getStartedAt().isBefore(staleBefore)) {
+                    task.setStatus("written_verify_failed");
+                    task.setFailureCategory("recovery");
+                    task.setFailureCode("real_run_interrupted");
+                    task.setFailureMessage("真实上架任务执行中断，需人工核对。");
+                    task.setCompletedAt(java.time.LocalDateTime.now());
+                    recovered++;
+                }
+            }
+            return recovered;
+        }
+
+        @Override
         public int updateTaskResult(ProductListingTaskRecord task) {
             updatedTask = task;
             tasks.put(task.getId(), task);
@@ -351,6 +545,58 @@ final class ProductListingTestFixtures {
 
         ProductListingTaskRecord updatedTask() {
             return updatedTask;
+        }
+
+        void forceRunning(Long taskId, java.time.LocalDateTime startedAt) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null) {
+                throw new IllegalArgumentException("Task not found: " + taskId);
+            }
+            task.setStatus("running");
+            task.setStartedAt(startedAt);
+            tasks.put(taskId, task);
+        }
+
+        private boolean isRealWriteAttemptLocked(ProductListingTaskRecord task) {
+            return "running".equals(task.getStatus())
+                    || "submitted".equals(task.getStatus())
+                    || "succeeded".equals(task.getStatus())
+                    || "written_verify_failed".equals(task.getStatus())
+                    || ("failed".equals(task.getStatus())
+                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+        }
+
+        private boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {
+            return "succeeded".equals(task.getStatus())
+                    || "written_verify_failed".equals(task.getStatus())
+                    || ("failed".equals(task.getStatus())
+                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+        }
+
+        private String readPartnerSku(ProductListingTaskRecord task) {
+            try {
+                ProductListingDraftCommand command = objectMapper.readValue(
+                        task.getInputSnapshotJson(),
+                        ProductListingDraftCommand.class
+                );
+                return normalize(command.getPsku());
+            } catch (Exception exception) {
+                throw new IllegalStateException("Failed to read test partner SKU.", exception);
+            }
+        }
+
+        private String readBarcode(ProductListingTaskRecord task) {
+            try {
+                return normalize(objectMapper.readValue(
+                        task.getInputSnapshotJson(), ProductListingDraftCommand.class
+                ).getBarcode());
+            } catch (Exception exception) {
+                throw new IllegalStateException("Failed to read test barcode.", exception);
+            }
+        }
+
+        private String normalize(String value) {
+            return value == null ? "" : value.trim();
         }
     }
 }

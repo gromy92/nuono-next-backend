@@ -11,6 +11,7 @@ public class ProductAttributeDictionaryFieldRecord {
     private String attributeCode;
     private String labelEn;
     private String labelAr;
+    private String labelZh;
     private String groupName;
     private String inputKind;
     private Boolean required;
@@ -74,6 +75,14 @@ public class ProductAttributeDictionaryFieldRecord {
 
     public void setLabelAr(String labelAr) {
         this.labelAr = labelAr;
+    }
+
+    public String getLabelZh() {
+        return labelZh;
+    }
+
+    public void setLabelZh(String labelZh) {
+        this.labelZh = labelZh;
     }
 
     public String getGroupName() {

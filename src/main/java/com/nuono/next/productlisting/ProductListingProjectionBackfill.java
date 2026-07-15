@@ -7,7 +7,7 @@ public interface ProductListingProjectionBackfill {
             ProductListingDraftCommand draft
     );
 
-    void backfillSuccessfulListing(
+    boolean backfillSuccessfulListing(
             ProductListingTaskRecord task,
             ProductListingDraftCommand draft,
             ProductListingNoonWriteResult result
@@ -23,11 +23,12 @@ public interface ProductListingProjectionBackfill {
             }
 
             @Override
-            public void backfillSuccessfulListing(
+            public boolean backfillSuccessfulListing(
                     ProductListingTaskRecord task,
                     ProductListingDraftCommand draft,
                     ProductListingNoonWriteResult result
             ) {
+                return false;
             }
         };
     }

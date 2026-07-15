@@ -110,6 +110,43 @@ class NoonRealProviderBehaviorTest {
     }
 
     @Test
+    void bindingResolverShouldNotMixOwnerEmailOtpCredentialIntoStorePasswordAccount() {
+        StoreSyncStoreRecord store = boundStore();
+        store.setProjectCode("PRJ108065");
+        store.setStoreCode("STR108065-NSA");
+        store.setSite("SA");
+        store.setNoonPartnerId("108065");
+        store.setNoonPartnerProjectUser("nuonuo1@p108065.idp.noon.partners");
+        store.setNoonPartnerUser("nuonuo1@p108065.idp.noon.partners");
+        store.setNoonPartnerMailAuthCode(null);
+        store.setNoonPartnerPwd("canman-password");
+        StoreSyncOwnerContext owner = new StoreSyncOwnerContext();
+        owner.setNoonPartnerUser("xingyaoqw@163.com");
+        owner.setNoonPartnerMailAuthCode("xingyao-mail-auth-code");
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR108065-NSA")).thenReturn(store);
+        when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
+        RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
+        session.enqueuePostResponse(objectMapper.createObjectNode()
+                .set("data", objectMapper.createObjectNode()
+                        .put("total", 0)
+                        .set("hits", objectMapper.createArrayNode())));
+        RecordingGatewaySessionFactory sessionFactory = new RecordingGatewaySessionFactory(session);
+        RealNoonProductInterfaceSmokeProvider provider = new RealNoonProductInterfaceSmokeProvider(
+                objectMapper,
+                new NoonPullStoreBindingResolver(storeSyncMapper),
+                sessionFactory,
+                OFFER_LIST_URL,
+                100
+        );
+
+        provider.fetchPage(productRequest("STR108065-NSA", "SA"), 1);
+
+        assertEquals("nuonuo1@p108065.idp.noon.partners", sessionFactory.lastBinding.getNoonUser());
+        assertEquals("canman-password", sessionFactory.lastBinding.getNoonPassword());
+        assertEquals(null, sessionFactory.lastBinding.getNoonEmailAuthCode());
+    }
+
+    @Test
     void salesReportProviderShouldCreatePollAndDownloadThroughGatewaySession() throws Exception {
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(boundStore());
         RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
@@ -365,10 +402,14 @@ class NoonRealProviderBehaviorTest {
     }
 
     private NoonInterfacePullRequest productRequest() {
+        return productRequest("STR245027-NAE", "AE");
+    }
+
+    private NoonInterfacePullRequest productRequest(String storeCode, String siteCode) {
         return NoonInterfacePullRequest.builder()
                 .ownerUserId(10002L)
-                .storeCode("STR245027-NAE")
-                .siteCode("AE")
+                .storeCode(storeCode)
+                .siteCode(siteCode)
                 .dataDomain(NoonPullDataDomain.PRODUCT)
                 .targetIdentity("catalog:list")
                 .build();

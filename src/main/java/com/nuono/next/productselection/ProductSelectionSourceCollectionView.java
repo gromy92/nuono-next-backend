@@ -28,6 +28,10 @@ public class ProductSelectionSourceCollectionView {
     private String unitCount;
     private String colorName;
     private List<String> specHints = new ArrayList<>();
+    private String categoryName;
+    private String categoryPath;
+    private String categoryUrl;
+    private List<ProductSelectionCompetitorCategoryLink> categoryLinks = new ArrayList<>();
     private String sourceDescriptionEn;
     private String sourceDescriptionAr;
     private List<String> sourceSellingPointsEn = new ArrayList<>();
@@ -229,6 +233,38 @@ public class ProductSelectionSourceCollectionView {
 
     public void setSpecHints(List<String> specHints) {
         this.specHints = specHints;
+    }
+
+    public String getCategoryName() {
+        return categoryName;
+    }
+
+    public void setCategoryName(String categoryName) {
+        this.categoryName = categoryName;
+    }
+
+    public String getCategoryPath() {
+        return categoryPath;
+    }
+
+    public void setCategoryPath(String categoryPath) {
+        this.categoryPath = categoryPath;
+    }
+
+    public String getCategoryUrl() {
+        return categoryUrl;
+    }
+
+    public void setCategoryUrl(String categoryUrl) {
+        this.categoryUrl = categoryUrl;
+    }
+
+    public List<ProductSelectionCompetitorCategoryLink> getCategoryLinks() {
+        return categoryLinks;
+    }
+
+    public void setCategoryLinks(List<ProductSelectionCompetitorCategoryLink> categoryLinks) {
+        this.categoryLinks = categoryLinks == null ? new ArrayList<>() : new ArrayList<>(categoryLinks);
     }
 
     public String getSourceDescriptionEn() {

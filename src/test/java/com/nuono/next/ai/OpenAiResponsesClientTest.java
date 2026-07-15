@@ -1,11 +1,17 @@
 package com.nuono.next.ai;
 
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -151,6 +157,101 @@ class OpenAiResponsesClientTest {
         Assertions.assertEquals("Cannot help with that.", result.getRefusal());
     }
 
+    @Test
+    void shouldReturnLocalizedRequestFailureMessageWithoutEndpointUrl() {
+        AiProperties properties = properties();
+        properties.getOpenai().setBaseUrl("file:///tmp/aicodelink");
+        OpenAiResponsesClient client = new OpenAiResponsesClient(properties, objectMapper);
+        AiStructuredTextCommand command = new AiStructuredTextCommand();
+        command.setPrompt("merge competitor title");
+
+        AiStructuredTextResult result = client.createStructuredText(command);
+
+        Assertions.assertEquals(AiResultStatus.AI_PROVIDER_ERROR, result.getStatus());
+        Assertions.assertEquals("OPENAI_REQUEST_FAILED", result.getErrorCode());
+        Assertions.assertTrue(result.getErrorMessage().contains("AI 服务连接失败"));
+        Assertions.assertFalse(result.getErrorMessage().contains("file:///tmp/aicodelink"));
+    }
+
+    @Test
+    void shouldSendExplicitUserAgentToProvider() throws Exception {
+        AtomicReference<String> userAgent = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/responses", exchange -> {
+            userAgent.set(exchange.getRequestHeaders().getFirst("User-Agent"));
+            byte[] response = ("{"
+                    + "\"id\":\"resp_user_agent\","
+                    + "\"status\":\"completed\","
+                    + "\"model\":\"gpt-5.4-mini\","
+                    + "\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"summary\\\":\\\"ok\\\"}\"}]}]"
+                    + "}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream outputStream = exchange.getResponseBody()) {
+                outputStream.write(response);
+            }
+        });
+        server.start();
+        try {
+            AiProperties properties = properties();
+            properties.getOpenai().setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+            OpenAiResponsesClient client = new OpenAiResponsesClient(properties, objectMapper);
+            AiStructuredTextCommand command = new AiStructuredTextCommand();
+            command.setPrompt("merge competitor title");
+
+            AiStructuredTextResult result = client.createStructuredText(command);
+
+            Assertions.assertTrue(result.isSuccess(), result.getErrorMessage());
+            Assertions.assertEquals("NuonoNext-AI/1.0", userAgent.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void shouldFallbackToCurlWhenEnabledAndJavaConnectionIsClosed() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(isCurlAvailable());
+        List<String> userAgents = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/responses", exchange -> {
+            userAgents.add(exchange.getRequestHeaders().getFirst("User-Agent"));
+            if (userAgents.size() == 1) {
+                exchange.close();
+                return;
+            }
+            byte[] response = ("{"
+                    + "\"id\":\"resp_curl_fallback\","
+                    + "\"status\":\"completed\","
+                    + "\"model\":\"gpt-5.4-mini\","
+                    + "\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"summary\\\":\\\"curl ok\\\"}\"}]}]"
+                    + "}").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            try (OutputStream outputStream = exchange.getResponseBody()) {
+                outputStream.write(response);
+            }
+        });
+        server.start();
+        try {
+            AiProperties properties = properties();
+            properties.getOpenai().setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
+            properties.getOpenai().setCurlFallbackEnabled(true);
+            OpenAiResponsesClient client = new OpenAiResponsesClient(properties, objectMapper);
+            AiStructuredTextCommand command = new AiStructuredTextCommand();
+            command.setPrompt("merge competitor title");
+
+            AiStructuredTextResult result = client.createStructuredText(command);
+
+            Assertions.assertTrue(result.isSuccess(), result.getErrorMessage());
+            Assertions.assertEquals("curl ok", result.getParsedJson().get("summary"));
+            Assertions.assertEquals(2, userAgents.size());
+            Assertions.assertEquals("NuonoNext-AI/1.0", userAgents.get(0));
+            Assertions.assertTrue(userAgents.get(1).startsWith("curl/"), userAgents.toString());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private AiProperties properties() {
         AiProperties properties = new AiProperties();
         properties.setEnabled(true);
@@ -164,5 +265,14 @@ class OpenAiResponsesClientTest {
             result.put(String.valueOf(values[index]), values[index + 1]);
         }
         return result;
+    }
+
+    private boolean isCurlAvailable() {
+        try {
+            Process process = new ProcessBuilder("curl", "--version").start();
+            return process.waitFor() == 0;
+        } catch (Exception exception) {
+            return false;
+        }
     }
 }

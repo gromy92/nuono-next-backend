@@ -342,6 +342,10 @@ class ProductSelectionGroupService {
             target.setFetchedSellingPointsAr(normalizeList(result.getSourceSellingPointsAr(), 12));
             target.setFetchedSourceHost(defaultText(urlHost(defaultText(result.getPageUrl(), result.getSourceUrl())), urlHost(url)));
             target.setFetchedPriceSummary(defaultText(result.getPriceSummary(), ""));
+            target.setFetchedCategoryName(defaultText(view.getCategoryName(), ""));
+            target.setFetchedCategoryPath(defaultText(view.getCategoryPath(), ""));
+            target.setFetchedCategoryUrl(defaultText(view.getCategoryUrl(), ""));
+            target.setFetchedCategoryLinks(view.getCategoryLinks());
             target.setFetchedCompleteness(view.getCollectedFieldCount() + "/" + view.getCollectedFieldTotal());
             target.setFetchedCollectionSource("系统采集");
             target.setFetchedAt(nowText());
@@ -377,6 +381,10 @@ class ProductSelectionGroupService {
         target.setFetchedSellingPointsAr(source.getFetchedSellingPointsAr());
         target.setFetchedSourceHost(source.getFetchedSourceHost());
         target.setFetchedPriceSummary(source.getFetchedPriceSummary());
+        target.setFetchedCategoryName(source.getFetchedCategoryName());
+        target.setFetchedCategoryPath(source.getFetchedCategoryPath());
+        target.setFetchedCategoryUrl(source.getFetchedCategoryUrl());
+        target.setFetchedCategoryLinks(source.getFetchedCategoryLinks());
         target.setFetchedCompleteness(source.getFetchedCompleteness());
         target.setFetchedCollectionSource(source.getFetchedCollectionSource());
         target.setFetchedAt(source.getFetchedAt());

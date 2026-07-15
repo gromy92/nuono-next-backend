@@ -160,6 +160,131 @@ class ProductListingServiceTest {
     }
 
     @Test
+    void saveDraftPersistsExplicitBarcodeRemoval() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView created = service.saveDraft(context, validCommand());
+        ProductListingDraftCommand update = validCommand();
+        update.setDraftId(created.getDraftId());
+        update.setBarcode(null);
+        update.setKeyAttributes(List.of(Map.of(
+                "code", "barcode",
+                "commonValue", "",
+                "enValue", "",
+                "arValue", ""
+        )));
+
+        ProductListingDraftView saved = service.saveDraft(context, update);
+        ProductListingDraftView loaded = service.loadDraft(context, saved.getDraftId());
+
+        assertEquals(null, loaded.getDraft().getBarcode());
+        assertEquals("", loaded.getDraft().getKeyAttributes().get(0).get("commonValue"));
+    }
+
+    @Test
+    void saveDraftPreservesCompetitorMaterialsForDraftRecovery() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        Map<String, Object> competitor = new LinkedHashMap<>();
+        competitor.put("id", "noon-zsku-1");
+        competitor.put("sourceHost", "Noon");
+        competitor.put("externalSku", "ZCOMPETITOR1");
+        competitor.put("titleEn", "Competitor rugged case");
+        competitor.put("sellingPointsEn", List.of("Competitor selling point"));
+        command.setCompetitorMaterials(List.of(competitor));
+
+        ProductListingDraftView saved = service.saveDraft(context, command);
+        ProductListingDraftView loaded = service.loadDraft(context, saved.getDraftId());
+
+        assertEquals("Competitor rugged case", loaded.getDraft().getCompetitorMaterials().get(0).get("titleEn"));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"competitorMaterials\""));
+        assertTrue(mapper.insertedDraft().getDraftJson().contains("\"ZCOMPETITOR1\""));
+    }
+
+    @Test
+    void updateDraftDoesNotClearExistingTaxonomyAndBrandWithBlankHydrationPayload() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView created = service.saveDraft(context, validCommand());
+        ProductListingDraftCommand update = validCommand();
+        update.setDraftId(created.getDraftId());
+        update.setPsku("NN-TEST-PSKU-UPDATED");
+        update.setIdProductFullType(null);
+        update.setProductFullType(null);
+        update.setFamily(null);
+        update.setProductType(null);
+        update.setProductSubType(null);
+        update.setProductBrand(null);
+        update.setProductBrandCode(null);
+
+        ProductListingDraftView saved = service.saveDraft(context, update);
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(saved.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        ProductListingTaskView task = service.submitDryRun(context, dryRunCommand);
+
+        assertEquals("NN-TEST-PSKU-UPDATED", saved.getDraft().getPsku());
+        assertEquals("electronic_accessories-headphones-wired_headphones", saved.getDraft().getProductFullType());
+        assertEquals("Generic", saved.getDraft().getProductBrand());
+        assertEquals("validated", task.getStatus());
+        assertTrue(mapper.insertedTask().getInputSnapshotJson()
+                .contains("\"productFullType\":\"electronic_accessories-headphones-wired_headphones\""));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"productBrand\":\"Generic\""));
+    }
+
+    @Test
+    void updateDraftDoesNotCarryOldTaxonomyLabelsWhenProductFullTypeChanges() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand first = validCommand();
+        first.setFamily("Electronic Accessories");
+        first.setProductType("Headphones");
+        first.setProductSubType("Wired Headphones");
+        ProductListingDraftView created = service.saveDraft(context, first);
+        ProductListingDraftCommand update = validCommand();
+        update.setDraftId(created.getDraftId());
+        update.setPsku("NN-TEST-PSKU-FULLTYPE-CHANGED");
+        update.setIdProductFullType(null);
+        update.setProductFullType("electronic_accessories-phone_accessories-phone_grips_stands");
+        update.setFamily(null);
+        update.setProductType(null);
+        update.setProductSubType(null);
+
+        ProductListingDraftView saved = service.saveDraft(context, update);
+
+        assertEquals("electronic_accessories-phone_accessories-phone_grips_stands", saved.getDraft().getProductFullType());
+        assertEquals(null, saved.getDraft().getIdProductFullType());
+        assertEquals(null, saved.getDraft().getFamily());
+        assertEquals(null, saved.getDraft().getProductType());
+        assertEquals(null, saved.getDraft().getProductSubType());
+    }
+
+    @Test
+    void updateDraftTreatsExplicitProductFullTypeAsSourceOfTruth() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand first = validCommand();
+        first.setIdProductFullType(3066L);
+        first.setProductFullType("electronic_accessories-phone_accessories-phone_grips_stands");
+        first.setFamily("Electronic Accessories");
+        first.setProductType("Headphones");
+        first.setProductSubType("Wired Headphones");
+        ProductListingDraftView created = service.saveDraft(context, first);
+        ProductListingDraftCommand update = validCommand();
+        update.setDraftId(created.getDraftId());
+        update.setPsku("NN-TEST-PSKU-SAME-FULLTYPE");
+        update.setIdProductFullType(3066L);
+        update.setProductFullType("electronic_accessories-phone_accessories-phone_grips_stands");
+        update.setFamily("Electronic Accessories");
+        update.setProductType("Headphones");
+        update.setProductSubType("Wired Headphones");
+
+        ProductListingDraftView saved = service.saveDraft(context, update);
+
+        assertEquals("electronic_accessories-phone_accessories-phone_grips_stands", saved.getDraft().getProductFullType());
+        assertEquals(null, saved.getDraft().getIdProductFullType());
+        assertEquals(null, saved.getDraft().getFamily());
+        assertEquals(null, saved.getDraft().getProductType());
+        assertEquals(null, saved.getDraft().getProductSubType());
+    }
+
+    @Test
     void saveDraftPreservesContentCopyInDryRunSnapshot() throws Exception {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         String json = "{"
@@ -219,6 +344,51 @@ class ProductListingServiceTest {
     }
 
     @Test
+    void saveDraftReusesActiveSourceDraftWhenDraftIdIsMissing() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand first = validCommand();
+        first.setSourceType("manual_selection_group");
+        first.setSourceRefId(91002L);
+        ProductListingDraftView created = service.saveDraft(context, first);
+        ProductListingDraftCommand second = validCommand();
+        second.setSourceType("manual_selection_group");
+        second.setSourceRefId(91002L);
+        second.setProductTitleEn("Updated title from manual selection group");
+        mapper.resetUpdateCount();
+
+        ProductListingDraftView updated = service.saveDraft(context, second);
+
+        assertEquals(created.getDraftId(), updated.getDraftId());
+        assertEquals(1, mapper.updateCount());
+        assertEquals("Updated title from manual selection group", updated.getDraft().getProductTitleEn());
+    }
+
+    @Test
+    void listDraftsReturnsCurrentStoreEditableDraftsWithPayload() {
+        BusinessAccessContext aeContext = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand first = validCommand();
+        first.setPsku("NN-DRAFT-ONE");
+        service.saveDraft(aeContext, first);
+        ProductListingDraftCommand second = validCommand();
+        second.setPsku("NN-DRAFT-TWO");
+        second.setProductTitleEn("Second listing draft title");
+        ProductListingDraftView latest = service.saveDraft(aeContext, second);
+        BusinessAccessContext saContext = businessContext(10002L, 90002L, "STR245027-NSA");
+        ProductListingDraftCommand otherStore = validCommand();
+        otherStore.setStoreCode("STR245027-NSA");
+        otherStore.setPsku("NN-DRAFT-SA");
+        service.saveDraft(saContext, otherStore);
+
+        List<ProductListingDraftView> drafts = service.listDrafts(aeContext, "STR245027-NAE", 20);
+
+        assertEquals(2, drafts.size());
+        assertEquals(latest.getDraftId(), drafts.get(0).getDraftId());
+        assertEquals("NN-DRAFT-TWO", drafts.get(0).getDraft().getPsku());
+        assertEquals("Second listing draft title", drafts.get(0).getDraft().getProductTitleEn());
+        assertTrue(drafts.stream().noneMatch(draft -> "STR245027-NSA".equals(draft.getStoreCode())));
+    }
+
+    @Test
     void saveDraftPreservesOfferFieldsInDryRunSnapshot() {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand command = validCommand();
@@ -257,6 +427,152 @@ class ProductListingServiceTest {
         assertEquals("validation_failed", task.getStatus());
         assertTrue(task.getValidationIssues().stream()
                 .anyMatch(issue -> "purchasePrice".equals(issue.getFieldKey())));
+    }
+
+    @Test
+    void dryRunTaskFailsWhenPartnerSkuAlreadyHasSuccessfulListingTask() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        mapper.seedSuccessfulRealRun(10002L, "STR245027-NAE", validCommand());
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validation_failed", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .anyMatch(issue -> "psku".equals(issue.getFieldKey())
+                        && "partner_sku_already_exists".equals(issue.getCode())));
+    }
+
+    @Test
+    void saveDraftFailsWhenPartnerSkuAlreadyExistsInLocalStore() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        mapper.seedLocalPartnerSku(10002L, "STR245027-NAE", "NN-TEST-PSKU", 60001L);
+
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+
+        assertEquals("draft", draft.getStatus());
+        assertTrue(draft.getValidationIssues().stream()
+                .anyMatch(issue -> "psku".equals(issue.getFieldKey())
+                        && "partner_sku_already_exists".equals(issue.getCode())
+                        && issue.getMessage().contains("本地店铺")));
+    }
+
+    @Test
+    void dryRunTaskFailsWhenBarcodeAlreadyExistsInLocalStore() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        mapper.seedLocalBarcode(10002L, "STR245027-NAE", "6290000000001", 60002L);
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validation_failed", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .anyMatch(issue -> "barcode".equals(issue.getFieldKey())
+                        && "barcode_already_exists".equals(issue.getCode())
+                        && issue.getMessage().contains("本地店铺")));
+    }
+
+    @Test
+    void dryRunAllowsLocalProjectionCreatedBySameDraft() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        mapper.seedLocalPartnerSku(10002L, "STR245027-NAE", "NN-TEST-PSKU", 60003L, draft.getDraftId());
+        mapper.seedLocalBarcode(10002L, "STR245027-NAE", "6290000000001", 60003L, draft.getDraftId());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .noneMatch(issue -> "partner_sku_already_exists".equals(issue.getCode())
+                        || "barcode_already_exists".equals(issue.getCode())));
+    }
+
+    @Test
+    void dryRunAllowsProductRebuildToReuseSourceProductPartnerSkuAndBarcode() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand rebuild = validProductRebuildCommand(60004L);
+        mapper.seedLocalPartnerSku(10002L, "STR245027-NAE", "NN-TEST-PSKU", 60004L);
+        mapper.seedLocalBarcode(10002L, "STR245027-NAE", "6290000000001", 60004L);
+        mapper.seedSuccessfulRealRun(10002L, "STR245027-NAE", validCommand());
+        ProductListingDraftView draft = service.saveDraft(context, rebuild);
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .noneMatch(issue -> "partner_sku_already_exists".equals(issue.getCode())
+                        || "barcode_already_exists".equals(issue.getCode())));
+    }
+
+    @Test
+    void dryRunAllowsPartnerSkuAfterSuccessfulProductDelete() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        mapper.seedSuccessfulRealRun(10002L, "STR245027-NAE", validCommand());
+        mapper.seedSuccessfulProductDelete(10002L, "STR245027-NAE", "NN-TEST-PSKU");
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView task = service.submitDryRun(context, command);
+
+        assertEquals("validated", task.getStatus());
+        assertTrue(task.getValidationIssues().stream()
+                .noneMatch(issue -> "partner_sku_already_exists".equals(issue.getCode())));
+    }
+
+    @Test
+    void confirmedRealRunAllowsProductRebuildToReuseHistoricalPartnerSkuTask() {
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setEnabled(true);
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        mapper.seedSuccessfulRealRun(10002L, "STR245027-NAE", validCommand());
+        ProductListingDraftView draft = service.saveDraft(context, validProductRebuildCommand(60004L));
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        ProductListingTaskView dryRun = service.submitDryRun(context, dryRunCommand);
+        ProductListingRealRunCommand confirmCommand = new ProductListingRealRunCommand();
+        confirmCommand.setConfirmRealNoonWrite(true);
+
+        ProductListingTaskView realRun = service.confirmRealRun(context, dryRun.getTaskId(), confirmCommand);
+
+        assertEquals("submitted", realRun.getStatus());
+    }
+
+    @Test
+    void confirmedRealRunRejectsStaleValidatedDryRunWhenPartnerSkuAlreadyExists() {
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setEnabled(true);
+        service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
+        dryRunCommand.setDraftId(draft.getDraftId());
+        dryRunCommand.setStoreCode("STR245027-NAE");
+        ProductListingTaskView staleDryRun = service.submitDryRun(context, dryRunCommand);
+        mapper.seedSuccessfulRealRun(10002L, "STR245027-NAE", validCommand());
+        ProductListingRealRunCommand confirmCommand = new ProductListingRealRunCommand();
+        confirmCommand.setConfirmRealNoonWrite(true);
+
+        ProductListingTaskView realRun = service.confirmRealRun(context, staleDryRun.getTaskId(), confirmCommand);
+
+        assertEquals("rejected", realRun.getStatus());
+        assertEquals("partner_sku_already_exists", realRun.getFailureCode());
+        assertTrue(realRun.getFailureMessage().contains("PSKU 已存在"));
     }
 
     @Test
@@ -330,6 +646,27 @@ class ProductListingServiceTest {
         );
     }
 
+    @Test
+    void fieldValidationReturnsDuplicatePskuAndBarcodeWithoutSavingDraft() {
+        BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand command = validCommand();
+        mapper.seedLocalProduct(
+                10002L,
+                "STR245027-NAE",
+                "NN-TEST-PSKU",
+                "6290000000001",
+                88001L,
+                null
+        );
+
+        ProductListingFieldValidationView view = service.validateFields(context, command);
+
+        assertIssue(view.getIssues(), "psku", "partner_sku_already_exists");
+        assertIssue(view.getIssues(), "barcode", "barcode_already_exists");
+        assertEquals(null, mapper.insertedDraft());
+        assertEquals(0, mapper.updateCount());
+    }
+
     private ProductListingDraftCommand validCommand() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
         command.setStoreCode("STR245027-NAE");
@@ -341,6 +678,11 @@ class ProductListingServiceTest {
         command.setProductTitleEn("Wired headphones with microphone");
         command.setProductTitleAr("Arabic wired headphones title");
         command.setImageUrls(List.of("https://example.test/images/sku-main.jpg"));
+        command.setImageAssetMetadata(List.of(Map.of(
+                "imageUrl", "https://example.test/images/sku-main.jpg",
+                "width", 1247,
+                "height", 1706
+        )));
         command.setPrice(new BigDecimal("49.90"));
         command.setPurchasePrice(new BigDecimal("19.90"));
         command.setSupplyEvidenceType("1688_OFFER");
@@ -351,6 +693,14 @@ class ProductListingServiceTest {
         command.setQuantity(100);
         command.setIdWarranty(24);
         command.setBarcode("6290000000001");
+        return command;
+    }
+
+    private ProductListingDraftCommand validProductRebuildCommand(Long productMasterId) {
+        ProductListingDraftCommand command = validCommand();
+        command.setSourceType("PRODUCT_REBUILD");
+        command.setSourceRefId(productMasterId);
+        command.setRebuildSourceProductMasterId(productMasterId);
         return command;
     }
 
@@ -389,15 +739,43 @@ class ProductListingServiceTest {
                 "Unexpected warning " + code);
     }
 
+    private void assertIssue(List<ProductListingValidationIssue> issues, String fieldKey, String code) {
+        assertTrue(issues.stream().anyMatch(issue ->
+                        fieldKey.equals(issue.getFieldKey())
+                                && code.equals(issue.getCode())
+                                && "error".equals(issue.getSeverity())),
+                "Expected issue " + fieldKey + "/" + code);
+    }
+
     private static class FakeProductListingMapper implements ProductListingMapper {
 
         private long nextDraftId = 10001L;
         private long nextTaskId = 20001L;
         private final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
         private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
+        private final Map<String, Long> localPartnerSkuProducts = new LinkedHashMap<>();
+        private final Map<String, Long> localBarcodeProducts = new LinkedHashMap<>();
+        private final Map<Long, Long> localProductListingDraftIds = new LinkedHashMap<>();
+        private final Set<String> deletedPartnerSkus = new java.util.LinkedHashSet<>();
+        private final ObjectMapper objectMapper = new ObjectMapper();
         private ProductListingDraftRecord insertedDraft;
         private ProductListingTaskRecord insertedTask;
         private int updateCount;
+
+        void seedLocalProduct(
+                Long ownerUserId,
+                String storeCode,
+                String partnerSku,
+                String barcode,
+                Long productMasterId,
+                Long listingDraftId
+        ) {
+            localPartnerSkuProducts.put(localProductKey(ownerUserId, storeCode, partnerSku), productMasterId);
+            localBarcodeProducts.put(localProductKey(ownerUserId, storeCode, barcode), productMasterId);
+            if (listingDraftId != null) {
+                localProductListingDraftIds.put(productMasterId, listingDraftId);
+            }
+        }
 
         @Override
         public int allocateProductListingId(IdSequenceCommand command) {
@@ -439,7 +817,37 @@ class ProductListingServiceTest {
 
         @Override
         public Long findActiveDraftId(Long ownerUserId, String storeCode, String sourceType, Long sourceRefId) {
-            return null;
+            Long latest = null;
+            for (ProductListingDraftRecord draft : drafts.values()) {
+                if (!ownerUserId.equals(draft.getOwnerUserId())
+                        || !storeCode.equals(draft.getStoreCode())
+                        || !sourceType.equals(draft.getSourceType())
+                        || !sourceRefId.equals(draft.getSourceRefId())
+                        || !List.of("draft", "validation_failed", "ready_for_dry_run").contains(draft.getStatus())) {
+                    continue;
+                }
+                if (latest == null || draft.getId() > latest) {
+                    latest = draft.getId();
+                }
+            }
+            return latest;
+        }
+
+        @Override
+        public List<ProductListingDraftRecord> selectRecentDrafts(Long ownerUserId, String storeCode, int limit) {
+            List<ProductListingDraftRecord> result = new ArrayList<>();
+            for (ProductListingDraftRecord draft : drafts.values()) {
+                if (ownerUserId.equals(draft.getOwnerUserId())
+                        && storeCode.equals(draft.getStoreCode())
+                        && List.of("draft", "validation_failed", "ready_for_dry_run").contains(draft.getStatus())) {
+                    result.add(draft);
+                }
+            }
+            result.sort((left, right) -> Long.compare(right.getId(), left.getId()));
+            if (result.size() <= limit) {
+                return result;
+            }
+            return new ArrayList<>(result.subList(0, limit));
         }
 
         @Override
@@ -475,20 +883,107 @@ class ProductListingServiceTest {
         }
 
         @Override
+        public List<ProductListingTaskRecord> selectRecentTasksByDraftId(
+                Long ownerUserId,
+                String storeCode,
+                Long draftId,
+                int limit
+        ) {
+            return selectRecentTasks(ownerUserId, storeCode, limit).stream()
+                    .filter(task -> draftId.equals(task.getDraftId()))
+                    .limit(limit)
+                    .collect(java.util.stream.Collectors.toList());
+        }
+
+        @Override
         public ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(Long ownerUserId, Long sourceTaskId) {
             for (ProductListingTaskRecord task : tasks.values()) {
                 if (ownerUserId.equals(task.getOwnerUserId())
                         && sourceTaskId.equals(task.getSourceTaskId())
                         && "REAL_RUN".equals(task.getMode())
-                        && ("running".equals(task.getStatus())
-                        || "submitted".equals(task.getStatus())
-                        || "succeeded".equals(task.getStatus())
-                        || "failed".equals(task.getStatus())
-                        || "written_verify_failed".equals(task.getStatus()))) {
+                        && isRealWriteAttemptLocked(task)) {
                     return task;
                 }
             }
             return null;
+        }
+
+        @Override
+        public ProductListingTaskRecord selectListedPartnerSkuTask(Long ownerUserId, String storeCode, String partnerSku) {
+            ProductListingTaskRecord latest = null;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (!ownerUserId.equals(task.getOwnerUserId())
+                        || !storeCode.equals(task.getStoreCode())
+                        || !"REAL_RUN".equals(task.getMode())
+                        || !isKnownListedPartnerSkuTask(task)
+                        || !normalize(partnerSku).equalsIgnoreCase(normalize(readPartnerSku(task)))) {
+                    continue;
+                }
+                if (deletedPartnerSkus.contains(localProductKey(ownerUserId, storeCode, partnerSku))) {
+                    continue;
+                }
+                if (latest == null || task.getId() > latest.getId()) {
+                    latest = task;
+                }
+            }
+            return latest;
+        }
+
+        @Override
+        public ProductListingTaskRecord selectReservedBarcodeTask(Long ownerUserId, String storeCode, String barcode) {
+            ProductListingTaskRecord latest = null;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (!ownerUserId.equals(task.getOwnerUserId())
+                        || !storeCode.equals(task.getStoreCode())
+                        || !"REAL_RUN".equals(task.getMode())
+                        || !List.of("submitted", "running", "succeeded", "written_verify_failed").contains(task.getStatus())
+                        || !normalize(barcode).equalsIgnoreCase(normalize(readBarcode(task)))) {
+                    continue;
+                }
+                if (deletedPartnerSkus.contains(localProductKey(ownerUserId, storeCode, readPartnerSku(task)))) {
+                    continue;
+                }
+                if (latest == null || task.getId() > latest.getId()) {
+                    latest = task;
+                }
+            }
+            return latest;
+        }
+
+        @Override
+        public Integer acquireIdentityLock(String lockKey, int timeoutSeconds) {
+            return 1;
+        }
+
+        @Override
+        public Integer releaseIdentityLock(String lockKey) {
+            return 1;
+        }
+
+        @Override
+        public Long selectLocalProductIdByPartnerSku(
+                Long ownerUserId,
+                String storeCode,
+                String partnerSku,
+                Long excludeListingDraftId
+        ) {
+            return localProductIdUnlessOwnedByDraft(
+                    localPartnerSkuProducts.get(localProductKey(ownerUserId, storeCode, partnerSku)),
+                    excludeListingDraftId
+            );
+        }
+
+        @Override
+        public Long selectLocalProductIdByBarcode(
+                Long ownerUserId,
+                String storeCode,
+                String barcode,
+                Long excludeListingDraftId
+        ) {
+            return localProductIdUnlessOwnedByDraft(
+                    localBarcodeProducts.get(localProductKey(ownerUserId, storeCode, barcode)),
+                    excludeListingDraftId
+            );
         }
 
         @Override
@@ -514,6 +1009,40 @@ class ProductListingServiceTest {
                 }
             }
             return latest;
+        }
+
+        @Override
+        public List<ProductListingTaskRecord> selectRunnableRealRunTasks(int limit) {
+            List<ProductListingTaskRecord> result = new ArrayList<>();
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if ("REAL_RUN".equals(task.getMode()) && "submitted".equals(task.getStatus())) {
+                    result.add(task);
+                }
+            }
+            result.sort((left, right) -> Long.compare(left.getId(), right.getId()));
+            if (result.size() <= limit) {
+                return result;
+            }
+            return new ArrayList<>(result.subList(0, limit));
+        }
+
+        @Override
+        public int recoverStaleRunningRealRunTasks(java.time.LocalDateTime staleBefore) {
+            int recovered = 0;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if ("REAL_RUN".equals(task.getMode())
+                        && "running".equals(task.getStatus())
+                        && task.getStartedAt() != null
+                        && task.getStartedAt().isBefore(staleBefore)) {
+                    task.setStatus("written_verify_failed");
+                    task.setFailureCategory("recovery");
+                    task.setFailureCode("real_run_interrupted");
+                    task.setFailureMessage("真实上架任务执行中断，需人工核对。");
+                    task.setCompletedAt(java.time.LocalDateTime.now());
+                    recovered++;
+                }
+            }
+            return recovered;
         }
 
         @Override
@@ -550,6 +1079,130 @@ class ProductListingServiceTest {
 
         private int updateCount() {
             return updateCount;
+        }
+
+        private boolean isRealWriteAttemptLocked(ProductListingTaskRecord task) {
+            return "running".equals(task.getStatus())
+                    || "submitted".equals(task.getStatus())
+                    || "succeeded".equals(task.getStatus())
+                    || "written_verify_failed".equals(task.getStatus())
+                    || ("failed".equals(task.getStatus())
+                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+        }
+
+        private boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {
+            return "succeeded".equals(task.getStatus())
+                    || "written_verify_failed".equals(task.getStatus())
+                    || ("failed".equals(task.getStatus())
+                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+        }
+
+        private String readPartnerSku(ProductListingTaskRecord task) {
+            try {
+                ProductListingDraftCommand command = objectMapper.readValue(
+                        task.getInputSnapshotJson(),
+                        ProductListingDraftCommand.class
+                );
+                return normalize(command.getPsku());
+            } catch (Exception exception) {
+                throw new IllegalStateException("Failed to read test partner SKU.", exception);
+            }
+        }
+
+        private String readBarcode(ProductListingTaskRecord task) {
+            try {
+                return normalize(objectMapper.readValue(
+                        task.getInputSnapshotJson(), ProductListingDraftCommand.class
+                ).getBarcode());
+            } catch (Exception exception) {
+                throw new IllegalStateException("Failed to read test barcode.", exception);
+            }
+        }
+
+        private String normalize(String value) {
+            return value == null ? "" : value.trim();
+        }
+
+        private void seedSuccessfulRealRun(Long ownerUserId, String storeCode, ProductListingDraftCommand command) {
+            Long draftId = nextProductListingDraftId();
+            command.setStoreCode(storeCode);
+            ProductListingDraftRecord draft = new ProductListingDraftRecord();
+            draft.setId(draftId);
+            draft.setOwnerUserId(ownerUserId);
+            draft.setStoreCode(storeCode);
+            draft.setDraftNo("PLD-" + draftId);
+            draft.setStatus("ready_for_dry_run");
+            draft.setDraftJson(writeJson(command));
+            drafts.put(draftId, draft);
+
+            Long taskId = nextProductListingTaskId();
+            ProductListingTaskRecord task = new ProductListingTaskRecord();
+            task.setId(taskId);
+            task.setDraftId(draftId);
+            task.setOwnerUserId(ownerUserId);
+            task.setStoreCode(storeCode);
+            task.setTaskNo("PLT-" + taskId);
+            task.setMode("REAL_RUN");
+            task.setStatus("succeeded");
+            task.setInputSnapshotJson(writeJson(command));
+            tasks.put(taskId, task);
+        }
+
+        private void seedSuccessfulProductDelete(Long ownerUserId, String storeCode, String partnerSku) {
+            deletedPartnerSkus.add(localProductKey(ownerUserId, storeCode, partnerSku));
+        }
+
+        private void seedLocalPartnerSku(Long ownerUserId, String storeCode, String partnerSku, Long productMasterId) {
+            localPartnerSkuProducts.put(localProductKey(ownerUserId, storeCode, partnerSku), productMasterId);
+        }
+
+        private void seedLocalPartnerSku(
+                Long ownerUserId,
+                String storeCode,
+                String partnerSku,
+                Long productMasterId,
+                Long listingDraftId
+        ) {
+            seedLocalPartnerSku(ownerUserId, storeCode, partnerSku, productMasterId);
+            localProductListingDraftIds.put(productMasterId, listingDraftId);
+        }
+
+        private void seedLocalBarcode(Long ownerUserId, String storeCode, String barcode, Long productMasterId) {
+            localBarcodeProducts.put(localProductKey(ownerUserId, storeCode, barcode), productMasterId);
+        }
+
+        private void seedLocalBarcode(
+                Long ownerUserId,
+                String storeCode,
+                String barcode,
+                Long productMasterId,
+                Long listingDraftId
+        ) {
+            seedLocalBarcode(ownerUserId, storeCode, barcode, productMasterId);
+            localProductListingDraftIds.put(productMasterId, listingDraftId);
+        }
+
+        private Long localProductIdUnlessOwnedByDraft(Long productMasterId, Long excludeListingDraftId) {
+            if (productMasterId == null) {
+                return null;
+            }
+            Long listingDraftId = localProductListingDraftIds.get(productMasterId);
+            if (excludeListingDraftId != null && excludeListingDraftId.equals(listingDraftId)) {
+                return null;
+            }
+            return productMasterId;
+        }
+
+        private String localProductKey(Long ownerUserId, String storeCode, String value) {
+            return ownerUserId + "|" + normalize(storeCode).toUpperCase() + "|" + normalize(value).toUpperCase();
+        }
+
+        private String writeJson(Object value) {
+            try {
+                return objectMapper.writeValueAsString(value);
+            } catch (Exception exception) {
+                throw new IllegalStateException("Failed to write test JSON.", exception);
+            }
         }
     }
 }

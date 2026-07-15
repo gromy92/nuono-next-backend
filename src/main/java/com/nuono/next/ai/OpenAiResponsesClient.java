@@ -1,12 +1,16 @@
 package com.nuono.next.ai;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.SocketTimeoutException;
-import java.net.URLConnection;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -29,11 +33,16 @@ public class OpenAiResponsesClient implements AiModelClient {
 
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
 
     @Autowired
     public OpenAiResponsesClient(AiProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
     }
 
     @Override
@@ -55,7 +64,7 @@ public class OpenAiResponsesClient implements AiModelClient {
                 );
             }
             return parseResponse(response.body);
-        } catch (SocketTimeoutException exception) {
+        } catch (SocketTimeoutException | HttpTimeoutException exception) {
             return providerFailure(
                     AiResultStatus.AI_PROVIDER_ERROR,
                     "OPENAI_REQUEST_TIMEOUT",
@@ -65,7 +74,7 @@ public class OpenAiResponsesClient implements AiModelClient {
             return providerFailure(
                     AiResultStatus.AI_PROVIDER_ERROR,
                     "OPENAI_REQUEST_FAILED",
-                    "AI request failed for " + uri + ": " + exception.getMessage()
+                    requestFailureMessage(exception)
             );
         }
     }
@@ -225,29 +234,32 @@ public class OpenAiResponsesClient implements AiModelClient {
             AiProperties.OpenAi openAi,
             int timeoutSeconds
     ) throws IOException {
-        URLConnection rawConnection = uri.toURL().openConnection();
-        if (!(rawConnection instanceof HttpURLConnection)) {
+        if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
             throw new IOException("Unsupported AI endpoint protocol: " + uri.getScheme());
         }
-        HttpURLConnection connection = (HttpURLConnection) rawConnection;
-        int timeoutMillis = Math.toIntExact(Duration.ofSeconds(Math.max(1, timeoutSeconds)).toMillis());
-        connection.setConnectTimeout(timeoutMillis);
-        connection.setReadTimeout(timeoutMillis);
-        connection.setRequestMethod("POST");
-        connection.setRequestProperty("Authorization", "Bearer " + openAi.getApiKey());
-        connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setDoOutput(true);
-        try (OutputStream outputStream = connection.getOutputStream()) {
-            outputStream.write(requestBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofSeconds(Math.max(1, timeoutSeconds)))
+                .header("Authorization", "Bearer " + openAi.getApiKey())
+                .header("Content-Type", "application/json; charset=UTF-8")
+                .header("Accept", "application/json")
+                .header("User-Agent", "NuonoNext-AI/1.0")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+                .build();
+        try {
+            HttpResponse<String> response = httpClient.send(
+                    request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
+            );
+            return new HttpResponseEnvelope(response.statusCode(), response.body());
+        } catch (IOException exception) {
+            if (exception instanceof HttpTimeoutException || !openAi.isCurlFallbackEnabled()) {
+                throw exception;
+            }
+            return postJsonWithCurl(uri, requestBody, openAi, timeoutSeconds, exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IOException("AI request interrupted", exception);
         }
-        int statusCode = connection.getResponseCode();
-        InputStream inputStream = statusCode >= 400 ? connection.getErrorStream() : connection.getInputStream();
-        String body = inputStream == null
-                ? ""
-                : new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        connection.disconnect();
-        return new HttpResponseEnvelope(statusCode, body);
     }
 
     private int resolveTimeoutSeconds(AiStructuredTextCommand command, AiProperties.OpenAi openAi) {
@@ -298,6 +310,89 @@ public class OpenAiResponsesClient implements AiModelClient {
             return value;
         }
         return value.substring(0, maxLength) + "...";
+    }
+
+    private String requestFailureMessage(Exception exception) {
+        String message = exception == null ? null : exception.getMessage();
+        if (!StringUtils.hasText(message)) {
+            return "AI 服务连接失败，请稍后重试。";
+        }
+        return "AI 服务连接失败，请稍后重试。原因：" + abbreviate(message, 240);
+    }
+
+    private HttpResponseEnvelope postJsonWithCurl(
+            URI uri,
+            String requestBody,
+            AiProperties.OpenAi openAi,
+            int timeoutSeconds,
+            IOException originalException
+    ) throws IOException {
+        Path bodyFile = Files.createTempFile("nuono-ai-responses-", ".json");
+        try {
+            Files.writeString(bodyFile, requestBody, StandardCharsets.UTF_8);
+            int timeout = Math.max(1, timeoutSeconds);
+            ProcessBuilder builder = new ProcessBuilder(
+                    "curl",
+                    "-sS",
+                    "--http1.1",
+                    "--connect-timeout",
+                    String.valueOf(Math.min(10, timeout)),
+                    "--max-time",
+                    String.valueOf(timeout),
+                    "--config",
+                    "-"
+            );
+            builder.redirectErrorStream(true);
+            Process process = builder.start();
+            try (OutputStream input = process.getOutputStream()) {
+                input.write(curlConfig(uri, bodyFile, openAi).getBytes(StandardCharsets.UTF_8));
+            }
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new IOException("curl fallback failed: " + abbreviate(output, 600));
+            }
+            return parseCurlResponse(output);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            IOException wrapped = new IOException("curl fallback interrupted", exception);
+            originalException.addSuppressed(wrapped);
+            throw originalException;
+        } catch (IOException exception) {
+            originalException.addSuppressed(exception);
+            throw originalException;
+        } finally {
+            Files.deleteIfExists(bodyFile);
+        }
+    }
+
+    private String curlConfig(URI uri, Path bodyFile, AiProperties.OpenAi openAi) {
+        return "url = \"" + curlConfigValue(uri.toString()) + "\"\n"
+                + "request = \"POST\"\n"
+                + "header = \"Authorization: Bearer " + curlConfigValue(openAi.getApiKey()) + "\"\n"
+                + "header = \"Content-Type: application/json; charset=UTF-8\"\n"
+                + "header = \"Accept: application/json\"\n"
+                + "data-binary = \"@" + curlConfigValue(bodyFile.toAbsolutePath().toString()) + "\"\n"
+                + "write-out = \"\\n%{http_code}\"\n";
+    }
+
+    private String curlConfigValue(String value) {
+        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private HttpResponseEnvelope parseCurlResponse(String output) throws IOException {
+        int splitIndex = output == null ? -1 : output.lastIndexOf('\n');
+        if (splitIndex < 0) {
+            throw new IOException("curl fallback response did not include HTTP status");
+        }
+        String statusText = output.substring(splitIndex + 1).trim();
+        try {
+            int statusCode = Integer.parseInt(statusText);
+            String body = output.substring(0, splitIndex);
+            return new HttpResponseEnvelope(statusCode, body);
+        } catch (NumberFormatException exception) {
+            throw new IOException("curl fallback returned invalid HTTP status: " + statusText, exception);
+        }
     }
 
     private static class HttpResponseEnvelope {

@@ -127,6 +127,9 @@ public class NoonPublicPageSourceCollector implements ProductSelectionMarketplac
         result.setSourceDescriptionAr(firstText(arabic == null ? "" : arabic.longDescription, ""));
         result.setSourceSellingPointsEn(english == null ? List.of() : english.featureBullets.stream().limit(12).collect(Collectors.toList()));
         result.setSourceSellingPointsAr(arabic == null ? List.of() : arabic.featureBullets.stream().limit(12).collect(Collectors.toList()));
+        result.setCategoryLinks(english != null && !english.categoryLinks.isEmpty()
+                ? english.categoryLinks
+                : current == null ? List.of() : current.categoryLinks);
         result.setSelectedText(result.getSourceDescriptionEn());
         result.setSelectedTextAr(result.getSourceDescriptionAr());
         return result;
@@ -158,7 +161,7 @@ public class NoonPublicPageSourceCollector implements ProductSelectionMarketplac
                     .followRedirects(true)
                     .execute()
                     .body();
-            return payloadParser.parseJson(json);
+            return payloadParser.parseJson(json, pageUrl);
         } catch (Exception exception) {
             throw new IllegalStateException("Noon catalog 接口采集失败：" + htmlParser.shrink(exception.getMessage(), 180), exception);
         }

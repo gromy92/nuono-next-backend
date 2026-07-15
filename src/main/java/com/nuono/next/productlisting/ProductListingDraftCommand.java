@@ -30,8 +30,13 @@ public class ProductListingDraftCommand {
     private List<String> productHighlightsCn;
     private List<String> productHighlightsEn;
     private List<String> productHighlightsAr;
+    private String sizeEn;
+    private String sizeAr;
     private List<Map<String, Object>> keyAttributes;
     private List<String> imageUrls;
+    private List<ProductListingImageRoleAssignment> imageRoleAssignments;
+    private List<Map<String, Object>> imageAssetMetadata;
+    private List<Map<String, Object>> competitorMaterials;
     private BigDecimal price;
     private BigDecimal priceMin;
     private BigDecimal priceMax;
@@ -243,6 +248,22 @@ public class ProductListingDraftCommand {
         this.productHighlightsAr = productHighlightsAr;
     }
 
+    public String getSizeEn() {
+        return sizeEn;
+    }
+
+    public void setSizeEn(String sizeEn) {
+        this.sizeEn = sizeEn;
+    }
+
+    public String getSizeAr() {
+        return sizeAr;
+    }
+
+    public void setSizeAr(String sizeAr) {
+        this.sizeAr = sizeAr;
+    }
+
     public List<Map<String, Object>> getKeyAttributes() {
         return keyAttributes;
     }
@@ -257,6 +278,30 @@ public class ProductListingDraftCommand {
 
     public void setImageUrls(List<String> imageUrls) {
         this.imageUrls = imageUrls;
+    }
+
+    public List<ProductListingImageRoleAssignment> getImageRoleAssignments() {
+        return imageRoleAssignments;
+    }
+
+    public void setImageRoleAssignments(List<ProductListingImageRoleAssignment> imageRoleAssignments) {
+        this.imageRoleAssignments = imageRoleAssignments;
+    }
+
+    public List<Map<String, Object>> getImageAssetMetadata() {
+        return imageAssetMetadata;
+    }
+
+    public void setImageAssetMetadata(List<Map<String, Object>> imageAssetMetadata) {
+        this.imageAssetMetadata = imageAssetMetadata;
+    }
+
+    public List<Map<String, Object>> getCompetitorMaterials() {
+        return competitorMaterials;
+    }
+
+    public void setCompetitorMaterials(List<Map<String, Object>> competitorMaterials) {
+        this.competitorMaterials = competitorMaterials;
     }
 
     public BigDecimal getPrice() {

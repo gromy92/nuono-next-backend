@@ -6,6 +6,7 @@ public class ProductAttributeDictionaryOptionRecord {
     private String optionValue;
     private String labelEn;
     private String labelAr;
+    private String labelZh;
     private Integer sortOrder;
 
     public Long getFieldId() {
@@ -38,6 +39,14 @@ public class ProductAttributeDictionaryOptionRecord {
 
     public void setLabelAr(String labelAr) {
         this.labelAr = labelAr;
+    }
+
+    public String getLabelZh() {
+        return labelZh;
+    }
+
+    public void setLabelZh(String labelZh) {
+        this.labelZh = labelZh;
     }
 
     public Integer getSortOrder() {

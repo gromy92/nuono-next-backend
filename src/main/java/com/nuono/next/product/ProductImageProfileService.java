@@ -628,6 +628,58 @@ public class ProductImageProfileService {
     }
 
     @Transactional
+    public ProductImageProfileDetailView saveAndSyncAssetRoles(
+            ProductImageProfileSaveCommand command,
+            List<ProductImageAssetRoleUpdateCommand> assetRoles
+    ) {
+        ProductImageProfileDetailView profile = save(command);
+        Long ownerUserId = requireOwnerUserId(command == null ? null : command.getOwnerUserId());
+        String storeCode = requireStoreCode(command == null ? null : command.getStoreCode());
+        Long profileId = profile.getId();
+        if (profileId == null) {
+            return profile;
+        }
+        Long operatorUserId = command == null ? null : command.getOperatorUserId();
+        LocalDateTime now = LocalDateTime.now();
+        Set<String> seenUrls = new LinkedHashSet<>();
+        int normalizedIndex = 0;
+        for (ProductImageAssetRoleUpdateCommand roleCommand : safeList(assetRoles)) {
+            if (roleCommand == null) {
+                continue;
+            }
+            String imageUrl = trimToNull(roleCommand.getImageUrl());
+            ProductImageRole imageRole = roleCommand.getImageRole();
+            if (imageUrl == null || imageRole == null || !seenUrls.add(imageUrl)) {
+                continue;
+            }
+            Integer sortOrder = roleCommand.getSortOrder() == null ? normalizedIndex : roleCommand.getSortOrder();
+            int updated = mapper.updateAssetRoleAndSortOrderByUrl(
+                    profileId,
+                    imageUrl,
+                    imageRole,
+                    sortOrder,
+                    operatorUserId
+            );
+            if (updated == 0) {
+                insertProfileAsset(
+                        profileId,
+                        imageUrl,
+                        null,
+                        null,
+                        null,
+                        null,
+                        imageRole,
+                        sortOrder,
+                        operatorUserId,
+                        now
+                );
+            }
+            normalizedIndex++;
+        }
+        return detail(ownerUserId, storeCode, profileId);
+    }
+
+    @Transactional
     public ProductImageProfileDetailView addAsset(ProductImageAssetCreateCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("基础图信息不能为空。");

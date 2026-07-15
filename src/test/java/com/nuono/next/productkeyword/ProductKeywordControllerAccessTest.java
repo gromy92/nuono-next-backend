@@ -116,6 +116,35 @@ class ProductKeywordControllerAccessTest {
     }
 
     @Test
+    void competitorKeywordCreateResolvesAccessAndForwardsNormalizedBulkCommand() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = context();
+        ProductKeywordCompetitorKeywordCommand command = new ProductKeywordCompetitorKeywordCommand();
+        command.setStoreCode(" str108065-nsa ");
+        command.setSiteCode(" sa ");
+        command.setPartnerSku(" PSKU-1 ");
+        command.setKeywords(List.of("MagSafe", "Shockproof"));
+        ProductKeywordViews.KeywordListView view =
+                new ProductKeywordViews.KeywordListView(List.of(ProductKeywordViews.keyword(keyword(300001L))));
+        when(accessResolver.requireStoreAccess(request, BusinessCapability.PRODUCT_KEYWORD_MANAGEMENT, STORE_CODE))
+                .thenReturn(context);
+        when(service.addCompetitorKeywords(eq(context), any(ProductKeywordCompetitorKeywordCommand.class))).thenReturn(view);
+
+        ProductKeywordViews.KeywordListView result = controller.addCompetitorKeywords(command, request);
+
+        assertThat(result).isSameAs(view);
+        verify(accessResolver).requireStoreAccess(request, BusinessCapability.PRODUCT_KEYWORD_MANAGEMENT, STORE_CODE);
+        ArgumentCaptor<ProductKeywordCompetitorKeywordCommand> commandCaptor =
+                ArgumentCaptor.forClass(ProductKeywordCompetitorKeywordCommand.class);
+        verify(service).addCompetitorKeywords(eq(context), commandCaptor.capture());
+        ProductKeywordCompetitorKeywordCommand normalized = commandCaptor.getValue();
+        assertThat(normalized.getStoreCode()).isEqualTo(STORE_CODE);
+        assertThat(normalized.getSiteCode()).isEqualTo(SITE_CODE);
+        assertThat(normalized.getPartnerSku()).isEqualTo(PARTNER_SKU);
+        assertThat(normalized.getKeywords()).containsExactly("MagSafe", "Shockproof");
+    }
+
+    @Test
     void patchResolvesAccessAndForwardsCommand() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         BusinessAccessContext context = context();
