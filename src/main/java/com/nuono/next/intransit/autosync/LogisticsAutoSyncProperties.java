@@ -9,6 +9,7 @@ public class LogisticsAutoSyncProperties {
     private Chic chic = new Chic();
     private Et et = new Et();
     private Yite yite = new Yite();
+    private Zd zd = new Zd();
 
     public String getCredentialCipherSecret() {
         return credentialCipherSecret;
@@ -48,6 +49,14 @@ public class LogisticsAutoSyncProperties {
 
     public void setYite(Yite yite) {
         this.yite = yite == null ? new Yite() : yite;
+    }
+
+    public Zd getZd() {
+        return zd;
+    }
+
+    public void setZd(Zd zd) {
+        this.zd = zd == null ? new Zd() : zd;
     }
 
     public static class Scheduler {
@@ -276,5 +285,33 @@ public class LogisticsAutoSyncProperties {
         public void setTimeoutSeconds(int timeoutSeconds) {
             this.timeoutSeconds = timeoutSeconds;
         }
+    }
+
+    public static class Zd {
+        private boolean enabled;
+        private String baseUrl = "http://www.erpzd.com";
+        private String loginPath = "/api/v1/login";
+        private String expressPath = "/api/v1/customer/wuliu/express/integral/q";
+        private String boxPath = "/api/v1/customer/wuliu/box/q";
+        private int lookbackDays = 59;
+        private int lookaheadDays = 1;
+        private int timeoutSeconds = 30;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getLoginPath() { return loginPath; }
+        public void setLoginPath(String loginPath) { this.loginPath = loginPath; }
+        public String getExpressPath() { return expressPath; }
+        public void setExpressPath(String expressPath) { this.expressPath = expressPath; }
+        public String getBoxPath() { return boxPath; }
+        public void setBoxPath(String boxPath) { this.boxPath = boxPath; }
+        public int getLookbackDays() { return lookbackDays; }
+        public void setLookbackDays(int lookbackDays) { this.lookbackDays = lookbackDays; }
+        public int getLookaheadDays() { return lookaheadDays; }
+        public void setLookaheadDays(int lookaheadDays) { this.lookaheadDays = lookaheadDays; }
+        public int getTimeoutSeconds() { return timeoutSeconds; }
+        public void setTimeoutSeconds(int timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
     }
 }

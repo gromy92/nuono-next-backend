@@ -817,6 +817,8 @@ class InTransitPluginSyncServiceTest {
     @Test
     void shouldCommitPackageSnapshotWhenPackageHasNoSkuLines() {
         PluginSyncCommand command = sampleCommand();
+        command.setSourceSystem("ZD");
+        command.setForwarderName(null);
         command.getBatches().get(0).getPackages().get(0).setLines(List.of());
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53010L);
@@ -825,6 +827,9 @@ class InTransitPluginSyncServiceTest {
         PluginSyncCommitView result = service.commit(command);
 
         assertEquals(true, result.isCommitted());
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("众鸫", batchCaptor.getValue().getRawForwarderName());
         ArgumentCaptor<SavePackageCommand> packageCaptor = ArgumentCaptor.forClass(SavePackageCommand.class);
         verify(batchService).savePackage(packageCaptor.capture());
         SavePackageCommand itemPackage = packageCaptor.getValue();

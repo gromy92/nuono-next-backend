@@ -130,6 +130,15 @@ nuono:
       login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PASSWORD_FIELD:password}
       login-payload-type: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PAYLOAD_TYPE:json}
       timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_TIMEOUT_SECONDS:30}
+    zd:
+      enabled: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_ENABLED:false}
+      base-url: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_BASE_URL:http://www.erpzd.com}
+      login-path: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_LOGIN_PATH:/api/v1/login}
+      express-path: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_EXPRESS_PATH:/api/v1/customer/wuliu/express/integral/q}
+      box-path: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_BOX_PATH:/api/v1/customer/wuliu/box/q}
+      lookback-days: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_LOOKBACK_DAYS:59}
+      lookahead-days: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_LOOKAHEAD_DAYS:1}
+      timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_TIMEOUT_SECONDS:30}
     scheduler:
       enabled: ${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_ENABLED:false}
       cron: "${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_CRON:0 */30 * * * *}"
