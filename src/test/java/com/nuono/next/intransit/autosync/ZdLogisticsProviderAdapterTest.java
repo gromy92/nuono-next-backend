@@ -14,6 +14,7 @@ import java.time.ZoneId;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class ZdLogisticsProviderAdapterTest {
     private static final ZoneId SHANGHAI_ZONE = ZoneId.of("Asia/Shanghai");
@@ -120,6 +121,17 @@ class ZdLogisticsProviderAdapterTest {
         assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.CONFIGURATION_ERROR);
         assertThat(result.getFailureMessage()).contains("不能超过 60 天");
         assertThat(result.getFailureMessage()).doesNotContain("demo-account").doesNotContain("demo-secret");
+    }
+
+    @Test
+    void wiresAdapterWithConfigurationPropertiesInSpringContext() {
+        new ApplicationContextRunner()
+                .withBean(LogisticsAutoSyncProperties.class)
+                .withBean(ZdLogisticsProviderAdapter.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(ZdLogisticsProviderAdapter.class);
+                });
     }
 
     private ZdLogisticsProviderAdapter adapter(LogisticsAutoSyncProperties properties, Clock clock) {

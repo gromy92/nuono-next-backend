@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -38,6 +39,7 @@ public class ZdLogisticsProviderAdapter implements LogisticsProviderAdapter {
     private final Clock clock;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Autowired
     public ZdLogisticsProviderAdapter(LogisticsAutoSyncProperties properties) {
         this(properties, Clock.system(SHANGHAI_ZONE));
     }
