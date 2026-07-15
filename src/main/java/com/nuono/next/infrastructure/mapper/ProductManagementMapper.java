@@ -3203,6 +3203,7 @@ public interface ProductManagementMapper {
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  variant_id = IF(is_deleted = 1, VALUES(variant_id), variant_id),",
             "  barcode_type = VALUES(barcode_type),",
             "  is_primary = VALUES(is_primary),",
             "  is_deleted = 0,",
@@ -3226,6 +3227,44 @@ public interface ProductManagementMapper {
             "LIMIT 1"
     })
     Long selectProductBarcodeIdByBarcode(@Param("barcode") String barcode);
+
+    @Select({
+            "SELECT variant_id",
+            "FROM product_barcode",
+            "WHERE barcode = #{barcode}",
+            "  AND is_deleted = 0",
+            "LIMIT 1"
+    })
+    Long selectProductBarcodeVariantIdByBarcode(@Param("barcode") String barcode);
+
+    @Select({
+            "SELECT id",
+            "FROM product_barcode",
+            "WHERE barcode = #{barcode}",
+            "LIMIT 1"
+    })
+    Long selectProductBarcodeIdByBarcodeIncludingDeleted(@Param("barcode") String barcode);
+
+    @Update({
+            "UPDATE product_barcode",
+            "SET variant_id = #{variantId},",
+            "    barcode_type = #{barcodeType},",
+            "    is_primary = #{primary},",
+            "    is_deleted = 0,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND barcode = #{barcode}",
+            "  AND is_deleted = 1"
+    })
+    int restoreDeletedProductBarcode(
+            @Param("id") Long id,
+            @Param("variantId") Long variantId,
+            @Param("barcode") String barcode,
+            @Param("barcodeType") String barcodeType,
+            @Param("primary") boolean primary,
+            @Param("updatedBy") Long updatedBy
+    );
 
     @Select({
             "SELECT COALESCE(MAX(id), 0)",

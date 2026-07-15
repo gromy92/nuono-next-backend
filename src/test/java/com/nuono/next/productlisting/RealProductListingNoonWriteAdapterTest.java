@@ -1,6 +1,7 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -118,7 +119,7 @@ class RealProductListingNoonWriteAdapterTest {
         JsonNode barcode = sessionFactory.session.calls.get(7).body;
         assertEquals("NN-TEST-PSKU", barcode.at("/pbarcodeUpsert/0/partnerSku").asText());
         assertEquals("6290000000001", barcode.at("/pbarcodeUpsert/0/partnerBarcode").asText());
-        assertTrue(barcode.at("/forceMapping").asBoolean());
+        assertFalse(barcode.at("/forceMapping").asBoolean());
     }
 
     @Test
@@ -556,6 +557,63 @@ class RealProductListingNoonWriteAdapterTest {
         assertTrue(failedStep.getFailureMessage().contains("partner_error"));
     }
 
+    @Test
+    void createTransportFailureIsReportedAsUnknownOutcome() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.failCreateTransport = true;
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                new ProductListingRealWriteProperties(),
+                new FakeImageDownloader()
+        );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        assertEquals("noon_create_outcome_unknown", result.getFailureCode());
+        assertEquals("noon_create_outcome_unknown", result.getSteps().get(0).getFailureCode());
+    }
+
+    @Test
+    void createSuccessWithoutNoonReferencesIsReportedAsUnknownOutcome() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.createResponseMissingReferences = true;
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                new ProductListingRealWriteProperties(),
+                new FakeImageDownloader()
+        );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        assertEquals("noon_create_outcome_unknown", result.getFailureCode());
+        assertEquals("failed", result.getSteps().get(0).getStatus());
+        assertEquals("noon_create_outcome_unknown", result.getSteps().get(0).getFailureCode());
+    }
+
+    @Test
+    void createReferenceLookupFindsExistingNoonProductByPartnerSku() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.offerListContainsProduct = true;
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                new ProductListingRealWriteProperties(),
+                new FakeImageDownloader()
+        );
+
+        ProductListingNoonWriteStepResult result = adapter.resolveCreateReference(writeRequest());
+
+        assertEquals("succeeded", result.getStatus());
+        assertEquals("skuParent=ZPARENT;pskuCode=PSKU_CODE_1", result.getExternalReference());
+    }
+
     private ProductListingNoonWriteRequest writeRequest() {
         ProductListingNoonWriteRequest request = new ProductListingNoonWriteRequest();
         request.setOwnerUserId(10002L);
@@ -618,10 +676,26 @@ class RealProductListingNoonWriteAdapterTest {
         private String taxonomyProductTypeNameEn = "Headphones";
         private String taxonomyProductSubTypeNameEn = "Wired Headphones";
         private boolean failOnIdProductFullTypeLookup;
+        private boolean failCreateTransport;
+        private boolean createResponseMissingReferences;
+        private boolean offerListContainsProduct;
 
         @Override
         public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
             retrieveCallCount++;
+            if (ProductListingRealWriteProperties.Endpoints.DEFAULT_OFFER_LIST_URL.equals(url)) {
+                ObjectNode root = objectMapper.createObjectNode();
+                ObjectNode data = root.putObject("data");
+                ArrayNode hits = data.putArray("hits");
+                if (offerListContainsProduct) {
+                    hits.addObject()
+                            .put("partner_sku", "NN-TEST-PSKU")
+                            .put("zsku_parent", "ZPARENT")
+                            .put("psku_code", "PSKU_CODE_1");
+                }
+                data.put("total", hits.size());
+                return root;
+            }
             ObjectNode root = objectMapper.createObjectNode();
             ObjectNode product = root.putObject("ZPARENT");
             ObjectNode attributes = product.putObject("attributes");
@@ -645,7 +719,13 @@ class RealProductListingNoonWriteAdapterTest {
         public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
             calls.add(new Call(url, body, withProject, extraHeaders));
             if (ProductListingRealWriteProperties.Endpoints.DEFAULT_CREATE_PRODUCT_URL.equals(url)) {
+                if (failCreateTransport) {
+                    throw new IllegalStateException("connection reset after request write");
+                }
                 ObjectNode response = objectMapper.createObjectNode();
+                if (createResponseMissingReferences) {
+                    return response;
+                }
                 ArrayNode products = response.putArray("products");
                 ObjectNode product = products.addObject();
                 product.set("parent", objectMapper.createObjectNode().put("skuParent", "ZPARENT"));

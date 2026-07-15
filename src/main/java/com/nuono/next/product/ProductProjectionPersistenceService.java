@@ -2862,8 +2862,8 @@ public class ProductProjectionPersistenceService {
         if (variantId == null || !StringUtils.hasText(normalizedBarcode)) {
             return;
         }
-        Long existingId = productManagementMapper.selectProductBarcodeIdByBarcode(normalizedBarcode);
-        Long id = existingId != null ? existingId : productManagementMapper.nextProductBarcodeId();
+        Long activeId = productManagementMapper.selectProductBarcodeIdByBarcode(normalizedBarcode);
+        Long id = activeId != null ? activeId : productManagementMapper.nextProductBarcodeId();
         productManagementMapper.upsertProductBarcode(
                 id,
                 variantId,
@@ -2872,6 +2872,12 @@ public class ProductProjectionPersistenceService {
                 true,
                 updatedBy
         );
+        Long persistedVariantId = productManagementMapper.selectProductBarcodeVariantIdByBarcode(normalizedBarcode);
+        if (!variantId.equals(persistedVariantId)) {
+            throw new IllegalStateException(
+                    "Barcode " + normalizedBarcode + " is already assigned to another product variant."
+            );
+        }
     }
 
     private Long resolveProductMasterId(

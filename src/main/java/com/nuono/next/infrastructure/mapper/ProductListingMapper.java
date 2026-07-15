@@ -199,6 +199,26 @@ public interface ProductListingMapper {
             "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
             "FROM product_listing_task",
             "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND draft_id = #{draftId}",
+            "ORDER BY submitted_at DESC",
+            "LIMIT #{limit}"
+    })
+    List<ProductListingTaskRecord> selectRecentTasksByDraftId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("draftId") Long draftId,
+            @Param("limit") int limit
+    );
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE owner_user_id = #{ownerUserId}",
             "  AND source_task_id = #{sourceTaskId}",
             "  AND mode = 'REAL_RUN'",
             "  AND (",
@@ -224,7 +244,7 @@ public interface ProductListingMapper {
             "  AND store_code = #{storeCode}",
             "  AND mode = 'REAL_RUN'",
             "  AND (",
-            "    status IN ('succeeded', 'written_verify_failed')",
+            "    status IN ('submitted', 'running', 'succeeded', 'written_verify_failed')",
             "    OR (status = 'failed' AND failure_code = 'partner_sku_already_exists')",
             "  )",
             "  AND UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(input_snapshot_json, '$.psku')))) = UPPER(TRIM(#{partnerSku}))",
@@ -247,6 +267,47 @@ public interface ProductListingMapper {
             @Param("storeCode") String storeCode,
             @Param("partnerSku") String partnerSku
     );
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status IN ('submitted', 'running', 'succeeded', 'written_verify_failed')",
+            "  AND UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(input_snapshot_json, '$.barcode')))) = UPPER(TRIM(#{barcode}))",
+            "  AND NOT EXISTS (",
+            "      SELECT 1",
+            "      FROM product_publish_task delete_task",
+            "      WHERE delete_task.owner_user_id = product_listing_task.owner_user_id",
+            "        AND UPPER(delete_task.store_code) = UPPER(product_listing_task.store_code)",
+            "        AND UPPER(TRIM(delete_task.partner_sku)) = UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(product_listing_task.input_snapshot_json, '$.psku'))))",
+            "        AND delete_task.task_type = 'product-delete'",
+            "        AND delete_task.status = 'synced'",
+            "        AND delete_task.is_deleted = b'0'",
+            "        AND delete_task.finished_at >= product_listing_task.completed_at",
+            "  )",
+            "ORDER BY submitted_at DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectReservedBarcodeTask(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("barcode") String barcode
+    );
+
+    @Select("SELECT GET_LOCK(CONCAT('product-listing:', SHA2(#{lockKey}, 256)), #{timeoutSeconds})")
+    Integer acquireIdentityLock(
+            @Param("lockKey") String lockKey,
+            @Param("timeoutSeconds") int timeoutSeconds
+    );
+
+    @Select("SELECT RELEASE_LOCK(CONCAT('product-listing:', SHA2(#{lockKey}, 256)))")
+    Integer releaseIdentityLock(@Param("lockKey") String lockKey);
 
     @Select({
             "SELECT pm.id",
@@ -402,8 +463,11 @@ public interface ProductListingMapper {
 
     @Update({
             "UPDATE product_listing_task",
-            "SET status = 'submitted',",
-            "    started_at = NULL,",
+            "SET status = 'written_verify_failed',",
+            "    failure_category = 'recovery',",
+            "    failure_code = 'real_run_interrupted',",
+            "    failure_message = '真实上架任务执行中断，系统不会自动重放 Noon 写入；请人工核对 Noon 后继续。',",
+            "    completed_at = NOW(),",
             "    gmt_updated = NOW()",
             "WHERE mode = 'REAL_RUN'",
             "  AND status = 'running'",

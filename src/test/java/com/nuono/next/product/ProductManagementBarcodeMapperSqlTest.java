@@ -35,7 +35,29 @@ class ProductManagementBarcodeMapperSqlTest {
 
         assertThat(sql)
                 .contains("ON DUPLICATE KEY UPDATE")
+                .contains("variant_id = IF(is_deleted = 1, VALUES(variant_id), variant_id)")
                 .doesNotContain("variant_id = VALUES(variant_id)");
+    }
+
+    @Test
+    void deletedBarcodeCanBeExplicitlyRestoredToNewVariant() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "restoreDeletedProductBarcode",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                boolean.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("variant_id = #{variantId}")
+                .contains("is_deleted = 0")
+                .contains("AND is_deleted = 1");
     }
 
     @Test

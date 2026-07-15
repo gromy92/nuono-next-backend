@@ -90,13 +90,13 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
     }
 
     @Override
-    public void backfillSuccessfulListing(
+    public boolean backfillSuccessfulListing(
             ProductListingTaskRecord task,
             ProductListingDraftCommand draft,
             ProductListingNoonWriteResult result
     ) {
         if (task == null || draft == null || result == null || !result.isSuccess()) {
-            return;
+            return false;
         }
         String partnerSku = normalize(draft.getPsku());
         Map<String, String> references = noonReferences(result);
@@ -107,13 +107,13 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
                 || !StringUtils.hasText(pskuCode)
                 || task.getOwnerUserId() == null
                 || !StringUtils.hasText(task.getStoreCode())) {
-            return;
+            return false;
         }
 
         ProductListingStoreProjectionContext storeContext =
                 projectionMapper.selectStoreContext(task.getOwnerUserId(), task.getStoreCode());
         if (storeContext == null || !StringUtils.hasText(storeContext.getProjectCode())) {
-            return;
+            return false;
         }
 
         List<ProductProjectionPersistenceService.SiteSeed> siteSeeds = siteSeeds(
@@ -145,6 +145,7 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
                 ProductListingDraftProjectionFields.from(draft, partnerSku).barcode()
         );
         syncProductImageProfile(task, draft, partnerSku);
+        return true;
     }
 
     private void reconcileProductBarcodes(

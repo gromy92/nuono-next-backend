@@ -10,6 +10,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
+import org.apache.ibatis.annotations.Update;
 
 public interface ProductKeywordMapper {
 
@@ -76,6 +77,44 @@ public interface ProductKeywordMapper {
             @Param("keywordId") Long keywordId
     );
 
+    @Update({
+            "UPDATE product_keyword",
+            "SET status = 'ARCHIVED', is_deleted = b'1', updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE id = #{keywordId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = b'0'"
+    })
+    int archiveKeyword(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("keywordId") Long keywordId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_keyword_usage_event",
+            "SET is_deleted = b'1', updated_by = #{updatedBy}, gmt_updated = NOW()",
+            "WHERE keyword_id = #{keywordId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = b'0'"
+    })
+    int archiveKeywordEvents(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("partnerSku") String partnerSku,
+            @Param("keywordId") Long keywordId,
+            @Param("updatedBy") Long updatedBy
+    );
+
     @Insert({
             "INSERT INTO product_keyword (",
             "id, owner_user_id, store_code, site_code, partner_sku, keyword, keyword_norm, locale, status,",
@@ -89,6 +128,7 @@ public interface ProductKeywordMapper {
             "ON DUPLICATE KEY UPDATE",
             "id = LAST_INSERT_ID(id),",
             "keyword = VALUES(keyword),",
+            "keyword_norm = VALUES(keyword_norm),",
             "locale = VALUES(locale),",
             "status = VALUES(status),",
             "intent_tags_json = VALUES(intent_tags_json),",

@@ -10,6 +10,7 @@ import com.nuono.next.noonpull.NoonPullGatewaySession;
 import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
 import com.nuono.next.noonpull.NoonPullStoreBinding;
 import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
+import com.nuono.next.product.NoonProductListFieldSupport;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +36,8 @@ import org.springframework.util.StringUtils;
 @ConditionalOnProperty(prefix = "nuono.product-listing.real-write", name = "enabled", havingValue = "true")
 public class RealProductListingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
     private static final int MAX_IMAGE_UPLOADS = 15;
+    private static final int CREATE_REFERENCE_LOOKUP_PAGE_SIZE = 100;
+    private static final int CREATE_REFERENCE_LOOKUP_MAX_PAGES = 20;
     private static final DateTimeFormatter NOON_OFFER_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final int DEFAULT_SALE_WINDOW_YEARS = 20;
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
@@ -124,20 +127,87 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                     createProductBody(draft),
                     headers
             );
-            String skuParent = requiredText(createProduct, "/products/0/parent/skuParent", "skuParent");
-            String pskuCode = requiredText(createProduct, "/products/0/children/0/pskuCode", "pskuCode");
+            String skuParent;
+            String pskuCode;
+            try {
+                skuParent = requiredText(createProduct, "/products/0/parent/skuParent", "skuParent");
+                pskuCode = requiredText(createProduct, "/products/0/children/0/pskuCode", "pskuCode");
+            } catch (RuntimeException exception) {
+                markLastCreateStepOutcomeUnknown(steps, exception.getMessage());
+                throw exception;
+            }
             setLastStepExternalReference(steps, externalReference(skuParent, pskuCode));
 
             return writeAfterCreate(request, draft, binding, session, endpoints, headers, fullTypeLabels, skuParent, pskuCode, steps);
         } catch (RuntimeException exception) {
+            String failureCode = failedStepCode(steps, "noon_write_failed");
             return ProductListingNoonWriteResult.failed(
                     "noon_api",
-                    "noon_write_failed",
+                    failureCode,
                     StringUtils.hasText(exception.getMessage())
                             ? exception.getMessage()
                             : "Product listing Noon write failed.",
                     steps
             );
+        }
+    }
+
+    @Override
+    public ProductListingNoonWriteStepResult resolveCreateReference(ProductListingNoonWriteRequest request) {
+        ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
+        step.setStepKey("resolve_create_reference");
+        try {
+            ProductListingDraftCommand draft = requireDraft(request);
+            NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
+            NoonPullGatewaySession session = requireSessionFactory().login(binding);
+            Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
+            String partnerSku = normalize(draft.getPsku());
+            for (int page = 1; page <= CREATE_REFERENCE_LOOKUP_MAX_PAGES; page++) {
+                ObjectNode body = objectMapper.createObjectNode();
+                body.put("page", page);
+                body.put("per_page", CREATE_REFERENCE_LOOKUP_PAGE_SIZE);
+                body.put("noon_store_code", binding.getStoreCode());
+                body.put("noonChannelType", "noon");
+                body.put("search", partnerSku);
+                JsonNode root = session.postJson(properties.getEndpoints().getOfferListUrl(), body, true, headers);
+                JsonNode data = root.path("data");
+                JsonNode hits = data.path("hits");
+                if (hits.isArray()) {
+                    for (JsonNode hit : hits) {
+                        if (!partnerSku.equalsIgnoreCase(normalize(text(hit, "partner_sku")))) {
+                            continue;
+                        }
+                        String skuParent = firstNonBlank(
+                                text(hit, "csku_parent"),
+                                text(hit, "zsku_parent"),
+                                text(hit, "sku_parent"),
+                                text(hit, "skuParent"),
+                                text(hit, "catalog_sku")
+                        );
+                        String pskuCode = NoonProductListFieldSupport.pskuCode(hit);
+                        if (StringUtils.hasText(skuParent) && StringUtils.hasText(pskuCode)) {
+                            step.setStatus("succeeded");
+                            step.setExternalReference(externalReference(skuParent, pskuCode));
+                            return step;
+                        }
+                    }
+                }
+                int total = data.path("total").asInt(hits.isArray() ? hits.size() : 0);
+                if (!hits.isArray() || hits.isEmpty() || page * CREATE_REFERENCE_LOOKUP_PAGE_SIZE >= total) {
+                    break;
+                }
+            }
+            step.setStatus("failed");
+            step.setFailureCode("noon_create_reference_not_found");
+            step.setFailureMessage("Noon 中暂未找到该 PSKU 的创建结果，请稍后重新核对，不要重复上架。");
+            return step;
+        } catch (RuntimeException exception) {
+            step.setStatus("failed");
+            step.setFailureCode("noon_create_reference_lookup_failed");
+            step.setFailureMessage(StringUtils.hasText(exception.getMessage())
+                    ? exception.getMessage()
+                    : "Noon create reference lookup failed.");
+            return step;
         }
     }
 
@@ -642,12 +712,26 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         } catch (RuntimeException exception) {
             if (!stepRecorded) {
                 step.setStatus("failed");
-                step.setFailureCode("noon_write_failed");
+                step.setFailureCode("create_product".equals(stepKey)
+                        ? "noon_create_outcome_unknown"
+                        : "noon_write_outcome_unknown");
                 step.setFailureMessage(exception.getMessage());
                 steps.add(step);
             }
             throw exception;
         }
+    }
+
+    private String failedStepCode(List<ProductListingNoonWriteStepResult> steps, String fallback) {
+        if (steps != null) {
+            for (int index = steps.size() - 1; index >= 0; index--) {
+                ProductListingNoonWriteStepResult step = steps.get(index);
+                if (step != null && "failed".equals(step.getStatus()) && StringUtils.hasText(step.getFailureCode())) {
+                    return step.getFailureCode();
+                }
+            }
+        }
+        return fallback;
     }
 
     private List<String> uploadImages(
@@ -1121,7 +1205,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         ObjectNode barcode = root.putArray("pbarcodeUpsert").addObject();
         barcode.put("partnerSku", draft.getPsku());
         barcode.put("partnerBarcode", draft.getBarcode());
-        root.put("forceMapping", true);
+        root.put("forceMapping", false);
         return root;
     }
 
@@ -1342,6 +1426,23 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             return;
         }
         steps.get(steps.size() - 1).setExternalReference(externalReference);
+    }
+
+    private void markLastCreateStepOutcomeUnknown(
+            List<ProductListingNoonWriteStepResult> steps,
+            String failureMessage
+    ) {
+        if (steps == null || steps.isEmpty()) {
+            return;
+        }
+        ProductListingNoonWriteStepResult step = steps.get(steps.size() - 1);
+        if (!"create_product".equals(step.getStepKey())) {
+            return;
+        }
+        step.setStatus("failed");
+        step.setFailureCode("noon_create_outcome_unknown");
+        step.setFailureMessage(failureMessage);
+        step.setExternalReference(null);
     }
 
     private String externalReference(String skuParent, String pskuCode) {

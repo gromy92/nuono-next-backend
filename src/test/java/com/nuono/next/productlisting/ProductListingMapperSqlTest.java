@@ -70,6 +70,18 @@ class ProductListingMapperSqlTest {
     }
 
     @Test
+    void recentTaskLookupCanBeScopedDirectlyToDraft() {
+        Method method = mapperMethod("selectRecentTasksByDraftId");
+        Select select = method.getAnnotation(Select.class);
+        String sql = compact(select.value());
+
+        assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
+        assertTrue(sql.contains("store_code = #{storeCode}"));
+        assertTrue(sql.contains("draft_id = #{draftId}"));
+        assertTrue(sql.contains("LIMIT #{limit}"));
+    }
+
+    @Test
     void activeRealRunLookupShouldScopeByOwnerAndDryRunSource() {
         Method method = mapperMethod("selectRealWriteAttemptTaskBySourceTaskId");
         Select select = method.getAnnotation(Select.class);
@@ -93,7 +105,7 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
         assertTrue(sql.contains("store_code = #{storeCode}"));
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
-        assertTrue(sql.contains("status IN ('succeeded', 'written_verify_failed')"));
+        assertTrue(sql.contains("status IN ('submitted', 'running', 'succeeded', 'written_verify_failed')"));
         assertTrue(sql.contains("status = 'failed' AND failure_code = 'partner_sku_already_exists'"));
         assertTrue(sql.contains("JSON_EXTRACT(input_snapshot_json, '$.psku')"));
         assertTrue(sql.contains("UPPER(TRIM(#{partnerSku}))"));
@@ -108,6 +120,19 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("NOT EXISTS"));
         assertTrue(sql.contains("FROM product_publish_task delete_task"));
         assertTrue(sql.contains("delete_task.task_type = 'product-delete'"));
+        assertTrue(sql.contains("delete_task.status = 'synced'"));
+        assertTrue(sql.contains("delete_task.finished_at >= product_listing_task.completed_at"));
+    }
+
+    @Test
+    void reservedBarcodeLookupShouldIgnoreProductDeletedAfterListingSuccess() {
+        Method method = mapperMethod("selectReservedBarcodeTask");
+        Select select = method.getAnnotation(Select.class);
+        String sql = compact(select.value());
+
+        assertTrue(sql.contains("JSON_EXTRACT(input_snapshot_json, '$.barcode')"));
+        assertTrue(sql.contains("FROM product_publish_task delete_task"));
+        assertTrue(sql.contains("JSON_EXTRACT(product_listing_task.input_snapshot_json, '$.psku')"));
         assertTrue(sql.contains("delete_task.status = 'synced'"));
         assertTrue(sql.contains("delete_task.finished_at >= product_listing_task.completed_at"));
     }
@@ -197,17 +222,32 @@ class ProductListingMapperSqlTest {
     }
 
     @Test
-    void staleRunningRecoveryShouldReturnRealRunTasksToSubmittedQueue() {
+    void staleRunningRecoveryShouldRequireManualVerificationWithoutReplayingNoonWrites() {
         Method method = mapperMethod("recoverStaleRunningRealRunTasks");
         Update update = method.getAnnotation(Update.class);
         String sql = compact(update.value());
 
         assertTrue(sql.contains("UPDATE product_listing_task"));
-        assertTrue(sql.contains("status = 'submitted'"));
-        assertTrue(sql.contains("started_at = NULL"));
+        assertTrue(sql.contains("status = 'written_verify_failed'"));
+        assertTrue(sql.contains("failure_code = 'real_run_interrupted'"));
+        assertTrue(sql.contains("completed_at = NOW()"));
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
         assertTrue(sql.contains("status = 'running'"));
         assertTrue(sql.contains("started_at < #{staleBefore}"));
+    }
+
+    @Test
+    void identityLocksShouldUseNamespacedHashedMysqlAdvisoryLocks() {
+        Method acquireMethod = mapperMethod("acquireIdentityLock");
+        Method releaseMethod = mapperMethod("releaseIdentityLock");
+        String acquireSql = compact(acquireMethod.getAnnotation(Select.class).value());
+        String releaseSql = compact(releaseMethod.getAnnotation(Select.class).value());
+
+        assertTrue(acquireSql.contains("GET_LOCK"));
+        assertTrue(acquireSql.contains("product-listing:"));
+        assertTrue(acquireSql.contains("SHA2(#{lockKey}, 256)"));
+        assertTrue(releaseSql.contains("RELEASE_LOCK"));
+        assertTrue(releaseSql.contains("SHA2(#{lockKey}, 256)"));
     }
 
     @Test

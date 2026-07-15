@@ -218,6 +218,46 @@ class ProductKeywordServiceTest {
         assertThat(mapper.lastListQuery.getLimit()).isEqualTo(5000);
     }
 
+    @Test
+    void editorSaveAppliesKeywordDeleteUpdateAndCompetitorEvidenceAsOneServiceOperation() {
+        FakeProductKeywordMapper mapper = new FakeProductKeywordMapper();
+        ProductKeywordService service = new ProductKeywordService(mapper, new ProductKeywordNormalizer());
+        ProductKeywordRecord removed = service.addManualKeyword(
+                context(),
+                command("STR108065-NSA", "SA", "PSKU-1", "Old Keyword", List.of("TITLE_TARGET"))
+        );
+
+        ProductKeywordEditorSaveCommand editorSave = new ProductKeywordEditorSaveCommand();
+        editorSave.setStoreCode("STR108065-NSA");
+        editorSave.setSiteCode("SA");
+        editorSave.setPartnerSku("PSKU-1");
+        editorSave.setDeletedKeywordIds(List.of(removed.getId()));
+        ProductKeywordEditorSaveCommand.Row row = new ProductKeywordEditorSaveCommand.Row();
+        row.setKeyword("New Keyword");
+        row.setSaveKeyword(true);
+        ProductKeywordCompetitorKeywordCommand.CompetitorSource source =
+                new ProductKeywordCompetitorKeywordCommand.CompetitorSource();
+        source.setLabel("Noon ZTEST");
+        source.setUrl("https://www.noon.com/saudi-en/test/p/ZTEST");
+        source.setSourceText("New Keyword competitor title");
+        row.setCompetitorSources(List.of(source));
+        editorSave.setRows(List.of(row));
+
+        ProductKeywordViews.ProductKeywordPanelView panel = service.saveEditorChanges(context(), editorSave);
+
+        assertThat(panel.getKeywords()).singleElement().satisfies(keyword -> {
+            assertThat(keyword.getKeyword()).isEqualTo("New Keyword");
+            assertThat(keyword.getStatus()).isEqualTo("ACTIVE");
+        });
+        assertThat(panel.getEvents()).anySatisfy(event -> {
+            assertThat(event.getSourceType()).isEqualTo("COMPETITOR_KEYWORD");
+            assertThat(event.getPayloadJson()).contains("Noon ZTEST");
+        });
+        assertThat(panel.getEvents()).anySatisfy(event ->
+                assertThat(event.getKeyword()).isEqualTo("Old Keyword"));
+        assertThat(mapper.selectById(99L, removed.getId())).isNull();
+    }
+
     private static BusinessAccessContext context() {
         return BusinessAccessContext.builder()
                 .sessionUserId(7L)
@@ -250,6 +290,32 @@ class ProductKeywordServiceTest {
         private final Map<String, ProductKeywordRecord> keywords = new LinkedHashMap<>();
         private final Map<String, ProductKeywordUsageEventRecord> events = new LinkedHashMap<>();
         private ProductKeywordListQuery lastListQuery;
+
+        @Override
+        public int archiveKeyword(
+                Long ownerUserId, String storeCode, String siteCode, String partnerSku,
+                Long keywordId, Long updatedBy
+        ) {
+            boolean removed = keywords.entrySet().removeIf(entry -> {
+                ProductKeywordRecord keyword = entry.getValue();
+                return ownerUserId.equals(keyword.getOwnerUserId())
+                        && storeCode.equals(keyword.getStoreCode())
+                        && siteCode.equals(keyword.getSiteCode())
+                        && partnerSku.equals(keyword.getPartnerSku())
+                        && keywordId.equals(keyword.getId());
+            });
+            return removed ? 1 : 0;
+        }
+
+        @Override
+        public int archiveKeywordEvents(
+                Long ownerUserId, String storeCode, String siteCode, String partnerSku,
+                Long keywordId, Long updatedBy
+        ) {
+            int before = events.size();
+            events.entrySet().removeIf(entry -> keywordId.equals(entry.getValue().getKeywordId()));
+            return before - events.size();
+        }
 
         @Override
         public int allocateId(IdSequenceCommand command) {

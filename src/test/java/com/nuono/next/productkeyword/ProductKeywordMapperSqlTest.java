@@ -19,6 +19,7 @@ class ProductKeywordMapperSqlTest {
                 .contains("INSERT INTO product_keyword")
                 .contains("ON DUPLICATE KEY UPDATE")
                 .contains("id = LAST_INSERT_ID(id)")
+                .contains("keyword_norm = VALUES(keyword_norm)")
                 .contains("status = VALUES(status)")
                 .contains("intent_tags_json = VALUES(intent_tags_json)");
         assertThat(eventSql)

@@ -265,6 +265,7 @@ public class ProductListingController {
     @GetMapping("/tasks/recent")
     public List<ProductListingTaskView> recentTasks(
             @RequestParam String storeCode,
+            @RequestParam(required = false) Long draftId,
             @RequestParam(defaultValue = "20") int limit,
             HttpServletRequest request
     ) {
@@ -274,7 +275,7 @@ public class ProductListingController {
                     BusinessCapability.PRODUCT_LISTING,
                     storeCode
             );
-            return service.recentTasks(context, storeCode, limit);
+            return service.recentTasks(context, storeCode, draftId, limit);
         } catch (BusinessAccessDeniedException exception) {
             throw forbidden(exception);
         } catch (IllegalArgumentException exception) {

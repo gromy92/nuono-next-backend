@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -49,6 +50,7 @@ public class ProductKeywordService {
         );
     }
 
+    @Transactional
     public ProductKeywordViews.KeywordListView addCompetitorKeywords(
             BusinessAccessContext context,
             ProductKeywordCompetitorKeywordCommand command
@@ -133,6 +135,7 @@ public class ProductKeywordService {
         );
     }
 
+    @Transactional
     public ProductKeywordRecord updateKeyword(
             BusinessAccessContext context,
             Long keywordId,
@@ -181,6 +184,91 @@ public class ProductKeywordService {
         );
         mapper.upsertUsageEvent(event);
         return existing;
+    }
+
+    @Transactional
+    public void deleteKeyword(
+            BusinessAccessContext context,
+            Long keywordId,
+            ProductKeywordCommand command
+    ) {
+        if (keywordId == null) {
+            throw new IllegalArgumentException("关键词 ID 不能为空");
+        }
+        ProductKeywordScope scope = resolveScope(context, command);
+        ProductKeywordRecord existing = mapper.selectById(scope.getOwnerUserId(), keywordId);
+        if (existing == null
+                || !existing.getStoreCode().equals(scope.getStoreCode())
+                || !existing.getSiteCode().equals(scope.getSiteCode())
+                || !existing.getPartnerSku().equals(scope.getPartnerSku())) {
+            throw new IllegalArgumentException("关键词不存在或无权访问");
+        }
+        Long operatorUserId = context.getSessionUserId();
+        if (mapper.archiveKeyword(
+                scope.getOwnerUserId(),
+                scope.getStoreCode(),
+                scope.getSiteCode(),
+                scope.getPartnerSku(),
+                keywordId,
+                operatorUserId
+        ) != 1) {
+            throw new IllegalArgumentException("关键词已删除或不存在");
+        }
+    }
+
+    @Transactional
+    public ProductKeywordViews.ProductKeywordPanelView saveEditorChanges(
+            BusinessAccessContext context,
+            ProductKeywordEditorSaveCommand command
+    ) {
+        if (command == null) {
+            throw new IllegalArgumentException("请求体不能为空");
+        }
+        ProductKeywordCommand scopeCommand = new ProductKeywordCommand();
+        scopeCommand.setStoreCode(command.getStoreCode());
+        scopeCommand.setSiteCode(command.getSiteCode());
+        scopeCommand.setPartnerSku(command.getPartnerSku());
+        scopeCommand.setKeyword("editor-scope");
+        ProductKeywordScope scope = resolveScope(context, scopeCommand);
+
+        for (Long keywordId : command.getDeletedKeywordIds()) {
+            if (keywordId != null) {
+                deleteKeyword(context, keywordId, scopeCommand);
+            }
+        }
+        for (ProductKeywordEditorSaveCommand.Row row : command.getRows()) {
+            if (row == null || !StringUtils.hasText(row.getKeyword())) {
+                continue;
+            }
+            ProductKeywordCommand keywordCommand = new ProductKeywordCommand();
+            keywordCommand.setStoreCode(scope.getStoreCode());
+            keywordCommand.setSiteCode(scope.getSiteCode());
+            keywordCommand.setPartnerSku(scope.getPartnerSku());
+            keywordCommand.setKeyword(row.getKeyword());
+            keywordCommand.setIntentTags(List.of("TITLE_TARGET"));
+            if (row.isSaveKeyword()) {
+                if (row.getKeywordId() == null) {
+                    addManualKeyword(context, keywordCommand);
+                } else {
+                    updateKeyword(context, row.getKeywordId(), keywordCommand);
+                }
+            }
+            if (row.getCompetitorSources() != null && !row.getCompetitorSources().isEmpty()) {
+                ProductKeywordCompetitorKeywordCommand competitorCommand = new ProductKeywordCompetitorKeywordCommand();
+                competitorCommand.setStoreCode(scope.getStoreCode());
+                competitorCommand.setSiteCode(scope.getSiteCode());
+                competitorCommand.setPartnerSku(scope.getPartnerSku());
+                competitorCommand.setKeywords(List.of(row.getKeyword()));
+                competitorCommand.setCompetitorSources(row.getCompetitorSources());
+                addCompetitorKeywords(context, competitorCommand);
+            }
+        }
+        return productKeywords(
+                context,
+                scope.getStoreCode(),
+                scope.getSiteCode(),
+                scope.getPartnerSku()
+        );
     }
 
     public ProductKeywordViews.RebuildIndexResultView rebuildIndex(

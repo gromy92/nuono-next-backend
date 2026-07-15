@@ -12,8 +12,19 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.transaction.annotation.Transactional;
 
 class ProductListingRealRunServiceTest {
+
+    @Test
+    void rebuildSubmissionEntryKeepsIdentityReservationInsideTransaction() throws Exception {
+        assertNotNull(ProductListingService.class.getMethod(
+                "submitConfirmedRealRunFromDraft",
+                BusinessAccessContext.class,
+                ProductListingDraftCommand.class,
+                String.class
+        ).getAnnotation(Transactional.class));
+    }
 
     @Test
     void confirmedRealRunEnqueuesDurableTaskWithoutCallingNoonAdapterInRequest() {
@@ -405,6 +416,157 @@ class ProductListingRealRunServiceTest {
     }
 
     @Test
+    void unknownCreateOutcomeIsLockedAndCanRecoverReferencesBeforeContinuation() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(
+                        unknownCreateOutcomeResult(),
+                        continuationSuccessResult(),
+                        null
+                ).withCreateReferenceStep(successCreateReferenceLookupStep());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L, 90001L, "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView submitted = service.confirmRealRun(
+                context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand()
+        );
+
+        ProductListingTaskView uncertain = service.executeSubmittedRealRunTask(submitted.getTaskId());
+        ProductListingTaskView recovered = service.continueRealRunAfterCreate(context, uncertain.getTaskId());
+
+        assertEquals("written_verify_failed", uncertain.getStatus());
+        assertEquals("noon_create_outcome_unknown", uncertain.getFailureCode());
+        assertEquals("succeeded", recovered.getStatus());
+        assertEquals(1, adapter.callCount());
+        assertEquals(1, adapter.resolveCreateReferenceCallCount());
+        assertEquals(1, adapter.continueAfterCreateCallCount());
+        assertEquals("ZPARENT", adapter.lastContinueSkuParent());
+        assertEquals("PSKU_CODE_1", adapter.lastContinuePskuCode());
+    }
+
+    @Test
+    void staleInterruptedTaskCanRecoverReferencesWithoutReplayingCreate() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(
+                        successResult(),
+                        continuationSuccessResult(),
+                        null
+                ).withCreateReferenceStep(successCreateReferenceLookupStep());
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L, 90001L, "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView submitted = service.confirmRealRun(
+                context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand()
+        );
+        mapper.forceRunning(submitted.getTaskId(), LocalDateTime.now().minusHours(2));
+        service.recoverStaleRunningRealRunTasks(Duration.ofMinutes(30));
+
+        ProductListingTaskView recovered = service.continueRealRunAfterCreate(context, submitted.getTaskId());
+
+        assertEquals("succeeded", recovered.getStatus());
+        assertEquals(0, adapter.callCount());
+        assertEquals(1, adapter.resolveCreateReferenceCallCount());
+        assertEquals(1, adapter.continueAfterCreateCallCount());
+    }
+
+    @Test
+    void successfulReadBackDoesNotHideAnEarlierWriteStepFailure() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(
+                        imageUploadFailureAfterRemoteCreateResult(),
+                        successReadBackStep()
+                );
+        ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L, 90001L, "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView submitted = service.confirmRealRun(
+                context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand()
+        );
+        ProductListingTaskView partialWrite = service.executeSubmittedRealRunTask(submitted.getTaskId());
+
+        ProductListingTaskView readBack = service.verifyRealRunReadBack(context, partialWrite.getTaskId());
+
+        assertEquals("written_verify_failed", readBack.getStatus());
+        assertEquals("noon_write_failed", readBack.getFailureCode());
+        assertEquals(1, adapter.callCount());
+        assertEquals(1, adapter.verifyReadBackCallCount());
+    }
+
+    @Test
+    void successfulNoonWriteWithProjectionFailureDoesNotReportTaskSuccess() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(successResult());
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setEnabled(true);
+        ProductListingService service = new ProductListingService(
+                mapper,
+                new ObjectMapper(),
+                new ProductListingValidator(),
+                properties,
+                adapter,
+                null,
+                objectProvider(new ThrowingProjectionBackfill())
+        );
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L, 90001L, "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView submitted = service.confirmRealRun(
+                context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand()
+        );
+
+        ProductListingTaskView executed = service.executeSubmittedRealRunTask(submitted.getTaskId());
+
+        assertEquals("written_verify_failed", executed.getStatus());
+        assertEquals("projection_backfill_failed", executed.getFailureCode());
+        assertTrue(executed.getFailureMessage().contains("本地商品列表同步失败"));
+    }
+
+    @Test
+    void successfulNoonWriteWithProjectionNoopDoesNotReportTaskSuccess() {
+        ProductListingTestFixtures.FakeProductListingMapper mapper =
+                new ProductListingTestFixtures.FakeProductListingMapper();
+        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
+                new ProductListingTestFixtures.TrackingNoonWriteAdapter(successResult());
+        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
+        properties.setEnabled(true);
+        ProductListingService service = new ProductListingService(
+                mapper,
+                new ObjectMapper(),
+                new ProductListingValidator(),
+                properties,
+                adapter,
+                null,
+                objectProvider(new NoopSuccessfulProjectionBackfill())
+        );
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L, 90001L, "STR245027-NAE"
+        );
+        ProductListingTaskView dryRun = ProductListingTestFixtures.validatedDryRun(service, context);
+        ProductListingTaskView submitted = service.confirmRealRun(
+                context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand()
+        );
+
+        ProductListingTaskView executed = service.executeSubmittedRealRunTask(submitted.getTaskId());
+
+        assertEquals("written_verify_failed", executed.getStatus());
+        assertEquals("projection_backfill_failed", executed.getFailureCode());
+    }
+
+    @Test
     void workerDoesNotExecuteAlreadyCompletedRealRunTwice() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
@@ -459,7 +621,7 @@ class ProductListingRealRunServiceTest {
     }
 
     @Test
-    void staleRunningRealRunTasksAreRecoveredAndExecutedByWorkerQueue() {
+    void staleRunningRealRunTasksRequireManualVerificationAndAreNotReplayed() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
         ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
@@ -482,10 +644,11 @@ class ProductListingRealRunServiceTest {
         List<ProductListingTaskView> executed = service.executeRunnableRealRunTasks(5);
 
         assertEquals(1, recovered);
-        assertEquals(1, executed.size());
-        assertEquals(submitted.getTaskId(), executed.get(0).getTaskId());
-        assertEquals("succeeded", executed.get(0).getStatus());
-        assertEquals(1, adapter.callCount());
+        assertEquals(0, executed.size());
+        ProductListingTaskView recoveredTask = service.loadTask(context, submitted.getTaskId());
+        assertEquals("written_verify_failed", recoveredTask.getStatus());
+        assertEquals("real_run_interrupted", recoveredTask.getFailureCode());
+        assertEquals(0, adapter.callCount());
     }
 
     private ProductListingNoonWriteResult successResult() {
@@ -531,6 +694,28 @@ class ProductListingRealRunServiceTest {
                 "HTTP 503 temporary Noon error.",
                 List.of(create)
         );
+    }
+
+    private ProductListingNoonWriteResult unknownCreateOutcomeResult() {
+        ProductListingNoonWriteStepResult create = new ProductListingNoonWriteStepResult();
+        create.setStepKey("create_product");
+        create.setStatus("failed");
+        create.setFailureCode("noon_create_outcome_unknown");
+        create.setFailureMessage("connection reset after request write");
+        return ProductListingNoonWriteResult.failed(
+                "noon_api",
+                "noon_create_outcome_unknown",
+                "connection reset after request write",
+                List.of(create)
+        );
+    }
+
+    private ProductListingNoonWriteStepResult successCreateReferenceLookupStep() {
+        ProductListingNoonWriteStepResult lookup = new ProductListingNoonWriteStepResult();
+        lookup.setStepKey("resolve_create_reference");
+        lookup.setStatus("succeeded");
+        lookup.setExternalReference("skuParent=ZPARENT;pskuCode=PSKU_CODE_1");
+        return lookup;
     }
 
     private ProductListingNoonWriteResult partnerSkuAlreadyExistsResult() {
@@ -632,7 +817,7 @@ class ProductListingRealRunServiceTest {
         }
 
         @Override
-        public void backfillSuccessfulListing(
+        public boolean backfillSuccessfulListing(
                 ProductListingTaskRecord task,
                 ProductListingDraftCommand draft,
                 ProductListingNoonWriteResult result
@@ -641,6 +826,40 @@ class ProductListingRealRunServiceTest {
             this.task = task;
             this.draft = draft;
             this.result = result;
+            return true;
+        }
+    }
+
+    private static class ThrowingProjectionBackfill implements ProductListingProjectionBackfill {
+        @Override
+        public void backfillDraftListing(
+                ProductListingDraftRecord record,
+                ProductListingDraftCommand draft
+        ) {
+        }
+
+        @Override
+        public boolean backfillSuccessfulListing(
+                ProductListingTaskRecord task,
+                ProductListingDraftCommand draft,
+                ProductListingNoonWriteResult result
+        ) {
+            throw new IllegalStateException("projection unavailable");
+        }
+    }
+
+    private static class NoopSuccessfulProjectionBackfill implements ProductListingProjectionBackfill {
+        @Override
+        public void backfillDraftListing(ProductListingDraftRecord record, ProductListingDraftCommand draft) {
+        }
+
+        @Override
+        public boolean backfillSuccessfulListing(
+                ProductListingTaskRecord task,
+                ProductListingDraftCommand draft,
+                ProductListingNoonWriteResult result
+        ) {
+            return false;
         }
     }
 }

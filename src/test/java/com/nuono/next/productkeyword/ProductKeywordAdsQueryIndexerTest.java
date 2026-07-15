@@ -144,6 +144,16 @@ class ProductKeywordAdsQueryIndexerTest {
     }
 
     private static final class FakeProductKeywordMapper implements ProductKeywordMapper {
+
+        @Override
+        public int archiveKeyword(Long ownerUserId, String storeCode, String siteCode, String partnerSku, Long keywordId, Long updatedBy) {
+            return 0;
+        }
+
+        @Override
+        public int archiveKeywordEvents(Long ownerUserId, String storeCode, String siteCode, String partnerSku, Long keywordId, Long updatedBy) {
+            return 0;
+        }
         private long nextKeywordId = 300001L;
         private long nextEventId = 320001L;
         private final Map<String, ProductKeywordRecord> keywords = new LinkedHashMap<>();

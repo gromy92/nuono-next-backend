@@ -8,6 +8,7 @@ import javax.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -108,6 +109,25 @@ public class ProductKeywordController {
         }
     }
 
+    @PostMapping("/editor-save")
+    public ProductKeywordViews.ProductKeywordPanelView saveEditorChanges(
+            @RequestBody(required = false) ProductKeywordEditorSaveCommand body,
+            HttpServletRequest request
+    ) {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体不能为空。");
+        }
+        body.setStoreCode(requireStoreCode(body.getStoreCode()));
+        body.setSiteCode(requireSiteCode(body.getSiteCode()));
+        body.setPartnerSku(requirePartnerSku(body.getPartnerSku()));
+        BusinessAccessContext context = requireStoreAccess(request, body.getStoreCode());
+        try {
+            return service.saveEditorChanges(context, body);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PatchMapping("/{keywordId}")
     public ProductKeywordViews.KeywordItemView update(
             @PathVariable Long keywordId,
@@ -121,6 +141,27 @@ public class ProductKeywordController {
         BusinessAccessContext context = requireStoreAccess(request, command.getStoreCode());
         try {
             return ProductKeywordViews.keyword(service.updateKeyword(context, keywordId, command));
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @DeleteMapping("/{keywordId}")
+    public void delete(
+            @PathVariable Long keywordId,
+            @RequestParam(value = "storeCode", required = false) String storeCode,
+            @RequestParam(value = "siteCode", required = false) String siteCode,
+            @RequestParam(value = "partnerSku", required = false) String partnerSku,
+            HttpServletRequest request
+    ) {
+        ProductKeywordCommand command = new ProductKeywordCommand();
+        command.setStoreCode(requireStoreCode(storeCode));
+        command.setSiteCode(requireSiteCode(siteCode));
+        command.setPartnerSku(requirePartnerSku(partnerSku));
+        command.setKeyword("deleted");
+        BusinessAccessContext context = requireStoreAccess(request, command.getStoreCode());
+        try {
+            service.deleteKeyword(context, keywordId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

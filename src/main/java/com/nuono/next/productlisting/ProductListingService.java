@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -25,6 +26,9 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -35,6 +39,7 @@ public class ProductListingService {
     private static final String REAL_RUN_MODE = "REAL_RUN";
     private static final String REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED = "written_verify_failed";
     private static final String PARTNER_SKU_ALREADY_EXISTS_CODE = "partner_sku_already_exists";
+    private static final int IDENTITY_LOCK_TIMEOUT_SECONDS = 5;
     private static final Pattern PARTNER_SKU_ALREADY_EXISTS_PATTERN = Pattern.compile(
             "Partner skus? already exists:\\s*\\[\\[\\s*['\"]?([^'\"\\],\\[]+)",
             Pattern.CASE_INSENSITIVE
@@ -298,6 +303,7 @@ public class ProductListingService {
         return taskView(task, readIssues(task.getValidationJson()));
     }
 
+    @Transactional
     public ProductListingRealRunSubmission submitConfirmedRealRunFromDraft(
             BusinessAccessContext context,
             ProductListingDraftCommand draft,
@@ -320,6 +326,7 @@ public class ProductListingService {
         return new ProductListingRealRunSubmission(draftView, dryRun, realRun);
     }
 
+    @Transactional
     public ProductListingTaskView confirmRealRun(
             BusinessAccessContext context,
             Long dryRunTaskId,
@@ -340,77 +347,123 @@ public class ProductListingService {
                     "Only validated product listing dry-run tasks can be promoted to real Noon listing."
             );
         }
-        ProductListingTaskRecord existingAttempt = mapper.selectRealWriteAttemptTaskBySourceTaskId(
-                ownerUserId,
-                dryRunTask.getId()
-        );
-        if (existingAttempt != null) {
-            return rejectExistingRealWriteAttempt(context, dryRunTask, command, existingAttempt);
-        }
         ProductListingDraftCommand dryRunDraft = readDraft(dryRunTask.getInputSnapshotJson());
         String partnerSku = normalizeText(dryRunDraft.getPsku());
-        if (StringUtils.hasText(partnerSku)) {
-            ProductListingTaskRecord existingPartnerSkuTask = mapper.selectListedPartnerSkuTask(
+        String barcode = normalizeText(dryRunDraft.getBarcode());
+        List<String> identityLocks = acquireIdentityLocks(
+                ownerUserId,
+                dryRunTask.getStoreCode(),
+                partnerSku,
+                barcode
+        );
+        boolean deferredLockRelease = registerIdentityLockReleaseAfterCommit(identityLocks);
+        try {
+            ProductListingTaskRecord existingAttempt = mapper.selectRealWriteAttemptTaskBySourceTaskId(
                     ownerUserId,
-                    dryRunTask.getStoreCode(),
-                    partnerSku
+                    dryRunTask.getId()
             );
-            if (existingPartnerSkuTask != null
-                    && !isHistoricalRebuildPartnerSkuTask(dryRunTask, dryRunDraft, existingPartnerSkuTask)) {
+            if (existingAttempt != null) {
+                return rejectExistingRealWriteAttempt(context, dryRunTask, command, existingAttempt);
+            }
+            if (StringUtils.hasText(partnerSku)) {
+                Long existingProductId = mapper.selectLocalProductIdByPartnerSku(
+                        ownerUserId,
+                        dryRunTask.getStoreCode(),
+                        partnerSku,
+                        dryRunTask.getDraftId()
+                );
+                ProductListingTaskRecord existingPartnerSkuTask = mapper.selectListedPartnerSkuTask(
+                        ownerUserId,
+                        dryRunTask.getStoreCode(),
+                        partnerSku
+                );
+                if ((existingProductId != null && !isSameRebuildSourceProduct(existingProductId, dryRunDraft))
+                        || (existingPartnerSkuTask != null
+                        && !isHistoricalRebuildPartnerSkuTask(dryRunTask, dryRunDraft, existingPartnerSkuTask))) {
+                    return insertRejectedRealRunTask(
+                            context,
+                            dryRunTask,
+                            command,
+                            "validation",
+                            PARTNER_SKU_ALREADY_EXISTS_CODE,
+                            partnerSkuAlreadyExistsMessage(partnerSku)
+                    );
+                }
+            }
+            if (StringUtils.hasText(barcode)) {
+                Long existingProductId = mapper.selectLocalProductIdByBarcode(
+                        ownerUserId,
+                        dryRunTask.getStoreCode(),
+                        barcode,
+                        dryRunTask.getDraftId()
+                );
+                ProductListingTaskRecord existingBarcodeTask = mapper.selectReservedBarcodeTask(
+                        ownerUserId,
+                        dryRunTask.getStoreCode(),
+                        barcode
+                );
+                if ((existingProductId != null && !isSameRebuildSourceProduct(existingProductId, dryRunDraft))
+                        || (existingBarcodeTask != null
+                        && !isHistoricalRebuildPartnerSkuTask(dryRunTask, dryRunDraft, existingBarcodeTask))) {
+                    return insertRejectedRealRunTask(
+                            context,
+                            dryRunTask,
+                            command,
+                            "validation",
+                            "barcode_already_exists",
+                            barcodeAlreadyExistsMessage(barcode)
+                    );
+                }
+            }
+            if (command == null || !Boolean.TRUE.equals(command.getConfirmRealNoonWrite())) {
                 return insertRejectedRealRunTask(
                         context,
                         dryRunTask,
                         command,
-                        "validation",
-                        PARTNER_SKU_ALREADY_EXISTS_CODE,
-                        partnerSkuAlreadyExistsMessage(partnerSku)
+                        "guard",
+                        "confirmation_required",
+                        "Real Noon listing confirmation is required."
                 );
             }
-        }
-        if (command == null || !Boolean.TRUE.equals(command.getConfirmRealNoonWrite())) {
-            return insertRejectedRealRunTask(
-                    context,
-                    dryRunTask,
-                    command,
-                    "guard",
-                    "confirmation_required",
-                    "Real Noon listing confirmation is required."
-            );
-        }
-        if (!realWriteProperties.isEnabled()) {
-            return insertRejectedRealRunTask(
-                    context,
-                    dryRunTask,
-                    command,
-                    "guard",
-                    "real_write_disabled",
-                    "Real Noon listing writes are disabled by kill switch."
-            );
-        }
-
-        ProductListingTaskRecord task = newRealRunTask(
-                context,
-                dryRunTask,
-                command,
-                "submitted",
-                null,
-                null,
-                null
-        );
-        try {
-            mapper.insertTask(task);
-        } catch (DuplicateKeyException exception) {
-            ProductListingTaskRecord duplicateAttempt = mapper.selectRealWriteAttemptTaskBySourceTaskId(
-                    ownerUserId,
-                    dryRunTask.getId()
-            );
-            if (duplicateAttempt == null) {
-                throw exception;
+            if (!realWriteProperties.isEnabled()) {
+                return insertRejectedRealRunTask(
+                        context,
+                        dryRunTask,
+                        command,
+                        "guard",
+                        "real_write_disabled",
+                        "Real Noon listing writes are disabled by kill switch."
+                );
             }
-            return rejectExistingRealWriteAttempt(context, dryRunTask, command, duplicateAttempt);
+
+            ProductListingTaskRecord task = newRealRunTask(
+                    context,
+                    dryRunTask,
+                    command,
+                    "submitted",
+                    null,
+                    null,
+                    null
+            );
+            try {
+                mapper.insertTask(task);
+            } catch (DuplicateKeyException exception) {
+                ProductListingTaskRecord duplicateAttempt = mapper.selectRealWriteAttemptTaskBySourceTaskId(
+                        ownerUserId,
+                        dryRunTask.getId()
+                );
+                if (duplicateAttempt == null) {
+                    throw exception;
+                }
+                return rejectExistingRealWriteAttempt(context, dryRunTask, command, duplicateAttempt);
+            }
+            eventPublisher.publishEvent(new ProductListingRealRunSubmittedEvent(task.getId()));
+            return taskView(task, readIssues(task.getValidationJson()));
+        } finally {
+            if (!deferredLockRelease) {
+                releaseIdentityLocks(identityLocks);
+            }
         }
-        eventPublisher.publishEvent(new ProductListingRealRunSubmittedEvent(task.getId()));
-        return taskView(task, readIssues(task.getValidationJson()));
     }
 
     public ProductListingTaskView executeSubmittedRealRunTask(Long realRunTaskId) {
@@ -452,6 +505,79 @@ public class ProductListingService {
                 : maxRunningAge;
         LocalDateTime staleBefore = LocalDateTime.now().minus(safeMaxRunningAge);
         return mapper.recoverStaleRunningRealRunTasks(staleBefore);
+    }
+
+    private List<String> acquireIdentityLocks(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            String barcode
+    ) {
+        List<String> lockKeys = new ArrayList<>();
+        if (StringUtils.hasText(partnerSku)) {
+            lockKeys.add(identityLockKey("psku", ownerUserId, storeCode, partnerSku));
+        }
+        if (StringUtils.hasText(barcode)) {
+            lockKeys.add(identityLockKey("barcode", ownerUserId, storeCode, barcode));
+        }
+        Collections.sort(lockKeys);
+        List<String> acquired = new ArrayList<>();
+        try {
+            for (String lockKey : lockKeys) {
+                Integer result = mapper.acquireIdentityLock(lockKey, IDENTITY_LOCK_TIMEOUT_SECONDS);
+                if (!Integer.valueOf(1).equals(result)) {
+                    throw new IllegalArgumentException("商品身份正在被其他上架任务校验，请稍后重试。");
+                }
+                acquired.add(lockKey);
+            }
+            return acquired;
+        } catch (RuntimeException exception) {
+            releaseIdentityLocks(acquired);
+            throw exception;
+        }
+    }
+
+    private void releaseIdentityLocks(List<String> lockKeys) {
+        if (lockKeys == null || lockKeys.isEmpty()) {
+            return;
+        }
+        for (int index = lockKeys.size() - 1; index >= 0; index--) {
+            try {
+                mapper.releaseIdentityLock(lockKeys.get(index));
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Failed to release product listing identity lock", exception);
+            }
+        }
+    }
+
+    private boolean registerIdentityLockReleaseAfterCommit(List<String> lockKeys) {
+        if (lockKeys == null || lockKeys.isEmpty()
+                || !TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive()) {
+            return false;
+        }
+        AtomicBoolean released = new AtomicBoolean(false);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (released.compareAndSet(false, true)) {
+                    releaseIdentityLocks(lockKeys);
+                }
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                if (released.compareAndSet(false, true)) {
+                    releaseIdentityLocks(lockKeys);
+                }
+            }
+        });
+        return true;
+    }
+
+    private String identityLockKey(String type, Long ownerUserId, String storeCode, String value) {
+        return type + ":" + ownerUserId + ":" + normalizeText(storeCode).toUpperCase(Locale.ROOT)
+                + ":" + normalizeText(value).toUpperCase(Locale.ROOT);
     }
 
     public List<ProductListingTaskView> executeRunnableRealRunTasks(int limit) {
@@ -512,7 +638,19 @@ public class ProductListingService {
             throw new IllegalArgumentException("Real Noon listing writes are disabled by kill switch.");
         }
         ProductListingNoonWriteResult previousResult = readNoonResult(task.getNoonResultJson());
-        NoonWriteReferences references = requireNoonWriteReferences(previousResult);
+        NoonWriteReferences references = noonWriteReferences(previousResult);
+        if (!StringUtils.hasText(references.skuParent) || !StringUtils.hasText(references.pskuCode)) {
+            ProductListingNoonWriteStepResult lookup = noonWriteAdapter.resolveCreateReference(
+                    noonWriteRequest(context, task)
+            );
+            if (lookup == null || !"succeeded".equals(lookup.getStatus())) {
+                throw new IllegalArgumentException(lookup != null && StringUtils.hasText(lookup.getFailureMessage())
+                        ? lookup.getFailureMessage()
+                        : "Noon 中暂未找到该 PSKU 的创建结果，请稍后重新核对，不要重复上架。");
+            }
+            previousResult = resultWithCreateReference(previousResult, lookup);
+            references = requireNoonWriteReferences(previousResult);
+        }
         if (!StringUtils.hasText(references.pskuCode)) {
             throw new IllegalArgumentException("Product listing real-run task is missing Noon pskuCode reference.");
         }
@@ -535,8 +673,11 @@ public class ProductListingService {
         Long ownerUserId = requireOwnerUserId(context);
         ProductListingTaskRecord task = requireTask(realRunTaskId, ownerUserId);
         requireStoreAccess(context, task.getStoreCode());
-        if (!REAL_RUN_MODE.equals(task.getMode()) || !"succeeded".equals(task.getStatus())) {
-            throw new IllegalArgumentException("Only succeeded product listing real-run tasks can replay projection backfill.");
+        boolean projectionRecovery = REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED.equals(task.getStatus())
+                && "projection_backfill_failed".equals(task.getFailureCode());
+        if (!REAL_RUN_MODE.equals(task.getMode())
+                || (!("succeeded".equals(task.getStatus()) || projectionRecovery))) {
+            throw new IllegalArgumentException("Only Noon-succeeded product listing tasks can replay projection backfill.");
         }
         ProductListingNoonWriteResult result = readNoonResult(task.getNoonResultJson());
         if (result == null || !result.isSuccess()) {
@@ -545,12 +686,21 @@ public class ProductListingService {
         if (!backfillProductProjection(task, result)) {
             throw new IllegalStateException("Product listing projection backfill failed.");
         }
+        if (projectionRecovery) {
+            task.setStatus("succeeded");
+            task.setFailureCategory(null);
+            task.setFailureCode(null);
+            task.setFailureMessage(null);
+            task.setCompletedAt(LocalDateTime.now());
+            mapper.updateTaskResult(task);
+        }
         return taskView(task, readIssues(task.getValidationJson()));
     }
 
     public List<ProductListingTaskView> recentTasks(
             BusinessAccessContext context,
             String storeCode,
+            Long draftId,
             int limit
     ) {
         requireContext(context);
@@ -558,7 +708,10 @@ public class ProductListingService {
         requireStoreAccess(context, safeStoreCode);
         Long ownerUserId = resolveOwnerUserId(context, safeStoreCode);
         int safeLimit = Math.max(1, Math.min(limit, 50));
-        return mapper.selectRecentTasks(ownerUserId, safeStoreCode, safeLimit).stream()
+        List<ProductListingTaskRecord> tasks = draftId == null
+                ? mapper.selectRecentTasks(ownerUserId, safeStoreCode, safeLimit)
+                : mapper.selectRecentTasksByDraftId(ownerUserId, safeStoreCode, draftId, safeLimit);
+        return tasks.stream()
                 .map(task -> taskView(task, readIssues(task.getValidationJson())))
                 .collect(Collectors.toList());
     }
@@ -738,6 +891,20 @@ public class ProductListingService {
         }
         steps.add(safeReadBack);
         if ("succeeded".equals(safeReadBack.getStatus())) {
+            if (hasFailedWriteStep(previousResult)) {
+                return ProductListingNoonWriteResult.failed(
+                        StringUtils.hasText(previousResult.getFailureCategory())
+                                ? previousResult.getFailureCategory()
+                                : "noon_api",
+                        StringUtils.hasText(previousResult.getFailureCode())
+                                ? previousResult.getFailureCode()
+                                : "noon_partial_write_failed",
+                        StringUtils.hasText(previousResult.getFailureMessage())
+                                ? previousResult.getFailureMessage()
+                                : "Noon listing read-back passed, but an earlier write step failed.",
+                        steps
+                );
+            }
             return ProductListingNoonWriteResult.succeeded(steps);
         }
         return ProductListingNoonWriteResult.failed(
@@ -788,6 +955,29 @@ public class ProductListingService {
         );
     }
 
+    private ProductListingNoonWriteResult resultWithCreateReference(
+            ProductListingNoonWriteResult previousResult,
+            ProductListingNoonWriteStepResult lookup
+    ) {
+        List<ProductListingNoonWriteStepResult> steps = new ArrayList<>();
+        if (previousResult != null && previousResult.getSteps() != null) {
+            steps.addAll(previousResult.getSteps());
+        }
+        steps.add(lookup);
+        return ProductListingNoonWriteResult.failed(
+                previousResult != null && StringUtils.hasText(previousResult.getFailureCategory())
+                        ? previousResult.getFailureCategory()
+                        : "noon_uncertain_write",
+                previousResult != null && StringUtils.hasText(previousResult.getFailureCode())
+                        ? previousResult.getFailureCode()
+                        : "real_run_interrupted",
+                previousResult != null && StringUtils.hasText(previousResult.getFailureMessage())
+                        ? previousResult.getFailureMessage()
+                        : "Noon create reference recovered after interrupted real-run.",
+                steps
+        );
+    }
+
     private ProductListingNoonWriteStepResult failedReadBackStep(String failureCode, String failureMessage) {
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey("verify_noon_readback");
@@ -805,11 +995,17 @@ public class ProductListingService {
         task.setNoonResultJson(writeJson(result));
         task.setCompletedAt(LocalDateTime.now());
         if (result.isSuccess()) {
+            if (!backfillProductProjection(task, result)) {
+                task.setStatus(REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED);
+                task.setFailureCategory("local_projection");
+                task.setFailureCode("projection_backfill_failed");
+                task.setFailureMessage("Noon 已完成上架，但本地商品列表同步失败；请重试本地投影恢复，不要重复上架。");
+                return;
+            }
             task.setStatus("succeeded");
             task.setFailureCategory(null);
             task.setFailureCode(null);
             task.setFailureMessage(null);
-            backfillProductProjection(task, result);
             return;
         }
         if (isWrittenButVerificationFailed(result)) {
@@ -823,6 +1019,13 @@ public class ProductListingService {
             task.setFailureMessage(StringUtils.hasText(result.getFailureMessage())
                     ? result.getFailureMessage()
                     : "Noon product was written, but readback verification failed.");
+            return;
+        }
+        if (isCreateOutcomeUnknown(result)) {
+            task.setStatus(REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED);
+            task.setFailureCategory("noon_uncertain_write");
+            task.setFailureCode("noon_create_outcome_unknown");
+            task.setFailureMessage("Noon 创建请求结果未知；请核对创建结果并继续后续步骤，不要重复提交上架。");
             return;
         }
         task.setStatus("failed");
@@ -842,8 +1045,11 @@ public class ProductListingService {
             ProductListingNoonWriteResult result
     ) {
         try {
-            projectionBackfill.backfillSuccessfulListing(task, readDraft(task.getInputSnapshotJson()), result);
-            return true;
+            return projectionBackfill.backfillSuccessfulListing(
+                    task,
+                    readDraft(task.getInputSnapshotJson()),
+                    result
+            );
         } catch (RuntimeException exception) {
             LOGGER.warn(
                     "Product listing projection backfill failed: taskId={}, taskNo={}",
@@ -875,10 +1081,31 @@ public class ProductListingService {
         if (result == null || result.isSuccess()) {
             return false;
         }
-        return result.getSteps().stream().anyMatch((step) ->
+        boolean created = result.getSteps().stream().anyMatch((step) ->
                 "create_product".equals(step.getStepKey())
                         && "succeeded".equals(step.getStatus())
                         && StringUtils.hasText(step.getExternalReference()));
+        return created;
+    }
+
+    private boolean isCreateOutcomeUnknown(ProductListingNoonWriteResult result) {
+        if (result == null || result.getSteps() == null) {
+            return false;
+        }
+        return result.getSteps().stream().anyMatch(step -> step != null
+                && "create_product".equals(step.getStepKey())
+                && "failed".equals(step.getStatus())
+                && "noon_create_outcome_unknown".equals(step.getFailureCode()));
+    }
+
+    private boolean hasFailedWriteStep(ProductListingNoonWriteResult result) {
+        if (result == null || result.getSteps() == null) {
+            return false;
+        }
+        return result.getSteps().stream().anyMatch((step) ->
+                step != null
+                        && "failed".equals(step.getStatus())
+                        && !"verify_noon_readback".equals(step.getStepKey()));
     }
 
     private ProductListingDraftView draftView(
@@ -1129,10 +1356,22 @@ public class ProductListingService {
                 barcode,
                 command == null ? null : command.getDraftId()
         );
-        if (existingProductId == null) {
+        if (existingProductId != null) {
+            if (isSameRebuildSourceProduct(existingProductId, command)) {
+                return;
+            }
+            issues.add(error(
+                    "barcode",
+                    "barcode_already_exists",
+                    barcodeAlreadyExistsMessage(barcode)
+            ));
             return;
         }
-        if (isSameRebuildSourceProduct(existingProductId, command)) {
+        if (isProductRebuildDraft(command)) {
+            return;
+        }
+        ProductListingTaskRecord existingTask = mapper.selectReservedBarcodeTask(ownerUserId, storeCode, barcode);
+        if (existingTask == null) {
             return;
         }
         issues.add(error(
@@ -1413,15 +1652,20 @@ public class ProductListingService {
     }
 
     private NoonWriteReferences requireNoonWriteReferences(ProductListingNoonWriteResult result) {
+        NoonWriteReferences references = noonWriteReferences(result);
+        if (!StringUtils.hasText(references.skuParent)) {
+            throw new IllegalArgumentException("Product listing real-run task is missing Noon skuParent reference.");
+        }
+        return references;
+    }
+
+    private NoonWriteReferences noonWriteReferences(ProductListingNoonWriteResult result) {
         NoonWriteReferences references = new NoonWriteReferences();
         if (result != null && result.getSteps() != null) {
             for (ProductListingNoonWriteStepResult step : result.getSteps()) {
                 Map<String, String> parts = externalReferenceParts(step == null ? null : step.getExternalReference());
                 references.accept(parts);
             }
-        }
-        if (!StringUtils.hasText(references.skuParent)) {
-            throw new IllegalArgumentException("Product listing real-run task is missing Noon skuParent reference.");
         }
         return references;
     }
