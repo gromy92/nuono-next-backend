@@ -73,6 +73,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
@@ -322,6 +323,41 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         detail.sourceType = asn.sourceType;
         detail.summary = inboundSummary(asn, receipts);
 
+        List<Long> receiptVariantIds = receipts.stream()
+                .map(receipt -> receipt.productVariantId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        List<String> receiptPartnerSkus = receipts.stream()
+                .map(receipt -> trimToNull(receipt.partnerSku))
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        List<ProductCandidateRecord> receiptProductCandidates = receiptVariantIds.isEmpty() && receiptPartnerSkus.isEmpty()
+                ? List.of()
+                : mapper.listProductCandidates(
+                        ownerUserId,
+                        asn.storeCode,
+                        asn.siteCode,
+                        null,
+                        receiptVariantIds,
+                        receiptPartnerSkus,
+                        Math.max(1000, receiptVariantIds.size() + receiptPartnerSkus.size())
+                );
+        Map<Long, ProductCandidateRecord> receiptCandidatesByVariantId = new LinkedHashMap<>();
+        Map<String, ProductCandidateRecord> uniqueReceiptCandidatesByPartnerSku = new LinkedHashMap<>();
+        Set<String> ambiguousReceiptPartnerSkus = new LinkedHashSet<>();
+        for (ProductCandidateRecord candidate : receiptProductCandidates) {
+            if (candidate.productVariantId != null) {
+                receiptCandidatesByVariantId.putIfAbsent(candidate.productVariantId, candidate);
+            }
+            registerInboundProductCandidate(
+                    uniqueReceiptCandidatesByPartnerSku,
+                    ambiguousReceiptPartnerSkus,
+                    candidate
+            );
+        }
+
         Map<Long, AsnInboundLineView> linesById = new LinkedHashMap<>();
         Map<String, AsnInboundLineView> uniqueLinesByKey = new LinkedHashMap<>();
         Set<String> ambiguousKeys = new LinkedHashSet<>();
@@ -341,7 +377,20 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             }
             if (target == null) {
                 String reportKey = inboundReportOnlyKey(receipt);
-                target = reportOnlyLines.computeIfAbsent(reportKey, ignored -> inboundReportOnlyLine(receipt));
+                ProductCandidateRecord productCandidate = receipt.productVariantId == null
+                        ? null
+                        : receiptCandidatesByVariantId.get(receipt.productVariantId);
+                if (productCandidate == null) {
+                    String partnerKey = inboundPartnerKey(receipt.partnerSku);
+                    if (partnerKey != null && !ambiguousReceiptPartnerSkus.contains(partnerKey)) {
+                        productCandidate = uniqueReceiptCandidatesByPartnerSku.get(partnerKey);
+                    }
+                }
+                ProductCandidateRecord resolvedProductCandidate = productCandidate;
+                target = reportOnlyLines.computeIfAbsent(
+                        reportKey,
+                        ignored -> inboundReportOnlyLine(receipt, resolvedProductCandidate)
+                );
             }
             accumulateInboundReceipt(target, receipt, matchedByBusinessKey);
         }
@@ -2421,16 +2470,45 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         return view;
     }
 
-    private AsnInboundLineView inboundReportOnlyLine(AsnInboundReceiptRecord receipt) {
+    private AsnInboundLineView inboundReportOnlyLine(
+            AsnInboundReceiptRecord receipt,
+            ProductCandidateRecord productCandidate
+    ) {
         AsnInboundLineView view = new AsnInboundLineView();
-        view.productVariantId = receipt.productVariantId == null ? null : String.valueOf(receipt.productVariantId);
-        view.productSiteOfferId = receipt.productSiteOfferId == null ? null : String.valueOf(receipt.productSiteOfferId);
+        Long productVariantId = receipt.productVariantId != null
+                ? receipt.productVariantId
+                : productCandidate == null ? null : productCandidate.productVariantId;
+        Long productSiteOfferId = receipt.productSiteOfferId != null
+                ? receipt.productSiteOfferId
+                : productCandidate == null ? null : productCandidate.productSiteOfferId;
+        view.productVariantId = productVariantId == null ? null : String.valueOf(productVariantId);
+        view.productSiteOfferId = productSiteOfferId == null ? null : String.valueOf(productSiteOfferId);
         view.partnerSku = receipt.partnerSku;
         view.pskuCode = receipt.pskuCode;
         view.noonSku = receipt.noonSku;
+        if (productCandidate != null) {
+            view.title = productCandidate.titleCache;
+            view.imageUrl = ProductImageUrlSupport.normalize(productCandidate.imageUrlCache);
+        }
         view.reportOnly = true;
         view.matchStatus = "REPORT_ONLY";
         return view;
+    }
+
+    private void registerInboundProductCandidate(
+            Map<String, ProductCandidateRecord> uniqueCandidatesByPartnerSku,
+            Set<String> ambiguousPartnerSkus,
+            ProductCandidateRecord candidate
+    ) {
+        String key = inboundPartnerKey(candidate.partnerSku);
+        if (key == null || ambiguousPartnerSkus.contains(key)) {
+            return;
+        }
+        ProductCandidateRecord existing = uniqueCandidatesByPartnerSku.putIfAbsent(key, candidate);
+        if (existing != null && !Objects.equals(existing.productVariantId, candidate.productVariantId)) {
+            uniqueCandidatesByPartnerSku.remove(key);
+            ambiguousPartnerSkus.add(key);
+        }
     }
 
     private void registerInboundLineKeys(

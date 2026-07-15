@@ -12,6 +12,7 @@ import com.nuono.next.noonpull.NoonPullFailurePolicy;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ProductCandidateRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundDetailView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -82,10 +83,26 @@ class LocalDbOfficialWarehouseAsnInboundDetailTest {
         AsnRecord asn = asn();
         asn.sourceType = "NOON_SYNC";
         AsnInboundReceiptRecord receipt = receipt(null, "REPORT-ONLY", "Z-REPORT", 10, 10, 0);
+        receipt.productVariantId = 53974L;
         receipt.matchStatus = "LINE_UNMATCHED";
+        ProductCandidateRecord candidate = new ProductCandidateRecord();
+        candidate.productVariantId = 53974L;
+        candidate.productSiteOfferId = 54974L;
+        candidate.partnerSku = "REPORT-ONLY";
+        candidate.titleCache = "报表商品标题";
+        candidate.imageUrlCache = "https://f.nooncdn.com/p/pzsku/Z-REPORT/45/_/image";
         when(mapper.selectAsn(307L, 500001L)).thenReturn(asn);
         when(mapper.listAsnLines(500001L)).thenReturn(List.of());
         when(mapper.listAsnInboundReceipts(307L, List.of(500001L))).thenReturn(List.of(receipt));
+        when(mapper.listProductCandidates(
+                307L,
+                "STR245027-NAE",
+                "AE",
+                null,
+                List.of(53974L),
+                List.of("REPORT-ONLY"),
+                1000
+        )).thenReturn(List.of(candidate));
 
         AsnInboundDetailView detail = service.getAsnInboundDetail(access(), "500001");
 
@@ -94,6 +111,8 @@ class LocalDbOfficialWarehouseAsnInboundDetailTest {
         assertThat(detail.lines).singleElement().satisfies(line -> {
             assertThat(line.reportOnly).isTrue();
             assertThat(line.partnerSku).isEqualTo("REPORT-ONLY");
+            assertThat(line.title).isEqualTo("报表商品标题");
+            assertThat(line.imageUrl).isEqualTo("https://f.nooncdn.com/p/pzsku/Z-REPORT/45/_/image.jpg");
             assertThat(line.receivedQuantity).isEqualTo(10);
             assertThat(line.inboundStatus).isEqualTo("UNMATCHED");
         });
