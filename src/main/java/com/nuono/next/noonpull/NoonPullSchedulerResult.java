@@ -8,6 +8,7 @@ public class NoonPullSchedulerResult {
     private int scannedPlanCount;
     private int createdTaskCount;
     private int skippedPlanCount;
+    private int maintenanceSkippedPlanCount;
     private final List<NoonPullTaskRecord> createdTasks = new ArrayList<>();
 
     public void scanned() {
@@ -29,6 +30,11 @@ public class NoonPullSchedulerResult {
         skippedPlanCount++;
     }
 
+    public void maintenanceSkipped() {
+        maintenanceSkippedPlanCount++;
+        skipped();
+    }
+
     public int getScannedPlanCount() {
         return scannedPlanCount;
     }
@@ -39,6 +45,10 @@ public class NoonPullSchedulerResult {
 
     public int getSkippedPlanCount() {
         return skippedPlanCount;
+    }
+
+    public int getMaintenanceSkippedPlanCount() {
+        return maintenanceSkippedPlanCount;
     }
 
     public List<NoonPullTaskRecord> getCreatedTasks() {

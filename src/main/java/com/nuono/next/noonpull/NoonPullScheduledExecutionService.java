@@ -3,6 +3,7 @@ package com.nuono.next.noonpull;
 import com.nuono.next.noonads.NoonAdvertisingReportAdapter;
 import com.nuono.next.noonads.NoonAdvertisingReportDescriptor;
 import com.nuono.next.noonads.NoonAdvertisingReportProvider;
+import com.nuono.next.noonmaintenance.StoreSiteMaintenanceGate;
 import com.nuono.next.orderfinance.NoonFinanceTransactionReportAdapter;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportQueryService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportService;
@@ -64,6 +65,7 @@ public class NoonPullScheduledExecutionService {
     private final boolean enabled;
     private final int salesReportExecutionsPerTick;
     private final int productInterfaceExecutionsPerTick;
+    private StoreSiteMaintenanceGate maintenanceGate = StoreSiteMaintenanceGate.allowAll();
 
     @Autowired
     public NoonPullScheduledExecutionService(
@@ -447,6 +449,11 @@ public class NoonPullScheduledExecutionService {
         this.productInterfaceExecutionsPerTick = Math.max(1, productInterfaceExecutionsPerTick);
     }
 
+    @Autowired(required = false)
+    void setMaintenanceGate(StoreSiteMaintenanceGate maintenanceGate) {
+        this.maintenanceGate = maintenanceGate == null ? StoreSiteMaintenanceGate.allowAll() : maintenanceGate;
+    }
+
     NoonPullScheduledExecutionService(
             NoonPullScheduler scheduler,
             NoonPullFoundationService foundationService,
@@ -499,6 +506,10 @@ public class NoonPullScheduledExecutionService {
         int salesReportExecutions = 0;
         int productInterfaceExecutions = 0;
         for (NoonPullTaskRecord task : executableQueuedTasks(schedulerResult)) {
+            if (isScheduledMaintenance(task)) {
+                result.skipped();
+                continue;
+            }
             if (isSalesReportTask(task)) {
                 if (salesReportExecutions >= salesReportExecutionsPerTick) {
                     result.skipped();
@@ -516,6 +527,16 @@ public class NoonPullScheduledExecutionService {
             executeTask(task, result);
         }
         return result;
+    }
+
+    private boolean isScheduledMaintenance(NoonPullTaskRecord task) {
+        return task != null
+                && task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY
+                && maintenanceGate.isUnderMaintenance(
+                        task.getOwnerUserId(),
+                        task.getStoreCode(),
+                        task.getSiteCode()
+                );
     }
 
     private List<NoonPullTaskRecord> executableQueuedTasks(NoonPullSchedulerResult schedulerResult) {

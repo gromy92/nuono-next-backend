@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "maintenance": [
+    {
+      "ownerUserId": 10001,
+      "storeCode": "STR_EXAMPLE_NAE",
+      "siteCode": "AE",
+      "enabled": true,
+      "effectiveFrom": "2026-07-15",
+      "effectiveTo": "2026-07-20",
+      "reason": "店铺维护，暂停自动拉取"
+    },
+    {
+      "ownerUserId": 10001,
+      "storeCode": "STR_EXAMPLE_ALL_SITES",
+      "siteCode": "*",
+      "enabled": true,
+      "reason": "整店维护，所有站点暂停自动拉取"
+    }
+  ]
+}
