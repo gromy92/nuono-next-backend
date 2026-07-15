@@ -382,12 +382,21 @@ class ProductImageProfileServiceTest {
     void updateAssetRoleShouldCreateOverlayForCurrentProductImageUrl() {
         ProductImageProfileRecord profile = profileRecord();
         profile.setProductMasterId(9001L);
+        ProductImageProfileAssetRecord current = new ProductImageProfileAssetRecord();
+        current.setId(62001L);
+        current.setImageUrl("https://example.test/current.jpg");
+        current.setContentType("image/jpeg");
+        current.setWidthPx(1247);
+        current.setHeightPx(1706);
+        current.setImageRole(ProductImageRole.MAIN);
+        current.setSortOrder(0);
+        current.setAssetStatus(ProductImageAssetStatus.ACTIVE);
         ProductImageAssetRoleUpdateCommand command = new ProductImageAssetRoleUpdateCommand();
         command.setImageUrl("https://example.test/current.jpg");
         command.setImageRole(ProductImageRole.SCENE);
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
         when(mapper.updateAssetRoleByUrl(7001L, "https://example.test/current.jpg", ProductImageRole.SCENE, 10003L)).thenReturn(0);
-        when(mapper.countCurrentProductImageByUrl(9001L, "https://example.test/current.jpg")).thenReturn(1);
+        when(mapper.selectCurrentProductImageByUrl(9001L, "https://example.test/current.jpg")).thenReturn(current);
         when(mapper.selectCurrentProductImages(9001L)).thenReturn(List.of());
         when(mapper.selectAssets(7001L)).thenReturn(List.of());
         when(mapper.selectSections(7001L)).thenReturn(List.of());
@@ -400,6 +409,42 @@ class ProductImageProfileServiceTest {
         assertEquals("https://example.test/current.jpg", assetCaptor.getValue().getImageUrl());
         assertEquals(ProductImageRole.SCENE, assetCaptor.getValue().getImageRole());
         assertEquals(ProductImageAssetStatus.ACTIVE, assetCaptor.getValue().getAssetStatus());
+        assertEquals(1247, assetCaptor.getValue().getWidthPx());
+        assertEquals(1706, assetCaptor.getValue().getHeightPx());
+    }
+
+    @Test
+    void addAssetUsagesShouldUseImageUrlWhenCurrentAndProfileAssetIdsCollide() {
+        ProductImageProfileRecord profile = profileRecord();
+        profile.setProductMasterId(9001L);
+        ProductImageProfileAssetRecord collision = new ProductImageProfileAssetRecord();
+        collision.setId(62001L);
+        collision.setProfileId(7001L);
+        collision.setImageUrl("https://example.test/different.jpg");
+        ProductImageProfileAssetRecord current = new ProductImageProfileAssetRecord();
+        current.setId(62001L);
+        current.setImageUrl("https://example.test/current.jpg");
+        current.setImageRole(ProductImageRole.MAIN);
+        current.setAssetStatus(ProductImageAssetStatus.ACTIVE);
+        ProductImageAssetUsageCreateCommand command = new ProductImageAssetUsageCreateCommand();
+        command.setAssetId(62001L);
+        command.setImageUrl("https://example.test/current.jpg");
+        command.setSourceRole(ProductImageRole.MAIN);
+        command.setImageRoles(List.of(ProductImageRole.PACKAGE));
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(mapper.selectAssetById(7001L, 62001L)).thenReturn(collision);
+        when(mapper.selectCurrentProductImageByUrl(9001L, "https://example.test/current.jpg")).thenReturn(current);
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+        when(mapper.selectSections(7001L)).thenReturn(List.of());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of());
+
+        service.addAssetUsages(307L, "STR108065-NAE", 7001L, command, 10003L);
+
+        ArgumentCaptor<ProductImageProfileAssetRecord> assetCaptor =
+                ArgumentCaptor.forClass(ProductImageProfileAssetRecord.class);
+        verify(mapper).insertAsset(assetCaptor.capture());
+        assertEquals("https://example.test/current.jpg", assetCaptor.getValue().getImageUrl());
     }
 
     @Test
@@ -478,6 +523,111 @@ class ProductImageProfileServiceTest {
         ProductImageProfileDetailView view = service.detail(307L, "STR108065-NAE", 7001L);
 
         assertEquals(0, view.getAssets().size());
+    }
+
+    @Test
+    void addAssetUsagesShouldReuseOnePhysicalAssetAcrossRoles() {
+        ProductImageProfileAssetRecord asset = new ProductImageProfileAssetRecord();
+        asset.setId(62001L);
+        asset.setProfileId(7001L);
+        asset.setImageUrl("https://example.test/product.jpg");
+        asset.setImageRole(ProductImageRole.MAIN);
+        asset.setSortOrder(0);
+        asset.setAssetStatus(ProductImageAssetStatus.ACTIVE);
+        ProductImageAssetUsageCreateCommand command = new ProductImageAssetUsageCreateCommand();
+        command.setAssetId(62001L);
+        command.setSourceRole(ProductImageRole.MAIN);
+        command.setImageRoles(List.of(ProductImageRole.PACKAGE));
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profileRecord());
+        when(mapper.selectAssetById(7001L, 62001L)).thenReturn(asset);
+        when(mapper.countActiveAssetUsage(7001L, 62001L, ProductImageRole.MAIN)).thenReturn(1);
+        when(mapper.countActiveAssetUsage(7001L, 62001L, ProductImageRole.PACKAGE)).thenReturn(0);
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+        when(mapper.selectSections(7001L)).thenReturn(List.of());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of());
+
+        service.addAssetUsages(307L, "STR108065-NAE", 7001L, command, 10003L);
+
+        ArgumentCaptor<ProductImageProfileAssetUsageRecord> usageCaptor =
+                ArgumentCaptor.forClass(ProductImageProfileAssetUsageRecord.class);
+        verify(mapper).insertAssetUsage(usageCaptor.capture());
+        assertEquals(62001L, usageCaptor.getValue().getAssetId());
+        assertEquals(ProductImageRole.PACKAGE, usageCaptor.getValue().getImageRole());
+        assertEquals(ProductImageProcessingStatus.PENDING, usageCaptor.getValue().getProcessingStatus());
+        verify(mapper, never()).insertAsset(any());
+    }
+
+    @Test
+    void updateAssetUsageShouldPersistRoleSpecificNoteAndProcessedMarker() {
+        ProductImageProfileAssetUsageRecord usage = new ProductImageProfileAssetUsageRecord();
+        usage.setId(88001L);
+        usage.setProfileId(7001L);
+        usage.setAssetId(62001L);
+        usage.setImageRole(ProductImageRole.PACKAGE);
+        usage.setProcessingStatus(ProductImageProcessingStatus.PENDING);
+        ProductImageAssetUsageUpdateCommand command = new ProductImageAssetUsageUpdateCommand();
+        command.setImageRole(ProductImageRole.PACKAGE);
+        command.setProcessingNote("保留包装并突出 5 件套");
+        command.setProcessingStatus(ProductImageProcessingStatus.PROCESSED);
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profileRecord());
+        when(mapper.selectAssetUsageById(7001L, 88001L)).thenReturn(usage);
+        when(mapper.updateAssetUsage(any())).thenReturn(1);
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+        when(mapper.selectSections(7001L)).thenReturn(List.of());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of());
+
+        service.updateAssetUsage(307L, "STR108065-NAE", 7001L, 88001L, command, 10003L);
+
+        ArgumentCaptor<ProductImageProfileAssetUsageRecord> usageCaptor =
+                ArgumentCaptor.forClass(ProductImageProfileAssetUsageRecord.class);
+        verify(mapper).updateAssetUsage(usageCaptor.capture());
+        assertEquals("保留包装并突出 5 件套", usageCaptor.getValue().getProcessingNote());
+        assertEquals(ProductImageProcessingStatus.PROCESSED, usageCaptor.getValue().getProcessingStatus());
+        assertEquals(10003L, usageCaptor.getValue().getProcessedBy());
+        assertTrue(usageCaptor.getValue().getProcessedAt() != null);
+    }
+
+    @Test
+    void detailShouldExposeSameAssetOncePerUsageWithoutSharingProcessingState() {
+        ProductImageProfileAssetRecord asset = new ProductImageProfileAssetRecord();
+        asset.setId(62001L);
+        asset.setProfileId(7001L);
+        asset.setImageUrl("https://example.test/product.jpg");
+        asset.setContentType("image/jpeg");
+        asset.setWidthPx(1200);
+        asset.setHeightPx(1200);
+        asset.setImageRole(ProductImageRole.MAIN);
+        asset.setAssetStatus(ProductImageAssetStatus.ACTIVE);
+        ProductImageProfileAssetUsageRecord main = new ProductImageProfileAssetUsageRecord();
+        main.setId(88001L);
+        main.setProfileId(7001L);
+        main.setAssetId(62001L);
+        main.setImageRole(ProductImageRole.MAIN);
+        main.setProcessingStatus(ProductImageProcessingStatus.PROCESSED);
+        ProductImageProfileAssetUsageRecord packaging = new ProductImageProfileAssetUsageRecord();
+        packaging.setId(88002L);
+        packaging.setProfileId(7001L);
+        packaging.setAssetId(62001L);
+        packaging.setImageRole(ProductImageRole.PACKAGE);
+        packaging.setProcessingNote("突出包装数量");
+        packaging.setProcessingStatus(ProductImageProcessingStatus.PENDING);
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profileRecord());
+        when(mapper.selectAssets(7001L)).thenReturn(List.of(asset));
+        when(mapper.selectAssetUsages(7001L)).thenReturn(List.of(main, packaging));
+        when(mapper.selectSections(7001L)).thenReturn(List.of());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of());
+
+        ProductImageProfileDetailView view = service.detail(307L, "STR108065-NAE", 7001L);
+
+        assertEquals(2, view.getAssets().size());
+        assertEquals(62001L, view.getAssets().get(0).getId());
+        assertEquals(62001L, view.getAssets().get(1).getId());
+        assertEquals(ProductImageRole.MAIN, view.getAssets().get(0).getImageRole());
+        assertEquals(ProductImageRole.PACKAGE, view.getAssets().get(1).getImageRole());
+        assertEquals("突出包装数量", view.getAssets().get(1).getProcessingNote());
     }
 
     @Test

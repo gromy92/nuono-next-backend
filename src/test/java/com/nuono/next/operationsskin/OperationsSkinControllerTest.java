@@ -367,6 +367,8 @@ class OperationsSkinControllerTest {
         BusinessAccessContext context = context();
         when(accessResolver.requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(STORE_CODE)))
                 .thenReturn(context);
+        when(accessResolver.requireBusinessContext(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT)))
+                .thenReturn(context);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "cover.png",
@@ -397,8 +399,9 @@ class OperationsSkinControllerTest {
             deleteUploaded(filename);
         }
 
-        verify(accessResolver, times(2)).requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(STORE_CODE));
-        verifyNoInteractions(service);
+        verify(accessResolver).requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(STORE_CODE));
+        verify(accessResolver).requireBusinessContext(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT));
+        verify(service).verifyReadableAssetStore(context, STORE_CODE);
     }
 
     @Test
@@ -413,8 +416,9 @@ class OperationsSkinControllerTest {
     void assetReadWithDifferentStoreDoesNotServeExistingFile() throws Exception {
         when(accessResolver.requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(STORE_CODE)))
                 .thenReturn(context());
-        when(accessResolver.requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(OTHER_STORE_CODE)))
-                .thenReturn(context(OTHER_STORE_CODE));
+        BusinessAccessContext otherStoreContext = context(OTHER_STORE_CODE);
+        when(accessResolver.requireBusinessContext(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT)))
+                .thenReturn(otherStoreContext);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
                 "cover.png",
@@ -443,8 +447,46 @@ class OperationsSkinControllerTest {
         }
 
         verify(accessResolver).requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(STORE_CODE));
-        verify(accessResolver).requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(OTHER_STORE_CODE));
-        verifyNoInteractions(service);
+        verify(accessResolver).requireBusinessContext(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT));
+        verify(service).verifyReadableAssetStore(otherStoreContext, OTHER_STORE_CODE);
+    }
+
+    @Test
+    void assetReadCanUseOriginalStoreDirectoryThroughSiblingSiteAuthorization() throws Exception {
+        BusinessAccessContext originContext = context();
+        BusinessAccessContext siblingContext = context(OTHER_STORE_CODE);
+        when(accessResolver.requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(STORE_CODE)))
+                .thenReturn(originContext);
+        when(accessResolver.requireBusinessContext(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT)))
+                .thenReturn(siblingContext);
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "cover.png",
+                "image/png",
+                new byte[] {10, 11, 12}
+        );
+
+        MvcResult upload = mvc.perform(multipart("/api/operations/skin-management/assets")
+                        .file(file)
+                        .param("storeCode", STORE_CODE))
+                .andExpect(status().isOk())
+                .andReturn();
+        Map<String, Object> body = objectMapper.readValue(
+                upload.getResponse().getContentAsString(),
+                new TypeReference<Map<String, Object>>() {
+                }
+        );
+        String filename = String.valueOf(body.get("filename"));
+        try {
+            mvc.perform(get("/api/operations/skin-management/assets/{filename}", filename)
+                            .param("storeCode", STORE_CODE))
+                    .andExpect(status().isOk())
+                    .andExpect(content().bytes(new byte[] {10, 11, 12}));
+        } finally {
+            deleteUploaded(filename);
+        }
+
+        verify(service).verifyReadableAssetStore(siblingContext, STORE_CODE);
     }
 
     @Test
@@ -480,15 +522,11 @@ class OperationsSkinControllerTest {
 
     @Test
     void assetReadRejectsDotDotStoreCodeEvenWhenResolverApprovesIt() throws Exception {
-        when(accessResolver.requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq("..")))
-                .thenReturn(context(".."));
-
         mvc.perform(get("/api/operations/skin-management/assets/{filename}", "sample.png")
                         .param("storeCode", ".."))
                 .andExpect(status().isBadRequest());
 
-        verify(accessResolver).requireStoreAccess(any(HttpServletRequest.class), eq(BusinessCapability.OPERATIONS_SKIN_MANAGEMENT), eq(".."));
-        verifyNoInteractions(service);
+        verifyNoInteractions(accessResolver, service);
     }
 
     @Test

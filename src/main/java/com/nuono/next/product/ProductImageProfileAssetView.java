@@ -1,16 +1,26 @@
 package com.nuono.next.product;
 
+import java.math.BigDecimal;
+
 public class ProductImageProfileAssetView {
     private Long id;
+    private Long usageId;
     private String imageUrl;
     private String contentType;
     private Long sizeBytes;
     private Integer widthPx;
     private Integer heightPx;
+    private BigDecimal horizontalPpi;
+    private BigDecimal verticalPpi;
+    private String colorSpace;
     private ProductImageRole imageRole;
     private Integer sortOrder;
     private ProductImageAssetStatus assetStatus;
     private Boolean removable;
+    private String processingNote;
+    private ProductImageProcessingStatus processingStatus;
+    private String processedAt;
+    private NoonImageTechnicalComplianceView noonTechnicalCompliance;
 
     public Long getId() {
         return id;
@@ -19,6 +29,9 @@ public class ProductImageProfileAssetView {
     public void setId(Long id) {
         this.id = id;
     }
+
+    public Long getUsageId() { return usageId; }
+    public void setUsageId(Long usageId) { this.usageId = usageId; }
 
     public String getImageUrl() {
         return imageUrl;
@@ -60,6 +73,13 @@ public class ProductImageProfileAssetView {
         this.heightPx = heightPx;
     }
 
+    public BigDecimal getHorizontalPpi() { return horizontalPpi; }
+    public void setHorizontalPpi(BigDecimal horizontalPpi) { this.horizontalPpi = horizontalPpi; }
+    public BigDecimal getVerticalPpi() { return verticalPpi; }
+    public void setVerticalPpi(BigDecimal verticalPpi) { this.verticalPpi = verticalPpi; }
+    public String getColorSpace() { return colorSpace; }
+    public void setColorSpace(String colorSpace) { this.colorSpace = colorSpace; }
+
     public ProductImageRole getImageRole() {
         return imageRole;
     }
@@ -91,4 +111,13 @@ public class ProductImageProfileAssetView {
     public void setRemovable(Boolean removable) {
         this.removable = removable;
     }
+
+    public String getProcessingNote() { return processingNote; }
+    public void setProcessingNote(String processingNote) { this.processingNote = processingNote; }
+    public ProductImageProcessingStatus getProcessingStatus() { return processingStatus; }
+    public void setProcessingStatus(ProductImageProcessingStatus processingStatus) { this.processingStatus = processingStatus; }
+    public String getProcessedAt() { return processedAt; }
+    public void setProcessedAt(String processedAt) { this.processedAt = processedAt; }
+    public NoonImageTechnicalComplianceView getNoonTechnicalCompliance() { return noonTechnicalCompliance; }
+    public void setNoonTechnicalCompliance(NoonImageTechnicalComplianceView noonTechnicalCompliance) { this.noonTechnicalCompliance = noonTechnicalCompliance; }
 }

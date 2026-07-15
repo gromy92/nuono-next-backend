@@ -190,6 +190,9 @@ public class ProductImageProfileController {
             command.setSizeBytes(metadata.getSizeBytes());
             command.setWidthPx(metadata.getWidthPx());
             command.setHeightPx(metadata.getHeightPx());
+            command.setHorizontalPpi(metadata.getHorizontalPpi());
+            command.setVerticalPpi(metadata.getVerticalPpi());
+            command.setColorSpace(metadata.getColorSpace());
             command.setImageRole(imageRole);
             command.setSortOrder(sortOrder);
             command.setOperatorUserId(session.getUserId());
@@ -240,6 +243,80 @@ public class ProductImageProfileController {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
             Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
             return service.updateAssetRole(resolvedOwnerUserId, storeCode, profileId, command, session.getUserId());
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (ProductImageProfileNotFoundException exception) {
+            throw notFound(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/profiles/{profileId}/assets/usages")
+    public ProductImageProfileDetailView addAssetUsages(
+            @PathVariable Long profileId,
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            @RequestBody(required = false) ProductImageAssetUsageCreateCommand command,
+            HttpServletRequest request
+    ) {
+        ProductImageProfileService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            return service.addAssetUsages(resolvedOwnerUserId, storeCode, profileId, command, session.getUserId());
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (ProductImageProfileNotFoundException exception) {
+            throw notFound(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PatchMapping("/profiles/{profileId}/asset-usages/{usageId}")
+    public ProductImageProfileDetailView updateAssetUsage(
+            @PathVariable Long profileId,
+            @PathVariable Long usageId,
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            @RequestBody(required = false) ProductImageAssetUsageUpdateCommand command,
+            HttpServletRequest request
+    ) {
+        ProductImageProfileService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            return service.updateAssetUsage(
+                    resolvedOwnerUserId,
+                    storeCode,
+                    profileId,
+                    usageId,
+                    command,
+                    session.getUserId()
+            );
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (ProductImageProfileNotFoundException exception) {
+            throw notFound(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @DeleteMapping("/profiles/{profileId}/asset-usages/{usageId}")
+    public ProductImageProfileDetailView removeAssetUsage(
+            @PathVariable Long profileId,
+            @PathVariable Long usageId,
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            HttpServletRequest request
+    ) {
+        ProductImageProfileService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            return service.removeAssetUsage(resolvedOwnerUserId, storeCode, profileId, usageId, session.getUserId());
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (ProductImageProfileNotFoundException exception) {

@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public class ProductImageProfileAssetRecord {
@@ -10,6 +11,9 @@ public class ProductImageProfileAssetRecord {
     private Long sizeBytes;
     private Integer widthPx;
     private Integer heightPx;
+    private BigDecimal horizontalPpi;
+    private BigDecimal verticalPpi;
+    private String colorSpace;
     private String sourceStoreCode;
     private String sourceSiteCode;
     private Long sourceSnapshotId;
@@ -78,6 +82,13 @@ public class ProductImageProfileAssetRecord {
     public void setHeightPx(Integer heightPx) {
         this.heightPx = heightPx;
     }
+
+    public BigDecimal getHorizontalPpi() { return horizontalPpi; }
+    public void setHorizontalPpi(BigDecimal horizontalPpi) { this.horizontalPpi = horizontalPpi; }
+    public BigDecimal getVerticalPpi() { return verticalPpi; }
+    public void setVerticalPpi(BigDecimal verticalPpi) { this.verticalPpi = verticalPpi; }
+    public String getColorSpace() { return colorSpace; }
+    public void setColorSpace(String colorSpace) { this.colorSpace = colorSpace; }
 
     public String getSourceStoreCode() {
         return sourceStoreCode;

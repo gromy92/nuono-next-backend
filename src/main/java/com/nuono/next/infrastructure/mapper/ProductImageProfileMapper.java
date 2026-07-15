@@ -4,9 +4,11 @@ import com.nuono.next.product.ProductImageAssetStatus;
 import com.nuono.next.product.ProductImageAssetMetadataView;
 import com.nuono.next.product.ProductImageProductCandidateRecord;
 import com.nuono.next.product.ProductImageProfileAssetRecord;
+import com.nuono.next.product.ProductImageProfileAssetUsageRecord;
 import com.nuono.next.product.ProductImageProfileRecord;
 import com.nuono.next.product.ProductImageProfileSummaryRecord;
 import com.nuono.next.product.ProductImageRole;
+import com.nuono.next.product.ProductImageProcessingStatus;
 import com.nuono.next.product.ProductImageSectionRecord;
 import com.nuono.next.product.ProductImageSectionType;
 import com.nuono.next.product.ProductImageSuiteAssetRecord;
@@ -427,6 +429,9 @@ public interface ProductImageProfileMapper {
             @Result(column = "size_bytes", property = "sizeBytes"),
             @Result(column = "width_px", property = "widthPx"),
             @Result(column = "height_px", property = "heightPx"),
+            @Result(column = "horizontal_ppi", property = "horizontalPpi"),
+            @Result(column = "vertical_ppi", property = "verticalPpi"),
+            @Result(column = "color_space", property = "colorSpace"),
             @Result(column = "source_store_code", property = "sourceStoreCode"),
             @Result(column = "source_site_code", property = "sourceSiteCode"),
             @Result(column = "source_snapshot_id", property = "sourceSnapshotId"),
@@ -442,7 +447,7 @@ public interface ProductImageProfileMapper {
     })
     @Select({
             "SELECT",
-            "  id, profile_id, image_url, content_type, size_bytes, width_px, height_px,",
+            "  id, profile_id, image_url, content_type, size_bytes, width_px, height_px, horizontal_ppi, vertical_ppi, color_space,",
             "  source_store_code, source_site_code, source_snapshot_id, source_field, source_kind,",
             "  image_role, sort_order, asset_status, created_by, updated_by, created_at, updated_at",
             "FROM product_image_profile_asset",
@@ -455,7 +460,7 @@ public interface ProductImageProfileMapper {
     @ResultMap("productImageProfileAssetMap")
     @Select({
             "SELECT",
-            "  id, NULL AS profile_id, url AS image_url, content_type, size_bytes, width_px, height_px,",
+            "  id, NULL AS profile_id, url AS image_url, content_type, size_bytes, width_px, height_px, horizontal_ppi, vertical_ppi, color_space,",
             "  NULL AS source_store_code, NULL AS source_site_code, NULL AS source_snapshot_id, NULL AS source_field, NULL AS source_kind,",
             "  'MAIN' AS image_role, 0 AS sort_order,",
             "  'ACTIVE' AS asset_status, created_by, updated_by, gmt_create AS created_at, gmt_updated AS updated_at",
@@ -470,7 +475,7 @@ public interface ProductImageProfileMapper {
     @ResultMap("productImageProfileAssetMap")
     @Select({
             "SELECT",
-            "  id, NULL AS profile_id, url AS image_url, content_type, size_bytes, width_px, height_px,",
+            "  id, NULL AS profile_id, url AS image_url, content_type, size_bytes, width_px, height_px, horizontal_ppi, vertical_ppi, color_space,",
             "  NULL AS source_store_code, NULL AS source_site_code, NULL AS source_snapshot_id, NULL AS source_field, NULL AS source_kind,",
             "  'MAIN' AS image_role, 0 AS sort_order,",
             "  'ACTIVE' AS asset_status, created_by, updated_by, gmt_create AS created_at, gmt_updated AS updated_at",
@@ -523,6 +528,9 @@ public interface ProductImageProfileMapper {
             "    size_bytes = COALESCE(size_bytes, #{metadata.sizeBytes}),",
             "    width_px = COALESCE(width_px, #{metadata.widthPx}),",
             "    height_px = COALESCE(height_px, #{metadata.heightPx}),",
+            "    horizontal_ppi = COALESCE(horizontal_ppi, #{metadata.horizontalPpi}),",
+            "    vertical_ppi = COALESCE(vertical_ppi, #{metadata.verticalPpi}),",
+            "    color_space = COALESCE(color_space, #{metadata.colorSpace}),",
             "    gmt_updated = NOW()",
             "WHERE product_master_id = #{productMasterId}",
             "  AND url = #{imageUrl}",
@@ -536,17 +544,158 @@ public interface ProductImageProfileMapper {
 
     @Insert({
             "INSERT INTO product_image_profile_asset (",
-            "  profile_id, image_url, content_type, size_bytes, width_px, height_px,",
+            "  profile_id, image_url, content_type, size_bytes, width_px, height_px, horizontal_ppi, vertical_ppi, color_space,",
             "  source_store_code, source_site_code, source_snapshot_id, source_field, source_kind,",
             "  image_role, sort_order, asset_status, created_by, updated_by, created_at, updated_at",
             ") VALUES (",
-            "  #{profileId}, #{imageUrl}, #{contentType}, #{sizeBytes}, #{widthPx}, #{heightPx},",
+            "  #{profileId}, #{imageUrl}, #{contentType}, #{sizeBytes}, #{widthPx}, #{heightPx}, #{horizontalPpi}, #{verticalPpi}, #{colorSpace},",
             "  #{sourceStoreCode}, #{sourceSiteCode}, #{sourceSnapshotId}, #{sourceField}, #{sourceKind},",
             "  #{imageRole}, #{sortOrder}, #{assetStatus}, #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt}",
             ")"
     })
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertAsset(ProductImageProfileAssetRecord record);
+
+    @ResultMap("productImageProfileAssetMap")
+    @Select({
+            "SELECT",
+            "  id, profile_id, image_url, content_type, size_bytes, width_px, height_px, horizontal_ppi, vertical_ppi, color_space,",
+            "  source_store_code, source_site_code, source_snapshot_id, source_field, source_kind,",
+            "  image_role, sort_order, asset_status, created_by, updated_by, created_at, updated_at",
+            "FROM product_image_profile_asset",
+            "WHERE profile_id = #{profileId}",
+            "  AND id = #{assetId}",
+            "  AND asset_status = 'ACTIVE'",
+            "LIMIT 1"
+    })
+    ProductImageProfileAssetRecord selectAssetById(
+            @Param("profileId") Long profileId,
+            @Param("assetId") Long assetId
+    );
+
+    @ResultMap("productImageProfileAssetMap")
+    @Select({
+            "SELECT",
+            "  id, profile_id, image_url, content_type, size_bytes, width_px, height_px, horizontal_ppi, vertical_ppi, color_space,",
+            "  source_store_code, source_site_code, source_snapshot_id, source_field, source_kind,",
+            "  image_role, sort_order, asset_status, created_by, updated_by, created_at, updated_at",
+            "FROM product_image_profile_asset",
+            "WHERE profile_id = #{profileId}",
+            "  AND image_url = #{imageUrl}",
+            "  AND asset_status = 'ACTIVE'",
+            "ORDER BY id ASC",
+            "LIMIT 1"
+    })
+    ProductImageProfileAssetRecord selectAssetByUrl(
+            @Param("profileId") Long profileId,
+            @Param("imageUrl") String imageUrl
+    );
+
+    @Results(id = "productImageProfileAssetUsageMap", value = {
+            @Result(column = "id", property = "id"),
+            @Result(column = "profile_id", property = "profileId"),
+            @Result(column = "asset_id", property = "assetId"),
+            @Result(column = "image_role", property = "imageRole", javaType = ProductImageRole.class),
+            @Result(column = "sort_order", property = "sortOrder"),
+            @Result(column = "processing_note", property = "processingNote"),
+            @Result(column = "processing_status", property = "processingStatus", javaType = ProductImageProcessingStatus.class),
+            @Result(column = "processed_by", property = "processedBy"),
+            @Result(column = "processed_at", property = "processedAt", javaType = LocalDateTime.class),
+            @Result(column = "created_by", property = "createdBy"),
+            @Result(column = "updated_by", property = "updatedBy"),
+            @Result(column = "created_at", property = "createdAt", javaType = LocalDateTime.class),
+            @Result(column = "updated_at", property = "updatedAt", javaType = LocalDateTime.class),
+            @Result(column = "deleted", property = "deleted", javaType = Boolean.class)
+    })
+    @Select({
+            "SELECT id, profile_id, asset_id, image_role, sort_order, processing_note, processing_status,",
+            "       processed_by, processed_at, created_by, updated_by, created_at, updated_at, deleted",
+            "FROM product_image_profile_asset_usage",
+            "WHERE profile_id = #{profileId}",
+            "  AND deleted = b'0'",
+            "ORDER BY image_role ASC, sort_order ASC, id ASC"
+    })
+    List<ProductImageProfileAssetUsageRecord> selectAssetUsages(@Param("profileId") Long profileId);
+
+    @ResultMap("productImageProfileAssetUsageMap")
+    @Select({
+            "SELECT id, profile_id, asset_id, image_role, sort_order, processing_note, processing_status,",
+            "       processed_by, processed_at, created_by, updated_by, created_at, updated_at, deleted",
+            "FROM product_image_profile_asset_usage",
+            "WHERE profile_id = #{profileId}",
+            "  AND id = #{usageId}",
+            "  AND deleted = b'0'",
+            "LIMIT 1"
+    })
+    ProductImageProfileAssetUsageRecord selectAssetUsageById(
+            @Param("profileId") Long profileId,
+            @Param("usageId") Long usageId
+    );
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM product_image_profile_asset_usage",
+            "WHERE profile_id = #{profileId}",
+            "  AND asset_id = #{assetId}",
+            "  AND image_role = #{imageRole}",
+            "  AND deleted = b'0'"
+    })
+    int countActiveAssetUsage(
+            @Param("profileId") Long profileId,
+            @Param("assetId") Long assetId,
+            @Param("imageRole") ProductImageRole imageRole
+    );
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM product_image_profile_asset_usage",
+            "WHERE profile_id = #{profileId}",
+            "  AND asset_id = #{assetId}"
+    })
+    int countAssetUsageHistory(
+            @Param("profileId") Long profileId,
+            @Param("assetId") Long assetId
+    );
+
+    @Insert({
+            "INSERT INTO product_image_profile_asset_usage (",
+            "  profile_id, asset_id, image_role, sort_order, processing_note, processing_status,",
+            "  processed_by, processed_at, created_by, updated_by, created_at, updated_at, deleted",
+            ") VALUES (",
+            "  #{profileId}, #{assetId}, #{imageRole}, #{sortOrder}, #{processingNote}, #{processingStatus},",
+            "  #{processedBy}, #{processedAt}, #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt}, b'0'",
+            ")"
+    })
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    int insertAssetUsage(ProductImageProfileAssetUsageRecord record);
+
+    @Update({
+            "UPDATE product_image_profile_asset_usage",
+            "SET image_role = #{imageRole},",
+            "    processing_note = #{processingNote},",
+            "    processing_status = #{processingStatus},",
+            "    processed_by = #{processedBy},",
+            "    processed_at = #{processedAt},",
+            "    updated_by = #{updatedBy},",
+            "    updated_at = NOW()",
+            "WHERE profile_id = #{profileId}",
+            "  AND id = #{id}",
+            "  AND deleted = b'0'"
+    })
+    int updateAssetUsage(ProductImageProfileAssetUsageRecord record);
+
+    @Update({
+            "UPDATE product_image_profile_asset_usage",
+            "SET deleted = b'1', updated_by = #{updatedBy}, updated_at = NOW()",
+            "WHERE profile_id = #{profileId}",
+            "  AND id = #{usageId}",
+            "  AND deleted = b'0'"
+    })
+    int softDeleteAssetUsage(
+            @Param("profileId") Long profileId,
+            @Param("usageId") Long usageId,
+            @Param("updatedBy") Long updatedBy
+    );
 
     @Update({
             "UPDATE product_image_profile_asset",

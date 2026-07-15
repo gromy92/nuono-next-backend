@@ -174,6 +174,24 @@ class ProductImageProfileMapperSqlTest {
         assertInitScriptsInclude("classpath:db/init/159_product_image_logical_store_scope.sql");
     }
 
+    @Test
+    void usageWorkflowMigrationKeepsLegacyRoleAndBackfillsOneActiveUsage() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/init/187_product_image_asset_usage_workflow.sql"));
+
+        assertThat(sql)
+                .contains("CREATE TABLE IF NOT EXISTS `product_image_profile_asset_usage`")
+                .contains("UNIQUE KEY `uk_product_image_asset_usage_role`")
+                .contains("INSERT INTO `product_image_profile_asset_usage`")
+                .contains("asset.`image_role`")
+                .contains("processing_status")
+                .contains("horizontal_ppi")
+                .contains("vertical_ppi")
+                .contains("color_space")
+                .doesNotContain("usage_row.`deleted` = b'0'")
+                .doesNotContain("DROP COLUMN `image_role`");
+        assertInitScriptsInclude("classpath:db/init/187_product_image_asset_usage_workflow.sql");
+    }
+
     private static String annotationSql(Select select) {
         return String.join(" ", select.value()).replaceAll("\\s+", " ");
     }
