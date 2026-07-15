@@ -502,17 +502,16 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
     }
 
     private PluginSyncLine buildLine(JsonNode row) {
-        String sourceSku = pickText(row, "sku", "goodsSku", "sellerSku");
+        String sourceSku = pickText(row, "sku", "skuCode", "SkuCode", "goodsSku", "sellerSku");
         String barcode = defaultText(firstText(
-                pickText(row, "Barcode", "barcode"),
                 sourceSku,
-                pickText(row, "skuCode", "SkuCode")
+                pickText(row, "Barcode", "barcode")
         ), "");
-        String psku = defaultText(pickText(row, "psku", "pSku", "pskuCode", "productSku", "skuCode", "SkuCode"), barcode);
+        String psku = defaultText(pickText(row, "psku", "pSku", "pskuCode", "productSku"), "");
         PluginSyncLine line = new PluginSyncLine();
         line.setBarcode(barcode);
         line.setPsku(psku);
-        line.setSku(defaultText(sourceSku, barcode));
+        line.setSku(barcode);
         line.setMsku(defaultText(pickText(row, "msku", "mSku", "platformSku", "modelNumber", "ModelNumber"), ""));
         line.setProductName(defaultText(pickText(row, "productName", "goodsName", "GoodsTitle", "goodsTitle", "titleCn", "TitleCn", "titleEn", "TitleEn", "skuName", "itemName", "name", "title"), ""));
         String storeCode = defaultText(pickText(row, "storeCode", "shopCode", "storeNo"), "");

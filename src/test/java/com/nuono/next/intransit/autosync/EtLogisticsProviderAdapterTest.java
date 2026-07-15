@@ -67,7 +67,7 @@ class EtLogisticsProviderAdapterTest {
 
         PluginSyncLine line = itemPackage.getLines().get(0);
         assertThat(line.getBarcode()).isEqualTo("PAPERSAYSB293");
-        assertThat(line.getPsku()).isEqualTo("PAPERSAYSB293");
+        assertThat(line.getPsku()).isEmpty();
         assertThat(line.getSku()).isEqualTo("PAPERSAYSB293");
         assertThat(line.getMsku()).isEqualTo("PAPERSAYSB293");
         assertThat(line.getProductName()).isEqualTo("粉盒马克笔24支48色");
@@ -77,7 +77,7 @@ class EtLogisticsProviderAdapterTest {
     }
 
     @Test
-    void prefersEtBarcodeWhenSkuCodeIsAnotherValidProductCode() {
+    void usesEtSkuCodeAsBarcodeValueInsteadOfTreatingItAsPsku() {
         PluginSyncCommand command = adapter.normalize(
                 listJson(),
                 Map.of("F2604304851631", shipOrderBoxDetailJson()),
@@ -90,9 +90,9 @@ class EtLogisticsProviderAdapterTest {
 
         PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
 
-        assertThat(line.getBarcode()).isEqualTo("PAPERSAYSB293");
-        assertThat(line.getSku()).isEqualTo("PAPERSAYSB293");
-        assertThat(line.getPsku()).isEqualTo("OTHER-PRODUCT-VALID-BARCODE");
+        assertThat(line.getBarcode()).isEqualTo("OTHER-PRODUCT-VALID-BARCODE");
+        assertThat(line.getSku()).isEqualTo("OTHER-PRODUCT-VALID-BARCODE");
+        assertThat(line.getPsku()).isEmpty();
     }
 
     @Test
@@ -193,7 +193,7 @@ class EtLogisticsProviderAdapterTest {
             assertThat(result.getCommand().getBatches()).hasSize(1);
             assertThat(result.getPackageCount()).isEqualTo(1);
             assertThat(result.getLineCount()).isEqualTo(1);
-            assertThat(result.getCommand().getBatches().get(0).getPackages().get(0).getLines().get(0).getPsku())
+            assertThat(result.getCommand().getBatches().get(0).getPackages().get(0).getLines().get(0).getBarcode())
                     .isEqualTo("PAPERSAYSB293");
         }
     }
