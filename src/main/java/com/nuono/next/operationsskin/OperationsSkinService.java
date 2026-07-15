@@ -158,6 +158,30 @@ public class OperationsSkinService {
         return detail(id, ownerUserId, normalizedStoreCode);
     }
 
+    public void verifyReadableAssetStore(BusinessAccessContext context, String sourceStoreCode) {
+        String normalizedSourceStoreCode = requireStoreCode(sourceStoreCode);
+        if (context == null) {
+            throw notFound();
+        }
+        if (context.canAccessStore(normalizedSourceStoreCode)) {
+            return;
+        }
+        for (String accessibleStoreCode : context.getStoreCodes()) {
+            Long ownerUserId = context.resolveOwnerUserIdForStore(accessibleStoreCode);
+            if (ownerUserId == null) {
+                ownerUserId = context.getBusinessOwnerUserId();
+            }
+            if (ownerUserId != null && operationsSkinMapper.countLinkedStoreSites(
+                    ownerUserId,
+                    normalizeStoreCode(accessibleStoreCode),
+                    normalizedSourceStoreCode
+            ) > 0) {
+                return;
+            }
+        }
+        throw notFound();
+    }
+
     @Transactional
     public OperationsSkinView saveComponents(
             BusinessAccessContext context,

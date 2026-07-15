@@ -1,5 +1,6 @@
 package com.nuono.next.operationsskin;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -176,6 +177,31 @@ class OperationsSkinServiceTest {
         );
 
         assertEquals("当前店铺已存在同名皮肤。", error.getMessage());
+    }
+
+    @Test
+    void skinAssetCanBeReadThroughAnyAuthorizedSiblingSite() {
+        FakeOperationsSkinMapper mapper = new FakeOperationsSkinMapper();
+        mapper.linkLogicalStoreSites(STORE_CODE, SIBLING_SITE_STORE_CODE);
+        OperationsSkinService service = new OperationsSkinService(mapper);
+
+        assertDoesNotThrow(() -> service.verifyReadableAssetStore(
+                context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                STORE_CODE
+        ));
+    }
+
+    @Test
+    void skinAssetReadRejectsUnlinkedStoreScope() {
+        OperationsSkinService service = new OperationsSkinService(new FakeOperationsSkinMapper());
+
+        assertThrows(
+                OperationsSkinNotFoundException.class,
+                () -> service.verifyReadableAssetStore(
+                        context(307L, 90003L, SIBLING_SITE_STORE_CODE),
+                        STORE_CODE
+                )
+        );
     }
 
     @Test
@@ -566,6 +592,12 @@ class OperationsSkinServiceTest {
                     .filter(item -> Objects.equals(skinName, item.getSkinName()))
                     .filter(item -> excludeId == null || !Objects.equals(excludeId, item.getId()))
                     .count();
+        }
+
+        @Override
+        public int countLinkedStoreSites(Long ownerUserId, String accessibleStoreCode, String sourceStoreCode) {
+            return logicalStoreSites.getOrDefault(accessibleStoreCode, Set.of(accessibleStoreCode))
+                    .contains(sourceStoreCode) ? 1 : 0;
         }
 
         @Override

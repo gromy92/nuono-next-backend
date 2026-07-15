@@ -272,6 +272,27 @@ public interface OperationsSkinMapper {
             @Param("excludeId") Long excludeId
     );
 
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM logical_store_site accessible_site",
+            "JOIN logical_store logical_scope",
+            "  ON logical_scope.id = accessible_site.logical_store_id",
+            " AND logical_scope.owner_user_id = #{ownerUserId}",
+            " AND logical_scope.is_deleted = b'0'",
+            "JOIN logical_store_site source_site",
+            "  ON source_site.logical_store_id = accessible_site.logical_store_id",
+            " AND source_site.is_deleted = b'0'",
+            "WHERE accessible_site.store_code = #{accessibleStoreCode}",
+            "  AND accessible_site.is_deleted = b'0'",
+            "  AND CONVERT(source_site.store_code USING utf8mb4) COLLATE utf8mb4_unicode_ci",
+            "    = CONVERT(#{sourceStoreCode} USING utf8mb4) COLLATE utf8mb4_unicode_ci"
+    })
+    int countLinkedStoreSites(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("accessibleStoreCode") String accessibleStoreCode,
+            @Param("sourceStoreCode") String sourceStoreCode
+    );
+
     @Insert({
             "INSERT INTO operations_image_skin_asset (",
             "  skin_id, asset_type, image_url, caption, sort_order, deleted",
