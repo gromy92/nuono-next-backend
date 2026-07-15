@@ -61,6 +61,7 @@ public interface InTransitGoodsLineMapper extends InTransitGoodsSequenceMapper {
             " AND ls.is_deleted = b'0'",
             "WHERE pb.barcode = #{barcode}",
             "  AND pb.is_deleted = b'0'",
+            "  AND COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'",
             "LIMIT 1"
     })
     String selectPartnerSkuByBarcode(

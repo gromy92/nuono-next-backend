@@ -18,6 +18,22 @@ public interface InTransitLogisticsNodeMapper extends InTransitGoodsSequenceMapp
     List<NodeRow> listNodes(@Param("ownerUserId") Long ownerUserId, @Param("batchId") Long batchId);
 
     @Select({
+            "<script>",
+            NODE_SELECT,
+            "WHERE owner_user_id = #{ownerUserId} AND is_deleted = b'0'",
+            "AND batch_id IN",
+            "<foreach collection='batchIds' item='batchId' open='(' separator=',' close=')'>",
+            "#{batchId}",
+            "</foreach>",
+            "ORDER BY batch_id ASC, node_happened_at ASC, id ASC",
+            "</script>"
+    })
+    List<NodeRow> listNodesByBatchIds(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchIds") List<Long> batchIds
+    );
+
+    @Select({
             NODE_SELECT,
             "WHERE owner_user_id = #{ownerUserId} AND batch_id = #{batchId} AND id = #{nodeId} AND is_deleted = b'0' LIMIT 1"
     })

@@ -82,6 +82,7 @@ class YiteLogisticsProviderAdapterTest {
         assertThat(firstPackage.getLines()).hasSize(2);
 
         PluginSyncLine firstLine = firstPackage.getLines().get(0);
+        assertThat(firstLine.getBarcode()).isEqualTo("SGGRB142");
         assertThat(firstLine.getPsku()).isEqualTo("SGGRB142");
         assertThat(firstLine.getSku()).isEqualTo("SGGRB142");
         assertThat(firstLine.getMsku()).isEmpty();

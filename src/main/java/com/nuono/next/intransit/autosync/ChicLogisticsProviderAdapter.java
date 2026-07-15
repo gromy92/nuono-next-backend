@@ -421,10 +421,13 @@ public class ChicLogisticsProviderAdapter implements LogisticsProviderAdapter {
     }
 
     private PluginSyncLine buildLine(JsonNode row) {
-        String psku = defaultText(pickText(row, "psku", "pSku", "pskuCode", "productSku", "productCode", "sku", "skuCode", "goodsSku", "itemSku"), "");
+        String sourceSku = pickText(row, "sku", "skuCode", "goodsSku", "itemSku", "sellerSku");
+        String barcode = defaultText(firstText(pickText(row, "barcode", "Barcode"), sourceSku), "");
+        String psku = defaultText(pickText(row, "psku", "pSku", "pskuCode", "productSku", "productCode"), barcode);
         PluginSyncLine line = new PluginSyncLine();
+        line.setBarcode(barcode);
         line.setPsku(psku);
-        line.setSku(defaultText(pickText(row, "sku", "skuCode", "goodsSku", "itemSku", "sellerSku"), psku));
+        line.setSku(defaultText(sourceSku, barcode));
         line.setMsku(defaultText(pickText(row, "msku", "mSku", "storeSku", "platformSku"), ""));
         line.setProductName(defaultText(pickText(row, "productName", "goodsName", "skuName", "itemName", "name", "title"), ""));
         String storeCode = defaultText(pickText(row, "storeCode", "shopCode", "storeNo", "sellerStoreCode"), "");

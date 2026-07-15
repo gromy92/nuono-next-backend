@@ -372,6 +372,32 @@ class InTransitBatchServiceTest {
     }
 
     @Test
+    void shouldAttachAllHistoricalNodesToEachBatchWithoutLosingRepeatedStatuses() {
+        InTransitBatchQuery query = new InTransitBatchQuery();
+        query.setOwnerUserId(10002L);
+        BatchRow firstBatch = batch(53021L, "in_transit", "义特", "forwarder_matched");
+        BatchRow secondBatch = batch(53022L, "in_transit", "启客", "forwarder_matched");
+        when(mapper.countBatches(any(InTransitBatchQuery.class))).thenReturn(2);
+        when(mapper.listBatches(any(InTransitBatchQuery.class))).thenReturn(List.of(firstBatch, secondBatch));
+        when(mapper.listNodesByBatchIds(10002L, List.of(53021L, 53022L))).thenReturn(List.of(
+                node(55021L, 53021L, "handed_to_forwarder", LocalDateTime.parse("2026-06-01T09:00:00"), "国内收货"),
+                node(55022L, 53021L, "in_transit", LocalDateTime.parse("2026-06-03T10:00:00"), "预计到港"),
+                node(55023L, 53021L, "in_transit", LocalDateTime.parse("2026-06-05T11:00:00"), "已到港待清关"),
+                node(55024L, 53022L, "created", LocalDateTime.parse("2026-06-02T08:00:00"), "已下单")
+        ));
+
+        BatchListView result = service.listBatches(query);
+
+        assertEquals(3, result.getItems().get(0).getNodeHistory().size());
+        assertEquals(55021L, result.getItems().get(0).getNodeHistory().get(0).getNodeId());
+        assertEquals(55022L, result.getItems().get(0).getNodeHistory().get(1).getNodeId());
+        assertEquals(55023L, result.getItems().get(0).getNodeHistory().get(2).getNodeId());
+        assertEquals(1, result.getItems().get(1).getNodeHistory().size());
+        assertEquals(55024L, result.getItems().get(1).getNodeHistory().get(0).getNodeId());
+        verify(mapper).listNodesByBatchIds(10002L, List.of(53021L, 53022L));
+    }
+
+    @Test
     void shouldEstimateMissingAirArrivalFromRecentHistoryWhenSavingBatch() {
         SaveBatchCommand command = new SaveBatchCommand();
         command.setOwnerUserId(10002L);
