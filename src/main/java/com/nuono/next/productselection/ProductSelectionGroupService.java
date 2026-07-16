@@ -128,6 +128,42 @@ class ProductSelectionGroupService {
         return loadGroupView(groupId);
     }
 
+    void deleteGroupMaterial(
+            String groupIdValue,
+            String sourceCollectionIdValue,
+            boolean deleteSourceCollection,
+            String storeCode,
+            Long operatorUserId
+    ) {
+        Long groupId = parseLongId(groupIdValue, "选品组不存在或已被删除。");
+        Long sourceCollectionId = parseLongId(sourceCollectionIdValue, "采集记录不存在或已被删除。");
+        if (productSelectionMapper.lockActiveSourceCollectionById(sourceCollectionId) == null) {
+            throw new IllegalArgumentException("采集记录不存在或已被删除。");
+        }
+        ProductSelectionSourceCollectionRow sourceCollection =
+                productSelectionMapper.selectSourceCollectionById(sourceCollectionId);
+        ProductSelectionGroupRow group = productSelectionMapper.selectGroupById(groupId);
+        requireWritableGroupScope(operatorUserId, storeCode, group, sourceCollection);
+        ProductSelectionGroupMaterialRow material =
+                productSelectionMapper.selectActiveGroupMaterial(groupId, sourceCollectionId);
+        if (material == null) {
+            throw new IllegalArgumentException("选品分析关联不存在或已被删除。");
+        }
+        if (productSelectionMapper.softDeleteSelectionGroupMaterial(groupId, sourceCollectionId, operatorUserId) <= 0) {
+            throw new IllegalArgumentException("选品分析关联已变化，请刷新后重试。");
+        }
+        productSelectionMapper.softDeleteAnalysisItemForGroup(groupId, sourceCollectionId, operatorUserId);
+        if (!deleteSourceCollection) {
+            return;
+        }
+        if (productSelectionMapper.countActiveSelectionReferences(sourceCollectionId) > 0) {
+            throw new ProductSelectionConflictException("该采集数据仍被其他选品分析引用，不能同时删除。");
+        }
+        if (productSelectionMapper.softDeleteSourceCollection(sourceCollectionId, operatorUserId) <= 0) {
+            throw new IllegalArgumentException("采集记录已变化，请刷新后重试。");
+        }
+    }
+
     ProductSelectionGroupView updateGroupName(
             String groupIdValue,
             ProductSelectionGroupCommand command
@@ -467,6 +503,9 @@ class ProductSelectionGroupService {
         Long logicalStoreId = null;
         String siteCode = null;
         for (Long sourceCollectionId : sourceCollectionIds) {
+            if (productSelectionMapper.lockActiveSourceCollectionById(sourceCollectionId) == null) {
+                throw new IllegalArgumentException("采集记录不存在或已被删除。");
+            }
             ProductSelectionSourceCollectionRow sourceCollection =
                     productSelectionMapper.selectSourceCollectionById(sourceCollectionId);
             requireSourceCollectionVisible(command.getOperatorUserId(), sourceCollection);
@@ -521,6 +560,30 @@ class ProductSelectionGroupService {
         );
         if (visibleSites <= 0) {
             throw new ProductSelectionAccessDeniedException("当前账号不能访问该选品组。");
+        }
+    }
+
+    private void requireWritableGroupScope(
+            Long operatorUserId,
+            String storeCode,
+            ProductSelectionGroupRow group,
+            ProductSelectionSourceCollectionRow sourceCollection
+    ) {
+        if (group == null) {
+            throw new IllegalArgumentException("选品组不存在或已被删除。");
+        }
+        if (sourceCollection == null) {
+            throw new IllegalArgumentException("采集记录不存在或已被删除。");
+        }
+        ProductSelectionStoreScope scope = permissionGuard.requireWritableStore(operatorUserId, storeCode);
+        String scopeSiteCode = siteCodeFromScope(scope);
+        String groupSiteCode = normalizeSiteCode(group.getSiteCode());
+        String sourceSiteCode = normalizeSiteCode(sourceCollection.getSiteCode());
+        if (!group.getLogicalStoreId().equals(sourceCollection.getLogicalStoreId())
+                || !scope.getLogicalStoreId().equals(group.getLogicalStoreId())
+                || (StringUtils.hasText(scopeSiteCode) && !scopeSiteCode.equals(groupSiteCode))
+                || (StringUtils.hasText(scopeSiteCode) && !scopeSiteCode.equals(sourceSiteCode))) {
+            throw new ProductSelectionAccessDeniedException("当前店铺站点不能删除该选品分析关联。");
         }
     }
 

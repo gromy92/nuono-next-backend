@@ -1,6 +1,8 @@
 package com.nuono.next.productselection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
 class ProductSelectionControllerGroupAccessTest {
@@ -74,6 +78,54 @@ class ProductSelectionControllerGroupAccessTest {
         assertEquals("91001", result.getGroupId());
         assertEquals("Sharpie 记号笔组", result.getGroupName());
         verify(sourceCollectionService).getGroup("91001", 307L);
+    }
+
+    @Test
+    void deleteGroupMaterialUsesWritableStoreScopeAndDelegatesDeleteMode() {
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "DELETE",
+                "/api/product-selection/groups/91001/materials/86001"
+        );
+        BusinessAccessContext access = access();
+        ProductSelectionAccessScope scope = new ProductSelectionAccessScope(access, storeScope());
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.PROCUREMENT)).thenReturn(access);
+        when(accessAdapterProvider.getIfAvailable()).thenReturn(accessAdapter);
+        when(accessAdapter.requireWritableStore(access, "STR108065-NAE")).thenReturn(scope);
+        when(sourceCollectionServiceProvider.getIfAvailable()).thenReturn(sourceCollectionService);
+
+        controller.deleteGroupMaterial("91001", "86001", true, "STR108065-NAE", request);
+
+        verify(sourceCollectionService).deleteGroupMaterial(
+                "91001",
+                "86001",
+                true,
+                "STR108065-NAE",
+                307L
+        );
+    }
+
+    @Test
+    void deleteSourceCollectionMapsActiveReferenceConflictToHttp409() {
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "DELETE",
+                "/api/product-selection/source-collections/86001"
+        );
+        BusinessAccessContext access = access();
+        ProductSelectionAccessScope scope = new ProductSelectionAccessScope(access, storeScope());
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.PROCUREMENT)).thenReturn(access);
+        when(accessAdapterProvider.getIfAvailable()).thenReturn(accessAdapter);
+        when(accessAdapter.requireWritableStore(access, "STR108065-NAE")).thenReturn(scope);
+        when(sourceCollectionServiceProvider.getIfAvailable()).thenReturn(sourceCollectionService);
+        doThrow(new ProductSelectionConflictException("该采集数据已被选品分析引用。"))
+                .when(sourceCollectionService)
+                .deleteSourceCollection("86001", "STR108065-NAE", 307L);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.deleteSourceCollection("86001", "STR108065-NAE", request)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatus());
     }
 
     private BusinessAccessContext access() {

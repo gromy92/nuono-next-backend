@@ -1,6 +1,7 @@
 package com.nuono.next.productselection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -64,6 +65,8 @@ class ProductSelectionGroupServiceTest {
 
         when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(first);
         when(productSelectionMapper.selectSourceCollectionById(86002L)).thenReturn(second);
+        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
+        when(productSelectionMapper.lockActiveSourceCollectionById(86002L)).thenReturn(86002L);
         when(permissionGuard.requireActiveUser(307L)).thenReturn(activeUser());
         when(productSelectionMapper.countVisibleLogicalStoreSites(307L, 301L)).thenReturn(1);
         when(productSelectionMapper.selectActiveGroupMaterialBySourceCollectionId(86001L)).thenReturn(null);
@@ -89,6 +92,44 @@ class ProductSelectionGroupServiceTest {
         assertEquals(86002L, materialCaptor.getAllValues().get(1).getSourceCollectionId());
         assertEquals("91001", view.getGroupId());
         assertEquals(2, view.getMaterialCount());
+    }
+
+    @Test
+    void deleteGroupMaterialCanOnlyUnlinkAndPreserveSourceCollection() {
+        ProductSelectionSourceCollectionRow source = sourceCollection(86001L, "Sharpie Permanent Markers", "Sharpie 永久记号笔");
+        ProductSelectionGroupRow group = groupRow(91001L, "Sharpie 记号笔组");
+        ProductSelectionGroupMaterialRow material = groupMaterialRow(92001L, 91001L, source);
+        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
+        when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(source);
+        when(productSelectionMapper.selectGroupById(91001L)).thenReturn(group);
+        when(productSelectionMapper.selectActiveGroupMaterial(91001L, 86001L)).thenReturn(material);
+        when(permissionGuard.requireWritableStore(307L, "STR108065-NSA")).thenReturn(writableStoreScope());
+        when(productSelectionMapper.softDeleteSelectionGroupMaterial(91001L, 86001L, 307L)).thenReturn(1);
+
+        service.deleteGroupMaterial("91001", "86001", false, "STR108065-NSA", 307L);
+
+        verify(productSelectionMapper).softDeleteSelectionGroupMaterial(91001L, 86001L, 307L);
+        verify(productSelectionMapper).softDeleteAnalysisItemForGroup(91001L, 86001L, 307L);
+        verify(productSelectionMapper, never()).softDeleteSourceCollection(86001L, 307L);
+    }
+
+    @Test
+    void deleteGroupMaterialCanAlsoDeleteUnreferencedSourceCollection() {
+        ProductSelectionSourceCollectionRow source = sourceCollection(86001L, "Sharpie Permanent Markers", "Sharpie 永久记号笔");
+        ProductSelectionGroupRow group = groupRow(91001L, "Sharpie 记号笔组");
+        ProductSelectionGroupMaterialRow material = groupMaterialRow(92001L, 91001L, source);
+        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
+        when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(source);
+        when(productSelectionMapper.selectGroupById(91001L)).thenReturn(group);
+        when(productSelectionMapper.selectActiveGroupMaterial(91001L, 86001L)).thenReturn(material);
+        when(permissionGuard.requireWritableStore(307L, "STR108065-NSA")).thenReturn(writableStoreScope());
+        when(productSelectionMapper.softDeleteSelectionGroupMaterial(91001L, 86001L, 307L)).thenReturn(1);
+        when(productSelectionMapper.countActiveSelectionReferences(86001L)).thenReturn(0);
+        when(productSelectionMapper.softDeleteSourceCollection(86001L, 307L)).thenReturn(1);
+
+        service.deleteGroupMaterial("91001", "86001", true, "STR108065-NSA", 307L);
+
+        verify(productSelectionMapper).softDeleteSourceCollection(86001L, 307L);
     }
 
     private ProductSelectionSourceCollectionView sourceCollectionView(ProductSelectionSourceCollectionRow row) {
@@ -167,5 +208,16 @@ class ProductSelectionGroupServiceTest {
         user.setLevel(1);
         user.setStatus(1);
         return user;
+    }
+
+    private ProductSelectionStoreScope writableStoreScope() {
+        ProductSelectionStoreScope scope = new ProductSelectionStoreScope();
+        scope.setOperatorUserId(307L);
+        scope.setOwnerUserId(307L);
+        scope.setLogicalStoreId(301L);
+        scope.setStoreCode("STR108065-NSA");
+        scope.setSite("SA");
+        scope.setAuthorized(true);
+        return scope;
     }
 }

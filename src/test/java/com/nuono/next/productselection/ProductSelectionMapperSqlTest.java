@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
 import java.lang.reflect.Method;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class ProductSelectionMapperSqlTest {
@@ -51,6 +52,34 @@ class ProductSelectionMapperSqlTest {
                 .contains("COUNT(source.id) AS material_count")
                 .contains("source.is_deleted = b'0'")
                 .contains("HAVING COUNT(source.id) > 0");
+    }
+
+    @Test
+    void deleteFlowLocksSourceAndChecksBothAnalysisRelationTables() throws Exception {
+        Method lockMethod = ProductSelectionMapper.class.getMethod("lockActiveSourceCollectionById", Long.class);
+        String lockSql = String.join("\n", lockMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(lockSql)
+                .contains("product_selection_source_collection")
+                .contains("FOR UPDATE");
+
+        Method countMethod = ProductSelectionMapper.class.getMethod("countActiveSelectionReferences", Long.class);
+        String countSql = String.join("\n", countMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(countSql)
+                .contains("product_selection_group_material")
+                .contains("product_selection_analysis_item")
+                .contains("is_deleted = b'0'");
+
+        Method deleteMethod = ProductSelectionMapper.class.getMethod(
+                "softDeleteSelectionGroupMaterial",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+        String deleteSql = String.join("\n", deleteMethod.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+        assertThat(deleteSql)
+                .contains("group_id = #{groupId}")
+                .contains("source_collection_id = #{sourceCollectionId}")
+                .contains("is_deleted = b'0'");
     }
 
     private static void assertStrictSiteFilter(String methodName, Class<?>... parameterTypes) throws Exception {
