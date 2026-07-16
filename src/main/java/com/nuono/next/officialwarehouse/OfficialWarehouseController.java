@@ -7,6 +7,8 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnComma
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.SyncNoonAsnNumbersCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.UpsertAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnListSyncView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundDetailView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnValidationView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentAvailabilityView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentView;
@@ -70,6 +72,18 @@ public class OfficialWarehouseController {
         }
     }
 
+    @GetMapping("/asns/{asnId}/inbound-detail")
+    public AsnInboundDetailView getAsnInboundDetail(
+            @PathVariable String asnId,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().getAsnInboundDetail(access(request), asnId);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PostMapping("/asns/sync-noon-list")
     public AsnListSyncView syncNoonAsnList(
             @RequestParam String storeCode,
@@ -119,16 +133,37 @@ public class OfficialWarehouseController {
         }
     }
 
+    @PostMapping("/asns/validate")
+    public AsnValidationView validateAsn(
+            @RequestBody CreateAsnCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            BusinessAccessContext access = storeAccess(request, command == null ? null : command.storeCode);
+            return service().validateAsn(access, command);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @GetMapping("/product-candidates")
     public List<ProductCandidateView> productCandidates(
             @RequestParam String storeCode,
             @RequestParam String siteCode,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) List<String> shippingBatchIds,
+            @RequestParam(required = false) List<String> partnerSkus,
             HttpServletRequest request
     ) {
         try {
-            return service().listProductCandidates(storeAccess(request, storeCode), storeCode, siteCode, keyword, shippingBatchIds);
+            return service().listProductCandidates(
+                    storeAccess(request, storeCode),
+                    storeCode,
+                    siteCode,
+                    keyword,
+                    shippingBatchIds,
+                    partnerSkus
+            );
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
