@@ -23,6 +23,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnListSyncThrottleRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
@@ -66,6 +67,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -75,6 +77,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -94,6 +97,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
     private static final int DEFAULT_ASN_LIST_SYNC_PER_PAGE = 50;
     private static final int DEFAULT_ASN_LIST_SYNC_MAX_PAGES = 50;
+    private static final int ASN_LIST_SYNC_COOLDOWN_MINUTES = 60;
+    private static final DateTimeFormatter SYNC_RETRY_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String APPOINTMENT_RISK_BACKOFF_STAGE = "NOON_RISK_BACKOFF";
     private static final String APPOINTMENT_RISK_BACKOFF_SOURCE = "OFFICIAL_WAREHOUSE_APPOINTMENT";
 
@@ -183,6 +188,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
         NoonSession session = openNoonSession(ownerUserId, binding);
+        claimOfficialWarehouseAsnListSync(ownerUserId, site, access.getSessionUserId());
 
         AsnListSyncView result = new AsnListSyncView();
         int page = 1;
@@ -227,6 +233,48 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             page++;
         }
         return result;
+    }
+
+    void claimOfficialWarehouseAsnListSync(Long ownerUserId, StoreSiteRecord site, Long operatorUserId) {
+        String claimToken = UUID.randomUUID().toString();
+        mapper.claimOfficialWarehouseAsnListSync(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode,
+                claimToken,
+                operatorUserId
+        );
+        AsnListSyncThrottleRecord throttle = mapper.selectOfficialWarehouseAsnListSyncThrottle(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode
+        );
+        if (throttle != null && claimToken.equals(throttle.claimToken)) {
+            return;
+        }
+
+        LocalDateTime lastStartedAt = throttle == null || throttle.lastStartedAt == null
+                ? LocalDateTime.now()
+                : throttle.lastStartedAt;
+        LocalDateTime nextAllowedAt = lastStartedAt.plusMinutes(ASN_LIST_SYNC_COOLDOWN_MINUTES);
+        long retryAfterSeconds = Math.max(1L, Duration.between(LocalDateTime.now(), nextAllowedAt).getSeconds());
+        long retryAfterMinutes = Math.max(1L, (retryAfterSeconds + 59L) / 60L);
+        throw new ApiProblemException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "OFFICIAL_WAREHOUSE_ASN_SYNC_RATE_LIMITED",
+                "RATE_LIMITED",
+                "SYNC_ASN_LIST",
+                "ASN 列表每小时最多同步一次，请在 " + retryAfterMinutes + " 分钟后重试。",
+                true,
+                false,
+                null,
+                Map.of(
+                        "cooldownMinutes", ASN_LIST_SYNC_COOLDOWN_MINUTES,
+                        "retryAfterSeconds", retryAfterSeconds,
+                        "nextAllowedAt", nextAllowedAt.format(SYNC_RETRY_TIME_FORMATTER)
+                ),
+                null
+        );
     }
 
     @Override

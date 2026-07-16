@@ -19,6 +19,15 @@ public final class OfficialWarehouseRecords {
         public String projectCode;
     }
 
+    public static class AsnListSyncThrottleRecord {
+        public Long ownerUserId;
+        public String storeCode;
+        public String siteCode;
+        public LocalDateTime lastStartedAt;
+        public String claimToken;
+        public Long operatorUserId;
+    }
+
     public static class ProductCandidateRecord {
         public Long ownerUserId;
         public Long logicalStoreId;

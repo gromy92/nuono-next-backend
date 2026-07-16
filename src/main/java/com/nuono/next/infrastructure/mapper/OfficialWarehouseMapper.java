@@ -4,6 +4,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnListSyncThrottleRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
@@ -106,6 +107,40 @@ public interface OfficialWarehouseMapper {
             "</script>"
     })
     StoreSiteRecord selectStoreSite(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode
+    );
+
+    @Insert({
+            "INSERT INTO official_warehouse_asn_sync_throttle (",
+            "owner_user_id, store_code, site_code, last_started_at, claim_token, operator_user_id, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{ownerUserId}, #{storeCode}, #{siteCode}, NOW(), #{claimToken}, #{operatorUserId}, NOW(), NOW()",
+            ") ON DUPLICATE KEY UPDATE",
+            "claim_token = IF(last_started_at <= DATE_SUB(NOW(), INTERVAL 60 MINUTE), VALUES(claim_token), claim_token),",
+            "operator_user_id = IF(claim_token = VALUES(claim_token), VALUES(operator_user_id), operator_user_id),",
+            "last_started_at = IF(last_started_at <= DATE_SUB(NOW(), INTERVAL 60 MINUTE), VALUES(last_started_at), last_started_at),",
+            "gmt_updated = IF(claim_token = VALUES(claim_token), NOW(), gmt_updated)"
+    })
+    int claimOfficialWarehouseAsnListSync(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("claimToken") String claimToken,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Select({
+            "SELECT owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "       last_started_at AS lastStartedAt, claim_token AS claimToken, operator_user_id AS operatorUserId",
+            "FROM official_warehouse_asn_sync_throttle",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "LIMIT 1"
+    })
+    AsnListSyncThrottleRecord selectOfficialWarehouseAsnListSyncThrottle(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode
