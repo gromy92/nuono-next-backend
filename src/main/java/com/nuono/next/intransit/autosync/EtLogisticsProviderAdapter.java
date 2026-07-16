@@ -488,7 +488,7 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
     private PluginSyncPackage buildPackage(JsonNode row, String batchNo, int index) {
         PluginSyncLine line = buildLine(row);
         String boxNo = pickBoxNo(row);
-        if (!StringUtils.hasText(boxNo) && !StringUtils.hasText(line.getPsku())) {
+        if (!StringUtils.hasText(boxNo) && !hasLineIdentity(line)) {
             return null;
         }
         PluginSyncPackage itemPackage = new PluginSyncPackage();
@@ -497,15 +497,21 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
         itemPackage.setTrackingNo(defaultText(pickText(row, "waybillNo", "trackingNo", "shippingNo", "transportNo", "expressNo", "logisticsNo"), ""));
         itemPackage.setPackageStatus(pickMeaningfulStatusText(row, "packageStatusName", "packageStatus", "boxStatusName", "boxStatus", "StatusName", "statusName"));
         itemPackage.setLogisticsStatus(pickMeaningfulStatusText(row, "logisticsStatusName", "logisticsStatus", "transportStatusName", "transportStatus"));
-        itemPackage.setLines(StringUtils.hasText(line.getPsku()) ? List.of(line) : Collections.emptyList());
+        itemPackage.setLines(hasLineIdentity(line) ? List.of(line) : Collections.emptyList());
         return itemPackage;
     }
 
     private PluginSyncLine buildLine(JsonNode row) {
-        String psku = defaultText(pickText(row, "psku", "pSku", "pskuCode", "skuCode", "SkuCode", "sku", "goodsSku", "productSku", "Barcode", "barcode"), "");
+        String sourceSku = pickText(row, "sku", "skuCode", "SkuCode", "goodsSku", "sellerSku");
+        String barcode = defaultText(firstText(
+                sourceSku,
+                pickText(row, "Barcode", "barcode")
+        ), "");
+        String psku = defaultText(pickText(row, "psku", "pSku", "pskuCode", "productSku"), "");
         PluginSyncLine line = new PluginSyncLine();
+        line.setBarcode(barcode);
         line.setPsku(psku);
-        line.setSku(defaultText(pickText(row, "sku", "skuCode", "SkuCode", "goodsSku", "sellerSku", "Barcode", "barcode"), psku));
+        line.setSku(barcode);
         line.setMsku(defaultText(pickText(row, "msku", "mSku", "platformSku", "modelNumber", "ModelNumber"), ""));
         line.setProductName(defaultText(pickText(row, "productName", "goodsName", "GoodsTitle", "goodsTitle", "titleCn", "TitleCn", "titleEn", "TitleEn", "skuName", "itemName", "name", "title"), ""));
         String storeCode = defaultText(pickText(row, "storeCode", "shopCode", "storeNo"), "");
@@ -519,6 +525,12 @@ public class EtLogisticsProviderAdapter implements LogisticsProviderAdapter {
         line.setShippedQuantity(defaultInteger(pickInteger(row, "caseQuantity", "CaseQuantity", "realQuantity", "RealQuantity", "shippedQuantity", "shipQuantity", "quantity", "qty", "num", "skuNum"), 0));
         line.setReceivedQuantity(defaultInteger(pickInteger(row, "receivedQuantity", "receivedQty", "inboundQuantity"), 0));
         return line;
+    }
+
+    private boolean hasLineIdentity(PluginSyncLine line) {
+        return line != null && (StringUtils.hasText(line.getBarcode())
+                || StringUtils.hasText(line.getSku())
+                || StringUtils.hasText(line.getPsku()));
     }
 
     private PluginSyncNode buildNode(JsonNode row) {

@@ -692,14 +692,16 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
     }
 
     private PluginSyncLine buildLine(JsonNode row) {
-        String psku = pickText(row, "sku", "psku", "商品SKU");
+        String barcode = pickText(row, "sku", "商品SKU");
+        String psku = defaultText(pickText(row, "psku"), barcode);
         Integer shippedQuantity = pickInteger(row, "qty", "quantity", "数量");
-        if (!StringUtils.hasText(psku) || shippedQuantity == null) {
+        if ((!StringUtils.hasText(barcode) && !StringUtils.hasText(psku)) || shippedQuantity == null) {
             return null;
         }
         PluginSyncLine line = new PluginSyncLine();
+        line.setBarcode(defaultText(barcode, ""));
         line.setPsku(psku);
-        line.setSku(psku);
+        line.setSku(defaultText(barcode, ""));
         line.setMsku("");
         line.setProductName(defaultText(pickText(row, "name_zh", "nameCn", "中文品名", "name_en"), ""));
         line.setReceivedQuantity(0);
@@ -712,7 +714,8 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
     private void mergeLine(PluginSyncPackage itemPackage, PluginSyncLine nextLine) {
         List<PluginSyncLine> lines = new ArrayList<>(itemPackage.getLines());
         for (PluginSyncLine existing : lines) {
-            if (Objects.equals(existing.getPsku(), nextLine.getPsku())) {
+            if (StringUtils.hasText(nextLine.getBarcode())
+                    && Objects.equals(existing.getBarcode(), nextLine.getBarcode())) {
                 existing.setShippedQuantity(defaultInteger(existing.getShippedQuantity(), 0) + defaultInteger(nextLine.getShippedQuantity(), 0));
                 if (!StringUtils.hasText(existing.getProductName())) {
                     existing.setProductName(nextLine.getProductName());

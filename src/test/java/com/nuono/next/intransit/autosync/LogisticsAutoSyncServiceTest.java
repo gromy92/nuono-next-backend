@@ -103,9 +103,11 @@ class LogisticsAutoSyncServiceTest {
         verify(taskService).fail(
                 eq(91002L),
                 eq("PREVIEW_BLOCKED"),
-                eq("物流自动同步预览未通过，未提交。"),
+                eq("物流商品 barcode 未匹配 1 条，自动同步已阻断，未提交。"),
                 resultCaptor.capture()
         );
+        assertThat(summary.getFailureMessage())
+                .isEqualTo("物流商品 barcode 未匹配 1 条，自动同步已阻断，未提交。");
         assertThat(resultCaptor.getValue())
                 .contains("\"status\":\"preview_blocked\"")
                 .contains("\"previewIssueCount\":1")
@@ -117,7 +119,9 @@ class LogisticsAutoSyncServiceTest {
         verify(mapper).updateAccountRunState(
                 eq(180001L), eq(91002L), eq("SUCCESS"), eq("FAILED"), eq("FAILED"),
                 eq("FAILED"), eq(null), any(LocalDateTime.class), eq(null),
-                eq("PREVIEW_BLOCKED"), eq("物流自动同步预览未通过，未提交。"), eq(408L)
+                eq("PREVIEW_BLOCKED"),
+                eq("物流商品 barcode 未匹配 1 条，自动同步已阻断，未提交。"),
+                eq(408L)
         );
     }
 

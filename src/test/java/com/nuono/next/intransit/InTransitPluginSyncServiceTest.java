@@ -646,11 +646,12 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldResolvePluginBarcodeToSystemPskuBeforeSavingLine() {
+    void shouldStoreOriginalBarcodeAndResolvedSystemPskuWithoutUsingIncomingPsku() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
-        line.setPsku("PAPERSAYSB031");
+        line.setBarcode("PAPERSAYSB031");
         line.setSku("PAPERSAYSB031");
+        line.setPsku("OTHER-PRODUCT-VALID-BARCODE");
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53010L);
         when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
@@ -662,6 +663,7 @@ class InTransitPluginSyncServiceTest {
         SaveLineCommand savedLine = lineCaptor.getAllValues().get(0);
         assertEquals("PAPERSAYSB031", savedLine.getSku());
         assertEquals("PAPERSAYS031", savedLine.getPsku());
+        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
     }
 
     @Test
@@ -721,6 +723,57 @@ class InTransitPluginSyncServiceTest {
         assertThrows(IllegalStateException.class, () -> service.commit(command));
         verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
         verify(batchService, never()).saveLine(any(SaveLineCommand.class));
+    }
+
+    @Test
+    void shouldUseLegacySkuAsBarcodeAndNeverUsePskuAsMatchInput() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        line.setSku("PAPERSAYSB031");
+        line.setPsku("OTHER-PRODUCT-VALID-BARCODE");
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertTrue(preview.isCommittable());
+        verify(mapper).selectPartnerSkuByBarcode(10002L, "PAPERSAYSB031");
+        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
+    }
+
+    @Test
+    void shouldRejectPskuOnlyWithoutQueryingItAsBarcode() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        line.setSku("");
+        line.setPsku("OTHER-PRODUCT-VALID-BARCODE");
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertEquals(false, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "barcode".equals(issue.getField())
+                        && issue.getMessage().contains("禁止使用 psku")
+        ));
+        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
+    }
+
+    @Test
+    void shouldBlockConflictingExplicitBarcodeAndLegacySkuWithoutGuessing() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        line.setBarcode("REAL-PRODUCT-BARCODE");
+        line.setSku("OTHER-PRODUCT-VALID-BARCODE");
+        line.setPsku("SYSTEM-PSKU");
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertEquals(false, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "barcode".equals(issue.getField())
+                        && issue.getMessage().contains("barcode 与旧字段 sku 不一致")
+        ));
+        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "REAL-PRODUCT-BARCODE");
+        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
+        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "SYSTEM-PSKU");
     }
 
     @Test
@@ -817,6 +870,8 @@ class InTransitPluginSyncServiceTest {
     @Test
     void shouldCommitPackageSnapshotWhenPackageHasNoSkuLines() {
         PluginSyncCommand command = sampleCommand();
+        command.setSourceSystem("ZD");
+        command.setForwarderName(null);
         command.getBatches().get(0).getPackages().get(0).setLines(List.of());
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53010L);
@@ -825,6 +880,9 @@ class InTransitPluginSyncServiceTest {
         PluginSyncCommitView result = service.commit(command);
 
         assertEquals(true, result.isCommitted());
+        ArgumentCaptor<SaveBatchCommand> batchCaptor = ArgumentCaptor.forClass(SaveBatchCommand.class);
+        verify(batchService).saveBatch(batchCaptor.capture());
+        assertEquals("众鸫", batchCaptor.getValue().getRawForwarderName());
         ArgumentCaptor<SavePackageCommand> packageCaptor = ArgumentCaptor.forClass(SavePackageCommand.class);
         verify(batchService).savePackage(packageCaptor.capture());
         SavePackageCommand itemPackage = packageCaptor.getValue();

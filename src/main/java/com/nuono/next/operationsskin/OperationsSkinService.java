@@ -104,7 +104,7 @@ public class OperationsSkinService {
         OperationsSkinRecord update = new OperationsSkinRecord();
         update.setId(existing.getId());
         update.setOwnerUserId(ownerUserId);
-        update.setStoreCode(normalizedStoreCode);
+        update.setStoreCode(normalizeStoreCode(existing.getStoreCode()));
         update.setSkinName(skinName);
         update.setStatus(status);
         update.setCoverImageUrl(coverImageUrl);
@@ -117,7 +117,7 @@ public class OperationsSkinService {
         if (operationsSkinMapper.updateSkin(update) == 0) {
             throw notFound();
         }
-        operationsSkinMapper.softDeleteAssets(existing.getId(), ownerUserId, normalizedStoreCode);
+        operationsSkinMapper.softDeleteAssets(existing.getId(), ownerUserId, normalizeStoreCode(existing.getStoreCode()));
         insertAssets(existing.getId(), assets);
         return detail(existing.getId(), ownerUserId, normalizedStoreCode);
     }
@@ -132,7 +132,8 @@ public class OperationsSkinService {
         Long ownerUserId = resolveOwnerUserId(context, normalizedStoreCode);
         OperationsSkinRecord existing = requireAccessibleSkin(id, ownerUserId, normalizedStoreCode);
         String status = OperationsSkinStatus.normalize(request == null ? null : request.getStatus());
-        if (operationsSkinMapper.updateStatus(existing.getId(), ownerUserId, normalizedStoreCode, status, context.getSessionUserId()) == 0) {
+        String persistedStoreCode = normalizeStoreCode(existing.getStoreCode());
+        if (operationsSkinMapper.updateStatus(existing.getId(), ownerUserId, persistedStoreCode, status, context.getSessionUserId()) == 0) {
             throw notFound();
         }
         return detail(existing.getId(), ownerUserId, normalizedStoreCode);
@@ -143,9 +144,10 @@ public class OperationsSkinService {
         String normalizedStoreCode = requireStoreCode(storeCode);
         Long ownerUserId = resolveOwnerUserId(context, normalizedStoreCode);
         OperationsSkinRecord existing = requireAccessibleSkin(id, ownerUserId, normalizedStoreCode);
-        operationsSkinMapper.softDeleteAssets(existing.getId(), ownerUserId, normalizedStoreCode);
-        operationsSkinMapper.softDeleteComponents(existing.getId(), ownerUserId, normalizedStoreCode, context.getSessionUserId());
-        if (operationsSkinMapper.softDeleteSkin(existing.getId(), ownerUserId, normalizedStoreCode, context.getSessionUserId()) == 0) {
+        String persistedStoreCode = normalizeStoreCode(existing.getStoreCode());
+        operationsSkinMapper.softDeleteAssets(existing.getId(), ownerUserId, persistedStoreCode);
+        operationsSkinMapper.softDeleteComponents(existing.getId(), ownerUserId, persistedStoreCode, context.getSessionUserId());
+        if (operationsSkinMapper.softDeleteSkin(existing.getId(), ownerUserId, persistedStoreCode, context.getSessionUserId()) == 0) {
             throw notFound();
         }
     }
@@ -154,6 +156,30 @@ public class OperationsSkinService {
         String normalizedStoreCode = requireStoreCode(storeCode);
         Long ownerUserId = resolveOwnerUserId(context, normalizedStoreCode);
         return detail(id, ownerUserId, normalizedStoreCode);
+    }
+
+    public void verifyReadableAssetStore(BusinessAccessContext context, String sourceStoreCode) {
+        String normalizedSourceStoreCode = requireStoreCode(sourceStoreCode);
+        if (context == null) {
+            throw notFound();
+        }
+        if (context.canAccessStore(normalizedSourceStoreCode)) {
+            return;
+        }
+        for (String accessibleStoreCode : context.getStoreCodes()) {
+            Long ownerUserId = context.resolveOwnerUserIdForStore(accessibleStoreCode);
+            if (ownerUserId == null) {
+                ownerUserId = context.getBusinessOwnerUserId();
+            }
+            if (ownerUserId != null && operationsSkinMapper.countLinkedStoreSites(
+                    ownerUserId,
+                    normalizeStoreCode(accessibleStoreCode),
+                    normalizedSourceStoreCode
+            ) > 0) {
+                return;
+            }
+        }
+        throw notFound();
     }
 
     @Transactional
@@ -169,7 +195,12 @@ public class OperationsSkinService {
                 request == null ? null : request.getComponents(),
                 context.getSessionUserId()
         );
-        operationsSkinMapper.softDeleteComponents(existing.getId(), ownerUserId, normalizedStoreCode, context.getSessionUserId());
+        operationsSkinMapper.softDeleteComponents(
+                existing.getId(),
+                ownerUserId,
+                normalizeStoreCode(existing.getStoreCode()),
+                context.getSessionUserId()
+        );
         for (OperationsSkinComponentRecord component : components) {
             component.setSkinId(existing.getId());
             operationsSkinMapper.insertComponent(component);
@@ -371,8 +402,7 @@ public class OperationsSkinService {
     private OperationsSkinRecord requireAccessibleSkin(Long id, Long ownerUserId, String storeCode) {
         OperationsSkinRecord record = id == null ? null : operationsSkinMapper.selectSkinById(id, ownerUserId, storeCode);
         if (record == null
-                || !Objects.equals(ownerUserId, record.getOwnerUserId())
-                || !Objects.equals(storeCode, normalizeStoreCode(record.getStoreCode()))) {
+                || !Objects.equals(ownerUserId, record.getOwnerUserId())) {
             throw notFound();
         }
         return record;

@@ -218,9 +218,17 @@ public class OperationsSkinController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片文件名不合法");
         }
         String normalizedStoreCode = requireStoreCode(storeCode);
-        requireStoreAccess(request, normalizedStoreCode);
-
         Path storeDir = storeUploadDir(normalizedStoreCode);
+        BusinessAccessContext context = accessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.OPERATIONS_SKIN_MANAGEMENT
+        );
+        try {
+            service.verifyReadableAssetStore(context, normalizedStoreCode);
+        } catch (OperationsSkinNotFoundException exception) {
+            throw notFound(exception);
+        }
+
         Path file = storeDir.resolve(filename).normalize();
         if (!file.startsWith(storeDir)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "图片文件名不合法");

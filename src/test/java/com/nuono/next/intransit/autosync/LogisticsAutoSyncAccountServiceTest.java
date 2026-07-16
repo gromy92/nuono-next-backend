@@ -106,6 +106,25 @@ class LogisticsAutoSyncAccountServiceTest {
     }
 
     @Test
+    void savesZhongdongAliasesAsZdSourceWithoutExposingPassword() {
+        LogisticsAutoSyncAccountService service = service();
+        when(mapper.nextAccountId()).thenReturn(180002L);
+        when(mapper.insertAccount(any(LogisticsAutoSyncAccount.class))).thenReturn(1);
+        LogisticsAutoSyncAccountCommand command = command(null, "ZDSEA", "zd-demo", "zd-secret");
+        command.setForwarderName("众鸫");
+        ArgumentCaptor<LogisticsAutoSyncAccount> rowCaptor = ArgumentCaptor.forClass(LogisticsAutoSyncAccount.class);
+
+        LogisticsAutoSyncAccountView view = service.save(command, 501L);
+
+        verify(mapper).insertAccount(rowCaptor.capture());
+        assertThat(rowCaptor.getValue().getSourceSystem()).isEqualTo("ZD");
+        assertThat(rowCaptor.getValue().getForwarderName()).isEqualTo("众鸫");
+        assertThat(rowCaptor.getValue().getPasswordCipher()).doesNotContain("zd-secret");
+        assertThat(view.getSourceSystem()).isEqualTo("ZD");
+        assertThat(fieldNames(LogisticsAutoSyncAccountView.class)).doesNotContain("password", "token");
+    }
+
+    @Test
     void rejectsUpdateWhenExistingAccountBelongsToDifferentOwner() {
         LogisticsAutoSyncAccountService service = service();
         LogisticsAutoSyncAccount existing = existingAccount();

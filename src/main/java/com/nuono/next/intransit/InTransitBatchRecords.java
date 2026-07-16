@@ -204,6 +204,7 @@ public final class InTransitBatchRecords {
         private LocalDateTime actualArrivalAt;
         private LocalDateTime effectiveArrivalAt;
         private String effectiveArrivalSource;
+        private List<NodeView> nodeHistory = Collections.emptyList();
 
         public static BatchView from(BatchRow row) {
             BatchView view = new BatchView();
@@ -382,6 +383,10 @@ public final class InTransitBatchRecords {
         public void setEffectiveArrivalAt(LocalDateTime effectiveArrivalAt) { this.effectiveArrivalAt = effectiveArrivalAt; }
         public String getEffectiveArrivalSource() { return effectiveArrivalSource; }
         public void setEffectiveArrivalSource(String effectiveArrivalSource) { this.effectiveArrivalSource = effectiveArrivalSource; }
+        public List<NodeView> getNodeHistory() { return nodeHistory; }
+        public void setNodeHistory(List<NodeView> nodeHistory) {
+            this.nodeHistory = nodeHistory == null ? Collections.emptyList() : nodeHistory;
+        }
     }
 
     public static class BatchListView {

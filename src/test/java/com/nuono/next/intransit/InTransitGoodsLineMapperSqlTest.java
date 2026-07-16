@@ -4,10 +4,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.InTransitGoodsLineMapper;
 import java.lang.reflect.Method;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class InTransitGoodsLineMapperSqlTest {
+
+    @Test
+    void barcodeLookupNeverTreatsPartnerSkuAliasAsProductBarcode() throws Exception {
+        Method method = InTransitGoodsLineMapper.class.getMethod(
+                "selectPartnerSkuByBarcode",
+                Long.class,
+                String.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("WHERE pb.barcode = #{barcode}")
+                .contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'");
+    }
 
     @Test
     void lineSaveMarksStoreProductLogisticsHistoryFromInTransitBatchOnly() throws Exception {

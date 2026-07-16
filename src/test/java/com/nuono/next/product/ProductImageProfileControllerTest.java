@@ -149,6 +149,53 @@ class ProductImageProfileControllerTest {
     }
 
     @Test
+    void addAssetUsagesShouldResolveOwnerAndPassOperator() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
+        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR108065-NAE")))
+                .thenReturn(307L);
+        ProductImageAssetUsageCreateCommand command = new ProductImageAssetUsageCreateCommand();
+        when(service.addAssetUsages(307L, "STR108065-NAE", 10L, command, 10003L))
+                .thenReturn(new ProductImageProfileDetailView());
+
+        controller.addAssetUsages(10L, 99999L, "STR108065-NAE", command, request);
+
+        verify(service).addAssetUsages(307L, "STR108065-NAE", 10L, command, 10003L);
+    }
+
+    @Test
+    void updateAssetUsageShouldResolveOwnerAndPassOperator() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
+        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR108065-NAE")))
+                .thenReturn(307L);
+        ProductImageAssetUsageUpdateCommand command = new ProductImageAssetUsageUpdateCommand();
+        when(service.updateAssetUsage(307L, "STR108065-NAE", 10L, 88L, command, 10003L))
+                .thenReturn(new ProductImageProfileDetailView());
+
+        controller.updateAssetUsage(10L, 88L, 99999L, "STR108065-NAE", command, request);
+
+        verify(service).updateAssetUsage(307L, "STR108065-NAE", 10L, 88L, command, 10003L);
+    }
+
+    @Test
+    void removeAssetUsageShouldResolveOwnerAndPassOperator() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
+        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR108065-NAE")))
+                .thenReturn(307L);
+        when(service.removeAssetUsage(307L, "STR108065-NAE", 10L, 88L, 10003L))
+                .thenReturn(new ProductImageProfileDetailView());
+
+        controller.removeAssetUsage(10L, 88L, 99999L, "STR108065-NAE", request);
+
+        verify(service).removeAssetUsage(307L, "STR108065-NAE", 10L, 88L, 10003L);
+    }
+
+    @Test
     void importAssetUrlsShouldResolveOwnerAndPassOperator() {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(serviceProvider.getIfAvailable()).thenReturn(service);

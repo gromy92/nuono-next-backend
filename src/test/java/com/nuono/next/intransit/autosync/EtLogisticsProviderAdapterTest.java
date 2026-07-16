@@ -66,13 +66,33 @@ class EtLogisticsProviderAdapterTest {
         assertThat(itemPackage.getLines()).hasSize(1);
 
         PluginSyncLine line = itemPackage.getLines().get(0);
-        assertThat(line.getPsku()).isEqualTo("PAPERSAYSB293");
+        assertThat(line.getBarcode()).isEqualTo("PAPERSAYSB293");
+        assertThat(line.getPsku()).isEmpty();
         assertThat(line.getSku()).isEqualTo("PAPERSAYSB293");
         assertThat(line.getMsku()).isEqualTo("PAPERSAYSB293");
         assertThat(line.getProductName()).isEqualTo("粉盒马克笔24支48色");
         assertThat(line.getShippedQuantity()).isEqualTo(48);
         assertThat(line.getStoreCode()).isEmpty();
         assertThat(line.getSiteCode()).isEmpty();
+    }
+
+    @Test
+    void usesEtSkuCodeAsBarcodeValueInsteadOfTreatingItAsPsku() {
+        PluginSyncCommand command = adapter.normalize(
+                listJson(),
+                Map.of("F2604304851631", shipOrderBoxDetailJson()),
+                Map.of("X26043047357", boxModifyJson()),
+                Map.of("X26043047357", boxListDetailJson().replace(
+                        "\"SkuCode\": \"PAPERSAYSB293\"",
+                        "\"SkuCode\": \"OTHER-PRODUCT-VALID-BARCODE\""
+                ))
+        );
+
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+
+        assertThat(line.getBarcode()).isEqualTo("OTHER-PRODUCT-VALID-BARCODE");
+        assertThat(line.getSku()).isEqualTo("OTHER-PRODUCT-VALID-BARCODE");
+        assertThat(line.getPsku()).isEmpty();
     }
 
     @Test
@@ -173,7 +193,7 @@ class EtLogisticsProviderAdapterTest {
             assertThat(result.getCommand().getBatches()).hasSize(1);
             assertThat(result.getPackageCount()).isEqualTo(1);
             assertThat(result.getLineCount()).isEqualTo(1);
-            assertThat(result.getCommand().getBatches().get(0).getPackages().get(0).getLines().get(0).getPsku())
+            assertThat(result.getCommand().getBatches().get(0).getPackages().get(0).getLines().get(0).getBarcode())
                     .isEqualTo("PAPERSAYSB293");
         }
     }

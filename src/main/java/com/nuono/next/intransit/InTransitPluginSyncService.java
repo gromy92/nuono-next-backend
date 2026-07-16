@@ -49,7 +49,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class InTransitPluginSyncService {
 
-    private static final Set<String> SUPPORTED_SOURCE_SYSTEMS = Set.of("CHIC", "ET", "YITONG", "YITE");
+    private static final Set<String> SUPPORTED_SOURCE_SYSTEMS = Set.of("CHIC", "ET", "YITONG", "YITE", "ZD");
     private static final int PLUGIN_SYNC_BATCH_LOCK_TIMEOUT_SECONDS = 10;
 
     private final InTransitGoodsMapper mapper;
@@ -350,7 +350,7 @@ public class InTransitPluginSyncService {
         if (!StringUtils.hasText(resolved.getSourceSystem())) {
             issues.add(PluginSyncIssueView.error(null, null, null, "sourceSystem", "插件来源系统不能为空。"));
         } else if (!SUPPORTED_SOURCE_SYSTEMS.contains(normalizeCode(resolved.getSourceSystem()))) {
-            issues.add(PluginSyncIssueView.error(null, null, null, "sourceSystem", "插件来源系统只支持 CHIC、ET、YITONG、YITE。"));
+            issues.add(PluginSyncIssueView.error(null, null, null, "sourceSystem", "物流同步来源只支持 CHIC、ET、YITONG、YITE、ZD。"));
         }
         if (resolved.getBatches().isEmpty()) {
             issues.add(PluginSyncIssueView.error(null, null, null, "batches", "插件同步批次不能为空。"));
@@ -430,7 +430,7 @@ public class InTransitPluginSyncService {
                     if (line.getShippedQuantity() != null && line.getShippedQuantity() >= 0) {
                         batchShippedQuantity += line.getShippedQuantity();
                     }
-                    if (!StringUtils.hasText(barcode)) {
+                    if (!StringUtils.hasText(barcode) || hasBarcodeConflict(line)) {
                         continue;
                     }
                     String psku = resolvePartnerSkuFromBarcode(ownerUserId, batchNo, boxNo, barcode, issues);
@@ -1133,8 +1133,20 @@ public class InTransitPluginSyncService {
             List<PluginSyncIssueView> issues
     ) {
         String barcode = sourceBarcode(line);
+        if (hasBarcodeConflict(line)) {
+            issues.add(PluginSyncIssueView.error(
+                    batchNo,
+                    boxNo,
+                    barcode,
+                    "barcode",
+                    "物流商品 barcode 与旧字段 sku 不一致，禁止猜测匹配商品。"
+            ));
+        }
         if (!StringUtils.hasText(barcode)) {
-            issues.add(PluginSyncIssueView.error(batchNo, boxNo, null, "barcode", "物流商品 barcode 不能为空。"));
+            String message = line != null && StringUtils.hasText(line.getPsku())
+                    ? "物流商品 barcode 不能为空；禁止使用 psku 匹配商品。"
+                    : "物流商品 barcode 不能为空。";
+            issues.add(PluginSyncIssueView.error(batchNo, boxNo, null, "barcode", message));
         }
         if (line.getShippedQuantity() != null && line.getShippedQuantity() < 0) {
             issues.add(PluginSyncIssueView.error(batchNo, boxNo, barcode, "shippedQuantity", "发货数量不能为负数。"));
@@ -1150,7 +1162,14 @@ public class InTransitPluginSyncService {
     }
 
     private String sourceBarcode(PluginSyncLine line) {
-        return line == null ? null : firstText(line.getPsku(), line.getSku());
+        return line == null ? null : firstText(line.getBarcode(), line.getSku());
+    }
+
+    private boolean hasBarcodeConflict(PluginSyncLine line) {
+        return line != null
+                && StringUtils.hasText(line.getBarcode())
+                && StringUtils.hasText(line.getSku())
+                && !sameIdentifier(line.getBarcode(), line.getSku());
     }
 
     private String resolvePartnerSkuFromBarcode(
@@ -1252,6 +1271,8 @@ public class InTransitPluginSyncService {
             fallbackName = "易通";
         } else if ("YITE".equals(sourceSystem)) {
             fallbackName = "义特";
+        } else if ("ZD".equals(sourceSystem)) {
+            fallbackName = "众鸫";
         }
         return InTransitForwarderCatalog.require(sourceSystem, firstText(forwarderName, fallbackName));
     }
