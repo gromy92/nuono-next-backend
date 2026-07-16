@@ -19,6 +19,15 @@ public final class OfficialWarehouseRecords {
         public String projectCode;
     }
 
+    public static class AsnListSyncThrottleRecord {
+        public Long ownerUserId;
+        public String storeCode;
+        public String siteCode;
+        public LocalDateTime lastStartedAt;
+        public String claimToken;
+        public Long operatorUserId;
+    }
+
     public static class ProductCandidateRecord {
         public Long ownerUserId;
         public Long logicalStoreId;
@@ -319,6 +328,32 @@ public final class OfficialWarehouseRecords {
         public Boolean replToolAsn;
         public String lineStatus;
         public String errorMessage;
+    }
+
+    public static class AsnInboundReceiptRecord {
+        public Long asnId;
+        public Long asnLineId;
+        public Long importId;
+        public Long reportRowId;
+        public String noonAsnNr;
+        public Long productMasterId;
+        public Long productVariantId;
+        public Long productSiteOfferId;
+        public String partnerSku;
+        public String pskuCode;
+        public String noonSku;
+        public String pbarcodeCanonical;
+        public String partnerWarehouse;
+        public String noonWarehouse;
+        public Integer qtyExpected;
+        public Integer receivedQty;
+        public Integer qcFailedQty;
+        public Integer unidentifiedQty;
+        public String qcFailedReason;
+        public String receiptStatus;
+        public String matchStatus;
+        public String asnCompletedAt;
+        public String importedAt;
     }
 
     public static class AppointmentInsertRecord {

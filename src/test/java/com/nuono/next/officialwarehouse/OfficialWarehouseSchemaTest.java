@@ -17,8 +17,39 @@ class OfficialWarehouseSchemaTest {
                 "classpath:db/init/134_official_warehouse_asn.sql",
                 "classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql",
                 "classpath:db/init/136_official_warehouse_appointment.sql",
-                "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql"
+                "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql",
+                "classpath:db/init/188_official_warehouse_asn_sync_throttle.sql"
         );
+    }
+
+    @Test
+    void officialWarehouseManualAsnListSyncUsesPersistentStoreSiteThrottle() throws Exception {
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/init/188_official_warehouse_asn_sync_throttle.sql"
+        ));
+        String mapper = Files.readString(Path.of(
+                "src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"
+        ));
+        String service = Files.readString(Path.of(
+                "src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"
+        ));
+
+        assertThat(sql)
+                .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_asn_sync_throttle`")
+                .contains("PRIMARY KEY (`owner_user_id`, `store_code`, `site_code`)")
+                .contains("`last_started_at` DATETIME NOT NULL")
+                .contains("`claim_token` VARCHAR(64) NOT NULL");
+        assertThat(mapper)
+                .contains("claimOfficialWarehouseAsnListSync")
+                .contains("DATE_SUB(NOW(), INTERVAL 60 MINUTE)")
+                .contains("selectOfficialWarehouseAsnListSyncThrottle");
+        assertThat(service)
+                .contains("OFFICIAL_WAREHOUSE_ASN_SYNC_RATE_LIMITED")
+                .contains("HttpStatus.TOO_MANY_REQUESTS")
+                .contains("claimOfficialWarehouseAsnListSync(")
+                .contains("openNoonSession(ownerUserId, binding)");
+        assertThat(service.indexOf("openNoonSession(ownerUserId, binding)"))
+                .isLessThan(service.indexOf("claimOfficialWarehouseAsnListSync("));
     }
 
     @Test
@@ -144,6 +175,38 @@ class OfficialWarehouseSchemaTest {
     }
 
     @Test
+    void officialWarehouseBatchQuantitiesUseConfirmedStoreSiteAllocationsWithoutJoinFanout() throws Exception {
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+
+        assertThat(mapper)
+                .contains("target_store_code")
+                .contains("target_site_code")
+                .contains("allocated_quantity")
+                .contains("scopedQuantity")
+                .contains("inTransitGoodsLineId")
+                .doesNotContain("COALESCE(NULLIF(line.store_code, ''), #{storeCode}) AS sourceStoreCode");
+    }
+
+    @Test
+    void officialWarehouseSupportsBatchPskuSearchAndNonBlockingCompletenessValidation() throws Exception {
+        String controller = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java"));
+        String commands = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseCommands.java"));
+        String views = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseViews.java"));
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
+
+        assertThat(controller)
+                .contains("@RequestParam(required = false) List<String> partnerSkus")
+                .contains("@PostMapping(\"/asns/validate\")");
+        assertThat(commands).contains("public Boolean partialBatchConfirmed;");
+        assertThat(views)
+                .contains("public static class AsnValidationView")
+                .contains("public List<MissingBatchView> missingBatches");
+        assertThat(service)
+                .contains("OFFICIAL_WAREHOUSE_PARTIAL_BATCH_CONFIRM_REQUIRED")
+                .contains("partialBatchConfirmationRequired(validation)");
+    }
+
+    @Test
     void officialWarehouseShippingBatchProductCandidatesRemainReusableAfterScheduledAppointment() throws Exception {
         String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
         String sourceAllocationQuery = mapper.substring(
@@ -152,7 +215,8 @@ class OfficialWarehouseSchemaTest {
         );
 
         assertThat(sourceAllocationQuery)
-                .contains("GREATEST(COALESCE(line.shipped_quantity, 0), 0) AS quantity")
+                .contains("allocationScope.scopedQuantity")
+                .contains("ELSE GREATEST(COALESCE(line.shipped_quantity, 0), 0) END AS quantity")
                 .doesNotContain("linked.scheduledAppointmentQuantity")
                 .doesNotContain("official_warehouse_appointment scheduledAppointment")
                 .doesNotContain("- GREATEST(COALESCE(linked.linkedQuantity, 0), 0)");

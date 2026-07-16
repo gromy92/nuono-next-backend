@@ -20,8 +20,10 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnLineC
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.UpsertAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAsnListSyncSupport.NoonAsnListRow;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnListSyncThrottleRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
@@ -39,25 +41,33 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.RunRe
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotCapacity;
 import com.nuono.next.officialwarehouse.OfficialWarehouseNoonInboundClient.NoonCallContext;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnLineView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundDetailView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundLineView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundSummaryView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnListSyncView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnShippingBatchLinkView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnValidationView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentAvailabilityView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ProductCandidateView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.RoutingWarehouseView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.ShippingBatchCandidateView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.MissingBatchItemView;
+import com.nuono.next.officialwarehouse.OfficialWarehouseViews.MissingBatchView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import com.nuono.next.sales.NoonSalesReportRequest;
+import com.nuono.next.web.ApiProblemException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -65,10 +75,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
+import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -84,6 +97,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
     private static final int DEFAULT_ASN_LIST_SYNC_PER_PAGE = 50;
     private static final int DEFAULT_ASN_LIST_SYNC_MAX_PAGES = 50;
+    private static final int ASN_LIST_SYNC_COOLDOWN_MINUTES = 60;
+    private static final DateTimeFormatter SYNC_RETRY_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String APPOINTMENT_RISK_BACKOFF_STAGE = "NOON_RISK_BACKOFF";
     private static final String APPOINTMENT_RISK_BACKOFF_SOURCE = "OFFICIAL_WAREHOUSE_APPOINTMENT";
 
@@ -141,16 +156,24 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     ) {
         Long ownerUserId = requireOwnerUserId(access, storeCode);
         Collection<String> storeCodes = trimToNull(storeCode) == null ? access.getStoreCodes() : List.of(storeCode);
-        return mapper.listAsns(
+        List<AsnRecord> records = mapper.listAsns(
                         ownerUserId,
                         storeCodes,
                         trimToNull(storeCode),
                         normalizeSite(siteCode),
                         keywordLike(keyword),
                         200
-                )
-                .stream()
-                .map(record -> toAsnView(record, true))
+                );
+        Map<Long, List<AsnInboundReceiptRecord>> receiptsByAsn = inboundReceiptsByAsn(
+                ownerUserId,
+                records.stream().map(record -> record.id).collect(Collectors.toList())
+        );
+        return records.stream()
+                .map(record -> {
+                    AsnView view = toAsnView(record, true);
+                    view.inboundSummary = inboundSummary(record, receiptsByAsn.getOrDefault(record.id, List.of()));
+                    return view;
+                })
                 .collect(Collectors.toList());
     }
 
@@ -165,6 +188,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
         NoonSession session = openNoonSession(ownerUserId, binding);
+        claimOfficialWarehouseAsnListSync(ownerUserId, site, access.getSessionUserId());
 
         AsnListSyncView result = new AsnListSyncView();
         int page = 1;
@@ -209,6 +233,48 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             page++;
         }
         return result;
+    }
+
+    void claimOfficialWarehouseAsnListSync(Long ownerUserId, StoreSiteRecord site, Long operatorUserId) {
+        String claimToken = UUID.randomUUID().toString();
+        mapper.claimOfficialWarehouseAsnListSync(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode,
+                claimToken,
+                operatorUserId
+        );
+        AsnListSyncThrottleRecord throttle = mapper.selectOfficialWarehouseAsnListSyncThrottle(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode
+        );
+        if (throttle != null && claimToken.equals(throttle.claimToken)) {
+            return;
+        }
+
+        LocalDateTime lastStartedAt = throttle == null || throttle.lastStartedAt == null
+                ? LocalDateTime.now()
+                : throttle.lastStartedAt;
+        LocalDateTime nextAllowedAt = lastStartedAt.plusMinutes(ASN_LIST_SYNC_COOLDOWN_MINUTES);
+        long retryAfterSeconds = Math.max(1L, Duration.between(LocalDateTime.now(), nextAllowedAt).getSeconds());
+        long retryAfterMinutes = Math.max(1L, (retryAfterSeconds + 59L) / 60L);
+        throw new ApiProblemException(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "OFFICIAL_WAREHOUSE_ASN_SYNC_RATE_LIMITED",
+                "RATE_LIMITED",
+                "SYNC_ASN_LIST",
+                "ASN 列表每小时最多同步一次，请在 " + retryAfterMinutes + " 分钟后重试。",
+                true,
+                false,
+                null,
+                Map.of(
+                        "cooldownMinutes", ASN_LIST_SYNC_COOLDOWN_MINUTES,
+                        "retryAfterSeconds", retryAfterSeconds,
+                        "nextAllowedAt", nextAllowedAt.format(SYNC_RETRY_TIME_FORMATTER)
+                ),
+                null
+        );
     }
 
     @Override
@@ -278,8 +344,113 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             throw new IllegalArgumentException("当前账号不能查看该店铺官方仓 ASN。");
         }
         AsnView view = toAsnView(record, true);
+        view.inboundSummary = inboundSummary(record, inboundReceipts(ownerUserId, List.of(record.id)));
         view.noonUser = resolveNoonUser(record);
         return view;
+    }
+
+    public AsnInboundDetailView getAsnInboundDetail(BusinessAccessContext access, String asnId) {
+        Long parsedAsnId = parseLongId(asnId, "官方仓 ASN 不存在。");
+        Long ownerUserId = requireOwnerUserId(access, null);
+        AsnRecord asn = mapper.selectAsn(ownerUserId, parsedAsnId);
+        if (asn == null) {
+            throw new IllegalArgumentException("官方仓 ASN 不存在或无权访问。");
+        }
+        if (!access.canAccessStore(asn.storeCode)) {
+            throw new IllegalArgumentException("当前账号不能查看该店铺官方仓 ASN。");
+        }
+
+        List<AsnLineRecord> localLines = mapper.listAsnLines(asn.id);
+        List<AsnInboundReceiptRecord> receipts = inboundReceipts(ownerUserId, List.of(asn.id));
+        AsnInboundDetailView detail = new AsnInboundDetailView();
+        detail.asnId = String.valueOf(asn.id);
+        detail.localAsnNo = asn.localAsnNo;
+        detail.noonAsnNr = asn.noonAsnNr;
+        detail.storeCode = asn.storeCode;
+        detail.siteCode = asn.siteCode;
+        detail.sourceType = asn.sourceType;
+        detail.summary = inboundSummary(asn, receipts);
+
+        List<Long> receiptVariantIds = receipts.stream()
+                .map(receipt -> receipt.productVariantId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        List<String> receiptPartnerSkus = receipts.stream()
+                .map(receipt -> trimToNull(receipt.partnerSku))
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        List<ProductCandidateRecord> receiptProductCandidates = receiptVariantIds.isEmpty() && receiptPartnerSkus.isEmpty()
+                ? List.of()
+                : mapper.listProductCandidates(
+                        ownerUserId,
+                        asn.storeCode,
+                        asn.siteCode,
+                        null,
+                        receiptVariantIds,
+                        receiptPartnerSkus,
+                        Math.max(1000, receiptVariantIds.size() + receiptPartnerSkus.size())
+                );
+        Map<Long, ProductCandidateRecord> receiptCandidatesByVariantId = new LinkedHashMap<>();
+        Map<String, ProductCandidateRecord> uniqueReceiptCandidatesByPartnerSku = new LinkedHashMap<>();
+        Set<String> ambiguousReceiptPartnerSkus = new LinkedHashSet<>();
+        for (ProductCandidateRecord candidate : receiptProductCandidates) {
+            if (candidate.productVariantId != null) {
+                receiptCandidatesByVariantId.putIfAbsent(candidate.productVariantId, candidate);
+            }
+            registerInboundProductCandidate(
+                    uniqueReceiptCandidatesByPartnerSku,
+                    ambiguousReceiptPartnerSkus,
+                    candidate
+            );
+        }
+
+        Map<Long, AsnInboundLineView> linesById = new LinkedHashMap<>();
+        Map<String, AsnInboundLineView> uniqueLinesByKey = new LinkedHashMap<>();
+        Set<String> ambiguousKeys = new LinkedHashSet<>();
+        for (AsnLineRecord line : localLines) {
+            AsnInboundLineView view = inboundLine(line);
+            detail.lines.add(view);
+            linesById.put(line.id, view);
+            registerInboundLineKeys(uniqueLinesByKey, ambiguousKeys, view, line.childSku);
+        }
+        Map<String, AsnInboundLineView> reportOnlyLines = new LinkedHashMap<>();
+        for (AsnInboundReceiptRecord receipt : receipts) {
+            AsnInboundLineView target = receipt.asnLineId == null ? null : linesById.get(receipt.asnLineId);
+            boolean matchedByBusinessKey = false;
+            if (target == null) {
+                target = findInboundLineByBusinessKey(uniqueLinesByKey, ambiguousKeys, receipt);
+                matchedByBusinessKey = target != null;
+            }
+            if (target == null) {
+                String reportKey = inboundReportOnlyKey(receipt);
+                ProductCandidateRecord productCandidate = receipt.productVariantId == null
+                        ? null
+                        : receiptCandidatesByVariantId.get(receipt.productVariantId);
+                if (productCandidate == null) {
+                    String partnerKey = inboundPartnerKey(receipt.partnerSku);
+                    if (partnerKey != null && !ambiguousReceiptPartnerSkus.contains(partnerKey)) {
+                        productCandidate = uniqueReceiptCandidatesByPartnerSku.get(partnerKey);
+                    }
+                }
+                ProductCandidateRecord resolvedProductCandidate = productCandidate;
+                target = reportOnlyLines.computeIfAbsent(
+                        reportKey,
+                        ignored -> inboundReportOnlyLine(receipt, resolvedProductCandidate)
+                );
+            }
+            accumulateInboundReceipt(target, receipt, matchedByBusinessKey);
+        }
+        detail.lines.addAll(reportOnlyLines.values());
+        for (AsnInboundLineView line : detail.lines) {
+            finalizeInboundLine(line);
+        }
+        detail.summary.unmatchedLineCount = (int) detail.lines.stream().filter(line -> line.reportOnly).count();
+        detail.summary.exceptionLineCount = (int) detail.lines.stream()
+                .filter(line -> !"NO_RECEIPT".equals(line.inboundStatus) && !"NORMAL".equals(line.inboundStatus))
+                .count();
+        return detail;
     }
 
     public List<ProductCandidateView> listProductCandidates(
@@ -288,7 +459,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             String siteCode,
             String keyword
     ) {
-        return listProductCandidates(access, storeCode, siteCode, keyword, List.of());
+        return listProductCandidates(access, storeCode, siteCode, keyword, List.of(), List.of());
     }
 
     public List<ProductCandidateView> listProductCandidates(
@@ -296,15 +467,23 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             String storeCode,
             String siteCode,
             String keyword,
-            Collection<String> shippingBatchIds
+            Collection<String> shippingBatchIds,
+            Collection<String> requestedPartnerSkus
     ) {
         String normalizedStoreCode = requireText(storeCode, "请选择店铺。");
         String normalizedSiteCode = normalizeSite(requireText(siteCode, "请选择站点。"));
         Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
         List<Long> selectedBatchIds = normalizeShippingBatchIds(shippingBatchIds);
+        List<String> normalizedPartnerSkus = normalizePartnerSkus(requestedPartnerSkus);
         if (!selectedBatchIds.isEmpty()) {
-            return listProductCandidatesFromShippingBatches(ownerUserId, site, keyword, selectedBatchIds);
+            return listProductCandidatesFromShippingBatches(
+                    ownerUserId,
+                    site,
+                    keyword,
+                    selectedBatchIds,
+                    normalizedPartnerSkus
+            );
         }
         return mapper.listProductCandidates(
                         ownerUserId,
@@ -312,8 +491,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                         site.siteCode,
                         keywordLike(keyword),
                         List.of(),
-                        List.of(),
-                        200
+                        normalizedPartnerSkus,
+                        normalizedPartnerSkus.isEmpty() ? 200 : Math.max(normalizedPartnerSkus.size(), 1)
                 )
                 .stream()
                 .map(this::toProductCandidateView)
@@ -324,7 +503,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             Long ownerUserId,
             StoreSiteRecord site,
             String keyword,
-            List<Long> selectedBatchIds
+            List<Long> selectedBatchIds,
+            List<String> requestedPartnerSkus
     ) {
         List<ShippingBatchSourceAllocationRecord> allocations = mapper.listShippingBatchSourceAllocations(
                 ownerUserId,
@@ -340,12 +520,20 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         Map<String, Integer> quantityByProductKey = new LinkedHashMap<>();
         Set<Long> legacyVariantIds = new LinkedHashSet<>();
         Set<String> partnerSkus = new LinkedHashSet<>();
+        Set<String> requestedPartnerSkuSet = requestedPartnerSkus.stream()
+                .map(value -> value.toUpperCase(Locale.ROOT))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         for (ShippingBatchSourceAllocationRecord allocation : allocations) {
             if (!StringUtils.hasText(allocation.partnerSku) && allocation.productVariantId == null) {
                 continue;
             }
             int quantity = Math.max(0, allocation.quantity == null ? 0 : allocation.quantity);
             if (quantity <= 0) {
+                continue;
+            }
+            if (!requestedPartnerSkuSet.isEmpty()
+                    && (!StringUtils.hasText(allocation.partnerSku)
+                    || !requestedPartnerSkuSet.contains(allocation.partnerSku.trim().toUpperCase(Locale.ROOT)))) {
                 continue;
             }
             quantityByProductKey.merge(siteProductKey(site.storeCode, site.siteCode, allocation.partnerSku, allocation.productVariantId), quantity, Integer::sum);
@@ -399,6 +587,11 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     public AsnView createAsn(BusinessAccessContext access, CreateAsnCommand command) {
+        AsnValidationView validation = validateAsn(access, command);
+        if (!validation.missingBatches.isEmpty()
+                && (command.partialBatchConfirmed == null || !command.partialBatchConfirmed)) {
+            throw partialBatchConfirmationRequired(validation);
+        }
         if (command == null) {
             throw new IllegalArgumentException("缺少官方仓 ASN 创建参数。");
         }
@@ -612,6 +805,122 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
     }
 
+    public AsnValidationView validateAsn(BusinessAccessContext access, CreateAsnCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("缺少官方仓 ASN 创建参数。");
+        }
+        String storeCode = requireText(command.storeCode, "请选择店铺。");
+        String siteCode = normalizeSite(requireText(command.siteCode, "请选择站点。"));
+        Long ownerUserId = requireOwnerUserId(access, storeCode);
+        StoreSiteRecord site = requireStoreSite(ownerUserId, storeCode, siteCode);
+        List<CreateAsnLineCommand> lineCommands = command.lines == null ? List.of() : command.lines;
+        if (lineCommands.isEmpty()) {
+            throw new IllegalArgumentException("请选择至少一个商品。");
+        }
+
+        Map<String, Integer> selectedQuantities = new LinkedHashMap<>();
+        Set<Long> variantIds = new LinkedHashSet<>();
+        Set<String> partnerSkus = new LinkedHashSet<>();
+        for (CreateAsnLineCommand line : lineCommands) {
+            if (line == null || (!StringUtils.hasText(line.partnerSku) && line.productVariantId == null)) {
+                throw new IllegalArgumentException("商品行缺少 PSKU。");
+            }
+            int quantity = line.quantity == null ? 0 : line.quantity;
+            if (quantity <= 0) {
+                throw new IllegalArgumentException("商品数量必须大于 0。");
+            }
+            String productKey = siteProductKey(site.storeCode, site.siteCode, line.partnerSku, line.productVariantId);
+            selectedQuantities.merge(productKey, quantity, Integer::sum);
+            if (StringUtils.hasText(line.partnerSku)) {
+                partnerSkus.add(line.partnerSku.trim());
+            } else {
+                variantIds.add(line.productVariantId);
+            }
+        }
+
+        List<ProductCandidateRecord> selectedCandidates = mapper.listProductCandidates(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode,
+                null,
+                variantIds,
+                partnerSkus,
+                Math.max(selectedQuantities.size(), 1)
+        );
+        Set<String> selectedCandidateKeys = selectedCandidates.stream()
+                .map(row -> siteProductKey(site.storeCode, site.siteCode, row.partnerSku, row.productVariantId))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> missingSelectedKeys = new LinkedHashSet<>(selectedQuantities.keySet());
+        missingSelectedKeys.removeAll(selectedCandidateKeys);
+        if (!missingSelectedKeys.isEmpty()) {
+            throw new IllegalArgumentException("部分商品缺少站点 PSKU 或不属于当前店铺：" + missingSelectedKeys);
+        }
+
+        List<Long> selectedBatchIds = normalizeShippingBatchIds(command.shippingBatchIds);
+        AsnValidationView view = new AsnValidationView();
+        view.valid = true;
+        if (selectedBatchIds.isEmpty()) {
+            view.completeBatchSelection = true;
+            return view;
+        }
+        List<ShippingBatchSourceAllocationRecord> allocations = mapper.listShippingBatchSourceAllocations(
+                ownerUserId,
+                site.storeCode,
+                site.siteCode,
+                selectedBatchIds,
+                List.of(),
+                List.of()
+        );
+        sortShippingBatchAllocations(allocations, selectedBatchIds);
+        Set<Long> allVariantIds = allocations.stream()
+                .filter(row -> !StringUtils.hasText(row.partnerSku))
+                .map(row -> row.productVariantId)
+                .filter(value -> value != null)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> allPartnerSkus = allocations.stream()
+                .map(row -> trimToNull(row.partnerSku))
+                .filter(value -> value != null)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, ProductCandidateRecord> candidateByProductKey = mapper.listProductCandidates(
+                        ownerUserId,
+                        site.storeCode,
+                        site.siteCode,
+                        null,
+                        allVariantIds,
+                        allPartnerSkus,
+                        Math.max(allocations.size(), 1)
+                ).stream()
+                .collect(Collectors.toMap(
+                        row -> siteProductKey(site.storeCode, site.siteCode, row.partnerSku, row.productVariantId),
+                        row -> row,
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ));
+        List<OfficialWarehouseBatchSelectionValidator.Allocation> scopedAllocations = allocations.stream()
+                .filter(row -> row.quantity != null && row.quantity > 0)
+                .map(row -> {
+                    String productKey = siteProductKey(site.storeCode, site.siteCode, row.partnerSku, row.productVariantId);
+                    ProductCandidateRecord candidate = candidateByProductKey.get(productKey);
+                    return new OfficialWarehouseBatchSelectionValidator.Allocation(
+                            String.valueOf(allocationBatchId(row)),
+                            firstNonBlank(row.shippingBatchNo, row.batchReferenceNo, row.trackingNo, row.externalShipmentNo),
+                            productKey,
+                            firstNonBlank(candidate == null ? null : candidate.titleCache, row.titleCache, row.partnerSku),
+                            firstNonBlank(candidate == null ? null : candidate.partnerSku, row.partnerSku),
+                            candidate == null ? null : candidate.noonSku,
+                            row.quantity
+                    );
+                })
+                .collect(Collectors.toList());
+        OfficialWarehouseBatchSelectionValidator.Result result =
+                OfficialWarehouseBatchSelectionValidator.validate(scopedAllocations, selectedQuantities);
+        view.missingBatches = result.getMissingBatches().stream()
+                .map(this::toMissingBatchView)
+                .collect(Collectors.toList());
+        view.completeBatchSelection = view.missingBatches.isEmpty();
+        return view;
+    }
+
     private void failAsnCreation(
             Long asnId,
             boolean remoteAsnCreated,
@@ -780,6 +1089,56 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             return null;
         }
         return allocation.inTransitBatchId == null ? allocation.shippingBatchId : allocation.inTransitBatchId;
+    }
+
+    private void sortShippingBatchAllocations(
+            List<ShippingBatchSourceAllocationRecord> allocations,
+            List<Long> selectedBatchIds
+    ) {
+        Map<Long, Integer> batchOrder = new LinkedHashMap<>();
+        for (int index = 0; index < selectedBatchIds.size(); index++) {
+            batchOrder.put(selectedBatchIds.get(index), index);
+        }
+        allocations.sort((left, right) -> {
+            int leftOrder = batchOrder.getOrDefault(allocationBatchId(left), Integer.MAX_VALUE);
+            int rightOrder = batchOrder.getOrDefault(allocationBatchId(right), Integer.MAX_VALUE);
+            if (leftOrder != rightOrder) {
+                return Integer.compare(leftOrder, rightOrder);
+            }
+            long leftSourceId = allocationSourceId(left) == null ? Long.MAX_VALUE : allocationSourceId(left);
+            long rightSourceId = allocationSourceId(right) == null ? Long.MAX_VALUE : allocationSourceId(right);
+            return Long.compare(leftSourceId, rightSourceId);
+        });
+    }
+
+    private MissingBatchView toMissingBatchView(OfficialWarehouseBatchSelectionValidator.MissingBatch batch) {
+        MissingBatchView view = new MissingBatchView();
+        view.shippingBatchId = batch.getBatchId();
+        view.batchNo = batch.getBatchNo();
+        view.items = batch.getItems().stream().map(item -> {
+            MissingBatchItemView itemView = new MissingBatchItemView();
+            itemView.title = item.getTitle();
+            itemView.partnerSku = item.getPartnerSku();
+            itemView.noonSku = item.getNoonSku();
+            itemView.missingQuantity = item.getMissingQuantity();
+            return itemView;
+        }).collect(Collectors.toList());
+        return view;
+    }
+
+    private ApiProblemException partialBatchConfirmationRequired(AsnValidationView validation) {
+        return new ApiProblemException(
+                HttpStatus.CONFLICT,
+                "OFFICIAL_WAREHOUSE_PARTIAL_BATCH_CONFIRM_REQUIRED",
+                "CONFIRMATION_REQUIRED",
+                "CREATE_ASN",
+                "当前选择未覆盖物流批次中的全部待约商品，可能造成漏约。",
+                false,
+                false,
+                null,
+                Map.of("missingBatches", validation.missingBatches),
+                null
+        );
     }
 
     private Long allocationSourceId(ShippingBatchSourceAllocationRecord allocation) {
@@ -2097,6 +2456,244 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         }
     }
 
+    private Map<Long, List<AsnInboundReceiptRecord>> inboundReceiptsByAsn(
+            Long ownerUserId,
+            List<Long> asnIds
+    ) {
+        List<AsnInboundReceiptRecord> receipts = inboundReceipts(ownerUserId, asnIds);
+        return receipts.stream().collect(Collectors.groupingBy(
+                receipt -> receipt.asnId,
+                LinkedHashMap::new,
+                Collectors.toList()
+        ));
+    }
+
+    private List<AsnInboundReceiptRecord> inboundReceipts(Long ownerUserId, List<Long> asnIds) {
+        if (asnIds == null || asnIds.isEmpty()) {
+            return List.of();
+        }
+        List<AsnInboundReceiptRecord> receipts = mapper.listAsnInboundReceipts(ownerUserId, asnIds);
+        return receipts == null ? List.of() : receipts;
+    }
+
+    private AsnInboundSummaryView inboundSummary(AsnRecord asn, List<AsnInboundReceiptRecord> receipts) {
+        AsnInboundSummaryView summary = new AsnInboundSummaryView();
+        summary.asnQuantity = inboundQuantity(asn.noonTotalQty == null ? asn.totalQuantity : asn.noonTotalQty);
+        summary.reportConnected = receipts != null && !receipts.isEmpty();
+        if (receipts == null) {
+            return summary;
+        }
+        for (AsnInboundReceiptRecord receipt : receipts) {
+            long expected = inboundQuantity(receipt.qtyExpected);
+            long received = inboundQuantity(receipt.receivedQty);
+            summary.expectedQuantity += expected;
+            summary.receivedQuantity += received;
+            summary.qcFailedQuantity += inboundQuantity(receipt.qcFailedQty);
+            summary.unidentifiedQuantity += inboundQuantity(receipt.unidentifiedQty);
+            summary.shortQuantity += Math.max(expected - received, 0);
+            summary.overQuantity += Math.max(received - expected, 0);
+            summary.receiptLineCount += 1;
+            if (!"NORMAL".equals(normalizeInboundCode(receipt.receiptStatus))) {
+                summary.exceptionLineCount += 1;
+            }
+            summary.latestImportedAt = latestInboundTimestamp(summary.latestImportedAt, receipt.importedAt);
+        }
+        return summary;
+    }
+
+    private AsnInboundLineView inboundLine(AsnLineRecord row) {
+        AsnInboundLineView view = new AsnInboundLineView();
+        view.asnLineId = String.valueOf(row.id);
+        view.productVariantId = row.productVariantId == null ? null : String.valueOf(row.productVariantId);
+        view.productSiteOfferId = row.productSiteOfferId == null ? null : String.valueOf(row.productSiteOfferId);
+        view.partnerSku = row.partnerSku;
+        view.pskuCode = row.pskuCode;
+        view.noonSku = row.noonSku;
+        view.title = row.titleCache;
+        view.imageUrl = ProductImageUrlSupport.normalize(row.imageUrlCache);
+        view.asnQuantity = inboundQuantity(row.qty);
+        view.reportOnly = false;
+        view.inboundStatus = "NO_RECEIPT";
+        view.matchStatus = "NO_RECEIPT";
+        return view;
+    }
+
+    private AsnInboundLineView inboundReportOnlyLine(
+            AsnInboundReceiptRecord receipt,
+            ProductCandidateRecord productCandidate
+    ) {
+        AsnInboundLineView view = new AsnInboundLineView();
+        Long productVariantId = receipt.productVariantId != null
+                ? receipt.productVariantId
+                : productCandidate == null ? null : productCandidate.productVariantId;
+        Long productSiteOfferId = receipt.productSiteOfferId != null
+                ? receipt.productSiteOfferId
+                : productCandidate == null ? null : productCandidate.productSiteOfferId;
+        view.productVariantId = productVariantId == null ? null : String.valueOf(productVariantId);
+        view.productSiteOfferId = productSiteOfferId == null ? null : String.valueOf(productSiteOfferId);
+        view.partnerSku = receipt.partnerSku;
+        view.pskuCode = receipt.pskuCode;
+        view.noonSku = receipt.noonSku;
+        if (productCandidate != null) {
+            view.title = productCandidate.titleCache;
+            view.imageUrl = ProductImageUrlSupport.normalize(productCandidate.imageUrlCache);
+        }
+        view.reportOnly = true;
+        view.matchStatus = "REPORT_ONLY";
+        return view;
+    }
+
+    private void registerInboundProductCandidate(
+            Map<String, ProductCandidateRecord> uniqueCandidatesByPartnerSku,
+            Set<String> ambiguousPartnerSkus,
+            ProductCandidateRecord candidate
+    ) {
+        String key = inboundPartnerKey(candidate.partnerSku);
+        if (key == null || ambiguousPartnerSkus.contains(key)) {
+            return;
+        }
+        ProductCandidateRecord existing = uniqueCandidatesByPartnerSku.putIfAbsent(key, candidate);
+        if (existing != null && !Objects.equals(existing.productVariantId, candidate.productVariantId)) {
+            uniqueCandidatesByPartnerSku.remove(key);
+            ambiguousPartnerSkus.add(key);
+        }
+    }
+
+    private void registerInboundLineKeys(
+            Map<String, AsnInboundLineView> uniqueLinesByKey,
+            Set<String> ambiguousKeys,
+            AsnInboundLineView line,
+            String childSku
+    ) {
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundNoonKey(line.noonSku), line);
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundNoonKey(line.pskuCode), line);
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundNoonKey(childSku), line);
+        registerInboundLineKey(uniqueLinesByKey, ambiguousKeys, inboundPartnerKey(line.partnerSku), line);
+    }
+
+    private void registerInboundLineKey(
+            Map<String, AsnInboundLineView> uniqueLinesByKey,
+            Set<String> ambiguousKeys,
+            String key,
+            AsnInboundLineView line
+    ) {
+        if (key == null || ambiguousKeys.contains(key)) {
+            return;
+        }
+        AsnInboundLineView existing = uniqueLinesByKey.putIfAbsent(key, line);
+        if (existing != null && existing != line) {
+            uniqueLinesByKey.remove(key);
+            ambiguousKeys.add(key);
+        }
+    }
+
+    private AsnInboundLineView findInboundLineByBusinessKey(
+            Map<String, AsnInboundLineView> uniqueLinesByKey,
+            Set<String> ambiguousKeys,
+            AsnInboundReceiptRecord receipt
+    ) {
+        for (String key : new String[] {
+                inboundNoonKey(receipt.noonSku),
+                inboundNoonKey(receipt.pskuCode),
+                inboundPartnerKey(receipt.partnerSku)
+        }) {
+            if (key != null && !ambiguousKeys.contains(key) && uniqueLinesByKey.containsKey(key)) {
+                return uniqueLinesByKey.get(key);
+            }
+        }
+        return null;
+    }
+
+    private String inboundReportOnlyKey(AsnInboundReceiptRecord receipt) {
+        return firstNonBlank(
+                inboundPartnerKey(receipt.partnerSku),
+                inboundNoonKey(receipt.noonSku),
+                inboundNoonKey(receipt.pskuCode),
+                inboundNoonKey(receipt.pbarcodeCanonical),
+                receipt.reportRowId == null ? null : "ROW:" + receipt.reportRowId
+        );
+    }
+
+    private void accumulateInboundReceipt(
+            AsnInboundLineView line,
+            AsnInboundReceiptRecord receipt,
+            boolean matchedByBusinessKey
+    ) {
+        long expected = inboundQuantity(receipt.qtyExpected);
+        long received = inboundQuantity(receipt.receivedQty);
+        line.expectedQuantity += expected;
+        line.receivedQuantity += received;
+        line.qcFailedQuantity += inboundQuantity(receipt.qcFailedQty);
+        line.unidentifiedQuantity += inboundQuantity(receipt.unidentifiedQty);
+        line.receiptLineCount += 1;
+        line.partnerSku = firstNonBlank(line.partnerSku, receipt.partnerSku);
+        line.pskuCode = firstNonBlank(line.pskuCode, receipt.pskuCode);
+        line.noonSku = firstNonBlank(line.noonSku, receipt.noonSku);
+        line.qcFailedReason = firstNonBlank(line.qcFailedReason, receipt.qcFailedReason);
+        line.partnerWarehouse = firstNonBlank(line.partnerWarehouse, receipt.partnerWarehouse);
+        line.noonWarehouse = firstNonBlank(line.noonWarehouse, receipt.noonWarehouse);
+        line.asnCompletedAt = latestInboundTimestamp(line.asnCompletedAt, receipt.asnCompletedAt);
+        line.latestImportedAt = latestInboundTimestamp(line.latestImportedAt, receipt.importedAt);
+        if (!line.reportOnly) {
+            line.matchStatus = matchedByBusinessKey ? "MATCHED_BY_BUSINESS_KEY" : "MATCHED";
+        }
+    }
+
+    private void finalizeInboundLine(AsnInboundLineView line) {
+        line.shortQuantity = Math.max(line.expectedQuantity - line.receivedQuantity, 0);
+        line.overQuantity = Math.max(line.receivedQuantity - line.expectedQuantity, 0);
+        if (line.receiptLineCount <= 0) {
+            line.inboundStatus = "NO_RECEIPT";
+        } else if (line.reportOnly) {
+            line.inboundStatus = "UNMATCHED";
+        } else if (line.unidentifiedQuantity > 0) {
+            line.inboundStatus = "UNIDENTIFIED";
+        } else if (line.qcFailedQuantity > 0) {
+            line.inboundStatus = "QC_FAILED";
+        } else if (line.shortQuantity > 0) {
+            line.inboundStatus = "SHORT_RECEIVED";
+        } else if (line.overQuantity > 0) {
+            line.inboundStatus = "OVER_RECEIVED";
+        } else {
+            line.inboundStatus = "NORMAL";
+        }
+    }
+
+    private String inboundNoonKey(String value) {
+        String normalized = normalizeInboundIdentity(value);
+        return normalized == null ? null : "NOON:" + normalized;
+    }
+
+    private String inboundPartnerKey(String value) {
+        String normalized = normalizeInboundIdentity(value);
+        return normalized == null ? null : "PARTNER:" + normalized;
+    }
+
+    private String normalizeInboundIdentity(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? null : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeInboundCode(String value) {
+        String normalized = trimToNull(value);
+        return normalized == null ? "" : normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String latestInboundTimestamp(String current, String candidate) {
+        String normalizedCandidate = trimToNull(candidate);
+        if (normalizedCandidate == null) {
+            return current;
+        }
+        String normalizedCurrent = trimToNull(current);
+        return normalizedCurrent == null || normalizedCandidate.compareTo(normalizedCurrent) > 0
+                ? normalizedCandidate
+                : normalizedCurrent;
+    }
+
+    private int inboundQuantity(Integer value) {
+        return value == null ? 0 : Math.max(value, 0);
+    }
+
     private AsnView toAsnView(AsnRecord row, boolean withLines) {
         AsnView view = new AsnView();
         view.id = String.valueOf(row.id);
@@ -2442,6 +3039,26 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 throw new IllegalArgumentException("物流批次 ID 不合法：" + text);
             }
             normalized.add(value);
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private List<String> normalizePartnerSkus(Collection<String> partnerSkus) {
+        if (partnerSkus == null || partnerSkus.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String raw : partnerSkus) {
+            String text = trimToNull(raw);
+            if (text == null) {
+                continue;
+            }
+            for (String token : text.split("[\\s,，]+")) {
+                String value = trimToNull(token);
+                if (value != null) {
+                    normalized.add(value.toUpperCase(Locale.ROOT));
+                }
+            }
         }
         return new ArrayList<>(normalized);
     }

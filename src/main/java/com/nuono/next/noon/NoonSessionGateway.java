@@ -2312,7 +2312,7 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(response.statusCode(), responseBody)) {
+                        if (isAuthExpiredResponse(response.statusCode(), responseBody, request.uri().getPath())) {
                             recordAttempt(
                                     request,
                                     response.statusCode(),
@@ -2394,7 +2394,7 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(response.statusCode(), responseBody)) {
+                        if (isAuthExpiredResponse(response.statusCode(), responseBody, request.uri().getPath())) {
                             recordAttempt(
                                     request,
                                     response.statusCode(),
@@ -2474,7 +2474,7 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(response.statusCode(), responseText)) {
+                        if (isAuthExpiredResponse(response.statusCode(), responseText, request.uri().getPath())) {
                             recordAttempt(
                                     request,
                                     response.statusCode(),
@@ -2607,8 +2607,11 @@ public class NoonSessionGateway {
             Thread.sleep(delay);
         }
 
-        private boolean isAuthExpiredResponse(int statusCode, String responseBody) {
+        private boolean isAuthExpiredResponse(int statusCode, String responseBody, String requestPath) {
             if (statusCode == 401 || statusCode == 403) {
+                return true;
+            }
+            if (isRedirectStatus(statusCode) && isWhoamiPath(requestPath)) {
                 return true;
             }
             if (!StringUtils.hasText(responseBody)) {
@@ -2618,6 +2621,22 @@ public class NoonSessionGateway {
             return normalized.contains("unauthorized")
                     || normalized.contains("invalid session")
                     || normalized.contains("signin");
+        }
+
+        private boolean isRedirectStatus(int statusCode) {
+            return statusCode == 301
+                    || statusCode == 302
+                    || statusCode == 303
+                    || statusCode == 307
+                    || statusCode == 308;
+        }
+
+        private boolean isWhoamiPath(String requestPath) {
+            if (!StringUtils.hasText(requestPath)) {
+                return false;
+            }
+            String normalized = requestPath.trim().toLowerCase(Locale.ROOT);
+            return normalized.endsWith("/whoami") || normalized.contains("/auth-v1/whoami");
         }
 
         private boolean isRateLimitedResponse(int statusCode, String responseBody) {
