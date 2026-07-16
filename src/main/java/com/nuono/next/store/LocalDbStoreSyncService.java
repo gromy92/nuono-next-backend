@@ -3,8 +3,7 @@ package com.nuono.next.store;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noon.NoonSessionGateway.MerchantAuthorization;
-import com.nuono.next.noon.NoonSessionGateway.MerchantProject;
+import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
 import java.util.ArrayList;
@@ -23,7 +22,7 @@ public class LocalDbStoreSyncService {
 
     private static final List<String> SYNCED_RULES = List.of(
             "店铺管理按最新老系统 user_project 项目级店铺读取，user_store 只作为站点明细。",
-            "老板可绑定 Noon 商家后台登录邮箱和邮箱授权码、测试连通和绑定新店铺，非老板仅查看列表。",
+            "老板可绑定统一 Noon 商家邮箱，非老板仅查看列表。",
             "负责人映射按 user_project_access 项目授权聚合，不再按站点行重复展示。",
             "店铺绑定状态写入 user_project，避免把同一项目的多个站点拆成多家店。"
     );
@@ -31,15 +30,18 @@ public class LocalDbStoreSyncService {
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final NoonSessionGateway noonSessionGateway;
+    private final NoonProjectAuthRecoveryQueue projectAuthRecoveryQueue;
 
     public LocalDbStoreSyncService(
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
-            NoonSessionGateway noonSessionGateway
+            NoonSessionGateway noonSessionGateway,
+            NoonProjectAuthRecoveryQueue projectAuthRecoveryQueue
     ) {
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.noonSessionGateway = noonSessionGateway;
+        this.projectAuthRecoveryQueue = projectAuthRecoveryQueue;
     }
 
     public StoreSyncOverview buildOverview(Long ownerUserId) {
@@ -149,40 +151,34 @@ public class LocalDbStoreSyncService {
             throw new IllegalArgumentException("当前店铺不在选中的老板名下。");
         }
 
-        MerchantAuthorization authorization = noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
-                command.getOwnerUserId(),
-                project.getProjectCode(),
-                project.getStoreCode()
-        );
-        MerchantProject authorizedProject = requireAuthorizedProject(authorization);
-        String noonPartnerId = firstNonBlank(derivePartnerId(authorizedProject.getProjectCode()), project.getNoonPartnerId());
+        String noonPartnerId = firstNonBlank(derivePartnerId(project.getProjectCode()), project.getNoonPartnerId());
         String noonUser = noonSessionGateway.configuredMerchantEmail();
-        String mailAuthCode = noonSessionGateway.configuredMerchantMailAuthCode();
 
-        storeSyncMapper.updateProjectEmailBinding(
+        int updated = storeSyncMapper.updateProjectEmailBinding(
                 project.getId(),
                 command.getOwnerUserId(),
                 noonUser,
-                mailAuthCode,
+                null,
                 noonPartnerId,
                 command.getOwnerUserId()
         );
-        if (StringUtils.hasText(authorization.getCookie())) {
-            storeSyncMapper.updateProjectConnectionSuccess(
-                    project.getId(),
-                    command.getOwnerUserId(),
-                    authorization.getCookie(),
-                    command.getOwnerUserId()
-            );
+        if (updated != 1) {
+            throw new IllegalStateException("店铺共享邮箱绑定未能持久化。");
         }
 
-        int siteCount = loadSiteMap(List.of(project), command.getOwnerUserId())
-                .getOrDefault(project.getProjectCode(), List.of())
-                .size();
+        List<StoreSyncStoreRecord> siteRows = loadSiteMap(List.of(project), command.getOwnerUserId())
+                .getOrDefault(project.getProjectCode(), List.of());
+        String authStoreCode = siteRows.stream()
+                .map(StoreSyncStoreRecord::getStoreCode)
+                .filter(StringUtils::hasText)
+                .findFirst()
+                .orElse(project.getProjectCode());
+        requireRecoveryQueued(command.getOwnerUserId(), project.getProjectCode(), authStoreCode);
+        int siteCount = siteRows.size();
         return StoreBindingResult.succeeded(
                 "店铺 "
                         + resolveProjectLabel(project)
-                        + " 已完成 Noon 商家后台绑定，已同步覆盖 "
+                        + " 已绑定共享邮箱，并覆盖 "
                         + siteCount
                         + " 个站点。"
         );
@@ -207,25 +203,12 @@ public class LocalDbStoreSyncService {
         requireText(siteStoreCode, "请输入站点店铺 Code。");
         requireText(site, "请选择站点。");
         boolean authorized = true;
-
-        MerchantAuthorization authorization = noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
-                command.getOwnerUserId(),
-                normalize(command.getProjectCode()),
-                siteStoreCode
-        );
-        if (authorization.isProjectSelectionRequired()) {
-            return StoreBindingResult.projectSelectionRequired(
-                    authorization.getProjectList(),
-                    "该 Noon 商家后台账号可访问多个 Project，请选择要绑定的店铺。"
-            );
-        }
-        MerchantProject authorizedProject = requireAuthorizedProject(authorization);
-        String projectCode = authorizedProject.getProjectCode();
+        String projectCode = normalize(command.getProjectCode());
+        requireText(projectCode, "请输入 Noon Project Code。");
         String noonPartnerId = derivePartnerId(projectCode);
         String noonUser = noonSessionGateway.configuredMerchantEmail();
-        String mailAuthCode = noonSessionGateway.configuredMerchantMailAuthCode();
-        String orgCode = firstNonBlank(command.getOrgCode(), authorizedProject.getOrgCode());
-        String orgName = firstNonBlank(command.getOrgName(), authorizedProject.getOrgName(), owner.getCompanyName());
+        String orgCode = normalize(command.getOrgCode());
+        String orgName = firstNonBlank(command.getOrgName(), owner.getCompanyName());
         if (storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), projectCode) != null
                 || (StringUtils.hasText(siteStoreCode)
                 && storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), siteStoreCode) != null)) {
@@ -239,19 +222,11 @@ public class LocalDbStoreSyncService {
                 projectCode,
                 projectName,
                 noonUser,
-                mailAuthCode,
+                null,
                 noonPartnerId,
                 authorized,
                 authorized
         );
-        if (StringUtils.hasText(authorization.getCookie())) {
-            storeSyncMapper.updateProjectSessionCookie(
-                    command.getOwnerUserId(),
-                    projectCode,
-                    authorization.getCookie(),
-                    command.getOwnerUserId()
-            );
-        }
         if (StringUtils.hasText(siteStoreCode)) {
             storeSyncMapper.insertOwnerSiteStore(
                     storeSyncMapper.nextStoreId(),
@@ -265,6 +240,7 @@ public class LocalDbStoreSyncService {
                     authorized
             );
         }
+        requireRecoveryQueued(command.getOwnerUserId(), projectCode, siteStoreCode);
 
         return StoreBindingResult.succeeded("店铺 " + projectName + " 已绑定到当前账号视图。");
     }
@@ -304,26 +280,15 @@ public class LocalDbStoreSyncService {
             }
 
             boolean connected = isWhoamiConnected(whoami);
-            if (!connected) {
-                if (owner == null) {
-                    owner = storeSyncMapper.selectOwnerContext(ownerUserId);
-                }
-                MerchantAuthorization authorization = refreshProjectAuthorization(ownerUserId, project, owner);
-                effectiveCookie = authorization.getCookie();
-                connected = StringUtils.hasText(effectiveCookie);
-            }
             if (connected) {
                 storeSyncMapper.updateProjectConnectionSuccess(project.getId(), ownerUserId, effectiveCookie, ownerUserId);
-            } else {
-                storeSyncMapper.updateProjectConnectionFailure(project.getId(), ownerUserId, ownerUserId);
             }
             StoreConnectionTestResult result = connected
                     ? StoreConnectionTestResult.succeeded("连接正常")
-                    : StoreConnectionTestResult.failed("连接失败：Noon Cookie 验证未通过，测试服务器自动登录也未拿到有效会话，请重新绑定账号。");
+                    : StoreConnectionTestResult.failed("连接暂不可用，会话待恢复，请稍后重试。");
             result.setNoonRequestCounts(new LinkedHashMap<>(requestCountScope.snapshot()));
             return result;
         } catch (Exception exception) {
-            storeSyncMapper.updateProjectConnectionFailure(project.getId(), ownerUserId, ownerUserId);
             StoreConnectionTestResult result = StoreConnectionTestResult.failed(connectionFailureMessage(exception));
             result.setNoonRequestCounts(new LinkedHashMap<>(requestCountScope.snapshot()));
             return result;
@@ -340,7 +305,7 @@ public class LocalDbStoreSyncService {
         if (StringUtils.hasText(message) && message.contains("Rate limit")) {
             return "连接失败：Noon 当前限制测试服务器登录频率，请稍后重试或重新绑定账号。";
         }
-        return "连接失败：测试服务器未能通过 Noon Cookie 验证或自动登录，请重新绑定账号。";
+        return "连接暂不可用，会话待恢复，请稍后重试。";
     }
 
     private boolean isWhoamiConnected(JsonNode whoami) {
@@ -492,8 +457,16 @@ public class LocalDbStoreSyncService {
     private boolean isConnectionReady(StoreSyncStoreRecord project) {
         boolean hasCredential = StringUtils.hasText(project.getNoonPartnerUser())
                 || StringUtils.hasText(project.getNoonPartnerProjectUser());
+        boolean hasCookie = StringUtils.hasText(project.getNoonPartnerCookie());
         boolean bound = project.getBindStatus() != null && project.getBindStatus() == 1;
-        return Boolean.TRUE.equals(project.getOwnerAuthorized()) && hasCredential && bound;
+        return Boolean.TRUE.equals(project.getOwnerAuthorized()) && hasCredential && hasCookie && bound;
+    }
+
+    private void requireRecoveryQueued(Long ownerUserId, String projectCode, String storeCode) {
+        if (projectAuthRecoveryQueue == null
+                || projectAuthRecoveryQueue.enqueueProject(ownerUserId, projectCode, storeCode).isEmpty()) {
+            throw new IllegalStateException("Noon 后台认证恢复暂不可用，店铺绑定未生效。");
+        }
     }
 
     private String resolveProjectLabel(StoreSyncStoreRecord store) {
@@ -506,71 +479,12 @@ public class LocalDbStoreSyncService {
         return store.getStoreCode();
     }
 
-    private MerchantProject requireAuthorizedProject(MerchantAuthorization authorization) {
-        if (authorization == null || !authorization.isSuccess() || authorization.getSelectedProject() == null) {
-            throw new IllegalStateException("Noon 商家后台授权未返回可绑定 Project。");
-        }
-        return authorization.getSelectedProject();
-    }
-
     private String derivePartnerId(String projectCode) {
         String normalized = normalize(projectCode);
         if (normalized != null && normalized.startsWith("PRJ") && normalized.length() > 3) {
             return normalized.substring(3);
         }
         return normalized;
-    }
-
-    private MerchantAuthorization refreshProjectAuthorization(
-            Long ownerUserId,
-            StoreSyncStoreRecord project,
-            StoreSyncOwnerContext owner
-    ) {
-        String noonEmail = firstNonBlank(
-                project.getNoonPartnerUser(),
-                owner != null ? owner.getNoonPartnerUser() : null
-        );
-        String mailAuthCode = firstNonBlank(
-                project.getNoonPartnerMailAuthCode(),
-                owner != null ? owner.getNoonPartnerMailAuthCode() : null
-        );
-        if (StringUtils.hasText(noonEmail) && StringUtils.hasText(mailAuthCode)) {
-            return noonSessionGateway.authorizeMerchantEmailLogin(
-                    ownerUserId,
-                    noonEmail,
-                    mailAuthCode,
-                    project.getProjectCode(),
-                    project.getStoreCode()
-            );
-        }
-        if (noonSessionGateway.hasConfiguredMerchantEmailLogin()) {
-            return noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
-                    ownerUserId,
-                    project.getProjectCode(),
-                    project.getStoreCode()
-            );
-        }
-
-        NoonSessionGateway.NoonSession session = noonSessionGateway.login(
-                ownerUserId,
-                firstNonBlank(
-                        project.getNoonPartnerProjectUser(),
-                        project.getNoonPartnerUser(),
-                        owner != null ? owner.getNoonPartnerProjectUser() : null,
-                        owner != null ? owner.getNoonPartnerUser() : null
-                ),
-                firstNonBlank(
-                        project.getNoonPartnerPwd(),
-                        owner != null ? owner.getNoonPartnerPwd() : null
-                ),
-                null,
-                project.getProjectCode(),
-                project.getStoreCode()
-        );
-        return MerchantAuthorization.authorized(
-                new MerchantProject(project.getProjectCode(), project.getProjectName(), null, null),
-                session.exportAuthCookieHeader()
-        );
     }
 
     private String firstNonBlank(String... values) {

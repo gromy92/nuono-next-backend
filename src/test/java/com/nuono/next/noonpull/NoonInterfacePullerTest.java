@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -202,6 +203,42 @@ class NoonInterfacePullerTest {
         assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
         assertEquals("rate_limited", delayedTask.getFailureType());
         assertEquals("risk_backoff", delayedTask.getReadinessState());
+        assertEquals(0, provider.callCount);
+    }
+
+    @Test
+    void blockedTaskShouldWinOverActiveRiskHoldWithoutCallingProvider() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T05:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonRiskBackoffRepository riskRepository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard riskBackoffGuard = new NoonRiskBackoffGuard(riskRepository, clock);
+        riskBackoffGuard.recordRiskSignal(
+                NoonRiskBackoffScope.productInterface(307L, "STR245027", "AE"),
+                "rate_limited",
+                "PRODUCT",
+                130001L,
+                null,
+                "product risk"
+        );
+        puller = new NoonInterfacePuller(foundationService, riskBackoffGuard, new NoonPullFailurePolicy(clock));
+        NoonPullTaskRecord task = createProductTask();
+        repository.blockTaskForAuth(
+                task.getId(),
+                91001L,
+                "auth recovery queued",
+                LocalDateTime.ofInstant(clock.instant(), clock.getZone())
+        );
+        FakeProvider provider = new FakeProvider(List.of(NoonInterfacePullPage.builder()
+                .items(List.of(Map.of("sku_parent", "MUST-NOT-FETCH")))
+                .pageNumber(1)
+                .totalItems(1)
+                .hasNextPage(false)
+                .requestCount(1)
+                .build()));
+
+        NoonInterfacePullResult result = puller.execute(task.getId(), productListRequest().build(), provider);
+
+        assertEquals(NoonPullTaskStatus.BLOCKED_AUTH, result.getStatus());
+        assertEquals(NoonPullTaskStatus.BLOCKED_AUTH, repository.selectTask(task.getId()).getStatus());
         assertEquals(0, provider.callCount);
     }
 

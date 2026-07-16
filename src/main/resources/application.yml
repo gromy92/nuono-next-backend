@@ -151,6 +151,19 @@ nuono:
       email-otp:
         email: ${NUONO_NOON_MERCHANT_EMAIL_OTP_EMAIL:}
         mail-auth-code: ${NUONO_NOON_MERCHANT_EMAIL_OTP_MAIL_AUTH_CODE:}
+        legacy-direct-enabled: ${NUONO_NOON_MERCHANT_EMAIL_OTP_LEGACY_DIRECT_ENABLED:false}
+    auth-recovery:
+      enabled: ${NUONO_NOON_AUTH_RECOVERY_ENABLED:false}
+      scheduler-initial-delay-ms: ${NUONO_NOON_AUTH_RECOVERY_INITIAL_DELAY_MS:30000}
+      scheduler-fixed-delay-ms: ${NUONO_NOON_AUTH_RECOVERY_FIXED_DELAY_MS:10000}
+      coalesce-seconds: ${NUONO_NOON_AUTH_RECOVERY_COALESCE_SECONDS:15}
+      lease-seconds: ${NUONO_NOON_AUTH_RECOVERY_LEASE_SECONDS:600}
+      min-resend-seconds: ${NUONO_NOON_AUTH_RECOVERY_MIN_RESEND_SECONDS:60}
+      max-send-attempts-per-recovery: ${NUONO_NOON_AUTH_RECOVERY_MAX_SEND_ATTEMPTS:2}
+      max-sends-per-hour: ${NUONO_NOON_AUTH_RECOVERY_MAX_SENDS_PER_HOUR:3}
+      max-sends-per-day: ${NUONO_NOON_AUTH_RECOVERY_MAX_SENDS_PER_DAY:6}
+      project-allowlist: ${NUONO_NOON_AUTH_RECOVERY_PROJECT_ALLOWLIST:}
+      trusted-sender-domains: ${NUONO_NOON_AUTH_RECOVERY_TRUSTED_SENDER_DOMAINS:}
     pull:
       scheduler:
         enabled: ${NUONO_NOON_PULL_SCHEDULER_ENABLED:false}

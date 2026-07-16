@@ -585,24 +585,7 @@ public class NoonPullScheduledExecutionService {
     }
 
     private boolean isExecutableByScheduledWorker(NoonPullTaskRecord task) {
-        if (task.getPullType() == NoonPullType.PAGE_QUERY && task.getDataDomain() == NoonPullDataDomain.SALES) {
-            return true;
-        }
-        if (task.getPullType() == NoonPullType.INTERFACE && task.getDataDomain() == NoonPullDataDomain.PRODUCT) {
-            return true;
-        }
-        if (task.getPullType() == NoonPullType.INTERFACE
-                && task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY) {
-            return true;
-        }
-        if (task.getPullType() != NoonPullType.REPORT) {
-            return false;
-        }
-        return task.getDataDomain() == NoonPullDataDomain.SALES
-                || task.getDataDomain() == NoonPullDataDomain.ORDER
-                || task.getDataDomain() == NoonPullDataDomain.FINANCE_TRANSACTION
-                || task.getDataDomain() == NoonPullDataDomain.NOON_ADVERTISING
-                || task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED;
+        return NoonPullAuthRecoveryTaskPolicy.canAutomaticallyRecover(task);
     }
 
     private int executionPriority(NoonPullTaskRecord task) {
@@ -733,7 +716,14 @@ public class NoonPullScheduledExecutionService {
             result.failed();
             return;
         }
-        foundationService.markRunning(task.getId(), "official-warehouse-inventory-sync");
+        NoonPullTaskRecord running = foundationService.markRunning(
+                task.getId(),
+                "official-warehouse-inventory-sync"
+        );
+        if (running.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            result.skipped();
+            return;
+        }
         try {
             InventorySyncCommand command = new InventorySyncCommand();
             command.storeCode = task.getStoreCode();
@@ -784,6 +774,10 @@ public class NoonPullScheduledExecutionService {
         }
 
         NoonPullTaskRecord running = foundationService.markRunning(task.getId(), "official-warehouse-fbn-received-report");
+        if (running.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            result.skipped();
+            return;
+        }
         String exportCode = running.getReportExportId();
         int pollAttempts = running.getReportPollAttempts() == null ? 0 : running.getReportPollAttempts();
         try {

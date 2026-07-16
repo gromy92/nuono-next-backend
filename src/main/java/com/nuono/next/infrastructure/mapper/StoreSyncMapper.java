@@ -424,6 +424,8 @@ public interface StoreSyncMapper {
             "    noon_partner_project_user = NULL,",
             "    noon_partner_pwd = NULL,",
             "    noon_partner_id = #{noonPartnerId},",
+            "    noon_partner_cookie = NULL,",
+            "    cookie_generate_time = NULL,",
             "    bind_status = 1,",
             "    is_authorized = 1,",
             "    updated_by = #{updatedBy},",

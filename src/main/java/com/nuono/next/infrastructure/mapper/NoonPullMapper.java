@@ -82,7 +82,7 @@ public interface NoonPullMapper {
     @Insert({
             "INSERT INTO noon_pull_task (",
             "  id, plan_id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  target_identity, target_date_from, target_date_to, active_lock_key, status,",
+            "  target_identity, target_date_from, target_date_to, active_lock_key, status, auth_recovery_id,",
             "  source_batch_id, failure_type, retry_action, retryable, requires_manual_action,",
             "  diagnostic_summary, checkpoint_cursor, processed_item_count, request_count,",
             "  next_resume_position, last_safe_response_summary, readiness_state,",
@@ -92,7 +92,7 @@ public interface NoonPullMapper {
             "  gmt_create, gmt_updated",
             ") VALUES (",
             "  #{id}, #{planId}, #{ownerUserId}, #{storeCode}, #{siteCode}, #{pullType}, #{dataDomain}, #{triggerMode},",
-            "  #{targetIdentity}, #{targetDateFrom}, #{targetDateTo}, #{activeLockKey}, #{status},",
+            "  #{targetIdentity}, #{targetDateFrom}, #{targetDateTo}, #{activeLockKey}, #{status}, #{authRecoveryId},",
             "  #{sourceBatchId}, #{failureType}, #{retryAction}, #{retryable}, #{requiresManualAction},",
             "  #{diagnosticSummary}, #{checkpointCursor}, #{processedItemCount}, #{requestCount},",
             "  #{nextResumePosition}, #{lastSafeResponseSummary}, #{readinessState},",
@@ -107,7 +107,7 @@ public interface NoonPullMapper {
     @Select({
             "SELECT",
             "  id, plan_id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  target_identity, target_date_from, target_date_to, active_lock_key, status,",
+            "  target_identity, target_date_from, target_date_to, active_lock_key, status, auth_recovery_id,",
             "  source_batch_id, failure_type, retry_action, retryable, requires_manual_action,",
             "  diagnostic_summary, checkpoint_cursor, processed_item_count, request_count,",
             "  next_resume_position, last_safe_response_summary, readiness_state,",
@@ -125,7 +125,7 @@ public interface NoonPullMapper {
     @Select({
             "SELECT",
             "  id, plan_id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  target_identity, target_date_from, target_date_to, active_lock_key, status,",
+            "  target_identity, target_date_from, target_date_to, active_lock_key, status, auth_recovery_id,",
             "  source_batch_id, failure_type, retry_action, retryable, requires_manual_action,",
             "  diagnostic_summary, checkpoint_cursor, processed_item_count, request_count,",
             "  next_resume_position, last_safe_response_summary, readiness_state,",
@@ -135,7 +135,7 @@ public interface NoonPullMapper {
             "  gmt_create AS created_at, gmt_updated AS updated_at",
             "FROM noon_pull_task",
             "WHERE active_lock_key = #{activeLockKey}",
-            "  AND status IN ('QUEUED', 'RUNNING')",
+            "  AND status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')",
             "  AND is_deleted = b'0'",
             "ORDER BY id ASC",
             "LIMIT 1"
@@ -145,7 +145,7 @@ public interface NoonPullMapper {
     @Select({
             "SELECT",
             "  id, plan_id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  target_identity, target_date_from, target_date_to, active_lock_key, status,",
+            "  target_identity, target_date_from, target_date_to, active_lock_key, status, auth_recovery_id,",
             "  source_batch_id, failure_type, retry_action, retryable, requires_manual_action,",
             "  diagnostic_summary, checkpoint_cursor, processed_item_count, request_count,",
             "  next_resume_position, last_safe_response_summary, readiness_state,",
@@ -165,6 +165,7 @@ public interface NoonPullMapper {
             "UPDATE noon_pull_task",
             "SET",
             "  status = #{status},",
+            "  auth_recovery_id = #{authRecoveryId},",
             "  source_batch_id = #{sourceBatchId},",
             "  failure_type = #{failureType},",
             "  retry_action = #{retryAction},",
@@ -190,9 +191,35 @@ public interface NoonPullMapper {
             "  finished_at = #{finishedAt},",
             "  gmt_updated = #{updatedAt}",
             "WHERE id = #{id}",
+            "  AND status <> 'BLOCKED_AUTH'",
             "  AND is_deleted = b'0'"
     })
     int updateTask(NoonPullTaskRecord task);
+
+    @Update({
+            "UPDATE noon_pull_task",
+            "SET",
+            "  status = 'BLOCKED_AUTH',",
+            "  auth_recovery_id = #{recoveryId},",
+            "  failure_type = 'auth_required',",
+            "  retry_action = 'WAIT_FOR_AUTH',",
+            "  retryable = b'1',",
+            "  requires_manual_action = b'0',",
+            "  diagnostic_summary = #{diagnosticSummary},",
+            "  readiness_state = 'auth_recovery_queued',",
+            "  locked_by = NULL,",
+            "  finished_at = NULL,",
+            "  gmt_updated = #{now}",
+            "WHERE id = #{taskId}",
+            "  AND status IN ('QUEUED', 'RUNNING')",
+            "  AND is_deleted = b'0'"
+    })
+    int blockTaskForAuth(
+            @Param("taskId") Long taskId,
+            @Param("recoveryId") Long recoveryId,
+            @Param("diagnosticSummary") String diagnosticSummary,
+            @Param("now") java.time.LocalDateTime now
+    );
 
     @Select({
             "SELECT",
@@ -219,7 +246,7 @@ public interface NoonPullMapper {
     @Select({
             "SELECT",
             "  id, plan_id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  target_identity, target_date_from, target_date_to, active_lock_key, status,",
+            "  target_identity, target_date_from, target_date_to, active_lock_key, status, auth_recovery_id,",
             "  source_batch_id, failure_type, retry_action, retryable, requires_manual_action,",
             "  diagnostic_summary, checkpoint_cursor, processed_item_count, request_count,",
             "  next_resume_position, last_safe_response_summary, readiness_state,",
@@ -237,7 +264,7 @@ public interface NoonPullMapper {
     @Select({
             "SELECT",
             "  id, plan_id, owner_user_id, store_code, site_code, pull_type, data_domain, trigger_mode,",
-            "  target_identity, target_date_from, target_date_to, active_lock_key, status,",
+            "  target_identity, target_date_from, target_date_to, active_lock_key, status, auth_recovery_id,",
             "  source_batch_id, failure_type, retry_action, retryable, requires_manual_action,",
             "  diagnostic_summary, checkpoint_cursor, processed_item_count, request_count,",
             "  next_resume_position, last_safe_response_summary, readiness_state,",
@@ -246,7 +273,7 @@ public interface NoonPullMapper {
             "  locked_by, queued_at, started_at, finished_at,",
             "  gmt_create AS created_at, gmt_updated AS updated_at",
             "FROM noon_pull_task",
-            "WHERE status IN ('QUEUED', 'RUNNING')",
+            "WHERE status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')",
             "  AND is_deleted = b'0'",
             "ORDER BY queued_at ASC, started_at ASC, id ASC"
     })

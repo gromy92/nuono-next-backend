@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -13,24 +16,76 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noonlog.NoonHttpCallLogService;
+import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand;
+import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
+import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 
 class NoonSessionGatewayTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void legacyDirectEmailOtpEntrypointsAreNotPublicApi() throws Exception {
+        List<Method> legacyEntrypoints = List.of(
+                NoonSessionGateway.class.getDeclaredMethod(
+                        "loginWithEmailAuthCode",
+                        Long.class,
+                        String.class,
+                        String.class,
+                        String.class,
+                        String.class,
+                        String.class
+                ),
+                NoonSessionGateway.class.getDeclaredMethod(
+                        "loginWithConfiguredEmailAuthCode",
+                        Long.class,
+                        String.class,
+                        String.class,
+                        String.class
+                ),
+                NoonSessionGateway.class.getDeclaredMethod(
+                        "authorizeMerchantEmailLogin",
+                        Long.class,
+                        String.class,
+                        String.class,
+                        String.class,
+                        String.class
+                ),
+                NoonSessionGateway.class.getDeclaredMethod(
+                        "authorizeConfiguredMerchantEmailLogin",
+                        Long.class,
+                        String.class,
+                        String.class
+                )
+        );
+
+        assertTrue(legacyEntrypoints.stream().noneMatch(method -> Modifier.isPublic(method.getModifiers())));
+    }
 
     @Test
     void shouldParsePartnerIdentityLookupPasswordChannel() throws Exception {
@@ -393,6 +448,7 @@ class NoonSessionGatewayTest {
                 "sid=email-otp; Path=/"
         )) {
             NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setLegacyDirectEmailOtpEnabled(true);
             gateway.setEmailOtpReader((email, mailAuthCode) -> {
                 assertEquals("merchant@example.com", email);
                 assertEquals("imap-secret", mailAuthCode);
@@ -424,6 +480,186 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldNotRetryEmailOtpGeneratePostWhenProviderReturnsServerError() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = AuthRefreshServer.withGenerateStatus(500)) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setLegacyDirectEmailOtpEnabled(true);
+
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> gateway.authorizeMerchantEmailLogin(
+                            10001L,
+                            "merchant@example.com",
+                            "imap-secret",
+                            "PRJ7001",
+                            "STR7001-NAE"
+                    )
+            );
+
+            assertEquals(1, server.generateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
+    void shouldCreateProjectCookieThroughCentralEmailOtpPrimitivesWithoutPersistingIt() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":[{\"projectCode\":\"PRJ7001\",\"projectName\":\"新店铺\"}]}",
+                "sid=central-worker; Path=/"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+
+            NoonSessionGateway.EmailOtpGeneration generation =
+                    gateway.prepareEmailOtpGeneration("merchant@example.com");
+            gateway.sendEmailOtp(generation);
+            NoonSessionGateway.EmailIdentityGrant grant = gateway.validateEmailOtp(generation, "654321");
+            NoonSessionGateway.ProjectSessionCookie projectSession = gateway.createEmailOtpProjectSession(
+                    grant,
+                    "PRJ7001",
+                    "STR7001-NAE"
+            );
+
+            assertEquals("PRJ7001", projectSession.getProject().getProjectCode());
+            assertTrue(projectSession.getCookie().contains("sid=central-worker"));
+            assertEquals(1, server.generateCount());
+            assertEquals(1, server.sessionCreateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
+    void centralRecoveryAdapterAuthenticatesOnceAndRecoversQueuedProjectsSerially() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        AtomicInteger acknowledgeCount = new AtomicInteger();
+        NoonEmailOtpReader reader = new NoonEmailOtpReader() {
+            @Override
+            public String readOtp(String email, String mailAuthCode) {
+                throw new AssertionError("central recovery must use generation-aware mailbox reads");
+            }
+
+            @Override
+            public MailboxCursor snapshot(String email, String mailAuthCode) {
+                return new MailboxCursor(7L, 100L, Instant.parse("2026-07-16T00:00:00Z"));
+            }
+
+            @Override
+            public Optional<OtpCandidate> pollAfter(
+                    String email,
+                    String mailAuthCode,
+                    MailboxCursor cursor,
+                    Instant notBefore,
+                    Set<String> excludedMessageKeyHashes
+            ) {
+                return Optional.of(new OtpCandidate(
+                        "654321",
+                        "message-key-hash",
+                        Instant.parse("2026-07-16T00:00:01Z"),
+                        7L,
+                        101L
+                ));
+            }
+
+            @Override
+            public void acknowledge(String email, String mailAuthCode, OtpCandidate candidate) {
+                acknowledgeCount.incrementAndGet();
+            }
+        };
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":[{\"projectCode\":\"PRJ7001\"},{\"projectCode\":\"PRJ8001\"}]}",
+                "sid=central-worker; Path=/"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setConfiguredMerchantEmailOtpCredential("merchant@example.com", "imap-secret");
+            NoonSessionGatewayAuthRecoveryGateway recoveryGateway = new NoonSessionGatewayAuthRecoveryGateway(
+                    gateway,
+                    reader,
+                    Duration.ofMillis(1),
+                    Duration.ofSeconds(1),
+                    Clock.fixed(Instant.parse("2026-07-16T00:00:00Z"), ZoneOffset.UTC),
+                    millis -> {
+                        throw new AssertionError("an immediately available OTP must not sleep");
+                    }
+            );
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway.attempt(new NoonAuthRecoveryAttemptCommand(
+                    9001L,
+                    1,
+                    Instant.parse("2026-07-16T00:00:00Z"),
+                    Set.of(),
+                    List.of(
+                            new NoonAuthRecoveryProjectTarget(307L, "PRJ7001", "STR7001-NAE", 0L),
+                            new NoonAuthRecoveryProjectTarget(308L, "PRJ8001", "STR8001-NAE", 0L)
+                    ),
+                    () -> true,
+                    () -> true
+            ));
+
+            assertTrue(result.isIdentityAuthenticated());
+            assertEquals("message-key-hash", result.getMessageKeyHash());
+            assertEquals(2, result.getProjectResults().size());
+            assertTrue(result.getProjectResults().stream().allMatch(item -> item.isRecovered()));
+            assertEquals(1, server.generateCount());
+            assertEquals(2, server.sessionCreateCount());
+            assertEquals(1, acknowledgeCount.get());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
+    void shouldRedactIdentityTokensFromAuthHttpResponseLogs() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        NoonHttpCallLogService logService = mock(NoonHttpCallLogService.class);
+        try (AuthRefreshServer server = new AuthRefreshServer()) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setNoonHttpCallLogService(logService);
+
+            NoonSessionGateway.EmailOtpGeneration generation =
+                    gateway.prepareEmailOtpGeneration("merchant@example.com");
+            gateway.sendEmailOtp(generation);
+            gateway.validateEmailOtp(generation, "654321");
+
+            ArgumentCaptor<String> bodyCaptor = ArgumentCaptor.forClass(String.class);
+            verify(logService, atLeastOnce()).record(
+                    any(HttpRequest.class),
+                    nullable(Integer.class),
+                    bodyCaptor.capture(),
+                    nullable(Long.class),
+                    nullable(String.class),
+                    nullable(String.class),
+                    nullable(String.class)
+            );
+            assertTrue(bodyCaptor.getAllValues().stream().noneMatch(body ->
+                    body != null && (body.contains("token-1") || body.contains("access_token"))
+            ));
+        }
+    }
+
+    @Test
+    void shouldRejectLegacyDirectEmailOtpEntryByDefault() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer()) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+
+            IllegalStateException exception = assertThrows(
+                    IllegalStateException.class,
+                    () -> gateway.authorizeMerchantEmailLogin(
+                            10001L,
+                            "merchant@example.com",
+                            "imap-secret",
+                            "PRJ7001",
+                            "STR7001-NAE"
+                    )
+            );
+
+            assertTrue(exception.getMessage().contains("直连已关闭"));
+            assertEquals(0, server.generateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
     void shouldExposeEmailOtpGenerateErrorForRateLimitClassification() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         try (AuthRefreshServer server = new AuthRefreshServer(
@@ -432,6 +668,7 @@ class NoonSessionGatewayTest {
                 "{\"success\":false,\"error\":\"Too many requests, please try again later\"}"
         )) {
             NoonSessionGateway gateway = identityGateway(mapper, server);
+            gateway.setLegacyDirectEmailOtpEnabled(true);
 
             IllegalStateException exception = assertThrows(
                     IllegalStateException.class,
@@ -626,47 +863,54 @@ class NoonSessionGatewayTest {
         private final String projectsBody;
         private final String sessionCookie;
         private final String generateBody;
+        private final int generateStatus;
         private final AtomicInteger sessionCreateCount = new AtomicInteger();
         private final AtomicInteger generateCount = new AtomicInteger();
         private final int whoamiStatus;
         private volatile JsonNode lastValidateBody;
+        private volatile String lastSessionProjectCode;
 
         private AuthRefreshServer() throws IOException {
-            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", 200);
+            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", 200, 200);
         }
 
         private AuthRefreshServer(boolean rejectWhoami) throws IOException {
-            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", rejectWhoami ? 403 : 200);
+            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", rejectWhoami ? 403 : 200, 200);
         }
 
         private AuthRefreshServer(int whoamiStatus) throws IOException {
-            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", whoamiStatus);
+            this("{\"projects\":[{\"projectCode\":\"PRJ1\"}]}", "sid=new; Path=/", "{\"emailotp\":\"ok\"}", whoamiStatus, 200);
         }
 
         private AuthRefreshServer(String projectsBody, String sessionCookie) throws IOException {
-            this(projectsBody, sessionCookie, "{\"emailotp\":\"ok\"}", 200);
+            this(projectsBody, sessionCookie, "{\"emailotp\":\"ok\"}", 200, 200);
         }
 
         private AuthRefreshServer(String projectsBody, String sessionCookie, String generateBody) throws IOException {
-            this(projectsBody, sessionCookie, generateBody, 200);
+            this(projectsBody, sessionCookie, generateBody, 200, 200);
         }
 
         private AuthRefreshServer(
                 String projectsBody,
                 String sessionCookie,
                 String generateBody,
-                int whoamiStatus
+                int whoamiStatus,
+                int generateStatus
         ) throws IOException {
             this.projectsBody = projectsBody;
             this.sessionCookie = sessionCookie;
             this.generateBody = generateBody;
             this.whoamiStatus = whoamiStatus;
+            this.generateStatus = generateStatus;
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
             server.createContext("/", (exchange) -> {
                 String path = exchange.getRequestURI().getPath();
                 if ("/whoami".equals(path)) {
                     if (this.whoamiStatus != 200) {
                         sendJson(exchange, this.whoamiStatus, "{\"message\":\"whoami rejected\"}", null);
+                    } else if (this.lastSessionProjectCode != null) {
+                        sendJson(exchange, 200,
+                                "{\"projectCode\":\"" + this.lastSessionProjectCode + "\"}", null);
                     } else {
                         sendJson(exchange, 200, "{\"ok\":true}", null);
                     }
@@ -701,7 +945,7 @@ class NoonSessionGatewayTest {
                 }
                 if ("/generate".equals(path)) {
                     generateCount.incrementAndGet();
-                    sendJson(exchange, 200, this.generateBody, null);
+                    sendJson(exchange, this.generateStatus, this.generateBody, null);
                     return;
                 }
                 if ("/projects".equals(path)) {
@@ -710,12 +954,26 @@ class NoonSessionGatewayTest {
                 }
                 if ("/session-create".equals(path)) {
                     sessionCreateCount.incrementAndGet();
+                    JsonNode sessionBody = new ObjectMapper().readTree(
+                            new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)
+                    );
+                    lastSessionProjectCode = sessionBody.path("projectCode").asText(null);
                     sendJson(exchange, 200, "{\"success\":true}", this.sessionCookie);
                     return;
                 }
                 sendJson(exchange, 404, "{\"message\":\"not found\"}", null);
             });
             server.start();
+        }
+
+        private static AuthRefreshServer withGenerateStatus(int generateStatus) throws IOException {
+            return new AuthRefreshServer(
+                    "{\"projects\":[{\"projectCode\":\"PRJ7001\"}]}",
+                    "sid=new; Path=/",
+                    "{\"message\":\"temporary failure\"}",
+                    200,
+                    generateStatus
+            );
         }
 
         private String url(String path) {

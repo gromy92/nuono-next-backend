@@ -36,8 +36,6 @@ class NoonSessionGatewaySalesReportSessionFactoryTest {
                 "PRJ313934",
                 "STR313934-NAE"
         );
-        verify(gateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
-        verify(gateway, never()).loginWithConfiguredEmailAuthCode(any(), any(), any(), any());
         verify(gateway, never()).login(any(), any(), any(), any(), any(), any());
     }
 }

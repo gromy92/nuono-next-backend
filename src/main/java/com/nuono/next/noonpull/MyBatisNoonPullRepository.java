@@ -2,6 +2,7 @@ package com.nuono.next.noonpull;
 
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.NoonPullMapper;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
@@ -58,8 +59,18 @@ public class MyBatisNoonPullRepository implements NoonPullRepository {
     }
 
     @Override
-    public void updateTask(NoonPullTaskRecord task) {
-        mapper.updateTask(task);
+    public int updateTask(NoonPullTaskRecord task) {
+        return mapper.updateTask(task);
+    }
+
+    @Override
+    public int blockTaskForAuth(
+            Long taskId,
+            Long recoveryId,
+            String diagnosticSummary,
+            LocalDateTime now
+    ) {
+        return mapper.blockTaskForAuth(taskId, recoveryId, diagnosticSummary, now);
     }
 
     @Override

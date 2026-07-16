@@ -90,7 +90,6 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 contains("auth_required"),
                 eq(901L)
         );
-        verify(noonSessionGateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -117,7 +116,6 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         service.runAppointmentOnce(access(), "611049");
 
         verify(bindingResolver, never()).resolve(any());
-        verify(noonSessionGateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -146,7 +144,6 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
 
         verify(mapper).claimDueAppointmentForRun(611049L, 307L);
         verify(bindingResolver, never()).resolve(any());
-        verify(noonSessionGateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -182,7 +179,6 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         service.runAppointmentOnce(access(), "611049");
 
         verify(mapper, never()).markAppointmentRunning(eq(611049L), eq(901L));
-        verify(noonSessionGateway, never()).loginWithEmailAuthCode(any(), any(), any(), any(), any(), any());
         verify(mapper).markAppointmentPendingRetry(
                 eq(611049L),
                 intThat(seconds -> seconds > 0),

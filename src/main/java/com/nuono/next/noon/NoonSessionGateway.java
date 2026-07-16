@@ -110,6 +110,8 @@ public class NoonSessionGateway {
     private String configuredMerchantEmail;
     @Value("${nuono.noon.auth.email-otp.mail-auth-code:}")
     private String configuredMerchantMailAuthCode;
+    @Value("${nuono.noon.auth.email-otp.legacy-direct-enabled:false}")
+    private boolean legacyDirectEmailOtpEnabled;
 
     public NoonSessionGateway(
             ObjectMapper objectMapper,
@@ -182,6 +184,10 @@ public class NoonSessionGateway {
         this.configuredMerchantMailAuthCode = mailAuthCode;
     }
 
+    void setLegacyDirectEmailOtpEnabled(boolean enabled) {
+        this.legacyDirectEmailOtpEnabled = enabled;
+    }
+
     public NoonSession login(
             Long ownerUserId,
             String noonUser,
@@ -244,7 +250,7 @@ public class NoonSessionGateway {
         );
     }
 
-    public NoonSession loginWithEmailAuthCode(
+    NoonSession loginWithEmailAuthCode(
             Long ownerUserId,
             String noonEmail,
             String mailAuthCode,
@@ -252,6 +258,7 @@ public class NoonSessionGateway {
             String projectCode,
             String storeCode
     ) {
+        requireLegacyDirectEmailOtpEnabled();
         String normalizedEmail = normalizeUser(noonEmail);
         if (!StringUtils.hasText(normalizedEmail)) {
             throw new IllegalArgumentException("缺少 Noon 商家后台登录邮箱。");
@@ -284,7 +291,7 @@ public class NoonSessionGateway {
         );
     }
 
-    public NoonSession loginWithConfiguredEmailAuthCode(
+    NoonSession loginWithConfiguredEmailAuthCode(
             Long ownerUserId,
             String persistedCookie,
             String projectCode,
@@ -344,13 +351,14 @@ public class NoonSessionGateway {
         );
     }
 
-    public MerchantAuthorization authorizeMerchantEmailLogin(
+    MerchantAuthorization authorizeMerchantEmailLogin(
             Long ownerUserId,
             String noonEmail,
             String mailAuthCode,
             String requestedProjectCode,
             String storeCode
     ) {
+        requireLegacyDirectEmailOtpEnabled();
         String normalizedEmail = normalizeUser(noonEmail);
         if (!StringUtils.hasText(normalizedEmail)) {
             throw new IllegalArgumentException("缺少 Noon 商家后台登录邮箱。");
@@ -371,7 +379,7 @@ public class NoonSessionGateway {
         );
     }
 
-    public MerchantAuthorization authorizeConfiguredMerchantEmailLogin(
+    MerchantAuthorization authorizeConfiguredMerchantEmailLogin(
             Long ownerUserId,
             String requestedProjectCode,
             String storeCode
@@ -385,7 +393,7 @@ public class NoonSessionGateway {
         );
     }
 
-    public boolean hasConfiguredMerchantEmailLogin() {
+    boolean hasConfiguredMerchantEmailLogin() {
         return StringUtils.hasText(normalizeUser(configuredMerchantEmail))
                 && StringUtils.hasText(normalize(configuredMerchantMailAuthCode));
     }
@@ -398,12 +406,91 @@ public class NoonSessionGateway {
         return normalizedEmail;
     }
 
-    public String configuredMerchantMailAuthCode() {
+    String configuredMerchantMailAuthCode() {
         String normalizedMailAuthCode = normalize(configuredMerchantMailAuthCode);
         if (!StringUtils.hasText(normalizeUser(configuredMerchantEmail)) || !StringUtils.hasText(normalizedMailAuthCode)) {
             throw new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。");
         }
         return normalizedMailAuthCode;
+    }
+
+    private void requireLegacyDirectEmailOtpEnabled() {
+        if (!legacyDirectEmailOtpEnabled) {
+            throw new IllegalStateException("Noon 邮箱验证码直连已关闭。");
+        }
+    }
+
+    EmailOtpGeneration prepareEmailOtpGeneration(String noonEmail) {
+        String normalizedEmail = normalizeUser(noonEmail);
+        if (!StringUtils.hasText(normalizedEmail)) {
+            throw new IllegalArgumentException("缺少 Noon 商家后台登录邮箱。");
+        }
+        if (!partnerIdentityLoginEnabled) {
+            throw new IllegalStateException("Noon 邮箱登录需要启用 login-alt 身份链路。");
+        }
+        AuthSessionState state = newSessionState(normalizedEmail, "");
+        PartnerIdentityUser user = lookupPartnerIdentityEmailOtpUser(state, normalizedEmail);
+        PkcePair pkce = createPkcePair(state);
+        return new EmailOtpGeneration(normalizedEmail, state, user, pkce);
+    }
+
+    void sendEmailOtp(EmailOtpGeneration generation) {
+        if (generation == null) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱验证码代次。");
+        }
+        generatePartnerIdentityEmailOtp(
+                generation.state,
+                generation.user.getUserCode(),
+                generation.pkce
+        );
+    }
+
+    EmailIdentityGrant validateEmailOtp(EmailOtpGeneration generation, String otpCode) {
+        if (generation == null) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱验证码代次。");
+        }
+        String normalizedOtpCode = normalize(otpCode);
+        if (!StringUtils.hasText(normalizedOtpCode)) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱验证码。");
+        }
+        String accessToken = validatePartnerIdentityEmailOtp(
+                generation.state,
+                generation.user.getUserCode(),
+                generation.email,
+                normalizedOtpCode,
+                generation.pkce
+        );
+        List<MerchantProject> projects = listPartnerIdentityProjects(
+                generation.state,
+                generation.user.getUserCode(),
+                accessToken
+        );
+        return new EmailIdentityGrant(generation, accessToken, projects);
+    }
+
+    ProjectSessionCookie createEmailOtpProjectSession(
+            EmailIdentityGrant grant,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        if (grant == null) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱身份授权。");
+        }
+        MerchantProject selectedProject = selectMerchantProject(grant.projects, requestedProjectCode);
+        EmailOtpGeneration generation = grant.generation;
+        createPartnerIdentitySession(
+                generation.state,
+                generation.user.getUserCode(),
+                grant.accessToken,
+                selectedProject.getProjectCode(),
+                generation.pkce
+        );
+        generation.state.applyContextCookies(selectedProject.getProjectCode(), normalize(storeCode));
+        String cookie = generation.state.exportAuthCookieHeader();
+        if (!StringUtils.hasText(cookie)) {
+            throw new IllegalStateException("Noon session/create 未返回有效 Cookie。");
+        }
+        return new ProjectSessionCookie(selectedProject, cookie);
     }
 
     public JsonNode whoamiWithCookie(
@@ -472,10 +559,42 @@ public class NoonSessionGateway {
             return;
         }
         try {
-            service.record(request, responseStatusCode, responseBody, elapsedMs, status, failureType, errorMessage);
+            boolean sensitiveAuthCall = isSensitiveIdentityAuthRequest(request);
+            service.record(
+                    request,
+                    responseStatusCode,
+                    sensitiveAuthCall && StringUtils.hasText(responseBody)
+                            ? "{\"redacted\":true,\"category\":\"identity_auth_response\"}"
+                            : responseBody,
+                    elapsedMs,
+                    status,
+                    failureType,
+                    sensitiveAuthCall && StringUtils.hasText(errorMessage)
+                            ? "Noon identity auth call failed; response redacted"
+                            : errorMessage
+            );
         } catch (Exception ignored) {
             // Noon calls must not fail because the audit log table is unavailable.
         }
+    }
+
+    private boolean isSensitiveIdentityAuthRequest(HttpRequest request) {
+        if (request == null || request.uri() == null) {
+            return false;
+        }
+        String url = request.uri().toString();
+        return sameEndpoint(url, identityUserLookupUrl)
+                || sameEndpoint(url, identityPkceUrl)
+                || sameEndpoint(url, identityGenerateUrl)
+                || sameEndpoint(url, identityValidateUrl)
+                || sameEndpoint(url, identityProjectListUrl)
+                || sameEndpoint(url, identitySessionCreateUrl);
+    }
+
+    private boolean sameEndpoint(String actualUrl, String configuredUrl) {
+        return StringUtils.hasText(actualUrl)
+                && StringUtils.hasText(configuredUrl)
+                && (actualUrl.equals(configuredUrl) || actualUrl.startsWith(configuredUrl + "?"));
     }
 
     private String resolveRequestMetricKey(String url) {
@@ -1081,7 +1200,7 @@ public class NoonSessionGateway {
         body.put("channel_credential", noonPassword);
         body.put("code_verifier", pkce.getCodeVerifier());
         body.put("pkce_key", pkce.getPkceKey());
-        JsonNode root = state.postJson(null, null, identityValidateUrl, body, false, null);
+        JsonNode root = state.postJson(null, null, identityValidateUrl, body, false, null, false);
         if (root == null || !root.path("success").asBoolean(false)) {
             throw new IllegalStateException("Noon password validate 失败：" + partnerIdentityError(root));
         }
@@ -1103,7 +1222,7 @@ public class NoonSessionGateway {
         body.put("userCode", userCode);
         body.put("code_verifier", pkce.getCodeVerifier());
         body.put("pkce_key", pkce.getPkceKey());
-        JsonNode root = state.postJson(null, null, identityGenerateUrl, body, false, null);
+        JsonNode root = state.postJson(null, null, identityGenerateUrl, body, false, null, false);
         if (root == null || !"ok".equalsIgnoreCase(root.path("emailotp").asText(null))) {
             throw new IllegalStateException("Noon emailotp 发送失败：" + partnerIdentityError(root));
         }
@@ -1136,7 +1255,15 @@ public class NoonSessionGateway {
         body.put("channel_credential", otpCode);
         body.put("code_verifier", pkce.getCodeVerifier());
         body.put("pkce_key", pkce.getPkceKey());
-        JsonNode root = state.postJson(null, null, identityValidateUrl, body, false, null);
+        final JsonNode root;
+        try {
+            root = state.postJson(null, null, identityValidateUrl, body, false, null, false);
+        } catch (SessionExpiredException exception) {
+            // A 401/403 from identity validate rejects this OTP exchange; it does not describe an
+            // already-created merchant session. Preserve structured HTTP facts for classification
+            // while keeping the provider body out of the exception message.
+            throw exception.toHttpException();
+        }
         if (root == null || !root.path("success").asBoolean(false)) {
             throw new IllegalStateException("Noon emailotp validate 失败：" + partnerIdentityError(root));
         }
@@ -1186,7 +1313,7 @@ public class NoonSessionGateway {
         body.put("projectCode", projectCode);
         body.put("clientCode", NOON_WEB_CLIENT_CODE);
         body.put("code_verifier", pkce.getCodeVerifier());
-        state.postJson(projectCode, null, identitySessionCreateUrl, body, false, null);
+        state.postJson(projectCode, null, identitySessionCreateUrl, body, false, null, false);
         if (!StringUtils.hasText(state.exportAuthCookieHeader())) {
             throw new IllegalStateException("Noon session/create 未返回有效 Cookie。");
         }
@@ -1934,6 +2061,59 @@ public class NoonSessionGateway {
 
         public List<MerchantProject> getProjectList() {
             return projectList;
+        }
+    }
+
+    static final class EmailOtpGeneration {
+        private final String email;
+        private final AuthSessionState state;
+        private final PartnerIdentityUser user;
+        private final PkcePair pkce;
+
+        private EmailOtpGeneration(
+                String email,
+                AuthSessionState state,
+                PartnerIdentityUser user,
+                PkcePair pkce
+        ) {
+            this.email = email;
+            this.state = state;
+            this.user = user;
+            this.pkce = pkce;
+        }
+    }
+
+    static final class EmailIdentityGrant {
+        private final EmailOtpGeneration generation;
+        private final String accessToken;
+        private final List<MerchantProject> projects;
+
+        private EmailIdentityGrant(
+                EmailOtpGeneration generation,
+                String accessToken,
+                List<MerchantProject> projects
+        ) {
+            this.generation = generation;
+            this.accessToken = accessToken;
+            this.projects = List.copyOf(projects);
+        }
+    }
+
+    static final class ProjectSessionCookie {
+        private final MerchantProject project;
+        private final String cookie;
+
+        private ProjectSessionCookie(MerchantProject project, String cookie) {
+            this.project = project;
+            this.cookie = cookie;
+        }
+
+        MerchantProject getProject() {
+            return project;
+        }
+
+        String getCookie() {
+            return cookie;
         }
     }
 

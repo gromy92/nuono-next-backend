@@ -5,6 +5,7 @@ import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(prefix = "nuono.noon.pull.real-provider", name = "enabled", havingValue = "true")
 public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySessionFactory {
     private final NoonSessionGateway noonSessionGateway;
+    private NoonPullProjectAuthGate projectAuthGate = (ownerUserId, projectCode) -> false;
 
     public NoonSessionGatewayPullSessionFactory(NoonSessionGateway noonSessionGateway) {
         this.noonSessionGateway = noonSessionGateway;
@@ -21,6 +23,12 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
 
     @Override
     public NoonPullGatewaySession login(NoonPullStoreBinding binding) {
+        if (projectAuthGate.isBlocked(binding.getOwnerUserId(), binding.getProjectCode())) {
+            throw new NoonInterfacePullException(
+                    "auth_required: Noon Project authorization recovery is pending; project="
+                            + binding.getProjectCode()
+            );
+        }
         NoonSession session = noonSessionGateway.loginWithPersistedCookie(
                 binding.getOwnerUserId(),
                 binding.getNoonUser(),
@@ -29,6 +37,13 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
                 binding.getStoreCode()
         );
         return new GatewaySessionAdapter(session);
+    }
+
+    @Autowired(required = false)
+    void setProjectAuthGate(NoonPullProjectAuthGate projectAuthGate) {
+        this.projectAuthGate = projectAuthGate == null
+                ? (ownerUserId, projectCode) -> false
+                : projectAuthGate;
     }
 
     private static class GatewaySessionAdapter implements NoonPullGatewaySession {

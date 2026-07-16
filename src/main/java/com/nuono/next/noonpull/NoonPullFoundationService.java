@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,7 @@ public class NoonPullFoundationService {
     private final NoonPullRepository repository;
     private final Clock clock;
     private final NoonPullFailurePolicy failurePolicy;
+    private NoonPullAuthRecoveryQueue authRecoveryQueue = (task, rawFailure) -> Optional.empty();
 
     @Autowired
     public NoonPullFoundationService(NoonPullRepository repository) {
@@ -124,13 +126,15 @@ public class NoonPullFoundationService {
 
     public NoonPullTaskRecord markRunning(Long taskId, String workerId) {
         NoonPullTaskRecord task = requireTask(taskId);
+        if (task.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return task.copy();
+        }
         LocalDateTime now = now();
         task.setStatus(NoonPullTaskStatus.RUNNING);
         task.setLockedBy(workerId);
         task.setStartedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
-        return task.copy();
+        return persistTaskUnlessAuthBlocked(task);
     }
 
     public NoonPullTaskRecord markSucceeded(Long taskId, String sourceBatchId, String diagnosticSummary) {
@@ -148,13 +152,16 @@ public class NoonPullFoundationService {
         task.setReportNextPollAt(null);
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
+        NoonPullTaskRecord persisted = persistTaskUnlessAuthBlocked(task);
+        if (persisted.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return persisted;
+        }
 
-        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        NoonPullPlanRecord plan = requirePlan(persisted.getPlanId());
         plan.setLatestSuccessAt(now);
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
-        return task.copy();
+        return persisted;
     }
 
     public NoonPullTaskRecord markPartial(
@@ -181,8 +188,7 @@ public class NoonPullFoundationService {
         task.setReadinessState(readinessState);
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
-        return task.copy();
+        return persistTaskUnlessAuthBlocked(task);
     }
 
     public NoonPullTaskRecord recordProgress(
@@ -202,8 +208,7 @@ public class NoonPullFoundationService {
         task.setLastSafeResponseSummary(redact(lastSafeResponseSummary));
         task.setReadinessState(readinessState);
         task.setUpdatedAt(now());
-        repository.updateTask(task);
-        return task.copy();
+        return persistTaskUnlessAuthBlocked(task);
     }
 
     public NoonPullTaskRecord recordReportExportCreated(Long taskId, String exportId, String diagnosticSummary) {
@@ -287,6 +292,9 @@ public class NoonPullFoundationService {
                 "export_retry_wait",
                 false
         );
+        if (task.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return task;
+        }
 
         NoonPullPlanRecord plan = requirePlan(task.getPlanId());
         plan.setLatestFailureAt(now());
@@ -317,13 +325,16 @@ public class NoonPullFoundationService {
         task.setReportNextPollAt(null);
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
+        NoonPullTaskRecord persisted = persistTaskUnlessAuthBlocked(task);
+        if (persisted.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return persisted;
+        }
 
-        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        NoonPullPlanRecord plan = requirePlan(persisted.getPlanId());
         plan.setLatestSuccessAt(now);
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
-        return task.copy();
+        return persisted;
     }
 
     public NoonPullTaskRecord recordReportRiskBackoffDelay(
@@ -364,6 +375,9 @@ public class NoonPullFoundationService {
                 "risk_backoff",
                 false
         );
+        if (task.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return task;
+        }
 
         NoonPullPlanRecord plan = requirePlan(task.getPlanId());
         LocalDateTime now = now();
@@ -405,15 +419,18 @@ public class NoonPullFoundationService {
         task.setReportNextPollAt(hold.getBlockedUntil());
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
+        NoonPullTaskRecord persisted = persistTaskUnlessAuthBlocked(task);
+        if (persisted.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return persisted;
+        }
 
-        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        NoonPullPlanRecord plan = requirePlan(persisted.getPlanId());
         plan.setLatestFailureAt(now);
         plan.setLatestFailureType(riskType);
         plan.setNextRetryAt(hold.getBlockedUntil());
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
-        return task.copy();
+        return persisted;
     }
 
     public NoonPullTaskRecord markReportExportPendingConfirmation(
@@ -467,6 +484,9 @@ public class NoonPullFoundationService {
                 true,
                 sourceBatchId
         );
+        if (task.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return task;
+        }
 
         NoonPullPlanRecord plan = requirePlan(task.getPlanId());
         plan.setLatestFailureAt(now());
@@ -484,18 +504,27 @@ public class NoonPullFoundationService {
         task.setDiagnosticSummary(redact(diagnosticSummary));
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
+        NoonPullTaskRecord persisted = persistTaskUnlessAuthBlocked(task);
+        if (persisted.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return persisted;
+        }
 
-        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        NoonPullPlanRecord plan = requirePlan(persisted.getPlanId());
         plan.setLatestFailureAt(now);
-        plan.setLatestFailureType(task.getFailureType());
+        plan.setLatestFailureType(persisted.getFailureType());
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
-        return task.copy();
+        return persisted;
     }
 
     public NoonPullTaskRecord markFailedWithPolicy(Long taskId, String rawFailure, int attempt) {
         NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
+        if (failureType == NoonPullFailureType.AUTH_REQUIRED) {
+            NoonPullTaskRecord blocked = tryBlockForAuthRecovery(taskId, rawFailure);
+            if (blocked != null) {
+                return blocked;
+            }
+        }
         NoonPullFailureDecision decision = failurePolicy.decide(failureType, attempt);
         NoonPullTaskRecord task = requireTask(taskId);
         LocalDateTime now = now();
@@ -509,9 +538,12 @@ public class NoonPullFoundationService {
         task.setDiagnosticSummary(redact(rawFailure + " | " + decision.getSummary()));
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
+        NoonPullTaskRecord persisted = persistTaskUnlessAuthBlocked(task);
+        if (persisted.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return persisted;
+        }
 
-        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        NoonPullPlanRecord plan = requirePlan(persisted.getPlanId());
         plan.setLatestFailureAt(now);
         plan.setLatestFailureType(failureType.code());
         plan.setNextRetryAt(decision.getNextRetryAt());
@@ -521,7 +553,44 @@ public class NoonPullFoundationService {
         }
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
-        return task.copy();
+        return persisted;
+    }
+
+    @Autowired(required = false)
+    void setAuthRecoveryQueue(NoonPullAuthRecoveryQueue authRecoveryQueue) {
+        this.authRecoveryQueue = authRecoveryQueue == null
+                ? (task, rawFailure) -> Optional.empty()
+                : authRecoveryQueue;
+    }
+
+    private NoonPullTaskRecord tryBlockForAuthRecovery(Long taskId, String rawFailure) {
+        NoonPullTaskRecord task = requireTask(taskId);
+        if (task.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return task.copy();
+        }
+        if (!NoonPullAuthRecoveryTaskPolicy.canAutomaticallyRecover(task)) {
+            return null;
+        }
+        Optional<Long> recoveryId = authRecoveryQueue.blockAndEnqueue(task.copy(), redact(rawFailure));
+        if (recoveryId.isEmpty()) {
+            return null;
+        }
+        NoonPullTaskRecord blocked = requireTask(taskId);
+        if (blocked.getStatus() != NoonPullTaskStatus.BLOCKED_AUTH
+                || !Objects.equals(recoveryId.get(), blocked.getAuthRecoveryId())) {
+            throw new IllegalStateException(
+                    "Noon auth recovery queue did not atomically block pull task " + taskId
+            );
+        }
+
+        LocalDateTime now = now();
+        NoonPullPlanRecord plan = requirePlan(blocked.getPlanId());
+        plan.setLatestFailureAt(now);
+        plan.setLatestFailureType(NoonPullFailureType.AUTH_REQUIRED.code());
+        plan.setNextRetryAt(null);
+        plan.setUpdatedAt(now);
+        repository.updatePlan(plan);
+        return blocked.copy();
     }
 
     public NoonPullPlanRecord pausePlan(Long planId, String reason) {
@@ -599,13 +668,14 @@ public class NoonPullFoundationService {
             if (task.getQueuedAt().isAfter(threshold)) {
                 continue;
             }
-            markStaleQueuedFailed(task, safeMaxAge);
-            recovered++;
+            if (markStaleQueuedFailed(task, safeMaxAge)) {
+                recovered++;
+            }
         }
         return recovered;
     }
 
-    private void markStaleQueuedFailed(NoonPullTaskRecord task, Duration safeMaxAge) {
+    private boolean markStaleQueuedFailed(NoonPullTaskRecord task, Duration safeMaxAge) {
         LocalDateTime now = now();
         task.setStatus(NoonPullTaskStatus.FAILED);
         task.setFailureType("timeout");
@@ -615,13 +685,17 @@ public class NoonPullFoundationService {
         task.setDiagnosticSummary(redact("timeout: stale queued task exceeded " + safeMaxAge.toMinutes() + " minutes"));
         task.setFinishedAt(now);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
+        NoonPullTaskRecord persisted = persistTaskUnlessAuthBlocked(task);
+        if (persisted.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return false;
+        }
 
-        NoonPullPlanRecord plan = requirePlan(task.getPlanId());
+        NoonPullPlanRecord plan = requirePlan(persisted.getPlanId());
         plan.setLatestFailureAt(now);
-        plan.setLatestFailureType(task.getFailureType());
+        plan.setLatestFailureType(persisted.getFailureType());
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
+        return true;
     }
 
     public boolean isTaskPlanActive(NoonPullTaskRecord task) {
@@ -658,6 +732,17 @@ public class NoonPullFoundationService {
             throw new IllegalArgumentException("Noon pull task not found: " + taskId);
         }
         return task;
+    }
+
+    private NoonPullTaskRecord persistTaskUnlessAuthBlocked(NoonPullTaskRecord desired) {
+        if (repository.updateTask(desired) > 0) {
+            return desired.copy();
+        }
+        NoonPullTaskRecord actual = requireTask(desired.getId());
+        if (actual.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return actual.copy();
+        }
+        throw new IllegalStateException("Noon pull task update lost its persistence fence: " + desired.getId());
     }
 
     private NoonPullTaskRecord updateReportExportTask(
@@ -751,8 +836,7 @@ public class NoonPullFoundationService {
         task.setReadinessState(readinessState);
         task.setFinishedAt(finished ? now : null);
         task.setUpdatedAt(now);
-        repository.updateTask(task);
-        return task.copy();
+        return persistTaskUnlessAuthBlocked(task);
     }
 
     private LocalDateTime nextPollAt(Duration delay) {

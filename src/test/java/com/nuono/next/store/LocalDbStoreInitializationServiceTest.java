@@ -95,7 +95,7 @@ class LocalDbStoreInitializationServiceTest {
     }
 
     @Test
-    void preflightUsesReferenceProjectCredentialsInsteadOfOwnerAggregateCredentials() {
+    void preflightUsesReferenceProjectCookieWithoutInteractiveCredentials() {
         StoreSyncOwnerContext owner = ownerContext();
         StoreSyncStoreRecord referenceStore = store(
                 51004L,
@@ -126,7 +126,13 @@ class LocalDbStoreInitializationServiceTest {
         when(storeSyncMapper.listOwnerStores(307L)).thenReturn(List.of(referenceStore, siblingStore));
         doThrow(new IllegalStateException("stop after credential capture"))
                 .when(noonSessionGateway)
-                .login(nullable(Long.class), anyString(), anyString(), anyString(), anyString(), anyString());
+                .loginWithPersistedCookie(
+                        nullable(Long.class),
+                        anyString(),
+                        anyString(),
+                        anyString(),
+                        anyString()
+                );
         LocalDbStoreInitializationService.StoreInitializationCommand command =
                 new LocalDbStoreInitializationService.StoreInitializationCommand();
         command.setOwnerUserId(307L);
@@ -134,10 +140,9 @@ class LocalDbStoreInitializationServiceTest {
 
         service.preflight(command);
 
-        verify(noonSessionGateway).login(
+        verify(noonSessionGateway).loginWithPersistedCookie(
                 eq(307L),
                 eq("xingyao-project-user"),
-                eq("xingyao-password"),
                 eq("xingyao-cookie"),
                 eq("PRJ245027"),
                 eq("STR245027-NAE")
