@@ -152,20 +152,18 @@ public class ProductSelectionController {
         }
     }
 
-    @DeleteMapping("/groups/{groupId}/materials/{sourceCollectionId}")
+    @DeleteMapping("/groups/{groupId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteGroupMaterial(
+    public void deleteGroup(
             @PathVariable String groupId,
-            @PathVariable String sourceCollectionId,
-            @RequestParam(defaultValue = "false") boolean deleteSourceCollection,
+            @RequestParam(defaultValue = "false") boolean deleteSourceCollections,
             @RequestParam String storeCode,
             HttpServletRequest request
     ) {
         try {
-            sourceCollectionService().deleteGroupMaterial(
+            sourceCollectionService().deleteGroup(
                     groupId,
-                    sourceCollectionId,
-                    deleteSourceCollection,
+                    deleteSourceCollections,
                     storeCode,
                     writableOperatorUserId(request, storeCode)
             );

@@ -1,6 +1,7 @@
 package com.nuono.next.productselection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -95,41 +96,77 @@ class ProductSelectionGroupServiceTest {
     }
 
     @Test
-    void deleteGroupMaterialCanOnlyUnlinkAndPreserveSourceCollection() {
-        ProductSelectionSourceCollectionRow source = sourceCollection(86001L, "Sharpie Permanent Markers", "Sharpie 永久记号笔");
+    void deleteGroupCanUnlinkEveryMaterialAndPreserveSourceCollections() {
+        ProductSelectionSourceCollectionRow first = sourceCollection(86001L, "Sharpie Permanent Markers", "Sharpie 永久记号笔");
+        ProductSelectionSourceCollectionRow second = sourceCollection(86002L, "Marker Pen Competitor", "竞品记号笔");
         ProductSelectionGroupRow group = groupRow(91001L, "Sharpie 记号笔组");
-        ProductSelectionGroupMaterialRow material = groupMaterialRow(92001L, 91001L, source);
-        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
-        when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(source);
+        when(productSelectionMapper.lockActiveSelectionGroupById(91001L)).thenReturn(91001L);
         when(productSelectionMapper.selectGroupById(91001L)).thenReturn(group);
-        when(productSelectionMapper.selectActiveGroupMaterial(91001L, 86001L)).thenReturn(material);
         when(permissionGuard.requireWritableStore(307L, "STR108065-NSA")).thenReturn(writableStoreScope());
-        when(productSelectionMapper.softDeleteSelectionGroupMaterial(91001L, 86001L, 307L)).thenReturn(1);
+        when(productSelectionMapper.listActiveGroupSourceCollectionIds(91001L)).thenReturn(List.of(86001L, 86002L));
+        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
+        when(productSelectionMapper.lockActiveSourceCollectionById(86002L)).thenReturn(86002L);
+        when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(first);
+        when(productSelectionMapper.selectSourceCollectionById(86002L)).thenReturn(second);
+        when(productSelectionMapper.softDeleteSelectionGroup(91001L, 307L)).thenReturn(1);
 
-        service.deleteGroupMaterial("91001", "86001", false, "STR108065-NSA", 307L);
+        service.deleteGroup("91001", false, "STR108065-NSA", 307L);
 
-        verify(productSelectionMapper).softDeleteSelectionGroupMaterial(91001L, 86001L, 307L);
-        verify(productSelectionMapper).softDeleteAnalysisItemForGroup(91001L, 86001L, 307L);
+        verify(productSelectionMapper).softDeleteSelectionGroupMaterials(91001L, 307L);
+        verify(productSelectionMapper).softDeleteAnalysisItemsForGroup(91001L, 307L);
+        verify(productSelectionMapper).softDeleteSelectionGroupCompetitors(91001L, 307L);
+        verify(productSelectionMapper).softDeleteSelectionGroupProcurement(91001L, 307L);
+        verify(productSelectionMapper).softDeleteSelectionGroupProfitSnapshots(91001L, 307L);
+        verify(productSelectionMapper).softDeleteSelectionGroupListing(91001L, 307L);
+        verify(productSelectionMapper).softDeleteSelectionGroup(91001L, 307L);
         verify(productSelectionMapper, never()).softDeleteSourceCollection(86001L, 307L);
+        verify(productSelectionMapper, never()).softDeleteSourceCollection(86002L, 307L);
     }
 
     @Test
-    void deleteGroupMaterialCanAlsoDeleteUnreferencedSourceCollection() {
-        ProductSelectionSourceCollectionRow source = sourceCollection(86001L, "Sharpie Permanent Markers", "Sharpie 永久记号笔");
+    void deleteGroupCanAlsoDeleteEveryUnreferencedSourceCollection() {
+        ProductSelectionSourceCollectionRow first = sourceCollection(86001L, "Sharpie Permanent Markers", "Sharpie 永久记号笔");
+        ProductSelectionSourceCollectionRow second = sourceCollection(86002L, "Marker Pen Competitor", "竞品记号笔");
         ProductSelectionGroupRow group = groupRow(91001L, "Sharpie 记号笔组");
-        ProductSelectionGroupMaterialRow material = groupMaterialRow(92001L, 91001L, source);
-        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
-        when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(source);
+        when(productSelectionMapper.lockActiveSelectionGroupById(91001L)).thenReturn(91001L);
         when(productSelectionMapper.selectGroupById(91001L)).thenReturn(group);
-        when(productSelectionMapper.selectActiveGroupMaterial(91001L, 86001L)).thenReturn(material);
         when(permissionGuard.requireWritableStore(307L, "STR108065-NSA")).thenReturn(writableStoreScope());
-        when(productSelectionMapper.softDeleteSelectionGroupMaterial(91001L, 86001L, 307L)).thenReturn(1);
+        when(productSelectionMapper.listActiveGroupSourceCollectionIds(91001L)).thenReturn(List.of(86001L, 86002L));
+        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
+        when(productSelectionMapper.lockActiveSourceCollectionById(86002L)).thenReturn(86002L);
+        when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(first);
+        when(productSelectionMapper.selectSourceCollectionById(86002L)).thenReturn(second);
         when(productSelectionMapper.countActiveSelectionReferences(86001L)).thenReturn(0);
+        when(productSelectionMapper.countActiveSelectionReferences(86002L)).thenReturn(0);
         when(productSelectionMapper.softDeleteSourceCollection(86001L, 307L)).thenReturn(1);
+        when(productSelectionMapper.softDeleteSourceCollection(86002L, 307L)).thenReturn(1);
+        when(productSelectionMapper.softDeleteSelectionGroup(91001L, 307L)).thenReturn(1);
 
-        service.deleteGroupMaterial("91001", "86001", true, "STR108065-NSA", 307L);
+        service.deleteGroup("91001", true, "STR108065-NSA", 307L);
 
         verify(productSelectionMapper).softDeleteSourceCollection(86001L, 307L);
+        verify(productSelectionMapper).softDeleteSourceCollection(86002L, 307L);
+    }
+
+    @Test
+    void deleteGroupRejectsDeletingSourcesThatStillHaveAnotherAnalysisReference() {
+        ProductSelectionSourceCollectionRow source = sourceCollection(86001L, "Sharpie Permanent Markers", "Sharpie 永久记号笔");
+        ProductSelectionGroupRow group = groupRow(91001L, "Sharpie 记号笔组");
+        when(productSelectionMapper.lockActiveSelectionGroupById(91001L)).thenReturn(91001L);
+        when(productSelectionMapper.selectGroupById(91001L)).thenReturn(group);
+        when(permissionGuard.requireWritableStore(307L, "STR108065-NSA")).thenReturn(writableStoreScope());
+        when(productSelectionMapper.listActiveGroupSourceCollectionIds(91001L)).thenReturn(List.of(86001L));
+        when(productSelectionMapper.lockActiveSourceCollectionById(86001L)).thenReturn(86001L);
+        when(productSelectionMapper.selectSourceCollectionById(86001L)).thenReturn(source);
+        when(productSelectionMapper.countActiveSelectionReferences(86001L)).thenReturn(1);
+
+        assertThrows(
+                ProductSelectionConflictException.class,
+                () -> service.deleteGroup("91001", true, "STR108065-NSA", 307L)
+        );
+
+        verify(productSelectionMapper, never()).softDeleteSourceCollection(86001L, 307L);
+        verify(productSelectionMapper, never()).softDeleteSelectionGroup(91001L, 307L);
     }
 
     private ProductSelectionSourceCollectionView sourceCollectionView(ProductSelectionSourceCollectionRow row) {

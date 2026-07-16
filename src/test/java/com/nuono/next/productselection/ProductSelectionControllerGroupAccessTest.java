@@ -81,10 +81,10 @@ class ProductSelectionControllerGroupAccessTest {
     }
 
     @Test
-    void deleteGroupMaterialUsesWritableStoreScopeAndDelegatesDeleteMode() {
+    void deleteGroupUsesWritableStoreScopeAndDelegatesDeleteMode() {
         MockHttpServletRequest request = new MockHttpServletRequest(
                 "DELETE",
-                "/api/product-selection/groups/91001/materials/86001"
+                "/api/product-selection/groups/91001"
         );
         BusinessAccessContext access = access();
         ProductSelectionAccessScope scope = new ProductSelectionAccessScope(access, storeScope());
@@ -93,11 +93,10 @@ class ProductSelectionControllerGroupAccessTest {
         when(accessAdapter.requireWritableStore(access, "STR108065-NAE")).thenReturn(scope);
         when(sourceCollectionServiceProvider.getIfAvailable()).thenReturn(sourceCollectionService);
 
-        controller.deleteGroupMaterial("91001", "86001", true, "STR108065-NAE", request);
+        controller.deleteGroup("91001", true, "STR108065-NAE", request);
 
-        verify(sourceCollectionService).deleteGroupMaterial(
+        verify(sourceCollectionService).deleteGroup(
                 "91001",
-                "86001",
                 true,
                 "STR108065-NAE",
                 307L

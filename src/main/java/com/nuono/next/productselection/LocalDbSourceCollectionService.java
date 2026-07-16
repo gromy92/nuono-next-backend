@@ -136,17 +136,15 @@ public class LocalDbSourceCollectionService {
     }
 
     @Transactional
-    public void deleteGroupMaterial(
+    public void deleteGroup(
             String groupIdValue,
-            String sourceCollectionIdValue,
-            boolean deleteSourceCollection,
+            boolean deleteSourceCollections,
             String storeCode,
             Long operatorUserId
     ) {
-        groupService.deleteGroupMaterial(
+        groupService.deleteGroup(
                 groupIdValue,
-                sourceCollectionIdValue,
-                deleteSourceCollection,
+                deleteSourceCollections,
                 storeCode,
                 operatorUserId
         );

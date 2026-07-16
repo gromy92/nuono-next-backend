@@ -108,6 +108,9 @@ class ProductSelectionGroupService {
                 ? new ProductSelectionGroupCommand()
                 : command;
         Long groupId = parseLongId(groupIdValue, "选品组不存在或已被删除。");
+        if (productSelectionMapper.lockActiveSelectionGroupById(groupId) == null) {
+            throw new IllegalArgumentException("选品组不存在或已被删除。");
+        }
         ProductSelectionGroupRow group = productSelectionMapper.selectGroupById(groupId);
         requireGroupVisible(source.getOperatorUserId(), group);
         List<ProductSelectionSourceCollectionRow> sourceCollections = selectableSourceCollections(source);
@@ -128,39 +131,48 @@ class ProductSelectionGroupService {
         return loadGroupView(groupId);
     }
 
-    void deleteGroupMaterial(
+    void deleteGroup(
             String groupIdValue,
-            String sourceCollectionIdValue,
-            boolean deleteSourceCollection,
+            boolean deleteSourceCollections,
             String storeCode,
             Long operatorUserId
     ) {
         Long groupId = parseLongId(groupIdValue, "选品组不存在或已被删除。");
-        Long sourceCollectionId = parseLongId(sourceCollectionIdValue, "采集记录不存在或已被删除。");
-        if (productSelectionMapper.lockActiveSourceCollectionById(sourceCollectionId) == null) {
-            throw new IllegalArgumentException("采集记录不存在或已被删除。");
+        if (productSelectionMapper.lockActiveSelectionGroupById(groupId) == null) {
+            throw new IllegalArgumentException("选品组不存在或已被删除。");
         }
-        ProductSelectionSourceCollectionRow sourceCollection =
-                productSelectionMapper.selectSourceCollectionById(sourceCollectionId);
         ProductSelectionGroupRow group = productSelectionMapper.selectGroupById(groupId);
-        requireWritableGroupScope(operatorUserId, storeCode, group, sourceCollection);
-        ProductSelectionGroupMaterialRow material =
-                productSelectionMapper.selectActiveGroupMaterial(groupId, sourceCollectionId);
-        if (material == null) {
-            throw new IllegalArgumentException("选品分析关联不存在或已被删除。");
+        requireWritableGroupScope(operatorUserId, storeCode, group);
+        List<Long> sourceCollectionIds = productSelectionMapper.listActiveGroupSourceCollectionIds(groupId);
+        if (sourceCollectionIds == null) {
+            sourceCollectionIds = List.of();
         }
-        if (productSelectionMapper.softDeleteSelectionGroupMaterial(groupId, sourceCollectionId, operatorUserId) <= 0) {
-            throw new IllegalArgumentException("选品分析关联已变化，请刷新后重试。");
+        for (Long sourceCollectionId : sourceCollectionIds) {
+            if (productSelectionMapper.lockActiveSourceCollectionById(sourceCollectionId) == null) {
+                throw new IllegalArgumentException("选品组中的采集记录不存在或已被删除，请刷新后重试。");
+            }
+            ProductSelectionSourceCollectionRow sourceCollection =
+                    productSelectionMapper.selectSourceCollectionById(sourceCollectionId);
+            requireSourceCollectionInGroupScope(group, sourceCollection);
         }
-        productSelectionMapper.softDeleteAnalysisItemForGroup(groupId, sourceCollectionId, operatorUserId);
-        if (!deleteSourceCollection) {
-            return;
+        productSelectionMapper.softDeleteSelectionGroupMaterials(groupId, operatorUserId);
+        productSelectionMapper.softDeleteAnalysisItemsForGroup(groupId, operatorUserId);
+        if (deleteSourceCollections) {
+            for (Long sourceCollectionId : sourceCollectionIds) {
+                if (productSelectionMapper.countActiveSelectionReferences(sourceCollectionId) > 0) {
+                    throw new ProductSelectionConflictException("选品组中仍有采集数据被其他选品分析引用，不能同时删除采集数据。");
+                }
+                if (productSelectionMapper.softDeleteSourceCollection(sourceCollectionId, operatorUserId) <= 0) {
+                    throw new IllegalArgumentException("选品组中的采集记录已变化，请刷新后重试。");
+                }
+            }
         }
-        if (productSelectionMapper.countActiveSelectionReferences(sourceCollectionId) > 0) {
-            throw new ProductSelectionConflictException("该采集数据仍被其他选品分析引用，不能同时删除。");
-        }
-        if (productSelectionMapper.softDeleteSourceCollection(sourceCollectionId, operatorUserId) <= 0) {
-            throw new IllegalArgumentException("采集记录已变化，请刷新后重试。");
+        productSelectionMapper.softDeleteSelectionGroupCompetitors(groupId, operatorUserId);
+        productSelectionMapper.softDeleteSelectionGroupProcurement(groupId, operatorUserId);
+        productSelectionMapper.softDeleteSelectionGroupProfitSnapshots(groupId, operatorUserId);
+        productSelectionMapper.softDeleteSelectionGroupListing(groupId, operatorUserId);
+        if (productSelectionMapper.softDeleteSelectionGroup(groupId, operatorUserId) <= 0) {
+            throw new IllegalArgumentException("选品分析已变化，请刷新后重试。");
         }
     }
 
@@ -566,24 +578,32 @@ class ProductSelectionGroupService {
     private void requireWritableGroupScope(
             Long operatorUserId,
             String storeCode,
-            ProductSelectionGroupRow group,
-            ProductSelectionSourceCollectionRow sourceCollection
+            ProductSelectionGroupRow group
     ) {
         if (group == null) {
             throw new IllegalArgumentException("选品组不存在或已被删除。");
         }
-        if (sourceCollection == null) {
-            throw new IllegalArgumentException("采集记录不存在或已被删除。");
-        }
         ProductSelectionStoreScope scope = permissionGuard.requireWritableStore(operatorUserId, storeCode);
         String scopeSiteCode = siteCodeFromScope(scope);
         String groupSiteCode = normalizeSiteCode(group.getSiteCode());
+        if (!scope.getLogicalStoreId().equals(group.getLogicalStoreId())
+                || (StringUtils.hasText(scopeSiteCode) && !scopeSiteCode.equals(groupSiteCode))) {
+            throw new ProductSelectionAccessDeniedException("当前店铺站点不能删除该选品分析。");
+        }
+    }
+
+    private void requireSourceCollectionInGroupScope(
+            ProductSelectionGroupRow group,
+            ProductSelectionSourceCollectionRow sourceCollection
+    ) {
+        if (sourceCollection == null) {
+            throw new IllegalArgumentException("选品组中的采集记录不存在或已被删除。");
+        }
+        String groupSiteCode = normalizeSiteCode(group.getSiteCode());
         String sourceSiteCode = normalizeSiteCode(sourceCollection.getSiteCode());
         if (!group.getLogicalStoreId().equals(sourceCollection.getLogicalStoreId())
-                || !scope.getLogicalStoreId().equals(group.getLogicalStoreId())
-                || (StringUtils.hasText(scopeSiteCode) && !scopeSiteCode.equals(groupSiteCode))
-                || (StringUtils.hasText(scopeSiteCode) && !scopeSiteCode.equals(sourceSiteCode))) {
-            throw new ProductSelectionAccessDeniedException("当前店铺站点不能删除该选品分析关联。");
+                || (StringUtils.hasText(groupSiteCode) && !groupSiteCode.equals(sourceSiteCode))) {
+            throw new ProductSelectionAccessDeniedException("选品组包含其他店铺站点的采集数据，不能删除。");
         }
     }
 

@@ -55,7 +55,13 @@ class ProductSelectionMapperSqlTest {
     }
 
     @Test
-    void deleteFlowLocksSourceAndChecksBothAnalysisRelationTables() throws Exception {
+    void deleteFlowLocksGroupAndSourcesAndChecksBothAnalysisRelationTables() throws Exception {
+        Method groupLockMethod = ProductSelectionMapper.class.getMethod("lockActiveSelectionGroupById", Long.class);
+        String groupLockSql = String.join("\n", groupLockMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(groupLockSql)
+                .contains("product_selection_group")
+                .contains("FOR UPDATE");
+
         Method lockMethod = ProductSelectionMapper.class.getMethod("lockActiveSourceCollectionById", Long.class);
         String lockSql = String.join("\n", lockMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
         assertThat(lockSql)
@@ -69,16 +75,21 @@ class ProductSelectionMapperSqlTest {
                 .contains("product_selection_analysis_item")
                 .contains("is_deleted = b'0'");
 
+        Method sourceIdsMethod = ProductSelectionMapper.class.getMethod("listActiveGroupSourceCollectionIds", Long.class);
+        String sourceIdsSql = String.join("\n", sourceIdsMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(sourceIdsSql)
+                .contains("product_selection_group_material")
+                .contains("product_selection_analysis_item")
+                .contains("COALESCE(item.project_id, item.id) = #{groupId}");
+
         Method deleteMethod = ProductSelectionMapper.class.getMethod(
-                "softDeleteSelectionGroupMaterial",
-                Long.class,
+                "softDeleteSelectionGroupMaterials",
                 Long.class,
                 Long.class
         );
         String deleteSql = String.join("\n", deleteMethod.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
         assertThat(deleteSql)
                 .contains("group_id = #{groupId}")
-                .contains("source_collection_id = #{sourceCollectionId}")
                 .contains("is_deleted = b'0'");
     }
 
