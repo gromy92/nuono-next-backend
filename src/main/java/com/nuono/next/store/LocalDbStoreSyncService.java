@@ -1,6 +1,5 @@
 package com.nuono.next.store;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
@@ -255,37 +254,51 @@ public class LocalDbStoreSyncService {
         if (project == null) {
             throw new IllegalArgumentException("店铺不存在或无权访问: " + storeCode);
         }
+        StoreSyncStoreRecord capabilityStore = storeSyncMapper.selectOwnerStore(ownerUserId, storeCode);
+        if (capabilityStore == null) {
+            capabilityStore = storeSyncMapper.selectOwnerProjectionStore(ownerUserId, storeCode);
+        }
+        if (capabilityStore == null) {
+            capabilityStore = project;
+        }
 
         String cookie = normalize(project.getNoonPartnerCookie());
-        StoreSyncOwnerContext owner = null;
+        StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(ownerUserId);
         if (!StringUtils.hasText(cookie)) {
-            owner = storeSyncMapper.selectOwnerContext(ownerUserId);
             cookie = owner == null ? null : normalize(owner.getNoonPartnerCookie());
         }
+        String noonUser = firstNonBlank(
+                capabilityStore.getNoonPartnerUser(),
+                capabilityStore.getNoonPartnerProjectUser(),
+                owner == null ? null : owner.getNoonPartnerUser(),
+                owner == null ? null : owner.getNoonPartnerProjectUser()
+        );
+        String capabilityStoreCode = firstNonBlank(capabilityStore.getStoreCode(), project.getStoreCode());
 
         NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
         try {
-            JsonNode whoami = null;
             String effectiveCookie = cookie;
+            boolean connected = false;
             if (StringUtils.hasText(cookie)) {
                 try {
-                    whoami = noonSessionGateway.whoamiWithCookie(
+                    noonSessionGateway.validateCatalogSessionWithCookie(
                             cookie,
                             project.getProjectCode(),
-                            project.getStoreCode()
+                            capabilityStoreCode,
+                            noonUser
                     );
+                    connected = true;
                 } catch (Exception ignored) {
-                    whoami = null;
+                    connected = false;
                 }
             }
 
-            boolean connected = isWhoamiConnected(whoami);
             if (connected) {
                 storeSyncMapper.updateProjectConnectionSuccess(project.getId(), ownerUserId, effectiveCookie, ownerUserId);
             }
             StoreConnectionTestResult result = connected
-                    ? StoreConnectionTestResult.succeeded("连接正常")
-                    : StoreConnectionTestResult.failed("连接暂不可用，会话待恢复，请稍后重试。");
+                    ? StoreConnectionTestResult.succeeded("连接正常（Sales DP/商品域已验证）")
+                    : StoreConnectionTestResult.failed("基础登录或 Sales DP/商品域暂不可用，会话待恢复，请稍后重试。");
             result.setNoonRequestCounts(new LinkedHashMap<>(requestCountScope.snapshot()));
             return result;
         } catch (Exception exception) {
@@ -306,12 +319,6 @@ public class LocalDbStoreSyncService {
             return "连接失败：Noon 当前限制测试服务器登录频率，请稍后重试或重新绑定账号。";
         }
         return "连接暂不可用，会话待恢复，请稍后重试。";
-    }
-
-    private boolean isWhoamiConnected(JsonNode whoami) {
-        return whoami != null
-                && whoami.hasNonNull("email")
-                && StringUtils.hasText(whoami.get("email").asText());
     }
 
     private Long resolveOwnerId(List<StoreSyncOwnerOption> ownerOptions, Long ownerUserId) {

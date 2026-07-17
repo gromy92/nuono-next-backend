@@ -298,6 +298,34 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldClassifyCatalogLoginRedirectAsAuthRequired() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer()) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+            NoonSessionGateway.NoonSession session = gateway.loginWithPersistedCookie(
+                    308L,
+                    "merchant@example.com",
+                    "sid=valid",
+                    "PRJ313934",
+                    "STR313934-NAE"
+            );
+
+            NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
+                    NoonSessionGateway.NoonCookieAuthRequiredException.class,
+                    () -> session.postJson(
+                            server.url("/catalog-redirect"),
+                            objectMapper.createObjectNode(),
+                            true
+                    )
+            );
+
+            assertTrue(exception.getMessage().contains("auth_required"));
+            assertTrue(exception.getMessage().contains("307"));
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
     void shouldPreserveRateLimitClassificationWhenCookieValidationIsThrottled() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         try (AuthRefreshServer server = new AuthRefreshServer(429)) {
@@ -831,7 +859,7 @@ class NoonSessionGatewayTest {
     }
 
     private NoonSessionGateway identityGateway(StoreSyncMapper mapper, AuthRefreshServer server) {
-        return new NoonSessionGateway(
+        NoonSessionGateway gateway = new NoonSessionGateway(
                 objectMapper,
                 mapper,
                 false,
@@ -857,6 +885,8 @@ class NoonSessionGatewayTest {
                 0,
                 ""
         );
+        gateway.setCatalogCapabilityProbeUrl(server.url("/catalog"));
+        return gateway;
     }
 
     private static final class AuthRefreshServer implements AutoCloseable {
@@ -924,6 +954,18 @@ class NoonSessionGatewayTest {
                     } else {
                         sendJson(exchange, 403, "{\"message\":\"invalid session\"}", null);
                     }
+                    return;
+                }
+                if ("/catalog-redirect".equals(path)) {
+                    exchange.getResponseHeaders().set(
+                            "Location",
+                            "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
+                    );
+                    sendJson(exchange, 307, "temporary redirect", null);
+                    return;
+                }
+                if ("/catalog".equals(path)) {
+                    sendJson(exchange, 200, "{\"data\":{\"hits\":[],\"total\":0}}", null);
                     return;
                 }
                 if ("/lookup".equals(path)) {

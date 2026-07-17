@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -243,8 +244,14 @@ class LocalDbStoreSyncServiceTest {
         project.setNoonPartnerCookie("sid=expired");
         when(noonSessionGateway.openRequestCountScope()).thenReturn(requestCountScope());
         when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(project);
-        when(noonSessionGateway.whoamiWithCookie("sid=expired", "PRJ7001", "PRJ7001"))
-                .thenThrow(new IllegalStateException("auth_required"));
+        doThrow(new IllegalStateException("auth_required"))
+                .when(noonSessionGateway)
+                .validateCatalogSessionWithCookie(
+                        "sid=expired",
+                        "PRJ7001",
+                        "PRJ7001",
+                        "merchant@example.com"
+                );
 
         LocalDbStoreSyncService.StoreConnectionTestResult result = service.testConnection(307L, "PRJ7001");
 
