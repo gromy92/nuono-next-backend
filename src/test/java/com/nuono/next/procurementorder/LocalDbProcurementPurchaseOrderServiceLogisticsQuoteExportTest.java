@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import java.io.ByteArrayInputStream;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -35,6 +36,52 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
                 );
 
         assertEquals(List.of(pending, confirmed), reportLines);
+    }
+
+    @Test
+    void reportLinesCanExportOnlyPendingQuotesForSelectedRoute() {
+        ForwarderRouteRecommendationRecord route = new ForwarderRouteRecommendationRecord();
+        route.siteCode = "SA";
+        route.transportMode = "SEA";
+
+        PurchaseOrderLogisticsQuoteLineRecord pending = line("PENDING_QUOTE", "SA", "SEA");
+        PurchaseOrderLogisticsQuoteLineRecord confirmed = line("CONFIRMED", "SA", "SEA");
+        PurchaseOrderLogisticsQuoteLineRecord otherRoute = line("PENDING_QUOTE", "AE", "SEA");
+
+        List<PurchaseOrderLogisticsQuoteLineRecord> reportLines =
+                LocalDbProcurementPurchaseOrderService.logisticsQuoteReportLines(
+                        List.of(pending, confirmed, otherRoute),
+                        route,
+                        true
+                );
+
+        assertEquals(List.of(pending), reportLines);
+    }
+
+    @Test
+    void reportLinesCanExportOnlyPendingQuotesForSelectedChannelCoverage() {
+        ForwarderRouteRecommendationRecord route = new ForwarderRouteRecommendationRecord();
+        route.siteCode = "SA";
+        route.transportMode = "SEA";
+
+        PurchaseOrderLogisticsQuoteLineRecord missingForSelectedChannel = line("CONFIRMED", "SA", "SEA");
+        missingForSelectedChannel.shippingOrderLineId = 101L;
+        PurchaseOrderLogisticsQuoteLineRecord confirmedForSelectedChannel = line("CONFIRMED", "SA", "SEA");
+        confirmedForSelectedChannel.shippingOrderLineId = 102L;
+
+        PurchaseOrderLogisticsQuoteChannelLineView pendingQuote = channelQuote("101", "PENDING_QUOTE");
+        PurchaseOrderLogisticsQuoteChannelLineView confirmedQuote = channelQuote("102", "CONFIRMED");
+
+        List<PurchaseOrderLogisticsQuoteLineRecord> reportLines =
+                LocalDbProcurementPurchaseOrderService.logisticsQuoteReportLines(
+                        List.of(missingForSelectedChannel, confirmedForSelectedChannel),
+                        route,
+                        List.of(pendingQuote, confirmedQuote),
+                        true
+                );
+
+        assertEquals(List.of(missingForSelectedChannel), reportLines);
+        assertEquals("PENDING_QUOTE", missingForSelectedChannel.quoteStatus);
     }
 
     @Test
@@ -89,5 +136,12 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
         line.siteCode = siteCode;
         line.plannedTransportMode = transportMode;
         return line;
+    }
+
+    private PurchaseOrderLogisticsQuoteChannelLineView channelQuote(String shippingOrderLineId, String quoteStatus) {
+        PurchaseOrderLogisticsQuoteChannelLineView quote = new PurchaseOrderLogisticsQuoteChannelLineView();
+        quote.shippingOrderLineId = shippingOrderLineId;
+        quote.quoteStatus = quoteStatus;
+        return quote;
     }
 }

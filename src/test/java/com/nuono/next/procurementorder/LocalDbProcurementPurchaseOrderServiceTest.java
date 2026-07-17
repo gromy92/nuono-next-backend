@@ -23,8 +23,11 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.ItemComm
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.ShippingOrderSegmentScopeCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.SiteQuantityCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateItemCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateItemSourcingRequirementCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineYiteMaterialCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineQuoteCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineQuotesCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderBasePriceRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
@@ -112,6 +115,8 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         lenient().when(mapper.nextLogisticsExpectedBillComponentId()).thenReturn(340001L);
         lenient().when(mapper.nextLogisticsBillReconciliationId()).thenReturn(360001L);
         lenient().when(mapper.listRouteSegments(any())).thenReturn(List.of());
+        lenient().when(mapper.selectOrderByIdForUpdate(anyLong()))
+                .thenAnswer(invocation -> mapper.selectOrderById(invocation.getArgument(0)));
     }
 
     @Test
@@ -144,7 +149,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
-    void listLogisticsQuoteOptionsReturnsSupportedForwarderChannelsForUnconfirmedLines() {
+    void listLogisticsQuoteOptionsReturnsAllForwarderChannelsAndMarksUnsupportedTemplates() {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         PurchaseOrderLogisticsQuoteLineRecord candidate = quoteLine(null, "PENDING_QUOTE", "NOT_SUBMITTED");
         candidate.plannedTransportMode = "SEA";
@@ -162,17 +167,27 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 service.listLogisticsQuoteOptions(access(), "200001");
 
         assertThat(options.purchaseOrderId).isEqualTo("200001");
-        assertThat(options.forwarders).hasSize(1);
+        assertThat(options.forwarders).hasSize(2);
         assertThat(options.unsupportedChannelCount).isEqualTo(1);
-        assertThat(options.forwarders.get(0).forwarderCode).isEqualTo("YT");
-        assertThat(options.forwarders.get(0).forwarderName).isEqualTo("义特物流");
-        assertThat(options.forwarders.get(0).templateType).isEqualTo("YITE_B2B_SINGLE_TICKET");
-        assertThat(options.forwarders.get(0).channels).hasSize(1);
-        assertThat(options.forwarders.get(0).channels.get(0).routeCode).isEqualTo("YT-SAU-SEA-FBN-RUH");
-        assertThat(options.forwarders.get(0).channels.get(0).siteCode).isEqualTo("SA");
-        assertThat(options.forwarders.get(0).channels.get(0).transportMode).isEqualTo("SEA");
-        assertThat(options.forwarders.get(0).channels.get(0).pendingLineCount).isEqualTo(1);
-        assertThat(options.forwarders.get(0).channels.get(0).newProductLineCount).isEqualTo(1);
+        assertThat(options.forwarders).anySatisfy(forwarder -> {
+            assertThat(forwarder.forwarderCode).isEqualTo("YT");
+            assertThat(forwarder.forwarderName).isEqualTo("义特物流");
+            assertThat(forwarder.templateType).isEqualTo("YITE_B2B_SINGLE_TICKET");
+            assertThat(forwarder.channels).hasSize(1);
+            assertThat(forwarder.channels.get(0).routeCode).isEqualTo("YT-SAU-SEA-FBN-RUH");
+            assertThat(forwarder.channels.get(0).siteCode).isEqualTo("SA");
+            assertThat(forwarder.channels.get(0).transportMode).isEqualTo("SEA");
+            assertThat(forwarder.channels.get(0).pendingLineCount).isEqualTo(1);
+            assertThat(forwarder.channels.get(0).newProductLineCount).isEqualTo(1);
+        });
+        assertThat(options.forwarders).anySatisfy(forwarder -> {
+            assertThat(forwarder.forwarderCode).isEqualTo("ZD");
+            assertThat(forwarder.forwarderName).isEqualTo("众鸫供应链");
+            assertThat(forwarder.templateType).isNull();
+            assertThat(forwarder.templateName).isNull();
+            assertThat(forwarder.channels).hasSize(1);
+            assertThat(forwarder.channels.get(0).routeCode).isEqualTo("ZD-SAU-SEA-FBN-RUH");
+        });
     }
 
     @Test
@@ -842,13 +857,22 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
-    void submitOrderMarksPurchaseOrderSubmitted() {
+    void listAssignedPurchaseOrderIdsReturnsAllActiveAssignments() {
+        when(mapper.listAssignedPurchaseOrderIds(307L)).thenReturn(List.of(200001L, 200087L));
+
+        List<String> orderIds = service.listAssignedPurchaseOrderIds(access());
+
+        assertThat(orderIds).containsExactly("200001", "200087");
+    }
+
+    @Test
+    void submitOrderAllowsEmptyPurchaseTextWhenProductSpecsAreComplete() {
         PurchaseOrderRecord before = order("SGGR-0607", "人工补货");
         PurchaseOrderRecord after = order("SGGR-0607", "人工补货");
         after.status = "SUBMITTED";
         PurchaseOrderItemRecord item = item();
-        item.sourcingSpecText = "拉链款";
         item.totalQuantity = 30;
+        fillSubmitRequiredProductProfile(item);
         ProductArchiveRecord product = sealReadyProduct(item.productVariantId, item.partnerSku);
         when(mapper.selectOrderById(200001L)).thenReturn(before, after);
         when(mapper.submitOrder(200001L, 307L)).thenReturn(1);
@@ -869,6 +893,82 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 eq(307L),
                 eq("READY"),
                 eq("SUBMITTED"),
+                isNull()
+        );
+    }
+
+    @Test
+    void submitOrderAllowsMissingCartonSpecsAndReportsThemSeparately() {
+        PurchaseOrderRecord before = order("SGGR-0607", "人工补货");
+        PurchaseOrderRecord after = order("SGGR-0607", "人工补货");
+        after.status = "SUBMITTED";
+        PurchaseOrderItemRecord item = item();
+        item.totalQuantity = 2;
+        fillSubmitRequiredProductProfile(item);
+        item.cartonLengthCm = null;
+        item.cartonWidthCm = null;
+        item.cartonHeightCm = null;
+        item.cartonWeightKg = null;
+        item.cartonQuantity = null;
+        ProductArchiveRecord product = sealReadyProduct(item.productVariantId, item.partnerSku);
+        product.cartonLengthCm = null;
+        product.cartonWidthCm = null;
+        product.cartonHeightCm = null;
+        product.cartonWeightKg = null;
+        product.cartonQuantity = null;
+
+        when(mapper.selectOrderById(200001L)).thenReturn(before, after);
+        when(mapper.submitOrder(200001L, 307L)).thenReturn(1);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow("SA", "AIR", 2)));
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(item));
+        when(mapper.selectProductArchiveByVariant(301L, item.productVariantId)).thenReturn(product);
+
+        PurchaseOrderView view = service.submitOrder(access(), "200001");
+
+        assertThat(view.status).isEqualTo("submitted");
+        assertThat(view.items).singleElement().satisfies(itemView -> {
+            assertThat(itemView.productSpecComplete).isTrue();
+            assertThat(itemView.cartonSpecComplete).isFalse();
+            assertThat(itemView.logisticsAttributeComplete).isTrue();
+        });
+        verify(mapper).submitOrder(200001L, 307L);
+    }
+
+    @Test
+    void updateItemSourcingRequirementSyncsPurchaseSpecToAli1688SpecText() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderItemRecord item = item();
+        PurchaseOrderItemRecord updatedItem = item();
+        updatedItem.sourcingSpecText = "拉链款";
+        updatedItem.sourcingSizeText = "20cm";
+        updatedItem.sourcingColorText = "红色";
+        UpdateItemSourcingRequirementCommand command = new UpdateItemSourcingRequirementCommand();
+        command.sourcingSpec = "  拉链款  ";
+        command.sourcingSize = "20cm";
+        command.sourcingColor = "红色";
+
+        when(mapper.selectOrderById(200001L)).thenReturn(order, order);
+        when(mapper.selectItemById(210001L)).thenReturn(item);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of());
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(updatedItem));
+
+        PurchaseOrderView view = service.updateItemSourcingRequirement(access(), "200001", "210001", command);
+
+        assertThat(view.items).hasSize(1);
+        assertThat(view.items.get(0).sourcingSpec).isEqualTo("拉链款");
+        assertThat(view.items.get(0).sourcingSize).isEqualTo("20cm");
+        assertThat(view.items.get(0).sourcingColor).isEqualTo("红色");
+        verify(mapper).updateProductVariantAli1688SpecText(320001L, 301L, "SGGRB115", "拉链款 / 20cm / 红色", 307L);
+        verify(mapper).insertOperationLog(
+                eq(240001L),
+                eq(200001L),
+                eq(210001L),
+                eq("UPDATE_ITEM_SOURCING_REQUIREMENT"),
+                eq(307L),
+                isNull(),
+                isNull(),
                 isNull()
         );
     }
@@ -901,9 +1001,41 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         assertThatThrownBy(() -> service.submitOrder(access(), "200001"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("缺少封存必填信息")
-                .hasMessageContaining("采购规格缺失")
                 .hasMessageContaining("运输方式未指定")
                 .hasMessageContaining("商品尺寸缺失");
+        verify(mapper, never()).submitOrder(anyLong(), anyLong());
+    }
+
+    @Test
+    void submitOrderRejectsMissingProductSpecAndLogisticsAttributes() {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
+        PurchaseOrderItemRecord item = item();
+        item.sourcingSpecText = "拉链款";
+        item.totalQuantity = 30;
+        item.productLengthCm = new BigDecimal("12");
+        item.productWidthCm = null;
+        item.productHeightCm = new BigDecimal("3");
+        item.productWeightG = null;
+        item.logisticsProfileStatus = "needs_review";
+        item.batteryType = "unknown";
+        item.magneticType = "none";
+        item.liquidPowderType = "none";
+        item.electricType = "none";
+        item.bladeWeaponType = "none";
+        item.manualConfirmRequired = true;
+        ProductArchiveRecord product = sealReadyProduct(item.productVariantId, item.partnerSku);
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(item));
+        when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow("SA", "AIR", 30)));
+        when(mapper.selectProductArchiveByVariant(301L, item.productVariantId)).thenReturn(product);
+
+        assertThatThrownBy(() -> service.submitOrder(access(), "200001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("商品资料未补齐")
+                .hasMessageContaining("SGGRB115")
+                .hasMessageContaining("长宽高")
+                .hasMessageContaining("重量")
+                .hasMessageContaining("商品属性");
         verify(mapper, never()).submitOrder(anyLong(), anyLong());
     }
 
@@ -1070,43 +1202,133 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
-    void submitShippingOrderSegmentAllowsPendingQuotes() {
+    void submitShippingOrderRejectsPendingQuotesOutsideRequestedSegmentScope() {
         ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
-        ProcurementPurchaseOrderRecords.ShippingOrderRecord next = shippingOrder();
-        next.shippingSubmitStatus = "PARTIAL_SUBMITTED";
-        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
-        command.segmentIds = List.of("292001");
-        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
-        line.shippingOrderId = 290001L;
-        line.shippingOrderSegmentId = 292001L;
-        line.forwarderCode = "ET";
+        PurchaseOrderLogisticsQuoteLineRecord confirmed = quoteLine(280001L, "CONFIRMED", "NOT_SUBMITTED");
+        confirmed.shippingOrderId = 290001L;
+        confirmed.shippingOrderSegmentId = 292001L;
+        confirmed.forwarderCode = "ET";
+        confirmed.routeCode = "ET-SAU-AIR-FBN-RUH-20260604";
+        PurchaseOrderLogisticsQuoteLineRecord pending = quoteLine(280002L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        pending.shippingOrderId = 290001L;
+        pending.shippingOrderSegmentId = 292002L;
+        pending.forwarderCode = "YT";
+        pending.routeCode = "YT-SAU-SEA-FBN-RUH";
+        ShippingOrderSegmentRecord airSegment = shippingOrderSegment(292001L, "SA", "AIR");
+        airSegment.forwarderCode = "ET";
+        airSegment.routeCode = "ET-SAU-AIR-FBN-RUH-20260604";
+        ShippingOrderSegmentRecord seaSegment = shippingOrderSegment(292002L, "SA", "SEA");
+        seaSegment.forwarderCode = "YT";
+        seaSegment.routeCode = "YT-SAU-SEA-FBN-RUH";
 
-        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder, next);
-        when(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(290001L, List.of(292001L))).thenReturn(List.of(line));
-        when(mapper.submitLogisticsQuoteLinesForShippingOrderSegments(290001L, List.of(292001L), 307L)).thenReturn(1);
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(airSegment, seaSegment));
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(confirmed, pending));
 
-        ShippingOrderSubmitView view = service.submitShippingOrder(access(), "290001", command);
+        assertThatThrownBy(() -> service.submitShippingOrder(access(), "290001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("物流报价缺失");
 
-        assertThat(view.shippingOrderId).isEqualTo("290001");
-        assertThat(view.submittedLineCount).isEqualTo(1);
-        verify(mapper).submitLogisticsQuoteLinesForShippingOrderSegments(290001L, List.of(292001L), 307L);
+        verify(mapper, never()).submitLogisticsQuoteLinesForShippingOrder(anyLong(), anyLong());
+        verify(mapper, never()).markShippingOrderSubmitted(anyLong(), anyLong(), anyLong());
     }
 
     @Test
-    void submitShippingOrderSegmentRejectsMissingYiteMaterial() {
+    void submitShippingOrderRejectsQuotesConfirmedForAnotherChannelAcrossWholeOrder() {
         ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
-        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
-        command.segmentIds = List.of("292001");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "CONFIRMED", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderSegmentId = 292001L;
+        line.forwarderCode = "ET";
+        line.routeCode = "ET-SAU-SEA-FBN-RUH-20260604";
+        ShippingOrderSegmentRecord segment = shippingOrderSegment(292001L, "SA", "SEA");
+        segment.forwarderCode = "YT";
+        segment.routeCode = "YT-SAU-SEA-FBN-RUH";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(segment));
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
+
+        assertThatThrownBy(() -> service.submitShippingOrder(access(), "290001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("物流报价缺失");
+
+        verify(mapper, never()).submitLogisticsQuoteLinesForShippingOrder(anyLong(), anyLong());
+    }
+
+    @Test
+    void submitShippingOrderAtomicallySubmitsWholeOrder() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord zdLine = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        zdLine.shippingOrderId = 290001L;
+        zdLine.shippingOrderSegmentId = 292001L;
+        zdLine.forwarderCode = "ZD";
+        zdLine.forwarderName = "众鸫供应链";
+        zdLine.routeCode = "ZD-SAU-AIR-FBN-RUH";
+        PurchaseOrderLogisticsQuoteLineRecord etLine = quoteLine(280002L, "CONFIRMED", "NOT_SUBMITTED");
+        etLine.shippingOrderId = 290001L;
+        etLine.shippingOrderSegmentId = 292002L;
+        etLine.forwarderCode = "ET";
+        etLine.routeCode = "ET-SAU-SEA-FBN-RUH-20260604";
+        ShippingOrderSegmentRecord airSegment = shippingOrderSegment(292001L, "SA", "AIR");
+        airSegment.forwarderCode = "ZD";
+        airSegment.routeCode = "ZD-SAU-AIR-FBN-RUH";
+        ShippingOrderSegmentRecord seaSegment = shippingOrderSegment(292002L, "SA", "SEA");
+        seaSegment.forwarderCode = "ET";
+        seaSegment.routeCode = "ET-SAU-SEA-FBN-RUH-20260604";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(airSegment, seaSegment));
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(zdLine, etLine));
+        when(mapper.submitLogisticsQuoteLinesForShippingOrder(290001L, 307L)).thenReturn(2);
+
+        ShippingOrderSubmitView view = service.submitShippingOrder(access(), "290001");
+
+        assertThat(view.shippingOrderId).isEqualTo("290001");
+        assertThat(view.shippingSubmitStatus).isEqualTo("SUBMITTED");
+        assertThat(view.submittedLineCount).isEqualTo(2);
+        verify(mapper).submitLogisticsQuoteLinesForShippingOrder(290001L, 307L);
+        verify(mapper).markShippingOrderSegmentsSubmitted(290001L, 307L, 307L);
+        verify(mapper).markShippingOrderSubmitted(290001L, 307L, 307L);
+    }
+
+    @Test
+    void submitShippingOrderWithoutSegmentsRejectsPendingQuotes() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.forwarderCode = "ET";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of());
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
+
+        assertThatThrownBy(() -> service.submitShippingOrder(access(), "290001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("物流报价缺失");
+
+        verify(mapper, never()).submitLogisticsQuoteLinesForShippingOrder(anyLong(), anyLong());
+        verify(mapper, never()).markShippingOrderSubmitted(anyLong(), anyLong(), anyLong());
+    }
+
+    @Test
+    void submitShippingOrderRejectsMissingYiteMaterialAcrossWholeOrder() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
         PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "CONFIRMED", "NOT_SUBMITTED");
         line.shippingOrderId = 290001L;
         line.shippingOrderSegmentId = 292001L;
         line.forwarderCode = "YT";
+        line.routeCode = "YT-SAU-SEA-FBN-RUH";
         line.yiteMaterial = null;
+        ShippingOrderSegmentRecord segment = shippingOrderSegment(292001L, "SA", "SEA");
+        segment.forwarderCode = "YT";
+        segment.routeCode = "YT-SAU-SEA-FBN-RUH";
 
         when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
-        when(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(290001L, List.of(292001L))).thenReturn(List.of(line));
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(segment));
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
 
-        assertThatThrownBy(() -> service.submitShippingOrder(access(), "290001", command))
+        assertThatThrownBy(() -> service.submitShippingOrder(access(), "290001"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("义特材质缺失");
     }
@@ -1276,6 +1498,300 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
+    void updateShippingOrderLineQuotePersistsSelectedProductChannelQuote() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        ShippingOrderLineRecord shippingLine = shippingOrderLine();
+        shippingLine.shippingOrderSegmentId = 292001L;
+        shippingLine.plannedTransportMode = "AIR";
+        PurchaseOrderLogisticsQuoteLineRecord quoteLine = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        quoteLine.shippingOrderId = 290001L;
+        quoteLine.shippingOrderNo = "SO-290001";
+        quoteLine.shippingOrderSegmentId = 292001L;
+        quoteLine.shippingOrderLineId = 291001L;
+        quoteLine.plannedTransportMode = "AIR";
+        UpdateShippingOrderLineQuoteCommand command = new UpdateShippingOrderLineQuoteCommand();
+        command.forwarderCode = "QIKE";
+        command.routeCode = "QIKE-SAU-AIR-FBN-RUH-20260523";
+        command.currency = "CNY";
+        command.billingUnit = "KG";
+        command.unitPrice = new BigDecimal("67.50");
+        command.remark = "行内维护";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder, shippingOrder);
+        when(mapper.selectShippingOrderLineById(290001L, 291001L, 307L)).thenReturn(shippingLine);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(quoteLine));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "AIR")).thenReturn(List.of(
+                routeCandidate("AIR", "QIKE-SAU-AIR-FBN-RUH-20260523", "QIKE", "启客物流",
+                        "QIKE-SAU-AIR-FBN-RUH-20260523", "启客沙特空运双清 + FBN利雅得送仓 20260523", "CNY", "67.50", "KG", null)
+        ));
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "AIR")));
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(shippingLine));
+
+        ShippingOrderView view = service.updateShippingOrderLineQuote(access(), "290001", "291001", command);
+
+        assertThat(view.id).isEqualTo("290001");
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> quoteCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(quoteCaptor.capture(), eq(307L));
+        assertThat(quoteCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(quoteCaptor.getValue().forwarderCode).isEqualTo("QIKE");
+        assertThat(quoteCaptor.getValue().routeCode).isEqualTo("QIKE-SAU-AIR-FBN-RUH-20260523");
+        assertThat(quoteCaptor.getValue().unitPrice).isEqualByComparingTo("67.50");
+        assertThat(quoteCaptor.getValue().billingUnit).isEqualTo("KG");
+
+        ArgumentCaptor<ProductForwarderChannelQuoteRecord> productQuoteCaptor =
+                ArgumentCaptor.forClass(ProductForwarderChannelQuoteRecord.class);
+        verify(mapper).markHistoricalProductForwarderChannelQuote(
+                eq(307L),
+                eq("STR69486-NSA"),
+                eq(301L),
+                eq("SGGRB115"),
+                eq(320001L),
+                eq("QIKE"),
+                eq("SA"),
+                eq("QIKE-SAU-AIR-FBN-RUH-20260523"),
+                eq("QIKE-SAU-AIR-FBN-RUH-20260523"),
+                eq("KG"),
+                eq(307L)
+        );
+        verify(mapper).insertProductForwarderChannelQuote(productQuoteCaptor.capture(), eq(307L));
+        assertThat(productQuoteCaptor.getValue().sourceType).isEqualTo("SHIPPING_ORDER_INLINE_QUOTE");
+        assertThat(productQuoteCaptor.getValue().sourceShippingOrderLineId).isEqualTo(291001L);
+        assertThat(productQuoteCaptor.getValue().unitPrice).isEqualByComparingTo("67.50");
+        verify(mapper).refreshShippingOrderQuoteState(290001L, quoteCaptor.getValue(), 307L);
+        verify(mapper).refreshShippingOrderSegmentState(290001L, List.of(292001L), quoteCaptor.getValue(), 307L);
+        verify(mapper).refreshShippingOrderHeaderState(290001L, 307L, 307L);
+    }
+
+    @Test
+    void updateShippingOrderLineQuotesPersistsSelectedProductChannelQuoteForAllSelectedLines() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        ShippingOrderLineRecord firstLine = shippingOrderLine();
+        firstLine.shippingOrderSegmentId = 292001L;
+        firstLine.plannedTransportMode = "AIR";
+        ShippingOrderLineRecord secondLine = shippingOrderLine();
+        secondLine.id = 291002L;
+        secondLine.purchaseOrderItemSiteId = 220003L;
+        secondLine.partnerSku = "SGGRB116";
+        secondLine.pskuCode = "SGGRB116";
+        secondLine.shippingOrderSegmentId = 292001L;
+        secondLine.plannedTransportMode = "AIR";
+        PurchaseOrderLogisticsQuoteLineRecord firstQuoteLine = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        firstQuoteLine.shippingOrderId = 290001L;
+        firstQuoteLine.shippingOrderNo = "SO-290001";
+        firstQuoteLine.shippingOrderSegmentId = 292001L;
+        firstQuoteLine.shippingOrderLineId = 291001L;
+        firstQuoteLine.plannedTransportMode = "AIR";
+        PurchaseOrderLogisticsQuoteLineRecord secondQuoteLine = quoteLine(280002L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        secondQuoteLine.purchaseOrderItemSiteId = 220003L;
+        secondQuoteLine.partnerSku = "SGGRB116";
+        secondQuoteLine.pskuCode = "SGGRB116";
+        secondQuoteLine.shippingOrderId = 290001L;
+        secondQuoteLine.shippingOrderNo = "SO-290001";
+        secondQuoteLine.shippingOrderSegmentId = 292001L;
+        secondQuoteLine.shippingOrderLineId = 291002L;
+        secondQuoteLine.plannedTransportMode = "AIR";
+        UpdateShippingOrderLineQuotesCommand command = new UpdateShippingOrderLineQuotesCommand();
+        command.lineIds = List.of("291001", "291002");
+        command.forwarderCode = "QIKE";
+        command.routeCode = "QIKE-SAU-AIR-FBN-RUH-20260523";
+        command.currency = "CNY";
+        command.billingUnit = "KG";
+        command.unitPrice = new BigDecimal("67.50");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder, shippingOrder);
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(firstLine, secondLine));
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(firstQuoteLine, secondQuoteLine));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "AIR")).thenReturn(List.of(
+                routeCandidate("AIR", "QIKE-SAU-AIR-FBN-RUH-20260523", "QIKE", "启客物流",
+                        "QIKE-SAU-AIR-FBN-RUH-20260523", "启客沙特空运双清 + FBN利雅得送仓 20260523", "CNY", "67.50", "KG", null)
+        ));
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "AIR")));
+
+        ShippingOrderView view = service.updateShippingOrderLineQuotes(access(), "290001", command);
+
+        assertThat(view.id).isEqualTo("290001");
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> quoteCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper, org.mockito.Mockito.times(2)).confirmLogisticsQuoteLine(quoteCaptor.capture(), eq(307L));
+        assertThat(quoteCaptor.getAllValues())
+                .extracting(line -> line.shippingOrderLineId, line -> line.quoteStatus, line -> line.forwarderCode, line -> line.unitPrice)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(291001L, "CONFIRMED", "QIKE", new BigDecimal("67.50")),
+                        org.assertj.core.groups.Tuple.tuple(291002L, "CONFIRMED", "QIKE", new BigDecimal("67.50"))
+                );
+        verify(mapper, org.mockito.Mockito.times(2)).insertProductForwarderChannelQuote(any(), eq(307L));
+        verify(mapper).refreshShippingOrderQuoteState(290001L, quoteCaptor.getAllValues().get(0), 307L);
+        verify(mapper).refreshShippingOrderSegmentState(290001L, List.of(292001L), quoteCaptor.getAllValues().get(0), 307L);
+        verify(mapper).refreshShippingOrderHeaderState(290001L, 307L, 307L);
+    }
+
+    @Test
+    void updateShippingOrderLineQuotesAllowsMissingYiteMaterialAndPreservesExistingValues() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        ShippingOrderLineRecord shippingLine = shippingOrderLine();
+        shippingLine.shippingOrderSegmentId = 292001L;
+        shippingLine.plannedTransportMode = "SEA";
+        shippingLine.yiteMaterial = "塑料";
+        PurchaseOrderLogisticsQuoteLineRecord quoteLine = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        quoteLine.shippingOrderId = 290001L;
+        quoteLine.shippingOrderNo = "SO-290001";
+        quoteLine.shippingOrderSegmentId = 292001L;
+        quoteLine.shippingOrderLineId = 291001L;
+        quoteLine.plannedTransportMode = "SEA";
+        quoteLine.yiteMaterial = "塑料";
+        UpdateShippingOrderLineQuotesCommand command = new UpdateShippingOrderLineQuotesCommand();
+        command.lineIds = List.of("291001");
+        command.forwarderCode = "YT";
+        command.routeCode = "YT-SAU-SEA-FBN-RUH";
+        command.currency = "CNY";
+        command.billingUnit = "CBM";
+        command.unitPrice = new BigDecimal("1390.00");
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder, shippingOrder);
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(shippingLine));
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(quoteLine));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA")).thenReturn(List.of(
+                routeCandidate("SEA", "YT-SAU-SEA-FBN-RUH", "YT", "义特物流",
+                        "YT-SAU-SEA-FBN-RUH", "义特沙特海运双清包税 + FBN利雅得送仓", "CNY", "1390.00", "CBM", null)
+        ));
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "SEA")));
+
+        ShippingOrderView view = service.updateShippingOrderLineQuotes(access(), "290001", command);
+
+        assertThat(view.id).isEqualTo("290001");
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> quoteCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(quoteCaptor.capture(), eq(307L));
+        assertThat(quoteCaptor.getValue().forwarderCode).isEqualTo("YT");
+        assertThat(quoteCaptor.getValue().unitPrice).isEqualByComparingTo("1390.00");
+        assertThat(quoteCaptor.getValue().yiteMaterial).isEqualTo("塑料");
+        verify(mapper, never()).updateShippingOrderLineYiteMaterial(anyLong(), anyLong(), anyLong(), anyString(), anyLong());
+        verify(mapper, never()).upsertProductForwarderDeclarationAttribute(any(), anyLong());
+    }
+
+    @Test
+    void updateShippingOrderLineQuotePersistsYiteMaterialInSameDatabaseAction() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        ShippingOrderLineRecord shippingLine = shippingOrderLine();
+        shippingLine.shippingOrderSegmentId = 292001L;
+        shippingLine.plannedTransportMode = "SEA";
+        shippingLine.yiteMaterial = null;
+        PurchaseOrderLogisticsQuoteLineRecord quoteLine = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        quoteLine.shippingOrderId = 290001L;
+        quoteLine.shippingOrderNo = "SO-290001";
+        quoteLine.shippingOrderSegmentId = 292001L;
+        quoteLine.shippingOrderLineId = 291001L;
+        quoteLine.plannedTransportMode = "SEA";
+        UpdateShippingOrderLineQuoteCommand command = new UpdateShippingOrderLineQuoteCommand();
+        command.forwarderCode = "YT";
+        command.routeCode = "YT-SAU-SEA-FBN-RUH";
+        command.currency = "CNY";
+        command.billingUnit = "CBM";
+        command.unitPrice = new BigDecimal("1390.00");
+        command.yiteMaterial = "金属";
+
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder, shippingOrder);
+        when(mapper.selectShippingOrderLineById(290001L, 291001L, 307L)).thenReturn(shippingLine);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(quoteLine));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA")).thenReturn(List.of(
+                routeCandidate("SEA", "YT-SAU-SEA-FBN-RUH", "YT", "义特物流",
+                        "YT-SAU-SEA-FBN-RUH", "义特沙特海运双清包税 + FBN利雅得送仓", "CNY", "1390.00", "CBM", null)
+        ));
+        when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(shippingOrderSegment(292001L, "SA", "SEA")));
+        when(mapper.updateShippingOrderLineYiteMaterial(290001L, 291001L, 307L, "金属", 307L)).thenReturn(1);
+        when(mapper.nextProductForwarderDeclarationAttributeId()).thenReturn(310001L);
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(shippingLine));
+
+        service.updateShippingOrderLineQuote(access(), "290001", "291001", command);
+
+        verify(mapper).updateShippingOrderLineYiteMaterial(290001L, 291001L, 307L, "金属", 307L);
+        verify(mapper).updateShippingOrderQuoteLineYiteMaterial(290001L, 291001L, 307L, "金属", 307L);
+        ArgumentCaptor<ProductForwarderDeclarationAttributeRecord> attributeCaptor =
+                ArgumentCaptor.forClass(ProductForwarderDeclarationAttributeRecord.class);
+        verify(mapper).upsertProductForwarderDeclarationAttribute(attributeCaptor.capture(), eq(307L));
+        assertThat(attributeCaptor.getValue().forwarderCode).isEqualTo("YT");
+        assertThat(attributeCaptor.getValue().attributeCode).isEqualTo("YITE_MATERIAL");
+        assertThat(attributeCaptor.getValue().attributeValue).isEqualTo("金属");
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> quoteCaptor =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper).confirmLogisticsQuoteLine(quoteCaptor.capture(), eq(307L));
+        assertThat(quoteCaptor.getValue().forwarderCode).isEqualTo("YT");
+        assertThat(quoteCaptor.getValue().unitPrice).isEqualByComparingTo("1390.00");
+    }
+
+    @Test
+    void shippingOrderLogisticsQuoteOptionsCalculateQuoteCoverageForSelectedChannel() {
+        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
+        ShippingOrderSegmentRecord segment = shippingOrderSegment(292001L, "SA", "AIR");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
+        line.shippingOrderId = 290001L;
+        line.shippingOrderNo = "SO-290001";
+        line.shippingOrderSegmentId = 292001L;
+        line.shippingOrderLineId = 291001L;
+        line.plannedTransportMode = "AIR";
+        ProductForwarderChannelQuoteRecord qikeQuote = productForwarderChannelQuote();
+        qikeQuote.forwarderCode = "QIKE";
+        qikeQuote.forwarderName = "启客物流";
+        qikeQuote.routeCode = "QIKE-SAU-AIR-FBN-RUH-20260523";
+        qikeQuote.routeName = "启客沙特空运双清 + FBN利雅得送仓 20260523";
+        qikeQuote.serviceCode = "QIKE-SAU-AIR-FBN-RUH-20260523";
+        qikeQuote.serviceName = "启客沙特空运双清 + FBN利雅得送仓 20260523";
+        qikeQuote.transportMode = "AIR";
+        qikeQuote.currency = "CNY";
+        qikeQuote.billingUnit = "KG";
+        qikeQuote.unitPrice = new BigDecimal("67.50");
+
+        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
+        command.segmentIds = List.of("292001");
+        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
+        when(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(290001L, List.of(292001L))).thenReturn(List.of(line));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "AIR")).thenReturn(List.of(
+                routeCandidate("AIR", "QIKE-SAU-AIR-FBN-RUH-20260523", "QIKE", "启客物流",
+                        "QIKE-SAU-AIR-FBN-RUH-20260523", "启客沙特空运双清 + FBN利雅得送仓 20260523", "CNY", "67.50", "KG", null),
+                routeCandidate("AIR", "YT-SAU-AIR-FBN-RUH", "YT", "义特物流",
+                        "YT-SAU-AIR-FBN-RUH", "义特沙特空运一档 + 海外仓", "CNY", "58.00", "KG", null)
+        ));
+        when(mapper.selectCurrentProductForwarderChannelQuote(
+                307L,
+                "STR69486-NSA",
+                301L,
+                "SGGRB115",
+                320001L,
+                "QIKE",
+                "SA",
+                "QIKE-SAU-AIR-FBN-RUH-20260523",
+                "QIKE-SAU-AIR-FBN-RUH-20260523"
+        )).thenReturn(qikeQuote);
+
+        PurchaseOrderLogisticsQuoteOptionsView options =
+                service.listShippingOrderLogisticsQuoteOptions(access(), "290001", command);
+
+        assertThat(options.forwarders).anySatisfy(forwarder -> {
+            assertThat(forwarder.forwarderCode).isEqualTo("QIKE");
+            assertThat(forwarder.channels).hasSize(1);
+            assertThat(forwarder.channels.get(0).confirmedLineCount).isEqualTo(1);
+            assertThat(forwarder.channels.get(0).pendingLineCount).isZero();
+            assertThat(forwarder.channels.get(0).lineQuotes).hasSize(1);
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).shippingOrderLineId).isEqualTo("291001");
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).quoteStatus).isEqualTo("CONFIRMED");
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).unitPrice).isEqualByComparingTo("67.50");
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).currency).isEqualTo("CNY");
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).billingUnit).isEqualTo("KG");
+        });
+        assertThat(options.forwarders).anySatisfy(forwarder -> {
+            assertThat(forwarder.forwarderCode).isEqualTo("YT");
+            assertThat(forwarder.channels).hasSize(1);
+            assertThat(forwarder.channels.get(0).confirmedLineCount).isZero();
+            assertThat(forwarder.channels.get(0).pendingLineCount).isEqualTo(1);
+            assertThat(forwarder.channels.get(0).lineQuotes).hasSize(1);
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).shippingOrderLineId).isEqualTo("291001");
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).quoteStatus).isEqualTo("PENDING_QUOTE");
+            assertThat(forwarder.channels.get(0).lineQuotes.get(0).unitPrice).isNull();
+        });
+    }
+
+    @Test
     void deleteItemSoftDeletesLineAndRecalculatesOrder() {
         PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         PurchaseOrderItemRecord item = item();
@@ -1293,6 +1809,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         verify(mapper).softDeleteItemSitesByItem(210001L, 307L);
         verify(mapper).softDeleteItem(210001L, 307L);
         verify(mapper).recalculateOrderAggregates(200001L, 307L);
+        verify(mapper).updateOrderSiteCodes(200001L, "[]", 307L);
         verify(mapper).insertOperationLog(
                 eq(240001L),
                 eq(200001L),
@@ -1324,11 +1841,14 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 storeSite(30001L, "SA", "STR69486-NSA"),
                 storeSite(30002L, "AE", "STR69486-NAE")
         ));
-        when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
+        ProductArchiveRecord product = product();
+        product.sizeEn = "20x30cm";
+        when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product));
         when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(null);
         when(mapper.nextItemId()).thenReturn(210002L);
         when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
         when(mapper.nextItemSiteId()).thenReturn(220002L);
+        when(mapper.listActiveOrderSiteCodes(200001L)).thenReturn(List.of("SA", "AE"));
         when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow()));
         PurchaseOrderItemRecord savedItem = item();
         savedItem.id = 210002L;
@@ -1342,6 +1862,9 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         assertThat(view.items).hasSize(1);
         assertThat(view.items.get(0).allocations).hasSize(1);
         assertThat(view.items.get(0).allocations.get(0).site).isEqualTo("AE");
+        ArgumentCaptor<PurchaseOrderItemRecord> itemCaptor = ArgumentCaptor.forClass(PurchaseOrderItemRecord.class);
+        verify(mapper).insertItem(itemCaptor.capture());
+        assertThat(itemCaptor.getValue().sourcingSpecText).isEqualTo("20x30cm");
         verify(mapper).updateOrderSiteCodes(200001L, "[\"SA\",\"AE\"]", 307L);
         verify(mapper).recalculateItemAggregates(210002L, 307L);
         verify(mapper).recalculateOrderAggregates(200001L, 307L);
@@ -1369,6 +1892,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.listStoreSites(301L)).thenReturn(List.of(storeSite(30002L, "AE", "STR69486-NAE")));
         when(mapper.listProductArchiveMatches(301L, "SGGRB116")).thenReturn(List.of(product()));
         when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(existingItem);
+        when(mapper.listActiveOrderSiteCodes(200001L)).thenReturn(List.of("AE"));
         when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(existingItem));
 
         PurchaseOrderView view = service.addItems(access(), "200001", command);
@@ -1409,6 +1933,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.nextItemId()).thenReturn(210002L);
         when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
         when(mapper.nextItemSiteId()).thenReturn(220002L);
+        when(mapper.listActiveOrderSiteCodes(200001L)).thenReturn(List.of("AE"));
         when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(savedItem));
 
         PurchaseOrderView view = service.addItems(access(), "200001", command);
@@ -1469,6 +1994,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.selectItemByPartnerSku(200001L, "SGGRB116")).thenReturn(existingItem);
         when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
         when(mapper.nextItemSiteId()).thenReturn(220099L);
+        when(mapper.listActiveOrderSiteCodes(200001L)).thenReturn(List.of("AE"));
         when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(existingItem));
 
         PurchaseOrderView view = service.addItems(access(), "200001", command);
@@ -1521,6 +2047,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.nextItemId()).thenReturn(210002L);
         when(mapper.selectProductOffer(301L, "SGGRB116", 320002L, "AE")).thenReturn(offer());
         when(mapper.nextItemSiteId()).thenReturn(220002L);
+        when(mapper.listActiveOrderSiteCodes(200002L)).thenReturn(List.of("AE"));
         when(mapper.listItemSitesByOrder(200002L)).thenReturn(List.of(savedSite));
         when(mapper.listItemsByOrder(200002L)).thenReturn(List.of(savedItem));
 
@@ -1556,6 +2083,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.selectProductOffer(301L, "SGGRB115", 320001L, "SA")).thenReturn(offer("SA", 30001L, 330001L, "SGGRB115"));
         when(mapper.selectProductOffer(301L, "SGGRB115", 320001L, "AE")).thenReturn(offer("AE", 30002L, 330002L, "SGGRB115"));
         when(mapper.nextItemSiteId()).thenReturn(220101L, 220102L);
+        when(mapper.listActiveOrderSiteCodes(200001L)).thenReturn(List.of("SA", "AE"));
         when(mapper.listItemSitesByOrder(200001L)).thenReturn(List.of(siteRow("SA", "SEA", 80), siteRow("AE", "AIR", 10)));
         when(mapper.listItemsByOrder(200001L)).thenReturn(List.of(existingItem));
 
@@ -2108,6 +2636,25 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         item.collectionStatus = "NOT_STARTED";
         item.progressPercent = 0;
         return item;
+    }
+
+    private void fillSubmitRequiredProductProfile(PurchaseOrderItemRecord item) {
+        item.productLengthCm = new BigDecimal("12");
+        item.productWidthCm = new BigDecimal("8");
+        item.productHeightCm = new BigDecimal("3");
+        item.productWeightG = new BigDecimal("120");
+        item.cartonLengthCm = new BigDecimal("50");
+        item.cartonWidthCm = new BigDecimal("40");
+        item.cartonHeightCm = new BigDecimal("30");
+        item.cartonWeightKg = new BigDecimal("12");
+        item.cartonQuantity = 100;
+        item.logisticsProfileStatus = "confirmed";
+        item.batteryType = "none";
+        item.magneticType = "none";
+        item.liquidPowderType = "none";
+        item.electricType = "none";
+        item.bladeWeaponType = "none";
+        item.manualConfirmRequired = false;
     }
 
     private StoreSiteRecord storeSite(Long siteId, String siteCode, String storeCode) {

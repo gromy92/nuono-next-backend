@@ -92,6 +92,8 @@ public final class WarehouseDispatchRecords {
         public String siteCode;
         public Boolean isNewProduct;
         public String plannedTransportMode;
+        public String targetSiteCode;
+        public String targetTransportMode;
         public String fulfillmentType;
         public Integer plannedQuantity;
         public Integer confirmedQuantity;
@@ -132,6 +134,8 @@ public final class WarehouseDispatchRecords {
         public String sourceStoreCode;
         public String createdAt;
         public Long itemId;
+        public Long purchaseOrderItemSiteId;
+        public Long fulfillmentBalanceId;
         public Long productVariantId;
         public String partnerSku;
         public String skuParent;
@@ -143,6 +147,10 @@ public final class WarehouseDispatchRecords {
         public Integer receivedQuantity;
         public Integer plannedQuantity;
         public String specStatus;
+        public BigDecimal productLengthCm;
+        public BigDecimal productWidthCm;
+        public BigDecimal productHeightCm;
+        public BigDecimal productWeightG;
         public String fulfillmentType;
         public String fulfillmentSourceName;
     }
@@ -150,6 +158,8 @@ public final class WarehouseDispatchRecords {
     public static class FulfillmentConfirmationInsertRecord {
         public Long id;
         public Long ownerUserId;
+        public String clientRequestId;
+        public String requestFingerprint;
         public Long logicalStoreId;
         public Long purchaseOrderId;
         public String confirmationNo;
@@ -192,22 +202,37 @@ public final class WarehouseDispatchRecords {
         public Long balanceId;
         public Integer confirmedDelta;
         public Integer abnormalDelta;
+        public Integer planClosedDelta;
         public Long operatorUserId;
 
         public BalanceQuantityDelta() {
         }
 
-        public BalanceQuantityDelta(Long balanceId, Integer confirmedDelta, Integer abnormalDelta, Long operatorUserId) {
+        public BalanceQuantityDelta(
+                Long balanceId,
+                Integer confirmedDelta,
+                Integer abnormalDelta,
+                Integer planClosedDelta,
+                Long operatorUserId
+        ) {
             this.balanceId = balanceId;
             this.confirmedDelta = confirmedDelta;
             this.abnormalDelta = abnormalDelta;
+            this.planClosedDelta = planClosedDelta;
             this.operatorUserId = operatorUserId;
         }
+    }
+
+    public static class BalanceReceiptProgressRecord {
+        public Long balanceId;
+        public Integer planClosedQuantity;
     }
 
     public static class DispatchPlanRecord {
         public Long id;
         public Long ownerUserId;
+        public String clientRequestId;
+        public String requestFingerprint;
         public String planNo;
         public String status;
         public Integer itemCount;
@@ -261,12 +286,16 @@ public final class WarehouseDispatchRecords {
     public static class ShippingBatchRecord {
         public Long id;
         public Long ownerUserId;
+        public Long dispatchPlanId;
         public String batchNo;
         public String status;
         public Long selectedOptionId;
         public Integer sourceCount;
         public Integer skuCount;
         public Integer totalQuantity;
+        public Integer optionCount;
+        public BigDecimal actualWeightKg;
+        public BigDecimal volumeCbm;
         public String storeSummaryJson;
         public String siteSummaryJson;
         public String transportSummaryJson;
@@ -280,6 +309,7 @@ public final class WarehouseDispatchRecords {
         public Long id;
         public Long batchId;
         public Long ownerUserId;
+        public Long logicalStoreId;
         public Long fulfillmentBalanceId;
         public String sourceStoreCode;
         public String sourceStoreName;
@@ -393,6 +423,37 @@ public final class WarehouseDispatchRecords {
         public BigDecimal volumeDivisor;
     }
 
+    public static class ForwarderPurchaseRouteRecord {
+        public String routeCode;
+        public String routeName;
+        public String forwarderCode;
+        public String forwarderName;
+        public String siteCode;
+        public String transportMode;
+    }
+
+    public static class ForwarderRouteCostComponentRecord {
+        public String routeCode;
+        public Integer segmentNo;
+        public String segmentRole;
+        public String serviceCode;
+        public String sourceTable;
+        public Long sourceId;
+        public String componentType;
+        public String componentName;
+        public String currency;
+        public BigDecimal unitPrice;
+        public BigDecimal rate;
+        public String billingUnit;
+        public String billingBasis;
+        public BigDecimal minCharge;
+        public BigDecimal minBillableUnit;
+        public BigDecimal volumeDivisor;
+        public String priceStatus;
+        public Boolean includedInBasePrice;
+        public String remark;
+    }
+
     public static class ShippingSuggestionLineSourceRecord {
         public Long id;
         public Long optionId;
@@ -428,6 +489,9 @@ public final class WarehouseDispatchRecords {
         public Long batchId;
         public Long optionLineId;
         public Long ownerUserId;
+        public Long logicalStoreId;
+        public String sourceStoreCode;
+        public String sourceStoreName;
         public Long productMasterId;
         public Long productVariantId;
         public String partnerSku;
@@ -449,6 +513,8 @@ public final class WarehouseDispatchRecords {
         public Long outboundOrderLineId;
         public Long batchSourceId;
         public Long fulfillmentBalanceId;
+        public String sourceStoreCode;
+        public String sourceStoreName;
         public Long purchaseOrderId;
         public String purchaseOrderNo;
         public String purchaseOrderTitle;
@@ -479,6 +545,7 @@ public final class WarehouseDispatchRecords {
         public Long outboundOrderId;
         public Long ownerUserId;
         public String boxNo;
+        public String status;
         public BigDecimal lengthCm;
         public BigDecimal widthCm;
         public BigDecimal heightCm;

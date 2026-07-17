@@ -5,7 +5,12 @@ import java.util.List;
 public enum BusinessCapability {
     PRODUCT_MASTER(List.of("/api/sku/manage", "/product/groups", "/product/manage", "/product/images", "/api/product-images")),
     PRODUCT_LISTING(List.of("/purchase/listing", "/api/product-listing")),
-    PROCUREMENT(List.of("/api/purchase/order", "/purchase/order")),
+    PROCUREMENT(List.of(
+            "/api/purchase/order",
+            "/api/procurement/purchase-orders",
+            "/api/replenishment-plan",
+            "/purchase/order"
+    )),
     ALI1688_HISTORICAL_ORDERS(List.of(
             "/api/procurement/ali1688-orders",
             "/purchase/ali1688-orders",
@@ -36,7 +41,14 @@ public enum BusinessCapability {
     FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),
     FILE_MANAGEMENT_BUSINESS(List.of("/system/file-management", "/system/ai-file-parse")),
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),
-    WAREHOUSE_DISPATCH(List.of("/warehouse/dispatch", "/api/warehouse/dispatch")),
+    WAREHOUSE_DISPATCH(List.of(
+            "/warehouse/dispatch",
+            "/warehouse/shipping-orders",
+            "/warehouse/logistics-bills",
+            "/api/warehouse/dispatch",
+            "/api/procurement/purchase-orders/shipping-orders",
+            "/api/procurement/purchase-orders/logistics-bills"
+    )),
     OFFICIAL_WAREHOUSE(List.of("/warehouse/official-warehouse", "/api/warehouse/official-warehouse")),
     IN_TRANSIT_GOODS(List.of(
             "/purchase/in-transit-goods",

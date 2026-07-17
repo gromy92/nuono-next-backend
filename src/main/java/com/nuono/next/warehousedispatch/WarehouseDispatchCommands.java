@@ -14,6 +14,7 @@ public final class WarehouseDispatchCommands {
     }
 
     public static class ConfirmationCommand {
+        public String clientRequestId;
         public String purchaseOrderId;
         public String confirmationType;
         public String sourcePartyName;
@@ -23,12 +24,22 @@ public final class WarehouseDispatchCommands {
 
     public static class ConfirmationLineCommand {
         public String purchaseOrderItemId;
+        public Long purchaseOrderItemSiteId;
+        public Long fulfillmentBalanceId;
         public Integer confirmedQuantity;
         public Integer abnormalQuantity;
+        public Integer normalReceivedQuantity;
+        public Integer replenishmentQuantity;
+        public String replenishmentReason;
+        public Integer returnQuantity;
+        public Integer damageQuantity;
+        public Integer overReceivedQuantity;
+        public String keeperSnapshotJson;
         public String exceptionReason;
     }
 
     public static class CreateDispatchPlanCommand {
+        public String clientRequestId;
         public String remark;
         public List<DispatchPlanSourceCommand> sources = new ArrayList<>();
     }
@@ -36,12 +47,22 @@ public final class WarehouseDispatchCommands {
     public static class DispatchPlanSourceCommand {
         public Long fulfillmentBalanceId;
         public Integer quantity;
+        public String targetSiteCode;
         public String actualTransportMode;
+    }
+
+    public static class UpdateDispatchTargetCommand {
+        public String targetSiteCode;
+        public String targetTransportMode;
     }
 
     public static class CreateShippingBatchCommand {
         public String remark;
         public List<ShippingBatchSourceCommand> sources = new ArrayList<>();
+    }
+
+    public static class CreateShippingBatchFromDispatchPlanCommand {
+        public List<String> selectedForwarderCodes = new ArrayList<>();
     }
 
     public static class ShippingBatchSourceCommand {
@@ -55,6 +76,10 @@ public final class WarehouseDispatchCommands {
         public String seaForwarderCode;
     }
 
+    public static class IssueShippingBatchCommand {
+        public String optionId;
+    }
+
     public static class CreatePackingListCommand {
         public String remark;
     }
@@ -66,6 +91,7 @@ public final class WarehouseDispatchCommands {
 
     public static class PackingBoxCommand {
         public String boxNo;
+        public String status;
         public String lengthCm;
         public String widthCm;
         public String heightCm;
@@ -76,6 +102,10 @@ public final class WarehouseDispatchCommands {
     public static class PackingBoxItemCommand {
         public Long outboundOrderLineId;
         public Integer quantity;
+    }
+
+    public static class ConfirmPackingListsCommand {
+        public List<String> packingListIds = new ArrayList<>();
     }
 
     public static class HandoffFailureCommand {

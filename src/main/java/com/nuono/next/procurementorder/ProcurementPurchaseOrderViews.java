@@ -146,8 +146,23 @@ public final class ProcurementPurchaseOrderViews {
         public String destinationNode;
         public String transitTimeText;
         public String priceSummary;
+        public Integer totalLineCount = 0;
         public Integer pendingLineCount = 0;
+        public Integer confirmedLineCount = 0;
         public Integer newProductLineCount = 0;
+        public List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();
+    }
+
+    public static class PurchaseOrderLogisticsQuoteChannelLineView {
+        public String shippingOrderLineId;
+        public String purchaseOrderItemSiteId;
+        public String partnerSku;
+        public String barcode;
+        public String quoteStatus;
+        public BigDecimal unitPrice;
+        public String currency;
+        public String billingUnit;
+        public String yiteMaterial;
     }
 
     public static class PurchaseOrderLogisticsQuoteReportExportView {
@@ -398,6 +413,10 @@ public final class ProcurementPurchaseOrderViews {
         public String skuParent;
         public String partnerSku;
         public String productFulltype;
+        public Boolean productSpecComplete;
+        public Boolean cartonSpecComplete;
+        public Boolean logisticsAttributeComplete;
+        public String logisticsProfileStatus;
         public String productTitle;
         public String productImageUrl;
         public String sourcingSpec;

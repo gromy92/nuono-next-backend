@@ -54,6 +54,40 @@ class ProcurementPurchaseOrderMapperSqlTest {
     }
 
     @Test
+    void purchaseOrderMutationLockUsesForUpdate() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod("selectOrderByIdForUpdate", Long.class);
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("FOR UPDATE");
+    }
+
+    @Test
+    void activeOrderSiteCodesComeFromNonDeletedItemsAndSites() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod("listActiveOrderSiteCodes", Long.class);
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("item.is_deleted = b'0'");
+        assertThat(sql).contains("site.status = 'ACTIVE'");
+        assertThat(sql).contains("site.is_deleted = b'0'");
+    }
+
+    @Test
+    void assignedPurchaseOrderLookupIsOwnerScopedAndUnbounded() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod("listAssignedPurchaseOrderIds", Long.class);
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("shipping_order.owner_user_id = #{ownerUserId}");
+        assertThat(sql).contains("sol.is_deleted = b'0'");
+        assertThat(sql).doesNotContain("LIMIT");
+    }
+
+    @Test
     void currentOrderItemSiteDuplicateLookupIgnoresHistoricalAndCompletedOrders() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "selectCurrentOrderItemSiteDuplicate",
@@ -87,6 +121,41 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(sql).contains("fulfillment_source_name");
         assertThat(sql).contains("#{row.fulfillmentType}");
         assertThat(sql).contains("#{row.fulfillmentSourceName}");
+        assertThat(sql).contains("sourcing_spec_text");
+        assertThat(sql).contains("#{row.sourcingSpecText}");
+    }
+
+    @Test
+    void orderItemReadFallsBackToVariantAli1688SpecTextOnlyWhenLineSpecIsEmpty() {
+        String sql = ProcurementPurchaseOrderMapper.ITEM_SELECT.replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("LEFT JOIN product_variant pv");
+        assertThat(sql).contains("THEN NULLIF(pv.size_en, '')");
+        assertThat(sql).contains("ELSE item.sourcing_spec_text END AS sourcingSpecText");
+        assertThat(sql).contains("AS cartonLengthCm");
+        assertThat(sql).contains("AS cartonWeightKg");
+        assertThat(sql).contains("AS cartonQuantity");
+    }
+
+    @Test
+    void updateProductVariantAli1688SpecTextWritesProductArchiveSizeEn() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "updateProductVariantAli1688SpecText",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("UPDATE product_variant");
+        assertThat(sql).contains("SET size_en = #{sizeEn}");
+        assertThat(sql).contains("logical_store_id = #{logicalStoreId}");
+        assertThat(sql).contains("partner_sku = #{partnerSku}");
+        assertThat(sql).contains("is_deleted = b'0'");
     }
 
     @Test
@@ -189,6 +258,33 @@ class ProcurementPurchaseOrderMapperSqlTest {
     }
 
     @Test
+    void procurementProductSpecReadsFallbackSourceRowsWhenEffectivePointerIsMissing() throws Exception {
+        String itemSql = ProcurementPurchaseOrderMapper.ITEM_SELECT.replaceAll("\\s+", " ");
+        assertProductSpecFallback(itemSql);
+        assertThat(itemSql).contains("COALESCE(pvss.product_length_cm, warehouseSpec.product_length_cm, ali1688Spec.product_length_cm, officialSpec.product_length_cm, pvs.product_length_cm) AS productLengthCm");
+
+        Method productOptionsMethod = ProcurementPurchaseOrderMapper.class.getMethod(
+                "listProductOptions",
+                Long.class,
+                String.class,
+                Integer.class
+        );
+        String productOptionsSql = String.join(" ", productOptionsMethod.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+        assertProductSpecFallback(productOptionsSql);
+        assertThat(productOptionsSql).contains("COALESCE(pvss.source_type, warehouseSpec.source_type, ali1688Spec.source_type, officialSpec.source_type, pvs.source_type) AS spec_source_type");
+
+        Method quoteMethod = ProcurementPurchaseOrderMapper.class.getMethod(
+                "listLogisticsQuoteCandidatesByOrder",
+                Long.class
+        );
+        String quoteSql = String.join(" ", quoteMethod.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+        assertProductSpecFallback(quoteSql);
+        assertThat(quoteSql).contains("COALESCE(pvss.carton_quantity, warehouseSpec.carton_quantity, ali1688Spec.carton_quantity, officialSpec.carton_quantity, pvs.carton_quantity) AS cartonQuantity");
+    }
+
+    @Test
     void shippingOrderDetailLinesIncludeProductBarcodeSnapshot() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "listShippingOrderLines",
@@ -251,6 +347,87 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(sql).contains("UPPER(source_store_code) = UPPER(#{sourceStoreCode}) THEN 0");
         assertThat(sql).contains("confirmed_at DESC, id DESC");
         assertThat(sql).doesNotContain("TRIM(source_store_code) <>");
+    }
+
+    @Test
+    void historicalProductForwarderChannelQuoteTargetsTheDatabaseActiveSlot() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "markHistoricalProductForwarderChannelQuote",
+                Long.class,
+                String.class,
+                Long.class,
+                String.class,
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("owner_user_id = #{ownerUserId}");
+        assertThat(sql).contains("product_variant_id = #{productVariantId}");
+        assertThat(sql).contains("forwarder_code = #{forwarderCode}");
+        assertThat(sql).contains("COALESCE(route_code, '') = COALESCE(#{routeCode}, '')");
+        assertThat(sql).contains("COALESCE(service_code, '') = COALESCE(#{serviceCode}, '')");
+        assertThat(sql).contains("COALESCE(billing_unit, '') = COALESCE(#{billingUnit}, '')");
+        assertThat(sql).contains("effective_status = 'CURRENT'");
+        assertThat(sql).contains("is_deleted = b'0'");
+        assertThat(sql).doesNotContain("UPPER(partner_sku)");
+        assertThat(sql).doesNotContain("source_store_code");
+        assertThat(sql).doesNotContain("logical_store_id");
+        assertThat(sql).doesNotContain("site_code");
+    }
+
+    @Test
+    void refreshShippingOrderSegmentStateRequiresQuotesFromTheSelectedChannel() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "refreshShippingOrderSegmentState",
+                Long.class,
+                java.util.List.class,
+                com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("quote.quote_status != 'CONFIRMED'");
+        assertThat(sql).contains("UPPER(COALESCE(quote.forwarder_code, '')) != UPPER(COALESCE(#{row.forwarderCode}, ''))");
+        assertThat(sql).contains("UPPER(COALESCE(quote.route_code, '')) != UPPER(COALESCE(#{row.routeCode}, ''))");
+        assertThat(sql).doesNotContain("PARTIAL_SUBMITTED");
+    }
+
+    @Test
+    void wholeShippingOrderSubmissionMarksEverySegmentSubmitted() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "markShippingOrderSegmentsSubmitted",
+                Long.class,
+                Long.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("UPDATE procurement_shipping_order_segment");
+        assertThat(sql).contains("shipping_submit_status = 'SUBMITTED'");
+        assertThat(sql).contains("shipping_order_id = #{shippingOrderId}");
+        assertThat(sql).contains("owner_user_id = #{ownerUserId}");
+        assertThat(sql).doesNotContain("segmentIds");
+    }
+
+    @Test
+    void shippingOrderBootstrapDoesNotCreatePartialSubmissionState() throws Exception {
+        String migration = Files.readString(Path.of(
+                "src/main/resources/db/init/146_procurement_shipping_order.sql"
+        ));
+
+        assertThat(migration).doesNotContain("PARTIAL_SUBMITTED");
     }
 
     @Test
@@ -497,5 +674,16 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 .contains("pv.partner_sku = #{psku}")
                 .doesNotContain("pso.psku_code = #{psku}")
                 .doesNotContain("CASE WHEN pv.partner_sku = #{psku}");
+    }
+
+    private static void assertProductSpecFallback(String sql) {
+        assertThat(sql)
+                .contains("LEFT JOIN product_variant_spec_source pvss")
+                .contains("LEFT JOIN product_variant_spec_source warehouseSpec")
+                .contains("warehouseSpec.source_type = 'warehouse'")
+                .contains("LEFT JOIN product_variant_spec_source ali1688Spec")
+                .contains("ali1688Spec.source_type = 'ali1688'")
+                .contains("LEFT JOIN product_variant_spec_source officialSpec")
+                .contains("officialSpec.source_type = 'noon_official'");
     }
 }

@@ -63,12 +63,44 @@ public class BusinessAccessResolver {
         }
     }
 
+    public BusinessAccessContext requireAnyBusinessContext(
+            HttpServletRequest request,
+            BusinessCapability... capabilities
+    ) {
+        BusinessAccessContext context = resolve(request);
+        BusinessAccessDeniedException lastDenied = null;
+        if (capabilities != null) {
+            for (BusinessCapability capability : capabilities) {
+                try {
+                    return guard.requireBusinessCapability(context, capability);
+                } catch (BusinessAccessDeniedException exception) {
+                    lastDenied = exception;
+                }
+            }
+        }
+        String message = lastDenied == null ? "当前账号没有对应业务菜单权限。" : lastDenied.getMessage();
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, message, lastDenied);
+    }
+
     public BusinessAccessContext requireStoreAccess(
             HttpServletRequest request,
             BusinessCapability capability,
             String storeCode
     ) {
         BusinessAccessContext context = requireBusinessContext(request, capability);
+        try {
+            return guard.requireStore(context, storeCode);
+        } catch (BusinessAccessDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        }
+    }
+
+    public BusinessAccessContext requireAnyStoreAccess(
+            HttpServletRequest request,
+            String storeCode,
+            BusinessCapability... capabilities
+    ) {
+        BusinessAccessContext context = requireAnyBusinessContext(request, capabilities);
         try {
             return guard.requireStore(context, storeCode);
         } catch (BusinessAccessDeniedException exception) {

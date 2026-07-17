@@ -218,6 +218,24 @@ public class ProductVariantSpecService {
             Long sourceId,
             Long operatorUserId
     ) {
+        return selectEffectiveSourceForType(
+                ownerUserId,
+                storeCode,
+                variantId,
+                sourceId,
+                operatorUserId,
+                null
+        );
+    }
+
+    public ProductVariantSpecDetailView selectEffectiveSourceForType(
+            Long ownerUserId,
+            String storeCode,
+            Long variantId,
+            Long sourceId,
+            Long operatorUserId,
+            String requiredSourceType
+    ) {
         requireVariantScope(ownerUserId, storeCode, variantId);
         if (sourceId == null || sourceId <= 0) {
             throw new IllegalArgumentException("生效来源不能为空");
@@ -230,6 +248,10 @@ public class ProductVariantSpecService {
             throw new IllegalArgumentException("规格来源不属于当前 SKU");
         }
         String sourceType = ProductVariantSpecSourceType.normalizeEffective(source.getSourceType());
+        if (StringUtils.hasText(requiredSourceType)
+                && !ProductVariantSpecSourceType.normalizeEffective(requiredSourceType).equals(sourceType)) {
+            throw new IllegalArgumentException("当前入口不能将 " + sourceType + " 规格设为生效来源");
+        }
         mapper.upsertProductVariantSpecEffectiveSource(
                 mapper.nextProductVariantSpecId(),
                 variantId,
@@ -254,6 +276,25 @@ public class ProductVariantSpecService {
                 resolveVariantId(ownerUserId, storeCode, partnerSku, variantId),
                 sourceId,
                 operatorUserId
+        );
+    }
+
+    public ProductVariantSpecDetailView selectEffectiveSourceByPskuForType(
+            Long ownerUserId,
+            String storeCode,
+            String partnerSku,
+            Long variantId,
+            Long sourceId,
+            Long operatorUserId,
+            String requiredSourceType
+    ) {
+        return selectEffectiveSourceForType(
+                ownerUserId,
+                storeCode,
+                resolveVariantId(ownerUserId, storeCode, partnerSku, variantId),
+                sourceId,
+                operatorUserId,
+                requiredSourceType
         );
     }
 

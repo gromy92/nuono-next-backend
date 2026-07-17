@@ -248,6 +248,28 @@ class ProductVariantSpecServiceTest {
         assertEquals("Noon 官方测量不能设为经营生效规格", error.getMessage());
     }
 
+    @Test
+    void selectEffectiveSourceShouldRejectSourceOwnedByAnotherClient() {
+        ProductVariantSpecSourceRecord warehouseSource = sourceRecord(validSourceCommand(ProductVariantSpecSourceType.WAREHOUSE));
+        warehouseSource.setSourceType(ProductVariantSpecSourceType.WAREHOUSE);
+        when(mapper.selectProductVariantSpecSourceForScope(10002L, "STR245027-NAE", 53001L, 120001L))
+                .thenReturn(warehouseSource);
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.selectEffectiveSourceForType(
+                        10002L,
+                        "STR245027-NAE",
+                        53001L,
+                        120001L,
+                        10003L,
+                        ProductVariantSpecSourceType.ALI1688
+                )
+        );
+
+        assertEquals("当前入口不能将 warehouse 规格设为生效来源", error.getMessage());
+    }
+
     private void stubSuccessfulLegacySave(ProductVariantSpecCommand command, ProductVariantSpecSourceRecord source) {
         ProductVariantSpecRecord scopedVariant = scopeRecord();
         when(mapper.selectProductVariantForSpec(

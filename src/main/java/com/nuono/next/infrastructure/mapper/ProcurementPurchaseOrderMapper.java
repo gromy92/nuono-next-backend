@@ -47,13 +47,42 @@ public interface ProcurementPurchaseOrderMapper {
             + "DATE_FORMAT(po.gmt_updated, '%Y-%m-%d %H:%i') AS updated_at "
             + "FROM procurement_purchase_order po ";
 
+    String PRODUCT_LENGTH_EXPR = "COALESCE(pvss.product_length_cm, warehouseSpec.product_length_cm, ali1688Spec.product_length_cm, officialSpec.product_length_cm, pvs.product_length_cm)";
+    String PRODUCT_WIDTH_EXPR = "COALESCE(pvss.product_width_cm, warehouseSpec.product_width_cm, ali1688Spec.product_width_cm, officialSpec.product_width_cm, pvs.product_width_cm)";
+    String PRODUCT_HEIGHT_EXPR = "COALESCE(pvss.product_height_cm, warehouseSpec.product_height_cm, ali1688Spec.product_height_cm, officialSpec.product_height_cm, pvs.product_height_cm)";
+    String PRODUCT_WEIGHT_EXPR = "COALESCE(pvss.product_weight_g, warehouseSpec.product_weight_g, ali1688Spec.product_weight_g, officialSpec.product_weight_g, pvs.product_weight_g)";
+    String CARTON_LENGTH_EXPR = "COALESCE(pvss.carton_length_cm, warehouseSpec.carton_length_cm, ali1688Spec.carton_length_cm, officialSpec.carton_length_cm, pvs.carton_length_cm)";
+    String CARTON_WIDTH_EXPR = "COALESCE(pvss.carton_width_cm, warehouseSpec.carton_width_cm, ali1688Spec.carton_width_cm, officialSpec.carton_width_cm, pvs.carton_width_cm)";
+    String CARTON_HEIGHT_EXPR = "COALESCE(pvss.carton_height_cm, warehouseSpec.carton_height_cm, ali1688Spec.carton_height_cm, officialSpec.carton_height_cm, pvs.carton_height_cm)";
+    String CARTON_WEIGHT_EXPR = "COALESCE(pvss.carton_weight_kg, warehouseSpec.carton_weight_kg, ali1688Spec.carton_weight_kg, officialSpec.carton_weight_kg, pvs.carton_weight_kg)";
+    String CARTON_QUANTITY_EXPR = "COALESCE(pvss.carton_quantity, warehouseSpec.carton_quantity, ali1688Spec.carton_quantity, officialSpec.carton_quantity, pvs.carton_quantity)";
+    String SPEC_SOURCE_TYPE_EXPR = "COALESCE(pvss.source_type, warehouseSpec.source_type, ali1688Spec.source_type, officialSpec.source_type, pvs.source_type)";
+
     String ITEM_SELECT = ""
             + "SELECT item.id, item.purchase_order_id, item.owner_user_id, item.logical_store_id, "
             + "item.product_master_id, item.product_variant_id, item.sku_parent, item.partner_sku, item.child_sku, "
             + "item.title_cache, item.image_url_cache, item.source_type, item.manual_selection_source_collection_id, "
             + "item.fulfillment_type, item.fulfillment_source_name, "
             + "pm.product_fulltype_cache AS productFulltypeCache, "
-            + "item.sourcing_spec_text, item.sourcing_size_text, item.sourcing_color_text, "
+            + PRODUCT_LENGTH_EXPR + " AS productLengthCm, "
+            + PRODUCT_WIDTH_EXPR + " AS productWidthCm, "
+            + PRODUCT_HEIGHT_EXPR + " AS productHeightCm, "
+            + PRODUCT_WEIGHT_EXPR + " AS productWeightG, "
+            + CARTON_LENGTH_EXPR + " AS cartonLengthCm, "
+            + CARTON_WIDTH_EXPR + " AS cartonWidthCm, "
+            + CARTON_HEIGHT_EXPR + " AS cartonHeightCm, "
+            + CARTON_WEIGHT_EXPR + " AS cartonWeightKg, "
+            + CARTON_QUANTITY_EXPR + " AS cartonQuantity, "
+            + "pvlp.profile_status AS logisticsProfileStatus, pvlp.battery_type AS batteryType, "
+            + "pvlp.magnetic_type AS magneticType, pvlp.liquid_powder_type AS liquidPowderType, "
+            + "pvlp.electric_type AS electricType, pvlp.blade_weapon_type AS bladeWeaponType, "
+            + "pvlp.manual_confirm_required = b'1' AS manualConfirmRequired, "
+            + "CASE WHEN NULLIF(item.sourcing_spec_text, '') IS NULL "
+            + "       AND NULLIF(item.sourcing_size_text, '') IS NULL "
+            + "       AND NULLIF(item.sourcing_color_text, '') IS NULL "
+            + "     THEN NULLIF(pv.size_en, '') "
+            + "     ELSE item.sourcing_spec_text END AS sourcingSpecText, "
+            + "item.sourcing_size_text, item.sourcing_color_text, "
             + "item.total_quantity, item.site_count, item.collection_status, item.progress_percent, "
             + "item.candidate_count, item.recommended_count, item.failure_code, item.failure_message, "
             + "item.latest_collection_link_id, DATE_FORMAT(item.last_collected_at, '%Y-%m-%d %H:%i') AS last_collected_at, "
@@ -66,6 +95,33 @@ public interface ProcurementPurchaseOrderMapper {
             + "LEFT JOIN product_master pm "
             + "  ON pm.id = item.product_master_id "
             + " AND pm.is_deleted = b'0' "
+            + "LEFT JOIN product_variant pv "
+            + "  ON pv.id = item.product_variant_id "
+            + " AND pv.logical_store_id = item.logical_store_id "
+            + " AND pv.partner_sku = item.partner_sku "
+            + " AND pv.is_deleted = b'0' "
+            + "LEFT JOIN product_variant_spec pvs "
+            + "  ON pvs.variant_id = item.product_variant_id "
+            + " AND pvs.is_deleted = b'0' "
+            + "LEFT JOIN product_variant_spec_source pvss "
+            + "  ON pvss.id = pvs.effective_source_id "
+            + " AND pvss.variant_id = item.product_variant_id "
+            + " AND pvss.is_deleted = b'0' "
+            + "LEFT JOIN product_variant_spec_source warehouseSpec "
+            + "  ON warehouseSpec.variant_id = item.product_variant_id "
+            + " AND warehouseSpec.source_type = 'warehouse' "
+            + " AND warehouseSpec.is_deleted = b'0' "
+            + "LEFT JOIN product_variant_spec_source ali1688Spec "
+            + "  ON ali1688Spec.variant_id = item.product_variant_id "
+            + " AND ali1688Spec.source_type = 'ali1688' "
+            + " AND ali1688Spec.is_deleted = b'0' "
+            + "LEFT JOIN product_variant_spec_source officialSpec "
+            + "  ON officialSpec.variant_id = item.product_variant_id "
+            + " AND officialSpec.source_type = 'noon_official' "
+            + " AND officialSpec.is_deleted = b'0' "
+            + "LEFT JOIN product_variant_logistics_profile pvlp "
+            + "  ON pvlp.variant_id = item.product_variant_id "
+            + " AND pvlp.is_deleted = b'0' "
             + "LEFT JOIN procurement_purchase_order_ali1688_collection link "
             + "  ON link.id = item.latest_collection_link_id "
             + " AND link.is_deleted = b'0' "
@@ -190,16 +246,16 @@ public interface ProcurementPurchaseOrderMapper {
             "<script>",
             "SELECT pm.id AS product_master_id, pv.id AS product_variant_id, pm.sku_parent, pv.partner_sku, pv.child_sku,",
             "       pv.size_en, pv.size_ar, COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS title, pm.cover_image_url AS image_url,",
-            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS product_length_cm,",
-            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS product_width_cm,",
-            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS product_height_cm,",
-            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS product_weight_g,",
-            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS carton_length_cm,",
-            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS carton_width_cm,",
-            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS carton_height_cm,",
-            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS carton_weight_kg,",
-            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS carton_quantity,",
-            "       COALESCE(pvss.source_type, pvs.source_type) AS spec_source_type,",
+            "       " + PRODUCT_LENGTH_EXPR + " AS product_length_cm,",
+            "       " + PRODUCT_WIDTH_EXPR + " AS product_width_cm,",
+            "       " + PRODUCT_HEIGHT_EXPR + " AS product_height_cm,",
+            "       " + PRODUCT_WEIGHT_EXPR + " AS product_weight_g,",
+            "       " + CARTON_LENGTH_EXPR + " AS carton_length_cm,",
+            "       " + CARTON_WIDTH_EXPR + " AS carton_width_cm,",
+            "       " + CARTON_HEIGHT_EXPR + " AS carton_height_cm,",
+            "       " + CARTON_WEIGHT_EXPR + " AS carton_weight_kg,",
+            "       " + CARTON_QUANTITY_EXPR + " AS carton_quantity,",
+            "       " + SPEC_SOURCE_TYPE_EXPR + " AS spec_source_type,",
             "       GROUP_CONCAT(DISTINCT lss.site ORDER BY lss.site SEPARATOR ',') AS available_site_codes_csv",
             "FROM product_master pm",
             "JOIN product_variant pv ON pv.product_master_id = pm.id AND pv.is_deleted = b'0'",
@@ -207,6 +263,9 @@ public interface ProcurementPurchaseOrderMapper {
             "JOIN logical_store_site lss ON lss.id = pso.site_id AND lss.logical_store_id = pm.logical_store_id AND lss.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec pvs ON pvs.variant_id = pv.id AND pvs.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source pvss ON pvss.id = pvs.effective_source_id AND pvss.variant_id = pv.id AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source warehouseSpec ON warehouseSpec.variant_id = pv.id AND warehouseSpec.source_type = 'warehouse' AND warehouseSpec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source ali1688Spec ON ali1688Spec.variant_id = pv.id AND ali1688Spec.source_type = 'ali1688' AND ali1688Spec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source officialSpec ON officialSpec.variant_id = pv.id AND officialSpec.source_type = 'noon_official' AND officialSpec.is_deleted = b'0'",
             "WHERE pm.logical_store_id = #{logicalStoreId}",
             "  AND pm.is_deleted = b'0'",
             "<if test='keyword != null and keyword != \"\"'>",
@@ -219,16 +278,16 @@ public interface ProcurementPurchaseOrderMapper {
             "</if>",
             "GROUP BY pm.id, pv.id, pm.sku_parent, pv.partner_sku, pv.child_sku, pv.size_en, pv.size_ar,",
             "         pm.title_cn_cache, pm.title_cache, pm.cover_image_url,",
-            "         COALESCE(pvss.product_length_cm, pvs.product_length_cm),",
-            "         COALESCE(pvss.product_width_cm, pvs.product_width_cm),",
-            "         COALESCE(pvss.product_height_cm, pvs.product_height_cm),",
-            "         COALESCE(pvss.product_weight_g, pvs.product_weight_g),",
-            "         COALESCE(pvss.carton_length_cm, pvs.carton_length_cm),",
-            "         COALESCE(pvss.carton_width_cm, pvs.carton_width_cm),",
-            "         COALESCE(pvss.carton_height_cm, pvs.carton_height_cm),",
-            "         COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg),",
-            "         COALESCE(pvss.carton_quantity, pvs.carton_quantity),",
-            "         COALESCE(pvss.source_type, pvs.source_type)",
+            "         " + PRODUCT_LENGTH_EXPR + ",",
+            "         " + PRODUCT_WIDTH_EXPR + ",",
+            "         " + PRODUCT_HEIGHT_EXPR + ",",
+            "         " + PRODUCT_WEIGHT_EXPR + ",",
+            "         " + CARTON_LENGTH_EXPR + ",",
+            "         " + CARTON_WIDTH_EXPR + ",",
+            "         " + CARTON_HEIGHT_EXPR + ",",
+            "         " + CARTON_WEIGHT_EXPR + ",",
+            "         " + CARTON_QUANTITY_EXPR + ",",
+            "         " + SPEC_SOURCE_TYPE_EXPR,
             "ORDER BY pm.gmt_updated DESC, pv.variant_ix ASC, pv.id ASC",
             "LIMIT #{limit}",
             "</script>"
@@ -242,16 +301,16 @@ public interface ProcurementPurchaseOrderMapper {
     @Select({
             "SELECT pm.id AS product_master_id, pv.id AS product_variant_id, pm.sku_parent, pv.partner_sku, pv.child_sku,",
             "       pv.size_en, pv.size_ar, COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS title, pm.cover_image_url AS image_url,",
-            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS product_length_cm,",
-            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS product_width_cm,",
-            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS product_height_cm,",
-            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS product_weight_g,",
-            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS carton_length_cm,",
-            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS carton_width_cm,",
-            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS carton_height_cm,",
-            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS carton_weight_kg,",
-            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS carton_quantity,",
-            "       COALESCE(pvss.source_type, pvs.source_type) AS spec_source_type,",
+            "       " + PRODUCT_LENGTH_EXPR + " AS product_length_cm,",
+            "       " + PRODUCT_WIDTH_EXPR + " AS product_width_cm,",
+            "       " + PRODUCT_HEIGHT_EXPR + " AS product_height_cm,",
+            "       " + PRODUCT_WEIGHT_EXPR + " AS product_weight_g,",
+            "       " + CARTON_LENGTH_EXPR + " AS carton_length_cm,",
+            "       " + CARTON_WIDTH_EXPR + " AS carton_width_cm,",
+            "       " + CARTON_HEIGHT_EXPR + " AS carton_height_cm,",
+            "       " + CARTON_WEIGHT_EXPR + " AS carton_weight_kg,",
+            "       " + CARTON_QUANTITY_EXPR + " AS carton_quantity,",
+            "       " + SPEC_SOURCE_TYPE_EXPR + " AS spec_source_type,",
             "       GROUP_CONCAT(DISTINCT lss.site ORDER BY lss.site SEPARATOR ',') AS available_site_codes_csv",
             "FROM product_master pm",
             "JOIN product_variant pv ON pv.product_master_id = pm.id AND pv.is_deleted = b'0'",
@@ -259,21 +318,24 @@ public interface ProcurementPurchaseOrderMapper {
             "LEFT JOIN logical_store_site lss ON lss.id = pso.site_id AND lss.logical_store_id = pm.logical_store_id AND lss.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec pvs ON pvs.variant_id = pv.id AND pvs.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source pvss ON pvss.id = pvs.effective_source_id AND pvss.variant_id = pv.id AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source warehouseSpec ON warehouseSpec.variant_id = pv.id AND warehouseSpec.source_type = 'warehouse' AND warehouseSpec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source ali1688Spec ON ali1688Spec.variant_id = pv.id AND ali1688Spec.source_type = 'ali1688' AND ali1688Spec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source officialSpec ON officialSpec.variant_id = pv.id AND officialSpec.source_type = 'noon_official' AND officialSpec.is_deleted = b'0'",
             "WHERE pm.logical_store_id = #{logicalStoreId}",
             "  AND pm.is_deleted = b'0'",
             "  AND pv.partner_sku = #{psku}",
             "GROUP BY pm.id, pv.id, pm.sku_parent, pv.partner_sku, pv.child_sku, pv.size_en, pv.size_ar,",
             "         pm.title_cn_cache, pm.title_cache, pm.cover_image_url,",
-            "         COALESCE(pvss.product_length_cm, pvs.product_length_cm),",
-            "         COALESCE(pvss.product_width_cm, pvs.product_width_cm),",
-            "         COALESCE(pvss.product_height_cm, pvs.product_height_cm),",
-            "         COALESCE(pvss.product_weight_g, pvs.product_weight_g),",
-            "         COALESCE(pvss.carton_length_cm, pvs.carton_length_cm),",
-            "         COALESCE(pvss.carton_width_cm, pvs.carton_width_cm),",
-            "         COALESCE(pvss.carton_height_cm, pvs.carton_height_cm),",
-            "         COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg),",
-            "         COALESCE(pvss.carton_quantity, pvs.carton_quantity),",
-            "         COALESCE(pvss.source_type, pvs.source_type)",
+            "         " + PRODUCT_LENGTH_EXPR + ",",
+            "         " + PRODUCT_WIDTH_EXPR + ",",
+            "         " + PRODUCT_HEIGHT_EXPR + ",",
+            "         " + PRODUCT_WEIGHT_EXPR + ",",
+            "         " + CARTON_LENGTH_EXPR + ",",
+            "         " + CARTON_WIDTH_EXPR + ",",
+            "         " + CARTON_HEIGHT_EXPR + ",",
+            "         " + CARTON_WEIGHT_EXPR + ",",
+            "         " + CARTON_QUANTITY_EXPR + ",",
+            "         " + SPEC_SOURCE_TYPE_EXPR,
             "ORDER BY pv.id ASC",
             "LIMIT 2"
     })
@@ -285,20 +347,23 @@ public interface ProcurementPurchaseOrderMapper {
     @Select({
             "SELECT pm.id AS product_master_id, pv.id AS product_variant_id, pm.sku_parent, pv.partner_sku, pv.child_sku,",
             "       pv.size_en, pv.size_ar, COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS title, pm.cover_image_url AS image_url,",
-            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS product_length_cm,",
-            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS product_width_cm,",
-            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS product_height_cm,",
-            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS product_weight_g,",
-            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS carton_length_cm,",
-            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS carton_width_cm,",
-            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS carton_height_cm,",
-            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS carton_weight_kg,",
-            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS carton_quantity,",
-            "       COALESCE(pvss.source_type, pvs.source_type) AS spec_source_type",
+            "       " + PRODUCT_LENGTH_EXPR + " AS product_length_cm,",
+            "       " + PRODUCT_WIDTH_EXPR + " AS product_width_cm,",
+            "       " + PRODUCT_HEIGHT_EXPR + " AS product_height_cm,",
+            "       " + PRODUCT_WEIGHT_EXPR + " AS product_weight_g,",
+            "       " + CARTON_LENGTH_EXPR + " AS carton_length_cm,",
+            "       " + CARTON_WIDTH_EXPR + " AS carton_width_cm,",
+            "       " + CARTON_HEIGHT_EXPR + " AS carton_height_cm,",
+            "       " + CARTON_WEIGHT_EXPR + " AS carton_weight_kg,",
+            "       " + CARTON_QUANTITY_EXPR + " AS carton_quantity,",
+            "       " + SPEC_SOURCE_TYPE_EXPR + " AS spec_source_type",
             "FROM product_master pm",
             "JOIN product_variant pv ON pv.product_master_id = pm.id AND pv.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec pvs ON pvs.variant_id = pv.id AND pvs.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source pvss ON pvss.id = pvs.effective_source_id AND pvss.variant_id = pv.id AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source warehouseSpec ON warehouseSpec.variant_id = pv.id AND warehouseSpec.source_type = 'warehouse' AND warehouseSpec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source ali1688Spec ON ali1688Spec.variant_id = pv.id AND ali1688Spec.source_type = 'ali1688' AND ali1688Spec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source officialSpec ON officialSpec.variant_id = pv.id AND officialSpec.source_type = 'noon_official' AND officialSpec.is_deleted = b'0'",
             "WHERE pm.logical_store_id = #{logicalStoreId}",
             "  AND pm.is_deleted = b'0'",
             "  AND pv.id = #{variantId}",
@@ -666,6 +731,12 @@ public interface ProcurementPurchaseOrderMapper {
     PurchaseOrderRecord selectOrderById(@Param("orderId") Long orderId);
 
     @Select({
+            ORDER_SELECT,
+            "WHERE po.id = #{orderId} AND po.is_deleted = b'0' LIMIT 1 FOR UPDATE"
+    })
+    PurchaseOrderRecord selectOrderByIdForUpdate(@Param("orderId") Long orderId);
+
+    @Select({
             "<script>",
             ORDER_SELECT,
             "WHERE po.logical_store_id = #{logicalStoreId}",
@@ -781,11 +852,13 @@ public interface ProcurementPurchaseOrderMapper {
             "INSERT INTO procurement_purchase_order_item (",
             "id, purchase_order_id, owner_user_id, logical_store_id, product_master_id, product_variant_id,",
             "sku_parent, partner_sku, child_sku, title_cache, image_url_cache, source_type, fulfillment_type, fulfillment_source_name, total_quantity, site_count,",
+            "sourcing_spec_text, sourcing_size_text, sourcing_color_text,",
             "collection_status, progress_percent, candidate_count, recommended_count, is_deleted, created_by, updated_by,",
             "gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.purchaseOrderId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.productMasterId}, #{row.productVariantId},",
             "#{row.skuParent}, #{row.partnerSku}, #{row.childSku}, #{row.titleCache}, #{row.imageUrlCache}, #{row.sourceType}, #{row.fulfillmentType}, #{row.fulfillmentSourceName}, 0, 0,",
+            "#{row.sourcingSpecText}, #{row.sourcingSizeText}, #{row.sourcingColorText},",
             "'NOT_STARTED', 0, 0, 0, b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertItem(@Param("row") PurchaseOrderItemRecord row);
@@ -844,6 +917,24 @@ public interface ProcurementPurchaseOrderMapper {
             @Param("updatedBy") Long updatedBy
     );
 
+    @Update({
+            "UPDATE product_variant",
+            "SET size_en = #{sizeEn},",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{variantId}",
+            "  AND logical_store_id = #{logicalStoreId}",
+            "  AND partner_sku = #{partnerSku}",
+            "  AND is_deleted = b'0'"
+    })
+    int updateProductVariantAli1688SpecText(
+            @Param("variantId") Long variantId,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
+            @Param("sizeEn") String sizeEn,
+            @Param("updatedBy") Long updatedBy
+    );
+
     @Select({
             "SELECT id, purchase_order_id, purchase_order_item_id, owner_user_id, logical_store_id, site_id, site_code,",
             "       product_site_offer_id, psku_code, offer_code, transport_mode, quantity, status",
@@ -853,6 +944,21 @@ public interface ProcurementPurchaseOrderMapper {
             "ORDER BY purchase_order_item_id ASC, site_code ASC, transport_mode ASC"
     })
     List<PurchaseOrderItemSiteRecord> listItemSitesByOrder(@Param("orderId") Long orderId);
+
+    @Select({
+            "SELECT UPPER(site.site_code)",
+            "FROM procurement_purchase_order_item_site site",
+            "JOIN procurement_purchase_order_item item",
+            "  ON item.id = site.purchase_order_item_id",
+            " AND item.purchase_order_id = site.purchase_order_id",
+            " AND item.is_deleted = b'0'",
+            "WHERE site.purchase_order_id = #{orderId}",
+            "  AND site.status = 'ACTIVE'",
+            "  AND site.is_deleted = b'0'",
+            "GROUP BY UPPER(site.site_code)",
+            "ORDER BY MIN(site.id) ASC"
+    })
+    List<String> listActiveOrderSiteCodes(@Param("orderId") Long orderId);
 
     @Select({
             "SELECT po.id AS purchaseOrderId, po.order_no AS orderNo, po.title AS title,",
@@ -893,6 +999,19 @@ public interface ProcurementPurchaseOrderMapper {
             "</script>"
     })
     int countActiveShippingOrderLinesByItemSites(@Param("itemSiteIds") List<Long> itemSiteIds);
+
+    @Select({
+            "SELECT DISTINCT sol.purchase_order_id",
+            "FROM procurement_shipping_order_line sol",
+            "JOIN procurement_shipping_order shipping_order",
+            "  ON shipping_order.id = sol.shipping_order_id",
+            " AND shipping_order.owner_user_id = #{ownerUserId}",
+            " AND shipping_order.is_deleted = b'0'",
+            "WHERE sol.purchase_order_id IS NOT NULL",
+            "  AND sol.is_deleted = b'0'",
+            "ORDER BY sol.purchase_order_id"
+    })
+    List<Long> listAssignedPurchaseOrderIds(@Param("ownerUserId") Long ownerUserId);
 
     @Insert({
             "INSERT INTO procurement_shipping_order (",
@@ -1132,35 +1251,20 @@ public interface ProcurementPurchaseOrderMapper {
             @Param("operatorUserId") Long operatorUserId
     );
 
+    // Keep this predicate aligned with product_forwarder_channel_quote.active_quote_slot.
     @Update({
-            "<script>",
             "UPDATE product_forwarder_channel_quote",
             "SET effective_status = 'HISTORICAL',",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE owner_user_id = #{ownerUserId}",
+            "  AND product_variant_id = #{productVariantId}",
             "  AND forwarder_code = #{forwarderCode}",
-            "<choose>",
-            "  <when test='partnerSku != null and partnerSku != \"\"'>",
-            "    AND UPPER(partner_sku) = UPPER(#{partnerSku})",
-            "    <if test='logicalStoreId != null'>",
-            "      AND (logical_store_id IS NULL OR logical_store_id = #{logicalStoreId})",
-            "    </if>",
-            "    <if test='sourceStoreCode != null and sourceStoreCode != \"\"'>",
-            "      AND (source_store_code IS NULL OR TRIM(source_store_code) = '' OR UPPER(source_store_code) = UPPER(#{sourceStoreCode}))",
-            "    </if>",
-            "  </when>",
-            "  <otherwise>",
-            "    AND product_variant_id = #{productVariantId}",
-            "  </otherwise>",
-            "</choose>",
-            "  AND COALESCE(site_code, '') = COALESCE(#{siteCode}, '')",
             "  AND COALESCE(route_code, '') = COALESCE(#{routeCode}, '')",
             "  AND COALESCE(service_code, '') = COALESCE(#{serviceCode}, '')",
             "  AND COALESCE(billing_unit, '') = COALESCE(#{billingUnit}, '')",
             "  AND effective_status = 'CURRENT'",
-            "  AND is_deleted = b'0'",
-            "</script>"
+            "  AND is_deleted = b'0'"
     })
     int markHistoricalProductForwarderChannelQuote(
             @Param("ownerUserId") Long ownerUserId,
@@ -2168,15 +2272,15 @@ public interface ProcurementPurchaseOrderMapper {
             "       quote.service_code AS serviceCode, quote.service_name AS serviceName,",
             "       quote.currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
             "       quote.estimated_amount AS estimatedAmount, quote.remark,",
-            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
-            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
-            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
-            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS productWeightG,",
-            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS cartonLengthCm,",
-            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS cartonWidthCm,",
-            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS cartonHeightCm,",
-            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS cartonWeightKg,",
-            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS cartonQuantity,",
+            "       " + PRODUCT_LENGTH_EXPR + " AS productLengthCm,",
+            "       " + PRODUCT_WIDTH_EXPR + " AS productWidthCm,",
+            "       " + PRODUCT_HEIGHT_EXPR + " AS productHeightCm,",
+            "       " + PRODUCT_WEIGHT_EXPR + " AS productWeightG,",
+            "       " + CARTON_LENGTH_EXPR + " AS cartonLengthCm,",
+            "       " + CARTON_WIDTH_EXPR + " AS cartonWidthCm,",
+            "       " + CARTON_HEIGHT_EXPR + " AS cartonHeightCm,",
+            "       " + CARTON_WEIGHT_EXPR + " AS cartonWeightKg,",
+            "       " + CARTON_QUANTITY_EXPR + " AS cartonQuantity,",
             "       DATE_FORMAT(quote.exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
             "       DATE_FORMAT(quote.confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
             "       DATE_FORMAT(quote.shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
@@ -2200,6 +2304,18 @@ public interface ProcurementPurchaseOrderMapper {
             "  ON pvss.id = pvs.effective_source_id",
             " AND pvss.variant_id = item.product_variant_id",
             " AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source warehouseSpec",
+            "  ON warehouseSpec.variant_id = item.product_variant_id",
+            " AND warehouseSpec.source_type = 'warehouse'",
+            " AND warehouseSpec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source ali1688Spec",
+            "  ON ali1688Spec.variant_id = item.product_variant_id",
+            " AND ali1688Spec.source_type = 'ali1688'",
+            " AND ali1688Spec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source officialSpec",
+            "  ON officialSpec.variant_id = item.product_variant_id",
+            " AND officialSpec.source_type = 'noon_official'",
+            " AND officialSpec.is_deleted = b'0'",
             "LEFT JOIN product_public_detail_snapshot public_detail",
             "  ON public_detail.product_variant_id = item.product_variant_id",
             " AND public_detail.site_code = site.site_code",
@@ -2249,15 +2365,15 @@ public interface ProcurementPurchaseOrderMapper {
             "       quote.service_code AS serviceCode, quote.service_name AS serviceName,",
             "       quote.currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
             "       quote.estimated_amount AS estimatedAmount, quote.remark,",
-            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
-            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
-            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
-            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS productWeightG,",
-            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS cartonLengthCm,",
-            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS cartonWidthCm,",
-            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS cartonHeightCm,",
-            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS cartonWeightKg,",
-            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS cartonQuantity,",
+            "       " + PRODUCT_LENGTH_EXPR + " AS productLengthCm,",
+            "       " + PRODUCT_WIDTH_EXPR + " AS productWidthCm,",
+            "       " + PRODUCT_HEIGHT_EXPR + " AS productHeightCm,",
+            "       " + PRODUCT_WEIGHT_EXPR + " AS productWeightG,",
+            "       " + CARTON_LENGTH_EXPR + " AS cartonLengthCm,",
+            "       " + CARTON_WIDTH_EXPR + " AS cartonWidthCm,",
+            "       " + CARTON_HEIGHT_EXPR + " AS cartonHeightCm,",
+            "       " + CARTON_WEIGHT_EXPR + " AS cartonWeightKg,",
+            "       " + CARTON_QUANTITY_EXPR + " AS cartonQuantity,",
             "       DATE_FORMAT(quote.exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
             "       DATE_FORMAT(quote.confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
             "       DATE_FORMAT(quote.shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
@@ -2284,6 +2400,18 @@ public interface ProcurementPurchaseOrderMapper {
             "  ON pvss.id = pvs.effective_source_id",
             " AND pvss.variant_id = sol.product_variant_id",
             " AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source warehouseSpec",
+            "  ON warehouseSpec.variant_id = sol.product_variant_id",
+            " AND warehouseSpec.source_type = 'warehouse'",
+            " AND warehouseSpec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source ali1688Spec",
+            "  ON ali1688Spec.variant_id = sol.product_variant_id",
+            " AND ali1688Spec.source_type = 'ali1688'",
+            " AND ali1688Spec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source officialSpec",
+            "  ON officialSpec.variant_id = sol.product_variant_id",
+            " AND officialSpec.source_type = 'noon_official'",
+            " AND officialSpec.is_deleted = b'0'",
             "LEFT JOIN product_public_detail_snapshot public_detail",
             "  ON public_detail.product_variant_id = sol.product_variant_id",
             " AND public_detail.site_code = sol.site_code",
@@ -2336,15 +2464,15 @@ public interface ProcurementPurchaseOrderMapper {
             "       quote.service_code AS serviceCode, quote.service_name AS serviceName,",
             "       quote.currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
             "       quote.estimated_amount AS estimatedAmount, quote.remark,",
-            "       COALESCE(pvss.product_length_cm, pvs.product_length_cm) AS productLengthCm,",
-            "       COALESCE(pvss.product_width_cm, pvs.product_width_cm) AS productWidthCm,",
-            "       COALESCE(pvss.product_height_cm, pvs.product_height_cm) AS productHeightCm,",
-            "       COALESCE(pvss.product_weight_g, pvs.product_weight_g) AS productWeightG,",
-            "       COALESCE(pvss.carton_length_cm, pvs.carton_length_cm) AS cartonLengthCm,",
-            "       COALESCE(pvss.carton_width_cm, pvs.carton_width_cm) AS cartonWidthCm,",
-            "       COALESCE(pvss.carton_height_cm, pvs.carton_height_cm) AS cartonHeightCm,",
-            "       COALESCE(pvss.carton_weight_kg, pvs.carton_weight_kg) AS cartonWeightKg,",
-            "       COALESCE(pvss.carton_quantity, pvs.carton_quantity) AS cartonQuantity,",
+            "       " + PRODUCT_LENGTH_EXPR + " AS productLengthCm,",
+            "       " + PRODUCT_WIDTH_EXPR + " AS productWidthCm,",
+            "       " + PRODUCT_HEIGHT_EXPR + " AS productHeightCm,",
+            "       " + PRODUCT_WEIGHT_EXPR + " AS productWeightG,",
+            "       " + CARTON_LENGTH_EXPR + " AS cartonLengthCm,",
+            "       " + CARTON_WIDTH_EXPR + " AS cartonWidthCm,",
+            "       " + CARTON_HEIGHT_EXPR + " AS cartonHeightCm,",
+            "       " + CARTON_WEIGHT_EXPR + " AS cartonWeightKg,",
+            "       " + CARTON_QUANTITY_EXPR + " AS cartonQuantity,",
             "       DATE_FORMAT(quote.exported_at, '%Y-%m-%d %H:%i') AS exportedAt,",
             "       DATE_FORMAT(quote.confirmed_at, '%Y-%m-%d %H:%i') AS confirmedAt,",
             "       DATE_FORMAT(quote.shipping_submitted_at, '%Y-%m-%d %H:%i') AS shippingSubmittedAt",
@@ -2371,6 +2499,18 @@ public interface ProcurementPurchaseOrderMapper {
             "  ON pvss.id = pvs.effective_source_id",
             " AND pvss.variant_id = sol.product_variant_id",
             " AND pvss.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source warehouseSpec",
+            "  ON warehouseSpec.variant_id = sol.product_variant_id",
+            " AND warehouseSpec.source_type = 'warehouse'",
+            " AND warehouseSpec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source ali1688Spec",
+            "  ON ali1688Spec.variant_id = sol.product_variant_id",
+            " AND ali1688Spec.source_type = 'ali1688'",
+            " AND ali1688Spec.is_deleted = b'0'",
+            "LEFT JOIN product_variant_spec_source officialSpec",
+            "  ON officialSpec.variant_id = sol.product_variant_id",
+            " AND officialSpec.source_type = 'noon_official'",
+            " AND officialSpec.is_deleted = b'0'",
             "LEFT JOIN product_public_detail_snapshot public_detail",
             "  ON public_detail.product_variant_id = sol.product_variant_id",
             " AND public_detail.site_code = sol.site_code",
@@ -2660,8 +2800,8 @@ public interface ProcurementPurchaseOrderMapper {
     @Update({
             "UPDATE procurement_purchase_order_logistics_quote_line",
             "SET shipping_submit_status = 'SUBMITTED',",
-            "    shipping_submitted_at = NOW(),",
-            "    shipping_submitted_by = #{operatorUserId},",
+            "    shipping_submitted_at = COALESCE(shipping_submitted_at, NOW()),",
+            "    shipping_submitted_by = COALESCE(shipping_submitted_by, #{operatorUserId}),",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE shipping_order_id = #{shippingOrderId}",
@@ -2673,34 +2813,10 @@ public interface ProcurementPurchaseOrderMapper {
     );
 
     @Update({
-            "<script>",
-            "UPDATE procurement_purchase_order_logistics_quote_line quote",
-            "JOIN procurement_shipping_order_line sol",
-            "  ON sol.shipping_order_id = quote.shipping_order_id",
-            " AND sol.purchase_order_item_site_id = quote.purchase_order_item_site_id",
-            " AND sol.is_deleted = b'0'",
-            "SET quote.shipping_submit_status = 'SUBMITTED',",
-            "    quote.shipping_submitted_at = NOW(),",
-            "    quote.shipping_submitted_by = #{operatorUserId},",
-            "    quote.updated_by = #{operatorUserId},",
-            "    quote.gmt_updated = NOW()",
-            "WHERE quote.shipping_order_id = #{shippingOrderId}",
-            "  AND sol.shipping_order_segment_id IN",
-            "  <foreach collection='segmentIds' item='segmentId' open='(' separator=',' close=')'>#{segmentId}</foreach>",
-            "  AND quote.is_deleted = b'0'",
-            "</script>"
-    })
-    int submitLogisticsQuoteLinesForShippingOrderSegments(
-            @Param("shippingOrderId") Long shippingOrderId,
-            @Param("segmentIds") List<Long> segmentIds,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
-    @Update({
             "UPDATE procurement_shipping_order",
             "SET shipping_submit_status = 'SUBMITTED',",
-            "    submitted_at = NOW(),",
-            "    submitted_by = #{operatorUserId},",
+            "    submitted_at = COALESCE(submitted_at, NOW()),",
+            "    submitted_by = COALESCE(submitted_by, #{operatorUserId}),",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{shippingOrderId}",
@@ -2708,6 +2824,23 @@ public interface ProcurementPurchaseOrderMapper {
             "  AND is_deleted = b'0'"
     })
     int markShippingOrderSubmitted(
+            @Param("shippingOrderId") Long shippingOrderId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE procurement_shipping_order_segment",
+            "SET shipping_submit_status = 'SUBMITTED',",
+            "    submitted_at = COALESCE(submitted_at, NOW()),",
+            "    submitted_by = COALESCE(submitted_by, #{operatorUserId}),",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE shipping_order_id = #{shippingOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'"
+    })
+    int markShippingOrderSegmentsSubmitted(
             @Param("shippingOrderId") Long shippingOrderId,
             @Param("ownerUserId") Long ownerUserId,
             @Param("operatorUserId") Long operatorUserId
@@ -2725,20 +2858,12 @@ public interface ProcurementPurchaseOrderMapper {
             "         AND quote.is_deleted = b'0'",
             "        WHERE sol.shipping_order_segment_id = segment.id",
             "          AND sol.is_deleted = b'0'",
-            "          AND (quote.id IS NULL OR quote.quote_status != 'CONFIRMED')",
+            "          AND (quote.id IS NULL",
+            "            OR quote.quote_status != 'CONFIRMED'",
+            "            OR UPPER(COALESCE(quote.forwarder_code, '')) != UPPER(COALESCE(#{row.forwarderCode}, ''))",
+            "            OR UPPER(COALESCE(quote.route_code, '')) != UPPER(COALESCE(#{row.routeCode}, '')))",
             "      ) THEN 'PENDING_QUOTE' ELSE 'CONFIRMED' END,",
-            "    shipping_submit_status = CASE",
-            "      WHEN NOT EXISTS (",
-            "        SELECT 1 FROM procurement_shipping_order_line sol",
-            "        JOIN procurement_purchase_order_logistics_quote_line quote",
-            "          ON quote.shipping_order_id = sol.shipping_order_id",
-            "         AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
-            "         AND quote.is_deleted = b'0'",
-            "        WHERE sol.shipping_order_segment_id = segment.id",
-            "          AND sol.is_deleted = b'0'",
-            "          AND quote.shipping_submit_status = 'SUBMITTED'",
-            "      ) THEN 'NOT_SUBMITTED'",
-            "      WHEN EXISTS (",
+            "    shipping_submit_status = CASE WHEN EXISTS (",
             "        SELECT 1 FROM procurement_shipping_order_line sol",
             "        LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
             "          ON quote.shipping_order_id = sol.shipping_order_id",
@@ -2747,7 +2872,7 @@ public interface ProcurementPurchaseOrderMapper {
             "        WHERE sol.shipping_order_segment_id = segment.id",
             "          AND sol.is_deleted = b'0'",
             "          AND (quote.id IS NULL OR quote.shipping_submit_status != 'SUBMITTED')",
-            "      ) THEN 'PARTIAL_SUBMITTED' ELSE 'SUBMITTED' END,",
+            "      ) THEN 'NOT_SUBMITTED' ELSE 'SUBMITTED' END,",
             "    forwarder_code = #{row.forwarderCode},",
             "    forwarder_name = #{row.forwarderName},",
             "    route_code = #{row.routeCode},",
@@ -2758,7 +2883,7 @@ public interface ProcurementPurchaseOrderMapper {
             "      SELECT COUNT(1) FROM procurement_shipping_order_line sol",
             "      WHERE sol.shipping_order_segment_id = segment.id",
             "        AND sol.is_deleted = b'0'",
-            "        AND UPPER(COALESCE(segment.forwarder_code, '')) = 'YT'",
+            "        AND UPPER(COALESCE(#{row.forwarderCode}, '')) = 'YT'",
             "        AND (sol.yite_material IS NULL OR TRIM(sol.yite_material) = '')",
             "    ),",
             "    submitted_at = CASE",
@@ -2791,19 +2916,12 @@ public interface ProcurementPurchaseOrderMapper {
             "          AND segment.is_deleted = b'0'",
             "          AND segment.quote_status != 'CONFIRMED'",
             "      ) THEN 'PENDING_QUOTE' ELSE 'CONFIRMED' END,",
-            "    shipping_submit_status = CASE",
-            "      WHEN NOT EXISTS (",
-            "        SELECT 1 FROM procurement_shipping_order_segment segment",
-            "        WHERE segment.shipping_order_id = so.id",
-            "          AND segment.is_deleted = b'0'",
-            "          AND segment.shipping_submit_status IN ('SUBMITTED', 'PARTIAL_SUBMITTED')",
-            "      ) THEN 'NOT_SUBMITTED'",
-            "      WHEN EXISTS (",
+            "    shipping_submit_status = CASE WHEN EXISTS (",
             "        SELECT 1 FROM procurement_shipping_order_segment segment",
             "        WHERE segment.shipping_order_id = so.id",
             "          AND segment.is_deleted = b'0'",
             "          AND segment.shipping_submit_status != 'SUBMITTED'",
-            "      ) THEN 'PARTIAL_SUBMITTED' ELSE 'SUBMITTED' END,",
+            "      ) THEN 'NOT_SUBMITTED' ELSE 'SUBMITTED' END,",
             "    submitted_at = CASE",
             "      WHEN so.shipping_submit_status = 'SUBMITTED' THEN COALESCE(so.submitted_at, NOW())",
             "      ELSE so.submitted_at END,",

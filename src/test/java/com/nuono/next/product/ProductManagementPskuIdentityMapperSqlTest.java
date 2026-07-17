@@ -57,6 +57,20 @@ class ProductManagementPskuIdentityMapperSqlTest {
     }
 
     @Test
+    void exactWarehouseSpecSkuQueriesDoNotRequireActiveSiteMount() throws Exception {
+        assertThat(selectSql("selectLogicalStoreIdByOwnerStoreCode", Long.class, String.class))
+                .doesNotContain("lss.is_deleted = 0");
+        assertThat(selectSql("selectProductVariantForSpecByVariantId", Long.class, String.class, Long.class))
+                .doesNotContain("lss.is_deleted = 0");
+        assertThat(selectSql("selectProductVariantSpecSources", Long.class, String.class, Long.class))
+                .doesNotContain("lss.is_deleted = 0");
+        assertThat(selectSql("selectProductVariantSpecSourceForScope", Long.class, String.class, Long.class, Long.class))
+                .doesNotContain("lss.is_deleted = 0");
+        assertThat(selectSql("selectProductVariantLogisticsProfile", Long.class, String.class, Long.class))
+                .doesNotContain("lss.is_deleted = 0");
+    }
+
+    @Test
     void productMasterIdentityResolverUsesStoreAndPartnerSkuWithoutPskuCodeFallback() throws Exception {
         Method method = ProductManagementMapper.class.getMethod(
                 "selectProductMasterIdentityByStorePartnerSku",
@@ -80,6 +94,12 @@ class ProductManagementPskuIdentityMapperSqlTest {
                 .doesNotContain("pso.psku_code = #{partnerSku}")
                 .doesNotContain("psku_code = #{partnerSku}")
                 .doesNotContain("pm.sku_parent = #{partnerSku}");
+    }
+
+    private String selectSql(String methodName, Class<?>... parameterTypes) throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(methodName, parameterTypes);
+        return String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
     }
 
     @Test

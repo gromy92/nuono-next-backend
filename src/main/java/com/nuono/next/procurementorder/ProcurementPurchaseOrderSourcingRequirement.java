@@ -7,6 +7,7 @@ import org.springframework.util.StringUtils;
 public final class ProcurementPurchaseOrderSourcingRequirement {
 
     private static final int MAX_TEXT_LENGTH = 120;
+    private static final int MAX_ALI1688_SPEC_TEXT_LENGTH = 200;
 
     private final String specText;
     private final String sizeText;
@@ -46,9 +47,35 @@ public final class ProcurementPurchaseOrderSourcingRequirement {
         return hints;
     }
 
+    public boolean hasAnyText() {
+        return StringUtils.hasText(specText)
+                || StringUtils.hasText(sizeText)
+                || StringUtils.hasText(colorText);
+    }
+
+    public String toAli1688SpecText() {
+        List<String> parts = new ArrayList<>();
+        addPart(parts, specText);
+        addPart(parts, sizeText);
+        addPart(parts, colorText);
+        if (parts.isEmpty()) {
+            return null;
+        }
+        String text = String.join(" / ", parts);
+        return text.length() <= MAX_ALI1688_SPEC_TEXT_LENGTH
+                ? text
+                : text.substring(0, MAX_ALI1688_SPEC_TEXT_LENGTH);
+    }
+
     private static void addHint(List<String> hints, String label, String value) {
         if (StringUtils.hasText(value)) {
             hints.add(label + ": " + value);
+        }
+    }
+
+    private static void addPart(List<String> parts, String value) {
+        if (StringUtils.hasText(value)) {
+            parts.add(value.trim());
         }
     }
 

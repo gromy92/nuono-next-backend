@@ -60,7 +60,24 @@ public class ProductVariantLogisticsProfileController {
             HttpServletRequest request
     ) {
         try {
-            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            Long resolvedOwnerUserId = resolveWebOwnerUserId(request, storeCode);
+            return requireService().detailByPsku(resolvedOwnerUserId, storeCode, partnerSku);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @GetMapping("/by-identity")
+    public ProductVariantLogisticsProfileView detailByIdentity(
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            HttpServletRequest request
+    ) {
+        try {
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode, BusinessCapability.WAREHOUSE_DISPATCH);
             return requireService().detailByPsku(resolvedOwnerUserId, storeCode, partnerSku);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -91,6 +108,30 @@ public class ProductVariantLogisticsProfileController {
         }
     }
 
+    @PutMapping("/by-identity")
+    public ProductVariantLogisticsProfileView saveByIdentity(
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            @RequestBody(required = false) ProductVariantLogisticsProfileCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            ProductVariantLogisticsProfileCommand effectiveCommand =
+                    command == null ? new ProductVariantLogisticsProfileCommand() : command;
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode, BusinessCapability.WAREHOUSE_DISPATCH);
+            effectiveCommand.ownerUserId = resolvedOwnerUserId;
+            effectiveCommand.storeCode = storeCode;
+            effectiveCommand.partnerSku = partnerSku;
+            effectiveCommand.operatorUserId = session.getUserId();
+            return requireService().saveByPsku(effectiveCommand);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @PutMapping("/by-psku")
     public ProductVariantLogisticsProfileView saveByPsku(
             @RequestBody(required = false) ProductVariantLogisticsProfileCommand command,
@@ -100,7 +141,7 @@ public class ProductVariantLogisticsProfileController {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
             ProductVariantLogisticsProfileCommand effectiveCommand =
                     command == null ? new ProductVariantLogisticsProfileCommand() : command;
-            Long resolvedOwnerUserId = resolveOwnerUserId(request, effectiveCommand.storeCode);
+            Long resolvedOwnerUserId = resolveWebOwnerUserId(request, effectiveCommand.storeCode);
             effectiveCommand.ownerUserId = resolvedOwnerUserId;
             effectiveCommand.operatorUserId = session.getUserId();
             return requireService().saveByPsku(effectiveCommand);
@@ -120,11 +161,25 @@ public class ProductVariantLogisticsProfileController {
     }
 
     private Long resolveOwnerUserId(HttpServletRequest request, String storeCode) {
-        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+        return resolveOwnerUserId(request, storeCode, BusinessCapability.PRODUCT_MASTER);
+    }
+
+    private Long resolveWebOwnerUserId(HttpServletRequest request, String storeCode) {
+        BusinessAccessContext access = businessAccessResolver().requireAnyStoreAccess(
                 request,
+                storeCode,
                 BusinessCapability.PRODUCT_MASTER,
-                storeCode
+                BusinessCapability.PROCUREMENT
         );
+        return resolveOwnerUserId(access, storeCode);
+    }
+
+    private Long resolveOwnerUserId(HttpServletRequest request, String storeCode, BusinessCapability capability) {
+        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(request, capability, storeCode);
+        return resolveOwnerUserId(access, storeCode);
+    }
+
+    private Long resolveOwnerUserId(BusinessAccessContext access, String storeCode) {
         Long ownerUserId = access.resolveOwnerUserIdForStore(storeCode);
         if (ownerUserId != null) {
             return ownerUserId;

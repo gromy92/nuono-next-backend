@@ -3,6 +3,7 @@ package com.nuono.next.product;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +12,7 @@ import com.nuono.next.auth.AuthenticatedSession;
 import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessCapability;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,6 +60,13 @@ class ProductVariantLogisticsProfileControllerTest {
                         .value()
         );
         assertArrayEquals(
+                new String[]{"/by-identity"},
+                ProductVariantLogisticsProfileController.class
+                        .getMethod("detailByIdentity", Long.class, String.class, String.class, javax.servlet.http.HttpServletRequest.class)
+                        .getAnnotation(GetMapping.class)
+                        .value()
+        );
+        assertArrayEquals(
                 new String[]{"/{variantId}"},
                 ProductVariantLogisticsProfileController.class
                         .getMethod("save", Long.class, ProductVariantLogisticsProfileCommand.class, javax.servlet.http.HttpServletRequest.class)
@@ -71,6 +80,32 @@ class ProductVariantLogisticsProfileControllerTest {
                         .getAnnotation(PutMapping.class)
                         .value()
         );
+        assertArrayEquals(
+                new String[]{"/by-identity"},
+                ProductVariantLogisticsProfileController.class
+                        .getMethod("saveByIdentity", String.class, String.class, ProductVariantLogisticsProfileCommand.class, javax.servlet.http.HttpServletRequest.class)
+                        .getAnnotation(PutMapping.class)
+                        .value()
+        );
+    }
+
+    @Test
+    void detailByPskuAllowsProcurementCapabilityWithinStoreScope() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(businessAccessResolverProvider.getIfAvailable()).thenReturn(businessAccessResolver);
+        when(businessAccessResolver.requireAnyStoreAccess(
+                request,
+                "STR69486-NSA",
+                BusinessCapability.PRODUCT_MASTER,
+                BusinessCapability.PROCUREMENT
+        )).thenReturn(accessContext());
+        when(service.detailByPsku(10002L, "STR69486-NSA", "SGGRB113"))
+                .thenReturn(new ProductVariantLogisticsProfileView());
+
+        controller.detailByPsku(null, "STR69486-NSA", "SGGRB113", request);
+
+        verify(service).detailByPsku(10002L, "STR69486-NSA", "SGGRB113");
     }
 
     @Test
@@ -78,8 +113,12 @@ class ProductVariantLogisticsProfileControllerTest {
         MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
         when(serviceProvider.getIfAvailable()).thenReturn(service);
         when(businessAccessResolverProvider.getIfAvailable()).thenReturn(businessAccessResolver);
-        when(businessAccessResolver.requireStoreAccess(any(), any(), org.mockito.ArgumentMatchers.eq("STR69486-NSA")))
-                .thenReturn(accessContext());
+        when(businessAccessResolver.requireAnyStoreAccess(
+                request,
+                "STR69486-NSA",
+                BusinessCapability.PRODUCT_MASTER,
+                BusinessCapability.PROCUREMENT
+        )).thenReturn(accessContext());
         when(service.saveByPsku(any())).thenReturn(new ProductVariantLogisticsProfileView());
         ProductVariantLogisticsProfileCommand command = new ProductVariantLogisticsProfileCommand();
         command.storeCode = "STR69486-NSA";
@@ -95,9 +134,36 @@ class ProductVariantLogisticsProfileControllerTest {
         assertEquals("SGGRB113", captor.getValue().partnerSku);
     }
 
+    @Test
+    void saveByIdentityUsesStableIdentityFromQueryBeforeCallingService() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(businessAccessResolverProvider.getIfAvailable()).thenReturn(businessAccessResolver);
+        when(businessAccessResolver.requireStoreAccess(
+                any(),
+                org.mockito.ArgumentMatchers.eq(com.nuono.next.permission.access.BusinessCapability.WAREHOUSE_DISPATCH),
+                org.mockito.ArgumentMatchers.eq("STR69486-NSA")
+        ))
+                .thenReturn(accessContext());
+        when(service.saveByPsku(any())).thenReturn(new ProductVariantLogisticsProfileView());
+        ProductVariantLogisticsProfileCommand command = new ProductVariantLogisticsProfileCommand();
+        command.storeCode = "IGNORED";
+        command.partnerSku = "IGNORED";
+
+        controller.saveByIdentity("STR69486-NSA", "SGGRB113", command, request);
+
+        ArgumentCaptor<ProductVariantLogisticsProfileCommand> captor =
+                ArgumentCaptor.forClass(ProductVariantLogisticsProfileCommand.class);
+        verify(service).saveByPsku(captor.capture());
+        assertEquals(10002L, captor.getValue().ownerUserId);
+        assertEquals("STR69486-NSA", captor.getValue().storeCode);
+        assertEquals("SGGRB113", captor.getValue().partnerSku);
+        assertEquals(10003L, captor.getValue().operatorUserId);
+    }
+
     private MockHttpServletRequest requestFor(AuthenticatedSession session) {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(sessionTokenService.requireSession(request)).thenReturn(session);
+        lenient().when(sessionTokenService.requireSession(request)).thenReturn(session);
         return request;
     }
 

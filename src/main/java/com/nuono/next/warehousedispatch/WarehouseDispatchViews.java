@@ -61,6 +61,8 @@ public final class WarehouseDispatchViews {
         public Boolean logisticsQuoteBlocking;
         public String logisticsQuoteStatus;
         public String logisticsShippingSubmitStatus;
+        public String targetSiteCode;
+        public String targetTransportMode;
         public String fulfillmentType;
         public String specStatus;
         public Integer availableQuantity;
@@ -80,9 +82,13 @@ public final class WarehouseDispatchViews {
     public static class PurchaseReceiptItemView {
         public String id;
         public String orderId;
+        public Long purchaseOrderItemSiteId;
+        public Long fulfillmentBalanceId;
         public String orderNo;
         public String purchaseOrderTitle;
         public String storeName;
+        public String storeCode;
+        public Long productVariantId;
         public String psku;
         public String title;
         public String imageUrl;
@@ -92,6 +98,10 @@ public final class WarehouseDispatchViews {
         public Integer receivedQty;
         public Integer plannedQty;
         public String specStatus;
+        public BigDecimal productLengthCm;
+        public BigDecimal productWidthCm;
+        public BigDecimal productHeightCm;
+        public BigDecimal productWeightG;
         public String fulfillmentType;
         public String fulfillmentSourceName;
         public String exceptionText;
@@ -106,7 +116,10 @@ public final class WarehouseDispatchViews {
         public String purchaseOrderTitle;
         public Long purchaseOrderItemId;
         public Long purchaseOrderItemSiteId;
+        public String siteCode;
         public String plannedTransportMode;
+        public String targetSiteCode;
+        public String targetTransportMode;
         public String logisticsQuoteStatus;
         public String logisticsShippingSubmitStatus;
         public Boolean logisticsQuoteBlocking;
@@ -116,6 +129,7 @@ public final class WarehouseDispatchViews {
     public static class DispatchPlanView {
         public String id;
         public Long ownerUserId;
+        public String clientRequestId;
         public String planNo;
         public String status;
         public Integer itemCount;
@@ -127,11 +141,13 @@ public final class WarehouseDispatchViews {
         public String createdAt;
         public String updatedAt;
         public List<DispatchPlanLineView> lines = new ArrayList<>();
+        public ShippingBatchView currentShippingBatch;
 
         public DispatchPlanRecord toRecord() {
             DispatchPlanRecord record = new DispatchPlanRecord();
             record.id = id == null ? null : Long.valueOf(id);
             record.ownerUserId = ownerUserId;
+            record.clientRequestId = clientRequestId;
             record.planNo = planNo;
             record.status = status;
             record.itemCount = itemCount;
@@ -222,12 +238,16 @@ public final class WarehouseDispatchViews {
     public static class ShippingBatchView {
         public String id;
         public Long ownerUserId;
+        public String dispatchPlanId;
         public String batchNo;
         public String status;
         public String selectedOptionId;
         public Integer sourceCount;
         public Integer skuCount;
         public Integer totalQuantity;
+        public Integer optionCount;
+        public BigDecimal actualWeightKg;
+        public BigDecimal volumeCbm;
         public String remark;
         public String createdAt;
         public String updatedAt;
@@ -238,12 +258,16 @@ public final class WarehouseDispatchViews {
             ShippingBatchRecord record = new ShippingBatchRecord();
             record.id = id == null ? null : Long.valueOf(id);
             record.ownerUserId = ownerUserId;
+            record.dispatchPlanId = dispatchPlanId == null ? null : Long.valueOf(dispatchPlanId);
             record.batchNo = batchNo;
             record.status = status;
             record.selectedOptionId = selectedOptionId == null ? null : Long.valueOf(selectedOptionId);
             record.sourceCount = sourceCount;
             record.skuCount = skuCount;
             record.totalQuantity = totalQuantity;
+            record.optionCount = optionCount;
+            record.actualWeightKg = actualWeightKg;
+            record.volumeCbm = volumeCbm;
             record.remark = remark;
             record.createdAt = createdAt;
             record.updatedAt = updatedAt;
@@ -254,6 +278,7 @@ public final class WarehouseDispatchViews {
     public static class ShippingBatchSourceView {
         public String id;
         public Long batchId;
+        public Long logicalStoreId;
         public Long fulfillmentBalanceId;
         public String sourceStoreCode;
         public String sourceStoreName;
@@ -288,6 +313,7 @@ public final class WarehouseDispatchViews {
             ShippingBatchSourceRecord record = new ShippingBatchSourceRecord();
             record.id = id == null ? null : Long.valueOf(id);
             record.batchId = batchId;
+            record.logicalStoreId = logicalStoreId;
             record.fulfillmentBalanceId = fulfillmentBalanceId;
             record.sourceStoreCode = sourceStoreCode;
             record.sourceStoreName = sourceStoreName;
@@ -309,6 +335,29 @@ public final class WarehouseDispatchViews {
             record.reservedQuantity = reservedQuantity;
             return record;
         }
+    }
+
+    public static class ShippingRouteOptionView {
+        public String forwarderCode;
+        public String forwarderName;
+        public String routeCode;
+        public String routeName;
+        public String siteCode;
+        public String transportMode;
+    }
+
+    public static class ShippingCostComponentView {
+        public String componentType;
+        public String componentName;
+        public String sourceTable;
+        public Long sourceId;
+        public String currency;
+        public BigDecimal unitPrice;
+        public String billingUnit;
+        public BigDecimal billableQuantity;
+        public BigDecimal amount;
+        public String formula;
+        public Integer productLineCount;
     }
 
     public static class ShippingSuggestionOptionView {
@@ -338,6 +387,7 @@ public final class WarehouseDispatchViews {
         public BigDecimal estimatedTotalAmount;
         public BigDecimal avgUnitAmount;
         public String currency;
+        public List<ShippingCostComponentView> costComponents = new ArrayList<>();
         public List<ShippingSuggestionLineView> lines = new ArrayList<>();
 
         public ShippingSuggestionOptionRecord toRecord() {
@@ -385,8 +435,16 @@ public final class WarehouseDispatchViews {
         public BigDecimal actualWeightKg;
         public BigDecimal volumeCbm;
         public BigDecimal chargeableWeightKg;
+        public BigDecimal rawBillableQuantity;
+        public BigDecimal minimumBillableUnit;
+        public BigDecimal billableQuantity;
+        public String billingUnit;
+        public BigDecimal freightAmount;
         public BigDecimal estimatedAmount;
         public String currency;
+        public Boolean minimumNotMet;
+        public List<String> sensitiveReasons = new ArrayList<>();
+        public List<ShippingCostComponentView> costComponents = new ArrayList<>();
         public Integer quantity;
         public List<ShippingSuggestionLineSourceView> sources = new ArrayList<>();
 
@@ -511,11 +569,20 @@ public final class WarehouseDispatchViews {
         }
     }
 
+    public static class IssuedShippingBatchView {
+        public ShippingBatchView shippingBatch;
+        public List<OutboundOrderView> outboundOrders = new ArrayList<>();
+        public List<PackingListView> packingLists = new ArrayList<>();
+    }
+
     public static class OutboundOrderLineView {
         public String id;
         public Long outboundOrderId;
         public Long batchId;
         public Long optionLineId;
+        public Long logicalStoreId;
+        public String storeCode;
+        public String storeName;
         public Long productVariantId;
         public String partnerSku;
         public String skuParent;
@@ -536,6 +603,9 @@ public final class WarehouseDispatchViews {
             record.outboundOrderId = outboundOrderId;
             record.batchId = batchId;
             record.optionLineId = optionLineId;
+            record.logicalStoreId = logicalStoreId;
+            record.sourceStoreCode = storeCode;
+            record.sourceStoreName = storeName;
             record.productVariantId = productVariantId;
             record.partnerSku = partnerSku;
             record.skuParent = skuParent;
@@ -558,6 +628,8 @@ public final class WarehouseDispatchViews {
         public Long outboundOrderLineId;
         public Long batchSourceId;
         public Long fulfillmentBalanceId;
+        public String sourceStoreCode;
+        public String sourceStoreName;
         public Long purchaseOrderId;
         public String purchaseOrderNo;
         public String purchaseOrderTitle;
@@ -573,6 +645,8 @@ public final class WarehouseDispatchViews {
             record.outboundOrderLineId = outboundOrderLineId;
             record.batchSourceId = batchSourceId;
             record.fulfillmentBalanceId = fulfillmentBalanceId;
+            record.sourceStoreCode = sourceStoreCode;
+            record.sourceStoreName = sourceStoreName;
             record.purchaseOrderId = purchaseOrderId;
             record.purchaseOrderNo = purchaseOrderNo;
             record.purchaseOrderTitle = purchaseOrderTitle;
@@ -620,6 +694,7 @@ public final class WarehouseDispatchViews {
         public Long packingListId;
         public Long outboundOrderId;
         public String boxNo;
+        public String status;
         public String lengthCm;
         public String widthCm;
         public String heightCm;
@@ -633,6 +708,7 @@ public final class WarehouseDispatchViews {
             record.packingListId = packingListId;
             record.outboundOrderId = outboundOrderId;
             record.boxNo = boxNo;
+            record.status = status;
             record.quantity = quantity;
             return record;
         }

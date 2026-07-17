@@ -56,6 +56,8 @@ DEALLOCATE PREPARE stmt;
 CREATE TABLE IF NOT EXISTS `procurement_fulfillment_confirmation` (
     `id` BIGINT NOT NULL,
     `owner_user_id` BIGINT NOT NULL,
+    `client_request_id` VARCHAR(100) DEFAULT NULL,
+    `request_fingerprint` CHAR(64) DEFAULT NULL,
     `logical_store_id` BIGINT NOT NULL,
     `purchase_order_id` BIGINT NOT NULL,
     `confirmation_no` VARCHAR(80) NOT NULL,
@@ -77,6 +79,7 @@ CREATE TABLE IF NOT EXISTS `procurement_fulfillment_confirmation` (
     `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_fulfillment_confirmation_no` (`confirmation_no`),
+    UNIQUE KEY `uk_fulfillment_confirmation_owner_client_request` (`owner_user_id`, `client_request_id`),
     KEY `idx_fulfillment_confirmation_order` (`purchase_order_id`, `confirmation_type`, `status`, `gmt_updated`),
     KEY `idx_fulfillment_confirmation_related` (`related_confirmation_id`, `relation_type`),
     KEY `idx_fulfillment_confirmation_owner` (`owner_user_id`, `confirmation_type`, `status`, `gmt_updated`)
@@ -156,6 +159,8 @@ CREATE TABLE IF NOT EXISTS `procurement_fulfillment_balance` (
 CREATE TABLE IF NOT EXISTS `procurement_dispatch_plan` (
     `id` BIGINT NOT NULL,
     `owner_user_id` BIGINT NOT NULL,
+    `client_request_id` VARCHAR(100) DEFAULT NULL,
+    `request_fingerprint` VARCHAR(64) DEFAULT NULL,
     `plan_no` VARCHAR(80) NOT NULL,
     `status` VARCHAR(40) NOT NULL DEFAULT 'DRAFT',
     `item_count` INT NOT NULL DEFAULT 0,
@@ -179,6 +184,7 @@ CREATE TABLE IF NOT EXISTS `procurement_dispatch_plan` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_procurement_dispatch_plan_no` (`plan_no`),
     UNIQUE KEY `uk_procurement_dispatch_handoff_request` (`handoff_request_no`),
+    UNIQUE KEY `uk_dispatch_plan_owner_client_request` (`owner_user_id`, `client_request_id`),
     KEY `idx_dispatch_plan_owner` (`owner_user_id`, `status`, `is_deleted`, `gmt_updated`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
