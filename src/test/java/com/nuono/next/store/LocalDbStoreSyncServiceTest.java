@@ -260,6 +260,42 @@ class LocalDbStoreSyncServiceTest {
         verify(noonSessionGateway, never()).login(any(), any(), any(), any(), any(), any());
     }
 
+    @Test
+    void shouldValidateCatalogAgainstBoundSiteBeforeMarkingConnectionHealthy() {
+        StoreSyncStoreRecord project = project(
+                7000L,
+                "新店铺",
+                "PRJ7001",
+                true,
+                "merchant@example.com",
+                1
+        );
+        project.setNoonPartnerCookie("sid=valid");
+        StoreSyncStoreRecord siteStore = store(
+                7001L,
+                "新店铺",
+                "STR7001-NAE",
+                "AE",
+                true,
+                "PRJ7001"
+        );
+        siteStore.setNoonPartnerProjectUser("merchant@example.com");
+        when(noonSessionGateway.openRequestCountScope()).thenReturn(requestCountScope());
+        when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(project);
+        when(storeSyncMapper.selectOwnerStore(307L, "PRJ7001")).thenReturn(siteStore);
+
+        LocalDbStoreSyncService.StoreConnectionTestResult result = service.testConnection(307L, "PRJ7001");
+
+        assertEquals(true, result.isConnected());
+        verify(noonSessionGateway).validateCatalogSessionWithCookie(
+                "sid=valid",
+                "PRJ7001",
+                "STR7001-NAE",
+                "merchant@example.com"
+        );
+        verify(storeSyncMapper).updateProjectConnectionSuccess(7000L, 307L, "sid=valid", 307L);
+    }
+
     private StoreSyncOwnerOption ownerOption(Long id, String name) {
         StoreSyncOwnerOption option = new StoreSyncOwnerOption();
         option.setId(id);
