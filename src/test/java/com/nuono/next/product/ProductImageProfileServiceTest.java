@@ -19,6 +19,7 @@ import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
 import com.nuono.next.operationsskin.OperationsSkinComponentRecord;
 import com.nuono.next.operationsskin.OperationsSkinRecord;
 import com.nuono.next.productpublicdetail.ProductPublicDetailSnapshot;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -782,6 +783,105 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
+    void createAiSuiteDraftShouldChooseLatestEffectiveCompleteSkinAcrossLogicalStore() {
+        ProductImageProfileRecord profile = profileRecord();
+        profile.setProductMasterId(9001L);
+        ProductImageProfileAssetRecord currentImage = new ProductImageProfileAssetRecord();
+        currentImage.setImageUrl("https://example.test/product-main.jpg");
+        currentImage.setImageRole(ProductImageRole.MAIN);
+        currentImage.setAssetStatus(ProductImageAssetStatus.ACTIVE);
+        currentImage.setSortOrder(0);
+
+        OperationsSkinRecord olderSkin = skinRecord();
+        olderSkin.setId(3001L);
+        olderSkin.setStoreCode("STR108065-NAE");
+        olderSkin.setUpdatedAt(LocalDateTime.of(2026, 7, 15, 13, 25));
+        OperationsSkinRecord latestSkin = skinRecord();
+        latestSkin.setId(3002L);
+        latestSkin.setStoreCode("STR108065-NSA");
+        latestSkin.setSkinName("PAPERSAY 最新通用皮肤");
+        latestSkin.setUpdatedAt(LocalDateTime.of(2026, 7, 15, 13, 25));
+
+        List<OperationsSkinComponentRecord> olderComponents = heroComponents(
+                3001L,
+                LocalDateTime.of(2026, 7, 15, 13, 25)
+        );
+        List<OperationsSkinComponentRecord> latestComponents = heroComponents(
+                3002L,
+                LocalDateTime.of(2026, 7, 15, 16, 54)
+        );
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(operationsSkinMapper.selectSkins(307L, "STR108065-NAE", null, "ACTIVE"))
+                .thenReturn(List.of(olderSkin, latestSkin));
+        when(operationsSkinMapper.selectComponents(3001L, 307L, "STR108065-NAE")).thenReturn(olderComponents);
+        when(operationsSkinMapper.selectComponents(3002L, 307L, "STR108065-NAE")).thenReturn(latestComponents);
+        when(mapper.selectCurrentProductImages(9001L)).thenReturn(List.of(currentImage));
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+        when(mapper.selectSections(7001L)).thenReturn(List.of());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            ProductImageSuiteRecord suite = invocation.getArgument(0);
+            suite.setId(9902L);
+            return 1;
+        }).when(mapper).insertSuite(any());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of(suiteRecord(9902L, ProductImageSuiteStatus.DRAFT)));
+        when(mapper.selectSuiteAssets(9902L)).thenReturn(List.of());
+
+        service.createAiSuiteDraft(307L, "STR108065-NAE", 7001L, 10003L);
+
+        ArgumentCaptor<ProductImageSuiteRecord> suiteCaptor = ArgumentCaptor.forClass(ProductImageSuiteRecord.class);
+        verify(mapper).insertSuite(suiteCaptor.capture());
+        assertEquals(3002L, suiteCaptor.getValue().getSkinId());
+        assertEquals("PAPERSAY 最新通用皮肤", suiteCaptor.getValue().getSkinName());
+    }
+
+    @Test
+    void createAiSuiteDraftShouldFallBackWhenLatestSkinIsIncomplete() {
+        ProductImageProfileRecord profile = profileRecord();
+        profile.setProductMasterId(9001L);
+        ProductImageProfileAssetRecord currentImage = new ProductImageProfileAssetRecord();
+        currentImage.setImageUrl("https://example.test/product-main.jpg");
+        currentImage.setImageRole(ProductImageRole.MAIN);
+        currentImage.setAssetStatus(ProductImageAssetStatus.ACTIVE);
+
+        OperationsSkinRecord completeSkin = skinRecord();
+        completeSkin.setId(3001L);
+        completeSkin.setUpdatedAt(LocalDateTime.of(2026, 7, 15, 13, 25));
+        OperationsSkinRecord incompleteLatestSkin = skinRecord();
+        incompleteLatestSkin.setId(3002L);
+        incompleteLatestSkin.setStoreCode("STR108065-NSA");
+        incompleteLatestSkin.setUpdatedAt(LocalDateTime.of(2026, 7, 15, 16, 54));
+        List<OperationsSkinComponentRecord> incompleteComponents = heroComponents(
+                3002L,
+                LocalDateTime.of(2026, 7, 15, 16, 54)
+        ).subList(0, 3);
+
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(operationsSkinMapper.selectSkins(307L, "STR108065-NAE", null, "ACTIVE"))
+                .thenReturn(List.of(incompleteLatestSkin, completeSkin));
+        when(operationsSkinMapper.selectComponents(3002L, 307L, "STR108065-NAE"))
+                .thenReturn(incompleteComponents);
+        when(operationsSkinMapper.selectComponents(3001L, 307L, "STR108065-NAE"))
+                .thenReturn(heroComponents(3001L, LocalDateTime.of(2026, 7, 15, 13, 25)));
+        when(mapper.selectCurrentProductImages(9001L)).thenReturn(List.of(currentImage));
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+        when(mapper.selectSections(7001L)).thenReturn(List.of());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            ProductImageSuiteRecord suite = invocation.getArgument(0);
+            suite.setId(9903L);
+            return 1;
+        }).when(mapper).insertSuite(any());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of(suiteRecord(9903L, ProductImageSuiteStatus.DRAFT)));
+        when(mapper.selectSuiteAssets(9903L)).thenReturn(List.of());
+
+        service.createAiSuiteDraft(307L, "STR108065-NAE", 7001L, 10003L);
+
+        ArgumentCaptor<ProductImageSuiteRecord> suiteCaptor = ArgumentCaptor.forClass(ProductImageSuiteRecord.class);
+        verify(mapper).insertSuite(suiteCaptor.capture());
+        assertEquals(3001L, suiteCaptor.getValue().getSkinId());
+    }
+
+    @Test
     void extractImageFactsShouldReturnAiSuggestionsWithoutSaving() {
         ProductImageProfileRecord profile = profileRecord();
         profile.setProductMasterId(9001L);
@@ -958,5 +1058,19 @@ class ProductImageProfileServiceTest {
         record.setLocked(true);
         record.setStyleJson("{}");
         return record;
+    }
+
+    private List<OperationsSkinComponentRecord> heroComponents(Long skinId, LocalDateTime updatedAt) {
+        List<OperationsSkinComponentRecord> components = List.of(
+                skinComponent("FRAME", "/operations-skins/papersay/frame.png"),
+                skinComponent("BRAND_LOCKUP", "/operations-skins/papersay/brand.png"),
+                skinComponent("SPEC_BG", "/operations-skins/papersay/spec.png"),
+                skinComponent("MAIN_TITLE_BG", "/operations-skins/papersay/title.png")
+        );
+        components.forEach(component -> {
+            component.setSkinId(skinId);
+            component.setUpdatedAt(updatedAt);
+        });
+        return components;
     }
 }

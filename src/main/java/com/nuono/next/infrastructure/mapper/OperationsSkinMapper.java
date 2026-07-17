@@ -68,6 +68,23 @@ public interface OperationsSkinMapper {
     @Update({
             "UPDATE operations_image_skin",
             "SET",
+            "  updated_by = #{updatedBy},",
+            "  updated_at = NOW()",
+            "WHERE id = #{id}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND deleted = b'0'"
+    })
+    int touchSkin(
+            @Param("id") Long id,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE operations_image_skin",
+            "SET",
             "  deleted = b'1',",
             "  updated_by = #{updatedBy},",
             "  updated_at = NOW()",

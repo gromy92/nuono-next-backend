@@ -1676,6 +1676,7 @@ public class ProductImageProfileService {
     }
 
     private ActiveHeroSkin requireActiveHeroSkin(Long ownerUserId, String storeCode) {
+        List<ActiveHeroSkin> candidates = new ArrayList<>();
         for (OperationsSkinRecord skin : safeList(operationsSkinMapper.selectSkins(ownerUserId, storeCode, null, "ACTIVE"))) {
             if (skin == null || skin.getId() == null) {
                 continue;
@@ -1684,10 +1685,41 @@ public class ProductImageProfileService {
                     operationsSkinMapper.selectComponents(skin.getId(), ownerUserId, storeCode)
             );
             if (hasRequiredHeroComponents(completedHeroComponents(components))) {
-                return new ActiveHeroSkin(skin, components);
+                candidates.add(new ActiveHeroSkin(skin, components, effectiveSkinUpdatedAt(skin, components)));
             }
         }
+        if (!candidates.isEmpty()) {
+            candidates.sort((left, right) -> {
+                int updatedAtOrder = right.effectiveUpdatedAt().compareTo(left.effectiveUpdatedAt());
+                if (updatedAtOrder != 0) {
+                    return updatedAtOrder;
+                }
+                return Long.compare(right.skin().getId(), left.skin().getId());
+            });
+            return candidates.get(0);
+        }
         throw new IllegalArgumentException("当前店铺没有完整的主图皮肤。");
+    }
+
+    private LocalDateTime effectiveSkinUpdatedAt(
+            OperationsSkinRecord skin,
+            List<OperationsSkinComponentRecord> components
+    ) {
+        LocalDateTime effectiveUpdatedAt = latestTime(skin.getCreatedAt(), skin.getUpdatedAt());
+        for (OperationsSkinComponentRecord component : safeList(components)) {
+            effectiveUpdatedAt = latestTime(effectiveUpdatedAt, component.getCreatedAt(), component.getUpdatedAt());
+        }
+        return effectiveUpdatedAt == null ? LocalDateTime.MIN : effectiveUpdatedAt;
+    }
+
+    private LocalDateTime latestTime(LocalDateTime... values) {
+        LocalDateTime latest = null;
+        for (LocalDateTime value : values) {
+            if (value != null && (latest == null || value.isAfter(latest))) {
+                latest = value;
+            }
+        }
+        return latest;
     }
 
     private List<OperationsSkinComponentRecord> completedSkinComponents(List<OperationsSkinComponentRecord> rawComponents) {
@@ -2163,10 +2195,16 @@ public class ProductImageProfileService {
     private static final class ActiveHeroSkin {
         private final OperationsSkinRecord skin;
         private final List<OperationsSkinComponentRecord> components;
+        private final LocalDateTime effectiveUpdatedAt;
 
-        private ActiveHeroSkin(OperationsSkinRecord skin, List<OperationsSkinComponentRecord> components) {
+        private ActiveHeroSkin(
+                OperationsSkinRecord skin,
+                List<OperationsSkinComponentRecord> components,
+                LocalDateTime effectiveUpdatedAt
+        ) {
             this.skin = skin;
             this.components = components;
+            this.effectiveUpdatedAt = effectiveUpdatedAt;
         }
 
         private OperationsSkinRecord skin() {
@@ -2175,6 +2213,10 @@ public class ProductImageProfileService {
 
         private List<OperationsSkinComponentRecord> components() {
             return components;
+        }
+
+        private LocalDateTime effectiveUpdatedAt() {
+            return effectiveUpdatedAt;
         }
     }
 }
