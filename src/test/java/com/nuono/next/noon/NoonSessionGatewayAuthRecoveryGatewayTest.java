@@ -248,6 +248,28 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
     }
 
     @Test
+    void shouldRetryIdentityPreparationOnceAfterTransientTransportFailureBeforeOtpSend() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            NoonSessionGateway gateway = spy(identityGateway(server));
+            doThrow(new IllegalStateException(
+                    "Noon request failed",
+                    new IOException("connection reset")
+            )).doCallRealMethod().when(gateway).prepareEmailOtpGeneration(anyString());
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(gateway).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            assertTrue(result.getProjectResults().get(0).isRecovered());
+            verify(gateway, times(2)).prepareEmailOtpGeneration(anyString());
+            assertEquals(1, server.generateCount());
+        }
+    }
+
+    @Test
     void shouldRetryWhoamiOnceAfterTransientTransportEof() throws Exception {
         try (RecoveryServer server = new RecoveryServer(
                 200,
