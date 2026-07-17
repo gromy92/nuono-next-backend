@@ -113,6 +113,7 @@ nuono:
       login-path: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_PATH:/api/login}
       login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_ACCOUNT_FIELD:username}
       login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_LOGIN_PASSWORD_FIELD:password}
+      freight-bill-path: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_FREIGHT_BILL_PATH:/api/order/report/list?customerName=&orderSn=&warehousingSn=&shippingNo=&status=&country=&transportMode=&statusTime=&page=1&rows=50}
       timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_CHIC_TIMEOUT_SECONDS:30}
     et:
       enabled: ${NUONO_LOGISTICS_AUTO_SYNC_ET_ENABLED:false}
@@ -129,6 +130,8 @@ nuono:
       login-account-field: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_ACCOUNT_FIELD:username}
       login-password-field: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PASSWORD_FIELD:password}
       login-payload-type: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_LOGIN_PAYLOAD_TYPE:json}
+      freight-bill-path: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_FREIGHT_BILL_PATH:}
+      freight-bill-method: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_FREIGHT_BILL_METHOD:GET}
       timeout-seconds: ${NUONO_LOGISTICS_AUTO_SYNC_YITE_TIMEOUT_SECONDS:30}
     zd:
       enabled: ${NUONO_LOGISTICS_AUTO_SYNC_ZD_ENABLED:false}
@@ -144,6 +147,11 @@ nuono:
       cron: "${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_CRON:0 */30 * * * *}"
       zone: ${NUONO_LOGISTICS_AUTO_SYNC_SCHEDULER_ZONE:Asia/Shanghai}
       max-accounts-per-tick: ${NUONO_LOGISTICS_AUTO_SYNC_MAX_ACCOUNTS_PER_TICK:5}
+    freight-bill-scheduler:
+      enabled: ${NUONO_LOGISTICS_FREIGHT_BILL_SYNC_SCHEDULER_ENABLED:false}
+      cron: "${NUONO_LOGISTICS_FREIGHT_BILL_SYNC_SCHEDULER_CRON:0 15 */6 * * *}"
+      zone: ${NUONO_LOGISTICS_FREIGHT_BILL_SYNC_SCHEDULER_ZONE:Asia/Shanghai}
+      max-accounts-per-tick: ${NUONO_LOGISTICS_FREIGHT_BILL_SYNC_MAX_ACCOUNTS_PER_TICK:3}
   noon:
     maintenance-scope:
       file: ${NUONO_NOON_MAINTENANCE_SCOPE_FILE:}

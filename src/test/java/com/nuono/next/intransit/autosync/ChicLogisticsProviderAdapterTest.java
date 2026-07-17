@@ -271,6 +271,33 @@ class ChicLogisticsProviderAdapterTest {
         }
     }
 
+    @Test
+    void fetchesChicFreightBillsThroughIndependentConfiguredPath() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            server.handle("/login", exchange -> sendJson(exchange, "{\"data\":{\"token\":\"chic-token\"}}"));
+            server.handle("/freight-bills", exchange -> {
+                assertThat(exchange.getRequestMethod()).isEqualTo("GET");
+                assertThat(exchange.getRequestHeaders().getFirst("X-Token")).isEqualTo("chic-token");
+                sendJson(exchange, "{\"data\":{\"statementNo\":\"CHIC-202606\",\"statementTotal\":976,\"records\":[{\"purchaseBatchSn\":\"XGGEKSA04070\",\"feeName\":\"空运费\",\"amount\":976}]}}" );
+            });
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getChic().setEnabled(true);
+            properties.getChic().setBaseUrl(server.baseUrl());
+            properties.getChic().setLoginPath("/login");
+            properties.getChic().setFreightBillPath("/freight-bills");
+            ChicLogisticsProviderAdapter httpAdapter = new ChicLogisticsProviderAdapter(properties);
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+
+            FreightBillFetchResult result = httpAdapter.fetchFreightBills(request);
+
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.isSnapshotComplete()).isTrue();
+            assertThat(result.getCommand().getBills()).hasSize(1);
+        }
+    }
+
     private static String listJson(int count) {
         StringBuilder builder = new StringBuilder("{\"data\":{\"records\":[");
         for (int index = 0; index < count; index += 1) {
