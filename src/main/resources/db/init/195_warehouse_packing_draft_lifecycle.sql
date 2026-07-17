@@ -1,4 +1,4 @@
--- Warehouse packing drafts may omit box specs until final submission.
+-- Warehouse APP packing drafts may omit box specs until final submission.
 -- Active-only generated keys keep writes idempotent while allowing soft-deleted boxes to be recreated.
 
 ALTER TABLE `warehouse_packing_box`

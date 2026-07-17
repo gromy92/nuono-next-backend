@@ -11,7 +11,7 @@ class WarehouseReceiptRequestIdempotencyMigrationTest {
     @Test
     void migrationAddsOwnerScopedReceiptRequestIdempotency() throws Exception {
         String migration = Files.readString(Path.of(
-                "src/main/resources/db/init/188_warehouse_receipt_request_idempotency.sql"
+                "src/main/resources/db/init/196_warehouse_receipt_request_idempotency.sql"
         ));
 
         assertThat(migration)

@@ -1,4 +1,4 @@
--- Make APP-created dispatch plans idempotent per business owner.
+-- Make warehouse APP-created dispatch plans idempotent per business owner.
 
 SET @dispatch_client_request_column_exists := (
     SELECT COUNT(*)

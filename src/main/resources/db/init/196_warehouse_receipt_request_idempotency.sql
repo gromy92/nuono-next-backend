@@ -1,4 +1,4 @@
--- Mobile receipt confirmation retries must not add inventory twice.
+-- Warehouse APP receipt confirmation retries must not add inventory twice.
 
 SET @warehouse_receipt_client_request_column_exists := (
     SELECT COUNT(*)

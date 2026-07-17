@@ -1,3 +1,4 @@
+-- Persist warehouse inventory dispatch targets.
 SET @warehouse_inventory_target_site_exists := (
   SELECT COUNT(1)
   FROM INFORMATION_SCHEMA.COLUMNS

@@ -11,7 +11,7 @@ class WarehousePackingDraftLifecycleMigrationTest {
     @Test
     void migrationAllowsDraftSpecsAndScopesUniquenessToActiveRows() throws Exception {
         String migration = Files.readString(Path.of(
-                "src/main/resources/db/init/187_warehouse_packing_draft_lifecycle.sql"
+                "src/main/resources/db/init/195_warehouse_packing_draft_lifecycle.sql"
         ));
 
         assertThat(migration)

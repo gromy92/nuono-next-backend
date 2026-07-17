@@ -15,7 +15,7 @@ class WarehouseAppPackingIdentityMigrationTest {
             "resources",
             "db",
             "init",
-            "184_warehouse_app_packing_identity_fields.sql"
+            "192_warehouse_app_packing_identity_fields.sql"
     );
 
     @Test

@@ -1,4 +1,4 @@
--- Link generated logistics batches back to their source dispatch plan.
+-- Link generated logistics batches back to their source warehouse dispatch plan.
 
 SET @warehouse_shipping_batch_dispatch_plan_exists := (
     SELECT COUNT(*)

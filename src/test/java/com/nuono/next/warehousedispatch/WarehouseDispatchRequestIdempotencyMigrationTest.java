@@ -11,7 +11,7 @@ class WarehouseDispatchRequestIdempotencyMigrationTest {
     @Test
     void migrationAddsOwnerScopedDispatchRequestIdempotency() throws Exception {
         String migration = Files.readString(Path.of(
-                "src/main/resources/db/init/186_warehouse_dispatch_request_idempotency.sql"
+                "src/main/resources/db/init/194_warehouse_dispatch_request_idempotency.sql"
         ));
 
         assertThat(migration)

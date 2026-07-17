@@ -1,4 +1,4 @@
--- Carry Web-issued outbound and packing data needed by the warehouse keeper app.
+-- Carry Web-issued outbound and packing data needed by the warehouse keeper APP.
 
 SET @warehouse_shipping_batch_source_logical_store_exists := (
     SELECT COUNT(*)
