@@ -205,6 +205,14 @@ public class OperationsSkinService {
             component.setSkinId(existing.getId());
             operationsSkinMapper.insertComponent(component);
         }
+        if (operationsSkinMapper.touchSkin(
+                existing.getId(),
+                ownerUserId,
+                normalizeStoreCode(existing.getStoreCode()),
+                context.getSessionUserId()
+        ) == 0) {
+            throw notFound();
+        }
         return detail(existing.getId(), ownerUserId, normalizedStoreCode);
     }
 

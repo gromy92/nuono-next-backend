@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.nuono.next.infrastructure.mapper.OperationsSkinMapper;
 import java.lang.reflect.Method;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.scripting.xmltags.XMLLanguageDriver;
 import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,26 @@ class OperationsSkinMapperSqlTest {
                 .contains("source_site.logical_store_id = accessible_site.logical_store_id")
                 .contains("accessible_site.store_code = #{accessibleStoreCode}")
                 .contains("CONVERT(#{sourceStoreCode} USING utf8mb4) COLLATE utf8mb4_unicode_ci");
+    }
+
+    @Test
+    void touchSkinRefreshesParentEffectiveUpdateTimeWithinPersistedScope() throws Exception {
+        Method method = OperationsSkinMapper.class.getMethod(
+                "touchSkin",
+                Long.class,
+                Long.class,
+                String.class,
+                Long.class
+        );
+        String sql = String.join("\n", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("UPDATE operations_image_skin")
+                .contains("updated_by = #{updatedBy}")
+                .contains("updated_at = NOW()")
+                .contains("owner_user_id = #{ownerUserId}")
+                .contains("store_code = #{storeCode}")
+                .contains("deleted = b'0'");
     }
 
     private static String selectSql(String methodName, Class<?>... parameterTypes) throws Exception {

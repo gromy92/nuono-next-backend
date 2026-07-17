@@ -349,6 +349,8 @@ class OperationsSkinServiceTest {
         FakeOperationsSkinMapper mapper = new FakeOperationsSkinMapper();
         OperationsSkinService service = new OperationsSkinService(mapper);
         OperationsSkinView created = service.create(context(307L, 90003L, STORE_CODE), saveRequest(STORE_CODE, "PAPERSAY 黄框主图"));
+        mapper.skins.get(created.getId()).setUpdatedAt(LocalDateTime.of(2026, 7, 15, 13, 25));
+        mapper.skins.get(created.getId()).setUpdatedBy(100L);
 
         OperationsSkinComponentsSaveRequest request = new OperationsSkinComponentsSaveRequest();
         request.setStoreCode(STORE_CODE);
@@ -371,6 +373,8 @@ class OperationsSkinServiceTest {
         assertEquals(1706, updated.getComponents().get(0).getHeight());
         assertEquals(true, updated.getComponents().get(0).getRequired());
         assertEquals(true, updated.getComponents().get(0).getLocked());
+        assertEquals(LocalDateTime.of(2026, 7, 17, 10, 0), mapper.skins.get(created.getId()).getUpdatedAt());
+        assertEquals(90003L, mapper.skins.get(created.getId()).getUpdatedBy());
 
         OperationsSkinView detail = service.detail(context(307L, 90003L, STORE_CODE), created.getId(), STORE_CODE);
         assertEquals(4, detail.getComponents().size());
@@ -544,6 +548,17 @@ class OperationsSkinServiceTest {
             existing.setStatus(status);
             existing.setUpdatedBy(updatedBy);
             existing.setUpdatedAt(LocalDateTime.of(2026, 6, 11, 10, 0));
+            return 1;
+        }
+
+        @Override
+        public int touchSkin(Long id, Long ownerUserId, String storeCode, Long updatedBy) {
+            OperationsSkinRecord existing = skins.get(id);
+            if (!matchesScope(existing, ownerUserId, storeCode)) {
+                return 0;
+            }
+            existing.setUpdatedBy(updatedBy);
+            existing.setUpdatedAt(LocalDateTime.of(2026, 7, 17, 10, 0));
             return 1;
         }
 
