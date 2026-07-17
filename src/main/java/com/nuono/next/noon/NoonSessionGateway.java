@@ -490,7 +490,16 @@ public class NoonSessionGateway {
         if (!StringUtils.hasText(cookie)) {
             throw new IllegalStateException("Noon session/create 未返回有效 Cookie。");
         }
-        return new ProjectSessionCookie(selectedProject, cookie);
+        return new ProjectSessionCookie(
+                selectedProject,
+                appendProjectContextCookie(cookie, selectedProject.getProjectCode())
+        );
+    }
+
+    private static String appendProjectContextCookie(String cookie, String projectCode) {
+        HttpCookie projectContext = new HttpCookie("projectCode", projectCode);
+        projectContext.setVersion(0);
+        return cookie + "; " + projectContext;
     }
 
     public JsonNode whoamiWithCookie(

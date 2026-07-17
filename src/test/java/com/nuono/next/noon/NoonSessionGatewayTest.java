@@ -523,6 +523,7 @@ class NoonSessionGatewayTest {
 
             assertEquals("PRJ7001", projectSession.getProject().getProjectCode());
             assertTrue(projectSession.getCookie().contains("sid=central-worker"));
+            assertTrue(projectSession.getCookie().contains("projectCode=PRJ7001"));
             assertEquals(1, server.generateCount());
             assertEquals(1, server.sessionCreateCount());
             verifyNoInteractions(mapper);
