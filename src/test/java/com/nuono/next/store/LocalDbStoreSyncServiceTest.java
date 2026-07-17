@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -243,14 +244,56 @@ class LocalDbStoreSyncServiceTest {
         project.setNoonPartnerCookie("sid=expired");
         when(noonSessionGateway.openRequestCountScope()).thenReturn(requestCountScope());
         when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(project);
-        when(noonSessionGateway.whoamiWithCookie("sid=expired", "PRJ7001", "PRJ7001"))
-                .thenThrow(new IllegalStateException("auth_required"));
+        doThrow(new IllegalStateException("auth_required"))
+                .when(noonSessionGateway)
+                .validateCatalogSessionWithCookie(
+                        "sid=expired",
+                        "PRJ7001",
+                        "PRJ7001",
+                        "merchant@example.com"
+                );
 
         LocalDbStoreSyncService.StoreConnectionTestResult result = service.testConnection(307L, "PRJ7001");
 
         assertEquals(false, result.isConnected());
         verify(storeSyncMapper, never()).updateProjectConnectionFailure(any(), any(), any());
         verify(noonSessionGateway, never()).login(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldValidateCatalogAgainstBoundSiteBeforeMarkingConnectionHealthy() {
+        StoreSyncStoreRecord project = project(
+                7000L,
+                "新店铺",
+                "PRJ7001",
+                true,
+                "merchant@example.com",
+                1
+        );
+        project.setNoonPartnerCookie("sid=valid");
+        StoreSyncStoreRecord siteStore = store(
+                7001L,
+                "新店铺",
+                "STR7001-NAE",
+                "AE",
+                true,
+                "PRJ7001"
+        );
+        siteStore.setNoonPartnerProjectUser("merchant@example.com");
+        when(noonSessionGateway.openRequestCountScope()).thenReturn(requestCountScope());
+        when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(project);
+        when(storeSyncMapper.selectOwnerStore(307L, "PRJ7001")).thenReturn(siteStore);
+
+        LocalDbStoreSyncService.StoreConnectionTestResult result = service.testConnection(307L, "PRJ7001");
+
+        assertEquals(true, result.isConnected());
+        verify(noonSessionGateway).validateCatalogSessionWithCookie(
+                "sid=valid",
+                "PRJ7001",
+                "STR7001-NAE",
+                "merchant@example.com"
+        );
+        verify(storeSyncMapper).updateProjectConnectionSuccess(7000L, 307L, "sid=valid", 307L);
     }
 
     private StoreSyncOwnerOption ownerOption(Long id, String name) {

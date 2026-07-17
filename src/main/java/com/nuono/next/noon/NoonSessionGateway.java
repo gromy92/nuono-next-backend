@@ -67,6 +67,8 @@ public class NoonSessionGateway {
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/project/list";
     private static final String DEFAULT_IDENTITY_SESSION_CREATE_URL =
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/session/create";
+    private static final String DEFAULT_CATALOG_CAPABILITY_PROBE_URL =
+            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
     private static final String NOON_WEB_CLIENT_CODE = "web";
     private static final int MAX_RATE_LIMIT_RETRIES = 4;
     private static final long INITIAL_RATE_LIMIT_DELAY_MILLIS = 2000L;
@@ -112,6 +114,8 @@ public class NoonSessionGateway {
     private String configuredMerchantMailAuthCode;
     @Value("${nuono.noon.auth.email-otp.legacy-direct-enabled:false}")
     private boolean legacyDirectEmailOtpEnabled;
+    @Value("${nuono.noon.auth.catalog-capability-probe-url:}")
+    private String catalogCapabilityProbeUrl = DEFAULT_CATALOG_CAPABILITY_PROBE_URL;
 
     public NoonSessionGateway(
             ObjectMapper objectMapper,
@@ -186,6 +190,10 @@ public class NoonSessionGateway {
 
     void setLegacyDirectEmailOtpEnabled(boolean enabled) {
         this.legacyDirectEmailOtpEnabled = enabled;
+    }
+
+    void setCatalogCapabilityProbeUrl(String url) {
+        this.catalogCapabilityProbeUrl = defaultIfBlank(url, DEFAULT_CATALOG_CAPABILITY_PROBE_URL);
     }
 
     public NoonSession login(
@@ -492,7 +500,8 @@ public class NoonSessionGateway {
         }
         return new ProjectSessionCookie(
                 selectedProject,
-                appendProjectContextCookie(cookie, selectedProject.getProjectCode())
+                appendProjectContextCookie(cookie, selectedProject.getProjectCode()),
+                generation.state
         );
     }
 
@@ -536,6 +545,98 @@ public class NoonSessionGateway {
         } catch (Exception exception) {
             throw new IllegalStateException("Noon WHOAMI 验证失败：" + exception.getMessage(), exception);
         }
+    }
+
+    public void validateCatalogSessionWithCookie(
+            String persistedCookie,
+            String projectCode,
+            String storeCode,
+            String noonUser
+    ) {
+        String normalizedProjectCode = normalize(projectCode);
+        String normalizedStoreCode = normalize(storeCode);
+        String normalizedCookie = normalizeCookie(persistedCookie);
+        if (!StringUtils.hasText(normalizedProjectCode)) {
+            throw cookieAuthRequired(normalizedProjectCode, normalizedStoreCode, "missing_project");
+        }
+        if (!StringUtils.hasText(normalizedCookie)) {
+            throw cookieAuthRequired(normalizedProjectCode, normalizedStoreCode, "missing_cookie");
+        }
+        AuthSessionState state = createCookieOnlyState(
+                normalizeUser(noonUser),
+                cookieFingerprint(normalizedCookie),
+                normalizedCookie,
+                normalizedProjectCode,
+                normalizedStoreCode
+        );
+        try {
+            probeCatalogCapability(state, normalizedProjectCode, normalizedStoreCode);
+        } catch (SessionExpiredException exception) {
+            throw cookieAuthRequired(
+                    normalizedProjectCode,
+                    normalizedStoreCode,
+                    safeCookieFailureReason(exception),
+                    exception
+            );
+        }
+    }
+
+    JsonNode whoamiWithProjectSession(ProjectSessionCookie projectSession, String storeCode) {
+        if (projectSession == null || projectSession.state == null || projectSession.project == null) {
+            throw new IllegalArgumentException("缺少 Noon Project 会话。");
+        }
+        return projectSession.state.getJson(
+                projectSession.project.getProjectCode(),
+                normalize(storeCode),
+                whoamiUrl,
+                false,
+                null
+        );
+    }
+
+    void validateCatalogProjectSession(ProjectSessionCookie projectSession, String storeCode) {
+        if (projectSession == null || projectSession.state == null || projectSession.project == null) {
+            throw new IllegalArgumentException("缺少 Noon Project 会话。");
+        }
+        probeCatalogCapability(
+                projectSession.state,
+                projectSession.project.getProjectCode(),
+                normalize(storeCode)
+        );
+    }
+
+    private JsonNode probeCatalogCapability(
+            AuthSessionState state,
+            String projectCode,
+            String storeCode
+    ) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("page", 1);
+        body.put("per_page", 1);
+        body.put("noon_store_code", storeCode);
+        body.put("noonChannelType", "noon");
+        return state.postJson(
+                projectCode,
+                storeCode,
+                defaultIfBlank(catalogCapabilityProbeUrl, DEFAULT_CATALOG_CAPABILITY_PROBE_URL),
+                body,
+                true,
+                catalogLocaleHeaders(storeCode)
+        );
+    }
+
+    private Map<String, String> catalogLocaleHeaders(String storeCode) {
+        String normalizedStore = normalize(storeCode);
+        String upperStore = normalizedStore == null ? "" : normalizedStore.toUpperCase(Locale.ROOT);
+        String site;
+        if (upperStore.endsWith("-NSA") || upperStore.endsWith("-SAU")) {
+            site = "sa";
+        } else if (upperStore.endsWith("-NEG")) {
+            site = "eg";
+        } else {
+            site = "ae";
+        }
+        return Map.of("X-Locale", "en-" + site, "X-Lang", "en");
     }
 
     public RequestCountScope openRequestCountScope() {
@@ -2111,10 +2212,12 @@ public class NoonSessionGateway {
     static final class ProjectSessionCookie {
         private final MerchantProject project;
         private final String cookie;
+        private final AuthSessionState state;
 
-        private ProjectSessionCookie(MerchantProject project, String cookie) {
+        private ProjectSessionCookie(MerchantProject project, String cookie, AuthSessionState state) {
             this.project = project;
             this.cookie = cookie;
+            this.state = state;
         }
 
         MerchantProject getProject() {
@@ -2501,7 +2604,12 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(response.statusCode(), responseBody, request.uri().getPath())) {
+                        if (isAuthExpiredResponse(
+                                response.statusCode(),
+                                responseBody,
+                                request.uri().getPath(),
+                                response.headers().firstValue("location").orElse(null)
+                        )) {
                             recordAttempt(
                                     request,
                                     response.statusCode(),
@@ -2583,7 +2691,12 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(response.statusCode(), responseBody, request.uri().getPath())) {
+                        if (isAuthExpiredResponse(
+                                response.statusCode(),
+                                responseBody,
+                                request.uri().getPath(),
+                                response.headers().firstValue("location").orElse(null)
+                        )) {
                             recordAttempt(
                                     request,
                                     response.statusCode(),
@@ -2663,7 +2776,12 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(response.statusCode(), responseText, request.uri().getPath())) {
+                        if (isAuthExpiredResponse(
+                                response.statusCode(),
+                                responseText,
+                                request.uri().getPath(),
+                                response.headers().firstValue("location").orElse(null)
+                        )) {
                             recordAttempt(
                                     request,
                                     response.statusCode(),
@@ -2796,11 +2914,19 @@ public class NoonSessionGateway {
             Thread.sleep(delay);
         }
 
-        private boolean isAuthExpiredResponse(int statusCode, String responseBody, String requestPath) {
+        private boolean isAuthExpiredResponse(
+                int statusCode,
+                String responseBody,
+                String requestPath,
+                String redirectLocation
+        ) {
             if (statusCode == 401 || statusCode == 403) {
                 return true;
             }
             if (isRedirectStatus(statusCode) && isWhoamiPath(requestPath)) {
+                return true;
+            }
+            if (isRedirectStatus(statusCode) && isNoonLoginRedirect(redirectLocation)) {
                 return true;
             }
             if (!StringUtils.hasText(responseBody)) {
@@ -2810,6 +2936,19 @@ public class NoonSessionGateway {
             return normalized.contains("unauthorized")
                     || normalized.contains("invalid session")
                     || normalized.contains("signin");
+        }
+
+        private boolean isNoonLoginRedirect(String redirectLocation) {
+            if (!StringUtils.hasText(redirectLocation)) {
+                return false;
+            }
+            try {
+                String host = URI.create(redirectLocation.trim()).getHost();
+                return "login.noon.partners".equalsIgnoreCase(host)
+                        || "login-alt.noon.partners".equalsIgnoreCase(host);
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
         }
 
         private boolean isRedirectStatus(int statusCode) {

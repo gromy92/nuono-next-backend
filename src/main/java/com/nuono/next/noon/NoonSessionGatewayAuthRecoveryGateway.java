@@ -300,6 +300,8 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
                         "project cookie validation: identity or target project not confirmed"
                 );
             }
+            sessionGateway.validateCatalogProjectSession(projectSession, target.getStoreCode());
+            command.heartbeatOrThrow();
             return NoonAuthRecoveryProjectResult.recovered(target, projectSession.getCookie());
         } catch (LeaseLostException exception) {
             throw exception;
@@ -336,11 +338,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
             NoonAuthRecoveryAttemptCommand command
     ) {
         try {
-            return sessionGateway.whoamiWithCookie(
-                    projectSession.getCookie(),
-                    target.getProjectCode(),
-                    target.getStoreCode()
-            );
+            return sessionGateway.whoamiWithProjectSession(projectSession, target.getStoreCode());
         } catch (LeaseLostException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -348,11 +346,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
                 throw exception;
             }
             command.heartbeatOrThrow();
-            return sessionGateway.whoamiWithCookie(
-                    projectSession.getCookie(),
-                    target.getProjectCode(),
-                    target.getStoreCode()
-            );
+            return sessionGateway.whoamiWithProjectSession(projectSession, target.getStoreCode());
         }
     }
 

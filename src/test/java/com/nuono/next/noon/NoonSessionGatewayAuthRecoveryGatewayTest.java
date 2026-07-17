@@ -279,14 +279,42 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             NoonSessionGateway gateway = spy(identityGateway(server));
             doThrow(new IllegalStateException(
                     "Noon WHOAMI 验证失败：HTTP/1.1 header parser received no bytes | EOF reached"
-            )).doCallRealMethod().when(gateway).whoamiWithCookie(anyString(), anyString(), anyString());
+            )).doCallRealMethod().when(gateway).whoamiWithProjectSession(
+                    any(NoonSessionGateway.ProjectSessionCookie.class),
+                    anyString()
+            );
 
             NoonAuthRecoveryAttemptResult result = recoveryGateway(gateway).attempt(command());
 
             assertTrue(result.isIdentityAuthenticated());
             assertTrue(result.getProjectResults().get(0).isRecovered());
-            verify(gateway, times(2)).whoamiWithCookie(anyString(), anyString(), anyString());
+            verify(gateway, times(2)).whoamiWithProjectSession(
+                    any(NoonSessionGateway.ProjectSessionCookie.class),
+                    anyString()
+            );
             assertEquals(1, server.whoamiCount());
+        }
+    }
+
+    @Test
+    void shouldRejectRecoveredCookieWhenCatalogRedirectsToLogin() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            server.redirectCatalogToLogin();
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(identityGateway(server)).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            assertEquals(1, result.getProjectResults().size());
+            NoonAuthRecoveryProjectResult projectResult = result.getProjectResults().get(0);
+            assertEquals(NoonAuthRecoveryProjectResult.Code.COOKIE_VALIDATION_FAILED, projectResult.getCode());
+            assertFalse(projectResult.isRecovered());
+            assertNull(projectResult.getCookie());
+            assertEquals(1, server.whoamiCount());
+            assertEquals(1, server.catalogCount());
         }
     }
 
@@ -546,7 +574,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
     }
 
     private NoonSessionGateway identityGateway(RecoveryServer server) {
-        return new NoonSessionGateway(
+        NoonSessionGateway gateway = new NoonSessionGateway(
                 objectMapper,
                 mock(StoreSyncMapper.class),
                 false,
@@ -572,6 +600,8 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 0,
                 ""
         );
+        gateway.setCatalogCapabilityProbeUrl(server.url("/catalog"));
+        return gateway;
     }
 
     private NoonEmailOtpReader immediateOtpReader() {
@@ -774,6 +804,8 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         private final AtomicInteger validateCount = new AtomicInteger();
         private final AtomicInteger sessionCreateCount = new AtomicInteger();
         private final AtomicInteger whoamiCount = new AtomicInteger();
+        private final AtomicInteger catalogCount = new AtomicInteger();
+        private volatile int catalogStatus = 200;
         private volatile String lastSessionProjectCode;
 
         private RecoveryServer(int validateStatus, String validateBody, String whoamiBody) throws IOException {
@@ -879,6 +911,19 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 sendJson(exchange, 200, body, null);
                 return;
             }
+            if ("/catalog".equals(path)) {
+                catalogCount.incrementAndGet();
+                if (catalogStatus == 307) {
+                    exchange.getResponseHeaders().set(
+                            "Location",
+                            "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
+                    );
+                    sendJson(exchange, 307, "temporary redirect", null);
+                } else {
+                    sendJson(exchange, 200, "{\"data\":{\"hits\":[],\"total\":0}}", null);
+                }
+                return;
+            }
             sendJson(exchange, 404, "{\"error\":\"not found\"}", null);
         }
 
@@ -900,6 +945,14 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
 
         private int whoamiCount() {
             return whoamiCount.get();
+        }
+
+        private int catalogCount() {
+            return catalogCount.get();
+        }
+
+        private void redirectCatalogToLogin() {
+            catalogStatus = 307;
         }
 
         @Override
