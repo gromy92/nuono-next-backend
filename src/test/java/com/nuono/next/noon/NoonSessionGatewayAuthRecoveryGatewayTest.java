@@ -227,10 +227,27 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
     }
 
     @Test
-    void shouldRejectWhoamiWithMissingOrWrongProject() throws Exception {
+    void shouldRecoverWhenWhoamiConfirmsIdentityAndSessionHasExactTargetContext() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"MERCHANT@example.com\"}"
+        )) {
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(identityGateway(server)).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            assertEquals(1, result.getProjectResults().size());
+            assertTrue(result.getProjectResults().get(0).isRecovered());
+            assertTrue(result.getProjectResults().get(0).getCookie().contains("projectCode=PRJ7001"));
+        }
+    }
+
+    @Test
+    void shouldRejectWhoamiWithMissingIdentityOrWrongProject() throws Exception {
         List<String> rejectedWhoamiBodies = List.of(
-                "{\"ok\":true,\"email\":\"merchant@example.com\"}",
-                "{\"projectCode\":\"PRJ9999\"}"
+                "{\"ok\":true}",
+                "{\"ok\":true,\"email\":\"another@example.com\"}",
+                "{\"projectCode\":\"PRJ9999\",\"email\":\"merchant@example.com\"}"
         );
 
         for (String whoamiBody : rejectedWhoamiBodies) {
@@ -247,7 +264,10 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 assertEquals(NoonAuthRecoveryProjectResult.Code.COOKIE_VALIDATION_FAILED, projectResult.getCode());
                 assertFalse(projectResult.isRecovered());
                 assertNull(projectResult.getCookie());
-                assertEquals("project cookie validation: target project not confirmed", projectResult.getSafeDiagnostic());
+                assertEquals(
+                        "project cookie validation: identity or target project not confirmed",
+                        projectResult.getSafeDiagnostic()
+                );
             }
         }
     }

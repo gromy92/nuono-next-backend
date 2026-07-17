@@ -216,7 +216,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
 
         List<NoonAuthRecoveryProjectResult> projectResults = new ArrayList<>();
         for (NoonAuthRecoveryProjectTarget target : command.getProjectTargets()) {
-            projectResults.add(createAndValidateProject(grant, target, command));
+            projectResults.add(createAndValidateProject(grant, target, email, command));
         }
         command.heartbeatOrThrow();
         return NoonAuthRecoveryAttemptResult.authenticated(
@@ -261,6 +261,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
     private NoonAuthRecoveryProjectResult createAndValidateProject(
             NoonSessionGateway.EmailIdentityGrant grant,
             NoonAuthRecoveryProjectTarget target,
+            String expectedEmail,
             NoonAuthRecoveryAttemptCommand command
     ) {
         command.heartbeatOrThrow();
@@ -290,11 +291,16 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
                     target.getStoreCode()
             );
             command.heartbeatOrThrow();
-            if (!whoamiMatchesTargetProject(whoami, target.getProjectCode())) {
+            if (!whoamiValidatesProjectSession(
+                    whoami,
+                    expectedEmail,
+                    target.getProjectCode(),
+                    projectSession
+            )) {
                 return NoonAuthRecoveryProjectResult.failed(
                         target,
                         Code.COOKIE_VALIDATION_FAILED,
-                        "project cookie validation: target project not confirmed"
+                        "project cookie validation: identity or target project not confirmed"
                 );
             }
             return NoonAuthRecoveryProjectResult.recovered(target, projectSession.getCookie());
@@ -315,9 +321,76 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         if (!StringUtils.hasText(normalizedTarget) || whoami == null || !whoami.isObject()) {
             return false;
         }
+        Set<String> confirmedProjectCodes = whoamiProjectCodes(whoami);
+        return confirmedProjectCodes.size() == 1 && confirmedProjectCodes.contains(normalizedTarget);
+    }
+
+    static boolean whoamiValidatesProjectSession(
+            JsonNode whoami,
+            String expectedEmail,
+            String targetProjectCode,
+            NoonSessionGateway.ProjectSessionCookie projectSession
+    ) {
+        String normalizedTarget = normalizeProjectCode(targetProjectCode);
+        if (!StringUtils.hasText(normalizedTarget) || whoami == null || !whoami.isObject()) {
+            return false;
+        }
+
+        Set<String> confirmedProjectCodes = whoamiProjectCodes(whoami);
+        if (!confirmedProjectCodes.isEmpty()) {
+            return confirmedProjectCodes.size() == 1
+                    && confirmedProjectCodes.contains(normalizedTarget);
+        }
+
+        return whoamiMatchesIdentityEmail(whoami, expectedEmail)
+                && projectSessionMatchesTarget(projectSession, normalizedTarget);
+    }
+
+    private static Set<String> whoamiProjectCodes(JsonNode whoami) {
         Set<String> confirmedProjectCodes = new LinkedHashSet<>();
         collectWhoamiProjectCodes(whoami, confirmedProjectCodes, 0);
-        return confirmedProjectCodes.size() == 1 && confirmedProjectCodes.contains(normalizedTarget);
+        return confirmedProjectCodes;
+    }
+
+    private static boolean whoamiMatchesIdentityEmail(JsonNode whoami, String expectedEmail) {
+        if (!StringUtils.hasText(expectedEmail)) {
+            return false;
+        }
+        JsonNode emailNode = whoami.get("email");
+        return emailNode != null
+                && emailNode.isTextual()
+                && expectedEmail.trim().equalsIgnoreCase(emailNode.asText("").trim());
+    }
+
+    private static boolean projectSessionMatchesTarget(
+            NoonSessionGateway.ProjectSessionCookie projectSession,
+            String normalizedTarget
+    ) {
+        if (projectSession == null
+                || projectSession.getProject() == null
+                || !normalizedTarget.equals(normalizeProjectCode(projectSession.getProject().getProjectCode()))
+                || !StringUtils.hasText(projectSession.getCookie())) {
+            return false;
+        }
+
+        boolean targetContextFound = false;
+        for (String segment : projectSession.getCookie().split(";")) {
+            String normalizedSegment = segment == null ? "" : segment.trim();
+            int separatorIndex = normalizedSegment.indexOf('=');
+            if (separatorIndex <= 0) {
+                continue;
+            }
+            String name = normalizedSegment.substring(0, separatorIndex).trim();
+            if (!"projectCode".equals(name)) {
+                continue;
+            }
+            String value = normalizeProjectCode(normalizedSegment.substring(separatorIndex + 1));
+            if (!normalizedTarget.equals(value)) {
+                return false;
+            }
+            targetContextFound = true;
+        }
+        return targetContextFound;
     }
 
     private static void collectWhoamiProjectCodes(JsonNode node, Set<String> projectCodes, int depth) {
