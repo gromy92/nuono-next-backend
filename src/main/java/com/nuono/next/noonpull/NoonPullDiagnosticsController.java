@@ -3,6 +3,9 @@ package com.nuono.next.noonpull;
 import com.nuono.next.auth.RoleAccessSupport;
 import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
@@ -135,7 +138,54 @@ public class NoonPullDiagnosticsController {
         view.setQueuedAt(record.getQueuedAt());
         view.setStartedAt(record.getStartedAt());
         view.setFinishedAt(record.getFinishedAt());
+        view.setReportExportStatus(record.getReportExportStatus());
+        view.setReportPollAttempts(record.getReportPollAttempts());
+        view.setReportLastPollAt(record.getReportLastPollAt());
+        view.setReportNextPollAt(record.getReportNextPollAt());
+        applyTiming(view, record);
         return view;
+    }
+
+    private void applyTiming(NoonPullDiagnosticsView.TaskView view, NoonPullTaskRecord record) {
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LocalDateTime end = record.getFinishedAt() == null ? now : record.getFinishedAt();
+        LocalDateTime executionStart = record.getStartedAt();
+        view.setPhase(taskPhase(record));
+        view.setTotalElapsedMillis(elapsedMillis(record.getQueuedAt(), end));
+        view.setQueueWaitMillis(elapsedMillis(
+                record.getQueuedAt(),
+                executionStart == null ? end : executionStart
+        ));
+        view.setExecutionElapsedMillis(elapsedMillis(executionStart, end));
+        view.setReportWaitMillis(record.getPullType() == NoonPullType.REPORT
+                && record.getReportExportId() != null
+                ? elapsedMillis(executionStart, end)
+                : 0L);
+    }
+
+    private String taskPhase(NoonPullTaskRecord record) {
+        if (record.getStatus() == NoonPullTaskStatus.QUEUED) {
+            return "QUEUE_WAIT";
+        }
+        if (record.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return "AUTH_WAIT";
+        }
+        if (record.getStatus() == NoonPullTaskStatus.RUNNING
+                && record.getPullType() == NoonPullType.REPORT
+                && record.getReportExportId() != null) {
+            return "PROVIDER_REPORT_WAIT";
+        }
+        if (record.getStatus() == NoonPullTaskStatus.RUNNING) {
+            return "EXECUTING";
+        }
+        return "FINISHED";
+    }
+
+    private long elapsedMillis(LocalDateTime from, LocalDateTime to) {
+        if (from == null || to == null || to.isBefore(from)) {
+            return 0L;
+        }
+        return Duration.between(from, to).toMillis();
     }
 
     private NoonPullDiagnosticsView.SmokeRunView smokeRunView(NoonPullSmokeRunRecord record) {

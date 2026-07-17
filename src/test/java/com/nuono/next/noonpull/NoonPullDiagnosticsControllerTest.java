@@ -64,6 +64,11 @@ class NoonPullDiagnosticsControllerTest {
         assertEquals(Boolean.TRUE, view.getTasks().get(0).getRetryable());
         assertEquals(Boolean.FALSE, view.getTasks().get(0).getRequiresManualAction());
         assertEquals("safe summary", view.getTasks().get(0).getDiagnosticSummary());
+        assertEquals("FINISHED", view.getTasks().get(0).getPhase());
+        assertEquals(120_000L, view.getTasks().get(0).getTotalElapsedMillis());
+        assertEquals(30_000L, view.getTasks().get(0).getQueueWaitMillis());
+        assertEquals(90_000L, view.getTasks().get(0).getExecutionElapsedMillis());
+        assertEquals(0L, view.getTasks().get(0).getReportWaitMillis());
     }
 
     @Test
@@ -204,6 +209,9 @@ class NoonPullDiagnosticsControllerTest {
         task.setRetryable(true);
         task.setRequiresManualAction(false);
         task.setDiagnosticSummary("safe summary");
+        task.setQueuedAt(LocalDateTime.of(2026, 5, 22, 12, 0));
+        task.setStartedAt(LocalDateTime.of(2026, 5, 22, 12, 0, 30));
+        task.setFinishedAt(LocalDateTime.of(2026, 5, 22, 12, 2));
         task.setCreatedAt(LocalDateTime.of(2026, 5, 22, 12, 0));
         task.setUpdatedAt(LocalDateTime.of(2026, 5, 22, 12, 1));
         return task;

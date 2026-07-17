@@ -321,6 +321,15 @@ public class NoonPullDiagnosticsView {
         private LocalDateTime queuedAt;
         private LocalDateTime startedAt;
         private LocalDateTime finishedAt;
+        private String phase;
+        private long totalElapsedMillis;
+        private long queueWaitMillis;
+        private long executionElapsedMillis;
+        private long reportWaitMillis;
+        private String reportExportStatus;
+        private Integer reportPollAttempts;
+        private LocalDateTime reportLastPollAt;
+        private LocalDateTime reportNextPollAt;
 
         public Long getId() {
             return id;
@@ -481,5 +490,24 @@ public class NoonPullDiagnosticsView {
         public void setFinishedAt(LocalDateTime finishedAt) {
             this.finishedAt = finishedAt;
         }
+
+        public String getPhase() { return phase; }
+        public void setPhase(String phase) { this.phase = phase; }
+        public long getTotalElapsedMillis() { return totalElapsedMillis; }
+        public void setTotalElapsedMillis(long totalElapsedMillis) { this.totalElapsedMillis = totalElapsedMillis; }
+        public long getQueueWaitMillis() { return queueWaitMillis; }
+        public void setQueueWaitMillis(long queueWaitMillis) { this.queueWaitMillis = queueWaitMillis; }
+        public long getExecutionElapsedMillis() { return executionElapsedMillis; }
+        public void setExecutionElapsedMillis(long executionElapsedMillis) { this.executionElapsedMillis = executionElapsedMillis; }
+        public long getReportWaitMillis() { return reportWaitMillis; }
+        public void setReportWaitMillis(long reportWaitMillis) { this.reportWaitMillis = reportWaitMillis; }
+        public String getReportExportStatus() { return reportExportStatus; }
+        public void setReportExportStatus(String reportExportStatus) { this.reportExportStatus = reportExportStatus; }
+        public Integer getReportPollAttempts() { return reportPollAttempts; }
+        public void setReportPollAttempts(Integer reportPollAttempts) { this.reportPollAttempts = reportPollAttempts; }
+        public LocalDateTime getReportLastPollAt() { return reportLastPollAt; }
+        public void setReportLastPollAt(LocalDateTime reportLastPollAt) { this.reportLastPollAt = reportLastPollAt; }
+        public LocalDateTime getReportNextPollAt() { return reportNextPollAt; }
+        public void setReportNextPollAt(LocalDateTime reportNextPollAt) { this.reportNextPollAt = reportNextPollAt; }
     }
 }
