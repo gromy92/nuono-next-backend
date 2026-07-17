@@ -31,6 +31,7 @@ public class NoonPullScheduler {
     private static final LocalTime OFFICIAL_WAREHOUSE_FBN_RECEIVED_READY_AFTER = LocalTime.of(23, 30);
     private static final Duration STALE_RUNNING_TASK_MAX_AGE = Duration.ofHours(2);
     private static final Duration STALE_QUEUED_TASK_MAX_AGE = Duration.ofMinutes(30);
+    private static final Duration PROVIDER_UNAVAILABLE_SCHEDULED_COOLDOWN = Duration.ofHours(6);
 
     private final NoonPullFoundationService foundationService;
     private final Clock clock;
@@ -290,12 +291,25 @@ public class NoonPullScheduler {
         if (plan.getNextRetryAt() != null && plan.getNextRetryAt().isAfter(persistedNow)) {
             return false;
         }
+        if (isProviderUnavailableCircuitOpen(plan, persistedNow)) {
+            return false;
+        }
         if (plan.getLatestSuccessAt() != null && plan.getCooldownSeconds() != null && plan.getCooldownSeconds() > 0) {
             if (plan.getLatestSuccessAt().plusSeconds(plan.getCooldownSeconds()).isAfter(persistedNow)) {
                 return false;
             }
         }
         return providerAvailability.isAvailable(plan);
+    }
+
+    private boolean isProviderUnavailableCircuitOpen(NoonPullPlanRecord plan, LocalDateTime persistedNow) {
+        return plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY
+                && NoonPullFailureType.PROVIDER_UNAVAILABLE.code().equals(plan.getLatestFailureType())
+                && plan.getLatestFailureAt() != null
+                && (plan.getLatestSuccessAt() == null || plan.getLatestFailureAt().isAfter(plan.getLatestSuccessAt()))
+                && plan.getLatestFailureAt()
+                .plus(PROVIDER_UNAVAILABLE_SCHEDULED_COOLDOWN)
+                .isAfter(persistedNow);
     }
 
     private Optional<NoonPullTaskRecord> createTask(

@@ -64,6 +64,78 @@ class NoonPullSchedulerTest {
     }
 
     @Test
+    void shouldSuppressScheduledTaskDuringProviderUnavailableCircuitCooldown() {
+        NoonPullPlanRecord plan = createPlan(
+                NoonPullType.INTERFACE,
+                NoonPullDataDomain.PRODUCT,
+                NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily"
+        );
+        plan.setLatestFailureType(NoonPullFailureType.PROVIDER_UNAVAILABLE.code());
+        plan.setLatestFailureAt(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).minusHours(2));
+        plan.setNextRetryAt(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).minusMinutes(1));
+        repository.updatePlan(plan);
+
+        NoonPullSchedulerResult result = scheduler().runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(0, repository.listTasks().size());
+    }
+
+    @Test
+    void shouldResumeScheduledTaskAfterProviderUnavailableCircuitCooldown() {
+        NoonPullPlanRecord plan = createPlan(
+                NoonPullType.INTERFACE,
+                NoonPullDataDomain.PRODUCT,
+                NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily"
+        );
+        plan.setLatestFailureType(NoonPullFailureType.PROVIDER_UNAVAILABLE.code());
+        plan.setLatestFailureAt(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).minusHours(7));
+        repository.updatePlan(plan);
+
+        NoonPullSchedulerResult result = scheduler().runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+    }
+
+    @Test
+    void shouldCloseProviderCircuitAfterNewerSuccess() {
+        NoonPullPlanRecord plan = createPlan(
+                NoonPullType.INTERFACE,
+                NoonPullDataDomain.PRODUCT,
+                NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily"
+        );
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        plan.setLatestFailureType(NoonPullFailureType.PROVIDER_UNAVAILABLE.code());
+        plan.setLatestFailureAt(now.minusHours(2));
+        plan.setLatestSuccessAt(now.minusHours(1));
+        repository.updatePlan(plan);
+
+        NoonPullSchedulerResult result = scheduler().runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+    }
+
+    @Test
+    void shouldNotApplyProviderCircuitToManualBackfillPlan() {
+        NoonPullPlanRecord plan = createPlan(
+                NoonPullType.REPORT,
+                NoonPullDataDomain.ORDER,
+                NoonPullTriggerMode.GAP_BACKFILL,
+                "backfill:2026-05-01..2026-05-01;maxDays=1;maxWindows=1"
+        );
+        plan.setLatestFailureType(NoonPullFailureType.PROVIDER_UNAVAILABLE.code());
+        plan.setLatestFailureAt(LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC).minusMinutes(5));
+        repository.updatePlan(plan);
+
+        NoonPullSchedulerResult result = scheduler().runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+    }
+
+    @Test
     void shouldNotApplyMaintenanceFileToGapBackfillPlan() {
         createPlan(
                 NoonPullType.REPORT,
