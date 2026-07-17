@@ -4,22 +4,29 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmPackingListsCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateDispatchPlanCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreatePackingListCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingBatchCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingBatchFromDispatchPlanCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingTargetOptionCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.HandoffFailureCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.IssueShippingBatchCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ReplacePackingBoxesCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.UpdateDispatchTargetCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.UpdateFulfillmentCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ConfirmationView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.DispatchPlanView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.FulfillmentItemView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.LogisticsHandoffView;
+import com.nuono.next.warehousedispatch.WarehouseDispatchViews.IssuedShippingBatchView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.OutboundOrderView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PackingListView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PurchaseReceiptOrderView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PurchaseOrderLogisticsComparisonView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ReadyItemView;
+import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ReadySourceView;
+import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ShippingRouteOptionView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ShippingBatchView;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
@@ -102,6 +109,19 @@ public class WarehouseDispatchController {
         }
     }
 
+    @PutMapping("/ready-items/{fulfillmentBalanceId}/dispatch-target")
+    public ReadySourceView updateReadyItemDispatchTarget(
+            @PathVariable String fulfillmentBalanceId,
+            @RequestBody UpdateDispatchTargetCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().updateDispatchTarget(access(request), fulfillmentBalanceId, command);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @GetMapping("/purchase-order-logistics-comparisons")
     public List<PurchaseOrderLogisticsComparisonView> purchaseOrderLogisticsComparisons(
             @RequestParam(required = false, defaultValue = "10") Integer limit,
@@ -156,6 +176,31 @@ public class WarehouseDispatchController {
         }
     }
 
+    @PostMapping("/dispatch-plans/{dispatchPlanId}/shipping-batch")
+    public ShippingBatchView createShippingBatchFromDispatchPlan(
+            @PathVariable String dispatchPlanId,
+            @RequestBody(required = false) CreateShippingBatchFromDispatchPlanCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().createShippingBatchFromDispatchPlan(access(request), dispatchPlanId, command);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @GetMapping("/dispatch-plans/{dispatchPlanId}/shipping-route-options")
+    public List<ShippingRouteOptionView> dispatchPlanShippingRouteOptions(
+            @PathVariable String dispatchPlanId,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().listDispatchPlanShippingRouteOptions(access(request), dispatchPlanId);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
     @GetMapping("/shipping-batches/{shippingBatchId}")
     public ShippingBatchView shippingBatch(
             @PathVariable String shippingBatchId,
@@ -201,6 +246,19 @@ public class WarehouseDispatchController {
     ) {
         try {
             return service().createOutboundOrders(access(request), shippingBatchId);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/shipping-batches/{shippingBatchId}/issue")
+    public IssuedShippingBatchView issueShippingBatch(
+            @PathVariable String shippingBatchId,
+            @RequestBody IssueShippingBatchCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().issueShippingBatch(access(request), shippingBatchId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -263,6 +321,18 @@ public class WarehouseDispatchController {
     ) {
         try {
             return service().confirmPackingList(access(request), packingListId);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/packing-lists/confirm-batch")
+    public List<PackingListView> confirmPackingLists(
+            @RequestBody ConfirmPackingListsCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().confirmPackingLists(access(request), command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

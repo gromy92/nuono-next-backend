@@ -16,6 +16,8 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateIt
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateItemSourcingRequirementCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineYiteMaterialCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineQuoteCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineQuotesCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderBasePriceRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
@@ -53,6 +55,7 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrd
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsPlanLineView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsRecommendationView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelOptionView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteForwarderOptionView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteImportErrorView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteImportView;
@@ -142,9 +145,10 @@ public class LocalDbProcurementPurchaseOrderService {
     private static final String LOGISTICS_QUOTE_PENDING = "PENDING_QUOTE";
     private static final String LOGISTICS_QUOTE_CONFIRMED = "CONFIRMED";
     private static final String SHIPPING_NOT_SUBMITTED = "NOT_SUBMITTED";
-    private static final String SHIPPING_PARTIAL_SUBMITTED = "PARTIAL_SUBMITTED";
     private static final String SHIPPING_SUBMITTED = "SUBMITTED";
     private static final String ORDER_SUBMITTED = "SUBMITTED";
+    private static final String LOGISTICS_PROFILE_CONFIRMED = "confirmed";
+    private static final String LOGISTICS_ATTRIBUTE_UNKNOWN = "unknown";
     private static final String LOGISTICS_QUOTE_XLS_CONTENT_TYPE = "application/vnd.ms-excel";
     private static final String LOGISTICS_QUOTE_XLSX_CONTENT_TYPE =
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -368,8 +372,7 @@ public class LocalDbProcurementPurchaseOrderService {
         if (command == null) {
             throw new IllegalArgumentException("缺少采购单参数。");
         }
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         String title = requiredText(command.title, "请输入采购单名。");
         String remark = trimToNull(command.remark);
         Long operatorUserId = access.getSessionUserId();
@@ -380,7 +383,7 @@ public class LocalDbProcurementPurchaseOrderService {
 
     @Transactional
     public PurchaseOrderView submitOrder(BusinessAccessContext access, String orderId) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
+        PurchaseOrderRecord order = requireOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         Long operatorUserId = access.getSessionUserId();
         if (!isOrderSubmitted(order)) {
             List<PurchaseOrderItemRecord> items = emptyIfNull(mapper.listItemsByOrder(order.id));
@@ -388,6 +391,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 throw new IllegalArgumentException("当前采购单还没有商品，不能封存。");
             }
             assertOrderReadyForSeal(order, items);
+            assertPurchaseOrderSubmitReady(items);
             int updated = mapper.submitOrder(order.id, operatorUserId);
             if (updated <= 0) {
                 throw new IllegalArgumentException("采购单封存失败，请刷新后重试。");
@@ -397,14 +401,49 @@ public class LocalDbProcurementPurchaseOrderService {
         return toOrderView(requireOrder(order.id));
     }
 
+    private void assertPurchaseOrderSubmitReady(List<PurchaseOrderItemRecord> items) {
+        List<String> blockingItems = new ArrayList<>();
+        for (PurchaseOrderItemRecord item : emptyIfNull(items)) {
+            List<String> missingFields = purchaseOrderSubmitMissingFields(item);
+            if (missingFields.isEmpty()) {
+                continue;
+            }
+            String psku = defaultText(item.partnerSku, defaultText(item.skuParent, "商品"));
+            blockingItems.add(psku + " 缺" + String.join("、", missingFields));
+        }
+        if (blockingItems.isEmpty()) {
+            return;
+        }
+        String detail = blockingItems.stream()
+                .limit(5)
+                .collect(Collectors.joining("；"));
+        if (blockingItems.size() > 5) {
+            detail = detail + " 等 " + blockingItems.size() + " 个商品";
+        }
+        throw new IllegalArgumentException("商品资料未补齐，不能提交采购单。请先补齐产品规格和商品属性：" + detail);
+    }
+
+    private List<String> purchaseOrderSubmitMissingFields(PurchaseOrderItemRecord item) {
+        List<String> fields = new ArrayList<>();
+        if (!productPhysicalSpecComplete(item)) {
+            fields.add("长宽高");
+        }
+        if (!positive(item == null ? null : item.productWeightG)) {
+            fields.add("重量");
+        }
+        if (!logisticsAttributeComplete(item)) {
+            fields.add("商品属性");
+        }
+        return fields;
+    }
+
     @Transactional
     public PurchaseOrderView addItems(
             BusinessAccessContext access,
             String orderId,
             AddItemsCommand command
     ) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         if (command == null || command.items == null || command.items.isEmpty()) {
             throw new IllegalArgumentException("请选择至少一个商品。");
         }
@@ -423,8 +462,7 @@ public class LocalDbProcurementPurchaseOrderService {
         if (command == null) {
             throw new IllegalArgumentException("缺少采购单商品参数。");
         }
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         Long parsedItemId = parseLongId(itemId, "采购单商品不存在或已删除。");
         PurchaseOrderItemRecord item = mapper.selectItemById(parsedItemId);
         if (item == null || !order.id.equals(item.purchaseOrderId)) {
@@ -441,7 +479,6 @@ public class LocalDbProcurementPurchaseOrderService {
         ensureNoDuplicateSitesInAllocations(item.partnerSku, allocations);
 
         Map<String, StoreSiteRecord> availableStoreSites = storeSitesByCode(order.logicalStoreId);
-        LinkedHashSet<String> nextOrderSiteCodes = new LinkedHashSet<>(readStringList(order.siteCodesJson));
         Long operatorUserId = access.getSessionUserId();
         String beforeStatus = dbStatus(item);
         String requestedFulfillmentType = normalizeOptionalFulfillmentType(command.fulfillmentType);
@@ -462,7 +499,6 @@ public class LocalDbProcurementPurchaseOrderService {
             if (!availableStoreSites.containsKey(siteCode)) {
                 throw new IllegalArgumentException("站点 " + siteCode + " 不属于当前店铺。");
             }
-            nextOrderSiteCodes.add(siteCode);
             ProductOfferRecord offer = mapper.selectProductOffer(order.logicalStoreId, item.partnerSku, item.productVariantId, siteCode);
             if (offer == null) {
                 throw new IllegalArgumentException(item.partnerSku + " 在站点 " + siteCode + " 没有商品 Offer，不能加入采购单。");
@@ -486,7 +522,7 @@ public class LocalDbProcurementPurchaseOrderService {
         }
         mapper.recalculateItemAggregates(item.id, operatorUserId);
         mapper.recalculateOrderAggregates(order.id, operatorUserId);
-        persistOrderSiteCodesIfChanged(order, nextOrderSiteCodes, operatorUserId);
+        recomputeOrderSiteCodes(order, operatorUserId);
         log(order.id, item.id, "UPDATE_ITEM", operatorUserId, beforeStatus, beforeStatus, item.partnerSku);
         return toOrderView(requireOrder(order.id));
     }
@@ -498,8 +534,7 @@ public class LocalDbProcurementPurchaseOrderService {
             String itemId,
             UpdateItemSourcingRequirementCommand command
     ) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         Long parsedItemId = parseLongId(itemId, "采购单商品不存在或已删除。");
         PurchaseOrderItemRecord item = mapper.selectItemById(parsedItemId);
         if (item == null || !order.id.equals(item.purchaseOrderId)) {
@@ -510,15 +545,22 @@ public class LocalDbProcurementPurchaseOrderService {
                 command == null ? null : command.sourcingSize,
                 command == null ? null : command.sourcingColor
         );
-        mapper.updateItemSourcingRequirement(parsedItemId, requirement, access.getSessionUserId());
-        log(order.id, parsedItemId, "UPDATE_ITEM_SOURCING_REQUIREMENT", access.getSessionUserId(), null, null, null);
+        Long operatorUserId = access.getSessionUserId();
+        mapper.updateItemSourcingRequirement(parsedItemId, requirement, operatorUserId);
+        mapper.updateProductVariantAli1688SpecText(
+                item.productVariantId,
+                item.logicalStoreId,
+                item.partnerSku,
+                requirement.toAli1688SpecText(),
+                operatorUserId
+        );
+        log(order.id, parsedItemId, "UPDATE_ITEM_SOURCING_REQUIREMENT", operatorUserId, null, null, null);
         return toOrderView(requireOrder(order.id));
     }
 
     @Transactional
     public PurchaseOrderView deleteOrder(BusinessAccessContext access, String orderId) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         Long operatorUserId = access.getSessionUserId();
         mapper.softDeleteLinksByOrder(order.id, operatorUserId);
         mapper.softDeleteItemSitesByOrder(order.id, operatorUserId);
@@ -539,8 +581,7 @@ public class LocalDbProcurementPurchaseOrderService {
             String orderId,
             String itemId
     ) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         Long parsedItemId = parseLongId(itemId, "采购单商品不存在或已删除。");
         PurchaseOrderItemRecord item = mapper.selectItemById(parsedItemId);
         if (item == null || !order.id.equals(item.purchaseOrderId)) {
@@ -552,14 +593,14 @@ public class LocalDbProcurementPurchaseOrderService {
         mapper.softDeleteItemSitesByItem(parsedItemId, operatorUserId);
         mapper.softDeleteItem(parsedItemId, operatorUserId);
         mapper.recalculateOrderAggregates(order.id, operatorUserId);
+        recomputeOrderSiteCodes(order, operatorUserId);
         log(order.id, parsedItemId, "DELETE_ITEM", operatorUserId, dbStatus(item), "DELETED", item.partnerSku);
         return toOrderView(requireOrder(order.id));
     }
 
     @Transactional
     public PurchaseOrderView collectOrder(BusinessAccessContext access, String orderId) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         List<PurchaseOrderItemRecord> items = mapper.listItemsByOrder(order.id);
         if (items.isEmpty()) {
             throw new IllegalArgumentException("当前采购单还没有商品，不能发起采集。");
@@ -577,8 +618,7 @@ public class LocalDbProcurementPurchaseOrderService {
             String orderId,
             String itemId
     ) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         Long parsedItemId = parseLongId(itemId, "采购单商品不存在或已删除。");
         PurchaseOrderItemRecord item = mapper.selectItemById(parsedItemId);
         if (item == null || !order.id.equals(item.purchaseOrderId)) {
@@ -703,8 +743,7 @@ public class LocalDbProcurementPurchaseOrderService {
 
     @Transactional
     public PurchaseOrderLogisticsPlanView generateLogisticsPlan(BusinessAccessContext access, String orderId) {
-        PurchaseOrderRecord order = requireOrderAccess(access, parseLongId(orderId, "采购单不存在或已删除。"));
-        assertOrderEditable(order);
+        PurchaseOrderRecord order = requireEditableOrderAccessForUpdate(access, parseLongId(orderId, "采购单不存在或已删除。"));
         return buildLogisticsPlanView(order, access.getSessionUserId(), true);
     }
 
@@ -843,6 +882,14 @@ public class LocalDbProcurementPurchaseOrderService {
     }
 
     @Transactional(readOnly = true)
+    public List<String> listAssignedPurchaseOrderIds(BusinessAccessContext access) {
+        return emptyIfNull(mapper.listAssignedPurchaseOrderIds(ownerUserId(access))).stream()
+                .filter(Objects::nonNull)
+                .map(String::valueOf)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
     public List<LogisticsBillView> listLogisticsBills(BusinessAccessContext access, String keyword) {
         Long ownerUserId = ownerUserId(access);
         return emptyIfNull(mapper.listLogisticsBills(ownerUserId, trim(keyword), 80)).stream()
@@ -922,6 +969,185 @@ public class LocalDbProcurementPurchaseOrderService {
                 access.getSessionUserId()
         );
         persistYiteMaterialAttributeFromShippingLine(order, line, material, access.getSessionUserId());
+        return toShippingOrderView(mapper.selectShippingOrderById(order.id), true);
+    }
+
+    @Transactional
+    public ShippingOrderView updateShippingOrderLineQuote(
+            BusinessAccessContext access,
+            String shippingOrderId,
+            String shippingOrderLineId,
+            UpdateShippingOrderLineQuoteCommand command
+    ) {
+        Long parsedShippingOrderId = parseLongId(shippingOrderId, "发货单不存在或已删除。");
+        Long parsedLineId = parseLongId(shippingOrderLineId, "发货单商品不存在或已删除。");
+        ShippingOrderRecord order = requireShippingOrderAccess(access, parsedShippingOrderId);
+        ShippingOrderLineRecord shippingLine = mapper.selectShippingOrderLineById(order.id, parsedLineId, order.ownerUserId);
+        if (shippingLine == null) {
+            throw new IllegalArgumentException("发货单商品不存在或已删除。");
+        }
+        if (shippingLine.productMasterId == null || shippingLine.productVariantId == null) {
+            throw new IllegalArgumentException("发货单商品缺少系统商品身份，不能维护物流报价。");
+        }
+        BigDecimal unitPrice = requirePositiveAmount(command == null ? null : command.unitPrice, "报价单价必须大于 0。");
+        String billingUnit = requiredText(command == null ? null : command.billingUnit, "请选择计费单位。").toUpperCase(Locale.ROOT);
+        String currency = defaultText(command == null ? null : command.currency, "CNY").toUpperCase(Locale.ROOT);
+        String selectedForwarderCode = requiredText(command == null ? null : command.forwarderCode, "请选择货代。");
+        String selectedRouteCode = requiredText(command == null ? null : command.routeCode, "请选择货代渠道。");
+        Long operatorUserId = access.getSessionUserId();
+
+        List<PurchaseOrderLogisticsQuoteLineRecord> refreshedLines =
+                refreshShippingOrderLogisticsQuoteLines(order, operatorUserId);
+        PurchaseOrderLogisticsQuoteLineRecord quoteLine = refreshedLines.stream()
+                .filter(line -> parsedLineId.equals(line.shippingOrderLineId)
+                        || (line.shippingOrderLineId == null
+                        && shippingLine.purchaseOrderItemSiteId != null
+                        && shippingLine.purchaseOrderItemSiteId.equals(line.purchaseOrderItemSiteId)))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("发货单商品报价行不存在或已删除。"));
+        List<LogisticsQuoteExportOption> options = collectLogisticsQuoteExportOptions(List.of(quoteLine));
+        LogisticsQuoteExportOption selectedOption = requireLogisticsQuoteChannelOption(
+                options,
+                selectedForwarderCode,
+                selectedRouteCode
+        );
+        String yiteMaterial = normalizeInlineQuoteYiteMaterial(command, selectedOption);
+        applyLogisticsQuoteChannel(quoteLine, selectedOption.candidate);
+        if (yiteMaterial != null) {
+            persistShippingOrderLineYiteMaterial(order, shippingLine, yiteMaterial, operatorUserId);
+            quoteLine.yiteMaterial = yiteMaterial;
+        }
+        quoteLine.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
+        quoteLine.shippingSubmitStatus = normalizeShippingSubmitStatus(quoteLine.shippingSubmitStatus);
+        quoteLine.currency = currency;
+        quoteLine.unitPrice = unitPrice;
+        quoteLine.billingUnit = billingUnit;
+        quoteLine.estimatedAmount = null;
+        quoteLine.remark = trimToNull(command == null ? null : command.remark);
+        mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
+        persistProductForwarderChannelQuote(quoteLine, operatorUserId, "WEB_INLINE_QUOTE", "SHIPPING_ORDER_INLINE_QUOTE");
+        mapper.refreshShippingOrderQuoteState(order.id, quoteLine, operatorUserId);
+        if (quoteLine.shippingOrderSegmentId != null) {
+            mapper.refreshShippingOrderSegmentState(
+                    order.id,
+                    List.of(quoteLine.shippingOrderSegmentId),
+                    quoteLine,
+                    operatorUserId
+            );
+        }
+        mapper.refreshShippingOrderHeaderState(order.id, order.ownerUserId, operatorUserId);
+        return toShippingOrderView(mapper.selectShippingOrderById(order.id), true);
+    }
+
+    @Transactional
+    public ShippingOrderView updateShippingOrderLineQuotes(
+            BusinessAccessContext access,
+            String shippingOrderId,
+            UpdateShippingOrderLineQuotesCommand command
+    ) {
+        Long parsedShippingOrderId = parseLongId(shippingOrderId, "发货单不存在或已删除。");
+        if (command == null || command.lineIds == null || command.lineIds.isEmpty()) {
+            throw new IllegalArgumentException("请选择要批量报价的商品。");
+        }
+        LinkedHashSet<Long> requestedLineIds = new LinkedHashSet<>();
+        for (String rawLineId : command.lineIds) {
+            requestedLineIds.add(parseLongId(rawLineId, "发货单商品不存在或已删除。"));
+        }
+        if (requestedLineIds.isEmpty()) {
+            throw new IllegalArgumentException("请选择要批量报价的商品。");
+        }
+
+        ShippingOrderRecord order = requireShippingOrderAccess(access, parsedShippingOrderId);
+        BigDecimal unitPrice = requirePositiveAmount(command.unitPrice, "报价单价必须大于 0。");
+        String billingUnit = requiredText(command.billingUnit, "请选择计费单位。").toUpperCase(Locale.ROOT);
+        String currency = defaultText(command.currency, "CNY").toUpperCase(Locale.ROOT);
+        String selectedForwarderCode = requiredText(command.forwarderCode, "请选择货代。");
+        String selectedRouteCode = requiredText(command.routeCode, "请选择货代渠道。");
+        Long operatorUserId = access.getSessionUserId();
+
+        Map<Long, ShippingOrderLineRecord> shippingLineById = emptyIfNull(mapper.listShippingOrderLines(order.id)).stream()
+                .filter(line -> line.id != null)
+                .filter(line -> requestedLineIds.contains(line.id))
+                .collect(Collectors.toMap(line -> line.id, Function.identity(), (left, ignored) -> left, LinkedHashMap::new));
+        if (shippingLineById.size() != requestedLineIds.size()) {
+            throw new IllegalArgumentException("批量报价商品不存在或已删除。");
+        }
+        List<ShippingOrderLineRecord> selectedShippingLines = requestedLineIds.stream()
+                .map(shippingLineById::get)
+                .collect(Collectors.toList());
+        for (ShippingOrderLineRecord shippingLine : selectedShippingLines) {
+            if (shippingLine.productMasterId == null || shippingLine.productVariantId == null) {
+                throw new IllegalArgumentException("发货单商品缺少系统商品身份，不能维护物流报价。");
+            }
+            if (SHIPPING_SUBMITTED.equals(normalizeShippingSubmitStatus(shippingLine.shippingSubmitStatus))) {
+                throw new IllegalArgumentException("已提交仓库的商品不能修改报价。");
+            }
+        }
+
+        List<PurchaseOrderLogisticsQuoteLineRecord> refreshedLines =
+                refreshShippingOrderLogisticsQuoteLines(order, operatorUserId);
+        List<PurchaseOrderLogisticsQuoteLineRecord> selectedQuoteLines = new ArrayList<>();
+        for (ShippingOrderLineRecord shippingLine : selectedShippingLines) {
+            PurchaseOrderLogisticsQuoteLineRecord quoteLine = refreshedLines.stream()
+                    .filter(line -> shippingLine.id.equals(line.shippingOrderLineId)
+                            || (line.shippingOrderLineId == null
+                            && shippingLine.purchaseOrderItemSiteId != null
+                            && shippingLine.purchaseOrderItemSiteId.equals(line.purchaseOrderItemSiteId)))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("发货单商品报价行不存在或已删除。"));
+            if (SHIPPING_SUBMITTED.equals(normalizeShippingSubmitStatus(quoteLine.shippingSubmitStatus))) {
+                throw new IllegalArgumentException("已提交仓库的商品不能修改报价。");
+            }
+            selectedQuoteLines.add(quoteLine);
+        }
+
+        List<LogisticsQuoteExportOption> options = collectLogisticsQuoteExportOptions(selectedQuoteLines);
+        LogisticsQuoteExportOption selectedOption = requireLogisticsQuoteChannelOption(
+                options,
+                selectedForwarderCode,
+                selectedRouteCode
+        );
+        if (logisticsQuoteReportLines(selectedQuoteLines, selectedOption.candidate).size() != selectedQuoteLines.size()) {
+            throw new IllegalArgumentException("所选商品不属于同一个货代渠道支持的站点和运输方式。");
+        }
+        String yiteMaterial = normalizeOptionalInlineQuoteYiteMaterial(command, selectedOption);
+        String remark = trimToNull(command.remark);
+
+        for (PurchaseOrderLogisticsQuoteLineRecord quoteLine : selectedQuoteLines) {
+            ShippingOrderLineRecord shippingLine = selectedShippingLines.stream()
+                    .filter(line -> line.id != null && line.id.equals(quoteLine.shippingOrderLineId)
+                            || (quoteLine.shippingOrderLineId == null
+                            && line.purchaseOrderItemSiteId != null
+                            && line.purchaseOrderItemSiteId.equals(quoteLine.purchaseOrderItemSiteId)))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("发货单商品不存在或已删除。"));
+            applyLogisticsQuoteChannel(quoteLine, selectedOption.candidate);
+            if (yiteMaterial != null) {
+                persistShippingOrderLineYiteMaterial(order, shippingLine, yiteMaterial, operatorUserId);
+                quoteLine.yiteMaterial = yiteMaterial;
+            }
+            quoteLine.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
+            quoteLine.shippingSubmitStatus = normalizeShippingSubmitStatus(quoteLine.shippingSubmitStatus);
+            quoteLine.currency = currency;
+            quoteLine.unitPrice = unitPrice;
+            quoteLine.billingUnit = billingUnit;
+            quoteLine.estimatedAmount = null;
+            quoteLine.remark = remark;
+            mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
+            persistProductForwarderChannelQuote(quoteLine, operatorUserId, "WEB_INLINE_QUOTE", "SHIPPING_ORDER_INLINE_QUOTE");
+        }
+
+        PurchaseOrderLogisticsQuoteLineRecord sampleLine = selectedQuoteLines.get(0);
+        mapper.refreshShippingOrderQuoteState(order.id, sampleLine, operatorUserId);
+        List<Long> affectedSegmentIds = selectedQuoteLines.stream()
+                .map(line -> line.shippingOrderSegmentId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (!affectedSegmentIds.isEmpty()) {
+            mapper.refreshShippingOrderSegmentState(order.id, affectedSegmentIds, sampleLine, operatorUserId);
+        }
+        mapper.refreshShippingOrderHeaderState(order.id, order.ownerUserId, operatorUserId);
         return toShippingOrderView(mapper.selectShippingOrderById(order.id), true);
     }
 
@@ -1091,7 +1317,7 @@ public class LocalDbProcurementPurchaseOrderService {
             String forwarderCode,
             String routeCode
     ) {
-        return exportShippingOrderLogisticsQuoteReport(access, shippingOrderId, forwarderCode, routeCode, null);
+        return exportShippingOrderLogisticsQuoteReport(access, shippingOrderId, forwarderCode, routeCode, false, null);
     }
 
     @Transactional
@@ -1100,6 +1326,18 @@ public class LocalDbProcurementPurchaseOrderService {
             String shippingOrderId,
             String forwarderCode,
             String routeCode,
+            ShippingOrderSegmentScopeCommand command
+    ) {
+        return exportShippingOrderLogisticsQuoteReport(access, shippingOrderId, forwarderCode, routeCode, false, command);
+    }
+
+    @Transactional
+    public PurchaseOrderLogisticsQuoteReportExportView exportShippingOrderLogisticsQuoteReport(
+            BusinessAccessContext access,
+            String shippingOrderId,
+            String forwarderCode,
+            String routeCode,
+            boolean missingOnly,
             ShippingOrderSegmentScopeCommand command
     ) {
         String selectedForwarderCode = requiredText(forwarderCode, "请选择报价货代。");
@@ -1124,20 +1362,27 @@ public class LocalDbProcurementPurchaseOrderService {
                 selectedRouteCode
         );
         List<PurchaseOrderLogisticsQuoteLineRecord> matchingLines =
-                logisticsQuoteReportLines(lines, selectedOption.candidate);
+                logisticsQuoteReportLines(lines, selectedOption.candidate, selectedOption.lineQuotes, false);
         if (matchingLines.isEmpty()) {
             throw new IllegalArgumentException("当前发货单没有匹配该货代渠道的商品。");
         }
-        for (PurchaseOrderLogisticsQuoteLineRecord line : matchingLines) {
+        List<PurchaseOrderLogisticsQuoteLineRecord> reportLines = missingOnly
+                ? matchingLines.stream()
+                .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .collect(Collectors.toList())
+                : matchingLines;
+        if (reportLines.isEmpty()) {
+            throw new IllegalArgumentException("当前货代渠道没有报价缺失商品。");
+        }
+        for (PurchaseOrderLogisticsQuoteLineRecord line : reportLines) {
             applyLogisticsQuoteChannel(line, selectedOption.candidate);
             mapper.assignLogisticsQuoteLineChannel(line, operatorUserId);
         }
-        mapper.refreshShippingOrderQuoteState(shippingOrder.id, matchingLines.get(0), operatorUserId);
+        mapper.refreshShippingOrderQuoteState(shippingOrder.id, reportLines.get(0), operatorUserId);
 
-        List<PurchaseOrderLogisticsQuoteLineRecord> exportLines = matchingLines.stream()
+        List<PurchaseOrderLogisticsQuoteLineRecord> exportLines = reportLines.stream()
                 .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
                 .collect(Collectors.toList());
-        List<PurchaseOrderLogisticsQuoteLineRecord> reportLines = matchingLines;
 
         PurchaseOrderRecord document = shippingOrderAsPurchaseOrder(shippingOrder);
         PurchaseOrderLogisticsQuoteReportExportView view = new PurchaseOrderLogisticsQuoteReportExportView();
@@ -1155,13 +1400,13 @@ public class LocalDbProcurementPurchaseOrderService {
         if (!lineIds.isEmpty()) {
             mapper.markShippingOrderLogisticsQuoteLinesExported(shippingOrder.id, lineIds, operatorUserId);
         }
-        List<Long> affectedSegmentIds = matchingLines.stream()
+        List<Long> affectedSegmentIds = reportLines.stream()
                 .map(line -> line.shippingOrderSegmentId)
                 .filter(id -> id != null)
                 .distinct()
                 .collect(Collectors.toList());
         if (!affectedSegmentIds.isEmpty()) {
-            mapper.refreshShippingOrderSegmentState(shippingOrder.id, affectedSegmentIds, matchingLines.get(0), operatorUserId);
+            mapper.refreshShippingOrderSegmentState(shippingOrder.id, affectedSegmentIds, reportLines.get(0), operatorUserId);
             mapper.refreshShippingOrderHeaderState(shippingOrder.id, shippingOrder.ownerUserId, operatorUserId);
         }
         return view;
@@ -1242,81 +1487,166 @@ public class LocalDbProcurementPurchaseOrderService {
 
     @Transactional
     public ShippingOrderSubmitView submitShippingOrder(BusinessAccessContext access, String shippingOrderId) {
-        return submitShippingOrder(access, shippingOrderId, null);
-    }
-
-    @Transactional
-    public ShippingOrderSubmitView submitShippingOrder(
-            BusinessAccessContext access,
-            String shippingOrderId,
-            ShippingOrderSegmentScopeCommand command
-    ) {
         ShippingOrderRecord shippingOrder = requireShippingOrderAccess(
                 access,
                 parseLongId(shippingOrderId, "发货单不存在或已删除。")
         );
-        List<Long> segmentIds = resolveShippingOrderSegmentScope(shippingOrder.id, command);
-        if (segmentIds.isEmpty()) {
-            return submitWholeShippingOrderWithoutSegments(access, shippingOrder);
-        }
+        List<ShippingOrderSegmentRecord> availableSegments =
+                emptyIfNull(mapper.listShippingOrderSegments(shippingOrder.id));
         List<PurchaseOrderLogisticsQuoteLineRecord> lines =
-                emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(shippingOrder.id, segmentIds));
-        if (lines.isEmpty()) {
-            throw new IllegalArgumentException("当前子发货单没有可提交发货的报价行。");
-        }
-        boolean missingYiteMaterial = lines.stream()
-                .filter(line -> YITE_FORWARDER_CODE.equalsIgnoreCase(defaultText(line.forwarderCode, "")))
-                .anyMatch(line -> !StringUtils.hasText(line.yiteMaterial));
-        if (missingYiteMaterial) {
-            throw new IllegalArgumentException("义特材质缺失，不能提交发货单。");
-        }
+                emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrder(shippingOrder.id));
+        requireShippingOrderQuoteLinesSubmittable(
+                lines,
+                availableSegments,
+                "当前仓库单没有可提交发货的报价行。"
+        );
         Long operatorUserId = access.getSessionUserId();
-        int submitted = mapper.submitLogisticsQuoteLinesForShippingOrderSegments(shippingOrder.id, segmentIds, operatorUserId);
-        if (submitted <= 0) {
-            throw new IllegalArgumentException("当前子发货单没有可提交发货的报价行。");
-        }
-        mapper.refreshShippingOrderSegmentState(shippingOrder.id, segmentIds, lines.get(0), operatorUserId);
-        mapper.refreshShippingOrderHeaderState(shippingOrder.id, shippingOrder.ownerUserId, operatorUserId);
-        ShippingOrderSubmitView view = new ShippingOrderSubmitView();
-        view.shippingOrderId = String.valueOf(shippingOrder.id);
-        view.shippingOrderNo = shippingOrder.shippingOrderNo;
-        ShippingOrderRecord next = mapper.selectShippingOrderById(shippingOrder.id);
-        view.shippingSubmitStatus = next == null
-                ? SHIPPING_PARTIAL_SUBMITTED
-                : normalizeShippingSubmitStatus(next.shippingSubmitStatus);
-        view.submittedLineCount = submitted;
-        return view;
-    }
-
-    private ShippingOrderSubmitView submitWholeShippingOrderWithoutSegments(
-            BusinessAccessContext access,
-            ShippingOrderRecord shippingOrder
-    ) {
-        Long operatorUserId = access.getSessionUserId();
-        int submitted = mapper.submitLogisticsQuoteLinesForShippingOrder(shippingOrder.id, operatorUserId);
-        if (submitted <= 0) {
-            throw new IllegalArgumentException("当前发货单没有可提交发货的报价行。");
+        mapper.submitLogisticsQuoteLinesForShippingOrder(shippingOrder.id, operatorUserId);
+        if (!availableSegments.isEmpty()) {
+            mapper.markShippingOrderSegmentsSubmitted(shippingOrder.id, shippingOrder.ownerUserId, operatorUserId);
         }
         mapper.markShippingOrderSubmitted(shippingOrder.id, shippingOrder.ownerUserId, operatorUserId);
         ShippingOrderSubmitView view = new ShippingOrderSubmitView();
         view.shippingOrderId = String.valueOf(shippingOrder.id);
         view.shippingOrderNo = shippingOrder.shippingOrderNo;
         view.shippingSubmitStatus = SHIPPING_SUBMITTED;
-        view.submittedLineCount = submitted;
+        view.submittedLineCount = lines.size();
         return view;
     }
 
+    private void requireShippingOrderQuoteLinesSubmittable(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            String emptyMessage
+    ) {
+        requireShippingOrderQuoteLinesSubmittable(lines, List.of(), emptyMessage);
+    }
+
+    private void requireShippingOrderQuoteLinesSubmittable(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            List<ShippingOrderSegmentRecord> segments,
+            String emptyMessage
+    ) {
+        if (lines.isEmpty()) {
+            throw new IllegalArgumentException(emptyMessage);
+        }
+        Map<Long, ShippingOrderSegmentRecord> segmentById = emptyIfNull(segments).stream()
+                .filter(segment -> segment.id != null)
+                .collect(Collectors.toMap(segment -> segment.id, Function.identity(), (left, ignored) -> left));
+        boolean missingQuote = lines.stream()
+                .anyMatch(line -> {
+                    ShippingOrderSegmentRecord segment = segmentById.get(line.shippingOrderSegmentId);
+                    if (!segmentById.isEmpty() && segment == null) {
+                        return true;
+                    }
+                    if (segment != null && !shippingQuoteMatchesSegmentChannel(line, segment)) {
+                        return true;
+                    }
+                    return isShippingQuotePriceBlocking(line, segment)
+                            && !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus));
+                });
+        if (missingQuote) {
+            throw new IllegalArgumentException("仓库单还有物流报价缺失，不能提交。");
+        }
+        boolean missingYiteMaterial = lines.stream()
+                .filter(line -> isYiteShippingQuoteLine(line, segmentById.get(line.shippingOrderSegmentId)))
+                .anyMatch(line -> !StringUtils.hasText(line.yiteMaterial));
+        if (missingYiteMaterial) {
+            throw new IllegalArgumentException("义特材质缺失，不能提交发货单。");
+        }
+    }
+
+    private boolean isShippingQuotePriceBlocking(PurchaseOrderLogisticsQuoteLineRecord line) {
+        return isShippingQuotePriceBlocking(line, null);
+    }
+
+    private boolean isShippingQuotePriceBlocking(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            ShippingOrderSegmentRecord segment
+    ) {
+        if (segment != null && isZdShippingQuoteSegment(segment)) {
+            return false;
+        }
+        return !isZdShippingQuoteLine(line);
+    }
+
+    private boolean shippingQuoteMatchesSegmentChannel(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            ShippingOrderSegmentRecord segment
+    ) {
+        return line != null
+                && segment != null
+                && StringUtils.hasText(segment.forwarderCode)
+                && StringUtils.hasText(segment.routeCode)
+                && sameCode(line.forwarderCode, segment.forwarderCode)
+                && sameCode(line.routeCode, segment.routeCode);
+    }
+
+    private boolean isYiteShippingQuoteLine(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            ShippingOrderSegmentRecord segment
+    ) {
+        String forwarderCode = segment == null ? null : segment.forwarderCode;
+        return YITE_FORWARDER_CODE.equalsIgnoreCase(defaultText(forwarderCode, line == null ? null : line.forwarderCode));
+    }
+
+    private boolean isZdShippingQuoteSegment(ShippingOrderSegmentRecord segment) {
+        if (segment == null) {
+            return false;
+        }
+        if (sameCode(segment.forwarderCode, "ZD")) {
+            return true;
+        }
+        String routeCode = trim(segment.routeCode);
+        return StringUtils.hasText(routeCode)
+                && ("ZD".equalsIgnoreCase(routeCode) || routeCode.toUpperCase(Locale.ROOT).startsWith("ZD-"));
+    }
+
+    private boolean isZdShippingQuoteLine(PurchaseOrderLogisticsQuoteLineRecord line) {
+        if (line == null) {
+            return false;
+        }
+        if (sameCode(line.forwarderCode, "ZD")) {
+            return true;
+        }
+        String routeCode = trim(line.routeCode);
+        if (StringUtils.hasText(routeCode)) {
+            String normalizedRouteCode = routeCode.toUpperCase(Locale.ROOT);
+            if ("ZD".equals(normalizedRouteCode) || normalizedRouteCode.startsWith("ZD-")) {
+                return true;
+            }
+        }
+        String text = defaultText(line.forwarderName, "") + " " + defaultText(line.routeName, "");
+        return text.contains("众鸫") || text.contains("众东");
+    }
+
     private List<Long> resolveShippingOrderSegmentScope(
-            Long shippingOrderId,
+            List<ShippingOrderSegmentRecord> availableSegments,
             ShippingOrderSegmentScopeCommand command
     ) {
         if (command != null && command.segmentIds != null && !command.segmentIds.isEmpty()) {
             return parseRequestedSegmentIds(command);
         }
-        return emptyIfNull(mapper.listShippingOrderSegments(shippingOrderId)).stream()
+        return emptyIfNull(availableSegments).stream()
                 .map(segment -> segment.id)
                 .filter(id -> id != null)
                 .collect(Collectors.toList());
+    }
+
+    private List<ShippingOrderSegmentRecord> selectShippingOrderSegments(
+            List<ShippingOrderSegmentRecord> availableSegments,
+            List<Long> segmentIds
+    ) {
+        Map<Long, ShippingOrderSegmentRecord> segmentById = emptyIfNull(availableSegments).stream()
+                .filter(segment -> segment.id != null)
+                .collect(Collectors.toMap(segment -> segment.id, Function.identity(), (left, ignored) -> left));
+        List<ShippingOrderSegmentRecord> selectedSegments = segmentIds.stream()
+                .map(segmentById::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (selectedSegments.size() != segmentIds.size()) {
+            throw new IllegalArgumentException("子发货单不存在或已删除。");
+        }
+        return selectedSegments;
     }
 
     private List<Long> parseRequestedSegmentIds(ShippingOrderSegmentScopeCommand command) {
@@ -1854,6 +2184,56 @@ public class LocalDbProcurementPurchaseOrderService {
         mapper.upsertProductForwarderDeclarationAttribute(attribute, operatorUserId);
     }
 
+    private String normalizeInlineQuoteYiteMaterial(
+            UpdateShippingOrderLineQuoteCommand command,
+            LogisticsQuoteExportOption selectedOption
+    ) {
+        if (!isYiteForwarder(selectedOption == null ? null : selectedOption.candidate)) {
+            return null;
+        }
+        String material = normalizeOptionalInlineQuoteYiteMaterial(command, selectedOption);
+        if (!StringUtils.hasText(material)) {
+            throw new IllegalArgumentException("请选择义特材质。");
+        }
+        return material;
+    }
+
+    private String normalizeOptionalInlineQuoteYiteMaterial(
+            UpdateShippingOrderLineQuoteCommand command,
+            LogisticsQuoteExportOption selectedOption
+    ) {
+        if (!isYiteForwarder(selectedOption == null ? null : selectedOption.candidate)) {
+            return null;
+        }
+        return normalizeYiteMaterial(command == null ? null : command.yiteMaterial);
+    }
+
+    private void persistShippingOrderLineYiteMaterial(
+            ShippingOrderRecord order,
+            ShippingOrderLineRecord line,
+            String material,
+            Long operatorUserId
+    ) {
+        int updated = mapper.updateShippingOrderLineYiteMaterial(
+                order.id,
+                line.id,
+                order.ownerUserId,
+                material,
+                operatorUserId
+        );
+        if (updated <= 0) {
+            throw new IllegalArgumentException("发货单商品不存在或已删除。");
+        }
+        mapper.updateShippingOrderQuoteLineYiteMaterial(
+                order.id,
+                line.id,
+                order.ownerUserId,
+                material,
+                operatorUserId
+        );
+        persistYiteMaterialAttributeFromShippingLine(order, line, material, operatorUserId);
+    }
+
     private List<LogisticsQuoteExportOption> collectLogisticsQuoteExportOptions(
             List<PurchaseOrderLogisticsQuoteLineRecord> lines
     ) {
@@ -1888,9 +2268,11 @@ public class LocalDbProcurementPurchaseOrderService {
                 LogisticsQuoteExportOption option = new LogisticsQuoteExportOption();
                 option.candidate = candidate;
                 option.templateType = logisticsQuoteTemplateType(candidate);
-                option.pendingLineCount = (int) matchingLines.stream()
-                        .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                option.lineQuotes = buildLogisticsQuoteChannelLineViews(matchingLines, candidate);
+                option.confirmedLineCount = (int) option.lineQuotes.stream()
+                        .filter(line -> LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
                         .count();
+                option.pendingLineCount = Math.max(0, option.lineQuotes.size() - option.confirmedLineCount);
                 option.newProductLineCount = (int) matchingLines.stream()
                         .filter(line -> Boolean.TRUE.equals(line.isNewProduct))
                         .count();
@@ -1920,9 +2302,6 @@ public class LocalDbProcurementPurchaseOrderService {
                 .count();
         Map<String, PurchaseOrderLogisticsQuoteForwarderOptionView> forwarderViews = new LinkedHashMap<>();
         for (LogisticsQuoteExportOption option : options) {
-            if (!StringUtils.hasText(option.templateType)) {
-                continue;
-            }
             String forwarderKey = defaultText(option.candidate.forwarderCode, option.candidate.forwarderName);
             PurchaseOrderLogisticsQuoteForwarderOptionView forwarder = forwarderViews.computeIfAbsent(
                     forwarderKey,
@@ -1963,8 +2342,69 @@ public class LocalDbProcurementPurchaseOrderService {
         view.destinationNode = candidate.destinationNode;
         view.transitTimeText = candidate.transitTimeText;
         view.priceSummary = seaPriceSummary(candidate);
+        view.totalLineCount = option.lineQuotes.size();
         view.pendingLineCount = option.pendingLineCount;
+        view.confirmedLineCount = option.confirmedLineCount;
         view.newProductLineCount = option.newProductLineCount;
+        view.lineQuotes = option.lineQuotes;
+        return view;
+    }
+
+    private List<PurchaseOrderLogisticsQuoteChannelLineView> buildLogisticsQuoteChannelLineViews(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            ForwarderRouteRecommendationRecord candidate
+    ) {
+        List<PurchaseOrderLogisticsQuoteChannelLineView> views = new ArrayList<>();
+        for (PurchaseOrderLogisticsQuoteLineRecord line : emptyIfNull(lines)) {
+            ProductForwarderChannelQuoteRecord currentQuote = selectCurrentProductForwarderChannelQuote(line, candidate);
+            views.add(toLogisticsQuoteChannelLineView(line, currentQuote));
+        }
+        return views;
+    }
+
+    private ProductForwarderChannelQuoteRecord selectCurrentProductForwarderChannelQuote(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            ForwarderRouteRecommendationRecord candidate
+    ) {
+        if (line == null
+                || candidate == null
+                || line.ownerUserId == null
+                || line.productVariantId == null
+                || !StringUtils.hasText(candidate.forwarderCode)
+                || !StringUtils.hasText(candidate.routeCode)) {
+            return null;
+        }
+        return mapper.selectCurrentProductForwarderChannelQuote(
+                line.ownerUserId,
+                line.sourceStoreCode,
+                line.logicalStoreId,
+                line.partnerSku,
+                line.productVariantId,
+                candidate.forwarderCode,
+                normalizeSiteCode(firstText(candidate.siteCode, line.siteCode)),
+                candidate.routeCode,
+                candidate.serviceCode
+        );
+    }
+
+    private PurchaseOrderLogisticsQuoteChannelLineView toLogisticsQuoteChannelLineView(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            ProductForwarderChannelQuoteRecord currentQuote
+    ) {
+        PurchaseOrderLogisticsQuoteChannelLineView view = new PurchaseOrderLogisticsQuoteChannelLineView();
+        view.shippingOrderLineId = line.shippingOrderLineId == null ? null : String.valueOf(line.shippingOrderLineId);
+        view.purchaseOrderItemSiteId = line.purchaseOrderItemSiteId == null ? null : String.valueOf(line.purchaseOrderItemSiteId);
+        view.partnerSku = line.partnerSku;
+        view.barcode = line.barcode;
+        view.yiteMaterial = line.yiteMaterial;
+        if (currentQuote == null || currentQuote.unitPrice == null) {
+            view.quoteStatus = LOGISTICS_QUOTE_PENDING;
+            return view;
+        }
+        view.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
+        view.unitPrice = currentQuote.unitPrice;
+        view.currency = currentQuote.currency;
+        view.billingUnit = currentQuote.billingUnit;
         return view;
     }
 
@@ -1981,6 +2421,18 @@ public class LocalDbProcurementPurchaseOrderService {
                 .orElseThrow(() -> new IllegalArgumentException("请选择当前采购单支持且已配置导出模板的货代渠道。"));
     }
 
+    private LogisticsQuoteExportOption requireLogisticsQuoteChannelOption(
+            List<LogisticsQuoteExportOption> options,
+            String forwarderCode,
+            String routeCode
+    ) {
+        return options.stream()
+                .filter(option -> sameCode(option.candidate.forwarderCode, forwarderCode))
+                .filter(option -> sameCode(option.candidate.routeCode, routeCode))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("请选择当前子发货单支持的货代渠道。"));
+    }
+
     private List<PurchaseOrderLogisticsQuoteLineRecord> exportableLogisticsQuoteLines(
             List<PurchaseOrderLogisticsQuoteLineRecord> lines
     ) {
@@ -1993,9 +2445,77 @@ public class LocalDbProcurementPurchaseOrderService {
             List<PurchaseOrderLogisticsQuoteLineRecord> lines,
             ForwarderRouteRecommendationRecord candidate
     ) {
+        return logisticsQuoteReportLines(lines, candidate, false);
+    }
+
+    static List<PurchaseOrderLogisticsQuoteLineRecord> logisticsQuoteReportLines(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            ForwarderRouteRecommendationRecord candidate,
+            boolean missingOnly
+    ) {
         return routableLogisticsQuoteLines(lines).stream()
                 .filter(line -> matchesLogisticsQuoteOption(line, candidate))
+                .filter(line -> !missingOnly || !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
                 .collect(Collectors.toList());
+    }
+
+    static List<PurchaseOrderLogisticsQuoteLineRecord> logisticsQuoteReportLines(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            ForwarderRouteRecommendationRecord candidate,
+            List<PurchaseOrderLogisticsQuoteChannelLineView> selectedChannelQuotes,
+            boolean missingOnly
+    ) {
+        List<PurchaseOrderLogisticsQuoteLineRecord> reportLines = logisticsQuoteReportLines(lines, candidate);
+        applySelectedChannelQuoteCoverage(reportLines, selectedChannelQuotes);
+        if (!missingOnly) {
+            return reportLines;
+        }
+        return reportLines.stream()
+                .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .collect(Collectors.toList());
+    }
+
+    private static void applySelectedChannelQuoteCoverage(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            List<PurchaseOrderLogisticsQuoteChannelLineView> selectedChannelQuotes
+    ) {
+        for (PurchaseOrderLogisticsQuoteLineRecord line : lines == null ? List.<PurchaseOrderLogisticsQuoteLineRecord>of() : lines) {
+            PurchaseOrderLogisticsQuoteChannelLineView quote = findSelectedChannelQuote(line, selectedChannelQuotes);
+            if (quote == null) {
+                continue;
+            }
+            line.quoteStatus = normalizeLogisticsQuoteStatus(quote.quoteStatus);
+            line.unitPrice = quote.unitPrice;
+            line.currency = quote.currency;
+            line.billingUnit = quote.billingUnit;
+            if (StringUtils.hasText(quote.yiteMaterial)) {
+                line.yiteMaterial = quote.yiteMaterial;
+            }
+        }
+    }
+
+    private static PurchaseOrderLogisticsQuoteChannelLineView findSelectedChannelQuote(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            List<PurchaseOrderLogisticsQuoteChannelLineView> selectedChannelQuotes
+    ) {
+        if (line == null || selectedChannelQuotes == null || selectedChannelQuotes.isEmpty()) {
+            return null;
+        }
+        for (PurchaseOrderLogisticsQuoteChannelLineView quote : selectedChannelQuotes) {
+            if (quote == null) {
+                continue;
+            }
+            if (line.shippingOrderLineId != null && sameCode(quote.shippingOrderLineId, String.valueOf(line.shippingOrderLineId))) {
+                return quote;
+            }
+            if (line.purchaseOrderItemSiteId != null && sameCode(quote.purchaseOrderItemSiteId, String.valueOf(line.purchaseOrderItemSiteId))) {
+                return quote;
+            }
+            if (StringUtils.hasText(line.partnerSku) && sameCode(quote.partnerSku, line.partnerSku)) {
+                return quote;
+            }
+        }
+        return null;
     }
 
     private static List<PurchaseOrderLogisticsQuoteLineRecord> routableLogisticsQuoteLines(
@@ -3139,6 +3659,15 @@ public class LocalDbProcurementPurchaseOrderService {
             Long operatorUserId,
             String sourceFilename
     ) {
+        persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename, "SHIPPING_ORDER_QUOTE");
+    }
+
+    private void persistProductForwarderChannelQuote(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            Long operatorUserId,
+            String sourceFilename,
+            String sourceType
+    ) {
         if (line == null
                 || line.ownerUserId == null
                 || line.productVariantId == null
@@ -3166,7 +3695,7 @@ public class LocalDbProcurementPurchaseOrderService {
         quote.unitPrice = line.unitPrice;
         quote.billingUnit = defaultText(line.billingUnit, "UNKNOWN");
         quote.estimatedAmount = line.estimatedAmount;
-        quote.sourceType = "SHIPPING_ORDER_QUOTE";
+        quote.sourceType = defaultText(sourceType, "SHIPPING_ORDER_QUOTE");
         quote.sourceShippingOrderId = line.shippingOrderId;
         quote.sourceShippingOrderLineId = line.shippingOrderLineId;
         quote.sourceQuoteLineId = line.id;
@@ -3810,7 +4339,6 @@ public class LocalDbProcurementPurchaseOrderService {
         Map<String, StoreSiteRecord> availableStoreSites = storeSitesByCode(order.logicalStoreId);
         Map<Long, Map<String, PurchaseOrderItemSiteRecord>> existingSitesByItemId = existingSitesByItemId(order.id);
         Map<String, Set<String>> pendingSiteTransportsByPartnerSku = new LinkedHashMap<>();
-        LinkedHashSet<String> nextOrderSiteCodes = new LinkedHashSet<>(readStringList(order.siteCodesJson));
         for (ItemCommand itemCommand : itemCommands) {
             String psku = requiredText(itemCommand == null ? null : itemCommand.psku, "请选择 PSKU。");
             String requestedFulfillmentType = normalizeOptionalFulfillmentType(itemCommand == null ? null : itemCommand.fulfillmentType);
@@ -3838,6 +4366,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 item.titleCache = defaultText(product.title, product.partnerSku);
                 item.imageUrlCache = NoonImageUrlNormalizer.normalize(product.imageUrl);
                 item.sourceType = "STORE_ARCHIVE";
+                item.sourcingSpecText = trimToNull(product.sizeEn);
                 item.fulfillmentType = requestedFulfillmentType == null
                         ? FULFILLMENT_WAREHOUSE_RECEIPT
                         : requestedFulfillmentType;
@@ -3872,7 +4401,6 @@ public class LocalDbProcurementPurchaseOrderService {
                             + " 以 " + transportModeLabel(allocation.transportMode)
                             + " 加入采购单，不能重复添加相同商品相同站点相同运输方式。");
                 }
-                nextOrderSiteCodes.add(siteCode);
                 PurchaseOrderItemSiteRecord existingSite = existingSites.get(siteTransportKey);
                 if (existingSite != null) {
                     mapper.increaseItemSiteQuantity(existingSite.id, allocation.quantity, operatorUserId);
@@ -3904,7 +4432,7 @@ public class LocalDbProcurementPurchaseOrderService {
             mapper.recalculateItemAggregates(item.id, operatorUserId);
             log(order.id, item.id, "UPSERT_ITEM", operatorUserId, null, null, psku);
         }
-        persistOrderSiteCodesIfChanged(order, nextOrderSiteCodes, operatorUserId);
+        recomputeOrderSiteCodes(order, operatorUserId);
     }
 
     private Map<Long, Map<String, PurchaseOrderItemSiteRecord>> existingSitesByItemId(Long orderId) {
@@ -4106,6 +4634,10 @@ public class LocalDbProcurementPurchaseOrderService {
         view.skuParent = item.skuParent;
         view.partnerSku = item.partnerSku;
         view.productFulltype = item.productFulltypeCache;
+        view.productSpecComplete = productSubmitSpecComplete(item);
+        view.cartonSpecComplete = cartonSubmitSpecComplete(item);
+        view.logisticsAttributeComplete = logisticsAttributeComplete(item);
+        view.logisticsProfileStatus = item.logisticsProfileStatus;
         view.productTitle = defaultText(item.titleCache, item.partnerSku);
         view.productImageUrl = NoonImageUrlNormalizer.normalize(item.imageUrlCache);
         view.sourcingSpec = item.sourcingSpecText;
@@ -4276,7 +4808,7 @@ public class LocalDbProcurementPurchaseOrderService {
         }
         String exampleText = examples.isEmpty() ? "" : "：" + String.join("；", examples);
         throw new IllegalArgumentException("采购单还有 " + issueItemCount
-                + " 个商品缺少封存必填信息，请先补齐采购规格、站点运输数量和商品物流规格" + exampleText);
+                + " 个商品缺少封存必填信息，请先补齐站点运输数量、产品规格和商品属性" + exampleText);
     }
 
     private List<String> purchaseOrderSealIssues(
@@ -4288,9 +4820,6 @@ public class LocalDbProcurementPurchaseOrderService {
         if (item == null) {
             issues.add("商品行缺失");
             return issues;
-        }
-        if (!StringUtils.hasText(item.sourcingSpecText) && !StringUtils.hasText(item.sourcingColorText)) {
-            issues.add("采购规格缺失");
         }
         if (nonNull(item.totalQuantity) <= 0) {
             issues.add("总数量异常");
@@ -4320,18 +4849,6 @@ public class LocalDbProcurementPurchaseOrderService {
         }
         if (!positive(product.productWeightG)) {
             issues.add("商品重量缺失");
-        }
-        if (!allPositive(product.cartonLengthCm, product.cartonWidthCm, product.cartonHeightCm)) {
-            issues.add("箱规尺寸缺失");
-        }
-        if (!positive(product.cartonWeightKg)) {
-            issues.add("箱重缺失");
-        }
-        if (product.cartonQuantity == null || product.cartonQuantity <= 0) {
-            issues.add("装箱数缺失");
-        }
-        if ("unknown".equalsIgnoreCase(trim(product.specSourceType))) {
-            issues.add("物流属性未确认");
         }
     }
 
@@ -4834,8 +5351,57 @@ public class LocalDbProcurementPurchaseOrderService {
         return true;
     }
 
+    private boolean productSubmitSpecComplete(PurchaseOrderItemRecord item) {
+        return productPhysicalSpecComplete(item)
+                && positive(item == null ? null : item.productWeightG);
+    }
+
+    private boolean cartonSubmitSpecComplete(PurchaseOrderItemRecord item) {
+        return cartonPhysicalSpecComplete(item)
+                && positive(item == null ? null : item.cartonWeightKg)
+                && item.cartonQuantity != null
+                && item.cartonQuantity > 0;
+    }
+
+    private boolean productPhysicalSpecComplete(PurchaseOrderItemRecord item) {
+        if (item == null) {
+            return false;
+        }
+        return positive(item.productLengthCm)
+                && positive(item.productWidthCm)
+                && positive(item.productHeightCm);
+    }
+
+    private boolean cartonPhysicalSpecComplete(PurchaseOrderItemRecord item) {
+        if (item == null) {
+            return false;
+        }
+        return positive(item.cartonLengthCm)
+                && positive(item.cartonWidthCm)
+                && positive(item.cartonHeightCm);
+    }
+
     private boolean positive(BigDecimal value) {
         return value != null && value.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private boolean logisticsAttributeComplete(PurchaseOrderItemRecord item) {
+        if (item == null || Boolean.TRUE.equals(item.manualConfirmRequired)) {
+            return false;
+        }
+        if (!LOGISTICS_PROFILE_CONFIRMED.equalsIgnoreCase(defaultText(item.logisticsProfileStatus, ""))) {
+            return false;
+        }
+        return logisticsAttributeKnown(item.batteryType)
+                && logisticsAttributeKnown(item.magneticType)
+                && logisticsAttributeKnown(item.liquidPowderType)
+                && logisticsAttributeKnown(item.electricType)
+                && logisticsAttributeKnown(item.bladeWeaponType);
+    }
+
+    private boolean logisticsAttributeKnown(String value) {
+        String normalized = trimToNull(value);
+        return normalized != null && !LOGISTICS_ATTRIBUTE_UNKNOWN.equalsIgnoreCase(normalized);
     }
 
     private void addHint(LinkedHashSet<String> hints, String label, String value) {
@@ -4899,6 +5465,20 @@ public class LocalDbProcurementPurchaseOrderService {
 
     private PurchaseOrderRecord requireOrderAccess(BusinessAccessContext access, Long orderId) {
         return requireOrderAccess(access, requireOrder(orderId));
+    }
+
+    private PurchaseOrderRecord requireOrderAccessForUpdate(BusinessAccessContext access, Long orderId) {
+        PurchaseOrderRecord order = mapper.selectOrderByIdForUpdate(orderId);
+        if (order == null) {
+            throw new IllegalArgumentException("采购单不存在或已删除。");
+        }
+        return requireOrderAccess(access, order);
+    }
+
+    private PurchaseOrderRecord requireEditableOrderAccessForUpdate(BusinessAccessContext access, Long orderId) {
+        PurchaseOrderRecord order = requireOrderAccessForUpdate(access, orderId);
+        assertOrderEditable(order);
+        return order;
     }
 
     private PurchaseOrderRecord requireOrderAccess(BusinessAccessContext access, PurchaseOrderRecord order) {
@@ -5028,6 +5608,14 @@ public class LocalDbProcurementPurchaseOrderService {
             mapper.updateOrderSiteCodes(order.id, writeStringList(next), operatorUserId);
             order.siteCodesJson = writeStringList(next);
         }
+    }
+
+    private void recomputeOrderSiteCodes(PurchaseOrderRecord order, Long operatorUserId) {
+        LinkedHashSet<String> siteCodes = emptyIfNull(mapper.listActiveOrderSiteCodes(order.id)).stream()
+                .map(LocalDbProcurementPurchaseOrderService::normalizeSiteCode)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        persistOrderSiteCodesIfChanged(order, siteCodes, operatorUserId);
     }
 
     private List<SiteTransportQuantity> normalizeSiteTransportQuantities(ItemCommand command) {
@@ -5335,11 +5923,6 @@ public class LocalDbProcurementPurchaseOrderService {
                 || "已提交发货".equals(value)) {
             return SHIPPING_SUBMITTED;
         }
-        if (SHIPPING_PARTIAL_SUBMITTED.equals(normalized)
-                || "部分提交".equals(value)
-                || "部分提交发货".equals(value)) {
-            return SHIPPING_PARTIAL_SUBMITTED;
-        }
         return SHIPPING_NOT_SUBMITTED;
     }
 
@@ -5347,9 +5930,6 @@ public class LocalDbProcurementPurchaseOrderService {
         String normalized = normalizeShippingSubmitStatus(value);
         if (SHIPPING_SUBMITTED.equals(normalized)) {
             return "已提交发货";
-        }
-        if (SHIPPING_PARTIAL_SUBMITTED.equals(normalized)) {
-            return "部分提交";
         }
         return "未提交";
     }
@@ -5390,6 +5970,13 @@ public class LocalDbProcurementPurchaseOrderService {
             throw new IllegalArgumentException(message);
         }
         return text;
+    }
+
+    private BigDecimal requirePositiveAmount(BigDecimal value, String message) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(message);
+        }
+        return value;
     }
 
     private String trim(String value) {
@@ -5476,7 +6063,9 @@ public class LocalDbProcurementPurchaseOrderService {
         private ForwarderRouteRecommendationRecord candidate;
         private String templateType;
         private Integer pendingLineCount = 0;
+        private Integer confirmedLineCount = 0;
         private Integer newProductLineCount = 0;
+        private List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();
     }
 
     private static final class Ali1688HistoryAccumulator {

@@ -145,6 +145,121 @@ class BusinessAccessResolverTest {
     }
 
     @Test
+    void procurementCapabilityIncludesCombinedPurchaseOrderAndReplenishmentApis() {
+        BusinessAccessContext legacyApiPath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/purchase/order"))
+                .build();
+        BusinessAccessContext purchaseOrderApiPath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/procurement/purchase-orders/800035"))
+                .build();
+        BusinessAccessContext replenishmentApiPath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/replenishment-plan/overview"))
+                .build();
+        BusinessAccessContext shippingOrderCompatibilityPath = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/procurement/purchase-orders/shipping-orders/830035"))
+                .build();
+
+        assertThat(legacyApiPath.hasCapability(BusinessCapability.PROCUREMENT)).isTrue();
+        assertThat(purchaseOrderApiPath.hasCapability(BusinessCapability.PROCUREMENT)).isTrue();
+        assertThat(replenishmentApiPath.hasCapability(BusinessCapability.PROCUREMENT)).isTrue();
+        assertThat(shippingOrderCompatibilityPath.hasCapability(BusinessCapability.WAREHOUSE_DISPATCH)).isTrue();
+    }
+
+    @Test
+    void resolverAllowsAnyMatchingBusinessCapability() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessUserAccessRow user = new BusinessUserAccessRow();
+        user.setUserId(307L);
+        user.setAccountType("internal");
+        user.setRoleId(2L);
+        user.setRoleName("老板");
+        user.setUserLevel(1);
+        user.setRoleLevel(1);
+        user.setStatus(1);
+
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(307L, 2L, 1));
+        when(accessMapper.selectUserAccess(307L)).thenReturn(user);
+        when(accessMapper.selectGrantedMenuPaths(307L)).thenReturn(List.of("/warehouse/dispatch"));
+        when(accessMapper.selectStoreScope(307L)).thenReturn(List.of(storeScope(307L, "STR-A")));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                accessMapper,
+                new BusinessAccessGuard()
+        );
+
+        BusinessAccessContext context = resolver.requireAnyBusinessContext(
+                request,
+                BusinessCapability.PROCUREMENT,
+                BusinessCapability.WAREHOUSE_DISPATCH
+        );
+
+        assertThat(context.getSessionUserId()).isEqualTo(307L);
+        assertThat(context.hasCapability(BusinessCapability.WAREHOUSE_DISPATCH)).isTrue();
+        assertThat(context.hasCapability(BusinessCapability.PROCUREMENT)).isFalse();
+    }
+
+    @Test
+    void resolverAllowsAnyMatchingCapabilityWithinStoreScope() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessUserAccessRow user = new BusinessUserAccessRow();
+        user.setUserId(307L);
+        user.setAccountType("internal");
+        user.setRoleId(2L);
+        user.setRoleName("老板");
+        user.setUserLevel(1);
+        user.setRoleLevel(1);
+        user.setStatus(1);
+
+        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(307L, 2L, 1));
+        when(accessMapper.selectUserAccess(307L)).thenReturn(user);
+        when(accessMapper.selectGrantedMenuPaths(307L)).thenReturn(List.of("/purchase/order"));
+        when(accessMapper.selectStoreScope(307L)).thenReturn(List.of(storeScope(307L, "STR-A")));
+
+        BusinessAccessResolver resolver = new BusinessAccessResolver(
+                sessionTokenService,
+                accessMapper,
+                new BusinessAccessGuard()
+        );
+
+        BusinessAccessContext context = resolver.requireAnyStoreAccess(
+                request,
+                "STR-A",
+                BusinessCapability.PRODUCT_MASTER,
+                BusinessCapability.PROCUREMENT
+        );
+
+        assertThat(context.getSessionUserId()).isEqualTo(307L);
+        assertThat(context.canAccessStore("STR-A")).isTrue();
+        assertThat(context.hasCapability(BusinessCapability.PROCUREMENT)).isTrue();
+    }
+
+    @Test
+    void warehouseDispatchCapabilityOwnsWarehouseOrderCompatibilityPaths() {
+        BusinessAccessContext dispatchPage = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/warehouse/dispatch"))
+                .build();
+        BusinessAccessContext legacyWarehouseOrderPage = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/warehouse/shipping-orders"))
+                .build();
+        BusinessAccessContext legacyShippingOrderApi = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/procurement/purchase-orders/shipping-orders/830035"))
+                .build();
+        BusinessAccessContext legacyLogisticsBillApi = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/procurement/purchase-orders/logistics-bills/90001"))
+                .build();
+        BusinessAccessContext procurementOnly = BusinessAccessContext.builder()
+                .menuPaths(Set.of("/api/procurement/purchase-orders"))
+                .build();
+
+        assertThat(dispatchPage.hasCapability(BusinessCapability.WAREHOUSE_DISPATCH)).isTrue();
+        assertThat(legacyWarehouseOrderPage.hasCapability(BusinessCapability.WAREHOUSE_DISPATCH)).isTrue();
+        assertThat(legacyShippingOrderApi.hasCapability(BusinessCapability.WAREHOUSE_DISPATCH)).isTrue();
+        assertThat(legacyLogisticsBillApi.hasCapability(BusinessCapability.WAREHOUSE_DISPATCH)).isTrue();
+        assertThat(procurementOnly.hasCapability(BusinessCapability.WAREHOUSE_DISPATCH)).isFalse();
+    }
+
+    @Test
     void exposedCollectionsAreImmutable() {
         BusinessAccessContext context = BusinessAccessContext.builder()
                 .storeCodes(Set.of("STR-A"))

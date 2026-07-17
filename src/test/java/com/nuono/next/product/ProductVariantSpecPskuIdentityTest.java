@@ -12,6 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 
 @ExtendWith(MockitoExtension.class)
@@ -84,6 +85,27 @@ class ProductVariantSpecPskuIdentityTest {
                 ProductSpecManagementController.class
                         .getMethod("selectEffectiveSourceByPsku", String.class, String.class, ProductVariantSpecEffectiveSourceCommand.class, javax.servlet.http.HttpServletRequest.class)
                         .getAnnotation(PutMapping.class)
+                        .value()
+        );
+        assertArrayEquals(
+                new String[]{"/by-identity"},
+                ProductSpecManagementController.class
+                        .getMethod("detailByIdentity", Long.class, String.class, String.class, javax.servlet.http.HttpServletRequest.class)
+                        .getAnnotation(GetMapping.class)
+                        .value()
+        );
+        assertArrayEquals(
+                new String[]{"/by-identity/sources/{sourceType}"},
+                ProductSpecManagementController.class
+                        .getMethod("saveSourceByIdentity", String.class, String.class, String.class, ProductVariantSpecSourceCommand.class, javax.servlet.http.HttpServletRequest.class)
+                        .getAnnotation(PutMapping.class)
+                        .value()
+        );
+        assertArrayEquals(
+                new String[]{"/by-identity/effective-source"},
+                ProductSpecManagementController.class
+                        .getMethod("selectEffectiveSourceByIdentity", String.class, String.class, ProductVariantSpecEffectiveSourceCommand.class, javax.servlet.http.HttpServletRequest.class)
+                        .getAnnotation(PostMapping.class)
                         .value()
         );
         assertArrayEquals(

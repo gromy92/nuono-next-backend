@@ -45,7 +45,7 @@ public class ProductSpecManagementController {
     ) {
         ProductVariantSpecService service = requireService();
         try {
-            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            Long resolvedOwnerUserId = resolveWebSpecOwnerUserId(request, storeCode);
             ProductVariantSpecOverviewCommand command = new ProductVariantSpecOverviewCommand();
             command.setOwnerUserId(resolvedOwnerUserId);
             command.setStoreCode(storeCode);
@@ -85,7 +85,25 @@ public class ProductSpecManagementController {
     ) {
         ProductVariantSpecService service = requireService();
         try {
-            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            Long resolvedOwnerUserId = resolveWebSpecOwnerUserId(request, storeCode);
+            return service.detailByPsku(resolvedOwnerUserId, storeCode, partnerSku);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @GetMapping("/by-identity")
+    public ProductVariantSpecDetailView detailByIdentity(
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            HttpServletRequest request
+    ) {
+        ProductVariantSpecService service = requireService();
+        try {
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode, BusinessCapability.WAREHOUSE_DISPATCH);
             return service.detailByPsku(resolvedOwnerUserId, storeCode, partnerSku);
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -104,6 +122,11 @@ public class ProductSpecManagementController {
         ProductVariantSpecService service = requireService();
         try {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
+            requireSourceType(
+                    sourceType,
+                    ProductVariantSpecSourceType.ALI1688,
+                    "Web 端只允许维护 1688 规格。"
+            );
             ProductVariantSpecSourceCommand effectiveCommand = command == null ? new ProductVariantSpecSourceCommand() : command;
             Long resolvedOwnerUserId = resolveOwnerUserId(request, effectiveCommand.getStoreCode());
             effectiveCommand.setOwnerUserId(resolvedOwnerUserId);
@@ -129,8 +152,43 @@ public class ProductSpecManagementController {
         ProductVariantSpecService service = requireService();
         try {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
+            requireSourceType(
+                    sourceType,
+                    ProductVariantSpecSourceType.ALI1688,
+                    "Web 端只允许维护 1688 规格。"
+            );
             ProductVariantSpecSourceCommand effectiveCommand = command == null ? new ProductVariantSpecSourceCommand() : command;
-            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
+            Long resolvedOwnerUserId = resolveWebSpecOwnerUserId(request, storeCode);
+            effectiveCommand.setOwnerUserId(resolvedOwnerUserId);
+            effectiveCommand.setStoreCode(storeCode);
+            effectiveCommand.setSourceType(sourceType);
+            effectiveCommand.setOperatorUserId(session.getUserId());
+            return service.saveSourceByPsku(partnerSku, effectiveCommand);
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PutMapping("/by-identity/sources/{sourceType}")
+    public ProductVariantSpecSourceView saveSourceByIdentity(
+            @PathVariable String sourceType,
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            @RequestBody(required = false) ProductVariantSpecSourceCommand command,
+            HttpServletRequest request
+    ) {
+        ProductVariantSpecService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            requireSourceType(
+                    sourceType,
+                    ProductVariantSpecSourceType.WAREHOUSE,
+                    "仓管 App 只允许维护仓管规格。"
+            );
+            ProductVariantSpecSourceCommand effectiveCommand = command == null ? new ProductVariantSpecSourceCommand() : command;
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode, BusinessCapability.WAREHOUSE_DISPATCH);
             effectiveCommand.setOwnerUserId(resolvedOwnerUserId);
             effectiveCommand.setStoreCode(storeCode);
             effectiveCommand.setSourceType(sourceType);
@@ -155,12 +213,42 @@ public class ProductSpecManagementController {
             ProductVariantSpecEffectiveSourceCommand effectiveCommand =
                     command == null ? new ProductVariantSpecEffectiveSourceCommand() : command;
             Long resolvedOwnerUserId = resolveOwnerUserId(request, effectiveCommand.getStoreCode());
-            return service.selectEffectiveSource(
+            return service.selectEffectiveSourceForType(
                     resolvedOwnerUserId,
                     effectiveCommand.getStoreCode(),
                     variantId,
                     effectiveCommand.getSourceId(),
-                    session.getUserId()
+                    session.getUserId(),
+                    ProductVariantSpecSourceType.ALI1688
+            );
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/by-identity/effective-source")
+    public ProductVariantSpecDetailView selectEffectiveSourceByIdentity(
+            @RequestParam String storeCode,
+            @RequestParam String partnerSku,
+            @RequestBody(required = false) ProductVariantSpecEffectiveSourceCommand command,
+            HttpServletRequest request
+    ) {
+        ProductVariantSpecService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            ProductVariantSpecEffectiveSourceCommand effectiveCommand =
+                    command == null ? new ProductVariantSpecEffectiveSourceCommand() : command;
+            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode, BusinessCapability.WAREHOUSE_DISPATCH);
+            return service.selectEffectiveSourceByPskuForType(
+                    resolvedOwnerUserId,
+                    storeCode,
+                    partnerSku,
+                    null,
+                    effectiveCommand.getSourceId(),
+                    session.getUserId(),
+                    ProductVariantSpecSourceType.WAREHOUSE
             );
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -181,14 +269,15 @@ public class ProductSpecManagementController {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
             ProductVariantSpecEffectiveSourceCommand effectiveCommand =
                     command == null ? new ProductVariantSpecEffectiveSourceCommand() : command;
-            Long resolvedOwnerUserId = resolveOwnerUserId(request, storeCode);
-            return service.selectEffectiveSourceByPsku(
+            Long resolvedOwnerUserId = resolveWebSpecOwnerUserId(request, storeCode);
+            return service.selectEffectiveSourceByPskuForType(
                     resolvedOwnerUserId,
                     storeCode,
                     partnerSku,
                     null,
                     effectiveCommand.getSourceId(),
-                    session.getUserId()
+                    session.getUserId(),
+                    ProductVariantSpecSourceType.ALI1688
             );
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
@@ -205,12 +294,33 @@ public class ProductSpecManagementController {
         return service;
     }
 
+    private void requireSourceType(String sourceType, String expectedSourceType, String message) {
+        String normalizedSourceType = ProductVariantSpecSourceType.normalize(sourceType);
+        if (!expectedSourceType.equals(normalizedSourceType)) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+
     private Long resolveOwnerUserId(HttpServletRequest request, String storeCode) {
-        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(
+        return resolveOwnerUserId(request, storeCode, BusinessCapability.PRODUCT_MASTER);
+    }
+
+    private Long resolveWebSpecOwnerUserId(HttpServletRequest request, String storeCode) {
+        BusinessAccessContext access = businessAccessResolver().requireAnyStoreAccess(
                 request,
+                storeCode,
                 BusinessCapability.PRODUCT_MASTER,
-                storeCode
+                BusinessCapability.PROCUREMENT
         );
+        return resolveOwnerUserId(access, storeCode);
+    }
+
+    private Long resolveOwnerUserId(HttpServletRequest request, String storeCode, BusinessCapability capability) {
+        BusinessAccessContext access = businessAccessResolver().requireStoreAccess(request, capability, storeCode);
+        return resolveOwnerUserId(access, storeCode);
+    }
+
+    private Long resolveOwnerUserId(BusinessAccessContext access, String storeCode) {
         Long ownerUserId = access.resolveOwnerUserIdForStore(storeCode);
         if (ownerUserId != null) {
             return ownerUserId;

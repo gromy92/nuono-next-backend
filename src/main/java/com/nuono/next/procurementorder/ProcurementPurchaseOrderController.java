@@ -11,6 +11,8 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateIt
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateItemSourcingRequirementCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineYiteMaterialCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineQuoteCommand;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineQuotesCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.ProductOptionView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderAli1688HistoryView;
@@ -72,7 +74,7 @@ public class ProcurementPurchaseOrderController {
     ) {
         try {
             return service().listOrders(
-                    requireAccess(request, storeCode),
+                    requireListOrdersAccess(request, storeCode, submittedOnly),
                     storeCode,
                     keyword,
                     Boolean.TRUE.equals(submittedOnly),
@@ -89,7 +91,16 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().listShippingOrders(requireAccess(request, null), keyword);
+            return service().listShippingOrders(requireWarehouseDispatchAccess(request), keyword);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @GetMapping("/shipping-orders/assigned-purchase-order-ids")
+    public List<String> listAssignedShippingPurchaseOrderIds(HttpServletRequest request) {
+        try {
+            return service().listAssignedPurchaseOrderIds(requireWarehouseDispatchAccess(request));
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -101,7 +112,7 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().listLogisticsBills(requireAccess(request, null), keyword);
+            return service().listLogisticsBills(requireWarehouseDispatchAccess(request), keyword);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -113,7 +124,7 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().getLogisticsBill(requireAccess(request, null), expectedBillId);
+            return service().getLogisticsBill(requireWarehouseDispatchAccess(request), expectedBillId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -125,7 +136,7 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().createShippingOrder(requireAccess(request, null), command);
+            return service().createShippingOrder(requireWarehouseDispatchAccess(request), command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -138,7 +149,7 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().generateShippingOrderExpectedBill(requireAccess(request, null), shippingOrderId, command);
+            return service().generateShippingOrderExpectedBill(requireWarehouseDispatchAccess(request), shippingOrderId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -150,7 +161,7 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().getShippingOrder(requireAccess(request, null), shippingOrderId);
+            return service().getShippingOrder(requireWarehouseDispatchAccess(request), shippingOrderId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -163,7 +174,7 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().updateShippingOrder(requireAccess(request, null), shippingOrderId, command);
+            return service().updateShippingOrder(requireWarehouseDispatchAccess(request), shippingOrderId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -177,7 +188,34 @@ public class ProcurementPurchaseOrderController {
             HttpServletRequest request
     ) {
         try {
-            return service().updateShippingOrderLineYiteMaterial(requireAccess(request, null), shippingOrderId, lineId, command);
+            return service().updateShippingOrderLineYiteMaterial(requireWarehouseDispatchAccess(request), shippingOrderId, lineId, command);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PutMapping("/shipping-orders/{shippingOrderId}/lines/{lineId}/quote")
+    public ShippingOrderView updateShippingOrderLineQuote(
+            @PathVariable String shippingOrderId,
+            @PathVariable String lineId,
+            @RequestBody UpdateShippingOrderLineQuoteCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().updateShippingOrderLineQuote(requireWarehouseDispatchAccess(request), shippingOrderId, lineId, command);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PutMapping("/shipping-orders/{shippingOrderId}/lines/quotes")
+    public ShippingOrderView updateShippingOrderLineQuotes(
+            @PathVariable String shippingOrderId,
+            @RequestBody UpdateShippingOrderLineQuotesCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().updateShippingOrderLineQuotes(requireWarehouseDispatchAccess(request), shippingOrderId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -192,7 +230,7 @@ public class ProcurementPurchaseOrderController {
         try {
             ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
             command.segmentIds = segmentIds == null ? List.of() : segmentIds;
-            return service().listShippingOrderLogisticsQuoteOptions(requireAccess(request, null), shippingOrderId, command);
+            return service().listShippingOrderLogisticsQuoteOptions(requireWarehouseDispatchAccess(request), shippingOrderId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -204,6 +242,7 @@ public class ProcurementPurchaseOrderController {
             @RequestParam(required = false) String forwarderCode,
             @RequestParam(required = false) String routeCode,
             @RequestParam(required = false) List<String> segmentIds,
+            @RequestParam(defaultValue = "false") boolean missingOnly,
             HttpServletRequest request
     ) {
         try {
@@ -211,10 +250,11 @@ public class ProcurementPurchaseOrderController {
             command.segmentIds = segmentIds == null ? List.of() : segmentIds;
             PurchaseOrderLogisticsQuoteReportExportView export =
                     service().exportShippingOrderLogisticsQuoteReport(
-                            requireAccess(request, null),
+                            requireWarehouseDispatchAccess(request),
                             shippingOrderId,
                             forwarderCode,
                             routeCode,
+                            missingOnly,
                             command
                     );
             return ResponseEntity.ok()
@@ -237,7 +277,7 @@ public class ProcurementPurchaseOrderController {
             ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
             command.segmentIds = segmentIds == null ? List.of() : segmentIds;
             return service().importShippingOrderLogisticsQuoteReport(
-                    requireAccess(request, null),
+                    requireWarehouseDispatchAccess(request),
                     shippingOrderId,
                     file == null ? null : file.getInputStream(),
                     file == null ? null : file.getOriginalFilename(),
@@ -253,11 +293,10 @@ public class ProcurementPurchaseOrderController {
     @PostMapping("/shipping-orders/{shippingOrderId}/submit-shipping")
     public ShippingOrderSubmitView submitShippingOrder(
             @PathVariable String shippingOrderId,
-            @RequestBody(required = false) ShippingOrderSegmentScopeCommand command,
             HttpServletRequest request
     ) {
         try {
-            return service().submitShippingOrder(requireAccess(request, null), shippingOrderId, command);
+            return service().submitShippingOrder(requireWarehouseDispatchAccess(request), shippingOrderId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -533,6 +572,25 @@ public class ProcurementPurchaseOrderController {
             return accessResolver.requireStoreAccess(request, BusinessCapability.PROCUREMENT, storeCode);
         }
         return accessResolver.requireBusinessContext(request, BusinessCapability.PROCUREMENT);
+    }
+
+    private BusinessAccessContext requireListOrdersAccess(
+            HttpServletRequest request,
+            String storeCode,
+            Boolean submittedOnly
+    ) {
+        if (!StringUtils.hasText(storeCode) && Boolean.TRUE.equals(submittedOnly)) {
+            return accessResolver.requireAnyBusinessContext(
+                    request,
+                    BusinessCapability.PROCUREMENT,
+                    BusinessCapability.WAREHOUSE_DISPATCH
+            );
+        }
+        return requireAccess(request, storeCode);
+    }
+
+    private BusinessAccessContext requireWarehouseDispatchAccess(HttpServletRequest request) {
+        return accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH);
     }
 
     private LocalDbProcurementPurchaseOrderService service() {

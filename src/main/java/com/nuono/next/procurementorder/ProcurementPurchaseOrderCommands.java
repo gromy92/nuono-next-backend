@@ -1,5 +1,6 @@
 package com.nuono.next.procurementorder;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,6 +48,20 @@ public final class ProcurementPurchaseOrderCommands {
 
     public static class UpdateShippingOrderLineYiteMaterialCommand {
         public String yiteMaterial;
+    }
+
+    public static class UpdateShippingOrderLineQuoteCommand {
+        public String forwarderCode;
+        public String routeCode;
+        public BigDecimal unitPrice;
+        public String currency;
+        public String billingUnit;
+        public String yiteMaterial;
+        public String remark;
+    }
+
+    public static class UpdateShippingOrderLineQuotesCommand extends UpdateShippingOrderLineQuoteCommand {
+        public List<String> lineIds = new ArrayList<>();
     }
 
     public static class ShippingOrderSegmentScopeCommand {

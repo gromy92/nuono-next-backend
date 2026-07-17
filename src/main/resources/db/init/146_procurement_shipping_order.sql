@@ -372,7 +372,6 @@ FROM (
         END AS `quote_status`,
         CASE
             WHEN SUM(CASE WHEN quote.`shipping_submit_status` = 'SUBMITTED' THEN 1 ELSE 0 END) = COUNT(*) THEN 'SUBMITTED'
-            WHEN SUM(CASE WHEN quote.`shipping_submit_status` = 'SUBMITTED' THEN 1 ELSE 0 END) > 0 THEN 'PARTIAL_SUBMITTED'
             ELSE 'NOT_SUBMITTED'
         END AS `shipping_submit_status`,
         COUNT(*) AS `line_count`,

@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS `warehouse_shipping_batch` (
     `id` BIGINT NOT NULL,
     `owner_user_id` BIGINT NOT NULL,
+    `dispatch_plan_id` BIGINT DEFAULT NULL,
     `batch_no` VARCHAR(80) NOT NULL,
     `status` VARCHAR(40) NOT NULL DEFAULT 'DRAFT',
     `selected_option_id` BIGINT DEFAULT NULL,
@@ -16,19 +17,22 @@ CREATE TABLE IF NOT EXISTS `warehouse_shipping_batch` (
     `origin_summary_json` TEXT DEFAULT NULL,
     `remark` VARCHAR(1000) DEFAULT NULL,
     `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+    `active_outbound_order_id` BIGINT GENERATED ALWAYS AS (CASE WHEN `is_deleted` = 0 THEN `outbound_order_id` ELSE NULL END) STORED,
     `created_by` BIGINT DEFAULT NULL,
     `updated_by` BIGINT DEFAULT NULL,
     `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_warehouse_shipping_batch_no` (`batch_no`),
-    KEY `idx_warehouse_shipping_batch_owner` (`owner_user_id`, `status`, `is_deleted`, `gmt_updated`)
+    KEY `idx_warehouse_shipping_batch_owner` (`owner_user_id`, `status`, `is_deleted`, `gmt_updated`),
+    KEY `idx_shipping_batch_dispatch_plan` (`dispatch_plan_id`, `is_deleted`, `gmt_updated`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `warehouse_shipping_batch_source` (
     `id` BIGINT NOT NULL,
     `batch_id` BIGINT NOT NULL,
     `owner_user_id` BIGINT NOT NULL,
+    `logical_store_id` BIGINT DEFAULT NULL,
     `fulfillment_balance_id` BIGINT NOT NULL,
     `source_store_code` VARCHAR(100) NOT NULL,
     `source_store_name` VARCHAR(200) DEFAULT NULL,
@@ -196,6 +200,9 @@ CREATE TABLE IF NOT EXISTS `warehouse_outbound_order_line` (
     `batch_id` BIGINT NOT NULL,
     `option_line_id` BIGINT NOT NULL,
     `owner_user_id` BIGINT NOT NULL,
+    `logical_store_id` BIGINT DEFAULT NULL,
+    `source_store_code` VARCHAR(100) DEFAULT NULL,
+    `source_store_name` VARCHAR(200) DEFAULT NULL,
     `product_master_id` BIGINT NOT NULL,
     `product_variant_id` BIGINT NOT NULL,
     `partner_sku` VARCHAR(100) NOT NULL,
@@ -225,6 +232,8 @@ CREATE TABLE IF NOT EXISTS `warehouse_outbound_order_line_source` (
     `outbound_order_line_id` BIGINT NOT NULL,
     `batch_source_id` BIGINT NOT NULL,
     `fulfillment_balance_id` BIGINT NOT NULL,
+    `source_store_code` VARCHAR(100) DEFAULT NULL,
+    `source_store_name` VARCHAR(200) DEFAULT NULL,
     `purchase_order_id` BIGINT NOT NULL,
     `purchase_order_no` VARCHAR(60) NOT NULL,
     `purchase_order_title` VARCHAR(200) NOT NULL,
@@ -261,6 +270,7 @@ CREATE TABLE IF NOT EXISTS `warehouse_packing_list` (
     `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_warehouse_packing_no` (`packing_no`),
+    UNIQUE KEY `uk_warehouse_packing_active_outbound` (`active_outbound_order_id`),
     KEY `idx_warehouse_packing_order` (`outbound_order_id`, `status`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -270,18 +280,20 @@ CREATE TABLE IF NOT EXISTS `warehouse_packing_box` (
     `outbound_order_id` BIGINT NOT NULL,
     `owner_user_id` BIGINT NOT NULL,
     `box_no` VARCHAR(80) NOT NULL,
-    `length_cm` DECIMAL(12, 3) NOT NULL,
-    `width_cm` DECIMAL(12, 3) NOT NULL,
-    `height_cm` DECIMAL(12, 3) NOT NULL,
-    `gross_weight_kg` DECIMAL(12, 3) NOT NULL,
+    `status` VARCHAR(40) NOT NULL DEFAULT 'DRAFT',
+    `length_cm` DECIMAL(12, 3) DEFAULT NULL,
+    `width_cm` DECIMAL(12, 3) DEFAULT NULL,
+    `height_cm` DECIMAL(12, 3) DEFAULT NULL,
+    `gross_weight_kg` DECIMAL(12, 3) DEFAULT NULL,
     `quantity` INT NOT NULL DEFAULT 0,
     `is_deleted` BIT(1) NOT NULL DEFAULT b'0',
+    `active_box_no` VARCHAR(80) GENERATED ALWAYS AS (CASE WHEN `is_deleted` = 0 THEN `box_no` ELSE NULL END) STORED,
     `created_by` BIGINT DEFAULT NULL,
     `updated_by` BIGINT DEFAULT NULL,
     `gmt_create` DATETIME DEFAULT CURRENT_TIMESTAMP,
     `gmt_updated` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_warehouse_packing_box_no` (`packing_list_id`, `box_no`),
+    UNIQUE KEY `uk_warehouse_packing_active_box_no` (`packing_list_id`, `active_box_no`),
     KEY `idx_warehouse_packing_box_list` (`packing_list_id`, `is_deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
