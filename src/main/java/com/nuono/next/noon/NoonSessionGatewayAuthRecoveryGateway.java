@@ -9,6 +9,7 @@ import com.nuono.next.noonauth.gateway.NoonAuthRecoveryGateway;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult.Code;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -87,7 +88,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
 
         final NoonSessionGateway.EmailOtpGeneration generation;
         try {
-            generation = sessionGateway.prepareEmailOtpGeneration(email);
+            generation = prepareEmailOtpGenerationWithOneTransientRetry(email, command);
         } catch (RuntimeException exception) {
             command.heartbeatOrThrow();
             return failed(classifyIdentityFailure(exception), null, safeDiagnostic("identity preparation", exception));
@@ -312,6 +313,23 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         }
     }
 
+    private NoonSessionGateway.EmailOtpGeneration prepareEmailOtpGenerationWithOneTransientRetry(
+            String email,
+            NoonAuthRecoveryAttemptCommand command
+    ) {
+        try {
+            return sessionGateway.prepareEmailOtpGeneration(email);
+        } catch (LeaseLostException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (!isTransientTransportFailure(exception)) {
+                throw exception;
+            }
+            command.heartbeatOrThrow();
+            return sessionGateway.prepareEmailOtpGeneration(email);
+        }
+    }
+
     private JsonNode whoamiWithOneTransientRetry(
             NoonSessionGateway.ProjectSessionCookie projectSession,
             NoonAuthRecoveryProjectTarget target,
@@ -326,7 +344,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         } catch (LeaseLostException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            if (!isTransientWhoamiTransportFailure(exception)) {
+            if (!isTransientTransportFailure(exception)) {
                 throw exception;
             }
             command.heartbeatOrThrow();
@@ -338,7 +356,14 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         }
     }
 
-    private boolean isTransientWhoamiTransportFailure(Throwable throwable) {
+    private boolean isTransientTransportFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof IOException) {
+                return true;
+            }
+            current = current.getCause();
+        }
         String message = throwableMessage(throwable).toLowerCase(Locale.ROOT);
         return message.contains("header parser received no bytes")
                 || message.contains("eof reached")
