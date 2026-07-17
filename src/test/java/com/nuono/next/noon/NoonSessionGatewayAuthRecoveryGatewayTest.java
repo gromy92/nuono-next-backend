@@ -6,9 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -239,6 +244,27 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             assertEquals(1, result.getProjectResults().size());
             assertTrue(result.getProjectResults().get(0).isRecovered());
             assertTrue(result.getProjectResults().get(0).getCookie().contains("projectCode=PRJ7001"));
+        }
+    }
+
+    @Test
+    void shouldRetryWhoamiOnceAfterTransientTransportEof() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            NoonSessionGateway gateway = spy(identityGateway(server));
+            doThrow(new IllegalStateException(
+                    "Noon WHOAMI 验证失败：HTTP/1.1 header parser received no bytes | EOF reached"
+            )).doCallRealMethod().when(gateway).whoamiWithCookie(anyString(), anyString(), anyString());
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(gateway).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            assertTrue(result.getProjectResults().get(0).isRecovered());
+            verify(gateway, times(2)).whoamiWithCookie(anyString(), anyString(), anyString());
+            assertEquals(1, server.whoamiCount());
         }
     }
 

@@ -285,11 +285,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         command.heartbeatOrThrow();
 
         try {
-            JsonNode whoami = sessionGateway.whoamiWithCookie(
-                    projectSession.getCookie(),
-                    target.getProjectCode(),
-                    target.getStoreCode()
-            );
+            JsonNode whoami = whoamiWithOneTransientRetry(projectSession, target, command);
             command.heartbeatOrThrow();
             if (!whoamiValidatesProjectSession(
                     whoami,
@@ -314,6 +310,43 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
                     safeDiagnostic("project cookie validation", exception)
             );
         }
+    }
+
+    private JsonNode whoamiWithOneTransientRetry(
+            NoonSessionGateway.ProjectSessionCookie projectSession,
+            NoonAuthRecoveryProjectTarget target,
+            NoonAuthRecoveryAttemptCommand command
+    ) {
+        try {
+            return sessionGateway.whoamiWithCookie(
+                    projectSession.getCookie(),
+                    target.getProjectCode(),
+                    target.getStoreCode()
+            );
+        } catch (LeaseLostException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            if (!isTransientWhoamiTransportFailure(exception)) {
+                throw exception;
+            }
+            command.heartbeatOrThrow();
+            return sessionGateway.whoamiWithCookie(
+                    projectSession.getCookie(),
+                    target.getProjectCode(),
+                    target.getStoreCode()
+            );
+        }
+    }
+
+    private boolean isTransientWhoamiTransportFailure(Throwable throwable) {
+        String message = throwableMessage(throwable).toLowerCase(Locale.ROOT);
+        return message.contains("header parser received no bytes")
+                || message.contains("eof reached")
+                || message.contains("premature eof")
+                || message.contains("connection reset")
+                || message.contains("connection closed")
+                || message.contains("timed out")
+                || message.contains("timeout");
     }
 
     static boolean whoamiMatchesTargetProject(JsonNode whoami, String targetProjectCode) {
