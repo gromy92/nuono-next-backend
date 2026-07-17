@@ -38,6 +38,7 @@ class NoonPullPersistenceContractTest {
         assertTrue(sql.contains("retryable"));
         assertTrue(sql.contains("requires_manual_action"));
         assertTrue(sql.contains("active_lock_key"));
+        assertTrue(sql.contains("auth_recovery_id"));
         assertTrue(sql.contains("report_export_id"));
         assertTrue(sql.contains("report_export_status"));
         assertTrue(sql.contains("report_download_url"));
@@ -72,7 +73,7 @@ class NoonPullPersistenceContractTest {
     }
 
     @Test
-    void activeTaskLookupShouldOnlyReturnQueuedOrRunningLocks() {
+    void activeTaskLookupShouldIncludeAuthBlockedLocks() {
         Method method = Arrays.stream(NoonPullMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "selectActiveTaskByLockKey".equals(candidate.getName()))
                 .findFirst()
@@ -83,7 +84,30 @@ class NoonPullPersistenceContractTest {
         assertTrue(sql.contains("active_lock_key = #{activeLockKey}"));
         assertTrue(sql.contains("'QUEUED'"));
         assertTrue(sql.contains("'RUNNING'"));
+        assertTrue(sql.contains("'BLOCKED_AUTH'"));
         assertTrue(sql.contains("is_deleted = b'0'"));
+    }
+
+    @Test
+    void authRecoveryUpdatesShouldUseNarrowCompareAndSetStatements() {
+        Method generalUpdate = Arrays.stream(NoonPullMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "updateTask".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        Method block = Arrays.stream(NoonPullMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "blockTaskForAuth".equals(candidate.getName()))
+                .findFirst()
+                .orElseThrow();
+        String generalUpdateSql = String.join(" ", generalUpdate.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+        String blockSql = String.join(" ", block.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertTrue(generalUpdateSql.contains("status <> 'BLOCKED_AUTH'"));
+        assertTrue(blockSql.contains("status = 'BLOCKED_AUTH'"));
+        assertTrue(blockSql.contains("auth_recovery_id = #{recoveryId}"));
+        assertTrue(blockSql.contains("status IN ('QUEUED', 'RUNNING')"));
+        assertTrue(!blockSql.contains("report_export_id ="));
+        assertTrue(!blockSql.contains("checkpoint_cursor ="));
     }
 
     @Test

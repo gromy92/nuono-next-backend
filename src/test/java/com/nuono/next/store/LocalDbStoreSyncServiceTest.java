@@ -4,15 +4,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
+import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,11 +36,19 @@ class LocalDbStoreSyncServiceTest {
     @Mock
     private NoonSessionGateway noonSessionGateway;
 
+    @Mock
+    private NoonProjectAuthRecoveryQueue projectAuthRecoveryQueue;
+
     private LocalDbStoreSyncService service;
 
     @BeforeEach
     void setUp() {
-        service = new LocalDbStoreSyncService(storeSyncMapper, localDbBootstrapStatusService, noonSessionGateway);
+        service = new LocalDbStoreSyncService(
+                storeSyncMapper,
+                localDbBootstrapStatusService,
+                noonSessionGateway,
+                projectAuthRecoveryQueue
+        );
     }
 
     @Test
@@ -45,9 +58,16 @@ class LocalDbStoreSyncServiceTest {
         );
         when(storeSyncMapper.listOwnerOptions()).thenReturn(List.of(ownerOption(307L, "毕翠红")));
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
-        when(storeSyncMapper.listOwnerProjects(307L)).thenReturn(List.of(
-                project(7000L, "星耀", "XINGYAO", true, "boss@example.idp.noon.partners", 1)
-        ));
+        StoreSyncStoreRecord connectedProject = project(
+                7000L,
+                "星耀",
+                "XINGYAO",
+                true,
+                "boss@example.idp.noon.partners",
+                1
+        );
+        connectedProject.setNoonPartnerCookie("sid=verified");
+        when(storeSyncMapper.listOwnerProjects(307L)).thenReturn(List.of(connectedProject));
         when(storeSyncMapper.listOwnerProjectSites(307L, List.of("XINGYAO"))).thenReturn(List.of(
                 store(7001L, "星耀", "xingyao-AE", "AE", true, "XINGYAO"),
                 store(7002L, "星耀", "xingyao-SA", "SA", false, "XINGYAO")
@@ -96,7 +116,7 @@ class LocalDbStoreSyncServiceTest {
     }
 
     @Test
-    void shouldBindStoreOnlyAfterNoonMerchantLoginSucceedsAndPersistCookie() {
+    void shouldBindStoreWithoutDirectOtpAndWithoutPersistingMailboxSecret() {
         StoreBindCommand command = new StoreBindCommand();
         command.setOwnerUserId(307L);
         command.setStoreCode("PRJ7001");
@@ -105,37 +125,32 @@ class LocalDbStoreSyncServiceTest {
         when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(
                 project(7000L, "新店铺", "PRJ7001", true, null, 0)
         );
-        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
-                307L,
-                "PRJ7001",
-                "PRJ7001"
-        )).thenReturn(NoonSessionGateway.MerchantAuthorization.authorized(
-                new NoonSessionGateway.MerchantProject("PRJ7001", "新店铺", "ORG7001", "新组织"),
-                "sid=project-session"
-        ));
         when(noonSessionGateway.configuredMerchantEmail()).thenReturn("unified@example.com");
-        when(noonSessionGateway.configuredMerchantMailAuthCode()).thenReturn("mail-auth-code");
         when(storeSyncMapper.listOwnerProjectSites(307L, List.of("PRJ7001"))).thenReturn(List.of(
                 store(7001L, "新店铺", "STR7001-NAE", "AE", true, "PRJ7001")
         ));
+        when(storeSyncMapper.updateProjectEmailBinding(any(), any(), any(), any(), any(), any()))
+                .thenReturn(1);
+        when(projectAuthRecoveryQueue.enqueueProject(307L, "PRJ7001", "STR7001-NAE"))
+                .thenReturn(Optional.of(91L));
 
         StoreBindingResult result = service.bindStore(command);
 
         assertEquals(true, result.isSuccess());
-        assertEquals("店铺 新店铺 已完成 Noon 商家后台绑定，已同步覆盖 1 个站点。", result.getMessage());
+        assertEquals("店铺 新店铺 已绑定共享邮箱，并覆盖 1 个站点。", result.getMessage());
         verify(storeSyncMapper).updateProjectEmailBinding(
                 eq(7000L),
                 eq(307L),
                 eq("unified@example.com"),
-                eq("mail-auth-code"),
+                eq(null),
                 eq("7001"),
                 eq(307L)
         );
-        verify(storeSyncMapper).updateProjectConnectionSuccess(7000L, 307L, "sid=project-session", 307L);
+        verify(projectAuthRecoveryQueue).enqueueProject(307L, "PRJ7001", "STR7001-NAE");
     }
 
     @Test
-    void shouldReturnProjectChoicesBeforeCreatingStoreWhenNoonAccountHasMultipleProjects() {
+    void shouldRequireExplicitProjectCodeWithoutStartingDirectEmailOtp() {
         StoreCreateCommand command = new StoreCreateCommand();
         command.setOwnerUserId(307L);
         command.setProjectName("新店铺");
@@ -143,21 +158,9 @@ class LocalDbStoreSyncServiceTest {
         command.setSite("AE");
 
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
-        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
-                307L,
-                null,
-                "STR7001-NAE"
-        )).thenReturn(NoonSessionGateway.MerchantAuthorization.projectSelectionRequired(List.of(
-                new NoonSessionGateway.MerchantProject("PRJ7001", "新店铺", "ORG7001", "新组织"),
-                new NoonSessionGateway.MerchantProject("PRJ8001", "另一个店铺", "ORG8001", "另一个组织")
-        )));
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> service.createStore(command));
 
-        StoreBindingResult result = service.createStore(command);
-
-        assertEquals(false, result.isSuccess());
-        assertEquals(2, result.getProjectList().size());
-        assertEquals("PRJ7001", result.getProjectList().get(0).getProjectCode());
-        assertEquals("该 Noon 商家后台账号可访问多个 Project，请选择要绑定的店铺。", result.getMessage());
+        assertEquals("请输入 Noon Project Code。", error.getMessage());
         verify(storeSyncMapper).selectOwnerContext(307L);
         verifyNoMoreInteractions(storeSyncMapper);
     }
@@ -174,17 +177,10 @@ class LocalDbStoreSyncServiceTest {
         command.setOrgName("新组织");
 
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
-        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(
-                307L,
-                "PRJ7001",
-                "STR7001-NAE"
-        )).thenReturn(NoonSessionGateway.MerchantAuthorization.authorized(
-                new NoonSessionGateway.MerchantProject("PRJ7001", "Noon 新店铺", "ORG7001", "新组织"),
-                "sid=project-session"
-        ));
         when(noonSessionGateway.configuredMerchantEmail()).thenReturn("unified@example.com");
-        when(noonSessionGateway.configuredMerchantMailAuthCode()).thenReturn("mail-auth-code");
         when(storeSyncMapper.nextStoreId()).thenReturn(7010L);
+        when(projectAuthRecoveryQueue.enqueueProject(307L, "PRJ7001", "STR7001-NAE"))
+                .thenReturn(Optional.of(91L));
 
         StoreBindingResult result = service.createStore(command);
 
@@ -197,12 +193,11 @@ class LocalDbStoreSyncServiceTest {
                 eq("PRJ7001"),
                 eq("新店铺"),
                 eq("unified@example.com"),
-                eq("mail-auth-code"),
+                eq(null),
                 eq("7001"),
                 eq(true),
                 eq(true)
         );
-        verify(storeSyncMapper).updateProjectSessionCookie(307L, "PRJ7001", "sid=project-session", 307L);
         verify(storeSyncMapper).insertOwnerSiteStore(
                 eq(7010L),
                 eq(307L),
@@ -214,6 +209,7 @@ class LocalDbStoreSyncServiceTest {
                 eq("AE"),
                 eq(true)
         );
+        verify(projectAuthRecoveryQueue).enqueueProject(307L, "PRJ7001", "STR7001-NAE");
     }
 
     @Test
@@ -225,12 +221,36 @@ class LocalDbStoreSyncServiceTest {
         command.setSite("AE");
 
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
-        when(noonSessionGateway.authorizeConfiguredMerchantEmailLogin(307L, null, "STR7001-NAE"))
+        command.setProjectCode("PRJ7001");
+        when(noonSessionGateway.configuredMerchantEmail())
                 .thenThrow(new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。"));
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.createStore(command));
 
         assertEquals("未配置统一 Noon 商家后台邮箱和邮箱授权码。", error.getMessage());
+    }
+
+    @Test
+    void shouldKeepConnectionTestCookieOnlyWhenPersistedCookieIsExpired() {
+        StoreSyncStoreRecord project = project(
+                7000L,
+                "新店铺",
+                "PRJ7001",
+                true,
+                "merchant@example.com",
+                1
+        );
+        project.setNoonPartnerCookie("sid=expired");
+        when(noonSessionGateway.openRequestCountScope()).thenReturn(requestCountScope());
+        when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(project);
+        when(noonSessionGateway.whoamiWithCookie("sid=expired", "PRJ7001", "PRJ7001"))
+                .thenThrow(new IllegalStateException("auth_required"));
+
+        LocalDbStoreSyncService.StoreConnectionTestResult result = service.testConnection(307L, "PRJ7001");
+
+        assertEquals(false, result.isConnected());
+        verify(storeSyncMapper, never()).updateProjectConnectionFailure(any(), any(), any());
+        verify(noonSessionGateway, never()).login(any(), any(), any(), any(), any(), any());
     }
 
     private StoreSyncOwnerOption ownerOption(Long id, String name) {
@@ -239,6 +259,36 @@ class LocalDbStoreSyncServiceTest {
         option.setRealName(name);
         option.setAccountNo("user" + id);
         return option;
+    }
+
+    private NoonSessionGateway.RequestCountScope requestCountScope() {
+        NoonSessionGateway scopeGateway = new NoonSessionGateway(
+                new ObjectMapper(),
+                storeSyncMapper,
+                false,
+                0L,
+                true,
+                "",
+                "",
+                "en-sa",
+                "en",
+                false,
+                false,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                false,
+                "HTTP",
+                "",
+                0,
+                ""
+        );
+        return scopeGateway.openRequestCountScope();
     }
 
     private StoreSyncOwnerContext ownerContext(Long id, String name) {

@@ -57,6 +57,10 @@ public class NoonReportPuller {
     ) {
         NoonPullTaskRecord task = foundationService.markRunning(taskId, "noon-report-puller");
         NoonReportPullResult result = new NoonReportPullResult();
+        if (task.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            result.setStatus(task.getStatus());
+            return result;
+        }
         int pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
         if (pollAttempts >= request.getMaxPollAttempts()
                 || foundationService.isTaskOlderThan(task, REPORT_MAX_ACTIVE_AGE)) {

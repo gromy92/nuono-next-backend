@@ -17,6 +17,7 @@ public class NoonPullTaskRecord {
     private LocalDate targetDateTo;
     private String activeLockKey;
     private NoonPullTaskStatus status;
+    private Long authRecoveryId;
     private String sourceBatchId;
     private String failureType;
     private String retryAction;
@@ -58,6 +59,7 @@ public class NoonPullTaskRecord {
         copy.targetDateTo = targetDateTo;
         copy.activeLockKey = activeLockKey;
         copy.status = status;
+        copy.authRecoveryId = authRecoveryId;
         copy.sourceBatchId = sourceBatchId;
         copy.failureType = failureType;
         copy.retryAction = retryAction;
@@ -188,6 +190,14 @@ public class NoonPullTaskRecord {
 
     public void setStatus(NoonPullTaskStatus status) {
         this.status = status;
+    }
+
+    public Long getAuthRecoveryId() {
+        return authRecoveryId;
+    }
+
+    public void setAuthRecoveryId(Long authRecoveryId) {
+        this.authRecoveryId = authRecoveryId;
     }
 
     public String getSourceBatchId() {

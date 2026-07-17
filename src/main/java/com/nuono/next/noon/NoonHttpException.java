@@ -37,6 +37,32 @@ public class NoonHttpException extends IllegalStateException {
         return requestPath;
     }
 
+    boolean hasStatusCode(int... expectedStatusCodes) {
+        if (expectedStatusCodes == null) {
+            return false;
+        }
+        for (int expectedStatusCode : expectedStatusCodes) {
+            if (statusCode == expectedStatusCode) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    boolean responseBodyContainsAny(String... markers) {
+        if (!StringUtils.hasText(responseBody) || markers == null) {
+            return false;
+        }
+        String normalizedBody = responseBody.toLowerCase(Locale.ROOT);
+        for (String marker : markers) {
+            if (StringUtils.hasText(marker)
+                    && normalizedBody.contains(marker.trim().toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static String truncate(String value) {
         if (value == null || value.length() <= MAX_RESPONSE_BODY_LENGTH) {
             return value;

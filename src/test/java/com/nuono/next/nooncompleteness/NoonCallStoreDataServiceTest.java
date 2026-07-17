@@ -241,8 +241,13 @@ class NoonCallStoreDataServiceTest {
         }
 
         @Override
-        public void updateTask(NoonPullTaskRecord task) {
+        public int updateTask(NoonPullTaskRecord task) {
+            NoonPullTaskRecord current = tasks.get(task.getId());
+            if (current == null || current.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+                return 0;
+            }
             tasks.put(task.getId(), task.copy());
+            return 1;
         }
 
         @Override

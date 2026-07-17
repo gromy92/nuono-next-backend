@@ -139,12 +139,7 @@ public class LocalDbStoreInitializationService {
 
         String noonUser = resolveNoonUser(context);
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
-        String noonEmailAuthCode = resolveNoonEmailAuthCode(context);
-        String noonPassword = firstNonBlank(
-                normalize(command.getNoonPassword()),
-                resolveNoonPassword(context)
-        );
-        requireNoonLoginCredential(noonEmailAuthCode, noonPassword, "当前店铺还没有 Noon 邮箱授权码或历史登录密码，请先完成店铺绑定。");
+        requireText(resolveNoonCookie(context), "当前店铺会话待恢复，请稍后重试。");
 
         InitializationState state = new InitializationState(buildIdleView(context));
         state.markRunning("开始初始化", 5, 1, 8, "正在识别项目和站点结构...");
@@ -154,9 +149,7 @@ public class LocalDbStoreInitializationService {
         noonAccountTaskQueue.submit(noonUser, () -> runInitialization(
                 state,
                 context,
-                noonUser,
-                noonEmailAuthCode,
-                noonPassword
+                noonUser
         ));
         return state.snapshot();
     }
@@ -177,12 +170,7 @@ public class LocalDbStoreInitializationService {
         StoreContext context = resolveContext(command.getOwnerUserId(), storeCode);
         String noonUser = resolveNoonUser(context);
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
-        String noonEmailAuthCode = resolveNoonEmailAuthCode(context);
-        String noonPassword = firstNonBlank(
-                normalize(command.getNoonPassword()),
-                resolveNoonPassword(context)
-        );
-        requireNoonLoginCredential(noonEmailAuthCode, noonPassword, "当前店铺还没有 Noon 邮箱授权码或历史登录密码，请先完成店铺绑定。");
+        requireText(resolveNoonCookie(context), "当前店铺会话待恢复，请稍后重试。");
 
         String localProjectCode = firstNonBlank(context.referenceStore.getProjectCode(), context.owner.getNoonPartnerId());
         requireText(localProjectCode, "当前店铺缺少 Noon projectCode，暂时无法执行初始化预检。");
@@ -193,8 +181,6 @@ public class LocalDbStoreInitializationService {
             NoonSession session = openInitializationNoonSession(
                     requestOwnerId(context),
                     noonUser,
-                    noonEmailAuthCode,
-                    noonPassword,
                     resolveNoonCookie(context),
                     localProjectCode,
                     context.referenceStore.getStoreCode()
@@ -231,9 +217,7 @@ public class LocalDbStoreInitializationService {
     private void runInitialization(
             InitializationState state,
             StoreContext context,
-            String noonUser,
-            String noonEmailAuthCode,
-            String noonPassword
+            String noonUser
     ) {
         NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
         try {
@@ -243,8 +227,6 @@ public class LocalDbStoreInitializationService {
             NoonSession session = openInitializationNoonSession(
                     context.owner.getId(),
                     noonUser,
-                    noonEmailAuthCode,
-                    noonPassword,
                     resolveNoonCookie(context),
                     localProjectCode,
                     context.referenceStore.getStoreCode()
@@ -1626,24 +1608,6 @@ public class LocalDbStoreInitializationService {
         );
     }
 
-    private String resolveNoonEmailAuthCode(StoreContext context) {
-        StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
-        StoreSyncOwnerContext owner = context == null ? null : context.owner;
-        return firstNonBlank(
-                referenceStore == null ? null : referenceStore.getNoonPartnerMailAuthCode(),
-                owner == null ? null : owner.getNoonPartnerMailAuthCode()
-        );
-    }
-
-    private String resolveNoonPassword(StoreContext context) {
-        StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
-        StoreSyncOwnerContext owner = context == null ? null : context.owner;
-        return firstNonBlank(
-                referenceStore == null ? null : referenceStore.getNoonPartnerPwd(),
-                owner == null ? null : owner.getNoonPartnerPwd()
-        );
-    }
-
     private String resolveNoonCookie(StoreContext context) {
         StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
         StoreSyncOwnerContext owner = context == null ? null : context.owner;
@@ -1656,47 +1620,17 @@ public class LocalDbStoreInitializationService {
     private NoonSession openInitializationNoonSession(
             Long ownerUserId,
             String noonUser,
-            String noonEmailAuthCode,
-            String noonPassword,
             String persistedCookie,
             String projectCode,
             String storeCode
     ) {
-        if (StringUtils.hasText(noonEmailAuthCode)) {
-            return noonSessionGateway.loginWithEmailAuthCode(
-                    ownerUserId,
-                    noonUser,
-                    noonEmailAuthCode,
-                    persistedCookie,
-                    projectCode,
-                    storeCode
-            );
-        }
-        if (noonSessionGateway.hasConfiguredMerchantEmailLogin()) {
-            return noonSessionGateway.loginWithConfiguredEmailAuthCode(
-                    ownerUserId,
-                    persistedCookie,
-                    projectCode,
-                    storeCode
-            );
-        }
-        requireText(noonPassword, "当前店铺还没有 Noon 登录密码，请先把密码写入数据库。");
-        return noonSessionGateway.login(
+        return noonSessionGateway.loginWithPersistedCookie(
                 ownerUserId,
                 noonUser,
-                noonPassword,
                 persistedCookie,
                 projectCode,
                 storeCode
         );
-    }
-
-    private void requireNoonLoginCredential(String noonEmailAuthCode, String noonPassword, String message) {
-        if (!StringUtils.hasText(noonEmailAuthCode)
-                && !noonSessionGateway.hasConfiguredMerchantEmailLogin()
-                && !StringUtils.hasText(noonPassword)) {
-            throw new IllegalArgumentException(message);
-        }
     }
 
     private Long requestOwnerId(StoreContext context) {

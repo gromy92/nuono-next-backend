@@ -53,6 +53,10 @@ public class NoonInterfacePuller {
         if (taskId == null || request == null || provider == null) {
             throw new IllegalArgumentException("Noon interface pull task, request and provider are required.");
         }
+        NoonPullTaskRecord running = foundationService.markRunning(taskId, "noon-interface-puller");
+        if (running.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
+            return NoonInterfacePullResult.failed(running);
+        }
         Optional<NoonRiskBackoffScope> riskScope = riskScope(request);
         Optional<NoonRiskBackoffHold> activeHold = riskScope.flatMap(riskBackoffGuard::currentHold);
         if (activeHold.isPresent()) {
@@ -63,7 +67,6 @@ public class NoonInterfacePuller {
             );
             return NoonInterfacePullResult.failed(delayed);
         }
-        foundationService.markRunning(taskId, "noon-interface-puller");
         List<Map<String, Object>> items = new ArrayList<>();
         int pageNumber = request.getResumePage();
         int pageCount = 0;

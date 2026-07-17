@@ -574,6 +574,141 @@ class NoonPullScheduledExecutionServiceTest {
     }
 
     @Test
+    void staleScheduledInventorySnapshotShouldHonorPersistedAuthBlock() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-24T15:01:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
+        CapturingOfficialWarehouseInventorySyncService inventorySyncService =
+                new CapturingOfficialWarehouseInventorySyncService();
+        service = new NoonPullScheduledExecutionService(
+                new NoonPullScheduler(
+                        foundationService,
+                        clock,
+                        new NoonOrderReportSchedulePolicy(clock),
+                        new NoonOrderBackfillPlanner(),
+                        new NoonSalesRetentionPolicy(clock),
+                        (plan) -> true
+                ),
+                foundationService,
+                new NoonReportPuller(foundationService),
+                new NoonInterfacePuller(foundationService),
+                new NoonProductListPullAdapter(productWriter),
+                new NoonSalesReportAdapter(writer),
+                new NoonOrderReportAdapter((fact) -> {
+                }, clock),
+                null,
+                inventorySyncService,
+                null,
+                null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonSalesPageQueryProvider>) () -> null,
+                (Supplier<NoonProductInterfaceSmokeProvider>) () -> null,
+                true
+        );
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR108065-NSA")
+                .siteCode("SA")
+                .pullType(NoonPullType.INTERFACE)
+                .dataDomain(NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily official warehouse inventory after 23:00 Asia/Shanghai")
+                .build());
+        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("official-warehouse-inventory:2026-05-24")
+                .targetDateFrom(LocalDate.of(2026, 5, 24))
+                .targetDateTo(LocalDate.of(2026, 5, 24))
+                .build()).orElseThrow();
+        NoonPullTaskRecord staleQueuedSnapshot = task.copy();
+        repository.blockTaskForAuth(task.getId(), 91001L, "auth recovery queued", task.getUpdatedAt());
+        repository.useActiveTaskSnapshot(List.of(staleQueuedSnapshot));
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(0, result.getExecutedTaskCount());
+        assertEquals(1, result.getSkippedTaskCount());
+        assertEquals(NoonPullTaskStatus.BLOCKED_AUTH, repository.selectTask(task.getId()).getStatus());
+        assertEquals(null, inventorySyncService.command);
+    }
+
+    @Test
+    void staleScheduledFbnReportSnapshotShouldHonorPersistedAuthBlock() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-24T15:31:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
+        CapturingOfficialWarehouseFbnExportQueryService fbnExportQueryService =
+                new CapturingOfficialWarehouseFbnExportQueryService();
+        CapturingOfficialWarehouseFbnReceivedImportService fbnReceivedImportService =
+                new CapturingOfficialWarehouseFbnReceivedImportService();
+        service = new NoonPullScheduledExecutionService(
+                new NoonPullScheduler(
+                        foundationService,
+                        clock,
+                        new NoonOrderReportSchedulePolicy(clock),
+                        new NoonOrderBackfillPlanner(),
+                        new NoonSalesRetentionPolicy(clock),
+                        (plan) -> true
+                ),
+                foundationService,
+                new NoonReportPuller(foundationService),
+                new NoonInterfacePuller(foundationService),
+                new NoonProductListPullAdapter(productWriter),
+                new NoonSalesReportAdapter(writer),
+                new NoonOrderReportAdapter((fact) -> {
+                }, clock),
+                null,
+                null,
+                fbnExportQueryService,
+                fbnReceivedImportService,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonSalesPageQueryProvider>) () -> null,
+                (Supplier<NoonProductInterfaceSmokeProvider>) () -> null,
+                true
+        );
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR108065-NSA")
+                .siteCode("SA")
+                .pullType(NoonPullType.REPORT)
+                .dataDomain(NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily FBN received report after 23:30 Asia/Shanghai")
+                .build());
+        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("official-warehouse-fbn-received:2026-05-23..2026-05-23")
+                .targetDateFrom(LocalDate.of(2026, 5, 23))
+                .targetDateTo(LocalDate.of(2026, 5, 23))
+                .build()).orElseThrow();
+        NoonPullTaskRecord staleQueuedSnapshot = task.copy();
+        repository.blockTaskForAuth(task.getId(), 91002L, "auth recovery queued", task.getUpdatedAt());
+        repository.useActiveTaskSnapshot(List.of(staleQueuedSnapshot));
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(0, result.getExecutedTaskCount());
+        assertEquals(1, result.getSkippedTaskCount());
+        assertEquals(NoonPullTaskStatus.BLOCKED_AUTH, repository.selectTask(task.getId()).getStatus());
+        assertEquals(null, fbnExportQueryService.createCommand);
+        assertEquals(null, fbnReceivedImportService.command);
+    }
+
+    @Test
     void shouldLimitSalesReportExecutionsPerTickToAvoidBurstingNoonAtLatestWindow() {
         Clock clock = Clock.fixed(Instant.parse("2026-05-24T12:30:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();
@@ -682,6 +817,144 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals("PRJ245027", productWriter.command.getProjectCode());
         assertEquals("STR245027-NAE", productWriter.command.getReferenceStoreCode());
         assertEquals(1, productWriter.command.getProductSeeds().size());
+    }
+
+    @Test
+    void shouldRestartScheduledProductInterfaceTaskWhenCheckpointPagesWereNotPersisted() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
+        productWriter = new CapturingProductProjectionWriter();
+        List<Integer> requestedPages = new ArrayList<>();
+        service = new NoonPullScheduledExecutionService(
+                new NoonPullScheduler(
+                        foundationService,
+                        clock,
+                        new NoonOrderReportSchedulePolicy(clock),
+                        new NoonOrderBackfillPlanner(),
+                        new NoonSalesRetentionPolicy(clock),
+                        (plan) -> true
+                ),
+                foundationService,
+                new NoonReportPuller(foundationService),
+                new NoonInterfacePuller(foundationService),
+                new NoonProductListPullAdapter(productWriter),
+                new NoonSalesReportAdapter(writer),
+                new NoonOrderReportAdapter((fact) -> {
+                }, clock),
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonSalesPageQueryProvider>) () -> null,
+                (Supplier<NoonProductInterfaceSmokeProvider>) () -> (request, pageNumber) -> {
+                    requestedPages.add(pageNumber);
+                    return NoonInterfacePullPage.builder()
+                            .items(List.of(Map.of(
+                                    "sku_parent", "Z-PRODUCT-RESUMED",
+                                    "sku", "Z-PRODUCT-RESUMED-1"
+                            )))
+                            .pageNumber(pageNumber)
+                            .totalItems(3)
+                            .requestCount(1)
+                            .hasNextPage(false)
+                            .build();
+                },
+                true
+        );
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.INTERFACE)
+                .dataDomain(NoonPullDataDomain.PRODUCT)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily product offer list")
+                .build());
+        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("product-list:2026-05-24..2026-05-24")
+                .targetDateFrom(LocalDate.of(2026, 5, 24))
+                .targetDateTo(LocalDate.of(2026, 5, 24))
+                .build()).orElseThrow();
+        task.setCheckpointCursor("page:2");
+        task.setNextResumePosition("page:3");
+        task.setProcessedItemCount(2);
+        task.setRequestCount(2);
+        repository.updateTask(task);
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        NoonPullTaskRecord resumed = repository.selectTask(task.getId());
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(1, result.getExecutedTaskCount());
+        assertEquals(List.of(1), requestedPages);
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, resumed.getStatus());
+        assertEquals(1, resumed.getProcessedItemCount());
+        assertEquals(1, resumed.getRequestCount());
+    }
+
+    @Test
+    void shouldNotRouteManualProductDetailTaskThroughScheduledProductListProvider() {
+        int[] providerCalls = {0};
+        service = new NoonPullScheduledExecutionService(
+                new NoonPullScheduler(
+                        foundationService,
+                        Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI),
+                        new NoonOrderReportSchedulePolicy(),
+                        new NoonOrderBackfillPlanner(),
+                        new NoonSalesRetentionPolicy(),
+                        (plan) -> true
+                ),
+                foundationService,
+                new NoonReportPuller(foundationService),
+                new NoonInterfacePuller(foundationService),
+                new NoonProductListPullAdapter(productWriter),
+                new NoonSalesReportAdapter(writer),
+                new NoonOrderReportAdapter((fact) -> {
+                }, Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI)),
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonSalesPageQueryProvider>) () -> null,
+                (Supplier<NoonProductInterfaceSmokeProvider>) () -> (request, pageNumber) -> {
+                    providerCalls[0]++;
+                    return NoonInterfacePullPage.builder()
+                            .items(List.of(Map.of("sku_parent", "MUST-NOT-RUN")))
+                            .pageNumber(pageNumber)
+                            .totalItems(1)
+                            .requestCount(1)
+                            .hasNextPage(false)
+                            .build();
+                },
+                true
+        );
+        NoonPullPlanRecord plan = foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(10002L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.INTERFACE)
+                .dataDomain(NoonPullDataDomain.PRODUCT)
+                .triggerMode(NoonPullTriggerMode.MANUAL_REFRESH)
+                .scheduleExpression("manual")
+                .build());
+        NoonPullTaskRecord detailTask = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("detail:PSKU-245027")
+                .build()).orElseThrow();
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        assertEquals(0, result.getExecutedTaskCount());
+        assertEquals(0, providerCalls[0]);
+        assertEquals(NoonPullTaskStatus.QUEUED, repository.selectTask(detailTask.getId()).getStatus());
     }
 
     @Test
