@@ -3,8 +3,8 @@ package com.nuono.next.intransit.autosync;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.nuono.next.infrastructure.mapper.InTransitBatchMapper;
 import com.nuono.next.infrastructure.mapper.InTransitFreightCostMapper;
+import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightBillCommand;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightComponentCommand;
@@ -23,12 +23,12 @@ import org.springframework.util.StringUtils;
 public class FreightBillSyncPreviewService {
     private static final BigDecimal AMOUNT_TOLERANCE = new BigDecimal("0.01");
 
-    private final InTransitBatchMapper batchMapper;
+    private final InTransitGoodsMapper batchMapper;
     private final InTransitFreightCostMapper freightCostMapper;
     private final ObjectMapper objectMapper;
 
     public FreightBillSyncPreviewService(
-            InTransitBatchMapper batchMapper,
+            InTransitGoodsMapper batchMapper,
             InTransitFreightCostMapper freightCostMapper,
             ObjectMapper objectMapper
     ) {

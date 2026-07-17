@@ -5,8 +5,8 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.nuono.next.infrastructure.mapper.InTransitBatchMapper;
 import com.nuono.next.infrastructure.mapper.InTransitFreightCostMapper;
+import com.nuono.next.infrastructure.mapper.InTransitGoodsMapper;
 import com.nuono.next.intransit.InTransitBatchRecords.BatchRow;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightBillCommand;
 import com.nuono.next.intransit.InTransitFreightCostCommands.ActualFreightComponentCommand;
@@ -21,7 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class FreightBillSyncPreviewServiceTest {
-    @Mock private InTransitBatchMapper batchMapper;
+    @Mock private InTransitGoodsMapper batchMapper;
     @Mock private InTransitFreightCostMapper freightCostMapper;
 
     @Test
