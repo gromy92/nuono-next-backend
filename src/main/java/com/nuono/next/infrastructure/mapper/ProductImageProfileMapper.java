@@ -37,7 +37,6 @@ public interface ProductImageProfileMapper {
             @Result(column = "psku_code", property = "pskuCode"),
             @Result(column = "product_identity_key", property = "productIdentityKey"),
             @Result(column = "product_master_id", property = "productMasterId"),
-            @Result(column = "product_variant_id", property = "productVariantId"),
             @Result(column = "product_title", property = "productTitle"),
             @Result(column = "brand", property = "brand"),
             @Result(column = "title_ar", property = "titleAr"),
@@ -53,7 +52,10 @@ public interface ProductImageProfileMapper {
             @Result(column = "deleted", property = "deleted", javaType = Boolean.class)
     })
     @Select({
-            "SELECT p.*",
+            "SELECT p.id, p.owner_user_id, p.store_code, p.logical_store_id, p.psku_code, p.product_identity_key,",
+            "       p.product_master_id, p.product_title, p.brand, p.title_ar, p.title_en, p.spec_summary,",
+            "       p.product_fact_text, p.hero_selling_points_json, p.profile_status, p.created_by, p.updated_by,",
+            "       p.created_at, p.updated_at, p.deleted",
             "FROM product_image_profile p",
             "WHERE p.id = #{id}",
             "  AND p.owner_user_id = #{ownerUserId}",
@@ -82,7 +84,10 @@ public interface ProductImageProfileMapper {
 
     @ResultMap("productImageProfileMap")
     @Select({
-            "SELECT p.*",
+            "SELECT p.id, p.owner_user_id, p.store_code, p.logical_store_id, p.psku_code, p.product_identity_key,",
+            "       p.product_master_id, p.product_title, p.brand, p.title_ar, p.title_en, p.spec_summary,",
+            "       p.product_fact_text, p.hero_selling_points_json, p.profile_status, p.created_by, p.updated_by,",
+            "       p.created_at, p.updated_at, p.deleted",
             "FROM product_image_profile p",
             "LEFT JOIN (",
             "  SELECT profile_id, COUNT(1) AS asset_count",
@@ -121,7 +126,10 @@ public interface ProductImageProfileMapper {
     @ResultMap("productImageProfileMap")
     @Select({
             "<script>",
-            "SELECT p.*",
+            "SELECT p.id, p.owner_user_id, p.store_code, p.logical_store_id, p.psku_code, p.product_identity_key,",
+            "       p.product_master_id, p.product_title, p.brand, p.title_ar, p.title_en, p.spec_summary,",
+            "       p.product_fact_text, p.hero_selling_points_json, p.profile_status, p.created_by, p.updated_by,",
+            "       p.created_at, p.updated_at, p.deleted",
             "FROM product_image_profile p",
             "JOIN (",
             "  SELECT CAST(SUBSTRING_INDEX(GROUP_CONCAT(p2.id ORDER BY COALESCE(ac2.asset_count, 0) DESC, p2.updated_at DESC, p2.id ASC), ',', 1) AS UNSIGNED) AS canonical_id",
@@ -175,7 +183,6 @@ public interface ProductImageProfileMapper {
             @Result(column = "psku_code", property = "pskuCode"),
             @Result(column = "product_identity_key", property = "productIdentityKey"),
             @Result(column = "product_master_id", property = "productMasterId"),
-            @Result(column = "product_variant_id", property = "productVariantId"),
             @Result(column = "product_title", property = "productTitle"),
             @Result(column = "brand", property = "brand"),
             @Result(column = "title_ar", property = "titleAr"),
@@ -191,7 +198,7 @@ public interface ProductImageProfileMapper {
             "<script>",
             "SELECT",
             "  p.id, p.owner_user_id, p.store_code, p.psku_code, p.product_identity_key,",
-            "  p.product_master_id, p.product_variant_id, p.product_title, p.brand, p.title_ar, p.title_en,",
+            "  p.product_master_id, p.product_title, p.brand, p.title_ar, p.title_en,",
             "  p.spec_summary, p.updated_at,",
             "  COALESCE((",
             "    SELECT pia.image_url",
@@ -278,7 +285,7 @@ public interface ProductImageProfileMapper {
 
     @Insert({
             "INSERT INTO product_image_profile (",
-            "  owner_user_id, store_code, logical_store_id, psku_code, product_identity_key, product_master_id, product_variant_id,",
+            "  owner_user_id, store_code, logical_store_id, psku_code, product_identity_key, product_master_id,",
             "  product_title, brand, title_ar, title_en, spec_summary, product_fact_text, hero_selling_points_json, profile_status,",
             "  created_by, updated_by, created_at, updated_at, deleted",
             ") VALUES (",
@@ -292,7 +299,7 @@ public interface ProductImageProfileMapper {
             "    WHERE lss.store_code = #{storeCode}",
             "      AND lss.is_deleted = b'0'",
             "    LIMIT 1",
-            "  )), #{pskuCode}, #{productIdentityKey}, #{productMasterId}, #{productVariantId},",
+            "  )), #{pskuCode}, #{productIdentityKey}, #{productMasterId},",
             "  #{productTitle}, #{brand}, #{titleAr}, #{titleEn}, #{specSummary}, #{productFactText}, #{heroSellingPointsJson}, #{profileStatus},",
             "  #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt}, #{deleted}",
             ")"
@@ -315,7 +322,6 @@ public interface ProductImageProfileMapper {
             "    LIMIT 1",
             "  )),",
             "  product_master_id = #{productMasterId},",
-            "  product_variant_id = #{productVariantId},",
             "  product_title = #{productTitle},",
             "  brand = #{brand},",
             "  title_ar = #{titleAr},",
@@ -334,7 +340,6 @@ public interface ProductImageProfileMapper {
 
     @Results(id = "productImageProductCandidateMap", value = {
             @Result(column = "product_master_id", property = "productMasterId"),
-            @Result(column = "product_variant_id", property = "productVariantId"),
             @Result(column = "psku_code", property = "pskuCode"),
             @Result(column = "product_identity_key", property = "productIdentityKey"),
             @Result(column = "product_title", property = "productTitle"),
@@ -345,7 +350,6 @@ public interface ProductImageProfileMapper {
             "<script>",
             "SELECT",
             "  pm.id AS product_master_id,",
-            "  NULL AS product_variant_id,",
             "  COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), '')) AS psku_code,",
             "  CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''))) AS product_identity_key,",
             "  pm.title_cache AS product_title,",
@@ -392,7 +396,6 @@ public interface ProductImageProfileMapper {
     @Select({
             "SELECT",
             "  pm.id AS product_master_id,",
-            "  NULL AS product_variant_id,",
             "  COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), '')) AS psku_code,",
             "  CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''))) AS product_identity_key,",
             "  pm.title_cache AS product_title,",

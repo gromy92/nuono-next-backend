@@ -125,7 +125,7 @@ class ProductImageProfileServiceTest {
         ProductImageProductCandidateRecord candidate = candidateRecord();
         candidate.setProductTitle("3-piece white flameless LED candles with remote control and timer for home hotel party decor");
         when(mapper.selectAllProductCandidatesForStore(307L, "STR69486-NSA")).thenReturn(List.of(candidate));
-        when(mapper.selectProfileByIdentity(307L, "STR69486-NSA", "SGGRB291", "variant:92001")).thenReturn(null);
+        when(mapper.selectProfileByIdentity(307L, "STR69486-NSA", "SGGRB291", "psku:SGGRB291")).thenReturn(null);
         when(mapper.selectProfilesForStore(307L, "STR69486-NSA", null)).thenReturn(List.of());
         when(mapper.selectProductCandidates(307L, "STR69486-NSA", null)).thenReturn(List.of());
 
@@ -154,12 +154,12 @@ class ProductImageProfileServiceTest {
         existing.setId(7101L);
         existing.setStoreCode("STR69486-NSA");
         existing.setPskuCode("SGGRB291");
-        existing.setProductIdentityKey("variant:92001");
+        existing.setProductIdentityKey("psku:SGGRB291");
         existing.setTitleAr("٣ قطع شموع LED بدون لهب");
         existing.setTitleEn("3Pcs Flameless LED Candles");
         existing.setProductFactText(null);
         when(mapper.selectAllProductCandidatesForStore(307L, "STR69486-NSA")).thenReturn(List.of(candidate));
-        when(mapper.selectProfileByIdentity(307L, "STR69486-NSA", "SGGRB291", "variant:92001")).thenReturn(existing);
+        when(mapper.selectProfileByIdentity(307L, "STR69486-NSA", "SGGRB291", "psku:SGGRB291")).thenReturn(existing);
         when(mapper.selectProfilesForStore(307L, "STR69486-NSA", null)).thenReturn(List.of());
         when(mapper.selectProductCandidates(307L, "STR69486-NSA", null)).thenReturn(List.of());
 
@@ -200,7 +200,7 @@ class ProductImageProfileServiceTest {
         summary.setSuiteCount(2);
         summary.setHasAdoptedSuite(true);
         when(mapper.selectAllProductCandidatesForStore(307L, "STR108065-NAE")).thenReturn(List.of(candidate));
-        when(mapper.selectProfileByIdentity(307L, "STR108065-NAE", "SGGRB291", "variant:92001")).thenReturn(profileRecord());
+        when(mapper.selectProfileByIdentity(307L, "STR108065-NAE", "SGGRB291", "psku:SGGRB291")).thenReturn(profileRecord());
         when(mapper.selectProfileSummariesForStore(307L, "STR108065-NAE", null)).thenReturn(List.of(summary));
         when(mapper.selectProductCandidates(307L, "STR108065-NAE", null)).thenReturn(List.of());
 
@@ -224,13 +224,11 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
-    void saveShouldCreateProfileWithProductIdentityAndSections() {
+    void saveShouldCreateProfileWithPskuIdentityAndSections() {
         ProductImageProfileSaveCommand command = new ProductImageProfileSaveCommand();
         command.setOwnerUserId(307L);
         command.setStoreCode("STR108065-NAE");
         command.setPskuCode("PAPERSAYSB024");
-        command.setProductIdentityKey("variant:53001");
-        command.setProductVariantId(53001L);
         command.setBrand("PAPERSAY");
         command.setTitleAr("أقلام سبورة مغناطيسية");
         command.setTitleEn("Magnetic Whiteboard Markers");
@@ -242,7 +240,7 @@ class ProductImageProfileServiceTest {
         section.setSortOrder(1);
         command.setSections(List.of(section));
 
-        when(mapper.selectProfileByIdentity(307L, "STR108065-NAE", "PAPERSAYSB024", "variant:53001"))
+        when(mapper.selectProfileByIdentity(307L, "STR108065-NAE", "PAPERSAYSB024", "psku:PAPERSAYSB024"))
                 .thenReturn(null);
         org.mockito.Mockito.doAnswer(invocation -> {
             ProductImageProfileRecord record = invocation.getArgument(0);
@@ -258,7 +256,7 @@ class ProductImageProfileServiceTest {
 
         ArgumentCaptor<ProductImageProfileRecord> profileCaptor = ArgumentCaptor.forClass(ProductImageProfileRecord.class);
         verify(mapper).insertProfile(profileCaptor.capture());
-        assertEquals("variant:53001", profileCaptor.getValue().getProductIdentityKey());
+        assertEquals("psku:PAPERSAYSB024", profileCaptor.getValue().getProductIdentityKey());
         verify(mapper).replaceSectionsAsDeleted(7001L);
         verify(mapper).insertSection(any());
         assertEquals(7001L, view.getId());
@@ -845,6 +843,7 @@ class ProductImageProfileServiceTest {
         assertTrue(suite.getDraftPackageJson().contains("局部大图"));
         assertTrue(suite.getDraftPromptText().contains("DETAIL_IMAGE/DETAIL_FRAME"));
         assertTrue(suite.getDraftPackageJson().contains("https://example.test/product-main.jpg"));
+        assertFalse(suite.getDraftPackageJson().contains("productVariantId"));
         assertEquals(1, view.getSuites().size());
     }
 
@@ -951,7 +950,6 @@ class ProductImageProfileServiceTest {
     void extractImageFactsShouldReturnAiSuggestionsWithoutSaving() {
         ProductImageProfileRecord profile = profileRecord();
         profile.setProductMasterId(9001L);
-        profile.setProductVariantId(53001L);
         profile.setProductTitle("PAPERSAY 12 Pack Retractable Black Gel Ink Pens");
         profile.setProductFactText("Existing profile fact text");
         ProductPublicDetailSnapshot snapshot = new ProductPublicDetailSnapshot();
@@ -1002,7 +1000,6 @@ class ProductImageProfileServiceTest {
     void extractImageFactsShouldOmitSiblingSiteRawPublicDetailPayload() {
         ProductImageProfileRecord profile = profileRecord();
         profile.setProductMasterId(9001L);
-        profile.setProductVariantId(53001L);
         profile.setProductTitle("PAPERSAY 12 Pack Retractable Black Gel Ink Pens");
         ProductPublicDetailSnapshot snapshot = new ProductPublicDetailSnapshot();
         snapshot.setStoreCode("STR108065-NSA");
@@ -1044,7 +1041,7 @@ class ProductImageProfileServiceTest {
         record.setOwnerUserId(307L);
         record.setStoreCode("STR108065-NAE");
         record.setPskuCode("PAPERSAYSB024");
-        record.setProductIdentityKey("variant:53001");
+        record.setProductIdentityKey("psku:PAPERSAYSB024");
         record.setBrand("PAPERSAY");
         record.setTitleEn("Magnetic Whiteboard Markers");
         record.setSpecSummary("Standard product specification");
@@ -1055,9 +1052,8 @@ class ProductImageProfileServiceTest {
     private ProductImageProductCandidateRecord candidateRecord() {
         ProductImageProductCandidateRecord record = new ProductImageProductCandidateRecord();
         record.setProductMasterId(9001L);
-        record.setProductVariantId(92001L);
         record.setPskuCode("SGGRB291");
-        record.setProductIdentityKey("variant:92001");
+        record.setProductIdentityKey("psku:SGGRB291");
         record.setBrand("Yalla Pick");
         return record;
     }

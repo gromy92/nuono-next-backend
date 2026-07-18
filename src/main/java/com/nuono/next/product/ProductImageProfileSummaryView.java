@@ -7,7 +7,6 @@ public class ProductImageProfileSummaryView {
     private String pskuCode;
     private String productIdentityKey;
     private Long productMasterId;
-    private Long productVariantId;
     private String productTitle;
     private String brand;
     private String titleAr;
@@ -65,14 +64,6 @@ public class ProductImageProfileSummaryView {
 
     public void setProductMasterId(Long productMasterId) {
         this.productMasterId = productMasterId;
-    }
-
-    public Long getProductVariantId() {
-        return productVariantId;
-    }
-
-    public void setProductVariantId(Long productVariantId) {
-        this.productVariantId = productVariantId;
     }
 
     public String getProductTitle() {
