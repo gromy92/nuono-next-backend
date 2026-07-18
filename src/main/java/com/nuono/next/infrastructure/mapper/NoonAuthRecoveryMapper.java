@@ -693,15 +693,11 @@ public interface NoonAuthRecoveryMapper {
     );
 
     @Select({
-            "SELECT COUNT(1)",
+            "SELECT MAX(send_intent_at)",
             "FROM noon_auth_identity_send_ledger",
-            "WHERE identity_key = #{identityKey}",
-            "  AND send_intent_at >= #{since}"
+            "WHERE identity_key = #{identityKey}"
     })
-    int countIdentitySendsSince(
-            @Param("identityKey") String identityKey,
-            @Param("since") LocalDateTime since
-    );
+    LocalDateTime selectLatestIdentitySendAt(@Param("identityKey") String identityKey);
 
     @Update({
             "UPDATE noon_auth_identity_recovery",

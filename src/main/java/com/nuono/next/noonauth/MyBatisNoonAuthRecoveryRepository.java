@@ -344,8 +344,8 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     }
 
     @Override
-    public int countIdentitySendsSince(String identityKey, LocalDateTime since) {
-        return mapper.countIdentitySendsSince(identityKey, since);
+    public LocalDateTime selectLatestIdentitySendAt(String identityKey) {
+        return mapper.selectLatestIdentitySendAt(identityKey);
     }
 
     @Override

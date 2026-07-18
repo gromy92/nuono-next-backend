@@ -95,7 +95,35 @@ class NoonAuthRecoveryWorkerTest {
                 anyLong(), anyLong(), any(), any(), any(), anyLong(), anyString(),
                 any(), any(), any(), any()
         )).thenReturn(true);
-        when(repository.countIdentitySendsSince(anyString(), any())).thenReturn(0);
+    }
+
+    @Test
+    void identitySendInsideFiveMinuteWindowWaitsUntilExactBoundary() {
+        NoonAuthIdentityRecoveryRecord recovery = recovery(
+                95L,
+                NoonAuthRecoveryStatus.COALESCING,
+                0L,
+                0,
+                0
+        );
+        List<NoonAuthRecoveryItemRecord> items = List.of(
+                item(951L, 95L, 307L, "PRJ307", "STORE307", 9501L, 12L)
+        );
+        when(repository.listDueRecoveries(any(), anyInt())).thenReturn(List.of(recovery));
+        when(repository.listPendingItems(95L, Integer.MAX_VALUE)).thenReturn(items);
+        when(repository.selectProjectAuthState(307L, "PRJ307"))
+                .thenReturn(blockedState(307L, "PRJ307", 95L, 12L));
+        when(repository.selectLatestIdentitySendAt(anyString()))
+                .thenReturn(LocalDateTime.of(2026, 7, 16, 4, 57));
+
+        assertEquals(1, worker.runOnce());
+
+        verify(gateway, never()).attempt(any());
+        verify(repository).transitionRecovery(
+                eq(95L), any(), eq(NoonAuthRecoveryStatus.WAITING_COOLDOWN), anyLong(), anyString(),
+                eq(LocalDateTime.of(2026, 7, 16, 5, 2)), eq("MIN_SEND_INTERVAL"), anyString(),
+                eq(null), eq(true), any()
+        );
     }
 
     @Test
@@ -111,6 +139,8 @@ class NoonAuthRecoveryWorkerTest {
                 invocation.getArgument(0), invocation.getArgument(1), 10L,
                 "PRJ307".equals(invocation.getArgument(1)) ? 3L : 9L
         ));
+        when(repository.selectLatestIdentitySendAt(anyString()))
+                .thenReturn(LocalDateTime.of(2026, 7, 16, 4, 55));
         when(gateway.attempt(any())).thenAnswer(invocation -> {
             NoonAuthRecoveryAttemptCommand command = invocation.getArgument(0);
             command.beforeOtpSendOrThrow();
@@ -821,7 +851,7 @@ class NoonAuthRecoveryWorkerTest {
     }
 
     @Test
-    void configChangeAfterTwoSendsAllowsOneFreshGenerationWithoutErasingIdentityQuota() {
+    void configChangeAllowsOneFreshGenerationWithoutErasingIdentitySendSpacing() {
         NoonAuthIdentityRecoveryRecord reset = recovery(
                 94L,
                 NoonAuthRecoveryStatus.WAITING_COOLDOWN,
@@ -845,8 +875,8 @@ class NoonAuthRecoveryWorkerTest {
         when(repository.listPendingItems(94L, Integer.MAX_VALUE)).thenReturn(items);
         when(repository.selectProjectAuthState(307L, "PRJ307"))
                 .thenReturn(blockedState(307L, "PRJ307", 94L, 12L));
-        when(repository.countIdentitySendsSince(anyString(), any()))
-                .thenReturn(2, 2, 3, 3);
+        when(repository.selectLatestIdentitySendAt(anyString()))
+                .thenReturn(null, LocalDateTime.of(2026, 7, 16, 5, 0));
         when(gateway.attempt(any())).thenAnswer(invocation -> {
             NoonAuthRecoveryAttemptCommand command = invocation.getArgument(0);
             command.beforeOtpSendOrThrow();
@@ -871,12 +901,10 @@ class NoonAuthRecoveryWorkerTest {
     }
 
     @Test
-    void configuredQuotaCannotRaiseSafetyCeilings() {
-        properties.setMaxSendsPerHour(99);
-        properties.setMaxSendsPerDay(99);
+    void configuredSendIntervalCannotDropBelowFiveMinutes() {
+        properties.setMinSendIntervalSeconds(1);
 
-        assertEquals(3, properties.getMaxSendsPerHour());
-        assertEquals(6, properties.getMaxSendsPerDay());
+        assertEquals(300, properties.minSendInterval().toSeconds());
     }
 
     @Test

@@ -159,9 +159,8 @@ nuono:
       coalesce-seconds: ${NUONO_NOON_AUTH_RECOVERY_COALESCE_SECONDS:15}
       lease-seconds: ${NUONO_NOON_AUTH_RECOVERY_LEASE_SECONDS:600}
       min-resend-seconds: ${NUONO_NOON_AUTH_RECOVERY_MIN_RESEND_SECONDS:60}
+      min-send-interval-seconds: ${NUONO_NOON_AUTH_RECOVERY_MIN_SEND_INTERVAL_SECONDS:300}
       max-send-attempts-per-recovery: ${NUONO_NOON_AUTH_RECOVERY_MAX_SEND_ATTEMPTS:2}
-      max-sends-per-hour: ${NUONO_NOON_AUTH_RECOVERY_MAX_SENDS_PER_HOUR:3}
-      max-sends-per-day: ${NUONO_NOON_AUTH_RECOVERY_MAX_SENDS_PER_DAY:6}
       project-allowlist: ${NUONO_NOON_AUTH_RECOVERY_PROJECT_ALLOWLIST:}
       trusted-sender-domains: ${NUONO_NOON_AUTH_RECOVERY_TRUSTED_SENDER_DOMAINS:}
     pull:

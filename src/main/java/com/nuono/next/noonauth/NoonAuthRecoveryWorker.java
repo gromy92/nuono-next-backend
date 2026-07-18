@@ -232,14 +232,17 @@ public class NoonAuthRecoveryWorker {
             return;
         }
         LocalDateTime now = now();
-        int sendsInHour = repository.countIdentitySendsSince(candidate.getIdentityKey(), now.minusHours(1));
-        int sendsInDay = repository.countIdentitySendsSince(candidate.getIdentityKey(), now.minusDays(1));
-        if (sendsInDay >= properties.getMaxSendsPerDay()) {
-            cooldown(fence, "DAILY_SEND_QUOTA", "shared identity daily OTP quota reached", now.plusDays(1));
-            return;
-        }
-        if (sendsInHour >= properties.getMaxSendsPerHour()) {
-            cooldown(fence, "HOURLY_SEND_QUOTA", "shared identity hourly OTP quota reached", now.plusHours(1));
+        LocalDateTime latestSendAt = repository.selectLatestIdentitySendAt(candidate.getIdentityKey());
+        LocalDateTime nextSendAt = latestSendAt == null
+                ? null
+                : latestSendAt.plus(properties.minSendInterval());
+        if (nextSendAt != null && now.isBefore(nextSendAt)) {
+            cooldown(
+                    fence,
+                    "MIN_SEND_INTERVAL",
+                    "shared identity OTP minimum send interval is active",
+                    nextSendAt
+            );
             return;
         }
 

@@ -326,14 +326,14 @@ class NoonAuthRecoveryPersistenceContractTest {
     }
 
     @Test
-    void quotaQueryUsesIndependentAppendOnlySendLedger() {
-        String sql = selectSql("countIdentitySendsSince");
+    void latestSendQueryUsesIndependentAppendOnlySendLedger() {
+        String sql = selectSql("selectLatestIdentitySendAt");
         String ledgerInsert = insertSql("insertIdentitySendLedger");
 
         assertThat(sql)
                 .contains("FROM noon_auth_identity_send_ledger")
                 .contains("identity_key = #{identityKey}")
-                .contains("send_intent_at >= #{since}")
+                .contains("MAX(send_intent_at)")
                 .doesNotContain("first_send_at")
                 .doesNotContain("second_send_at");
         assertThat(ledgerInsert)
