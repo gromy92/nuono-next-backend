@@ -3,6 +3,7 @@ package com.nuono.next.product;
 public class ProductImageSuiteAssetView {
     private Long id;
     private ProductImageSuiteAssetRole imageRole;
+    private Integer roleOrdinal;
     private String imageUrl;
     private Integer sortOrder;
 
@@ -21,6 +22,9 @@ public class ProductImageSuiteAssetView {
     public void setImageRole(ProductImageSuiteAssetRole imageRole) {
         this.imageRole = imageRole;
     }
+
+    public Integer getRoleOrdinal() { return roleOrdinal; }
+    public void setRoleOrdinal(Integer roleOrdinal) { this.roleOrdinal = roleOrdinal; }
 
     public String getImageUrl() {
         return imageUrl;

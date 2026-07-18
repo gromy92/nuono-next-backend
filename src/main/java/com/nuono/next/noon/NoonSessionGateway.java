@@ -610,6 +610,11 @@ public class NoonSessionGateway {
             String projectCode,
             String storeCode
     ) {
+        String probeUrl = defaultIfBlank(
+                catalogCapabilityProbeUrl,
+                DEFAULT_CATALOG_CAPABILITY_PROBE_URL
+        );
+        state.handoffAuthCookiesTo(probeUrl);
         ObjectNode body = objectMapper.createObjectNode();
         body.put("page", 1);
         body.put("per_page", 1);
@@ -618,7 +623,7 @@ public class NoonSessionGateway {
         return state.postJson(
                 projectCode,
                 storeCode,
-                defaultIfBlank(catalogCapabilityProbeUrl, DEFAULT_CATALOG_CAPABILITY_PROBE_URL),
+                probeUrl,
                 body,
                 true,
                 catalogLocaleHeaders(storeCode)
@@ -3045,8 +3050,31 @@ public class NoonSessionGateway {
         }
 
         private void importCookieHeader(String cookieHeader) {
+            for (Map.Entry<String, String> cookie : parseCookieHeader(cookieHeader).entrySet()) {
+                addCookie(cookie.getKey(), cookie.getValue());
+            }
+        }
+
+        private void handoffAuthCookiesTo(String targetUrl) {
+            URI targetUri = URI.create(targetUrl);
+            String targetHost = targetUri.getHost();
+            if (!StringUtils.hasText(targetHost)) {
+                throw new IllegalArgumentException("Noon Catalog URL 缺少主机名。");
+            }
+            for (Map.Entry<String, String> cookie : parseCookieHeader(exportAuthCookieHeader()).entrySet()) {
+                HttpCookie targetCookie = new HttpCookie(cookie.getKey(), cookie.getValue());
+                targetCookie.setDomain(targetHost);
+                targetCookie.setPath("/");
+                targetCookie.setVersion(0);
+                targetCookie.setSecure("https".equalsIgnoreCase(targetUri.getScheme()));
+                cookieManager.getCookieStore().add(targetUri, targetCookie);
+            }
+        }
+
+        private Map<String, String> parseCookieHeader(String cookieHeader) {
+            Map<String, String> cookies = new LinkedHashMap<>();
             if (!StringUtils.hasText(cookieHeader)) {
-                return;
+                return cookies;
             }
             String[] segments = cookieHeader.split(";");
             for (String rawSegment : segments) {
@@ -3060,8 +3088,9 @@ public class NoonSessionGateway {
                 if (!StringUtils.hasText(name) || !StringUtils.hasText(value)) {
                     continue;
                 }
-                addCookie(name, value);
+                cookies.put(name, value);
             }
+            return cookies;
         }
 
         private String exportAuthCookieHeader() {

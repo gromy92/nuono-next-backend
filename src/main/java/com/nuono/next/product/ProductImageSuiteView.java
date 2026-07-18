@@ -5,6 +5,8 @@ import java.util.List;
 
 public class ProductImageSuiteView {
     private Long id;
+    private Long parentSuiteId;
+    private Integer revisionNo;
     private String suiteName;
     private Long skinId;
     private String skinName;
@@ -12,6 +14,11 @@ public class ProductImageSuiteView {
     private String draftPackageJson;
     private String draftPromptText;
     private ProductImageSuiteStatus suiteStatus;
+    private String reviewComment;
+    private String failureStage;
+    private String failureReason;
+    private String reviewedAt;
+    private String publishedAt;
     private String adoptedAt;
     private String updatedAt;
     private List<ProductImageSuiteAssetView> assets = new ArrayList<>();
@@ -23,6 +30,11 @@ public class ProductImageSuiteView {
     public void setId(Long id) {
         this.id = id;
     }
+
+    public Long getParentSuiteId() { return parentSuiteId; }
+    public void setParentSuiteId(Long parentSuiteId) { this.parentSuiteId = parentSuiteId; }
+    public Integer getRevisionNo() { return revisionNo; }
+    public void setRevisionNo(Integer revisionNo) { this.revisionNo = revisionNo; }
 
     public String getSuiteName() {
         return suiteName;
@@ -79,6 +91,17 @@ public class ProductImageSuiteView {
     public void setSuiteStatus(ProductImageSuiteStatus suiteStatus) {
         this.suiteStatus = suiteStatus;
     }
+
+    public String getReviewComment() { return reviewComment; }
+    public void setReviewComment(String reviewComment) { this.reviewComment = reviewComment; }
+    public String getFailureStage() { return failureStage; }
+    public void setFailureStage(String failureStage) { this.failureStage = failureStage; }
+    public String getFailureReason() { return failureReason; }
+    public void setFailureReason(String failureReason) { this.failureReason = failureReason; }
+    public String getReviewedAt() { return reviewedAt; }
+    public void setReviewedAt(String reviewedAt) { this.reviewedAt = reviewedAt; }
+    public String getPublishedAt() { return publishedAt; }
+    public void setPublishedAt(String publishedAt) { this.publishedAt = publishedAt; }
 
     public String getAdoptedAt() {
         return adoptedAt;

@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 public class ProductImageSuiteRecord {
     private Long id;
     private Long profileId;
+    private Long parentSuiteId;
+    private Integer revisionNo;
     private String suiteName;
     private Long skinId;
     private String skinName;
@@ -12,6 +14,13 @@ public class ProductImageSuiteRecord {
     private String draftPackageJson;
     private String draftPromptText;
     private ProductImageSuiteStatus suiteStatus;
+    private String reviewComment;
+    private Long reviewedBy;
+    private LocalDateTime reviewedAt;
+    private String failureStage;
+    private String failureReason;
+    private LocalDateTime publishedAt;
+    private String publishManifestJson;
     private LocalDateTime adoptedAt;
     private Long createdBy;
     private Long updatedBy;
@@ -34,6 +43,11 @@ public class ProductImageSuiteRecord {
     public void setProfileId(Long profileId) {
         this.profileId = profileId;
     }
+
+    public Long getParentSuiteId() { return parentSuiteId; }
+    public void setParentSuiteId(Long parentSuiteId) { this.parentSuiteId = parentSuiteId; }
+    public Integer getRevisionNo() { return revisionNo; }
+    public void setRevisionNo(Integer revisionNo) { this.revisionNo = revisionNo; }
 
     public String getSuiteName() {
         return suiteName;
@@ -90,6 +104,21 @@ public class ProductImageSuiteRecord {
     public void setSuiteStatus(ProductImageSuiteStatus suiteStatus) {
         this.suiteStatus = suiteStatus;
     }
+
+    public String getReviewComment() { return reviewComment; }
+    public void setReviewComment(String reviewComment) { this.reviewComment = reviewComment; }
+    public Long getReviewedBy() { return reviewedBy; }
+    public void setReviewedBy(Long reviewedBy) { this.reviewedBy = reviewedBy; }
+    public LocalDateTime getReviewedAt() { return reviewedAt; }
+    public void setReviewedAt(LocalDateTime reviewedAt) { this.reviewedAt = reviewedAt; }
+    public String getFailureStage() { return failureStage; }
+    public void setFailureStage(String failureStage) { this.failureStage = failureStage; }
+    public String getFailureReason() { return failureReason; }
+    public void setFailureReason(String failureReason) { this.failureReason = failureReason; }
+    public LocalDateTime getPublishedAt() { return publishedAt; }
+    public void setPublishedAt(LocalDateTime publishedAt) { this.publishedAt = publishedAt; }
+    public String getPublishManifestJson() { return publishManifestJson; }
+    public void setPublishManifestJson(String publishManifestJson) { this.publishManifestJson = publishManifestJson; }
 
     public LocalDateTime getAdoptedAt() {
         return adoptedAt;
