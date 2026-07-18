@@ -3,6 +3,7 @@ package com.nuono.next.permission.access;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.MethodParameter;
+import org.springframework.util.StringUtils;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
@@ -35,13 +36,27 @@ public class RequiredBusinessAccessHandlerMethodValidator implements SmartInitia
         for (MethodParameter parameter : handlerMethod.getMethodParameters()) {
             boolean required = parameter.hasParameterAnnotation(RequiredBusinessAccess.class);
             boolean businessContext = BusinessAccessContext.class.equals(parameter.getParameterType());
-            if (required && !businessContext) {
-                throw invalid(handlerMethod, parameter, "@RequiredBusinessAccess 只能用于 BusinessAccessContext");
+            boolean storeAccess = BusinessStoreAccess.class.equals(parameter.getParameterType());
+            boolean businessAccessParameter = businessContext || storeAccess;
+            if (required && !businessAccessParameter) {
+                throw invalid(
+                        handlerMethod,
+                        parameter,
+                        "@RequiredBusinessAccess 只能用于 BusinessAccessContext 或 BusinessStoreAccess"
+                );
             }
             if (businessContext && !required) {
                 throw invalid(handlerMethod, parameter, "BusinessAccessContext 必须声明 @RequiredBusinessAccess");
             }
-            if (businessContext) {
+            if (storeAccess && !required) {
+                throw invalid(handlerMethod, parameter, "BusinessStoreAccess 必须声明 @RequiredBusinessAccess");
+            }
+            if (storeAccess && !StringUtils.hasText(
+                    parameter.getParameterAnnotation(RequiredBusinessAccess.class).storeQueryParameter()
+            )) {
+                throw invalid(handlerMethod, parameter, "BusinessStoreAccess 必须声明非空 storeQueryParameter");
+            }
+            if (businessAccessParameter) {
                 requireBusinessAccessResolverFirst(handlerMethod, parameter);
             }
         }

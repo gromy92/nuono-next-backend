@@ -98,6 +98,26 @@ public class BusinessAccessResolver {
         }
     }
 
+    public BusinessStoreAccess requireStoreAccessScope(
+            HttpServletRequest request,
+            BusinessCapability capability,
+            String storeCode
+    ) {
+        BusinessAccessContext context = requireStoreAccess(request, capability, storeCode);
+        String normalizedStoreCode = BusinessAccessContext.normalizeStoreCode(storeCode);
+        Long ownerUserId = context.resolveOwnerUserIdForStore(normalizedStoreCode);
+        if (ownerUserId == null) {
+            ownerUserId = context.getBusinessOwnerUserId();
+        }
+        if (ownerUserId == null || ownerUserId <= 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "BUSINESS_STORE_OWNER_SCOPE_REQUIRED"
+            );
+        }
+        return new BusinessStoreAccess(ownerUserId, normalizedStoreCode);
+    }
+
     public BusinessAccessContext requireAnyStoreAccess(
             HttpServletRequest request,
             String storeCode,

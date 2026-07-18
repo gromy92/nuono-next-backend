@@ -13,6 +13,6 @@ public @interface RequiredBusinessAccess {
 
     BusinessCapability capability();
 
-    /** Optional query/form parameter whose value must pass the existing store guard. */
+    /** Query/form parameter guarded for store access; required when the target type is BusinessStoreAccess. */
     String storeQueryParameter() default "";
 }
