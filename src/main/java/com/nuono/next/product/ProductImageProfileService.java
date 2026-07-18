@@ -175,7 +175,6 @@ public class ProductImageProfileService {
         record.setPskuCode(trimToNull(candidate.getPskuCode()));
         record.setProductIdentityKey(trimToNull(candidate.getProductIdentityKey()));
         record.setProductMasterId(candidate.getProductMasterId());
-        record.setProductVariantId(candidate.getProductVariantId());
         record.setProductTitle(trimToNull(candidate.getProductTitle()));
         record.setBrand(trimToNull(candidate.getBrand()));
         record.setTitleEn(trimToNull(candidate.getProductTitle()));
@@ -208,7 +207,6 @@ public class ProductImageProfileService {
         record.setPskuCode(existing.getPskuCode());
         record.setProductIdentityKey(existing.getProductIdentityKey());
         record.setProductMasterId(candidate.getProductMasterId());
-        record.setProductVariantId(candidate.getProductVariantId());
         record.setProductTitle(candidateTitle == null ? trimToNull(existing.getProductTitle()) : candidateTitle);
         record.setBrand(candidateBrand == null ? trimToNull(existing.getBrand()) : candidateBrand);
         record.setTitleAr(trimToNull(existing.getTitleAr()));
@@ -231,7 +229,6 @@ public class ProductImageProfileService {
 
     private boolean shouldRefreshProfile(ProductImageProfileRecord existing, ProductImageProfileRecord refreshed) {
         return !Objects.equals(existing.getProductMasterId(), refreshed.getProductMasterId())
-                || !Objects.equals(existing.getProductVariantId(), refreshed.getProductVariantId())
                 || !Objects.equals(trimToNull(existing.getProductTitle()), refreshed.getProductTitle())
                 || !Objects.equals(trimToNull(existing.getBrand()), refreshed.getBrand())
                 || !Objects.equals(trimToNull(existing.getTitleEn()), refreshed.getTitleEn())
@@ -303,19 +300,6 @@ public class ProductImageProfileService {
         if (pskuCode != null) {
             ProductPublicDetailSnapshot snapshot =
                     productPublicDetailMapper.selectLatestUsableSnapshotBySkuParent(ownerUserId, storeCode, pskuCode);
-            if (snapshot != null) {
-                return snapshot;
-            }
-        }
-        String siteCode = siteCodeFromStoreCode(storeCode);
-        if (profile.getProductMasterId() != null && profile.getProductVariantId() != null && siteCode != null) {
-            ProductPublicDetailSnapshot snapshot = productPublicDetailMapper.selectLatestSnapshot(
-                    ownerUserId,
-                    storeCode,
-                    siteCode,
-                    profile.getProductMasterId(),
-                    profile.getProductVariantId()
-            );
             if (snapshot != null) {
                 return snapshot;
             }
@@ -595,7 +579,7 @@ public class ProductImageProfileService {
         Long ownerUserId = requireOwnerUserId(command.getOwnerUserId());
         String storeCode = requireStoreCode(command.getStoreCode());
         String pskuCode = requirePskuCode(command.getPskuCode());
-        String productIdentityKey = requireProductIdentityKey(command.getProductIdentityKey(), command.getProductVariantId(), pskuCode);
+        String productIdentityKey = requireProductIdentityKey(command.getProductIdentityKey(), pskuCode);
         Long operatorUserId = command.getOperatorUserId();
 
         ProductImageProfileRecord existing = command.getId() == null
@@ -608,7 +592,6 @@ public class ProductImageProfileService {
         record.setPskuCode(pskuCode);
         record.setProductIdentityKey(productIdentityKey);
         record.setProductMasterId(command.getProductMasterId());
-        record.setProductVariantId(command.getProductVariantId());
         record.setProductTitle(trimToNull(command.getProductTitle()));
         record.setBrand(trimToNull(command.getBrand()));
         record.setTitleAr(trimToNull(command.getTitleAr()));
@@ -1489,7 +1472,6 @@ public class ProductImageProfileService {
         view.setPskuCode(record.getPskuCode());
         view.setProductIdentityKey(record.getProductIdentityKey());
         view.setProductMasterId(record.getProductMasterId());
-        view.setProductVariantId(record.getProductVariantId());
         view.setProductTitle(record.getProductTitle());
         view.setBrand(record.getBrand());
         view.setTitleAr(record.getTitleAr());
@@ -1517,7 +1499,6 @@ public class ProductImageProfileService {
         view.setPskuCode(record.getPskuCode());
         view.setProductIdentityKey(record.getProductIdentityKey());
         view.setProductMasterId(record.getProductMasterId());
-        view.setProductVariantId(record.getProductVariantId());
         view.setProductTitle(record.getProductTitle());
         view.setBrand(record.getBrand());
         view.setTitleAr(record.getTitleAr());
@@ -1542,7 +1523,6 @@ public class ProductImageProfileService {
         view.setPskuCode(candidate.getPskuCode());
         view.setProductIdentityKey(candidate.getProductIdentityKey());
         view.setProductMasterId(candidate.getProductMasterId());
-        view.setProductVariantId(candidate.getProductVariantId());
         view.setProductTitle(candidate.getProductTitle());
         view.setBrand(candidate.getBrand());
         view.setAssets(baseAssets(candidate.getProductMasterId(), candidate.getCoverImageUrl()));
@@ -1560,7 +1540,6 @@ public class ProductImageProfileService {
         view.setPskuCode(candidate.getPskuCode());
         view.setProductIdentityKey(candidate.getProductIdentityKey());
         view.setProductMasterId(candidate.getProductMasterId());
-        view.setProductVariantId(candidate.getProductVariantId());
         view.setProductTitle(candidate.getProductTitle());
         view.setBrand(candidate.getBrand());
         view.setCoverImageUrl(candidate.getCoverImageUrl());
@@ -2102,7 +2081,6 @@ public class ProductImageProfileService {
         payload.put("pskuCode", profile.getPskuCode());
         payload.put("productIdentityKey", profile.getProductIdentityKey());
         payload.put("productMasterId", profile.getProductMasterId());
-        payload.put("productVariantId", profile.getProductVariantId());
         payload.put("productTitle", profile.getProductTitle());
         payload.put("brand", profile.getBrand());
         payload.put("titleAr", profile.getTitleAr());
@@ -2277,13 +2255,10 @@ public class ProductImageProfileService {
         return value;
     }
 
-    private String requireProductIdentityKey(String raw, Long variantId, String pskuCode) {
+    private String requireProductIdentityKey(String raw, String pskuCode) {
         String value = trimToNull(raw);
         if (value != null) {
             return value;
-        }
-        if (variantId != null) {
-            return "variant:" + variantId;
         }
         return "psku:" + pskuCode;
     }

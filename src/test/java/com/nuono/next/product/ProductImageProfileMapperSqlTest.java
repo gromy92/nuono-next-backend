@@ -32,7 +32,9 @@ class ProductImageProfileMapperSqlTest {
                 .contains("FROM logical_store_site lss")
                 .contains("ls.owner_user_id = #{ownerUserId}")
                 .contains("COALESCE(ac.asset_count, 0) DESC")
-                .contains("p.updated_at DESC");
+                .contains("p.updated_at DESC")
+                .doesNotContain("p.*")
+                .doesNotContain("product_variant_id");
     }
 
     @Test
@@ -76,7 +78,8 @@ class ProductImageProfileMapperSqlTest {
                 .contains("GROUP BY p2.owner_user_id, p2.psku_code, p2.product_identity_key")
                 .contains("product_image_profile_asset")
                 .contains("product_image_suite")
-                .doesNotContain("product_image_section");
+                .doesNotContain("product_image_section")
+                .doesNotContain("product_variant_id");
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
     }
@@ -102,6 +105,7 @@ class ProductImageProfileMapperSqlTest {
                 .contains("HAVING psku_code IS NOT NULL")
                 .doesNotContain("pso.site_id = request_lss.id")
                 .doesNotContain("pso.site_code = request_lss.site")
+                .doesNotContain("product_variant_id")
                 .doesNotContain("NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent");
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
@@ -120,6 +124,7 @@ class ProductImageProfileMapperSqlTest {
                 .contains("COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), '')) AS psku_code")
                 .contains("CONCAT('psku:', COALESCE(NULLIF(pm.partner_sku, ''), NULLIF(MAX(pso.partner_sku), ''))) AS product_identity_key")
                 .contains("HAVING psku_code IS NOT NULL")
+                .doesNotContain("product_variant_id")
                 .doesNotContain("NULLIF(pm.current_z_code, ''), NULLIF(MAX(pso.psku_code), ''), pm.sku_parent");
     }
 
@@ -136,7 +141,9 @@ class ProductImageProfileMapperSqlTest {
                 .contains("logical_store_id")
                 .contains("COALESCE(#{logicalStoreId},")
                 .contains("lss.store_code = #{storeCode}")
-                .contains("ls.owner_user_id = #{ownerUserId}");
+                .contains("ls.owner_user_id = #{ownerUserId}")
+                .doesNotContain("product_variant_id")
+                .doesNotContain("productVariantId");
     }
 
     @Test
@@ -152,6 +159,8 @@ class ProductImageProfileMapperSqlTest {
                 .contains("logical_store_id = COALESCE")
                 .contains("WHERE id = #{id}")
                 .contains("AND owner_user_id = #{ownerUserId}")
+                .doesNotContain("product_variant_id")
+                .doesNotContain("productVariantId")
                 .doesNotContain("AND store_code = #{storeCode}");
     }
 
