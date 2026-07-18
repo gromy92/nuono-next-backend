@@ -1837,7 +1837,7 @@ public class ProductImageProfileService {
                 continue;
             }
             List<OperationsSkinComponentRecord> components = completedSkinComponents(
-                    operationsSkinMapper.selectComponents(skin.getId(), ownerUserId, storeCode)
+                    operationsSkinMapper.selectComponents(skin.getId(), ownerUserId)
             );
             if (hasRequiredHeroComponents(completedHeroComponents(components))) {
                 candidates.add(new ActiveHeroSkin(skin, components, effectiveSkinUpdatedAt(skin, components)));
@@ -1862,7 +1862,7 @@ public class ProductImageProfileService {
             throw new IllegalArgumentException("所选皮肤不存在或未启用。");
         }
         List<OperationsSkinComponentRecord> components = completedSkinComponents(
-                operationsSkinMapper.selectComponents(skin.getId(), ownerUserId, storeCode)
+                operationsSkinMapper.selectComponents(skin.getId(), ownerUserId)
         );
         if (!hasRequiredHeroComponents(completedHeroComponents(components))) {
             throw new IllegalArgumentException("所选皮肤资料不完整，请先补全皮肤组件。");

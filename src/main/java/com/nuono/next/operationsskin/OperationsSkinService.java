@@ -229,8 +229,7 @@ public class OperationsSkinService {
         );
         List<OperationsSkinComponentRecord> components = operationsSkinMapper.selectComponents(
                 record.getId(),
-                record.getOwnerUserId(),
-                normalizeStoreCode(record.getStoreCode())
+                record.getOwnerUserId()
         );
         OperationsSkinView view = new OperationsSkinView();
         view.setId(record.getId());

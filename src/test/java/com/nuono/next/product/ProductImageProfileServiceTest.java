@@ -778,7 +778,7 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
-    void createAiSuiteDraftShouldPersistDraftPackageWithCurrentStoreSkin() {
+    void createAiSuiteDraftShouldUseSelectedLogicalStoreSkinWithoutEntrySiteScope() {
         ProductImageProfileRecord profile = profileRecord();
         profile.setProductMasterId(9001L);
         profile.setTitleAr("حامل بطاقة تعريف");
@@ -793,6 +793,7 @@ class ProductImageProfileServiceTest {
         ProductImageSectionRecord sizeSection = sectionRecord(ProductImageSectionType.SIZE, "4.3 x 2.8 in");
         ProductImageSectionRecord featureSection = sectionRecord(ProductImageSectionType.CORE_FEATURE, "Retractable reel");
         OperationsSkinRecord skin = skinRecord();
+        skin.setStoreCode("STR108065-NSA");
         OperationsSkinComponentRecord detailFrame = skinComponent(
                 "DETAIL_IMAGE",
                 "DETAIL_FRAME",
@@ -807,8 +808,8 @@ class ProductImageProfileServiceTest {
         );
 
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
-        when(operationsSkinMapper.selectSkins(307L, "STR108065-NAE", null, "ACTIVE")).thenReturn(List.of(skin));
-        when(operationsSkinMapper.selectComponents(3001L, 307L, "STR108065-NAE")).thenReturn(components);
+        when(operationsSkinMapper.selectSkinById(3001L, 307L, "STR108065-NAE")).thenReturn(skin);
+        when(operationsSkinMapper.selectComponents(3001L, 307L)).thenReturn(components);
         when(mapper.selectCurrentProductImages(9001L)).thenReturn(List.of(currentImage));
         when(mapper.selectAssets(7001L)).thenReturn(List.of());
         when(mapper.selectSections(7001L)).thenReturn(List.of(sizeSection, featureSection));
@@ -820,7 +821,13 @@ class ProductImageProfileServiceTest {
         when(mapper.selectSuites(7001L)).thenReturn(List.of(suiteRecord(9901L, ProductImageSuiteStatus.DRAFT)));
         when(mapper.selectSuiteAssets(9901L)).thenReturn(List.of());
 
-        ProductImageProfileDetailView view = service.createAiSuiteDraft(307L, "STR108065-NAE", 7001L, 10003L);
+        ProductImageProfileDetailView view = service.createAiSuiteDraft(
+                307L,
+                "STR108065-NAE",
+                7001L,
+                3001L,
+                10003L
+        );
 
         ArgumentCaptor<ProductImageSuiteRecord> suiteCaptor = ArgumentCaptor.forClass(ProductImageSuiteRecord.class);
         verify(mapper).insertSuite(suiteCaptor.capture());
@@ -845,6 +852,7 @@ class ProductImageProfileServiceTest {
         assertTrue(suite.getDraftPackageJson().contains("https://example.test/product-main.jpg"));
         assertFalse(suite.getDraftPackageJson().contains("productVariantId"));
         assertEquals(1, view.getSuites().size());
+        verify(operationsSkinMapper).selectComponents(3001L, 307L);
     }
 
     @Test
@@ -879,8 +887,8 @@ class ProductImageProfileServiceTest {
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
         when(operationsSkinMapper.selectSkins(307L, "STR108065-NAE", null, "ACTIVE"))
                 .thenReturn(List.of(olderSkin, latestSkin));
-        when(operationsSkinMapper.selectComponents(3001L, 307L, "STR108065-NAE")).thenReturn(olderComponents);
-        when(operationsSkinMapper.selectComponents(3002L, 307L, "STR108065-NAE")).thenReturn(latestComponents);
+        when(operationsSkinMapper.selectComponents(3001L, 307L)).thenReturn(olderComponents);
+        when(operationsSkinMapper.selectComponents(3002L, 307L)).thenReturn(latestComponents);
         when(mapper.selectCurrentProductImages(9001L)).thenReturn(List.of(currentImage));
         when(mapper.selectAssets(7001L)).thenReturn(List.of());
         when(mapper.selectSections(7001L)).thenReturn(List.of());
@@ -924,9 +932,9 @@ class ProductImageProfileServiceTest {
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
         when(operationsSkinMapper.selectSkins(307L, "STR108065-NAE", null, "ACTIVE"))
                 .thenReturn(List.of(incompleteLatestSkin, completeSkin));
-        when(operationsSkinMapper.selectComponents(3002L, 307L, "STR108065-NAE"))
+        when(operationsSkinMapper.selectComponents(3002L, 307L))
                 .thenReturn(incompleteComponents);
-        when(operationsSkinMapper.selectComponents(3001L, 307L, "STR108065-NAE"))
+        when(operationsSkinMapper.selectComponents(3001L, 307L))
                 .thenReturn(heroComponents(3001L, LocalDateTime.of(2026, 7, 15, 13, 25)));
         when(mapper.selectCurrentProductImages(9001L)).thenReturn(List.of(currentImage));
         when(mapper.selectAssets(7001L)).thenReturn(List.of());
