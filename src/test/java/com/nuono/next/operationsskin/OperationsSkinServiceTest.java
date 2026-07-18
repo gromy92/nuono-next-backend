@@ -679,7 +679,7 @@ class OperationsSkinServiceTest {
         private OperationsSkinRecord copyWithAssetCount(OperationsSkinRecord source) {
             OperationsSkinRecord copy = copy(source);
             copy.setAssetCount(selectAssets(source.getId(), source.getOwnerUserId(), source.getStoreCode()).size());
-            copy.setHeroComponentCount((int) selectComponents(source.getId(), source.getOwnerUserId(), source.getStoreCode()).stream()
+            copy.setHeroComponentCount((int) selectComponents(source.getId(), source.getOwnerUserId()).stream()
                     .filter(component -> "HERO_MAIN".equals(component.getTemplateRole()))
                     .filter(component -> component.getImageUrl() != null && !component.getImageUrl().isBlank())
                     .count());
@@ -745,8 +745,9 @@ class OperationsSkinServiceTest {
         }
 
         @Override
-        public List<OperationsSkinComponentRecord> selectComponents(Long skinId, Long ownerUserId, String storeCode) {
-            if (!matchesScope(skins.get(skinId), ownerUserId, storeCode)) {
+        public List<OperationsSkinComponentRecord> selectComponents(Long skinId, Long ownerUserId) {
+            OperationsSkinRecord skin = skins.get(skinId);
+            if (skin == null || !Objects.equals(ownerUserId, skin.getOwnerUserId())) {
                 return List.of();
             }
             return componentsBySkinId.getOrDefault(skinId, List.of()).stream()

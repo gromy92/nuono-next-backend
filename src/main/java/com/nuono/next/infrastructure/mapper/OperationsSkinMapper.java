@@ -451,7 +451,6 @@ public interface OperationsSkinMapper {
             "FROM operations_image_skin_component c",
             "JOIN operations_image_skin s ON s.id = c.skin_id",
             "  AND s.owner_user_id = #{ownerUserId}",
-            "  AND s.store_code = #{storeCode}",
             "  AND s.deleted = b'0'",
             "WHERE c.skin_id = #{skinId}",
             "  AND c.deleted = b'0'",
@@ -459,7 +458,6 @@ public interface OperationsSkinMapper {
     })
     List<OperationsSkinComponentRecord> selectComponents(
             @Param("skinId") Long skinId,
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode
+            @Param("ownerUserId") Long ownerUserId
     );
 }

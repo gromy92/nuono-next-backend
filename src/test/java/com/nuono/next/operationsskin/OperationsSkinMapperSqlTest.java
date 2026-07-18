@@ -53,6 +53,19 @@ class OperationsSkinMapperSqlTest {
     }
 
     @Test
+    void componentReadDoesNotReapplyEntrySiteAfterSkinAccessWasResolved() throws Exception {
+        String sql = selectSql(
+                "selectComponents",
+                Long.class,
+                Long.class
+        );
+
+        assertThat(sql)
+                .contains("s.owner_user_id = #{ownerUserId}")
+                .doesNotContain("s.store_code = #{storeCode}");
+    }
+
+    @Test
     void touchSkinRefreshesParentEffectiveUpdateTimeWithinPersistedScope() throws Exception {
         Method method = OperationsSkinMapper.class.getMethod(
                 "touchSkin",
