@@ -335,6 +335,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             assertTrue(projectResult.isRecovered());
             assertTrue(projectResult.getCookie().contains("sid=recovered"));
             assertEquals(1, server.catalogCount());
+            assertTrue(server.lastCatalogCookieHeader().contains("sid=recovered"));
         }
     }
 
@@ -827,6 +828,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         private final AtomicInteger catalogCount = new AtomicInteger();
         private volatile int catalogStatus = 200;
         private volatile boolean catalogSessionCookieRequired;
+        private volatile String lastCatalogCookieHeader = "";
         private volatile String lastSessionProjectCode;
 
         private RecoveryServer(int validateStatus, String validateBody, String whoamiBody) throws IOException {
@@ -935,6 +937,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             if ("/catalog".equals(path)) {
                 catalogCount.incrementAndGet();
                 String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+                lastCatalogCookieHeader = cookieHeader == null ? "" : cookieHeader;
                 if (catalogStatus == 307
                         || (catalogSessionCookieRequired
                         && (cookieHeader == null || !cookieHeader.contains("sid=recovered")))) {
@@ -977,6 +980,10 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
 
         private int catalogCount() {
             return catalogCount.get();
+        }
+
+        private String lastCatalogCookieHeader() {
+            return lastCatalogCookieHeader;
         }
 
         private void redirectCatalogToLogin() {
