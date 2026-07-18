@@ -3,14 +3,13 @@ package com.nuono.next.product;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductLiteMapper;
-import com.nuono.next.permission.access.BusinessAccessContext;
-import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.permission.access.BusinessStoreAccess;
+import com.nuono.next.permission.access.BusinessStoreAccessTestFixture;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,12 +37,11 @@ class ProductLiteQueryServiceTest {
         when(mapper.search(501L, "STR108065-NSA", "SA", "Laundry Basket", 50))
                 .thenReturn(List.of(row));
         ProductLiteQuery query = new ProductLiteQuery();
-        query.setStoreCode(" str108065-nsa ");
         query.setSiteCode(" sa ");
         query.setTitleKeyword(" Laundry Basket ");
         query.setLimit(500);
 
-        List<ProductLiteView> views = service.search(operatorContext(), query);
+        List<ProductLiteView> views = service.search(storeAccess(), query);
 
         verify(mapper).search(501L, "STR108065-NSA", "SA", "Laundry Basket", 50);
         assertEquals(1, views.size());
@@ -64,39 +62,23 @@ class ProductLiteQueryServiceTest {
     @Test
     void searchDefaultsInvalidLimitToTwenty() {
         ProductLiteQuery query = new ProductLiteQuery();
-        query.setStoreCode("STR108065-NSA");
         query.setLimit(0);
 
-        service.search(operatorContext(), query);
+        service.search(storeAccess(), query);
 
         verify(mapper).search(501L, "STR108065-NSA", null, null, 20);
     }
 
     @Test
-    void searchRejectsMissingStoreCode() {
-        ProductLiteQuery query = new ProductLiteQuery();
-
+    void searchRejectsMissingTypedScopeBeforeMapperCall() {
         ResponseStatusException error = assertThrows(
                 ResponseStatusException.class,
-                () -> service.search(operatorContext(), query)
-        );
-
-        assertEquals(HttpStatus.BAD_REQUEST, error.getStatus());
-        assertEquals("PRODUCT_LITE_STORE_REQUIRED", error.getReason());
-    }
-
-    @Test
-    void searchRejectsStoreOutsideSessionScope() {
-        ProductLiteQuery query = new ProductLiteQuery();
-        query.setStoreCode("STR-OTHER");
-
-        ResponseStatusException error = assertThrows(
-                ResponseStatusException.class,
-                () -> service.search(operatorContext(), query)
+                () -> service.search(null, new ProductLiteQuery())
         );
 
         assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
         assertEquals("PRODUCT_LITE_STORE_SCOPE_REQUIRED", error.getReason());
+        verifyNoInteractions(mapper);
     }
 
     private static void assertNoForbiddenProductLiteGetters() throws Exception {
@@ -123,16 +105,7 @@ class ProductLiteQueryServiceTest {
         return record;
     }
 
-    private static BusinessAccessContext operatorContext() {
-        return BusinessAccessContext.builder()
-                .sessionUserId(601L)
-                .businessOwnerUserId(501L)
-                .accountType(BusinessAccountType.OPERATOR)
-                .roleLevel(3)
-                .roleName("运营")
-                .storeCodes(Set.of("STR108065-NSA"))
-                .storeOwnerUserIds(Map.of("STR108065-NSA", 501L))
-                .menuPaths(Set.of("/api/sku/manage"))
-                .build();
+    private static BusinessStoreAccess storeAccess() {
+        return BusinessStoreAccessTestFixture.access(501L, " str108065-nsa ");
     }
 }
