@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import java.time.LocalDate;
 import java.util.Locale;
 import java.util.Map;
@@ -37,8 +38,10 @@ public class NoonProductViewsSalesReportExporter {
     public NoonProductViewsSalesReportExporter(
             ObjectMapper objectMapper,
             NoonSalesReportSessionFactory sessionFactory,
-            @Value("${nuono.sales.noon.report-provider.export-create-url:https://noon-catalog.noon.partners/_svc/mp-partner-impex-api/export/create}") String createUrl,
-            @Value("${nuono.sales.noon.report-provider.export-status-url:https://noon-catalog.noon.partners/_svc/mp-partner-impex-api/export/status}") String statusUrl,
+            @Value("${nuono.sales.noon.report-provider.export-create-url:"
+                    + NoonCatalogApiRoutes.EXPORT_CREATE + "}") String createUrl,
+            @Value("${nuono.sales.noon.report-provider.export-status-url:"
+                    + NoonCatalogApiRoutes.EXPORT_STATUS + "}") String statusUrl,
             @Value("${nuono.sales.noon.report-provider.max-status-polls:60}") int maxStatusPolls,
             @Value("${nuono.sales.noon.report-provider.status-poll-interval-millis:3000}") long statusPollIntervalMillis
     ) {
