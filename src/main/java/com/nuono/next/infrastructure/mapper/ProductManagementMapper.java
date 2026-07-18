@@ -3183,13 +3183,22 @@ public interface ProductManagementMapper {
 
     @Insert({
             "INSERT INTO product_barcode (",
-            "  id, variant_id, barcode, barcode_type, is_primary,",
+            "  id, product_master_id, logical_store_id, partner_sku, variant_id, barcode, barcode_type, is_primary,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{variantId}, #{barcode}, #{barcodeType}, #{primary},",
+            "  #{id}, #{productMasterId}, #{logicalStoreId}, #{partnerSku}, #{variantId}, #{barcode}, #{barcodeType}, #{primary},",
             "  0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
+            "  product_master_id = IF(is_deleted = 1 OR (product_master_id = VALUES(product_master_id)",
+            "    AND logical_store_id = VALUES(logical_store_id) AND BINARY partner_sku = BINARY VALUES(partner_sku)),",
+            "    VALUES(product_master_id), product_master_id),",
+            "  logical_store_id = IF(is_deleted = 1 OR (product_master_id = VALUES(product_master_id)",
+            "    AND logical_store_id = VALUES(logical_store_id) AND BINARY partner_sku = BINARY VALUES(partner_sku)),",
+            "    VALUES(logical_store_id), logical_store_id),",
+            "  partner_sku = IF(is_deleted = 1 OR (product_master_id = VALUES(product_master_id)",
+            "    AND logical_store_id = VALUES(logical_store_id) AND BINARY partner_sku = BINARY VALUES(partner_sku)),",
+            "    VALUES(partner_sku), partner_sku),",
             "  variant_id = IF(is_deleted = 1, VALUES(variant_id), variant_id),",
             "  barcode_type = VALUES(barcode_type),",
             "  is_primary = VALUES(is_primary),",
@@ -3200,6 +3209,9 @@ public interface ProductManagementMapper {
     int upsertProductBarcode(
             @Param("id") Long id,
             @Param("variantId") Long variantId,
+            @Param("productMasterId") Long productMasterId,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
             @Param("barcode") String barcode,
             @Param("barcodeType") String barcodeType,
             @Param("primary") boolean primary,
@@ -3216,13 +3228,13 @@ public interface ProductManagementMapper {
     Long selectProductBarcodeIdByBarcode(@Param("barcode") String barcode);
 
     @Select({
-            "SELECT variant_id",
+            "SELECT product_master_id",
             "FROM product_barcode",
             "WHERE barcode = #{barcode}",
             "  AND is_deleted = 0",
             "LIMIT 1"
     })
-    Long selectProductBarcodeVariantIdByBarcode(@Param("barcode") String barcode);
+    Long selectProductBarcodeProductMasterIdByBarcode(@Param("barcode") String barcode);
 
     @Select({
             "SELECT id",
@@ -3235,6 +3247,9 @@ public interface ProductManagementMapper {
     @Update({
             "UPDATE product_barcode",
             "SET variant_id = #{variantId},",
+            "    product_master_id = #{productMasterId},",
+            "    logical_store_id = #{logicalStoreId},",
+            "    partner_sku = #{partnerSku},",
             "    barcode_type = #{barcodeType},",
             "    is_primary = #{primary},",
             "    is_deleted = 0,",
@@ -3247,6 +3262,9 @@ public interface ProductManagementMapper {
     int restoreDeletedProductBarcode(
             @Param("id") Long id,
             @Param("variantId") Long variantId,
+            @Param("productMasterId") Long productMasterId,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("partnerSku") String partnerSku,
             @Param("barcode") String barcode,
             @Param("barcodeType") String barcodeType,
             @Param("primary") boolean primary,

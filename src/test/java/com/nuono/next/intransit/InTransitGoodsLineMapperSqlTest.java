@@ -13,7 +13,7 @@ class InTransitGoodsLineMapperSqlTest {
     @Test
     void barcodeLookupNeverTreatsPartnerSkuAliasAsProductBarcode() throws Exception {
         Method method = InTransitGoodsLineMapper.class.getMethod(
-                "selectPartnerSkuByBarcode",
+                "selectProductIdentityByBarcode",
                 Long.class,
                 String.class
         );
@@ -22,8 +22,13 @@ class InTransitGoodsLineMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql)
+                .contains("pb.logical_store_id AS logicalStoreId")
+                .contains("pb.partner_sku AS partnerSku")
                 .contains("WHERE pb.barcode = #{barcode}")
-                .contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'");
+                .contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'")
+                .contains("ls.owner_user_id = #{ownerUserId}")
+                .doesNotContain("product_variant")
+                .doesNotContain("variant_id");
     }
 
     @Test

@@ -24,6 +24,9 @@ class ProductManagementBarcodeMapperSqlTest {
                 "upsertProductBarcode",
                 Long.class,
                 Long.class,
+                Long.class,
+                Long.class,
+                String.class,
                 String.class,
                 String.class,
                 boolean.class,
@@ -34,9 +37,15 @@ class ProductManagementBarcodeMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql)
+                .contains("product_master_id, logical_store_id, partner_sku, variant_id, barcode")
+                .contains("product_master_id = IF(is_deleted = 1 OR (product_master_id = VALUES(product_master_id)")
+                .contains("logical_store_id = IF(is_deleted = 1 OR (product_master_id = VALUES(product_master_id)")
+                .contains("partner_sku = IF(is_deleted = 1 OR (product_master_id = VALUES(product_master_id)")
+                .contains("BINARY partner_sku = BINARY VALUES(partner_sku)")
                 .contains("ON DUPLICATE KEY UPDATE")
                 .contains("variant_id = IF(is_deleted = 1, VALUES(variant_id), variant_id)")
-                .doesNotContain("variant_id = VALUES(variant_id)");
+                .doesNotContain("OR variant_id = VALUES(variant_id)")
+                .doesNotContain("ON DUPLICATE KEY UPDATE variant_id = VALUES(variant_id)");
     }
 
     @Test
@@ -45,6 +54,9 @@ class ProductManagementBarcodeMapperSqlTest {
                 "restoreDeletedProductBarcode",
                 Long.class,
                 Long.class,
+                Long.class,
+                Long.class,
+                String.class,
                 String.class,
                 String.class,
                 boolean.class,
@@ -56,6 +68,9 @@ class ProductManagementBarcodeMapperSqlTest {
 
         assertThat(sql)
                 .contains("variant_id = #{variantId}")
+                .contains("product_master_id = #{productMasterId}")
+                .contains("logical_store_id = #{logicalStoreId}")
+                .contains("partner_sku = #{partnerSku}")
                 .contains("is_deleted = 0")
                 .contains("AND is_deleted = 1");
     }

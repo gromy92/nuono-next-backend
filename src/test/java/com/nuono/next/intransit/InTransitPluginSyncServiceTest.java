@@ -66,10 +66,11 @@ class InTransitPluginSyncServiceTest {
     void setUp() {
         service = new InTransitPluginSyncService(mapper, batchService, accessScopeService);
         lenient().when(mapper.acquirePluginSyncBatchLock(anyString(), anyInt())).thenReturn(1);
-        lenient().when(mapper.selectPartnerSkuByBarcode(any(), anyString()))
+        lenient().when(mapper.selectProductIdentityByBarcode(any(), anyString()))
                 .thenAnswer(invocation -> {
                     String barcode = invocation.getArgument(1, String.class);
-                    return "PAPERSAYSB031".equals(barcode) ? "PAPERSAYS031" : barcode;
+                    String partnerSku = "PAPERSAYSB031".equals(barcode) ? "PAPERSAYS031" : barcode;
+                    return new BarcodeProductIdentity(50003L, partnerSku);
                 });
     }
 
@@ -663,7 +664,7 @@ class InTransitPluginSyncServiceTest {
         SaveLineCommand savedLine = lineCaptor.getAllValues().get(0);
         assertEquals("PAPERSAYSB031", savedLine.getSku());
         assertEquals("PAPERSAYS031", savedLine.getPsku());
-        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
     }
 
     @Test
@@ -711,7 +712,7 @@ class InTransitPluginSyncServiceTest {
         PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
         line.setPsku("UNKNOWN-BARCODE");
         line.setSku("UNKNOWN-BARCODE");
-        when(mapper.selectPartnerSkuByBarcode(10002L, "UNKNOWN-BARCODE")).thenReturn(null);
+        when(mapper.selectProductIdentityByBarcode(10002L, "UNKNOWN-BARCODE")).thenReturn(null);
 
         PluginSyncPreviewView preview = service.preview(command);
 
@@ -735,8 +736,8 @@ class InTransitPluginSyncServiceTest {
         PluginSyncPreviewView preview = service.preview(command);
 
         assertTrue(preview.isCommittable());
-        verify(mapper).selectPartnerSkuByBarcode(10002L, "PAPERSAYSB031");
-        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
+        verify(mapper).selectProductIdentityByBarcode(10002L, "PAPERSAYSB031");
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
     }
 
     @Test
@@ -753,7 +754,7 @@ class InTransitPluginSyncServiceTest {
                 "barcode".equals(issue.getField())
                         && issue.getMessage().contains("禁止使用 psku")
         ));
-        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
     }
 
     @Test
@@ -771,9 +772,9 @@ class InTransitPluginSyncServiceTest {
                 "barcode".equals(issue.getField())
                         && issue.getMessage().contains("barcode 与旧字段 sku 不一致")
         ));
-        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "REAL-PRODUCT-BARCODE");
-        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
-        verify(mapper, never()).selectPartnerSkuByBarcode(10002L, "SYSTEM-PSKU");
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "REAL-PRODUCT-BARCODE");
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "SYSTEM-PSKU");
     }
 
     @Test

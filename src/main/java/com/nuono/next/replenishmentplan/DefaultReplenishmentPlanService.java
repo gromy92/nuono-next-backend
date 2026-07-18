@@ -156,7 +156,8 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                     stockSnapshot(stockByPartnerSku.get(partnerSkuKey)),
                     dailyDemandByDay(forecastResultByPartnerSku.get(partnerSkuKey), config, anchorDate, planDate),
                     knownInboundBatches(inboundRows),
-                    missingEtaBatches(inboundRows)
+                    missingEtaBatches(inboundRows),
+                    hasUnresolvedInboundSite(inboundRows)
             ), config));
         }
 
@@ -283,7 +284,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
     private static List<InboundBatch> knownInboundBatches(List<ReplenishmentPlanRepository.InboundRow> rows) {
         List<InboundBatch> batches = new ArrayList<>();
         for (ReplenishmentPlanRepository.InboundRow row : rows) {
-            if (row == null || row.getEtaDate() == null) {
+            if (row == null || !row.isScopeResolved() || row.getEtaDate() == null) {
                 continue;
             }
             batches.add(new InboundBatch(
@@ -292,7 +293,8 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                     row.getTransportMode(),
                     row.getBatchStatus(),
                     row.getEtaDate(),
-                    row.getRemainingQuantity()
+                    row.getRemainingQuantity(),
+                    row.getDestinationCode()
             ));
         }
         return batches;
@@ -301,7 +303,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
     private static List<MissingEtaBatch> missingEtaBatches(List<ReplenishmentPlanRepository.InboundRow> rows) {
         List<MissingEtaBatch> batches = new ArrayList<>();
         for (ReplenishmentPlanRepository.InboundRow row : rows) {
-            if (row == null || row.getEtaDate() != null) {
+            if (row == null || !row.isScopeResolved() || row.getEtaDate() != null) {
                 continue;
             }
             batches.add(new MissingEtaBatch(
@@ -309,10 +311,23 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                     row.getBatchReferenceNo(),
                     row.getTransportMode(),
                     row.getBatchStatus(),
-                    row.getRemainingQuantity()
+                    row.getRemainingQuantity(),
+                    row.getDestinationCode()
             ));
         }
         return batches;
+    }
+
+    private static boolean hasUnresolvedInboundSite(List<ReplenishmentPlanRepository.InboundRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return false;
+        }
+        for (ReplenishmentPlanRepository.InboundRow row : rows) {
+            if (row != null && !row.isScopeResolved()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<Integer, BigDecimal> dailyDemandByDay(

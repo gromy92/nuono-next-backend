@@ -63,7 +63,8 @@ public final class ReplenishmentPlanCalculator {
                 hasRecentPastEtaReview(knownInboundBatches),
                 input.getLatestFactDate(),
                 planDate,
-                resolvedConfig
+                resolvedConfig,
+                input.isInboundSiteUnresolved()
         );
         boolean calculationBlocked = isCalculationBlocked(warnings);
 
@@ -300,7 +301,8 @@ public final class ReplenishmentPlanCalculator {
                         batch.getBatchReferenceNo(),
                         batch.getTransportMode(),
                         batch.getBatchStatus(),
-                        batch.getRemainingQuantity()
+                        batch.getRemainingQuantity(),
+                        batch.getDestinationCode()
                 ));
             }
         }
@@ -327,6 +329,7 @@ public final class ReplenishmentPlanCalculator {
                     batch.getBatchStatus(),
                     batch.getEtaDate(),
                     batch.getRemainingQuantity(),
+                    batch.getDestinationCode(),
                     !pastEta,
                     pastEta
             ));
@@ -372,9 +375,13 @@ public final class ReplenishmentPlanCalculator {
             boolean hasRecentPastEtaReview,
             LocalDate latestFactDate,
             LocalDate planDate,
-            ReplenishmentPlanConfig config
+            ReplenishmentPlanConfig config,
+            boolean inboundSiteUnresolved
     ) {
         List<String> warnings = new ArrayList<>();
+        if (inboundSiteUnresolved) {
+            warnings.add("inbound_site_unresolved");
+        }
         if (missingEtaInboundQty.compareTo(BigDecimal.ZERO) > 0) {
             warnings.add("missing_eta_inbound_excluded");
         }
@@ -413,7 +420,8 @@ public final class ReplenishmentPlanCalculator {
                 || warnings.contains("daily_forecast_gap")
                 || warnings.contains("stock_fact_missing")
                 || warnings.contains("fbn_stock_fact_missing")
-                || warnings.contains("forecast_fact_expired");
+                || warnings.contains("forecast_fact_expired")
+                || warnings.contains("inbound_site_unresolved");
     }
 
     private static boolean hasExcludedPastEtaInbound(List<InboundBatch> inboundBatches, LocalDate planDate) {
