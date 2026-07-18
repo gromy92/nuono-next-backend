@@ -114,7 +114,7 @@ public interface NoonAuthRecoveryRepository {
             LocalDateTime now
     );
 
-    int countIdentitySendsSince(String identityKey, LocalDateTime since);
+    LocalDateTime selectLatestIdentitySendAt(String identityKey);
 
     Long rebaseProjectBindingEpoch(
             Long recoveryId,

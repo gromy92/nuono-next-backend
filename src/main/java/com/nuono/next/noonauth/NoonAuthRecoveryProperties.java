@@ -20,9 +20,8 @@ public class NoonAuthRecoveryProperties {
     private int coalesceSeconds = 15;
     private int leaseSeconds = 600;
     private int minResendSeconds = 60;
+    private int minSendIntervalSeconds = 300;
     private int maxSendAttemptsPerRecovery = 2;
-    private int maxSendsPerHour = 3;
-    private int maxSendsPerDay = 6;
     private String projectAllowlist;
     private String trustedSenderDomains;
 
@@ -86,28 +85,24 @@ public class NoonAuthRecoveryProperties {
         this.minResendSeconds = minResendSeconds;
     }
 
+    public Duration minSendInterval() {
+        return Duration.ofSeconds(Math.max(300, minSendIntervalSeconds));
+    }
+
+    public int getMinSendIntervalSeconds() {
+        return minSendIntervalSeconds;
+    }
+
+    public void setMinSendIntervalSeconds(int minSendIntervalSeconds) {
+        this.minSendIntervalSeconds = minSendIntervalSeconds;
+    }
+
     public int getMaxSendAttemptsPerRecovery() {
         return Math.max(1, Math.min(2, maxSendAttemptsPerRecovery));
     }
 
     public void setMaxSendAttemptsPerRecovery(int maxSendAttemptsPerRecovery) {
         this.maxSendAttemptsPerRecovery = maxSendAttemptsPerRecovery;
-    }
-
-    public int getMaxSendsPerHour() {
-        return Math.max(1, Math.min(3, maxSendsPerHour));
-    }
-
-    public void setMaxSendsPerHour(int maxSendsPerHour) {
-        this.maxSendsPerHour = maxSendsPerHour;
-    }
-
-    public int getMaxSendsPerDay() {
-        return Math.max(getMaxSendsPerHour(), Math.min(6, maxSendsPerDay));
-    }
-
-    public void setMaxSendsPerDay(int maxSendsPerDay) {
-        this.maxSendsPerDay = maxSendsPerDay;
     }
 
     public String getProjectAllowlist() {
