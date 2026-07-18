@@ -424,6 +424,8 @@ public interface ProductImageProfileMapper {
     @Results(id = "productImageProfileAssetMap", value = {
             @Result(column = "id", property = "id"),
             @Result(column = "profile_id", property = "profileId"),
+            @Result(column = "parent_suite_id", property = "parentSuiteId"),
+            @Result(column = "revision_no", property = "revisionNo"),
             @Result(column = "image_url", property = "imageUrl"),
             @Result(column = "content_type", property = "contentType"),
             @Result(column = "size_bytes", property = "sizeBytes"),
@@ -869,6 +871,13 @@ public interface ProductImageProfileMapper {
             @Result(column = "draft_package_json", property = "draftPackageJson"),
             @Result(column = "draft_prompt_text", property = "draftPromptText"),
             @Result(column = "suite_status", property = "suiteStatus", javaType = ProductImageSuiteStatus.class),
+            @Result(column = "review_comment", property = "reviewComment"),
+            @Result(column = "reviewed_by", property = "reviewedBy"),
+            @Result(column = "reviewed_at", property = "reviewedAt", javaType = LocalDateTime.class),
+            @Result(column = "failure_stage", property = "failureStage"),
+            @Result(column = "failure_reason", property = "failureReason"),
+            @Result(column = "published_at", property = "publishedAt", javaType = LocalDateTime.class),
+            @Result(column = "publish_manifest_json", property = "publishManifestJson"),
             @Result(column = "adopted_at", property = "adoptedAt", javaType = LocalDateTime.class),
             @Result(column = "created_by", property = "createdBy"),
             @Result(column = "updated_by", property = "updatedBy"),
@@ -888,11 +897,11 @@ public interface ProductImageProfileMapper {
 
     @Insert({
             "INSERT INTO product_image_suite (",
-            "  profile_id, suite_name, skin_id, skin_name, generation_task_id, draft_package_json, draft_prompt_text,",
-            "  suite_status, adopted_at, created_by, updated_by, created_at, updated_at, deleted",
+            "  profile_id, parent_suite_id, revision_no, suite_name, skin_id, skin_name, generation_task_id, draft_package_json, draft_prompt_text,",
+            "  suite_status, review_comment, failure_stage, failure_reason, adopted_at, created_by, updated_by, created_at, updated_at, deleted",
             ") VALUES (",
-            "  #{profileId}, #{suiteName}, #{skinId}, #{skinName}, #{generationTaskId}, #{draftPackageJson}, #{draftPromptText},",
-            "  #{suiteStatus}, #{adoptedAt}, #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt}, #{deleted}",
+            "  #{profileId}, #{parentSuiteId}, #{revisionNo}, #{suiteName}, #{skinId}, #{skinName}, #{generationTaskId}, #{draftPackageJson}, #{draftPromptText},",
+            "  #{suiteStatus}, #{reviewComment}, #{failureStage}, #{failureReason}, #{adoptedAt}, #{createdBy}, #{updatedBy}, #{createdAt}, #{updatedAt}, #{deleted}",
             ")"
     })
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
@@ -911,6 +920,14 @@ public interface ProductImageProfileMapper {
             @Param("suiteId") Long suiteId,
             @Param("profileId") Long profileId
     );
+
+    @ResultMap("productImageSuiteMap")
+    @Select({
+            "SELECT * FROM product_image_suite",
+            "WHERE id = #{suiteId} AND deleted = b'0'",
+            "LIMIT 1"
+    })
+    ProductImageSuiteRecord selectSuiteByIdUnscoped(@Param("suiteId") Long suiteId);
 
     @Update({
             "UPDATE product_image_suite",
@@ -945,6 +962,42 @@ public interface ProductImageProfileMapper {
 
     @Update({
             "UPDATE product_image_suite",
+            "SET suite_status = #{status}, failure_stage = #{failureStage}, failure_reason = #{failureReason},",
+            "    updated_by = #{updatedBy}, updated_at = NOW()",
+            "WHERE id = #{suiteId} AND deleted = b'0'"
+    })
+    int updateSuiteWorkflowStatus(
+            @Param("suiteId") Long suiteId,
+            @Param("status") ProductImageSuiteStatus status,
+            @Param("failureStage") String failureStage,
+            @Param("failureReason") String failureReason,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_image_suite",
+            "SET suite_status = #{status}, review_comment = #{comment}, reviewed_by = #{reviewedBy}, reviewed_at = NOW(),",
+            "    failure_stage = NULL, failure_reason = NULL, updated_by = #{reviewedBy}, updated_at = NOW()",
+            "WHERE id = #{suiteId} AND profile_id = #{profileId} AND suite_status = 'PENDING_REVIEW' AND deleted = b'0'"
+    })
+    int reviewSuite(
+            @Param("suiteId") Long suiteId,
+            @Param("profileId") Long profileId,
+            @Param("status") ProductImageSuiteStatus status,
+            @Param("comment") String comment,
+            @Param("reviewedBy") Long reviewedBy
+    );
+
+    @Update({
+            "UPDATE product_image_suite",
+            "SET suite_status = 'ONLINE', published_at = NOW(), publish_manifest_json = #{manifestJson},",
+            "    failure_stage = NULL, failure_reason = NULL, updated_at = NOW()",
+            "WHERE id = #{suiteId} AND suite_status = 'PUBLISHING' AND deleted = b'0'"
+    })
+    int markSuiteOnline(@Param("suiteId") Long suiteId, @Param("manifestJson") String manifestJson);
+
+    @Update({
+            "UPDATE product_image_suite",
             "SET deleted = b'1',",
             "    updated_by = #{updatedBy},",
             "    updated_at = NOW()",
@@ -976,11 +1029,15 @@ public interface ProductImageProfileMapper {
             @Result(column = "id", property = "id"),
             @Result(column = "suite_id", property = "suiteId"),
             @Result(column = "image_role", property = "imageRole", javaType = ProductImageSuiteAssetRole.class),
+            @Result(column = "role_ordinal", property = "roleOrdinal"),
             @Result(column = "image_url", property = "imageUrl"),
+            @Result(column = "content_type", property = "contentType"),
+            @Result(column = "size_bytes", property = "sizeBytes"),
+            @Result(column = "sha256", property = "sha256"),
             @Result(column = "sort_order", property = "sortOrder")
     })
     @Select({
-            "SELECT id, suite_id, image_role, image_url, sort_order",
+            "SELECT id, suite_id, image_role, role_ordinal, image_url, content_type, size_bytes, sha256, sort_order",
             "FROM product_image_suite_asset",
             "WHERE suite_id = #{suiteId}",
             "ORDER BY sort_order ASC, id ASC"
@@ -989,7 +1046,7 @@ public interface ProductImageProfileMapper {
 
     @ResultMap("productImageSuiteAssetMap")
     @Select({
-            "SELECT id, suite_id, image_role, image_url, sort_order",
+            "SELECT id, suite_id, image_role, role_ordinal, image_url, content_type, size_bytes, sha256, sort_order",
             "FROM product_image_suite_asset",
             "WHERE id = #{assetId}",
             "  AND suite_id = #{suiteId}",
@@ -999,6 +1056,34 @@ public interface ProductImageProfileMapper {
             @Param("suiteId") Long suiteId,
             @Param("assetId") Long assetId
     );
+
+    @Insert({
+            "INSERT INTO product_image_suite_asset (suite_id, image_role, role_ordinal, image_url, content_type, size_bytes, sha256, sort_order, created_at)",
+            "VALUES (#{suiteId}, #{imageRole}, #{roleOrdinal}, #{imageUrl}, #{contentType}, #{sizeBytes}, #{sha256}, #{sortOrder}, NOW())"
+    })
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    int insertSuiteAsset(ProductImageSuiteAssetRecord record);
+
+    @Insert({
+            "INSERT INTO product_image_suite_review_target (suite_id, target_scope, asset_id, image_role, role_ordinal, created_by, created_at)",
+            "VALUES (#{suiteId}, #{targetScope}, #{assetId}, #{imageRole}, #{roleOrdinal}, #{createdBy}, NOW())"
+    })
+    int insertReviewTarget(
+            @Param("suiteId") Long suiteId,
+            @Param("targetScope") String targetScope,
+            @Param("assetId") Long assetId,
+            @Param("imageRole") ProductImageSuiteAssetRole imageRole,
+            @Param("roleOrdinal") Integer roleOrdinal,
+            @Param("createdBy") Long createdBy
+    );
+
+    @Select({
+            "SELECT pm.sku_parent",
+            "FROM product_master pm",
+            "WHERE pm.id = #{productMasterId} AND pm.is_deleted = b'0'",
+            "LIMIT 1"
+    })
+    String selectSkuParentByProductMasterId(@Param("productMasterId") Long productMasterId);
 
     @Delete({
             "DELETE FROM product_image_suite_asset",
