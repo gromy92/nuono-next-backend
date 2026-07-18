@@ -319,6 +319,27 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
     }
 
     @Test
+    void shouldHandoffLoginHostCookieToCatalogHostBeforeValidation() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            server.requireCatalogSessionCookie();
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(identityGateway(server)).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            assertEquals(1, result.getProjectResults().size());
+            NoonAuthRecoveryProjectResult projectResult = result.getProjectResults().get(0);
+            assertTrue(projectResult.isRecovered());
+            assertTrue(projectResult.getCookie().contains("sid=recovered"));
+            assertEquals(1, server.catalogCount());
+            assertTrue(server.lastCatalogCookieHeader().contains("sid=recovered"));
+        }
+    }
+
+    @Test
     void shouldRejectWhoamiWithMissingIdentityOrWrongProject() throws Exception {
         List<String> rejectedWhoamiBodies = List.of(
                 "{\"ok\":true}",
@@ -600,7 +621,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 0,
                 ""
         );
-        gateway.setCatalogCapabilityProbeUrl(server.url("/catalog"));
+        gateway.setCatalogCapabilityProbeUrl(server.catalogUrl("/catalog"));
         return gateway;
     }
 
@@ -806,6 +827,8 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         private final AtomicInteger whoamiCount = new AtomicInteger();
         private final AtomicInteger catalogCount = new AtomicInteger();
         private volatile int catalogStatus = 200;
+        private volatile boolean catalogSessionCookieRequired;
+        private volatile String lastCatalogCookieHeader = "";
         private volatile String lastSessionProjectCode;
 
         private RecoveryServer(int validateStatus, String validateBody, String whoamiBody) throws IOException {
@@ -913,7 +936,11 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             }
             if ("/catalog".equals(path)) {
                 catalogCount.incrementAndGet();
-                if (catalogStatus == 307) {
+                String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+                lastCatalogCookieHeader = cookieHeader == null ? "" : cookieHeader;
+                if (catalogStatus == 307
+                        || (catalogSessionCookieRequired
+                        && (cookieHeader == null || !cookieHeader.contains("sid=recovered")))) {
                     exchange.getResponseHeaders().set(
                             "Location",
                             "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
@@ -929,6 +956,10 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
 
         private String url(String path) {
             return "http://127.0.0.1:" + server.getAddress().getPort() + path;
+        }
+
+        private String catalogUrl(String path) {
+            return "http://localhost:" + server.getAddress().getPort() + path;
         }
 
         private int validateCount() {
@@ -951,8 +982,16 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             return catalogCount.get();
         }
 
+        private String lastCatalogCookieHeader() {
+            return lastCatalogCookieHeader;
+        }
+
         private void redirectCatalogToLogin() {
             catalogStatus = 307;
+        }
+
+        private void requireCatalogSessionCookie() {
+            catalogSessionCookieRequired = true;
         }
 
         @Override
