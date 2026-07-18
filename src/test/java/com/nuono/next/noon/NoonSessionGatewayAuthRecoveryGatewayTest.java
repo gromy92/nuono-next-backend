@@ -340,6 +340,27 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
     }
 
     @Test
+    void shouldBootstrapCatalogWebSessionBeforeCapabilityValidation() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            server.requireCatalogWebSessionBootstrap();
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(identityGateway(server)).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            assertEquals(1, result.getProjectResults().size());
+            NoonAuthRecoveryProjectResult projectResult = result.getProjectResults().get(0);
+            assertTrue(projectResult.isRecovered());
+            assertTrue(projectResult.getCookie().contains("catalog_sid=ready"));
+            assertEquals(1, server.catalogBootstrapCount());
+            assertEquals(1, server.catalogCount());
+        }
+    }
+
+    @Test
     void shouldRejectWhoamiWithMissingIdentityOrWrongProject() throws Exception {
         List<String> rejectedWhoamiBodies = List.of(
                 "{\"ok\":true}",
@@ -622,6 +643,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 ""
         );
         gateway.setCatalogCapabilityProbeUrl(server.catalogUrl("/catalog"));
+        gateway.setCatalogSessionBootstrapUrl(server.catalogUrl("/catalog-bootstrap"));
         return gateway;
     }
 
@@ -825,9 +847,11 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         private final AtomicInteger validateCount = new AtomicInteger();
         private final AtomicInteger sessionCreateCount = new AtomicInteger();
         private final AtomicInteger whoamiCount = new AtomicInteger();
+        private final AtomicInteger catalogBootstrapCount = new AtomicInteger();
         private final AtomicInteger catalogCount = new AtomicInteger();
         private volatile int catalogStatus = 200;
         private volatile boolean catalogSessionCookieRequired;
+        private volatile boolean catalogWebSessionBootstrapRequired;
         private volatile String lastCatalogCookieHeader = "";
         private volatile String lastSessionProjectCode;
 
@@ -934,13 +958,29 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 sendJson(exchange, 200, body, null);
                 return;
             }
+            if ("/catalog-bootstrap".equals(path)) {
+                catalogBootstrapCount.incrementAndGet();
+                String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+                if (cookieHeader == null || !cookieHeader.contains("sid=recovered")) {
+                    exchange.getResponseHeaders().set(
+                            "Location",
+                            "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
+                    );
+                    sendJson(exchange, 307, "temporary redirect", null);
+                } else {
+                    sendJson(exchange, 200, "<html>catalog</html>", "catalog_sid=ready; Path=/");
+                }
+                return;
+            }
             if ("/catalog".equals(path)) {
                 catalogCount.incrementAndGet();
                 String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
                 lastCatalogCookieHeader = cookieHeader == null ? "" : cookieHeader;
                 if (catalogStatus == 307
                         || (catalogSessionCookieRequired
-                        && (cookieHeader == null || !cookieHeader.contains("sid=recovered")))) {
+                            && (cookieHeader == null || !cookieHeader.contains("sid=recovered")))
+                        || (catalogWebSessionBootstrapRequired
+                            && (cookieHeader == null || !cookieHeader.contains("catalog_sid=ready")))) {
                     exchange.getResponseHeaders().set(
                             "Location",
                             "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
@@ -982,6 +1022,10 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             return catalogCount.get();
         }
 
+        private int catalogBootstrapCount() {
+            return catalogBootstrapCount.get();
+        }
+
         private String lastCatalogCookieHeader() {
             return lastCatalogCookieHeader;
         }
@@ -992,6 +1036,10 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
 
         private void requireCatalogSessionCookie() {
             catalogSessionCookieRequired = true;
+        }
+
+        private void requireCatalogWebSessionBootstrap() {
+            catalogWebSessionBootstrapRequired = true;
         }
 
         @Override

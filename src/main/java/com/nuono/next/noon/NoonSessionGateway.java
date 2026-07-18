@@ -69,6 +69,8 @@ public class NoonSessionGateway {
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/session/create";
     private static final String DEFAULT_CATALOG_CAPABILITY_PROBE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
+    private static final String DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL =
+            "https://noon-catalog.noon.partners/en/catalog?tab=noon";
     private static final String NOON_WEB_CLIENT_CODE = "web";
     private static final int MAX_RATE_LIMIT_RETRIES = 4;
     private static final long INITIAL_RATE_LIMIT_DELAY_MILLIS = 2000L;
@@ -116,6 +118,8 @@ public class NoonSessionGateway {
     private boolean legacyDirectEmailOtpEnabled;
     @Value("${nuono.noon.auth.catalog-capability-probe-url:}")
     private String catalogCapabilityProbeUrl = DEFAULT_CATALOG_CAPABILITY_PROBE_URL;
+    @Value("${nuono.noon.auth.catalog-session-bootstrap-url:}")
+    private String catalogSessionBootstrapUrl = DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL;
 
     public NoonSessionGateway(
             ObjectMapper objectMapper,
@@ -194,6 +198,10 @@ public class NoonSessionGateway {
 
     void setCatalogCapabilityProbeUrl(String url) {
         this.catalogCapabilityProbeUrl = defaultIfBlank(url, DEFAULT_CATALOG_CAPABILITY_PROBE_URL);
+    }
+
+    void setCatalogSessionBootstrapUrl(String url) {
+        this.catalogSessionBootstrapUrl = defaultIfBlank(url, DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL);
     }
 
     public NoonSession login(
@@ -598,10 +606,34 @@ public class NoonSessionGateway {
         if (projectSession == null || projectSession.state == null || projectSession.project == null) {
             throw new IllegalArgumentException("缺少 Noon Project 会话。");
         }
+        bootstrapCatalogProjectSession(
+                projectSession.state,
+                projectSession.project.getProjectCode(),
+                normalize(storeCode)
+        );
         probeCatalogCapability(
                 projectSession.state,
                 projectSession.project.getProjectCode(),
                 normalize(storeCode)
+        );
+    }
+
+    private void bootstrapCatalogProjectSession(
+            AuthSessionState state,
+            String projectCode,
+            String storeCode
+    ) {
+        String bootstrapUrl = defaultIfBlank(
+                catalogSessionBootstrapUrl,
+                DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL
+        );
+        state.handoffAuthCookiesTo(bootstrapUrl);
+        state.getText(
+                projectCode,
+                storeCode,
+                bootstrapUrl,
+                true,
+                catalogLocaleHeaders(storeCode)
         );
     }
 
@@ -674,18 +706,18 @@ public class NoonSessionGateway {
             return;
         }
         try {
-            boolean sensitiveAuthCall = isSensitiveIdentityAuthRequest(request);
+            boolean sensitiveAuthCall = isSensitiveAuthRequest(request);
             service.record(
                     request,
                     responseStatusCode,
                     sensitiveAuthCall && StringUtils.hasText(responseBody)
-                            ? "{\"redacted\":true,\"category\":\"identity_auth_response\"}"
+                            ? "{\"redacted\":true,\"category\":\"auth_response\"}"
                             : responseBody,
                     elapsedMs,
                     status,
                     failureType,
                     sensitiveAuthCall && StringUtils.hasText(errorMessage)
-                            ? "Noon identity auth call failed; response redacted"
+                            ? "Noon auth call failed; response redacted"
                             : errorMessage
             );
         } catch (Exception ignored) {
@@ -693,7 +725,7 @@ public class NoonSessionGateway {
         }
     }
 
-    private boolean isSensitiveIdentityAuthRequest(HttpRequest request) {
+    private boolean isSensitiveAuthRequest(HttpRequest request) {
         if (request == null || request.uri() == null) {
             return false;
         }
@@ -703,13 +735,16 @@ public class NoonSessionGateway {
                 || sameEndpoint(url, identityGenerateUrl)
                 || sameEndpoint(url, identityValidateUrl)
                 || sameEndpoint(url, identityProjectListUrl)
-                || sameEndpoint(url, identitySessionCreateUrl);
+                || sameEndpoint(url, identitySessionCreateUrl)
+                || sameEndpoint(url, catalogSessionBootstrapUrl);
     }
 
     private boolean sameEndpoint(String actualUrl, String configuredUrl) {
         return StringUtils.hasText(actualUrl)
                 && StringUtils.hasText(configuredUrl)
-                && (actualUrl.equals(configuredUrl) || actualUrl.startsWith(configuredUrl + "?"));
+                && (actualUrl.equals(configuredUrl)
+                    || actualUrl.startsWith(configuredUrl + "?")
+                    || actualUrl.startsWith(configuredUrl + "&"));
     }
 
     private String resolveRequestMetricKey(String url) {
@@ -2230,7 +2265,14 @@ public class NoonSessionGateway {
         }
 
         String getCookie() {
-            return cookie;
+            if (state == null || project == null) {
+                return cookie;
+            }
+            String currentCookie = state.exportAuthCookieHeader();
+            if (!StringUtils.hasText(currentCookie)) {
+                return cookie;
+            }
+            return appendProjectContextCookie(currentCookie, project.getProjectCode());
         }
     }
 

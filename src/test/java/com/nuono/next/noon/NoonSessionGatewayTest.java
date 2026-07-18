@@ -886,6 +886,7 @@ class NoonSessionGatewayTest {
                 ""
         );
         gateway.setCatalogCapabilityProbeUrl(server.url("/catalog"));
+        gateway.setCatalogSessionBootstrapUrl(server.url("/catalog"));
         return gateway;
     }
 
