@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -28,7 +29,8 @@ public class RealNoonProductInterfaceSmokeProvider implements NoonProductInterfa
             ObjectMapper objectMapper,
             NoonPullStoreBindingResolver bindingResolver,
             NoonPullGatewaySessionFactory sessionFactory,
-            @Value("${nuono.noon.pull.real-provider.product.offer-list-url:https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon}") String offerListUrl,
+            @Value("${nuono.noon.pull.real-provider.product.offer-list-url:"
+                    + NoonCatalogApiRoutes.OFFER_LIST_NOON + "}") String offerListUrl,
             @Value("${nuono.noon.pull.real-provider.product.page-size:100}") int pageSize
     ) {
         this.objectMapper = objectMapper;

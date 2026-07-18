@@ -68,7 +68,7 @@ public class NoonSessionGateway {
     private static final String DEFAULT_IDENTITY_SESSION_CREATE_URL =
             "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/session/create";
     private static final String DEFAULT_CATALOG_CAPABILITY_PROBE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
+            NoonCatalogApiRoutes.OFFER_LIST_NOON;
     private static final String DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL =
             "https://noon-catalog.noon.partners/en/catalog?tab=noon";
     private static final String NOON_WEB_CLIENT_CODE = "web";

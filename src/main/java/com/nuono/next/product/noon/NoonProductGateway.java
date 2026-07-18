@@ -1,5 +1,6 @@
 package com.nuono.next.product.noon;
 
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import java.util.Locale;
 import javax.net.ssl.SSLHandshakeException;
 import org.springframework.context.annotation.Profile;
@@ -40,9 +41,9 @@ public class NoonProductGateway {
     public static final String PRICING_INFO_URL =
             "https://noon-catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
     public static final String STOCK_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/stock/noon";
+            NoonCatalogApiRoutes.OFFER_STOCK_NOON;
     public static final String OFFER_LIST_NOON_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
+            NoonCatalogApiRoutes.OFFER_LIST_NOON;
     public static final String OFFER_UPSERT_URL =
             "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/offer/upsert";
     public static final String OFFER_MGMT_PRICE_UPSERT_URL =
