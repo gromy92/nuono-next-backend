@@ -127,7 +127,6 @@ src/main/java/com/nuono/next/orderfinance/NoonFinanceTransactionReportAdapter.ja
 src/main/java/com/nuono/next/outboundfee/MyBatisOfficialOutboundFeeFactRepository.java	306
 src/main/java/com/nuono/next/outboundfee/OfficialOutboundFeeFactPublisher.java	418
 src/main/java/com/nuono/next/postsaleprofit/PostSaleProfitAttributionAdjustmentService.java	333
-src/main/java/com/nuono/next/postsaleprofit/PostSaleProfitController.java	317
 src/main/java/com/nuono/next/postsaleprofit/PostSaleProfitRecalculationService.java	945
 src/main/java/com/nuono/next/postsaleprofit/PostSaleProfitRecords.java	556
 src/main/java/com/nuono/next/postsaleprofit/batchattribution/PostSaleProfitBatchAttributionRecords.java	328
