@@ -4,5 +4,12 @@ public enum ProductImageSuiteStatus {
     DRAFT,
     ADOPTED,
     HISTORICAL,
-    DISCARDED
+    DISCARDED,
+    PENDING_GENERATION,
+    GENERATING,
+    PENDING_REVIEW,
+    REGENERATING,
+    PUBLISHING,
+    ONLINE,
+    FAILED
 }

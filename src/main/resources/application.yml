@@ -46,6 +46,10 @@ nuono:
       base-url: ${OPENAI_BASE_URL:https://aicodelink.top/v1}
       responses-path: ${OPENAI_RESPONSES_PATH:/responses}
       default-text-model: ${OPENAI_DEFAULT_TEXT_MODEL:gpt-5.5}
+      image-generation-path: ${OPENAI_IMAGE_GENERATION_PATH:/images/generations}
+      image-edit-path: ${OPENAI_IMAGE_EDIT_PATH:/images/edits}
+      default-image-model: ${OPENAI_DEFAULT_IMAGE_MODEL:gpt-image-1.5}
+      image-quality: ${OPENAI_IMAGE_QUALITY:medium}
       reasoning-effort: ${OPENAI_REASONING_EFFORT:high}
       timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:180}
       store-responses: ${OPENAI_STORE_RESPONSES:false}

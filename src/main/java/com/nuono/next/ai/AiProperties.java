@@ -35,6 +35,10 @@ public class AiProperties {
         private String baseUrl = "https://aicodelink.top/v1";
         private String responsesPath = "/responses";
         private String defaultTextModel = "gpt-5.5";
+        private String imageGenerationPath = "/images/generations";
+        private String imageEditPath = "/images/edits";
+        private String defaultImageModel = "gpt-image-1.5";
+        private String imageQuality = "medium";
         private String reasoningEffort = "high";
         private int timeoutSeconds = 180;
         private boolean storeResponses;
@@ -73,6 +77,15 @@ public class AiProperties {
         public void setDefaultTextModel(String defaultTextModel) {
             this.defaultTextModel = defaultTextModel;
         }
+
+        public String getImageGenerationPath() { return imageGenerationPath; }
+        public void setImageGenerationPath(String imageGenerationPath) { this.imageGenerationPath = imageGenerationPath; }
+        public String getImageEditPath() { return imageEditPath; }
+        public void setImageEditPath(String imageEditPath) { this.imageEditPath = imageEditPath; }
+        public String getDefaultImageModel() { return defaultImageModel; }
+        public void setDefaultImageModel(String defaultImageModel) { this.defaultImageModel = defaultImageModel; }
+        public String getImageQuality() { return imageQuality; }
+        public void setImageQuality(String imageQuality) { this.imageQuality = imageQuality; }
 
         public String getReasoningEffort() {
             return reasoningEffort;

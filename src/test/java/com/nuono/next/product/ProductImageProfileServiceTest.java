@@ -29,6 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class ProductImageProfileServiceTest {
@@ -41,6 +42,8 @@ class ProductImageProfileServiceTest {
     private ProductPublicDetailMapper productPublicDetailMapper;
     @Mock
     private AiCapabilityService aiCapabilityService;
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     private ProductImageProfileService service;
 
@@ -50,8 +53,71 @@ class ProductImageProfileServiceTest {
                 mapper,
                 operationsSkinMapper,
                 productPublicDetailMapper,
-                aiCapabilityService
+                aiCapabilityService,
+                eventPublisher
         );
+    }
+
+    @Test
+    void createAiSuiteDraftShouldBlockAndListMissingBasicFields() {
+        ProductImageProfileRecord profile = profileRecord();
+        profile.setBrand(null);
+        profile.setTitleEn(null);
+        profile.setSpecSummary(null);
+        profile.setProductFactText(null);
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.createAiSuiteDraft(307L, "STR108065-NAE", 7001L, 3001L, 10003L)
+        );
+
+        assertTrue(exception.getMessage().contains("品牌"));
+        assertTrue(exception.getMessage().contains("英文或阿语标题"));
+        assertTrue(exception.getMessage().contains("规格摘要"));
+        assertTrue(exception.getMessage().contains("商品事实资料"));
+        assertTrue(exception.getMessage().contains("基础图片"));
+        verify(mapper, never()).insertSuite(any());
+    }
+
+    @Test
+    void rejectSuiteShouldKeepUnselectedImageAndRegenerateSelectedImage() {
+        ProductImageProfileRecord profile = profileRecord();
+        ProductImageSuiteRecord source = suiteRecord(9901L, ProductImageSuiteStatus.PENDING_REVIEW);
+        source.setProfileId(7001L);
+        source.setRevisionNo(1);
+        source.setSuiteName("AI 套图");
+        source.setSkinId(3001L);
+        source.setSkinName("PAPERSAY");
+        source.setDraftPromptText("prompt");
+        ProductImageSuiteAssetRecord main = suiteAsset(5001L, ProductImageSuiteAssetRole.MAIN, "/main.png");
+        ProductImageSuiteAssetRecord size = suiteAsset(5002L, ProductImageSuiteAssetRole.SIZE, "/size.png");
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(mapper.selectSuiteById(9901L, 7001L)).thenReturn(source);
+        when(mapper.selectSuiteAssets(9901L)).thenReturn(List.of(main, size));
+        when(mapper.reviewSuite(9901L, 7001L, ProductImageSuiteStatus.HISTORICAL, "尺寸不清楚", 10003L)).thenReturn(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            ProductImageSuiteRecord revision = invocation.getArgument(0);
+            revision.setId(9902L);
+            return 1;
+        }).when(mapper).insertSuite(any());
+        when(mapper.selectSuites(7001L)).thenReturn(List.of());
+        when(mapper.selectAssets(7001L)).thenReturn(List.of());
+
+        ProductImageReviewRejectRequest request = new ProductImageReviewRejectRequest();
+        request.setComment("尺寸不清楚");
+        request.setAssetIds(List.of(5002L));
+        service.rejectSuite(307L, "STR108065-NAE", 7001L, 9901L, request, 10003L);
+
+        ArgumentCaptor<ProductImageSuiteAssetRecord> retained = ArgumentCaptor.forClass(ProductImageSuiteAssetRecord.class);
+        verify(mapper).insertSuiteAsset(retained.capture());
+        assertEquals(ProductImageSuiteAssetRole.MAIN, retained.getValue().getImageRole());
+        assertEquals("/main.png", retained.getValue().getImageUrl());
+        verify(mapper).insertReviewTarget(
+                9901L, "IMAGE", 5002L, ProductImageSuiteAssetRole.SIZE, 1, 10003L
+        );
+        verify(eventPublisher).publishEvent(any(ProductImageGenerationSubmittedEvent.class));
     }
 
     @Test
@@ -764,7 +830,7 @@ class ProductImageProfileServiceTest {
         assertEquals(7001L, suite.getProfileId());
         assertEquals(3001L, suite.getSkinId());
         assertEquals("PAPERSAY 黄框主图皮肤", suite.getSkinName());
-        assertEquals(ProductImageSuiteStatus.DRAFT, suite.getSuiteStatus());
+        assertEquals(ProductImageSuiteStatus.PENDING_GENERATION, suite.getSuiteStatus());
         assertTrue(suite.getDraftPromptText().contains("图片要求"));
         assertTrue(suite.getDraftPromptText().contains("4.3 x 2.8 in"));
         assertTrue(suite.getDraftPromptText().contains("每张细节图单独成图"));
@@ -981,6 +1047,8 @@ class ProductImageProfileServiceTest {
         record.setProductIdentityKey("variant:53001");
         record.setBrand("PAPERSAY");
         record.setTitleEn("Magnetic Whiteboard Markers");
+        record.setSpecSummary("Standard product specification");
+        record.setProductFactText("Verified product facts");
         return record;
     }
 
@@ -1025,6 +1093,17 @@ class ProductImageProfileServiceTest {
         record.setImageRole(ProductImageSuiteAssetRole.MAIN);
         record.setImageUrl("https://example.test/suite-" + suiteId + "-" + id + ".png");
         record.setSortOrder(sortOrder);
+        return record;
+    }
+
+    private ProductImageSuiteAssetRecord suiteAsset(Long id, ProductImageSuiteAssetRole role, String imageUrl) {
+        ProductImageSuiteAssetRecord record = new ProductImageSuiteAssetRecord();
+        record.setId(id);
+        record.setSuiteId(9901L);
+        record.setImageRole(role);
+        record.setRoleOrdinal(1);
+        record.setImageUrl(imageUrl);
+        record.setSortOrder(role == ProductImageSuiteAssetRole.MAIN ? 10 : 20);
         return record;
     }
 
