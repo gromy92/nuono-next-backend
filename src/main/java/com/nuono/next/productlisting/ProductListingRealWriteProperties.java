@@ -1,5 +1,6 @@
 package com.nuono.next.productlisting;
 
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "nuono.product-listing.real-write")
@@ -88,7 +89,7 @@ public class ProductListingRealWriteProperties {
         public static final String DEFAULT_UPSERT_BARCODE_URL =
                 "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/pbarcode/upsert";
         public static final String DEFAULT_OFFER_LIST_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
+                NoonCatalogApiRoutes.OFFER_LIST_NOON;
 
         private String createProductUrl = DEFAULT_CREATE_PRODUCT_URL;
         private String skuCacheUrl = DEFAULT_SKU_CACHE_URL;

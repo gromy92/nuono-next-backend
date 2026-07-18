@@ -13,6 +13,7 @@ import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.product.ProductSourceTypeSupport;
 import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.system.CoreTableInspection;
@@ -47,9 +48,9 @@ public class LocalDbStoreInitializationService {
     private static final String STORE_LIST_URL =
             "https://noon-store.noon.partners/_svc/mp-noon-store/noon/store/list";
     private static final String OFFER_LIST_NOON_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
+            NoonCatalogApiRoutes.OFFER_LIST_NOON;
     private static final String OFFER_LIST_SUPERMALL_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/supermall";
+            NoonCatalogApiRoutes.OFFER_LIST_SUPERMALL;
     private static final String ZSKU_RETRIEVE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/retrieve";
     private static final int OFFER_PAGE_SIZE = 100;
