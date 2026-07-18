@@ -248,12 +248,27 @@ class ProductImageProfileControllerTest {
         when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
         when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR108065-NAE")))
                 .thenReturn(307L);
-        when(service.createAiSuiteDraft(307L, "STR108065-NAE", 10L, 10003L))
+        when(service.createAiSuiteDraft(307L, "STR108065-NAE", 10L, null, 10003L))
                 .thenReturn(new ProductImageProfileDetailView());
 
         controller.createAiSuiteDraft(10L, 99999L, "STR108065-NAE", request);
 
-        verify(service).createAiSuiteDraft(307L, "STR108065-NAE", 10L, 10003L);
+        verify(service).createAiSuiteDraft(307L, "STR108065-NAE", 10L, null, 10003L);
+    }
+
+    @Test
+    void approveSuiteShouldResolveOwnerAndUseSessionOperator() {
+        MockHttpServletRequest request = requestFor(new AuthenticatedSession(10003L, 3L, 2));
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessGuardProvider.getIfAvailable()).thenReturn(accessGuard);
+        when(accessGuard.resolveOwnerUserId(any(), org.mockito.ArgumentMatchers.eq(99999L), org.mockito.ArgumentMatchers.eq("STR108065-NAE")))
+                .thenReturn(307L);
+        when(service.approveSuite(307L, "STR108065-NAE", 10L, 99L, 10003L))
+                .thenReturn(new ProductImageProfileDetailView());
+
+        controller.approveSuite(10L, 99L, 99999L, "STR108065-NAE", request);
+
+        verify(service).approveSuite(307L, "STR108065-NAE", 10L, 99L, 10003L);
     }
 
     @Test

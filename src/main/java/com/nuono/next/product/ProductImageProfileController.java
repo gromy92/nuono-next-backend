@@ -418,13 +418,98 @@ public class ProductImageProfileController {
             @PathVariable Long profileId,
             @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
             @RequestParam String storeCode,
+            @RequestBody(required = false) ProductImageGenerationRequest generationRequest,
             HttpServletRequest request
     ) {
         ProductImageProfileService service = requireService();
         try {
             AuthenticatedSession session = sessionTokenService.requireSession(request);
             Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
-            return service.createAiSuiteDraft(resolvedOwnerUserId, storeCode, profileId, session.getUserId());
+            return service.createAiSuiteDraft(
+                    resolvedOwnerUserId,
+                    storeCode,
+                    profileId,
+                    generationRequest == null ? null : generationRequest.getSkinId(),
+                    session.getUserId()
+            );
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (ProductImageProfileNotFoundException exception) {
+            throw notFound(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    ProductImageProfileDetailView createAiSuiteDraft(
+            Long profileId,
+            Long ownerUserId,
+            String storeCode,
+            HttpServletRequest request
+    ) {
+        return createAiSuiteDraft(profileId, ownerUserId, storeCode, null, request);
+    }
+
+    @PostMapping("/profiles/{profileId}/suites/{suiteId}/approve")
+    public ProductImageProfileDetailView approveSuite(
+            @PathVariable Long profileId,
+            @PathVariable Long suiteId,
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            HttpServletRequest request
+    ) {
+        ProductImageProfileService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            return service.approveSuite(resolvedOwnerUserId, storeCode, profileId, suiteId, session.getUserId());
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (ProductImageProfileNotFoundException exception) {
+            throw notFound(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/profiles/{profileId}/suites/{suiteId}/reject")
+    public ProductImageProfileDetailView rejectSuite(
+            @PathVariable Long profileId,
+            @PathVariable Long suiteId,
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            @RequestBody(required = false) ProductImageReviewRejectRequest reviewRequest,
+            HttpServletRequest request
+    ) {
+        ProductImageProfileService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            return service.rejectSuite(
+                    resolvedOwnerUserId, storeCode, profileId, suiteId, reviewRequest, session.getUserId()
+            );
+        } catch (ProductMasterAccessDeniedException exception) {
+            throw productAccessDenied(exception);
+        } catch (ProductImageProfileNotFoundException exception) {
+            throw notFound(exception);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+    @PostMapping("/profiles/{profileId}/suites/{suiteId}/retry")
+    public ProductImageProfileDetailView retrySuite(
+            @PathVariable Long profileId,
+            @PathVariable Long suiteId,
+            @RequestParam(value = "ownerUserId", required = false) Long ownerUserId,
+            @RequestParam String storeCode,
+            HttpServletRequest request
+    ) {
+        ProductImageProfileService service = requireService();
+        try {
+            AuthenticatedSession session = sessionTokenService.requireSession(request);
+            Long resolvedOwnerUserId = accessGuard().resolveOwnerUserId(session, ownerUserId, storeCode);
+            return service.retrySuite(resolvedOwnerUserId, storeCode, profileId, suiteId, session.getUserId());
         } catch (ProductMasterAccessDeniedException exception) {
             throw productAccessDenied(exception);
         } catch (ProductImageProfileNotFoundException exception) {

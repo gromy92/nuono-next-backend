@@ -29,6 +29,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -51,6 +52,7 @@ public class ProductImageProfileService {
     private final OperationsSkinMapper operationsSkinMapper;
     private final ProductPublicDetailMapper productPublicDetailMapper;
     private final AiCapabilityService aiCapabilityService;
+    private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final NoonImageTechnicalComplianceEvaluator noonComplianceEvaluator = new NoonImageTechnicalComplianceEvaluator();
 
@@ -59,16 +61,27 @@ public class ProductImageProfileService {
             ProductImageProfileMapper mapper,
             OperationsSkinMapper operationsSkinMapper,
             ProductPublicDetailMapper productPublicDetailMapper,
-            AiCapabilityService aiCapabilityService
+            AiCapabilityService aiCapabilityService,
+            ApplicationEventPublisher eventPublisher
     ) {
         this.mapper = mapper;
         this.operationsSkinMapper = operationsSkinMapper;
         this.productPublicDetailMapper = productPublicDetailMapper;
         this.aiCapabilityService = aiCapabilityService;
+        this.eventPublisher = eventPublisher == null ? event -> { } : eventPublisher;
+    }
+
+    ProductImageProfileService(
+            ProductImageProfileMapper mapper,
+            OperationsSkinMapper operationsSkinMapper,
+            ProductPublicDetailMapper productPublicDetailMapper,
+            AiCapabilityService aiCapabilityService
+    ) {
+        this(mapper, operationsSkinMapper, productPublicDetailMapper, aiCapabilityService, null);
     }
 
     ProductImageProfileService(ProductImageProfileMapper mapper, OperationsSkinMapper operationsSkinMapper) {
-        this(mapper, operationsSkinMapper, null, null);
+        this(mapper, operationsSkinMapper, null, null, null);
     }
 
     @Transactional
@@ -1284,10 +1297,24 @@ public class ProductImageProfileService {
             Long profileId,
             Long operatorUserId
     ) {
+        return createAiSuiteDraft(ownerUserId, storeCode, profileId, null, operatorUserId);
+    }
+
+    @Transactional
+    public ProductImageProfileDetailView createAiSuiteDraft(
+            Long ownerUserId,
+            String storeCode,
+            Long profileId,
+            Long skinId,
+            Long operatorUserId
+    ) {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        ActiveHeroSkin activeSkin = requireActiveHeroSkin(resolvedOwnerUserId, normalizedStoreCode);
+        validateGenerationReadiness(profile);
+        ActiveHeroSkin activeSkin = skinId == null
+                ? requireActiveHeroSkin(resolvedOwnerUserId, normalizedStoreCode)
+                : requireSelectedHeroSkin(resolvedOwnerUserId, normalizedStoreCode, skinId);
         List<ProductImageSectionRecord> sections = safeList(mapper.selectSections(profile.getId()));
         List<ProductImageProfileAssetView> baseImages = combineBaseAndProfileAssets(profile);
         List<String> sellingPoints = parseHeroSellingPoints(profile.getHeroSellingPointsJson());
@@ -1312,20 +1339,144 @@ public class ProductImageProfileService {
         LocalDateTime now = LocalDateTime.now();
         ProductImageSuiteRecord suite = new ProductImageSuiteRecord();
         suite.setProfileId(profile.getId());
+        suite.setRevisionNo(1);
         suite.setSuiteName(buildDraftSuiteName(profile, now));
         suite.setSkinId(activeSkin.skin().getId());
         suite.setSkinName(activeSkin.skin().getSkinName());
         suite.setGenerationTaskId(buildDraftTaskId(profile, now));
         suite.setDraftPackageJson(draftPackageJson);
         suite.setDraftPromptText(draftPromptText);
-        suite.setSuiteStatus(ProductImageSuiteStatus.DRAFT);
+        suite.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
         suite.setCreatedBy(operatorUserId);
         suite.setUpdatedBy(operatorUserId);
         suite.setCreatedAt(now);
         suite.setUpdatedAt(now);
         suite.setDeleted(false);
         if (mapper.insertSuite(suite) == 0 || suite.getId() == null) {
-            throw new IllegalStateException("AI 套图草稿保存失败。");
+            throw new IllegalStateException("AI 套图任务保存失败。");
+        }
+        eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
+                suite.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+        ));
+        return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
+    }
+
+    @Transactional
+    public ProductImageProfileDetailView approveSuite(
+            Long ownerUserId, String storeCode, Long profileId, Long suiteId, Long operatorUserId
+    ) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        if (safeList(mapper.selectSuiteAssets(suiteId)).isEmpty()) throw new IllegalArgumentException("套图没有可发布的图片。");
+        if (!StringUtils.hasText(mapper.selectSkuParentByProductMasterId(profile.getProductMasterId()))) {
+            throw new IllegalArgumentException("该商品尚未在 Noon 上线，不能发布图片。");
+        }
+        if (mapper.reviewSuite(
+                suiteId, profile.getId(), ProductImageSuiteStatus.PUBLISHING, null, operatorUserId
+        ) == 0) {
+            throw new IllegalArgumentException("只有待审核套图可以审核通过。");
+        }
+        eventPublisher.publishEvent(new ProductImagePublishSubmittedEvent(
+                suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+        ));
+        return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
+    }
+
+    @Transactional
+    public ProductImageProfileDetailView rejectSuite(
+            Long ownerUserId,
+            String storeCode,
+            Long profileId,
+            Long suiteId,
+            ProductImageReviewRejectRequest request,
+            Long operatorUserId
+    ) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
+        ProductImageSuiteRecord source = requireSuite(profile.getId(), suiteId);
+        String comment = trimToNull(request == null ? null : request.getComment());
+        if (comment == null) throw new IllegalArgumentException("审核不通过时必须填写审核意见。");
+        if (comment.length() > 2000) throw new IllegalArgumentException("审核意见不能超过 2000 字。");
+        List<ProductImageSuiteAssetRecord> sourceAssets = safeList(mapper.selectSuiteAssets(suiteId));
+        Set<Long> selectedIds = request == null ? Set.of() : new LinkedHashSet<>(safeList(request.getAssetIds()));
+        boolean wholeSuite = request != null && request.isWholeSuite();
+        if (!wholeSuite && selectedIds.isEmpty()) throw new IllegalArgumentException("请选择需要重做的图片，或选择整套重做。");
+        if (!wholeSuite && sourceAssets.stream().filter(asset -> selectedIds.contains(asset.getId())).count() != selectedIds.size()) {
+            throw new IllegalArgumentException("选择的返工图片不属于当前套图。");
+        }
+        if (mapper.reviewSuite(
+                suiteId, profile.getId(), ProductImageSuiteStatus.HISTORICAL, comment, operatorUserId
+        ) == 0) {
+            throw new IllegalArgumentException("只有待审核套图可以驳回返工。");
+        }
+        if (wholeSuite) {
+            mapper.insertReviewTarget(suiteId, "SUITE", null, null, null, operatorUserId);
+        } else {
+            for (ProductImageSuiteAssetRecord asset : sourceAssets) {
+                if (selectedIds.contains(asset.getId())) {
+                    mapper.insertReviewTarget(
+                            suiteId, "IMAGE", asset.getId(), asset.getImageRole(), asset.getRoleOrdinal(), operatorUserId
+                    );
+                }
+            }
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        ProductImageSuiteRecord revision = new ProductImageSuiteRecord();
+        revision.setProfileId(profile.getId());
+        revision.setParentSuiteId(source.getId());
+        revision.setRevisionNo((source.getRevisionNo() == null ? 1 : source.getRevisionNo()) + 1);
+        revision.setSuiteName(source.getSuiteName() + " 返工版" + revision.getRevisionNo());
+        revision.setSkinId(source.getSkinId());
+        revision.setSkinName(source.getSkinName());
+        revision.setGenerationTaskId(buildDraftTaskId(profile, now));
+        revision.setDraftPackageJson(source.getDraftPackageJson());
+        revision.setDraftPromptText(source.getDraftPromptText());
+        revision.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
+        revision.setReviewComment(comment);
+        revision.setCreatedBy(operatorUserId);
+        revision.setUpdatedBy(operatorUserId);
+        revision.setCreatedAt(now);
+        revision.setUpdatedAt(now);
+        revision.setDeleted(false);
+        if (mapper.insertSuite(revision) == 0 || revision.getId() == null) throw new IllegalStateException("返工任务保存失败。");
+        for (ProductImageSuiteAssetRecord sourceAsset : sourceAssets) {
+            if (wholeSuite || selectedIds.contains(sourceAsset.getId())) continue;
+            ProductImageSuiteAssetRecord retained = copySuiteAsset(
+                    sourceAsset,
+                    revision.getId(),
+                    sourceAsset.getSortOrder() == null ? 10 : sourceAsset.getSortOrder()
+            );
+            mapper.insertSuiteAsset(retained);
+        }
+        eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
+                revision.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+        ));
+        return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
+    }
+
+    @Transactional
+    public ProductImageProfileDetailView retrySuite(
+            Long ownerUserId, String storeCode, Long profileId, Long suiteId, Long operatorUserId
+    ) {
+        Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
+        String normalizedStoreCode = requireStoreCode(storeCode);
+        ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        if (suite.getSuiteStatus() != ProductImageSuiteStatus.FAILED) throw new IllegalArgumentException("只有失败任务可以重试。");
+        if ("PUBLISH".equalsIgnoreCase(suite.getFailureStage())) {
+            mapper.updateSuiteWorkflowStatus(suiteId, ProductImageSuiteStatus.PUBLISHING, null, null, operatorUserId);
+            eventPublisher.publishEvent(new ProductImagePublishSubmittedEvent(
+                    suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+            ));
+        } else {
+            mapper.updateSuiteWorkflowStatus(suiteId, ProductImageSuiteStatus.PENDING_GENERATION, null, null, operatorUserId);
+            eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
+                    suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+            ));
         }
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
@@ -1549,6 +1700,8 @@ public class ProductImageProfileService {
     private ProductImageSuiteView toSuiteView(ProductImageSuiteRecord record) {
         ProductImageSuiteView view = new ProductImageSuiteView();
         view.setId(record.getId());
+        view.setParentSuiteId(record.getParentSuiteId());
+        view.setRevisionNo(record.getRevisionNo());
         view.setSuiteName(record.getSuiteName());
         view.setSkinId(record.getSkinId());
         view.setSkinName(record.getSkinName());
@@ -1556,6 +1709,11 @@ public class ProductImageProfileService {
         view.setDraftPackageJson(record.getDraftPackageJson());
         view.setDraftPromptText(record.getDraftPromptText());
         view.setSuiteStatus(record.getSuiteStatus());
+        view.setReviewComment(record.getReviewComment());
+        view.setFailureStage(record.getFailureStage());
+        view.setFailureReason(record.getFailureReason());
+        view.setReviewedAt(format(record.getReviewedAt()));
+        view.setPublishedAt(format(record.getPublishedAt()));
         view.setAdoptedAt(format(record.getAdoptedAt()));
         view.setUpdatedAt(format(record.getUpdatedAt()));
         view.setAssets(safeList(mapper.selectSuiteAssets(record.getId())).stream()
@@ -1568,9 +1726,27 @@ public class ProductImageProfileService {
         ProductImageSuiteAssetView view = new ProductImageSuiteAssetView();
         view.setId(record.getId());
         view.setImageRole(record.getImageRole());
+        view.setRoleOrdinal(record.getRoleOrdinal());
         view.setImageUrl(record.getImageUrl());
         view.setSortOrder(record.getSortOrder());
         return view;
+    }
+
+    private ProductImageSuiteAssetRecord copySuiteAsset(
+            ProductImageSuiteAssetRecord source,
+            Long targetSuiteId,
+            int sortOrder
+    ) {
+        ProductImageSuiteAssetRecord target = new ProductImageSuiteAssetRecord();
+        target.setSuiteId(targetSuiteId);
+        target.setImageRole(source.getImageRole());
+        target.setRoleOrdinal(source.getRoleOrdinal() == null ? 1 : source.getRoleOrdinal());
+        target.setImageUrl(source.getImageUrl());
+        target.setContentType(source.getContentType());
+        target.setSizeBytes(source.getSizeBytes());
+        target.setSha256(source.getSha256());
+        target.setSortOrder(sortOrder);
+        return target;
     }
 
     private List<ProductImageSectionRecord> normalizeSections(
@@ -1699,6 +1875,34 @@ public class ProductImageProfileService {
             return candidates.get(0);
         }
         throw new IllegalArgumentException("当前店铺没有完整的主图皮肤。");
+    }
+
+    private ActiveHeroSkin requireSelectedHeroSkin(Long ownerUserId, String storeCode, Long skinId) {
+        OperationsSkinRecord skin = operationsSkinMapper.selectSkinById(skinId, ownerUserId, storeCode);
+        if (skin == null || !"ACTIVE".equalsIgnoreCase(trimToNull(skin.getStatus()))) {
+            throw new IllegalArgumentException("所选皮肤不存在或未启用。");
+        }
+        List<OperationsSkinComponentRecord> components = completedSkinComponents(
+                operationsSkinMapper.selectComponents(skin.getId(), ownerUserId, storeCode)
+        );
+        if (!hasRequiredHeroComponents(completedHeroComponents(components))) {
+            throw new IllegalArgumentException("所选皮肤资料不完整，请先补全皮肤组件。");
+        }
+        return new ActiveHeroSkin(skin, components, effectiveSkinUpdatedAt(skin, components));
+    }
+
+    private void validateGenerationReadiness(ProductImageProfileRecord profile) {
+        List<String> missing = new ArrayList<>();
+        if (trimToNull(profile.getBrand()) == null) missing.add("品牌");
+        if (trimToNull(profile.getTitleAr()) == null && trimToNull(profile.getTitleEn()) == null) missing.add("英文或阿语标题");
+        if (trimToNull(profile.getSpecSummary()) == null) missing.add("规格摘要");
+        if (trimToNull(profile.getProductFactText()) == null) missing.add("商品事实资料");
+        boolean hasBaseImage = !safeList(mapper.selectAssets(profile.getId())).isEmpty()
+                || (profile.getProductMasterId() != null && !safeList(mapper.selectCurrentProductImages(profile.getProductMasterId())).isEmpty());
+        if (!hasBaseImage) missing.add("基础图片");
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException("请先补全商品资料：" + String.join("、", missing) + "。");
+        }
     }
 
     private LocalDateTime effectiveSkinUpdatedAt(
