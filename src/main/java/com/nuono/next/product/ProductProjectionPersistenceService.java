@@ -284,7 +284,14 @@ public class ProductProjectionPersistenceService {
         if (variantId == null) {
             return;
         }
-        persistBarcode(variantId, extractBarcode(snapshot), ownerUserId);
+        persistBarcode(
+                variantId,
+                productMasterId,
+                logicalStoreId,
+                partnerSku,
+                extractBarcode(snapshot),
+                ownerUserId
+        );
 
         boolean wroteSiteOffer = false;
         Map<String, Map<String, Object>> existingProjectionOffers = existingProjectionOffersByStoreCode(productMasterId);
@@ -2693,7 +2700,14 @@ public class ProductProjectionPersistenceService {
         if (variantId == null) {
             return;
         }
-        persistBarcode(variantId, seed.getBarcode(), updatedBy);
+        persistBarcode(
+                variantId,
+                productMasterId,
+                logicalStoreId,
+                seed.getPartnerSku(),
+                seed.getBarcode(),
+                updatedBy
+        );
         if (seed.getSiteOffers().isEmpty()) {
             seed.addSiteOffer(SiteOfferSeed.fromRepresentative(seed));
         }
@@ -2857,9 +2871,21 @@ public class ProductProjectionPersistenceService {
         );
     }
 
-    private void persistBarcode(Long variantId, String barcode, Long updatedBy) {
+    private void persistBarcode(
+            Long variantId,
+            Long productMasterId,
+            Long logicalStoreId,
+            String partnerSku,
+            String barcode,
+            Long updatedBy
+    ) {
         String normalizedBarcode = normalize(barcode);
-        if (variantId == null || !StringUtils.hasText(normalizedBarcode)) {
+        String normalizedPartnerSku = normalize(partnerSku);
+        if (variantId == null
+                || productMasterId == null
+                || logicalStoreId == null
+                || !StringUtils.hasText(normalizedPartnerSku)
+                || !StringUtils.hasText(normalizedBarcode)) {
             return;
         }
         Long activeId = productManagementMapper.selectProductBarcodeIdByBarcode(normalizedBarcode);
@@ -2867,15 +2893,18 @@ public class ProductProjectionPersistenceService {
         productManagementMapper.upsertProductBarcode(
                 id,
                 variantId,
+                productMasterId,
+                logicalStoreId,
+                normalizedPartnerSku,
                 normalizedBarcode,
                 null,
                 true,
                 updatedBy
         );
-        Long persistedVariantId = productManagementMapper.selectProductBarcodeVariantIdByBarcode(normalizedBarcode);
-        if (!variantId.equals(persistedVariantId)) {
+        Long persistedProductMasterId = productManagementMapper.selectProductBarcodeProductMasterIdByBarcode(normalizedBarcode);
+        if (!productMasterId.equals(persistedProductMasterId)) {
             throw new IllegalStateException(
-                    "Barcode " + normalizedBarcode + " is already assigned to another product variant."
+                    "Barcode " + normalizedBarcode + " is already assigned to another product."
             );
         }
     }

@@ -1,7 +1,6 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundLineRow;
-import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.ProductIdentityRow;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.StockRow;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -23,6 +22,21 @@ public interface ReplenishmentPlanMapper {
             + "AND received.node_status IN ('warehouse_received', 'cancelled') AND received.is_deleted = b'0') "
             + "AND (batch.eta_date IS NOT NULL OR " + DEPARTURE_DATE_EXPRESSION + " IS NULL OR "
             + DEPARTURE_DATE_EXPRESSION + " >= DATE_SUB(CURDATE(), INTERVAL 7 MONTH))";
+
+    String BATCH_SITE_EXPRESSION = "CASE "
+            + "WHEN UPPER(TRIM(COALESCE(batch.target_store_code, ''))) = 'RUH' "
+            + "AND UPPER(TRIM(COALESCE(batch.target_site_code, ''))) IN ('', 'SA') THEN 'SA' "
+            + "WHEN UPPER(TRIM(COALESCE(batch.target_store_code, ''))) IN ('DB', 'DXB') "
+            + "AND UPPER(TRIM(COALESCE(batch.target_site_code, ''))) IN ('', 'AE') THEN 'AE' "
+            + "WHEN NULLIF(TRIM(batch.target_store_code), '') IS NULL "
+            + "AND UPPER(TRIM(COALESCE(batch.target_site_code, ''))) IN ('SA', 'AE') "
+            + "THEN UPPER(TRIM(batch.target_site_code)) "
+            + "ELSE NULL END";
+
+    String BATCH_DESTINATION_EXPRESSION = "CASE "
+            + "WHEN " + BATCH_SITE_EXPRESSION + " = 'SA' THEN 'RUH' "
+            + "WHEN " + BATCH_SITE_EXPRESSION + " = 'AE' THEN 'DB' "
+            + "ELSE NULL END";
 
     @ConstructorArgs({
             @Arg(column = "partnerSku", javaType = String.class),
@@ -89,9 +103,10 @@ public interface ReplenishmentPlanMapper {
 
     @ConstructorArgs({
             @Arg(column = "lineId", javaType = Long.class),
-            @Arg(column = "psku", javaType = String.class),
-            @Arg(column = "sku", javaType = String.class),
-            @Arg(column = "msku", javaType = String.class),
+            @Arg(column = "partnerSku", javaType = String.class),
+            @Arg(column = "destinationCode", javaType = String.class),
+            @Arg(column = "resolvedSiteCode", javaType = String.class),
+            @Arg(column = "scopeStatus", javaType = String.class),
             @Arg(column = "batchId", javaType = Long.class),
             @Arg(column = "batchReferenceNo", javaType = String.class),
             @Arg(column = "transportMode", javaType = String.class),
@@ -102,9 +117,10 @@ public interface ReplenishmentPlanMapper {
     @Select({
             "SELECT",
             "  line.id AS lineId,",
-            "  line.psku AS psku,",
-            "  line.sku AS sku,",
-            "  line.msku AS msku,",
+            "  pb.partner_sku AS partnerSku,",
+            "  " + BATCH_DESTINATION_EXPRESSION + " AS destinationCode,",
+            "  " + BATCH_SITE_EXPRESSION + " AS resolvedSiteCode,",
+            "  CASE WHEN " + BATCH_SITE_EXPRESSION + " IS NULL THEN 'SITE_UNRESOLVED' ELSE 'MATCHED' END AS scopeStatus,",
             "  batch.id AS batchId,",
             "  batch.batch_reference_no AS batchReferenceNo,",
             "  batch.transport_mode AS transportMode,",
@@ -116,19 +132,38 @@ public interface ReplenishmentPlanMapper {
             "JOIN in_transit_batch batch ON batch.owner_user_id = line.owner_user_id",
             "  AND batch.id = line.batch_id",
             "  AND batch.is_deleted = b'0'",
+            "JOIN product_barcode pb ON pb.barcode = line.sku",
+            "  AND pb.is_deleted = b'0'",
+            "  AND pb.logical_store_id IS NOT NULL",
+            "  AND NULLIF(TRIM(pb.partner_sku), '') IS NOT NULL",
+            "  AND COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'",
+            "JOIN product_master pm ON pm.id = pb.product_master_id",
+            "  AND pm.logical_store_id = pb.logical_store_id",
+            "  AND BINARY pm.partner_sku = BINARY pb.partner_sku",
+            "  AND pm.is_deleted = b'0'",
+            "JOIN logical_store ls ON ls.id = pb.logical_store_id",
+            "  AND ls.owner_user_id = #{ownerUserId}",
+            "  AND ls.is_deleted = b'0'",
+            "JOIN logical_store_site requested_site ON requested_site.logical_store_id = pb.logical_store_id",
+            "  AND requested_site.store_code = #{storeCode}",
+            "  AND requested_site.site = #{siteCode}",
+            "  AND requested_site.site_enabled = b'1'",
+            "  AND requested_site.is_deleted = b'0'",
             "WHERE line.owner_user_id = #{ownerUserId}",
             "  AND line.is_deleted = b'0'",
-            "  AND (",
-            "    (line.store_code = #{storeCode} AND line.site_code = #{siteCode})",
-            "    OR (",
-            "      NULLIF(TRIM(line.store_code), '') IS NULL",
-            "      AND (NULLIF(TRIM(line.site_code), '') IS NULL OR line.site_code = #{siteCode})",
-            "    )",
-            "    OR (line.store_code = #{storeCode} AND NULLIF(TRIM(line.site_code), '') IS NULL)",
-            "  )",
+            "  AND NULLIF(TRIM(line.sku), '') IS NOT NULL",
             ACTIVE_BATCH_FILTER,
             "  AND GREATEST(COALESCE(line.remaining_quantity,",
             "    COALESCE(line.shipped_quantity, 0) - COALESCE(line.received_quantity, 0)), 0) > 0",
+            "  AND EXISTS (",
+            "    SELECT 1 FROM product_site_offer target_offer",
+            "    WHERE target_offer.logical_store_id = pb.logical_store_id",
+            "      AND BINARY target_offer.partner_sku = BINARY pb.partner_sku",
+            "      AND target_offer.site_code = requested_site.site",
+            "      AND target_offer.site_id = requested_site.id",
+            "      AND target_offer.is_deleted = b'0'",
+            "  )",
+            "  AND (" + BATCH_SITE_EXPRESSION + " = requested_site.site OR " + BATCH_SITE_EXPRESSION + " IS NULL)",
             "ORDER BY batch.eta_date IS NULL ASC, batch.eta_date ASC, batch.id ASC, line.id ASC"
     })
     List<InboundLineRow> selectActiveInboundLines(
@@ -137,47 +172,4 @@ public interface ReplenishmentPlanMapper {
             @Param("siteCode") String siteCode
     );
 
-    @ConstructorArgs({
-            @Arg(column = "partnerSku", javaType = String.class),
-            @Arg(column = "psoPartnerSku", javaType = String.class),
-            @Arg(column = "psoPskuCode", javaType = String.class),
-            @Arg(column = "psoOfferCode", javaType = String.class),
-            @Arg(column = "childSku", javaType = String.class),
-            @Arg(column = "skuParent", javaType = String.class),
-            @Arg(column = "barcode", javaType = String.class)
-    })
-    @Select({
-            "SELECT",
-            "  pv.partner_sku AS partnerSku,",
-            "  pso.partner_sku AS psoPartnerSku,",
-            "  pso.psku_code AS psoPskuCode,",
-            "  pso.offer_code AS psoOfferCode,",
-            "  pv.child_sku AS childSku,",
-            "  pm.sku_parent AS skuParent,",
-            "  pb.barcode AS barcode",
-            "FROM logical_store_site lss",
-            "JOIN logical_store ls ON ls.id = lss.logical_store_id",
-            "  AND ls.owner_user_id = #{ownerUserId}",
-            "  AND ls.is_deleted = b'0'",
-            "JOIN product_site_offer pso ON pso.site_id = lss.id",
-            "  AND pso.is_deleted = b'0'",
-            "JOIN product_variant pv ON pv.id = pso.variant_id",
-            "  AND pv.logical_store_id = ls.id",
-            "  AND pv.is_deleted = b'0'",
-            "JOIN product_master pm ON pm.id = pv.product_master_id",
-            "  AND pm.logical_store_id = ls.id",
-            "  AND pm.is_deleted = b'0'",
-            "LEFT JOIN product_barcode pb ON pb.variant_id = pv.id",
-            "  AND pb.is_deleted = b'0'",
-            "WHERE lss.store_code = #{storeCode}",
-            "  AND lss.site = #{siteCode}",
-            "  AND lss.is_deleted = b'0'",
-            "  AND NULLIF(TRIM(pv.partner_sku), '') IS NOT NULL",
-            "ORDER BY pv.partner_sku ASC, pso.id ASC, pb.is_primary DESC, pb.id ASC"
-    })
-    List<ProductIdentityRow> selectProductIdentities(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode
-    );
 }

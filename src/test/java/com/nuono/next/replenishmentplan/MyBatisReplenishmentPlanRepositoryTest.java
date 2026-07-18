@@ -2,12 +2,10 @@ package com.nuono.next.replenishmentplan;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.infrastructure.mapper.ReplenishmentPlanMapper;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundLineRow;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundRow;
-import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.ProductIdentityRow;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.StockRow;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -17,17 +15,14 @@ import org.junit.jupiter.api.Test;
 class MyBatisReplenishmentPlanRepositoryTest {
 
     @Test
-    void pskuMatchWinsOverSkuAndMskuAndLineContributesOnce() {
+    void barcodeResolvedPartnerSkuContributesOnceAndPreservesDestination() {
         FakeMapper mapper = new FakeMapper();
-        mapper.productIdentities = List.of(
-                identity("P1", "P1", "P1-PSKU", "P1-OFFER", "P1-CHILD", "PARENT-1", "BAR-P1"),
-                identity("P2", "P2", "SKU-MATCH-P2", "MSKU-MATCH-P2", "SKU-MATCH-P2", "PARENT-2", "BAR-P2")
-        );
         mapper.inboundLines = List.of(line(
                 10L,
                 " P1 ",
-                "SKU-MATCH-P2",
-                "MSKU-MATCH-P2",
+                "DB",
+                "AE",
+                "MATCHED",
                 100L,
                 "B-100",
                 "sea",
@@ -40,21 +35,20 @@ class MyBatisReplenishmentPlanRepositoryTest {
 
         assertEquals(1, rows.size());
         assertEquals("P1", rows.get(0).getPartnerSku());
+        assertEquals("DB", rows.get(0).getDestinationCode());
+        assertEquals(true, rows.get(0).isScopeResolved());
         assertEquals(new BigDecimal("5"), rows.get(0).getRemainingQuantity());
     }
 
     @Test
-    void ambiguousCodeWithoutHigherPriorityUniqueMatchIsSkipped() {
+    void unresolvedDestinationIsReturnedAsBlockingEvidence() {
         FakeMapper mapper = new FakeMapper();
-        mapper.productIdentities = List.of(
-                identity("P1", null, null, null, null, "SHARED-PARENT", null),
-                identity("P2", null, null, null, null, "SHARED-PARENT", null)
-        );
         mapper.inboundLines = List.of(line(
                 20L,
+                "P1",
                 null,
                 null,
-                "shared-parent",
+                "SITE_UNRESOLVED",
                 200L,
                 "B-200",
                 "air",
@@ -65,18 +59,18 @@ class MyBatisReplenishmentPlanRepositoryTest {
 
         List<InboundRow> rows = repository(mapper).listActiveInbound(1L, "noon", "ae");
 
-        assertTrue(rows.isEmpty());
+        assertEquals(1, rows.size());
+        assertEquals("P1", rows.get(0).getPartnerSku());
+        assertEquals(false, rows.get(0).isScopeResolved());
+        assertNull(rows.get(0).getDestinationCode());
     }
 
     @Test
     void nullEtaRowsAreReturnedAndSameBatchRowsAreAggregated() {
         FakeMapper mapper = new FakeMapper();
-        mapper.productIdentities = List.of(
-                identity("P1", "P1", "P1-PSKU", "P1-OFFER", "P1-CHILD", "PARENT-1", "BAR-P1")
-        );
         mapper.inboundLines = List.of(
-                line(30L, "P1", null, null, 300L, "B-300", "sea", "in_transit", null, "3"),
-                line(31L, "p1", null, null, 300L, "B-300", "sea", "in_transit", null, "4")
+                line(30L, "P1", "RUH", "SA", "MATCHED", 300L, "B-300", "sea", "in_transit", null, "3"),
+                line(31L, "P1", "RUH", "SA", "MATCHED", 300L, "B-300", "sea", "in_transit", null, "4")
         );
 
         List<InboundRow> rows = repository(mapper).listActiveInbound(1L, "noon", "ae");
@@ -84,6 +78,7 @@ class MyBatisReplenishmentPlanRepositoryTest {
         assertEquals(1, rows.size());
         assertEquals("P1", rows.get(0).getPartnerSku());
         assertEquals(300L, rows.get(0).getBatchId());
+        assertEquals("RUH", rows.get(0).getDestinationCode());
         assertNull(rows.get(0).getEtaDate());
         assertEquals(new BigDecimal("7"), rows.get(0).getRemainingQuantity());
     }
@@ -92,31 +87,12 @@ class MyBatisReplenishmentPlanRepositoryTest {
         return new MyBatisReplenishmentPlanRepository(mapper);
     }
 
-    private static ProductIdentityRow identity(
-            String partnerSku,
-            String psoPartnerSku,
-            String psoPskuCode,
-            String psoOfferCode,
-            String childSku,
-            String skuParent,
-            String barcode
-    ) {
-        return new ProductIdentityRow(
-                partnerSku,
-                psoPartnerSku,
-                psoPskuCode,
-                psoOfferCode,
-                childSku,
-                skuParent,
-                barcode
-        );
-    }
-
     private static InboundLineRow line(
             Long lineId,
-            String psku,
-            String sku,
-            String msku,
+            String partnerSku,
+            String destinationCode,
+            String resolvedSiteCode,
+            String scopeStatus,
             Long batchId,
             String batchReferenceNo,
             String transportMode,
@@ -126,9 +102,10 @@ class MyBatisReplenishmentPlanRepositoryTest {
     ) {
         return new InboundLineRow(
                 lineId,
-                psku,
-                sku,
-                msku,
+                partnerSku,
+                destinationCode,
+                resolvedSiteCode,
+                scopeStatus,
                 batchId,
                 batchReferenceNo,
                 transportMode,
@@ -141,7 +118,6 @@ class MyBatisReplenishmentPlanRepositoryTest {
     private static final class FakeMapper implements ReplenishmentPlanMapper {
         private List<StockRow> stockRows = List.of();
         private List<InboundLineRow> inboundLines = List.of();
-        private List<ProductIdentityRow> productIdentities = List.of();
 
         @Override
         public List<StockRow> selectFbnSupermallStock(Long ownerUserId, String storeCode, String siteCode) {
@@ -151,11 +127,6 @@ class MyBatisReplenishmentPlanRepositoryTest {
         @Override
         public List<InboundLineRow> selectActiveInboundLines(Long ownerUserId, String storeCode, String siteCode) {
             return inboundLines;
-        }
-
-        @Override
-        public List<ProductIdentityRow> selectProductIdentities(Long ownerUserId, String storeCode, String siteCode) {
-            return productIdentities;
         }
     }
 }

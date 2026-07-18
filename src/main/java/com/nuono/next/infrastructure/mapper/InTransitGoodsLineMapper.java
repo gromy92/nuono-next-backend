@@ -2,8 +2,11 @@ package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.intransit.InTransitBatchRecords.LineRow;
 import com.nuono.next.intransit.InTransitBatchRecords.PackageRow;
+import com.nuono.next.intransit.BarcodeProductIdentity;
 import com.nuono.next.intransit.InTransitPluginSyncRecords.EtBoxSyncStateRow;
 import java.util.List;
+import org.apache.ibatis.annotations.Arg;
+import org.apache.ibatis.annotations.ConstructorArgs;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -45,26 +48,30 @@ public interface InTransitGoodsLineMapper extends InTransitGoodsSequenceMapper {
             @Param("psku") String psku
     );
 
+    @ConstructorArgs({
+            @Arg(column = "logicalStoreId", javaType = Long.class),
+            @Arg(column = "partnerSku", javaType = String.class)
+    })
     @Select({
-            "SELECT pv.partner_sku",
+            "SELECT pb.logical_store_id AS logicalStoreId, pb.partner_sku AS partnerSku",
             "FROM product_barcode pb",
-            "JOIN product_variant pv",
-            "  ON pv.id = pb.variant_id",
-            " AND pv.is_deleted = b'0'",
             "JOIN product_master pm",
-            "  ON pm.id = pv.product_master_id",
-            " AND pm.logical_store_id = pv.logical_store_id",
+            "  ON pm.id = pb.product_master_id",
+            " AND pm.logical_store_id = pb.logical_store_id",
+            " AND BINARY pm.partner_sku = BINARY pb.partner_sku",
             " AND pm.is_deleted = b'0'",
             "JOIN logical_store ls",
-            "  ON ls.id = pv.logical_store_id",
+            "  ON ls.id = pb.logical_store_id",
             " AND ls.owner_user_id = #{ownerUserId}",
             " AND ls.is_deleted = b'0'",
             "WHERE pb.barcode = #{barcode}",
             "  AND pb.is_deleted = b'0'",
+            "  AND pb.logical_store_id IS NOT NULL",
+            "  AND NULLIF(TRIM(pb.partner_sku), '') IS NOT NULL",
             "  AND COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'",
             "LIMIT 1"
     })
-    String selectPartnerSkuByBarcode(
+    BarcodeProductIdentity selectProductIdentityByBarcode(
             @Param("ownerUserId") Long ownerUserId,
             @Param("barcode") String barcode
     );
