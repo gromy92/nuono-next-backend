@@ -1179,7 +1179,8 @@ public class InTransitPluginSyncService {
             String barcode,
             List<PluginSyncIssueView> issues
     ) {
-        String partnerSku = mapper.selectPartnerSkuByBarcode(ownerUserId, clean(barcode));
+        BarcodeProductIdentity identity = mapper.selectProductIdentityByBarcode(ownerUserId, clean(barcode));
+        String partnerSku = identity == null ? null : identity.getPartnerSku();
         if (!StringUtils.hasText(partnerSku)) {
             issues.add(PluginSyncIssueView.error(
                     batchNo,
@@ -1193,7 +1194,8 @@ public class InTransitPluginSyncService {
     }
 
     private String requirePartnerSkuFromBarcode(Long ownerUserId, String barcode) {
-        String partnerSku = mapper.selectPartnerSkuByBarcode(ownerUserId, clean(barcode));
+        BarcodeProductIdentity identity = mapper.selectProductIdentityByBarcode(ownerUserId, clean(barcode));
+        String partnerSku = identity == null ? null : identity.getPartnerSku();
         if (!StringUtils.hasText(partnerSku)) {
             throw new IllegalStateException("物流商品 barcode 未匹配到系统商品：" + clean(barcode));
         }

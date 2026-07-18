@@ -90,9 +90,10 @@ public interface ReplenishmentPlanRepository {
 
     final class InboundLineRow {
         private final Long lineId;
-        private final String psku;
-        private final String sku;
-        private final String msku;
+        private final String partnerSku;
+        private final String destinationCode;
+        private final String resolvedSiteCode;
+        private final String scopeStatus;
         private final Long batchId;
         private final String batchReferenceNo;
         private final String transportMode;
@@ -102,9 +103,10 @@ public interface ReplenishmentPlanRepository {
 
         public InboundLineRow(
                 Long lineId,
-                String psku,
-                String sku,
-                String msku,
+                String partnerSku,
+                String destinationCode,
+                String resolvedSiteCode,
+                String scopeStatus,
                 Long batchId,
                 String batchReferenceNo,
                 String transportMode,
@@ -113,9 +115,10 @@ public interface ReplenishmentPlanRepository {
                 BigDecimal remainingQuantity
         ) {
             this.lineId = lineId;
-            this.psku = psku;
-            this.sku = sku;
-            this.msku = msku;
+            this.partnerSku = partnerSku;
+            this.destinationCode = destinationCode;
+            this.resolvedSiteCode = resolvedSiteCode;
+            this.scopeStatus = scopeStatus;
             this.batchId = batchId;
             this.batchReferenceNo = batchReferenceNo;
             this.transportMode = transportMode;
@@ -128,16 +131,20 @@ public interface ReplenishmentPlanRepository {
             return lineId;
         }
 
-        public String getPsku() {
-            return psku;
+        public String getPartnerSku() {
+            return partnerSku;
         }
 
-        public String getSku() {
-            return sku;
+        public String getDestinationCode() {
+            return destinationCode;
         }
 
-        public String getMsku() {
-            return msku;
+        public String getResolvedSiteCode() {
+            return resolvedSiteCode;
+        }
+
+        public String getScopeStatus() {
+            return scopeStatus;
         }
 
         public Long getBatchId() {
@@ -165,64 +172,10 @@ public interface ReplenishmentPlanRepository {
         }
     }
 
-    final class ProductIdentityRow {
-        private final String partnerSku;
-        private final String psoPartnerSku;
-        private final String psoPskuCode;
-        private final String psoOfferCode;
-        private final String childSku;
-        private final String skuParent;
-        private final String barcode;
-
-        public ProductIdentityRow(
-                String partnerSku,
-                String psoPartnerSku,
-                String psoPskuCode,
-                String psoOfferCode,
-                String childSku,
-                String skuParent,
-                String barcode
-        ) {
-            this.partnerSku = partnerSku;
-            this.psoPartnerSku = psoPartnerSku;
-            this.psoPskuCode = psoPskuCode;
-            this.psoOfferCode = psoOfferCode;
-            this.childSku = childSku;
-            this.skuParent = skuParent;
-            this.barcode = barcode;
-        }
-
-        public String getPartnerSku() {
-            return partnerSku;
-        }
-
-        public String getPsoPartnerSku() {
-            return psoPartnerSku;
-        }
-
-        public String getPsoPskuCode() {
-            return psoPskuCode;
-        }
-
-        public String getPsoOfferCode() {
-            return psoOfferCode;
-        }
-
-        public String getChildSku() {
-            return childSku;
-        }
-
-        public String getSkuParent() {
-            return skuParent;
-        }
-
-        public String getBarcode() {
-            return barcode;
-        }
-    }
-
     final class InboundRow {
         private final String partnerSku;
+        private final String destinationCode;
+        private final boolean scopeResolved;
         private final Long batchId;
         private final String batchReferenceNo;
         private final String transportMode;
@@ -239,7 +192,33 @@ public interface ReplenishmentPlanRepository {
                 LocalDate etaDate,
                 BigDecimal remainingQuantity
         ) {
+            this(
+                    partnerSku,
+                    null,
+                    true,
+                    batchId,
+                    batchReferenceNo,
+                    transportMode,
+                    batchStatus,
+                    etaDate,
+                    remainingQuantity
+            );
+        }
+
+        public InboundRow(
+                String partnerSku,
+                String destinationCode,
+                boolean scopeResolved,
+                Long batchId,
+                String batchReferenceNo,
+                String transportMode,
+                String batchStatus,
+                LocalDate etaDate,
+                BigDecimal remainingQuantity
+        ) {
             this.partnerSku = partnerSku;
+            this.destinationCode = destinationCode;
+            this.scopeResolved = scopeResolved;
             this.batchId = batchId;
             this.batchReferenceNo = batchReferenceNo;
             this.transportMode = transportMode;
@@ -250,6 +229,14 @@ public interface ReplenishmentPlanRepository {
 
         public String getPartnerSku() {
             return partnerSku;
+        }
+
+        public String getDestinationCode() {
+            return destinationCode;
+        }
+
+        public boolean isScopeResolved() {
+            return scopeResolved;
         }
 
         public Long getBatchId() {

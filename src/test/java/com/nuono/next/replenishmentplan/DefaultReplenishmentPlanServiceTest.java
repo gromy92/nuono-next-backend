@@ -78,6 +78,8 @@ class DefaultReplenishmentPlanServiceTest {
                 .thenReturn(List.of(
                         new InboundRow(
                                 "psku-001",
+                                "RUH",
+                                true,
                                 1001L,
                                 "BATCH-ETA",
                                 "SEA",
@@ -87,6 +89,8 @@ class DefaultReplenishmentPlanServiceTest {
                         ),
                         new InboundRow(
                                 " PSKU-001 ",
+                                "RUH",
+                                true,
                                 1002L,
                                 "BATCH-NO-ETA",
                                 "SEA",
@@ -120,9 +124,11 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(new BigDecimal("10"), row.getCurrentStockUnits());
         assertEquals(new BigDecimal("10"), row.getFbnStockUnits());
         assertEquals(new BigDecimal("20"), row.getKnownInboundUnits());
+        assertEquals("RUH", row.getInboundBatches().get(0).getDestinationCode());
         assertEquals(new BigDecimal("7"), row.getMissingEtaInboundQty());
         assertEquals(1, row.getMissingEtaBatchCount());
         assertEquals("BATCH-NO-ETA", row.getMissingEtaBatches().get(0).getBatchReferenceNo());
+        assertEquals("RUH", row.getMissingEtaBatches().get(0).getDestinationCode());
         assertEquals(BigDecimal.ZERO, row.getAirWindowForecastUnits());
         assertEquals(BigDecimal.ZERO, row.getAirCalculatedUnits());
         assertEquals(BigDecimal.ZERO, row.getAirSuggestedUnits());
@@ -156,6 +162,48 @@ class DefaultReplenishmentPlanServiceTest {
         verify(forecastRunRepository).listResults(100L);
         verify(forecastRunRepository, never()).saveRun(any());
         verify(forecastRunRepository, never()).saveResults(any(), any());
+    }
+
+    @Test
+    void unresolvedInboundDestinationBlocksSkuWithoutCountingItsQuantity() {
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithDailyForecasts(
+                "PSKU-UNRESOLVED",
+                "SKU-UNRESOLVED",
+                900
+        )));
+        when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
+                .thenReturn(List.of(new StockRow(
+                        "PSKU-UNRESOLVED",
+                        "SKU-UNRESOLVED",
+                        null,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO
+                )));
+        when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE))
+                .thenReturn(List.of(new InboundRow(
+                        "PSKU-UNRESOLVED",
+                        null,
+                        false,
+                        1999L,
+                        "BATCH-SITE-UNKNOWN",
+                        "SEA",
+                        "ACTIVE",
+                        SOURCE_DATE.plusDays(20),
+                        new BigDecimal("50")
+                )));
+
+        ReplenishmentPlanRecords.PlanItemView row = service.getOverview(query()).getRows().get(0);
+
+        assertTrue(row.isCalculationBlocked());
+        assertTrue(row.getWarnings().contains("inbound_site_unresolved"));
+        assertEquals(BigDecimal.ZERO, row.getKnownInboundUnits());
+        assertEquals(BigDecimal.ZERO, row.getMissingEtaInboundQty());
+        assertTrue(row.getInboundBatches().isEmpty());
+        assertTrue(row.getMissingEtaBatches().isEmpty());
+        assertEquals(BigDecimal.ZERO, row.getAirSuggestedUnits());
+        assertEquals(BigDecimal.ZERO, row.getSeaSuggestedUnits());
     }
 
     @Test

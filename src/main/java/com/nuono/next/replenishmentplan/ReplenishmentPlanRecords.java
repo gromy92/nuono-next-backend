@@ -40,6 +40,7 @@ public final class ReplenishmentPlanRecords {
         private final Map<Integer, BigDecimal> dailyDemandByDay;
         private final List<InboundBatch> inboundBatches;
         private final List<MissingEtaBatch> missingEtaBatches;
+        private final boolean inboundSiteUnresolved;
 
         public PlanInput(
                 String partnerSku,
@@ -286,6 +287,66 @@ public final class ReplenishmentPlanRecords {
                 List<InboundBatch> inboundBatches,
                 List<MissingEtaBatch> missingEtaBatches
         ) {
+            this(
+                    partnerSku,
+                    sku,
+                    productTitle,
+                    imageUrl,
+                    listingAt,
+                    latestFactDate,
+                    observedDays,
+                    historyUnits7,
+                    historyUnits30,
+                    historyUnits60,
+                    historyUnits90,
+                    adjustedHistoryUnits7,
+                    adjustedHistoryUnits30,
+                    adjustedHistoryUnits60,
+                    adjustedHistoryUnits90,
+                    forecastUnits30,
+                    forecastUnits60,
+                    forecastUnits90,
+                    confidenceLabel,
+                    shortReason,
+                    anchorDate,
+                    planDate,
+                    stockSnapshot,
+                    dailyDemandByDay,
+                    inboundBatches,
+                    missingEtaBatches,
+                    false
+            );
+        }
+
+        public PlanInput(
+                String partnerSku,
+                String sku,
+                String productTitle,
+                String imageUrl,
+                LocalDate listingAt,
+                LocalDate latestFactDate,
+                int observedDays,
+                int historyUnits7,
+                int historyUnits30,
+                int historyUnits60,
+                int historyUnits90,
+                BigDecimal adjustedHistoryUnits7,
+                BigDecimal adjustedHistoryUnits30,
+                BigDecimal adjustedHistoryUnits60,
+                BigDecimal adjustedHistoryUnits90,
+                int forecastUnits30,
+                int forecastUnits60,
+                int forecastUnits90,
+                String confidenceLabel,
+                String shortReason,
+                LocalDate anchorDate,
+                LocalDate planDate,
+                StockSnapshot stockSnapshot,
+                Map<Integer, BigDecimal> dailyDemandByDay,
+                List<InboundBatch> inboundBatches,
+                List<MissingEtaBatch> missingEtaBatches,
+                boolean inboundSiteUnresolved
+        ) {
             this.partnerSku = partnerSku;
             this.sku = sku;
             this.productTitle = productTitle;
@@ -316,6 +377,7 @@ public final class ReplenishmentPlanRecords {
             );
             this.inboundBatches = immutableList(inboundBatches);
             this.missingEtaBatches = immutableList(missingEtaBatches);
+            this.inboundSiteUnresolved = inboundSiteUnresolved;
         }
 
         public String getPartnerSku() {
@@ -421,6 +483,10 @@ public final class ReplenishmentPlanRecords {
         public List<MissingEtaBatch> getMissingEtaBatches() {
             return missingEtaBatches;
         }
+
+        public boolean isInboundSiteUnresolved() {
+            return inboundSiteUnresolved;
+        }
     }
 
     public static final class StockSnapshot {
@@ -469,6 +535,7 @@ public final class ReplenishmentPlanRecords {
         private final String batchStatus;
         private final LocalDate etaDate;
         private final BigDecimal remainingQuantity;
+        private final String destinationCode;
         private final boolean coverageIncluded;
         private final boolean etaReviewRequired;
 
@@ -487,6 +554,29 @@ public final class ReplenishmentPlanRecords {
                     batchStatus,
                     etaDate,
                     remainingQuantity,
+                    null,
+                    true,
+                    false
+            );
+        }
+
+        public InboundBatch(
+                Long batchId,
+                String batchReferenceNo,
+                String transportMode,
+                String batchStatus,
+                LocalDate etaDate,
+                BigDecimal remainingQuantity,
+                String destinationCode
+        ) {
+            this(
+                    batchId,
+                    batchReferenceNo,
+                    transportMode,
+                    batchStatus,
+                    etaDate,
+                    remainingQuantity,
+                    destinationCode,
                     true,
                     false
             );
@@ -502,12 +592,37 @@ public final class ReplenishmentPlanRecords {
                 boolean coverageIncluded,
                 boolean etaReviewRequired
         ) {
+            this(
+                    batchId,
+                    batchReferenceNo,
+                    transportMode,
+                    batchStatus,
+                    etaDate,
+                    remainingQuantity,
+                    null,
+                    coverageIncluded,
+                    etaReviewRequired
+            );
+        }
+
+        public InboundBatch(
+                Long batchId,
+                String batchReferenceNo,
+                String transportMode,
+                String batchStatus,
+                LocalDate etaDate,
+                BigDecimal remainingQuantity,
+                String destinationCode,
+                boolean coverageIncluded,
+                boolean etaReviewRequired
+        ) {
             this.batchId = batchId;
             this.batchReferenceNo = batchReferenceNo;
             this.transportMode = transportMode;
             this.batchStatus = batchStatus;
             this.etaDate = etaDate;
             this.remainingQuantity = nonNegative(remainingQuantity);
+            this.destinationCode = destinationCode;
             this.coverageIncluded = coverageIncluded;
             this.etaReviewRequired = etaReviewRequired;
         }
@@ -536,6 +651,10 @@ public final class ReplenishmentPlanRecords {
             return remainingQuantity;
         }
 
+        public String getDestinationCode() {
+            return destinationCode;
+        }
+
         public boolean isCoverageIncluded() {
             return coverageIncluded;
         }
@@ -551,6 +670,7 @@ public final class ReplenishmentPlanRecords {
         private final String transportMode;
         private final String batchStatus;
         private final BigDecimal remainingQuantity;
+        private final String destinationCode;
 
         public MissingEtaBatch(
                 Long batchId,
@@ -559,11 +679,23 @@ public final class ReplenishmentPlanRecords {
                 String batchStatus,
                 BigDecimal remainingQuantity
         ) {
+            this(batchId, batchReferenceNo, transportMode, batchStatus, remainingQuantity, null);
+        }
+
+        public MissingEtaBatch(
+                Long batchId,
+                String batchReferenceNo,
+                String transportMode,
+                String batchStatus,
+                BigDecimal remainingQuantity,
+                String destinationCode
+        ) {
             this.batchId = batchId;
             this.batchReferenceNo = batchReferenceNo;
             this.transportMode = transportMode;
             this.batchStatus = batchStatus;
             this.remainingQuantity = nonNegative(remainingQuantity);
+            this.destinationCode = destinationCode;
         }
 
         public Long getBatchId() {
@@ -584,6 +716,10 @@ public final class ReplenishmentPlanRecords {
 
         public BigDecimal getRemainingQuantity() {
             return remainingQuantity;
+        }
+
+        public String getDestinationCode() {
+            return destinationCode;
         }
     }
 

@@ -38,15 +38,29 @@ class ReplenishmentPlanMapperSqlTest {
     }
 
     @Test
-    void inboundLineQueryKeepsEtaRowsAndUsesScopedOrUnassignedActiveLineCandidates() throws Exception {
+    void inboundLineQueryUsesExactBarcodeAndDeterministicBatchDestination() throws Exception {
         String sql = selectSql("selectActiveInboundLines", Long.class, String.class, String.class);
 
         assertTrue(sql.contains("line.id AS lineId"));
-        assertTrue(sql.contains("line.psku AS psku"));
-        assertTrue(sql.contains("line.sku AS sku"));
-        assertTrue(sql.contains("line.msku AS msku"));
+        assertTrue(sql.contains("pb.partner_sku AS partnerSku"));
+        assertTrue(sql.contains("JOIN product_barcode pb ON pb.barcode = line.sku"));
+        assertTrue(sql.contains("pb.logical_store_id IS NOT NULL"));
+        assertTrue(sql.contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'"));
+        assertTrue(sql.contains("pm.logical_store_id = pb.logical_store_id"));
+        assertTrue(sql.contains("BINARY pm.partner_sku = BINARY pb.partner_sku"));
+        assertTrue(sql.contains("requested_site.store_code = #{storeCode}"));
+        assertTrue(sql.contains("requested_site.site = #{siteCode}"));
         assertTrue(sql.contains("batch.id AS batchId"));
         assertTrue(sql.contains("batch.eta_date AS etaDate"));
+        assertTrue(sql.contains("batch.target_store_code"));
+        assertTrue(sql.contains("batch.target_site_code"));
+        assertTrue(sql.contains("THEN 'SA'"));
+        assertTrue(sql.contains("THEN 'AE'"));
+        assertTrue(sql.contains("THEN 'RUH'"));
+        assertTrue(sql.contains("THEN 'DB'"));
+        assertTrue(sql.contains("AS destinationCode"));
+        assertTrue(sql.contains("AS resolvedSiteCode"));
+        assertTrue(sql.contains("THEN 'SITE_UNRESOLVED' ELSE 'MATCHED'"));
         assertTrue(sql.contains("line.remaining_quantity"));
         assertTrue(sql.contains("line.shipped_quantity"));
         assertTrue(sql.contains("line.received_quantity"));
@@ -63,42 +77,20 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("DATE(batch.source_created_at)"));
         assertTrue(sql.contains("FROM in_transit_goods_line line"));
         assertTrue(sql.contains("JOIN in_transit_batch batch"));
-        assertTrue(sql.contains("line.store_code = #{storeCode}"));
-        assertTrue(sql.contains("line.site_code = #{siteCode}"));
-        assertTrue(sql.contains("NULLIF(TRIM(line.store_code), '') IS NULL"));
-        assertTrue(sql.contains("NULLIF(TRIM(line.site_code), '') IS NULL"));
-        assertTrue(sql.contains("OR line.site_code = #{siteCode}"));
+        assertTrue(sql.contains("target_offer.logical_store_id = pb.logical_store_id"));
+        assertTrue(sql.contains("target_offer.partner_sku = BINARY pb.partner_sku"));
+        assertTrue(sql.contains("target_offer.site_id = requested_site.id"));
+        assertTrue(sql.contains("= requested_site.site OR"));
+        assertTrue(sql.contains("IS NULL)"));
         assertTrue(sql.contains("> 0"));
-        assertFalse(sql.contains("JOIN product_site_offer pso"));
-        assertFalse(sql.contains("JOIN product_variant pv"));
-        assertFalse(sql.contains("line.psku AS partnerSku"));
-        assertFalse(sql.contains("batch.target_store_code"));
-        assertFalse(sql.contains("batch.target_site_code"));
+        assertFalse(sql.contains("line.store_code = #{storeCode}"));
+        assertFalse(sql.contains("line.site_code = #{siteCode}"));
+        assertFalse(sql.contains("line.psku"));
+        assertFalse(sql.contains("line.msku"));
+        assertFalse(sql.contains("product_variant"));
+        assertFalse(sql.contains("variant_id"));
         assertFalse(sql.contains("AND batch.eta_date IS NOT NULL"));
         assertFalse(sql.toLowerCase().contains("official_warehouse_asn"));
-    }
-
-    @Test
-    void productIdentityQueryReadsCanonicalProductCodesForScopedSite() throws Exception {
-        String sql = selectSql("selectProductIdentities", Long.class, String.class, String.class);
-
-        assertTrue(sql.contains("pv.partner_sku AS partnerSku"));
-        assertTrue(sql.contains("pso.partner_sku AS psoPartnerSku"));
-        assertTrue(sql.contains("pso.psku_code AS psoPskuCode"));
-        assertTrue(sql.contains("pso.offer_code AS psoOfferCode"));
-        assertTrue(sql.contains("pv.child_sku AS childSku"));
-        assertTrue(sql.contains("pm.sku_parent AS skuParent"));
-        assertTrue(sql.contains("pb.barcode AS barcode"));
-        assertTrue(sql.contains("FROM logical_store_site lss"));
-        assertTrue(sql.contains("JOIN logical_store ls"));
-        assertTrue(sql.contains("JOIN product_site_offer pso"));
-        assertTrue(sql.contains("JOIN product_variant pv"));
-        assertTrue(sql.contains("JOIN product_master pm"));
-        assertTrue(sql.contains("LEFT JOIN product_barcode pb"));
-        assertTrue(sql.contains("ls.owner_user_id = #{ownerUserId}"));
-        assertTrue(sql.contains("lss.store_code = #{storeCode}"));
-        assertTrue(sql.contains("lss.site = #{siteCode}"));
-        assertFalse(sql.contains("in_transit_goods_line"));
     }
 
     @Test
