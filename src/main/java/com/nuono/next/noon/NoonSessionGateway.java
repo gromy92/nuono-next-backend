@@ -56,17 +56,17 @@ public class NoonSessionGateway {
     private static final String DEFAULT_WHOAMI_URL =
             "https://toolbar.noon.partners/_svc/auth-v1/whoami";
     private static final String DEFAULT_IDENTITY_USER_LOOKUP_URL =
-            "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/lookup";
+            "https://login.noon.partners/_svc/mp-partner-identity/public/user/lookup";
     private static final String DEFAULT_IDENTITY_PKCE_URL =
-            "https://login-alt.noon.partners/_svc/mp-partner-identity/public/client/pkce";
+            "https://login.noon.partners/_svc/mp-partner-identity/public/client/pkce";
     private static final String DEFAULT_IDENTITY_GENERATE_URL =
-            "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/credential/generate";
+            "https://login.noon.partners/_svc/mp-partner-identity/public/user/credential/generate";
     private static final String DEFAULT_IDENTITY_VALIDATE_URL =
-            "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/validate";
+            "https://login.noon.partners/_svc/mp-partner-identity/public/user/validate";
     private static final String DEFAULT_IDENTITY_PROJECT_LIST_URL =
-            "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/project/list";
+            "https://login.noon.partners/_svc/mp-partner-identity/public/user/project/list";
     private static final String DEFAULT_IDENTITY_SESSION_CREATE_URL =
-            "https://login-alt.noon.partners/_svc/mp-partner-identity/public/user/session/create";
+            "https://login.noon.partners/_svc/mp-partner-identity/public/user/session/create";
     private static final String DEFAULT_CATALOG_CAPABILITY_PROBE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-rocket/offer/list/noon";
     private static final String NOON_WEB_CLIENT_CODE = "web";

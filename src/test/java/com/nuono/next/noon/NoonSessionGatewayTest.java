@@ -23,6 +23,7 @@ import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.InetAddress;
@@ -153,6 +154,25 @@ class NoonSessionGatewayTest {
                 "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
                 NoonSessionGateway.generateCodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
         );
+    }
+
+    @Test
+    void shouldUseOfficialPrimaryLoginHostForDefaultIdentityEndpoints() throws Exception {
+        NoonSessionGateway gateway = directGateway("http://noon.test/whoami");
+
+        for (String fieldName : List.of(
+                "identityUserLookupUrl",
+                "identityPkceUrl",
+                "identityGenerateUrl",
+                "identityValidateUrl",
+                "identityProjectListUrl",
+                "identitySessionCreateUrl"
+        )) {
+            Field field = NoonSessionGateway.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            String endpoint = (String) field.get(gateway);
+            assertTrue(endpoint.startsWith("https://login.noon.partners/"), fieldName + "=" + endpoint);
+        }
     }
 
     @Test
