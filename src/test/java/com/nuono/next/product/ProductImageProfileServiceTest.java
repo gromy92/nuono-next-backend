@@ -84,7 +84,7 @@ class ProductImageProfileServiceTest {
     @Test
     void rejectSuiteShouldKeepUnselectedImageAndRegenerateSelectedImage() {
         ProductImageProfileRecord profile = profileRecord();
-        ProductImageSuiteRecord source = suiteRecord(9901L, ProductImageSuiteStatus.PENDING_REVIEW);
+        ProductImageSuiteRecord source = suiteRecord(9901L, ProductImageSuiteStatus.ADOPTED);
         source.setProfileId(7001L);
         source.setRevisionNo(1);
         source.setSuiteName("AI 套图");

@@ -201,6 +201,18 @@ class ProductImageProfileMapperSqlTest {
         assertInitScriptsInclude("classpath:db/init/187_product_image_asset_usage_workflow.sql");
     }
 
+    @Test
+    void reviewSuiteAcceptsPendingReviewAndCurrentlyAdoptedSuites() throws Exception {
+        Method method = ProductImageProfileMapper.class.getMethod(
+                "reviewSuite", Long.class, Long.class, ProductImageSuiteStatus.class, String.class, Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("suite_status IN ('PENDING_REVIEW', 'ADOPTED')")
+                .doesNotContain("suite_status = 'PENDING_REVIEW'");
+    }
+
     private static String annotationSql(Select select) {
         return String.join(" ", select.value()).replaceAll("\\s+", " ");
     }

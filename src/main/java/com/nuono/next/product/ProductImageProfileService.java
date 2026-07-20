@@ -1359,7 +1359,7 @@ public class ProductImageProfileService {
         if (mapper.reviewSuite(
                 suiteId, profile.getId(), ProductImageSuiteStatus.PUBLISHING, null, operatorUserId
         ) == 0) {
-            throw new IllegalArgumentException("只有待审核套图可以审核通过。");
+            throw new IllegalArgumentException("只有待审核或当前采用套图可以审核通过。");
         }
         eventPublisher.publishEvent(new ProductImagePublishSubmittedEvent(
                 suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
@@ -1393,7 +1393,7 @@ public class ProductImageProfileService {
         if (mapper.reviewSuite(
                 suiteId, profile.getId(), ProductImageSuiteStatus.HISTORICAL, comment, operatorUserId
         ) == 0) {
-            throw new IllegalArgumentException("只有待审核套图可以驳回返工。");
+            throw new IllegalArgumentException("只有待审核或当前采用套图可以驳回返工。");
         }
         if (wholeSuite) {
             mapper.insertReviewTarget(suiteId, "SUITE", null, null, null, operatorUserId);
