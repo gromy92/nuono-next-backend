@@ -16,7 +16,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 class FileParseUploadArchiveSpringWiringTest {
 
     @Test
-    void localDbFacadeUsesManagedUploadArchiveModule() {
+    void localDbFacadeUsesManagedFileParseModules() {
         new ApplicationContextRunner(() -> {
             AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
             context.getEnvironment().setActiveProfiles("local-db");
@@ -38,15 +38,28 @@ class FileParseUploadArchiveSpringWiringTest {
                 .withUserConfiguration(WiringConfig.class)
                 .run(context -> {
                     assertNull(context.getStartupFailure());
+                    FileParseActionPolicy actionPolicy = context.getBean(FileParseActionPolicy.class);
                     FileParseUploadArchiveService archiveService = context.getBean(FileParseUploadArchiveService.class);
+                    FileParseTaskCatalogService catalogService = context.getBean(FileParseTaskCatalogService.class);
                     LocalDbFileManagementParseService facade = context.getBean(LocalDbFileManagementParseService.class);
+                    assertNotNull(actionPolicy);
                     assertNotNull(archiveService);
+                    assertNotNull(catalogService);
+                    assertSame(actionPolicy, ReflectionTestUtils.getField(facade, "actionPolicy"));
                     assertSame(archiveService, ReflectionTestUtils.getField(facade, "uploadArchiveService"));
+                    assertSame(catalogService, ReflectionTestUtils.getField(facade, "taskCatalogService"));
+                    assertSame(actionPolicy, ReflectionTestUtils.getField(catalogService, "actionPolicy"));
+                    assertSame(archiveService, ReflectionTestUtils.getField(catalogService, "uploadArchiveService"));
                 });
     }
 
     @Configuration
-    @Import({FileParseUploadArchiveService.class, LocalDbFileManagementParseService.class})
+    @Import({
+            FileParseActionPolicy.class,
+            FileParseUploadArchiveService.class,
+            FileParseTaskCatalogService.class,
+            LocalDbFileManagementParseService.class
+    })
     static class WiringConfig {
     }
 }

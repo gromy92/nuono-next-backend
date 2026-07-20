@@ -35,6 +35,8 @@ class LocalDbFileParseUploadFacadeTest {
                 mapper,
                 new FileParseStorageProperties(),
                 uploadArchiveService,
+                mock(FileParseTaskCatalogService.class),
+                new FileParseActionPolicy(),
                 mock(FileParseInputExtractionService.class),
                 mock(FileParseStructuredAiService.class),
                 mock(FileParseResultDiffService.class),
