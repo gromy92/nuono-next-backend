@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestController
@@ -146,6 +147,30 @@ public class ProductSelectionController {
             );
         } catch (ProductSelectionAccessDeniedException exception) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
+    @DeleteMapping("/groups/{groupId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteGroup(
+            @PathVariable String groupId,
+            @RequestParam(defaultValue = "false") boolean deleteSourceCollections,
+            @RequestParam String storeCode,
+            HttpServletRequest request
+    ) {
+        try {
+            sourceCollectionService().deleteGroup(
+                    groupId,
+                    deleteSourceCollections,
+                    storeCode,
+                    writableOperatorUserId(request, storeCode)
+            );
+        } catch (ProductSelectionAccessDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        } catch (ProductSelectionConflictException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         }
@@ -322,6 +347,28 @@ public class ProductSelectionController {
             ));
         } catch (ProductSelectionAccessDeniedException exception) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
+    @DeleteMapping("/source-collections/{collectionId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSourceCollection(
+            @PathVariable String collectionId,
+            @RequestParam String storeCode,
+            HttpServletRequest request
+    ) {
+        try {
+            sourceCollectionService().deleteSourceCollection(
+                    collectionId,
+                    storeCode,
+                    writableOperatorUserId(request, storeCode)
+            );
+        } catch (ProductSelectionAccessDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        } catch (ProductSelectionConflictException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         }

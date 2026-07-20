@@ -136,6 +136,21 @@ public class LocalDbSourceCollectionService {
     }
 
     @Transactional
+    public void deleteGroup(
+            String groupIdValue,
+            boolean deleteSourceCollections,
+            String storeCode,
+            Long operatorUserId
+    ) {
+        groupService.deleteGroup(
+                groupIdValue,
+                deleteSourceCollections,
+                storeCode,
+                operatorUserId
+        );
+    }
+
+    @Transactional
     public ProductSelectionGroupView updateGroupName(
             String groupIdValue,
             ProductSelectionGroupCommand command
@@ -205,6 +220,9 @@ public class LocalDbSourceCollectionService {
 
         List<ProductSelectionSourceCollectionRow> insertableSources = new ArrayList<>();
         for (Long sourceCollectionId : sourceCollectionIds) {
+            if (productSelectionMapper.lockActiveSourceCollectionById(sourceCollectionId) == null) {
+                throw new IllegalArgumentException("采集记录不存在或已被删除。");
+            }
             ProductSelectionSourceCollectionRow sourceCollection =
                     productSelectionMapper.selectSourceCollectionById(sourceCollectionId);
             requireSourceCollectionVisible(source.getOperatorUserId(), sourceCollection);
@@ -438,6 +456,27 @@ public class LocalDbSourceCollectionService {
     }
 
     @Transactional
+    public void deleteSourceCollection(
+            String collectionId,
+            String storeCode,
+            Long operatorUserId
+    ) {
+        Long sourceCollectionId = parseLongId(collectionId, "采集记录不存在或已被删除。");
+        if (productSelectionMapper.lockActiveSourceCollectionById(sourceCollectionId) == null) {
+            throw new IllegalArgumentException("采集记录不存在或已被删除。");
+        }
+        ProductSelectionSourceCollectionRow sourceCollection =
+                productSelectionMapper.selectSourceCollectionById(sourceCollectionId);
+        requireSourceCollectionWritable(operatorUserId, storeCode, sourceCollection);
+        if (productSelectionMapper.countActiveSelectionReferences(sourceCollectionId) > 0) {
+            throw new ProductSelectionConflictException("该采集数据已被选品分析引用，请先在选品分析中解除关联。");
+        }
+        if (productSelectionMapper.softDeleteSourceCollection(sourceCollectionId, operatorUserId) <= 0) {
+            throw new IllegalArgumentException("采集记录已变化，请刷新后重试。");
+        }
+    }
+
+    @Transactional
     public ProductSelectionSourceCollectionView recollectSourceCollection(
             String collectionId,
             ProductSelectionSourceCollectionCommand command
@@ -651,6 +690,23 @@ public class LocalDbSourceCollectionService {
         );
         if (visibleSites <= 0) {
             throw new ProductSelectionAccessDeniedException("当前账号不能访问该采集记录。");
+        }
+    }
+
+    private void requireSourceCollectionWritable(
+            Long operatorUserId,
+            String storeCode,
+            ProductSelectionSourceCollectionRow row
+    ) {
+        if (row == null) {
+            throw new IllegalArgumentException("采集记录不存在或已被删除。");
+        }
+        ProductSelectionStoreScope scope = permissionGuard.requireWritableStore(operatorUserId, storeCode);
+        String scopeSiteCode = siteCodeFromScope(scope);
+        String sourceSiteCode = normalizeSiteCode(row.getSiteCode());
+        if (!scope.getLogicalStoreId().equals(row.getLogicalStoreId())
+                || (StringUtils.hasText(scopeSiteCode) && !scopeSiteCode.equals(sourceSiteCode))) {
+            throw new ProductSelectionAccessDeniedException("当前店铺站点不能删除该采集记录。");
         }
     }
 

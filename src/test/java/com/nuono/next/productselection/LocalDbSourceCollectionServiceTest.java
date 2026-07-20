@@ -3,6 +3,7 @@ package com.nuono.next.productselection;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -126,12 +127,43 @@ class LocalDbSourceCollectionServiceTest {
         org.junit.jupiter.api.Assertions.assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), nextRunAtCaptor.getValue());
     }
 
+    @Test
+    void deleteSourceCollectionRejectsActiveSelectionAnalysisReference() {
+        ProductSelectionSourceCollectionRow row = noonSourceCollection();
+        when(productSelectionMapper.lockActiveSourceCollectionById(row.getId())).thenReturn(row.getId());
+        when(productSelectionMapper.selectSourceCollectionById(row.getId())).thenReturn(row);
+        when(permissionGuard.requireWritableStore(307L, "STR108065-NSA")).thenReturn(writableStoreScope());
+        when(productSelectionMapper.countActiveSelectionReferences(row.getId())).thenReturn(1);
+
+        assertThrows(
+                ProductSelectionConflictException.class,
+                () -> service.deleteSourceCollection("86002", "STR108065-NSA", 307L)
+        );
+
+        verify(productSelectionMapper, never()).softDeleteSourceCollection(row.getId(), 307L);
+    }
+
+    @Test
+    void deleteSourceCollectionSoftDeletesUnreferencedRecord() {
+        ProductSelectionSourceCollectionRow row = noonSourceCollection();
+        when(productSelectionMapper.lockActiveSourceCollectionById(row.getId())).thenReturn(row.getId());
+        when(productSelectionMapper.selectSourceCollectionById(row.getId())).thenReturn(row);
+        when(permissionGuard.requireWritableStore(307L, "STR108065-NSA")).thenReturn(writableStoreScope());
+        when(productSelectionMapper.countActiveSelectionReferences(row.getId())).thenReturn(0);
+        when(productSelectionMapper.softDeleteSourceCollection(row.getId(), 307L)).thenReturn(1);
+
+        service.deleteSourceCollection("86002", "STR108065-NSA", 307L);
+
+        verify(productSelectionMapper).softDeleteSourceCollection(row.getId(), 307L);
+    }
+
     private ProductSelectionSourceCollectionRow noonSourceCollection() {
         ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
         row.setId(86002L);
         row.setOwnerUserId(307L);
         row.setLogicalStoreId(301L);
         row.setStoreCode("STR108065-NSA");
+        row.setSiteCode("SA");
         row.setCollectionNo("PSC-86002");
         row.setSourceType("marketplace-url");
         row.setSourcePlatform("Noon");
@@ -139,5 +171,16 @@ class LocalDbSourceCollectionServiceTest {
         row.setStatus("running");
         row.setUpdatedBy(307L);
         return row;
+    }
+
+    private ProductSelectionStoreScope writableStoreScope() {
+        ProductSelectionStoreScope scope = new ProductSelectionStoreScope();
+        scope.setOperatorUserId(307L);
+        scope.setOwnerUserId(307L);
+        scope.setLogicalStoreId(301L);
+        scope.setStoreCode("STR108065-NSA");
+        scope.setSite("SA");
+        scope.setAuthorized(true);
+        return scope;
     }
 }

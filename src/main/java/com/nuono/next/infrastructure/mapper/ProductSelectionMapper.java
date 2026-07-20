@@ -450,6 +450,15 @@ public interface ProductSelectionMapper {
     int insertSourceCollection(@Param("row") ProductSelectionSourceCollectionRow row);
 
     @Select({
+            "SELECT id",
+            "FROM product_selection_source_collection",
+            "WHERE id = #{id}",
+            "  AND is_deleted = b'0'",
+            "FOR UPDATE"
+    })
+    Long lockActiveSourceCollectionById(@Param("id") Long id);
+
+    @Select({
             "SELECT",
             "  source.id,",
             "  source.owner_user_id,",
@@ -576,6 +585,21 @@ public interface ProductSelectionMapper {
             "  AND source.is_deleted = b'0'"
     })
     ProductSelectionSourceCollectionRow selectSourceCollectionById(@Param("id") Long id);
+
+    @Update({
+            "UPDATE product_selection_source_collection",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    locked_at = NULL,",
+            "    locked_by = NULL,",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{id}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSourceCollection(
+            @Param("id") Long id,
+            @Param("updatedBy") Long updatedBy
+    );
 
     @Update({
             "UPDATE product_selection_source_collection",
@@ -947,6 +971,37 @@ public interface ProductSelectionMapper {
             @Param("sourceCollectionId") Long sourceCollectionId
     );
 
+    @Select({
+            "SELECT source_collection_id",
+            "FROM (",
+            "  SELECT material.source_collection_id",
+            "  FROM product_selection_group_material material",
+            "  WHERE material.group_id = #{groupId}",
+            "    AND material.is_deleted = b'0'",
+            "  UNION",
+            "  SELECT item.source_collection_id",
+            "  FROM product_selection_analysis_item item",
+            "  WHERE COALESCE(item.project_id, item.id) = #{groupId}",
+            "    AND item.is_deleted = b'0'",
+            ") active_source",
+            "ORDER BY source_collection_id ASC"
+    })
+    List<Long> listActiveGroupSourceCollectionIds(@Param("groupId") Long groupId);
+
+    @Select({
+            "SELECT",
+            "  (SELECT COUNT(*)",
+            "   FROM product_selection_group_material material",
+            "   WHERE material.source_collection_id = #{sourceCollectionId}",
+            "     AND material.is_deleted = b'0')",
+            "  +",
+            "  (SELECT COUNT(*)",
+            "   FROM product_selection_analysis_item item",
+            "   WHERE item.source_collection_id = #{sourceCollectionId}",
+            "     AND item.is_deleted = b'0')"
+    })
+    int countActiveSelectionReferences(@Param("sourceCollectionId") Long sourceCollectionId);
+
     @Insert({
             "INSERT INTO product_selection_group (",
             "  id, owner_user_id, logical_store_id, site_code, group_no, group_name, status, is_deleted,",
@@ -968,6 +1023,41 @@ public interface ProductSelectionMapper {
             ")"
     })
     int insertSelectionGroupMaterial(@Param("row") ProductSelectionGroupMaterialRow row);
+
+    @Select({
+            "SELECT id",
+            "FROM product_selection_group",
+            "WHERE id = #{groupId}",
+            "  AND is_deleted = b'0'",
+            "FOR UPDATE"
+    })
+    Long lockActiveSelectionGroupById(@Param("groupId") Long groupId);
+
+    @Update({
+            "UPDATE product_selection_group_material",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE group_id = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSelectionGroupMaterials(
+            @Param("groupId") Long groupId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_group",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSelectionGroup(
+            @Param("groupId") Long groupId,
+            @Param("updatedBy") Long updatedBy
+    );
 
     @Update({
             "UPDATE product_selection_group",
@@ -992,6 +1082,45 @@ public interface ProductSelectionMapper {
             "  AND is_deleted = b'0'"
     })
     int softDeleteSelectionGroupCompetitors(
+            @Param("groupId") Long groupId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_group_procurement",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE group_id = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSelectionGroupProcurement(
+            @Param("groupId") Long groupId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_group_profit_snapshot",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE group_id = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSelectionGroupProfitSnapshots(
+            @Param("groupId") Long groupId,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_selection_group_listing",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE group_id = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteSelectionGroupListing(
             @Param("groupId") Long groupId,
             @Param("updatedBy") Long updatedBy
     );
@@ -1127,6 +1256,19 @@ public interface ProductSelectionMapper {
     })
     ProductSelectionAnalysisItemRow selectAnalysisItemBySourceCollectionId(
             @Param("sourceCollectionId") Long sourceCollectionId
+    );
+
+    @Update({
+            "UPDATE product_selection_analysis_item",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE COALESCE(project_id, id) = #{groupId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeleteAnalysisItemsForGroup(
+            @Param("groupId") Long groupId,
+            @Param("updatedBy") Long updatedBy
     );
 
     @Insert({
