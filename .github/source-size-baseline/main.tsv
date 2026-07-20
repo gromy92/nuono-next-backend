@@ -10,7 +10,6 @@ src/main/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunner.ja
 src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	670
 src/main/java/com/nuono/next/competitoranalysis/noon/NoonFrontendSearchPageParser.java	839
 src/main/java/com/nuono/next/competitoranalysis/noon/NoonProductDetailPageParser.java	457
-src/main/java/com/nuono/next/filemanagement/parse/FileManagementParseController.java	541
 src/main/java/com/nuono/next/filemanagement/parse/FileParseCommissionPayloadNormalizer.java	1511
 src/main/java/com/nuono/next/filemanagement/parse/FileParseItemReviewService.java	459
 src/main/java/com/nuono/next/filemanagement/parse/FileParseLogisticsPayloadNormalizer.java	706
