@@ -4,7 +4,6 @@ src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisMaintenanceSer
 src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshServiceTest.java	782
 src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisServiceTest.java	920
 src/test/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunnerTest.java	380
-src/test/java/com/nuono/next/filemanagement/parse/FileManagementParseControllerTest.java	380
 src/test/java/com/nuono/next/filemanagement/parse/FileParseNaturalKeySupportTest.java	849
 src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceLogisticsTest.java	633
 src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceOutboundFeeTest.java	553
