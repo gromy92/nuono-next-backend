@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -101,6 +102,23 @@ public class NoonRiskBackoffGuard {
             );
         }
         return moreRestrictive(hold, accountWideHold).copy();
+    }
+
+    @Transactional
+    public void recordSuccess(NoonRiskBackoffScope scope, String sourceDomain) {
+        if (!enabled || scope == null || !StringUtils.hasText(scope.getScopeKey())) {
+            return;
+        }
+        String normalizedDomain = normalizeDomain(sourceDomain);
+        if (!StringUtils.hasText(normalizedDomain)) {
+            return;
+        }
+        LocalDateTime resetAt = now();
+        repository.resetAfterSuccess(scope.getScopeKey(), normalizedDomain, resetAt);
+        NoonRiskBackoffScope accountWideScope = scope.accountWide();
+        if (accountWideScope != null && !scope.getScopeKey().equals(accountWideScope.getScopeKey())) {
+            repository.resetAfterSuccess(accountWideScope.getScopeKey(), normalizedDomain, resetAt);
+        }
     }
 
     private NoonRiskBackoffHold buildHold(

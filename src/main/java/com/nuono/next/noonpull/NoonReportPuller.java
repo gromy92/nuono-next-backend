@@ -206,12 +206,12 @@ public class NoonReportPuller {
             result.setImportedCount(processResult.getImportedCount());
             result.setExceptionCount(processResult.getExceptionCount());
             if (processResult.getCode() == NoonReportProcessResult.Code.SUCCEEDED) {
-                NoonPullTaskRecord succeeded = foundationService.markSucceeded(
+                result.setStatus(foundationService.markSucceeded(
                         taskId,
                         sourceBatchId,
                         summary(request, digest, processResult)
-                );
-                result.setStatus(succeeded.getStatus());
+                ).getStatus());
+                riskBackoffGuard.recordSuccess(NoonRiskBackoffScope.report(request), sourceDomain(request));
                 return result;
             }
             if (processResult.getCode() == NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION) {

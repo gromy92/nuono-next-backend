@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 public interface NoonRiskBackoffMapper {
 
@@ -82,4 +83,21 @@ public interface NoonRiskBackoffMapper {
             "LIMIT 1"
     })
     NoonRiskBackoffHold selectLatestHold(@Param("scopeKey") String scopeKey);
+
+    @Update({
+            "UPDATE noon_risk_backoff_state",
+            "SET attempt_count = 0,",
+            "  blocked_until = #{resetAt},",
+            "  diagnostic_summary = 'reset after successful provider call',",
+            "  gmt_updated = #{resetAt}",
+            "WHERE scope_key = #{scopeKey}",
+            "  AND source_domain = #{sourceDomain}",
+            "  AND attempt_count > 0",
+            "  AND is_deleted = b'0'"
+    })
+    int resetAfterSuccess(
+            @Param("scopeKey") String scopeKey,
+            @Param("sourceDomain") String sourceDomain,
+            @Param("resetAt") LocalDateTime resetAt
+    );
 }

@@ -129,6 +129,7 @@ public class NoonInterfacePuller {
                     sourceBatchId,
                     diagnosticSummary(request, pageCount, requestCount)
             );
+            riskScope.ifPresent(scope -> riskBackoffGuard.recordSuccess(scope, sourceDomain(request)));
             return NoonInterfacePullResult.succeeded(
                     succeeded.getSourceBatchId(),
                     items,
