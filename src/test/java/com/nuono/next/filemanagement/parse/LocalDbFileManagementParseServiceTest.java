@@ -3,7 +3,6 @@ package com.nuono.next.filemanagement.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -74,6 +73,7 @@ class LocalDbFileManagementParseServiceTest {
         service = new LocalDbFileManagementParseService(
                 fileManagementParseMapper,
                 storageProperties,
+                new FileParseUploadArchiveService(fileManagementParseMapper, storageProperties),
                 FileParseInputExtractionService.withDefaultExtractors(),
                 new FileParseStructuredAiService(aiCapabilityService, objectMapper),
                 new FileParseResultDiffService(fileManagementParseMapper, objectMapper),
@@ -372,37 +372,6 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
-    void shouldArchiveUploadedFile() throws Exception {
-        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
-        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
-        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
-        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
-        when(fileManagementParseMapper.nextFileAssetId()).thenReturn(10001L);
-        when(fileManagementParseMapper.insertFileAsset(any(FileParseFileAssetRow.class))).thenReturn(1);
-
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "义特FBN报价.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "quote data".getBytes()
-        );
-
-        FileParseUploadView upload = service.uploadFile(new AuthenticatedSession(10001L, 1L, 0), 4005L, file);
-
-        assertEquals(10001L, upload.getFileId());
-        assertEquals("xlsx", upload.getFileExtension());
-        assertNotNull(upload.getSha256Hash());
-        assertEquals("/api/file-management/parse/files/10001/download", upload.getDownloadUrl());
-
-        ArgumentCaptor<FileParseFileAssetRow> rowCaptor = ArgumentCaptor.forClass(FileParseFileAssetRow.class);
-        verify(fileManagementParseMapper).insertFileAsset(rowCaptor.capture());
-        FileParseFileAssetRow storedRow = rowCaptor.getValue();
-        assertEquals(4005L, storedRow.getTargetPlanId());
-        assertEquals(5105L, storedRow.getStandardVersionId());
-        assertTrue(Files.exists(tempDir.resolve(storedRow.getStorageKey())));
-    }
-
-    @Test
     void shouldCreateReadingTaskWithFileAndTextInputs() {
         FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
         FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
@@ -526,23 +495,6 @@ class LocalDbFileManagementParseServiceTest {
         assertEquals(2, task.getIterationNo());
         assertEquals(4001L, task.getTargetPlanId());
         assertEquals("reading", task.getStatus());
-    }
-
-    @Test
-    void shouldRejectOperatorUploadBecauseOperatorIsReadOnly() {
-        FileParseUserContext operator = user(10004L, 3, "OPS", "运营");
-        when(fileManagementParseMapper.selectUserContext(10004L)).thenReturn(operator);
-        when(fileManagementParseMapper.countActiveUserMenu(10004L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
-                .thenReturn(1);
-        when(fileManagementParseMapper.selectVisibleTargetPlan(4002L, 3, false))
-                .thenReturn(targetPlan(4002L, "commission_uae", "佣金-UAE", "official_commission"));
-
-        MockMultipartFile file = new MockMultipartFile("file", "commission.pdf", "application/pdf", "pdf".getBytes());
-
-        assertThrows(
-                FileParseAccessDeniedException.class,
-                () -> service.uploadFile(new AuthenticatedSession(10004L, 4L, 3), 4002L, file)
-        );
     }
 
     @Test

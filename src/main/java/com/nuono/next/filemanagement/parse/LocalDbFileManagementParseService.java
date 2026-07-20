@@ -3,11 +3,8 @@ package com.nuono.next.filemanagement.parse;
 import com.nuono.next.auth.AuthenticatedSession;
 import com.nuono.next.infrastructure.mapper.FileManagementParseMapper;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
@@ -37,10 +34,6 @@ public class LocalDbFileManagementParseService {
 
     static final long FILE_MANAGEMENT_MENU_ID = 9301L;
     private static final DateTimeFormatter TASK_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
-    private static final String STORAGE_BUCKET = "local-file-management-parse";
-    private static final Set<String> ALLOWED_UPLOAD_EXTENSIONS = Set.of(
-            "pdf", "xlsx", "xls", "csv", "txt", "png", "jpg", "jpeg", "webp", "doc", "docx"
-    );
     private static final int MAX_AI_CHUNK_SOURCE_ROWS = 30;
     private static final int MAX_AI_CHUNK_TEXT_LENGTH = 18_000;
     private static final int AI_CHUNK_CONTEXT_SOURCE_ROWS = 5;
@@ -49,6 +42,7 @@ public class LocalDbFileManagementParseService {
     private static final Set<String> INPUT_ROLES = Set.of("primary_source", "parsed_file", "supplement", "reference");
     private final FileManagementParseMapper fileManagementParseMapper;
     private final FileParseStorageProperties storageProperties;
+    private final FileParseUploadArchiveService uploadArchiveService;
     private final FileParseInputExtractionService inputExtractionService;
     private final FileParseStructuredAiService structuredAiService;
     private final FileParseResultDiffService resultDiffService;
@@ -84,6 +78,7 @@ public class LocalDbFileManagementParseService {
     public LocalDbFileManagementParseService(
             FileManagementParseMapper fileManagementParseMapper,
             FileParseStorageProperties storageProperties,
+            FileParseUploadArchiveService uploadArchiveService,
             FileParseInputExtractionService inputExtractionService,
             FileParseStructuredAiService structuredAiService,
             FileParseResultDiffService resultDiffService,
@@ -95,6 +90,7 @@ public class LocalDbFileManagementParseService {
     ) {
         this.fileManagementParseMapper = fileManagementParseMapper;
         this.storageProperties = storageProperties;
+        this.uploadArchiveService = uploadArchiveService;
         this.inputExtractionService = inputExtractionService;
         this.structuredAiService = structuredAiService;
         this.resultDiffService = resultDiffService;
@@ -240,93 +236,12 @@ public class LocalDbFileManagementParseService {
         FileParseUserContext user = requireFileManagementUser(session);
         FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, targetPlanId);
         requireCanCreateTask(targetPlan, user);
-        validateUpload(file);
-
-        String originalFileName = sanitizeFileName(file.getOriginalFilename());
-        String fileExtension = extractFileExtension(originalFileName);
-        if (!ALLOWED_UPLOAD_EXTENSIONS.contains(fileExtension)) {
-            throw new IllegalArgumentException("暂不支持该文件格式：" + fileExtension);
-        }
-
-        Long fileId = fileManagementParseMapper.nextFileAssetId();
-        String uploadId = "UP-" + LocalDate.now().format(TASK_DATE_FORMATTER) + "-" + fileId;
-        Path rootDir = storageRoot();
-        String storageKey = buildStorageKey(fileId, originalFileName);
-        Path storagePath = rootDir.resolve(storageKey).normalize();
-        if (!storagePath.startsWith(rootDir)) {
-            throw new IllegalArgumentException("文件路径不合法。");
-        }
-
-        try {
-            Files.createDirectories(storagePath.getParent());
-            try (InputStream inputStream = file.getInputStream()) {
-                Files.copy(inputStream, storagePath, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException error) {
-            throw new IllegalStateException("文件归档失败。", error);
-        }
-
-        String sha256Hash;
-        try {
-            sha256Hash = sha256Hex(storagePath);
-        } catch (IOException error) {
-            deleteQuietly(storagePath);
-            throw new IllegalStateException("文件校验失败。", error);
-        }
-
-        FileParseFileAssetRow row = new FileParseFileAssetRow();
-        row.setId(fileId);
-        row.setUploadId(uploadId);
-        row.setTargetPlanId(targetPlan.getId());
-        row.setStandardVersionId(targetPlan.getStandardVersionId());
-        row.setOriginalFileName(originalFileName);
-        row.setContentType(normalizeContentType(file.getContentType()));
-        row.setFileExtension(fileExtension);
-        row.setFileSizeBytes(file.getSize());
-        row.setSha256Hash(sha256Hash);
-        row.setStorageBucket(STORAGE_BUCKET);
-        row.setStorageKey(storageKey);
-        row.setUploadedBy(user.getUserId());
-        row.setExpiresAt(LocalDateTime.now().plusHours(Math.max(storageProperties.getUploadExpiresHours(), 1L)));
-
-        try {
-            int inserted = fileManagementParseMapper.insertFileAsset(row);
-            if (inserted != 1) {
-                throw new IllegalStateException("文件归档记录写入失败。");
-            }
-        } catch (RuntimeException error) {
-            deleteQuietly(storagePath);
-            throw error;
-        }
-
-        return toUploadView(row);
+        return uploadArchiveService.archive(targetPlan, user.getUserId(), file);
     }
 
     public FileParseArchivedFile resolveArchivedFile(AuthenticatedSession session, Long fileId) {
         FileParseUserContext user = requireFileManagementUser(session);
-        if (fileId == null) {
-            throw new IllegalArgumentException("文件 ID 不能为空。");
-        }
-        FileParseFileAssetRow row = fileManagementParseMapper.selectFileAsset(fileId);
-        if (row == null) {
-            throw new IllegalArgumentException("文件不存在或已删除。");
-        }
-        if (!isSystemAdmin(user) && !user.getUserId().equals(row.getUploadedBy())) {
-            throw new FileParseAccessDeniedException("当前账号不能访问该文件。");
-        }
-        if (row.getBoundTaskId() == null && row.getExpiresAt() != null && row.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new IllegalArgumentException("上传文件已过期，请重新上传。");
-        }
-
-        Path rootDir = storageRoot();
-        Path filePath = rootDir.resolve(row.getStorageKey()).normalize();
-        if (!filePath.startsWith(rootDir)) {
-            throw new IllegalArgumentException("文件路径不合法。");
-        }
-        if (!Files.exists(filePath)) {
-            throw new IllegalStateException("归档文件不存在。");
-        }
-        return new FileParseArchivedFile(filePath, row.getOriginalFileName(), row.getContentType());
+        return uploadArchiveService.resolve(fileId, user.getUserId(), isSystemAdmin(user));
     }
 
     @Transactional
@@ -1522,7 +1437,7 @@ public class LocalDbFileManagementParseService {
         view.setInputRole(inputRole);
         view.setFileAssetId(asset == null ? null : asset.getId());
         view.setDisplayName(displayName);
-        view.setDownloadUrl(asset == null ? null : buildDownloadUrl(asset.getId()));
+        view.setDownloadUrl(asset == null ? null : uploadArchiveService.downloadUrl(asset.getId()));
         view.setSortNo(sortNo);
         return view;
     }
@@ -1707,16 +1622,6 @@ public class LocalDbFileManagementParseService {
         }
     }
 
-    private void validateUpload(MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new IllegalArgumentException("上传文件不能为空。");
-        }
-        long maxFileBytes = Math.max(storageProperties.getMaxFileBytes(), 1L);
-        if (file.getSize() > maxFileBytes) {
-            throw new IllegalArgumentException("上传文件超过大小限制。");
-        }
-    }
-
     private void validateCreateTaskCommand(FileParseCreateTaskCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("解析文档请求不能为空。");
@@ -1826,7 +1731,9 @@ public class LocalDbFileManagementParseService {
         view.setInputRole(row.getInputRole());
         view.setFileAssetId(row.getFileAssetId());
         view.setDisplayName(row.getDisplayName());
-        view.setDownloadUrl(row.getFileAssetId() == null ? null : buildDownloadUrl(row.getFileAssetId()));
+        view.setDownloadUrl(row.getFileAssetId() == null
+                ? null
+                : uploadArchiveService.downloadUrl(row.getFileAssetId()));
         view.setSortNo(row.getSortNo());
         return view;
     }
@@ -1856,21 +1763,6 @@ public class LocalDbFileManagementParseService {
         actions.setCanManageStandard(systemAdmin);
         actions.setCanActivateLogisticsChannels(logisticsPlan && (systemAdmin || boss));
         return actions;
-    }
-
-    private FileParseUploadView toUploadView(FileParseFileAssetRow row) {
-        FileParseUploadView view = new FileParseUploadView();
-        view.setFileId(row.getId());
-        view.setUploadId(row.getUploadId());
-        view.setTargetPlanId(row.getTargetPlanId());
-        view.setStandardVersionId(row.getStandardVersionId());
-        view.setOriginalFileName(row.getOriginalFileName());
-        view.setContentType(row.getContentType());
-        view.setFileExtension(row.getFileExtension());
-        view.setSizeBytes(row.getFileSizeBytes());
-        view.setSha256Hash(row.getSha256Hash());
-        view.setDownloadUrl(buildDownloadUrl(row.getId()));
-        return view;
     }
 
     private FileParseTaskRunView toRunView(
@@ -1999,62 +1891,6 @@ public class LocalDbFileManagementParseService {
         return storageProperties.getRootDir().toAbsolutePath().normalize();
     }
 
-    private String buildStorageKey(Long fileId, String originalFileName) {
-        return LocalDate.now().format(TASK_DATE_FORMATTER)
-                + "/"
-                + fileId
-                + "-"
-                + UUID.randomUUID()
-                + "-"
-                + originalFileName;
-    }
-
-    private String buildDownloadUrl(Long fileId) {
-        return "/api/file-management/parse/files/" + fileId + "/download";
-    }
-
-    private String sanitizeFileName(String fileName) {
-        String cleaned = StringUtils.cleanPath(StringUtils.hasText(fileName) ? fileName : "upload-file");
-        int slashIndex = Math.max(cleaned.lastIndexOf('/'), cleaned.lastIndexOf('\\'));
-        if (slashIndex >= 0) {
-            cleaned = cleaned.substring(slashIndex + 1);
-        }
-        cleaned = cleaned
-                .replaceAll("[\\r\\n\\t]", "_")
-                .replaceAll("[\\\\/:*?\"<>|]", "_")
-                .trim();
-        if (!StringUtils.hasText(cleaned)) {
-            return "upload-file";
-        }
-        return cleaned.length() > 180 ? cleaned.substring(cleaned.length() - 180) : cleaned;
-    }
-
-    private String extractFileExtension(String fileName) {
-        int dotIndex = fileName.lastIndexOf('.');
-        if (dotIndex < 0 || dotIndex == fileName.length() - 1) {
-            throw new IllegalArgumentException("上传文件必须包含文件扩展名。");
-        }
-        return fileName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
-    }
-
-    private String normalizeContentType(String contentType) {
-        return StringUtils.hasText(contentType) ? contentType.trim() : "application/octet-stream";
-    }
-
-    private String sha256Hex(Path filePath) throws IOException {
-        MessageDigest digest = sha256Digest();
-        byte[] buffer = new byte[8192];
-        try (InputStream inputStream = Files.newInputStream(filePath)) {
-            int read;
-            while ((read = inputStream.read(buffer)) >= 0) {
-                if (read > 0) {
-                    digest.update(buffer, 0, read);
-                }
-            }
-        }
-        return toHex(digest.digest());
-    }
-
     private String sha256Text(String value) {
         MessageDigest digest = sha256Digest();
         digest.update(nullToEmpty(value).getBytes(StandardCharsets.UTF_8));
@@ -2088,14 +1924,6 @@ public class LocalDbFileManagementParseService {
             builder.append(String.format("%02x", value));
         }
         return builder.toString();
-    }
-
-    private void deleteQuietly(Path filePath) {
-        try {
-            Files.deleteIfExists(filePath);
-        } catch (IOException ignored) {
-            // Best-effort cleanup only; the database write failure is the actionable error.
-        }
     }
 
     private String trimFailureMessage(String message) {
