@@ -336,12 +336,14 @@ public class ProductPublicDetailSyncService {
                 operationalTaskService.progress(taskId, progress(index, candidates.size()), progressMessage(index, candidates.size(), summary));
             }
             summary.setElapsedMillis(elapsedMillis(startedNanos));
+            if (summary.getSucceeded() > 0 && summary.getPartial() == 0 && summary.getFailed() == 0) {
+                riskBackoffGuard.recordSuccess(publicDetailScope(ownerUserId, storeCode, siteCode), "PUBLIC_DETAIL");
+            }
             operationalTaskService.complete(taskId, toJson(summary), completeMessage(summary));
         } catch (Exception exception) {
             operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_SYNC_FAILED", shrink(exception.getMessage(), 500));
         }
     }
-
     private Optional<NoonRiskBackoffHold> recordRiskBackoffIfNeeded(
             Long taskId,
             Long ownerUserId,
@@ -366,7 +368,6 @@ public class ProductPublicDetailSyncService {
         );
         return Optional.of(hold);
     }
-
     private void failRiskBackoff(Long taskId, NoonRiskBackoffHold hold, ProductPublicDetailSyncSummary summary) {
         String message = "商品前台详情触发 Noon 风控退避："
                 + (hold == null ? "unknown" : hold.getRiskType())
@@ -375,7 +376,6 @@ public class ProductPublicDetailSyncService {
                 + (summary == null ? "。" : "；本轮已处理 " + summary.getSelected() + " 个候选中的部分商品。");
         operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_RISK_BACKOFF", message);
     }
-
     private boolean isRiskBackoffFailure(NoonPullFailureType failureType) {
         return failureType == NoonPullFailureType.RATE_LIMITED
                 || failureType == NoonPullFailureType.CAPTCHA_REQUIRED

@@ -12,4 +12,8 @@ public interface NoonRiskBackoffRepository {
     }
 
     NoonRiskBackoffHold selectLatestHold(String scopeKey);
+
+    default int resetAfterSuccess(String scopeKey, String sourceDomain, LocalDateTime resetAt) {
+        return 0;
+    }
 }

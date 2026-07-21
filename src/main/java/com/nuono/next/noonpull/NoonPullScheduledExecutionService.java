@@ -730,12 +730,12 @@ public class NoonPullScheduledExecutionService {
             command.siteCode = task.getSiteCode();
             InventorySyncResultView syncResult = officialWarehouseInventorySyncService.sync(accessForTask(task), command);
             String sourceBatchId = "official-warehouse-inventory-" + task.getId() + "-" + valueOrUnknown(syncResult.syncBatchId);
-            foundationService.markSucceeded(
-                    task.getId(),
+            foundationService.markSucceeded(task.getId(),
                     sourceBatchId,
                     "official warehouse inventory synced; fetched=" + syncResult.fetchedRows
                             + "; inserted=" + syncResult.insertedRows
             );
+            riskBackoffGuard.recordSuccess(NoonRiskBackoffScope.interfacePull(request), task.getDataDomain().name());
             result.executed();
         } catch (RuntimeException exception) {
             markInterfaceFailureOrRiskBackoff(task, request, safeMessage(exception));
@@ -843,12 +843,12 @@ public class NoonPullScheduledExecutionService {
                     officialWarehouseFbnReceivedReportImportService.importByExportCode(access, exportCode, importCommand);
             String importId = importResult == null ? null : importResult.importId;
             String sourceBatchId = "official-warehouse-fbn-received-" + task.getId() + "-" + valueOrUnknown(importId);
-            foundationService.markSucceeded(
-                    task.getId(),
+            foundationService.markSucceeded(task.getId(),
                     sourceBatchId,
                     "official warehouse FBN received imported; rows="
                             + (importResult == null ? 0 : importResult.insertedReceiptLines)
             );
+            riskBackoffGuard.recordSuccess(NoonRiskBackoffScope.report(request), task.getDataDomain().name());
             result.executed();
         } catch (RuntimeException exception) {
             markReportFailureOrRiskBackoff(task, request, exportCode, Math.max(1, pollAttempts), safeMessage(exception));

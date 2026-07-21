@@ -33,4 +33,9 @@ public class MyBatisNoonRiskBackoffRepository implements NoonRiskBackoffReposito
     public NoonRiskBackoffHold selectLatestHold(String scopeKey) {
         return mapper.selectLatestHold(scopeKey);
     }
+
+    @Override
+    public int resetAfterSuccess(String scopeKey, String sourceDomain, LocalDateTime resetAt) {
+        return mapper.resetAfterSuccess(scopeKey, sourceDomain, resetAt);
+    }
 }

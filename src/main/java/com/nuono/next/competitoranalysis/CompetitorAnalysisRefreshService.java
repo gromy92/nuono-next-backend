@@ -623,6 +623,9 @@ public class CompetitorAnalysisRefreshService {
             if ("FAILED".equals(status)) {
                 operationalTaskService.fail(taskId, firstNonBlank(firstErrorCode, "REFRESH_FAILED"), message);
             } else {
+                if ("SUCCEEDED".equals(status)) {
+                    riskBackoffGuard.recordSuccess(competitorRiskScope(watchProduct.getOwnerUserId(), watchProduct.getStoreCode(), watchProduct.getSiteCode()), "PUBLIC_SEARCH");
+                }
                 operationalTaskService.complete(
                         taskId,
                         resultJson(safeMode, status, success, failed, keywordRetried, keywordRetryRecovered),
@@ -644,7 +647,6 @@ public class CompetitorAnalysisRefreshService {
             );
         }
     }
-
     private void rejectIfNoonRiskBackoffActive(Long ownerUserId, String storeCode, String siteCode) {
         Optional<NoonRiskBackoffHold> activeHold = riskBackoffGuard.currentHold(competitorRiskScope(
                 ownerUserId,
@@ -655,7 +657,6 @@ public class CompetitorAnalysisRefreshService {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "NOON_RISK_BACKOFF");
         }
     }
-
     private Optional<NoonRiskBackoffHold> currentNoonRiskBackoff(CompetitorWatchProductRow watchProduct) {
         if (watchProduct == null) {
             return Optional.empty();
@@ -666,7 +667,6 @@ public class CompetitorAnalysisRefreshService {
                 watchProduct.getSiteCode()
         ));
     }
-
     private NoonRiskBackoffHold recordRiskBackoff(
             CompetitorWatchProductRow watchProduct,
             Long taskId,
