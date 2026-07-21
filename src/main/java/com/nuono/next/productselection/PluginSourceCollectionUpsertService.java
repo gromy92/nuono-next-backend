@@ -137,11 +137,11 @@ public class PluginSourceCollectionUpsertService {
         row.setSpecHintsJson(json(specs));
         row.setCategoryLinksJson(json(categories));
         row.setSpecAttributeCount(completenessCalculator.countSpecAttributes(specs));
-        row.setSourceDescriptionEn(productDescription(
+        row.setSourceDescriptionEn(MarketplaceProductDescriptionSanitizer.preferIncoming(
                 source.getSourceDescriptionEn(),
                 insert ? "" : old.getSourceDescriptionEn()
         ));
-        row.setSourceDescriptionAr(productDescription(
+        row.setSourceDescriptionAr(MarketplaceProductDescriptionSanitizer.preferIncoming(
                 source.getSourceDescriptionAr(),
                 insert ? source.getSelectedTextAr() : old.getSourceDescriptionAr()
         ));
@@ -274,32 +274,6 @@ public class PluginSourceCollectionUpsertService {
 
     private static String text(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
-    }
-
-    private static String productDescription(String value, String fallback) {
-        String incoming = usableProductDescription(value);
-        return StringUtils.hasText(incoming) ? incoming : usableProductDescription(fallback);
-    }
-
-    private static String usableProductDescription(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        String trimmed = value.trim();
-        String normalized = trimmed
-                .toLowerCase(Locale.ROOT)
-                .replace('’', '\'')
-                .replace('`', '\'')
-                .replaceAll("[\\u064B-\\u065F]", "")
-                .replaceAll("[.!؟]+$", "")
-                .replaceAll("\\s+", " ")
-                .trim();
-        if ("we're always here to help".equals(normalized)
-                || "were always here to help".equals(normalized)
-                || "نحن دائما جاهزون لمساعدتك".equals(normalized)) {
-            return "";
-        }
-        return trimmed;
     }
 
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
