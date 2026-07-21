@@ -97,14 +97,17 @@ class CompetitorAnalysisMonitoringSchedulerTest {
     }
 
     @Test
-    void enabledStartupRecoveryResumesQueuedAndReplacesStaleRunningTasks() {
+    void enabledStartupAndPeriodicRecoveryResumeQueuedAndReplaceStaleRunningTasks() {
         ReflectionTestUtils.setField(scheduler, "enabled", true);
         when(refreshService.resumeQueuedRefreshTasks()).thenReturn(4);
         when(refreshService.recoverStaleRefreshTasks()).thenReturn(1);
 
         assertEquals(5, scheduler.runStartupRecoveryOnce());
+        assertEquals(5, scheduler.runTaskRecoveryOnce());
 
         InOrder inOrder = inOrder(refreshService);
+        inOrder.verify(refreshService).resumeQueuedRefreshTasks();
+        inOrder.verify(refreshService).recoverStaleRefreshTasks();
         inOrder.verify(refreshService).resumeQueuedRefreshTasks();
         inOrder.verify(refreshService).recoverStaleRefreshTasks();
         verifyNoInteractions(mapper);
