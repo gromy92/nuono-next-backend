@@ -12,6 +12,8 @@ import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.List;
 import org.mockito.InOrder;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -88,9 +90,27 @@ class CompetitorAnalysisMonitoringSchedulerTest {
         assertEquals(1, scheduler.runDetailOnce());
 
         InOrder inOrder = inOrder(refreshService, mapper);
+        inOrder.verify(refreshService).resumeQueuedRefreshTasks();
         inOrder.verify(refreshService).recoverStaleRefreshTasks();
         inOrder.verify(mapper).listRefreshableWatchProductScopes(100);
         inOrder.verify(refreshService).requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
+    }
+
+    @Test
+    void enabledStartupAndPeriodicRecoveryResumeQueuedAndReplaceStaleRunningTasks() {
+        ReflectionTestUtils.setField(scheduler, "enabled", true);
+        when(refreshService.resumeQueuedRefreshTasks()).thenReturn(4);
+        when(refreshService.recoverStaleRefreshTasks()).thenReturn(1);
+
+        assertEquals(5, scheduler.runStartupRecoveryOnce());
+        assertEquals(5, scheduler.runTaskRecoveryOnce());
+
+        InOrder inOrder = inOrder(refreshService);
+        inOrder.verify(refreshService).resumeQueuedRefreshTasks();
+        inOrder.verify(refreshService).recoverStaleRefreshTasks();
+        inOrder.verify(refreshService).resumeQueuedRefreshTasks();
+        inOrder.verify(refreshService).recoverStaleRefreshTasks();
+        verifyNoInteractions(mapper);
     }
 
     @Test
@@ -111,6 +131,8 @@ class CompetitorAnalysisMonitoringSchedulerTest {
         Method rankMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledRankMonitoring");
         Method detailMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledDetailMonitoring");
         Method compensationMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledRankFailureCompensation");
+        Method recoveryMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("runScheduledTaskRecovery");
+        Method startupMethod = CompetitorAnalysisMonitoringScheduler.class.getDeclaredMethod("resumeQueuedRefreshTasksAfterStartup");
 
         assertEquals(
                 "${nuono.competitor-analysis.monitor.scheduler.rank-cron:0 0 0,6,12,18 * * *}",
@@ -124,6 +146,11 @@ class CompetitorAnalysisMonitoringSchedulerTest {
                 "${nuono.competitor-analysis.monitor.scheduler.compensation-fixed-delay-ms:600000}",
                 compensationMethod.getAnnotation(Scheduled.class).fixedDelayString()
         );
+        assertEquals(
+                "${nuono.competitor-analysis.monitor.scheduler.task-recovery-fixed-delay-ms:60000}",
+                recoveryMethod.getAnnotation(Scheduled.class).fixedDelayString()
+        );
+        assertEquals(ApplicationReadyEvent.class, startupMethod.getAnnotation(EventListener.class).value()[0]);
     }
 
     private static CompetitorWatchProductScopeRow scope() {

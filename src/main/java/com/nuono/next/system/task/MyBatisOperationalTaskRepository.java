@@ -2,6 +2,7 @@ package com.nuono.next.system.task;
 
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.OperationalTaskMapper;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
@@ -45,6 +46,11 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     @Override
     public void update(OperationalTask task) {
         mapper.update(task);
+    }
+
+    @Override
+    public boolean claimQueued(Long taskId, String message, LocalDateTime startedAt) {
+        return mapper.claimQueued(taskId, message, startedAt) == 1;
     }
 
     @Override

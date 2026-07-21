@@ -102,6 +102,22 @@ public interface OperationalTaskMapper {
     })
     int update(OperationalTask task);
 
+    @Update({
+            "UPDATE operational_task",
+            "SET status = 'RUNNING',",
+            "    message = #{message},",
+            "    started_at = #{startedAt},",
+            "    gmt_updated = #{startedAt}",
+            "WHERE id = #{taskId}",
+            "  AND status = 'QUEUED'",
+            "  AND is_deleted = b'0'"
+    })
+    int claimQueued(
+            @Param("taskId") Long taskId,
+            @Param("message") String message,
+            @Param("startedAt") java.time.LocalDateTime startedAt
+    );
+
     @Select({
             "SELECT",
             "  id, task_type, owner_user_id, store_code, site_code, natural_key, status,",

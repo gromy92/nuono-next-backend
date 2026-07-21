@@ -3,7 +3,9 @@ package com.nuono.next.system.task;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
@@ -64,6 +66,25 @@ class OperationalTaskServiceTest {
         assertEquals("{\"imported\":1}", completed.getResultJson());
         assertNotNull(completed.getFinishedAt());
         assertTrue(restartedService.find(created.getId()).isPresent());
+    }
+
+    @Test
+    void shouldKeepQueuedTaskPendingUntilOneWorkerClaimsIt() {
+        OperationalTask queued = service.queue(
+                "operations.competitor.refresh",
+                "watch-product:180123:rank",
+                payload()
+        );
+
+        assertEquals(OperationalTaskStatus.QUEUED, queued.getStatus());
+        assertNull(queued.getStartedAt());
+        assertTrue(service.claimQueued(queued.getId(), "running"));
+        assertFalse(service.claimQueued(queued.getId(), "duplicate"));
+
+        OperationalTask claimed = service.find(queued.getId()).orElseThrow();
+        assertEquals(OperationalTaskStatus.RUNNING, claimed.getStatus());
+        assertEquals("running", claimed.getMessage());
+        assertNotNull(claimed.getStartedAt());
     }
 
     @Test
