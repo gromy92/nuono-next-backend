@@ -1,6 +1,6 @@
-name: Feature slice
-description: Track a Nuono Next implementation slice
-title: "[Feature]: "
+name: System capability
+description: Define a complete user capability or a deliberately hidden technical slice
+title: "[Capability]: "
 labels: ["needs-triage"]
 body:
   - type: dropdown
@@ -9,11 +9,14 @@ body:
       label: Module
       options:
         - Procurement
+        - Procurement Plugin and Logistics
         - Noon Data
         - File Management
         - Operations Config
         - Sales Lifecycle
         - Product Management
+        - Warehouse Dispatch
+        - Competitor Analysis
         - System Foundation
     validations:
       required: true
@@ -21,53 +24,79 @@ body:
     id: priority
     attributes:
       label: Priority
+      options: [P0, P1, P2, P3]
+    validations:
+      required: true
+  - type: dropdown
+    id: delivery_type
+    attributes:
+      label: Delivery type
+      description: A hidden technical slice must not be exposed or reported as a completed user feature.
       options:
-        - P0
-        - P1
-        - P2
-        - P3
+        - USER_CAPABILITY
+        - HIDDEN_TECHNICAL_SLICE
     validations:
       required: true
   - type: textarea
-    id: goal
+    id: outcome
     attributes:
-      label: Goal
-      description: State the user-visible or operator-visible outcome.
+      label: Actor and business outcome
+      description: Who uses this, in which scenario, and what durable business result must they reach?
+    validations:
+      required: true
+  - type: textarea
+    id: journey
+    attributes:
+      label: Complete user journey and states
+      description: Entry, actions, state transitions, persisted result, refresh/readback, and downstream action.
+    validations:
+      required: true
+  - type: textarea
+    id: system_scope
+    attributes:
+      label: System responsibility map
+      description: Frontend, backend, database, scheduler/task, external adapter, and any human step.
+    validations:
+      required: true
+  - type: textarea
+    id: authorization
+    attributes:
+      label: Authorization and business scope
+      description: Actor, owner, operator, store, site, object scope, and stable business keys.
+    validations:
+      required: true
+  - type: textarea
+    id: data_safety
+    attributes:
+      label: Data and safety contract
+      description: Sources of truth, compatibility, idempotency, concurrency, transaction/compensation, and external writes.
+    validations:
+      required: true
+  - type: textarea
+    id: failure_recovery
+    attributes:
+      label: Failure and recovery contract
+      description: Empty, invalid, duplicate, timeout, partial success, retry, cancel, recovery, and rollback behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies, non-scope, and exposure
+      description: Dependencies, explicit exclusions, feature flag/hidden route, and when production exposure is allowed.
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
-      label: Acceptance criteria
-      description: Use concrete checks, API calls, UI paths, or business states.
-    validations:
-      required: true
-  - type: textarea
-    id: actor_scope
-    attributes:
-      label: Actor and business scope
-      description: Name the actor/role, environment, store/site/project, and representative SKU/order/batch/task.
-      placeholder: "Actor: boss; Environment: test; Store/site: STR... / SA; Business key: ..."
-    validations:
-      required: true
-  - type: textarea
-    id: boundaries
-    attributes:
-      label: Scope, data, and external-write boundaries
-      description: State non-scope, facts that must not be overwritten, and whether external writes are disabled, dry-run, or human-triggered.
-    validations:
-      required: true
-  - type: textarea
-    id: rollback
-    attributes:
-      label: Rollback or disable path
-      description: Describe how to remove, disable, or safely roll back the slice.
+      label: Acceptance matrix
+      description: Real actor/data happy path, critical failure, recovery, authorization isolation, regression, and unchanged-data proof.
     validations:
       required: true
   - type: textarea
     id: source
     attributes:
-      label: Source context
-      description: Link the originating PRD, local .scratch file, module hub, decision, or prior issue.
+      label: Authoritative source context
+      description: Link current module hub, decision, PRD, prior issue, or scoped .scratch evidence.
     validations:
       required: true

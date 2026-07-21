@@ -14,48 +14,16 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate delivery contract
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const body = context.payload.pull_request.body || '';
-            const requiredHeadings = [
-              '## Tracking',
-              '## Summary',
-              '## Scope',
-              '## Acceptance',
-              '## Verification',
-              '## Risk and rollback'
-            ];
-            const missingHeadings = requiredHeadings.filter((heading) => !body.includes(heading));
-            const issueReference = /(?:refs?|closes?|fixes?|resolves?):\s*(?:[\w.-]+\/[\w.-]+)?#\d+/i;
-            const requiredFields = [
-              /^- Module:\s*\S+/mi,
-              /^- Actor:\s*\S+/mi,
-              /^- Store\/site\/business key:\s*\S+/mi,
-              /^- In scope:\s*\S+/mi,
-              /^- Non-scope:\s*\S+/mi,
-              /^- Environment:\s*\S+/mi,
-              /^- Rollback:\s*\S+/mi
-            ];
-            const missingFields = requiredFields
-              .map((pattern) => pattern.source)
-              .filter((_, index) => !requiredFields[index].test(body));
-
-            if (!issueReference.test(body) || missingHeadings.length > 0 || missingFields.length > 0) {
-              core.setFailed([
-                'PR delivery contract is incomplete.',
-                !issueReference.test(body) ? 'Add `Refs: #<issue>` (cross-repo references are allowed).' : '',
-                missingHeadings.length ? `Missing headings: ${missingHeadings.join(', ')}` : '',
-                missingFields.length ? 'Fill Module, Actor, Store/site/business key, In scope, Non-scope, Environment, and Rollback.' : ''
-              ].filter(Boolean).join('\n'));
-            }
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: System delivery contract
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 .github/scripts/check_delivery_contract.py
 
       - name: Set up Python
         uses: actions/setup-python@v5
