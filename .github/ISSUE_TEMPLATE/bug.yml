@@ -1,5 +1,5 @@
-name: Bug report
-description: Track a reproducible Nuono Next defect
+name: System defect
+description: Track a reproducible defect through root cause, regression, and business recovery
 title: "[Bug]: "
 labels: ["needs-triage"]
 body:
@@ -9,67 +9,71 @@ body:
       label: Module
       options:
         - Procurement
+        - Procurement Plugin and Logistics
         - Noon Data
         - File Management
         - Operations Config
         - Sales Lifecycle
         - Product Management
+        - Warehouse Dispatch
+        - Competitor Analysis
         - System Foundation
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: P0 data/security/wrong external write; P1 core journey broken; P2 degraded with workaround; P3 minor.
+      options: [P0, P1, P2, P3]
+    validations:
+      required: true
+  - type: textarea
+    id: capability
+    attributes:
+      label: Affected capability and actors
+      description: Name the full user capability, affected roles, owner/store/site/object scope, and business keys.
     validations:
       required: true
   - type: textarea
     id: symptom
     attributes:
-      label: Symptom
-      description: What is wrong, where it happens, and who is affected.
+      label: Symptom and business impact
+      description: What is wrong, which journey step fails, frequency, workaround, and operational impact.
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
       label: Reproduction steps
-      description: Include environment, account role, URL/API, and input data.
+      description: Environment, login role, URL/API, inputs, expected state, and actual state.
     validations:
       required: true
   - type: textarea
-    id: expected
+    id: data_external_impact
     attributes:
-      label: Expected behavior
+      label: Data, authorization, and external-write impact
+      description: State confirmed impact or explicitly state what remains unknown and how it will be checked.
     validations:
       required: true
   - type: textarea
-    id: actor_scope
+    id: containment
     attributes:
-      label: Actor and business scope
-      description: Name the actor/role, environment, store/site/project, and representative SKU/order/batch/task.
-      placeholder: "Actor: operator; Environment: test; Store/site: STR... / SA; Business key: ..."
+      label: Containment and recovery
+      description: Immediate stop line, affected records/tasks, safe recovery path, and whether production exposure must stop.
     validations:
       required: true
   - type: textarea
-    id: data_boundary
+    id: diagnosis
     attributes:
-      label: Data and external-write boundary
-      description: State which facts must exist, which must not be overwritten, and whether external writes are disabled, dry-run, or human-triggered.
+      label: Initial diagnosis and similar surfaces
+      description: Suspected boundary, related entry points, prior fixes, logs, task IDs, screenshots, or evidence paths.
     validations:
       required: true
   - type: textarea
-    id: acceptance
+    id: closure
     attributes:
-      label: Acceptance criteria
-      description: Include backend/API behavior, authenticated UI behavior, and the representative business-key checks.
+      label: Closure evidence required
+      description: Root cause, same-class audit, regression test, historical correction, full-journey acceptance, and observation.
     validations:
       required: true
-  - type: textarea
-    id: rollback
-    attributes:
-      label: Rollback or containment
-      description: Describe the code rollback, feature switch, scoped data reversal, or containment path.
-    validations:
-      required: true
-  - type: textarea
-    id: evidence
-    attributes:
-      label: Evidence
-      description: Logs, screenshots, task IDs, API responses, or local evidence file paths.
-    validations:
-      required: false
