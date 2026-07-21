@@ -20,9 +20,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class BusinessAccessResolver {
 
-    private static final String CONTEXT_REQUEST_ATTRIBUTE =
-            BusinessAccessResolver.class.getName() + ".CONTEXT";
-
     private final AuthSessionTokenService sessionTokenService;
     private final Supplier<BusinessAccessMapper> accessMapperSupplier;
     private final BusinessAccessGuard guard;
@@ -98,26 +95,6 @@ public class BusinessAccessResolver {
         }
     }
 
-    public BusinessStoreAccess requireStoreAccessScope(
-            HttpServletRequest request,
-            BusinessCapability capability,
-            String storeCode
-    ) {
-        BusinessAccessContext context = requireStoreAccess(request, capability, storeCode);
-        String normalizedStoreCode = BusinessAccessContext.normalizeStoreCode(storeCode);
-        Long ownerUserId = context.resolveOwnerUserIdForStore(normalizedStoreCode);
-        if (ownerUserId == null) {
-            ownerUserId = context.getBusinessOwnerUserId();
-        }
-        if (ownerUserId == null || ownerUserId <= 0) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "BUSINESS_STORE_OWNER_SCOPE_REQUIRED"
-            );
-        }
-        return new BusinessStoreAccess(ownerUserId, normalizedStoreCode);
-    }
-
     public BusinessAccessContext requireAnyStoreAccess(
             HttpServletRequest request,
             String storeCode,
@@ -132,11 +109,6 @@ public class BusinessAccessResolver {
     }
 
     public BusinessAccessContext resolve(HttpServletRequest request) {
-        Object existingContext = request == null ? null : request.getAttribute(CONTEXT_REQUEST_ATTRIBUTE);
-        if (existingContext instanceof BusinessAccessContext) {
-            return (BusinessAccessContext) existingContext;
-        }
-
         AuthenticatedSession session = sessionTokenService.requireSession(request);
         Long sessionUserId = session.getUserId();
         BusinessAccessMapper accessMapper = requireAccessMapper();
@@ -162,7 +134,7 @@ public class BusinessAccessResolver {
             }
         }
 
-        BusinessAccessContext context = BusinessAccessContext.builder()
+        return BusinessAccessContext.builder()
                 .sessionUserId(sessionUserId)
                 .businessOwnerUserId(ownerUserId)
                 .accountType(accountType)
@@ -173,10 +145,6 @@ public class BusinessAccessResolver {
                 .storeOwnerUserIds(storeOwnerUserIds)
                 .menuPaths(new LinkedHashSet<>(menuPaths))
                 .build();
-        if (request != null) {
-            request.setAttribute(CONTEXT_REQUEST_ATTRIBUTE, context);
-        }
-        return context;
     }
 
     private Long resolveOwnerUserId(
