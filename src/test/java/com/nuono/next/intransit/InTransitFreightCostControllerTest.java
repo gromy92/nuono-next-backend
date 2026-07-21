@@ -13,8 +13,11 @@ import com.nuono.next.intransit.InTransitFreightCostRecords.FreightStatisticsVie
 import com.nuono.next.intransit.InTransitFreightCostRecords.RateCardVersionView;
 import com.nuono.next.intransit.InTransitFreightCostRecords.SkuFreightCostHistoryView;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.permission.access.BusinessCapability;
 import java.util.Set;
+import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +35,13 @@ class InTransitFreightCostControllerTest {
     private InTransitFreightCostService freightCostService;
 
     @Mock
+    private BusinessAccessResolver businessAccessResolver;
+
+    @Mock
     private InTransitGoodsAccessScopeService accessScopeService;
+
+    @Mock
+    private HttpServletRequest request;
 
     private InTransitFreightCostController controller;
 
@@ -41,6 +50,7 @@ class InTransitFreightCostControllerTest {
         controller = new InTransitFreightCostController(
                 batchService,
                 freightCostService,
+                businessAccessResolver,
                 accessScopeService
         );
     }
@@ -51,10 +61,12 @@ class InTransitFreightCostControllerTest {
         BatchView scopedBatch = scopedBatch();
         BatchFreightCostView costView = new BatchFreightCostView();
 
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
         when(batchService.getBatch(10002L, 53001L)).thenReturn(scopedBatch);
         when(freightCostService.batchActualCosts(10002L, 53001L)).thenReturn(costView);
 
-        BatchFreightCostView result = controller.batchFreightCosts(53001L, context);
+        BatchFreightCostView result = controller.batchFreightCosts(53001L, request);
 
         assertEquals(costView, result);
         verify(accessScopeService).requireBatchAccess(context, scopedBatch);
@@ -65,10 +77,12 @@ class InTransitFreightCostControllerTest {
         BusinessAccessContext context = context();
         FreightStatisticsView statisticsView = new FreightStatisticsView();
 
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
         when(freightCostService.statistics(eq(10002L), eq(null), eq(null), eq(30700002L)))
                 .thenReturn(statisticsView);
 
-        FreightStatisticsView result = controller.freightStatistics(null, null, 30700002L, context);
+        FreightStatisticsView result = controller.freightStatistics(null, null, 30700002L, request);
 
         assertEquals(statisticsView, result);
     }
@@ -78,10 +92,12 @@ class InTransitFreightCostControllerTest {
         BusinessAccessContext context = context();
         SkuFreightCostHistoryView historyView = new SkuFreightCostHistoryView();
 
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
         when(freightCostService.skuHistory(eq(10002L), eq("SGGRB148"), eq("SA"), eq(null), eq(null)))
                 .thenReturn(historyView);
 
-        SkuFreightCostHistoryView result = controller.skuFreightHistory("SGGRB148", "SA", null, null, context);
+        SkuFreightCostHistoryView result = controller.skuFreightHistory("SGGRB148", "SA", null, null, request);
 
         assertEquals(historyView, result);
     }
@@ -91,6 +107,8 @@ class InTransitFreightCostControllerTest {
         BusinessAccessContext context = context();
         ForwarderFreightComparisonView comparisonView = new ForwarderFreightComparisonView();
 
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
         when(freightCostService.forwarderComparison(eq(10002L), eq("SGGRB148"), eq("SA"), eq("SEA"), eq("RUH")))
                 .thenReturn(comparisonView);
 
@@ -99,7 +117,7 @@ class InTransitFreightCostControllerTest {
                 "SA",
                 "SEA",
                 "RUH",
-                context
+                request
         );
 
         assertEquals(comparisonView, result);
@@ -115,10 +133,12 @@ class InTransitFreightCostControllerTest {
         RateCardVersionView saved = new RateCardVersionView();
         saved.setRateCardVersionId(64001L);
 
+        when(businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS))
+                .thenReturn(context);
         ArgumentCaptor<SaveRateCardVersionCommand> captor = ArgumentCaptor.forClass(SaveRateCardVersionCommand.class);
         when(freightCostService.saveRateCardVersion(captor.capture())).thenReturn(saved);
 
-        RateCardVersionView result = controller.saveFreightRateCardVersion(command, context);
+        RateCardVersionView result = controller.saveFreightRateCardVersion(command, request);
 
         assertEquals(64001L, result.getRateCardVersionId());
         assertEquals(10002L, captor.getValue().getOwnerUserId());
