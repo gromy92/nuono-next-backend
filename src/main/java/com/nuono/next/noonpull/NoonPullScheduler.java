@@ -307,9 +307,9 @@ public class NoonPullScheduler {
                 && NoonPullFailureType.PROVIDER_UNAVAILABLE.code().equals(plan.getLatestFailureType())
                 && plan.getLatestFailureAt() != null
                 && (plan.getLatestSuccessAt() == null || plan.getLatestFailureAt().isAfter(plan.getLatestSuccessAt()))
-                && plan.getLatestFailureAt()
-                .plus(PROVIDER_UNAVAILABLE_SCHEDULED_COOLDOWN)
-                .isAfter(persistedNow);
+                && !NoonSalesProviderRetryPolicy.isDue(plan, persistedNow, latestAvailableDate(),
+                isSalesLatestDayReportReadyWindow(), foundationService.listTasks())
+                && plan.getLatestFailureAt().plus(PROVIDER_UNAVAILABLE_SCHEDULED_COOLDOWN).isAfter(persistedNow);
     }
 
     private Optional<NoonPullTaskRecord> createTask(

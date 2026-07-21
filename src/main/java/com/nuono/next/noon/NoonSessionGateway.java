@@ -870,12 +870,9 @@ public class NoonSessionGateway {
                 return existing;
             }
 
-            AuthSessionState created = createCookieOnlyState(
-                    noonUser,
-                    cookieFingerprint,
-                    persistedCookie,
-                    projectCode,
-                    storeCode
+            AuthSessionState created = NoonTransportRetry.once(
+                    () -> createCookieOnlyState(noonUser, cookieFingerprint, persistedCookie, projectCode, storeCode),
+                    this::shouldRefreshAfterTransientTransportFailure
             );
             sessionCache.put(cacheKey, created);
             return created;
