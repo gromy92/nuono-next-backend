@@ -1,10 +1,9 @@
 package com.nuono.next.product;
 
-import com.nuono.next.permission.access.BusinessAccessContext;
-import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.permission.access.BusinessStoreAccess;
+import com.nuono.next.permission.access.RequiredBusinessAccess;
 import java.util.List;
-import javax.servlet.http.HttpServletRequest;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,35 +15,27 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProductLiteController {
 
     private final ProductLiteQueryService service;
-    private final BusinessAccessResolver businessAccessResolver;
 
-    public ProductLiteController(
-            ProductLiteQueryService service,
-            BusinessAccessResolver businessAccessResolver
-    ) {
+    public ProductLiteController(ProductLiteQueryService service) {
         this.service = service;
-        this.businessAccessResolver = businessAccessResolver;
     }
 
     @GetMapping
     public List<ProductLiteView> search(
-            @RequestParam String storeCode,
             @RequestParam(required = false) String siteCode,
             @RequestParam(required = false) String titleKeyword,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer limit,
-            HttpServletRequest request
+            @RequiredBusinessAccess(
+                    capability = BusinessCapability.PRODUCT_MASTER,
+                    storeQueryParameter = "storeCode"
+            )
+            BusinessStoreAccess storeAccess
     ) {
-        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
-                request,
-                BusinessCapability.PRODUCT_MASTER,
-                storeCode
-        );
         ProductLiteQuery query = new ProductLiteQuery();
-        query.setStoreCode(storeCode);
         query.setSiteCode(siteCode);
         query.setTitleKeyword(StringUtils.hasText(titleKeyword) ? titleKeyword : keyword);
         query.setLimit(limit);
-        return service.search(context, query);
+        return service.search(storeAccess, query);
     }
 }

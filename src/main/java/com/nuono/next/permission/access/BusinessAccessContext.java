@@ -169,7 +169,7 @@ public final class BusinessAccessContext {
         return Collections.unmodifiableSet(result);
     }
 
-    private static String normalizeStoreCode(String value) {
+    static String normalizeStoreCode(String value) {
         if (!StringUtils.hasText(value)) {
             return null;
         }

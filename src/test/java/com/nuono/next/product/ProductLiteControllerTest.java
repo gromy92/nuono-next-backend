@@ -7,20 +7,18 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.nuono.next.permission.access.BusinessAccessContext;
-import com.nuono.next.permission.access.BusinessAccessResolver;
-import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.permission.access.BusinessStoreAccess;
 import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.permission.access.RequiredBusinessAccess;
+import com.nuono.next.permission.access.BusinessStoreAccessTestFixture;
+import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,14 +26,29 @@ class ProductLiteControllerTest {
 
     @Mock
     private ProductLiteQueryService service;
-    @Mock
-    private BusinessAccessResolver businessAccessResolver;
 
     private ProductLiteController controller;
 
     @BeforeEach
     void setUp() {
-        controller = new ProductLiteController(service, businessAccessResolver);
+        controller = new ProductLiteController(service);
+    }
+
+    @Test
+    void searchDeclaresTypedProductMasterStoreScope() throws Exception {
+        Method method = ProductLiteController.class.getDeclaredMethod(
+                "search",
+                String.class,
+                String.class,
+                String.class,
+                Integer.class,
+                BusinessStoreAccess.class
+        );
+        RequiredBusinessAccess requiredAccess = method.getParameters()[4]
+                .getAnnotation(RequiredBusinessAccess.class);
+
+        assertEquals(BusinessCapability.PRODUCT_MASTER, requiredAccess.capability());
+        assertEquals("storeCode", requiredAccess.storeQueryParameter());
     }
 
     @Test
@@ -47,30 +60,22 @@ class ProductLiteControllerTest {
 
     @Test
     void searchShouldResolveProductMasterStoreAccessAndPassQuery() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = productContext();
+        BusinessStoreAccess storeAccess = storeAccess();
         ProductLiteView view = new ProductLiteView();
         view.setProductMasterId(90001L);
-        when(businessAccessResolver.requireStoreAccess(
-                request,
-                BusinessCapability.PRODUCT_MASTER,
-                "STR108065-NSA"
-        )).thenReturn(context);
-        when(service.search(eq(context), any())).thenReturn(List.of(view));
+        when(service.search(eq(storeAccess), any())).thenReturn(List.of(view));
 
         List<ProductLiteView> result = controller.search(
-                "STR108065-NSA",
                 "sa",
                 " Basket ",
                 null,
                 30,
-                request
+                storeAccess
         );
 
         assertEquals(90001L, result.get(0).getProductMasterId());
         ArgumentCaptor<ProductLiteQuery> captor = ArgumentCaptor.forClass(ProductLiteQuery.class);
-        verify(service).search(eq(context), captor.capture());
-        assertEquals("STR108065-NSA", captor.getValue().getStoreCode());
+        verify(service).search(eq(storeAccess), captor.capture());
         assertEquals("sa", captor.getValue().getSiteCode());
         assertEquals(" Basket ", captor.getValue().getTitleKeyword());
         assertEquals(30, captor.getValue().getLimit());
@@ -78,32 +83,17 @@ class ProductLiteControllerTest {
 
     @Test
     void searchShouldFallbackKeywordToTitleKeyword() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = productContext();
-        when(businessAccessResolver.requireStoreAccess(
-                request,
-                BusinessCapability.PRODUCT_MASTER,
-                "STR108065-NSA"
-        )).thenReturn(context);
-        when(service.search(eq(context), any())).thenReturn(List.of());
+        BusinessStoreAccess storeAccess = storeAccess();
+        when(service.search(eq(storeAccess), any())).thenReturn(List.of());
 
-        controller.search("STR108065-NSA", null, null, "中文标题", null, request);
+        controller.search(null, null, "中文标题", null, storeAccess);
 
         ArgumentCaptor<ProductLiteQuery> captor = ArgumentCaptor.forClass(ProductLiteQuery.class);
-        verify(service).search(eq(context), captor.capture());
+        verify(service).search(eq(storeAccess), captor.capture());
         assertEquals("中文标题", captor.getValue().getTitleKeyword());
     }
 
-    private static BusinessAccessContext productContext() {
-        return BusinessAccessContext.builder()
-                .sessionUserId(601L)
-                .businessOwnerUserId(501L)
-                .accountType(BusinessAccountType.OPERATOR)
-                .roleLevel(3)
-                .roleName("运营")
-                .storeCodes(Set.of("STR108065-NSA"))
-                .storeOwnerUserIds(Map.of("STR108065-NSA", 501L))
-                .menuPaths(Set.of("/api/sku/manage"))
-                .build();
+    private static BusinessStoreAccess storeAccess() {
+        return BusinessStoreAccessTestFixture.access(501L, "STR108065-NSA");
     }
 }
