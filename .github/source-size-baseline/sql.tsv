@@ -1,0 +1,25 @@
+# Source-size debt ceilings: historical SQL. Keep paths sorted.
+# Format: repository-relative path<TAB>physical-line ceiling.
+src/main/resources/db/init/000_local_dev_bootstrap.sql	1547
+src/main/resources/db/init/029_product_management_official_detail_alignment.sql	561
+src/main/resources/db/init/030_logistics_quote_operations_v1.sql	881
+src/main/resources/db/init/035_align_supported_permission_menus.sql	382
+src/main/resources/db/init/037_file_management_parse_v1.sql	860
+src/main/resources/db/init/053_sales_data_analysis_foundation.sql	653
+src/main/resources/db/init/071_procurement_ali1688_historical_order_sync.sql	627
+src/main/resources/db/init/089_product_variant_spec.sql	329
+src/main/resources/db/init/099_operations_competitor_analysis.sql	419
+src/main/resources/db/init/125_forwarder_quote_et_20260604.sql	532
+src/main/resources/db/init/126_product_variant_logistics_profile.sql	432
+src/main/resources/db/init/129_warehouse_dispatch_procurement_flow.sql	353
+src/main/resources/db/init/135_warehouse_shipping_recommendation_options.sql	375
+src/main/resources/db/init/146_procurement_shipping_order.sql	462
+src/main/resources/db/init/148_procurement_logistics_billing.sql	421
+src/main/resources/db/init/149_product_variant_psku_identity.sql	711
+src/main/resources/db/init/150_sales_product_psku_identity.sql	396
+src/main/resources/db/init/152_psku_product_model_realignment.sql	470
+src/main/resources/db/init/155_product_image_profile.sql	335
+src/main/resources/db/init/160_noon_advertising_read_model.sql	333
+src/main/resources/db/init/163_product_logistics_cost_ledger.sql	406
+src/main/resources/db/init/172_product_site_offer_logistics_history.sql	395
+src/main/resources/db/init/173_product_selection_group_profit_snapshot.sql	418
