@@ -8,12 +8,11 @@ import com.nuono.next.intransit.InTransitFreightCostRecords.RateCardVersionView;
 import com.nuono.next.intransit.InTransitFreightCostRecords.SkuFreightCostHistoryView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessDeniedException;
-import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.permission.access.RequiredBusinessAccess;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
-import javax.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,27 +30,24 @@ public class InTransitFreightCostController {
 
     private final InTransitBatchService batchService;
     private final InTransitFreightCostService freightCostService;
-    private final BusinessAccessResolver businessAccessResolver;
     private final InTransitGoodsAccessScopeService accessScopeService;
 
     public InTransitFreightCostController(
             InTransitBatchService batchService,
             InTransitFreightCostService freightCostService,
-            BusinessAccessResolver businessAccessResolver,
             InTransitGoodsAccessScopeService accessScopeService
     ) {
         this.batchService = batchService;
         this.freightCostService = freightCostService;
-        this.businessAccessResolver = businessAccessResolver;
         this.accessScopeService = accessScopeService;
     }
 
     @GetMapping("/batches/{batchId}/freight-costs")
     public BatchFreightCostView batchFreightCosts(
             @PathVariable Long batchId,
-            HttpServletRequest request
+            @RequiredBusinessAccess(capability = BusinessCapability.IN_TRANSIT_GOODS)
+            BusinessAccessContext context
     ) {
-        BusinessAccessContext context = requireContext(request);
         try {
             accessScopeService.requireBatchAccess(context, batchService.getBatch(context.getBusinessOwnerUserId(), batchId));
             return freightCostService.batchActualCosts(context.getBusinessOwnerUserId(), batchId);
@@ -67,9 +63,9 @@ public class InTransitFreightCostController {
             @RequestParam(required = false) String fromMonth,
             @RequestParam(required = false) String toMonth,
             @RequestParam(required = false) Long standardForwarderId,
-            HttpServletRequest request
+            @RequiredBusinessAccess(capability = BusinessCapability.IN_TRANSIT_GOODS)
+            BusinessAccessContext context
     ) {
-        BusinessAccessContext context = requireContext(request);
         try {
             return freightCostService.statistics(
                     context.getBusinessOwnerUserId(),
@@ -90,9 +86,9 @@ public class InTransitFreightCostController {
             @RequestParam String targetSiteCode,
             @RequestParam(required = false) String fromMonth,
             @RequestParam(required = false) String toMonth,
-            HttpServletRequest request
+            @RequiredBusinessAccess(capability = BusinessCapability.IN_TRANSIT_GOODS)
+            BusinessAccessContext context
     ) {
-        BusinessAccessContext context = requireContext(request);
         try {
             return freightCostService.skuHistory(
                     context.getBusinessOwnerUserId(),
@@ -114,9 +110,9 @@ public class InTransitFreightCostController {
             @RequestParam String targetSiteCode,
             @RequestParam(required = false) String transportMode,
             @RequestParam(required = false) String destinationCode,
-            HttpServletRequest request
+            @RequiredBusinessAccess(capability = BusinessCapability.IN_TRANSIT_GOODS)
+            BusinessAccessContext context
     ) {
-        BusinessAccessContext context = requireContext(request);
         try {
             return freightCostService.forwarderComparison(
                     context.getBusinessOwnerUserId(),
@@ -135,9 +131,9 @@ public class InTransitFreightCostController {
     @PostMapping("/freight-costs/rate-card-versions")
     public RateCardVersionView saveFreightRateCardVersion(
             @RequestBody(required = false) SaveRateCardVersionCommand command,
-            HttpServletRequest request
+            @RequiredBusinessAccess(capability = BusinessCapability.IN_TRANSIT_GOODS)
+            BusinessAccessContext context
     ) {
-        BusinessAccessContext context = requireContext(request);
         SaveRateCardVersionCommand resolved = command == null ? new SaveRateCardVersionCommand() : command;
         resolved.setOwnerUserId(context.getBusinessOwnerUserId());
         resolved.setOperatorUserId(context.getSessionUserId());
@@ -150,10 +146,6 @@ public class InTransitFreightCostController {
         } catch (IllegalStateException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
         }
-    }
-
-    private BusinessAccessContext requireContext(HttpServletRequest request) {
-        return businessAccessResolver.requireBusinessContext(request, BusinessCapability.IN_TRANSIT_GOODS);
     }
 
     private LocalDateTime parseMonthStart(String value) {
