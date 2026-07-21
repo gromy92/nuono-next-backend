@@ -7,6 +7,7 @@ public class ProductSelectionPluginIngestResponse {
 
     private ProductSelectionSourceCollectionView sourceCollection;
     private List<ProductSelectionPluginIngestCommand.PluginWarning> warnings = new ArrayList<>();
+    private boolean deduped;
 
     public ProductSelectionSourceCollectionView getSourceCollection() {
         return sourceCollection;
@@ -22,5 +23,13 @@ public class ProductSelectionPluginIngestResponse {
 
     public void setWarnings(List<ProductSelectionPluginIngestCommand.PluginWarning> warnings) {
         this.warnings = warnings == null ? new ArrayList<>() : warnings;
+    }
+
+    public boolean isDeduped() {
+        return deduped;
+    }
+
+    public void setDeduped(boolean deduped) {
+        this.deduped = deduped;
     }
 }

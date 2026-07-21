@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
+import com.nuono.next.infrastructure.mapper.ProductSelectionPluginIngestMapper;
 import com.nuono.next.noonpull.NoonRiskBackoffGuard;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,9 @@ class LocalDbSourceCollectionServicePluginIngestTest {
 
     @Mock
     private ProductSelectionMapper productSelectionMapper;
+
+    @Mock
+    private ProductSelectionPluginIngestMapper pluginIngestMapper;
 
     @Mock
     private ProductSelectionPermissionGuard permissionGuard;
@@ -43,15 +47,25 @@ class LocalDbSourceCollectionServicePluginIngestTest {
 
     @BeforeEach
     void setUp() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        SourceCollectionCompletenessCalculator calculator = new SourceCollectionCompletenessCalculator();
+        PluginSourceCollectionUpsertService upsertService = new PluginSourceCollectionUpsertService(
+                productSelectionMapper,
+                pluginIngestMapper,
+                calculator,
+                ali1688CollectionService,
+                objectMapper
+        );
         service = new LocalDbSourceCollectionService(
                 productSelectionMapper,
                 permissionGuard,
                 sourceCollectionCollector,
                 sourceCollectionLocalizer,
-                new SourceCollectionCompletenessCalculator(),
+                calculator,
                 ali1688CollectionService,
-                new ObjectMapper(),
-                NoonRiskBackoffGuard.disabled()
+                objectMapper,
+                NoonRiskBackoffGuard.disabled(),
+                upsertService
         );
     }
 
@@ -70,6 +84,11 @@ class LocalDbSourceCollectionServicePluginIngestTest {
         ));
         command.setPriceSummary("12.80");
         command.setSpecHints(List.of("ASIN: B00006IFHD", "Brand: Sharpie"));
+        command.setCategoryLinks(List.of(new ProductSelectionCompetitorCategoryLink(
+                "Permanent Markers",
+                "Office Products > Writing Supplies > Permanent Markers",
+                "https://www.amazon.ae/s?rh=n%3A123456"
+        )));
         command.setSourceSellingPointsEn(List.of("Fine point permanent marker"));
         command.setWarnings(List.of(new ProductSelectionPluginIngestCommand.PluginWarning(
                 "field_missing",
@@ -93,12 +112,20 @@ class LocalDbSourceCollectionServicePluginIngestTest {
         assertEquals("success", row.getStatus());
         assertEquals("Sharpie Permanent Markers, Fine Point, Black, 12-Count", row.getSourceTitle());
         assertTrue(row.getImageUrlsJson().contains("41GTEBbDEVL"));
+        assertTrue(row.getCategoryLinksJson().contains("Permanent Markers"));
         assertTrue(row.getNotes().contains("field_missing:sourceDescriptionAr"));
         verify(ali1688CollectionService).ensureTaskForSourceCollection(any(ProductSelectionSourceCollectionRow.class), eq(307L));
 
         assertEquals("86488", response.getSourceCollection().getId());
         assertEquals("plugin", response.getSourceCollection().getCollectionSource());
         assertEquals("AE", response.getSourceCollection().getSiteCode());
+        assertEquals("Permanent Markers", response.getSourceCollection().getCategoryName());
+        assertEquals(
+                "Office Products > Writing Supplies > Permanent Markers",
+                response.getSourceCollection().getCategoryPath()
+        );
+        assertEquals("https://www.amazon.ae/s?rh=n%3A123456", response.getSourceCollection().getCategoryUrl());
+        assertEquals(1, response.getSourceCollection().getCategoryLinks().size());
         assertEquals(1, response.getWarnings().size());
     }
 
@@ -115,6 +142,8 @@ class LocalDbSourceCollectionServicePluginIngestTest {
                 "iPhone 17 Series",
                 "›",
                 "'> ' class='nav_a'>",
+                "Product Overview Specifications",
+                "Product Ratings & Reviews",
                 "Quick-drying water-based acrylic ink works on wood, rock and canvas"
         ));
         command.setSourceSellingPointsAr(List.of(
@@ -122,6 +151,8 @@ class LocalDbSourceCollectionServicePluginIngestTest {
                 "شواحن",
                 "عن هذه السلعة",
                 "عربة التسوق shift + opt + C",
+                "نظرة عامة على المنتج المواصفات",
+                "تقييمات المنتج والمراجعات",
                 "حبر أكريليك مائي سريع الجفاف مناسب للخشب والصخور والقماش"
         ));
         command.setOperatorUserId(307L);
@@ -137,11 +168,15 @@ class LocalDbSourceCollectionServicePluginIngestTest {
         assertFalse(row.getSourceSellingPointsEnJson().contains("Electronics Mobiles"));
         assertFalse(row.getSourceSellingPointsEnJson().contains("iPhone 17 Series"));
         assertFalse(row.getSourceSellingPointsEnJson().contains("nav_a"));
+        assertFalse(row.getSourceSellingPointsEnJson().contains("Product Overview Specifications"));
+        assertFalse(row.getSourceSellingPointsEnJson().contains("Product Ratings & Reviews"));
         assertTrue(row.getSourceSellingPointsEnJson().contains("Quick-drying water-based acrylic ink"));
         assertFalse(row.getSourceSellingPointsArJson().contains("الإلكترونيات الجوالات والاكسسوارات"));
         assertFalse(row.getSourceSellingPointsArJson().contains("شواحن\""));
         assertFalse(row.getSourceSellingPointsArJson().contains("عن هذه السلعة"));
         assertFalse(row.getSourceSellingPointsArJson().contains("عربة التسوق"));
+        assertFalse(row.getSourceSellingPointsArJson().contains("نظرة عامة على المنتج المواصفات"));
+        assertFalse(row.getSourceSellingPointsArJson().contains("تقييمات المنتج والمراجعات"));
         assertTrue(row.getSourceSellingPointsArJson().contains("حبر أكريليك مائي سريع الجفاف"));
 
         assertEquals(
@@ -223,4 +258,5 @@ class LocalDbSourceCollectionServicePluginIngestTest {
         scope.setSite(site);
         return scope;
     }
+
 }

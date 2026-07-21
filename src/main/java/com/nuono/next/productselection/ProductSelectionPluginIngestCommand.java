@@ -7,6 +7,7 @@ public class ProductSelectionPluginIngestCommand extends ProductSelectionSourceC
 
     private String extractorVersion;
     private String pageLanguage;
+    private List<ProductSelectionCompetitorCategoryLink> categoryLinks = new ArrayList<>();
     private List<PluginWarning> warnings = new ArrayList<>();
 
     public String getExtractorVersion() {
@@ -23,6 +24,14 @@ public class ProductSelectionPluginIngestCommand extends ProductSelectionSourceC
 
     public void setPageLanguage(String pageLanguage) {
         this.pageLanguage = pageLanguage;
+    }
+
+    public List<ProductSelectionCompetitorCategoryLink> getCategoryLinks() {
+        return categoryLinks;
+    }
+
+    public void setCategoryLinks(List<ProductSelectionCompetitorCategoryLink> categoryLinks) {
+        this.categoryLinks = categoryLinks == null ? new ArrayList<>() : new ArrayList<>(categoryLinks);
     }
 
     public List<PluginWarning> getWarnings() {

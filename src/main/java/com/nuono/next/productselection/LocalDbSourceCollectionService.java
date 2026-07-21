@@ -43,6 +43,7 @@ public class LocalDbSourceCollectionService {
     private final ObjectMapper objectMapper;
     private final ProductSelectionGroupService groupService;
     private final NoonRiskBackoffGuard noonRiskBackoffGuard;
+    private final PluginSourceCollectionUpsertService pluginUpsertService;
 
     @Value("${nuono.product-selection.source-collection.scheduler.enabled:false}")
     private boolean sourceCollectionSchedulerEnabled;
@@ -58,7 +59,8 @@ public class LocalDbSourceCollectionService {
             SourceCollectionCompletenessCalculator completenessCalculator,
             LocalDbAli1688CollectionService ali1688CollectionService,
             ObjectMapper objectMapper,
-            NoonRiskBackoffGuard noonRiskBackoffGuard
+            NoonRiskBackoffGuard noonRiskBackoffGuard,
+            PluginSourceCollectionUpsertService pluginUpsertService
     ) {
         this.productSelectionMapper = productSelectionMapper;
         this.permissionGuard = permissionGuard;
@@ -68,6 +70,7 @@ public class LocalDbSourceCollectionService {
         this.ali1688CollectionService = ali1688CollectionService;
         this.objectMapper = objectMapper;
         this.noonRiskBackoffGuard = noonRiskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : noonRiskBackoffGuard;
+        this.pluginUpsertService = pluginUpsertService;
         this.groupService = new ProductSelectionGroupService(
                 productSelectionMapper,
                 permissionGuard,
@@ -381,59 +384,32 @@ public class LocalDbSourceCollectionService {
             imageUrls.add(0, mainImageUrl);
         }
         List<String> specHints = normalizeList(source.getSpecHints(), 30);
+        List<ProductSelectionCompetitorCategoryLink> categoryLinks = normalizeCategoryLinks(source.getCategoryLinks());
         List<String> sellingPointsEn = normalizeSourceSellingPoints(source.getSourceSellingPointsEn(), 12);
         List<String> sellingPointsAr = normalizeSourceSellingPoints(source.getSourceSellingPointsAr(), 12);
         if (!hasPluginCollectedFacts(source, imageUrls, specHints, sellingPointsEn, sellingPointsAr)) {
             throw new IllegalArgumentException("插件未采集到有效商品信息，请确认当前页是商品详情页。");
         }
 
-        Long id = productSelectionMapper.nextSourceCollectionId();
-        ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
-        row.setId(id);
-        row.setOwnerUserId(scope.getOwnerUserId());
-        row.setLogicalStoreId(scope.getLogicalStoreId());
-        row.setSiteCode(siteCodeFromScope(scope));
-        row.setCollectionNo("PSC-" + id);
-        row.setSourceType("marketplace-url");
-        row.setCollectionSource("plugin");
-        row.setSourceUrl(sourceUrl);
-        row.setPageUrl(pageUrl);
-        row.setSourcePlatform(sourcePlatform);
-        row.setSourceTitle(defaultText(
-                source.getSourceTitle(),
-                defaultText(source.getSourceTitleCn(), defaultText(source.getSourceTitleAr(), "插件采集源头商品"))
-        ));
-        row.setSourceTitleCn(defaultText(source.getSourceTitleCn(), source.getSelectedText()));
-        row.setSourceTitleAr(defaultText(source.getSourceTitleAr(), ""));
-        row.setSourceImageUrl(imageUrls.isEmpty() ? "" : imageUrls.get(0));
-        row.setImageUrlsJson(writeStringListJson(imageUrls));
-        row.setPriceSummary(defaultText(source.getPriceSummary(), ""));
-        row.setMoqHint(defaultText(source.getMoqHint(), ""));
-        row.setShippingFrom(defaultText(source.getShippingFrom(), ""));
-        row.setBrandName(completenessCalculator.firstSpecValue(specHints, Set.of("brand", "brand name")));
-        row.setUnitCount(completenessCalculator.firstSpecValue(specHints, SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS));
-        row.setColorName(completenessCalculator.firstSpecValue(specHints, Set.of("color", "colour", "color name", "colour name")));
-        row.setSpecHintsJson(writeStringListJson(specHints));
-        row.setCategoryLinksJson(writeCategoryLinksJson(List.of()));
-        row.setSpecAttributeCount(completenessCalculator.countSpecAttributes(specHints));
-        row.setSourceDescriptionEn(defaultText(source.getSourceDescriptionEn(), ""));
-        row.setSourceDescriptionAr(defaultText(source.getSourceDescriptionAr(), source.getSelectedTextAr()));
-        row.setSourceSellingPointsEnJson(writeStringListJson(sellingPointsEn));
-        row.setSourceSellingPointsArJson(writeStringListJson(sellingPointsAr));
-        row.setSelectedText(defaultText(source.getSelectedText(), ""));
-        row.setSelectedTextAr(defaultText(source.getSelectedTextAr(), ""));
-        row.setNotes(defaultText(source.getNotes(), pluginWarningNotes(source.getWarnings())));
-        row.setStatus("success");
-        row.setCreatedBy(source.getOperatorUserId());
-        row.setUpdatedBy(source.getOperatorUserId());
-        productSelectionMapper.insertSourceCollection(row);
-        ProductSelectionSourceCollectionRow inserted = productSelectionMapper.selectSourceCollectionById(id);
-        ProductSelectionSourceCollectionRow effectiveRow = inserted == null ? row : inserted;
-        ali1688CollectionService.ensureTaskForSourceCollection(effectiveRow, source.getOperatorUserId());
+        PluginSourceCollectionUpsertService.Result result = pluginUpsertService.upsert(
+                scope,
+                siteCodeFromScope(scope),
+                source,
+                sourcePlatform,
+                sourceUrl,
+                pageUrl,
+                imageUrls,
+                specHints,
+                categoryLinks,
+                sellingPointsEn,
+                sellingPointsAr,
+                pluginWarningNotes(source.getWarnings())
+        );
 
         ProductSelectionPluginIngestResponse response = new ProductSelectionPluginIngestResponse();
-        response.setSourceCollection(toSourceCollectionView(effectiveRow));
+        response.setSourceCollection(toSourceCollectionView(result.row()));
         response.setWarnings(normalizeWarnings(source.getWarnings()));
+        response.setDeduped(result.deduped());
         return response;
     }
 
@@ -1064,11 +1040,15 @@ public class LocalDbSourceCollectionService {
     }
 
     private boolean isNoonNavigationSellingPoint(String value) {
-        String normalized = defaultText(value, "").toLowerCase();
+        String normalized = defaultText(value, "").toLowerCase().replaceAll("\\s+", " ").trim();
         if (!StringUtils.hasText(normalized)) {
             return false;
         }
         return normalized.contains("electronics mobiles & accessories")
+                || normalized.matches("(?:(?:product\\s+)?overview\\s+)?(?:product\\s+)?specifications?")
+                || normalized.matches("(?:product\\s+)?ratings?\\s*(?:&amp;|&|and)\\s*reviews?")
+                || normalized.matches("(?:نظرة\\s+عامة(?:\\s+على\\s+المنتج)?\\s+)?(?:المواصفات|مواصفات\\s+المنتج)")
+                || normalized.matches("(?:(?:تقييمات?\\s+المنتج|التقييمات)\\s*(?:و|&amp;|&)\\s*(?:المراجعات|الآراء)|تقييمات?\\s+ومراجعات?\\s+المنتج)")
                 || normalized.equals("›")
                 || normalized.equals("2+")
                 || normalized.contains("class='nav_a'")
