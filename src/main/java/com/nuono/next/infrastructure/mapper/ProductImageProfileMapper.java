@@ -981,7 +981,7 @@ public interface ProductImageProfileMapper {
             "UPDATE product_image_suite",
             "SET suite_status = #{status}, review_comment = #{comment}, reviewed_by = #{reviewedBy}, reviewed_at = NOW(),",
             "    failure_stage = NULL, failure_reason = NULL, updated_by = #{reviewedBy}, updated_at = NOW()",
-            "WHERE id = #{suiteId} AND profile_id = #{profileId} AND suite_status = 'PENDING_REVIEW' AND deleted = b'0'"
+            "WHERE id = #{suiteId} AND profile_id = #{profileId} AND suite_status IN ('PENDING_REVIEW', 'ADOPTED') AND deleted = b'0'"
     })
     int reviewSuite(
             @Param("suiteId") Long suiteId,
