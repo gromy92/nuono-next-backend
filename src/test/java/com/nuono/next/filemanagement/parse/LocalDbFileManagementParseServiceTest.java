@@ -3,7 +3,6 @@ package com.nuono.next.filemanagement.parse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,6 +14,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -74,6 +74,9 @@ class LocalDbFileManagementParseServiceTest {
         service = new LocalDbFileManagementParseService(
                 fileManagementParseMapper,
                 storageProperties,
+                new FileParseUploadArchiveService(fileManagementParseMapper, storageProperties),
+                mock(FileParseTaskCatalogService.class),
+                new FileParseActionPolicy(),
                 FileParseInputExtractionService.withDefaultExtractors(),
                 new FileParseStructuredAiService(aiCapabilityService, objectMapper),
                 new FileParseResultDiffService(fileManagementParseMapper, objectMapper),
@@ -85,132 +88,6 @@ class LocalDbFileManagementParseServiceTest {
                 new FileParseQueryViewService(fileManagementParseMapper, itemViewAssembler),
                 new FileParsePublishService(fileManagementParseMapper, itemViewAssembler, null, null),
                 new FileParseLogisticsChannelActivationService(fileManagementParseMapper, itemViewAssembler)
-        );
-    }
-
-    @Test
-    void shouldReturnAdminActionsForAllTargetPlans() {
-        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
-        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
-        when(fileManagementParseMapper.selectVisibleTargetPlans(0, true))
-                .thenReturn(List.of(targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule")));
-
-        List<FileParseTargetPlanSummary> plans = service.listTargetPlans(new AuthenticatedSession(10001L, 1L, 0));
-
-        assertEquals(1, plans.size());
-        FileParseAvailableActions actions = plans.get(0).getAvailableActions();
-        assertTrue(actions.isCanCreateTask());
-        assertTrue(actions.isCanProcess());
-        assertTrue(actions.isCanPublish());
-        assertTrue(actions.isCanManageStandard());
-        assertTrue(actions.isCanActivateLogisticsChannels());
-        verify(fileManagementParseMapper, never()).countActiveUserMenu(10001L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID);
-    }
-
-    @Test
-    void shouldExposeStructuredLogisticsItemTypesOnTargetPlanSummary() {
-        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
-        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
-        when(fileManagementParseMapper.selectVisibleTargetPlans(0, true))
-                .thenReturn(List.of(targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule")));
-        when(fileManagementParseMapper.selectItemStandards(5105L))
-                .thenReturn(logisticsQuotePackageItemStandards());
-
-        FileParseTargetPlanSummary summary = service.listTargetPlans(new AuthenticatedSession(10001L, 1L, 0)).get(0);
-
-        assertEquals(
-                List.of(
-                        "logistics_channel_rule",
-                        "logistics_service_line",
-                        "logistics_cargo_category",
-                        "logistics_base_price",
-                        "logistics_surcharge",
-                        "logistics_billing_rule",
-                        "logistics_warehouse_service_fee",
-                        "logistics_restriction"
-                ),
-                summary.getItemTypes().stream().map(FileParseTargetPlanItemTypeView::getValue).collect(Collectors.toList())
-        );
-        assertEquals("物流服务线路", summary.getItemTypes().get(1).getLabel());
-    }
-
-    @Test
-    void shouldIncludeInputDisplayNamesAndDownloadLinksOnTaskList() {
-        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
-        FileParseTaskListItemView task = taskListItem(20001L, 4005L);
-        FileParseTaskInputRow input = taskInput(
-                30001L,
-                "excel",
-                "Noon佣金表.xlsx",
-                "xlsx",
-                "2026/30001-Noon佣金表.xlsx",
-                null
-        );
-
-        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
-        when(fileManagementParseMapper.countTasks(null, null, null, 0, true)).thenReturn(1);
-        when(fileManagementParseMapper.selectTasks(null, null, null, 0, true, 20, 0)).thenReturn(List.of(task));
-        when(fileManagementParseMapper.selectTaskInputsByTaskIds(List.of(20001L))).thenReturn(List.of(input));
-
-        FileParseTaskListView view = service.listTasks(new AuthenticatedSession(10001L, 1L, 0), null, null, null, 1, 20);
-
-        assertEquals(1, view.getItems().size());
-        assertEquals(1, view.getItems().get(0).getInputItems().size());
-        FileParseTaskInputView listInput = view.getItems().get(0).getInputItems().get(0);
-        assertEquals("Noon佣金表.xlsx", listInput.getDisplayName());
-        assertEquals("/api/file-management/parse/files/10001/download", listInput.getDownloadUrl());
-    }
-
-    @Test
-    void shouldAllowBossToProcessAndActivateLogisticsButNotPublish() {
-        FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
-        when(fileManagementParseMapper.selectUserContext(10002L)).thenReturn(boss);
-        when(fileManagementParseMapper.countActiveUserMenu(10002L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
-                .thenReturn(1);
-        when(fileManagementParseMapper.selectVisibleTargetPlans(1, false))
-                .thenReturn(List.of(targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule")));
-
-        FileParseAvailableActions actions = service.listTargetPlans(new AuthenticatedSession(10002L, 2L, 1))
-                .get(0)
-                .getAvailableActions();
-
-        assertTrue(actions.isCanCreateTask());
-        assertTrue(actions.isCanProcess());
-        assertFalse(actions.isCanPublish());
-        assertFalse(actions.isCanManageStandard());
-        assertTrue(actions.isCanActivateLogisticsChannels());
-    }
-
-    @Test
-    void shouldKeepOperatorReadOnly() {
-        FileParseUserContext operator = user(10004L, 3, "OPS", "运营");
-        when(fileManagementParseMapper.selectUserContext(10004L)).thenReturn(operator);
-        when(fileManagementParseMapper.countActiveUserMenu(10004L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
-                .thenReturn(1);
-        when(fileManagementParseMapper.selectVisibleTargetPlans(3, false))
-                .thenReturn(List.of(targetPlan(4002L, "commission_uae", "佣金-UAE", "official_commission")));
-
-        FileParseAvailableActions actions = service.listTargetPlans(new AuthenticatedSession(10004L, 4L, 3))
-                .get(0)
-                .getAvailableActions();
-
-        assertFalse(actions.isCanCreateTask());
-        assertFalse(actions.isCanProcess());
-        assertFalse(actions.isCanPublish());
-        assertFalse(actions.isCanManageStandard());
-        assertFalse(actions.isCanActivateLogisticsChannels());
-    }
-
-    @Test
-    void shouldRejectUserWithoutFileManagementMenu() {
-        FileParseUserContext boss = user(10002L, 1, "BOSS", "老板");
-        when(fileManagementParseMapper.selectUserContext(10002L)).thenReturn(boss);
-        when(fileManagementParseMapper.countActiveUserMenu(10002L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
-                .thenReturn(0);
-
-        assertThrows(
-                FileParseAccessDeniedException.class,
-                () -> service.listTargetPlans(new AuthenticatedSession(10002L, 2L, 1))
         );
     }
 
@@ -372,37 +249,6 @@ class LocalDbFileManagementParseServiceTest {
     }
 
     @Test
-    void shouldArchiveUploadedFile() throws Exception {
-        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
-        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
-        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
-        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
-        when(fileManagementParseMapper.nextFileAssetId()).thenReturn(10001L);
-        when(fileManagementParseMapper.insertFileAsset(any(FileParseFileAssetRow.class))).thenReturn(1);
-
-        MockMultipartFile file = new MockMultipartFile(
-                "file",
-                "义特FBN报价.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "quote data".getBytes()
-        );
-
-        FileParseUploadView upload = service.uploadFile(new AuthenticatedSession(10001L, 1L, 0), 4005L, file);
-
-        assertEquals(10001L, upload.getFileId());
-        assertEquals("xlsx", upload.getFileExtension());
-        assertNotNull(upload.getSha256Hash());
-        assertEquals("/api/file-management/parse/files/10001/download", upload.getDownloadUrl());
-
-        ArgumentCaptor<FileParseFileAssetRow> rowCaptor = ArgumentCaptor.forClass(FileParseFileAssetRow.class);
-        verify(fileManagementParseMapper).insertFileAsset(rowCaptor.capture());
-        FileParseFileAssetRow storedRow = rowCaptor.getValue();
-        assertEquals(4005L, storedRow.getTargetPlanId());
-        assertEquals(5105L, storedRow.getStandardVersionId());
-        assertTrue(Files.exists(tempDir.resolve(storedRow.getStorageKey())));
-    }
-
-    @Test
     void shouldCreateReadingTaskWithFileAndTextInputs() {
         FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
         FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
@@ -526,23 +372,6 @@ class LocalDbFileManagementParseServiceTest {
         assertEquals(2, task.getIterationNo());
         assertEquals(4001L, task.getTargetPlanId());
         assertEquals("reading", task.getStatus());
-    }
-
-    @Test
-    void shouldRejectOperatorUploadBecauseOperatorIsReadOnly() {
-        FileParseUserContext operator = user(10004L, 3, "OPS", "运营");
-        when(fileManagementParseMapper.selectUserContext(10004L)).thenReturn(operator);
-        when(fileManagementParseMapper.countActiveUserMenu(10004L, LocalDbFileManagementParseService.FILE_MANAGEMENT_MENU_ID))
-                .thenReturn(1);
-        when(fileManagementParseMapper.selectVisibleTargetPlan(4002L, 3, false))
-                .thenReturn(targetPlan(4002L, "commission_uae", "佣金-UAE", "official_commission"));
-
-        MockMultipartFile file = new MockMultipartFile("file", "commission.pdf", "application/pdf", "pdf".getBytes());
-
-        assertThrows(
-                FileParseAccessDeniedException.class,
-                () -> service.uploadFile(new AuthenticatedSession(10004L, 4L, 3), 4002L, file)
-        );
     }
 
     @Test
@@ -3241,28 +3070,6 @@ class LocalDbFileManagementParseServiceTest {
         row.setParseAttemptCount(parseAttemptCount);
         row.setCreatedBy(10001L);
         return row;
-    }
-
-    private FileParseTaskListItemView taskListItem(Long id, Long targetPlanId) {
-        FileParseTaskListItemView view = new FileParseTaskListItemView();
-        view.setId(id);
-        view.setTaskNo("TASK-20260513-" + id);
-        view.setDocumentTitle("Noon 佣金 2026-05");
-        view.setTargetPlanId(targetPlanId);
-        view.setTargetPlanCode("commission_ksa");
-        view.setTargetPlanLabel("佣金-KSA");
-        view.setDocumentType("official_fee");
-        view.setDocumentName("佣金规则");
-        view.setStandardVersion("STD-COMMISSION-2026-05");
-        view.setCurrentVersion("V2026.05");
-        view.setStatus("review_required");
-        view.setDataScopeType("global");
-        view.setDataScopeKey("global:*");
-        view.setDocumentGroupId(id);
-        view.setIterationNo(1);
-        view.setTotalCount(1);
-        view.setPendingCount(1);
-        return view;
     }
 
     private FileParseTaskInputRow taskInput(
