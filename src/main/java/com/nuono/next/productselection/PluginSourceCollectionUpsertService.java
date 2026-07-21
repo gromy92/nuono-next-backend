@@ -137,8 +137,14 @@ public class PluginSourceCollectionUpsertService {
         row.setSpecHintsJson(json(specs));
         row.setCategoryLinksJson(json(categories));
         row.setSpecAttributeCount(completenessCalculator.countSpecAttributes(specs));
-        row.setSourceDescriptionEn(text(source.getSourceDescriptionEn(), insert ? "" : old.getSourceDescriptionEn()));
-        row.setSourceDescriptionAr(text(source.getSourceDescriptionAr(), insert ? source.getSelectedTextAr() : old.getSourceDescriptionAr()));
+        row.setSourceDescriptionEn(MarketplaceProductDescriptionSanitizer.preferIncoming(
+                source.getSourceDescriptionEn(),
+                insert ? "" : old.getSourceDescriptionEn()
+        ));
+        row.setSourceDescriptionAr(MarketplaceProductDescriptionSanitizer.preferIncoming(
+                source.getSourceDescriptionAr(),
+                insert ? source.getSelectedTextAr() : old.getSourceDescriptionAr()
+        ));
         row.setSourceSellingPointsEnJson(json(pointsEn));
         row.setSourceSellingPointsArJson(json(pointsAr));
         row.setSelectedText(text(source.getSelectedText(), insert ? "" : old.getSelectedText()));

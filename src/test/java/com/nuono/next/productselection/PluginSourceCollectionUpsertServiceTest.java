@@ -93,6 +93,47 @@ class PluginSourceCollectionUpsertServiceTest {
         assertEquals(86480L, result.row().getId());
     }
 
+    @Test
+    void duplicateUpdateClearsStoredNoonCustomerSupportPlaceholdersWhenIncomingDescriptionsAreEmpty() {
+        ProductSelectionStoreScope scope = new ProductSelectionStoreScope();
+        scope.setOwnerUserId(307L);
+        scope.setLogicalStoreId(301L);
+        ProductSelectionPluginIngestCommand command = new ProductSelectionPluginIngestCommand();
+        command.setOperatorUserId(307L);
+        command.setSourceTitle("Vintage paper set");
+
+        ProductSelectionSourceCollectionRow existing = existingRow();
+        String noonUrl = "https://www.noon.com/saudi-en/vintage-paper/Z161C92DA0421DCAF2786Z/p/";
+        existing.setSourceUrl(noonUrl);
+        existing.setPageUrl(noonUrl);
+        existing.setSourceDescriptionEn("We're Always Here To Help");
+        existing.setSourceDescriptionAr("نحن دائماً جاهزون لمساعدتك");
+        when(pluginMapper.listRecentForDedupe(307L, 301L, "SA", "Noon", 500))
+                .thenReturn(List.of(existing));
+        when(pluginMapper.update(any(ProductSelectionSourceCollectionRow.class))).thenReturn(1);
+
+        service.upsert(
+                scope,
+                "SA",
+                command,
+                "Noon",
+                noonUrl,
+                noonUrl,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                ""
+        );
+
+        ArgumentCaptor<ProductSelectionSourceCollectionRow> captor =
+                ArgumentCaptor.forClass(ProductSelectionSourceCollectionRow.class);
+        verify(pluginMapper).update(captor.capture());
+        assertEquals("", captor.getValue().getSourceDescriptionEn());
+        assertEquals("", captor.getValue().getSourceDescriptionAr());
+    }
+
     private ProductSelectionSourceCollectionRow existingRow() {
         String url = "https://www.amazon.ae/-/ar/Phone-Case/dp/B0ABCDEF12?psc=1";
         ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
