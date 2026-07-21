@@ -21,7 +21,7 @@ src/main/java/com/nuono/next/filemanagement/parse/FileParseQueryViewService.java
 src/main/java/com/nuono/next/filemanagement/parse/FileParseResultItemViewAssembler.java	406
 src/main/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiService.java	2921
 src/main/java/com/nuono/next/filemanagement/parse/FileParseTaskListItemView.java	306
-src/main/java/com/nuono/next/filemanagement/parse/LocalDbFileManagementParseService.java	1888
+src/main/java/com/nuono/next/filemanagement/parse/LocalDbFileManagementParseService.java	1656
 src/main/java/com/nuono/next/filemanagement/parse/OfficeFileParseInputExtractor.java	371
 src/main/java/com/nuono/next/foundation/FoundationUserDetail.java	417
 src/main/java/com/nuono/next/infrastructure/mapper/Ali1688CollectionMapper.java	425

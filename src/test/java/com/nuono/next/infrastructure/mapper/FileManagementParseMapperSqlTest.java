@@ -3,7 +3,9 @@ package com.nuono.next.infrastructure.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.lang.reflect.Method;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class FileManagementParseMapperSqlTest {
@@ -60,6 +62,88 @@ class FileManagementParseMapperSqlTest {
                 .contains("usage limit has been reached");
     }
 
+    @Test
+    void insertTaskKeepsCreationScopeLineageAndIdempotencyContract() throws Exception {
+        String sql = insertSql(
+                "insertTask",
+                Long.class,
+                String.class,
+                String.class,
+                Long.class,
+                Long.class,
+                Long.class,
+                Long.class,
+                Long.class,
+                Integer.class,
+                String.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+
+        assertThat(sql)
+                .contains("target_plan_id, standard_version_id, data_scope_type, data_scope_key")
+                .contains("status, base_version_id, document_group_id, parent_task_id, iteration_no")
+                .contains("remark, idempotency_key, request_hash, created_by, updated_by")
+                .contains("#{targetPlanId}, #{standardVersionId}, 'global', 'global:*'")
+                .contains("'reading', #{baseVersionId}, #{documentGroupId}, #{parentTaskId}, #{iterationNo}")
+                .contains("#{remark}, #{idempotencyKey}, #{requestHash}, #{operatorUserId}, #{operatorUserId}");
+    }
+
+    @Test
+    void bindFileAssetKeepsDeletedGuardAndSameTaskCompareAndSetContract() throws Exception {
+        String sql = updateSql("bindFileAssetToTask", Long.class, Long.class, Long.class);
+
+        assertThat(sql)
+                .contains("SET bound_task_id = #{taskId}")
+                .contains("updated_by = #{operatorUserId}")
+                .contains("WHERE id = #{fileAssetId}")
+                .contains("AND is_deleted = b'0'")
+                .contains("AND (bound_task_id IS NULL OR bound_task_id = #{taskId})");
+    }
+
+    @Test
+    void insertTaskInputKeepsNormalizedInputPersistenceContract() throws Exception {
+        String sql = insertSql(
+                "insertTaskInput",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                Long.class,
+                String.class,
+                String.class,
+                Integer.class,
+                Long.class
+        );
+
+        assertThat(sql)
+                .contains("id, task_id, input_type, input_role, file_asset_id, text_content, display_name, sort_no")
+                .contains("is_deleted, created_by, updated_by, gmt_create, gmt_updated")
+                .contains("#{id}, #{taskId}, #{inputType}, #{inputRole}, #{fileAssetId}, #{textContent}")
+                .contains("#{displayName}, #{sortNo}, b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW()");
+    }
+
+    @Test
+    void maxIterationLookupExcludesDeletedTasks() throws Exception {
+        String sql = selectSql("selectMaxIterationNo", Long.class);
+
+        assertThat(sql)
+                .contains("SELECT COALESCE(MAX(iteration_no), 1)")
+                .contains("WHERE COALESCE(document_group_id, id) = #{documentGroupId}")
+                .contains("AND is_deleted = b'0'");
+    }
+
+    @Test
+    void taskInputLookupKeepsStableSortOrder() throws Exception {
+        String sql = selectSql("selectTaskInputs", Long.class);
+
+        assertThat(sql)
+                .contains("WHERE ti.task_id = #{taskId}")
+                .contains("AND ti.is_deleted = b'0'")
+                .endsWith("ORDER BY ti.sort_no ASC, ti.id ASC");
+    }
+
     private static void assertLatestVisibleTaskScope(String sql) {
         assertThat(sql)
                 .contains("AND p.is_deleted = b'0'")
@@ -88,7 +172,21 @@ class FileManagementParseMapperSqlTest {
 
     private static String selectSql(String methodName, Class<?>... parameterTypes) throws Exception {
         Method method = FileManagementParseMapper.class.getMethod(methodName, parameterTypes);
-        return String.join(" ", method.getAnnotation(Select.class).value())
+        return normalizeSql(method.getAnnotation(Select.class).value());
+    }
+
+    private static String insertSql(String methodName, Class<?>... parameterTypes) throws Exception {
+        Method method = FileManagementParseMapper.class.getMethod(methodName, parameterTypes);
+        return normalizeSql(method.getAnnotation(Insert.class).value());
+    }
+
+    private static String updateSql(String methodName, Class<?>... parameterTypes) throws Exception {
+        Method method = FileManagementParseMapper.class.getMethod(methodName, parameterTypes);
+        return normalizeSql(method.getAnnotation(Update.class).value());
+    }
+
+    private static String normalizeSql(String[] statements) {
+        return String.join(" ", statements)
                 .replaceAll("\\s+", " ")
                 .trim();
     }

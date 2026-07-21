@@ -7,9 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -33,17 +30,14 @@ import org.springframework.web.multipart.MultipartFile;
 public class LocalDbFileManagementParseService {
 
     static final long FILE_MANAGEMENT_MENU_ID = 9301L;
-    private static final DateTimeFormatter TASK_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
     private static final int MAX_AI_CHUNK_SOURCE_ROWS = 30;
     private static final int MAX_AI_CHUNK_TEXT_LENGTH = 18_000;
     private static final int AI_CHUNK_CONTEXT_SOURCE_ROWS = 5;
-    private static final Set<String> FILE_INPUT_TYPES = Set.of("file", "excel", "pdf", "image");
-    private static final Set<String> TEXT_INPUT_TYPES = Set.of("manual_text", "ocr_text");
-    private static final Set<String> INPUT_ROLES = Set.of("primary_source", "parsed_file", "supplement", "reference");
     private final FileManagementParseMapper fileManagementParseMapper;
     private final FileParseStorageProperties storageProperties;
     private final FileParseUploadArchiveService uploadArchiveService;
     private final FileParseTaskCatalogService taskCatalogService;
+    private final FileParseTaskCreationService taskCreationService;
     private final FileParseActionPolicy actionPolicy;
     private final FileParseInputExtractionService inputExtractionService;
     private final FileParseStructuredAiService structuredAiService;
@@ -82,6 +76,7 @@ public class LocalDbFileManagementParseService {
             FileParseStorageProperties storageProperties,
             FileParseUploadArchiveService uploadArchiveService,
             FileParseTaskCatalogService taskCatalogService,
+            FileParseTaskCreationService taskCreationService,
             FileParseActionPolicy actionPolicy,
             FileParseInputExtractionService inputExtractionService,
             FileParseStructuredAiService structuredAiService,
@@ -96,6 +91,7 @@ public class LocalDbFileManagementParseService {
         this.storageProperties = storageProperties;
         this.uploadArchiveService = uploadArchiveService;
         this.taskCatalogService = taskCatalogService;
+        this.taskCreationService = taskCreationService;
         this.actionPolicy = actionPolicy;
         this.inputExtractionService = inputExtractionService;
         this.structuredAiService = structuredAiService;
@@ -210,67 +206,7 @@ public class LocalDbFileManagementParseService {
         }
         FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, targetPlanId);
         requireCanCreateTask(targetPlan, user);
-
-        Long taskId = fileManagementParseMapper.nextTaskId();
-        String taskNo = "TASK-" + LocalDate.now().format(TASK_DATE_FORMATTER) + "-" + taskId;
-        String documentTitle = trimToLength(command.getDocumentTitle(), 200, "文档名称");
-        String remark = trimOptional(command.getRemark(), 1000, "备注");
-        String normalizedIdempotencyKey = trimOptional(idempotencyKey, 180, "幂等键");
-        Long documentGroupId = resolveDocumentGroupId(parentTask, taskId);
-        Integer iterationNo = resolveIterationNo(parentTask, documentGroupId);
-        Long parentTaskId = parentTask == null ? null : parentTask.getId();
-        String requestHash = sha256Text(documentTitle + "|" + targetPlan.getId() + "|" + parentTaskId + "|" + command.getInputItems().size());
-
-        int inserted = fileManagementParseMapper.insertTask(
-                taskId,
-                taskNo,
-                documentTitle,
-                targetPlan.getId(),
-                targetPlan.getStandardVersionId(),
-                targetPlan.getCurrentVersionId(),
-                documentGroupId,
-                parentTaskId,
-                iterationNo,
-                remark,
-                normalizedIdempotencyKey,
-                requestHash,
-                user.getUserId()
-        );
-        if (inserted != 1) {
-            throw new IllegalStateException("解析文档创建失败。");
-        }
-
-        List<FileParseTaskInputView> inputViews = new ArrayList<>();
-        for (int i = 0; i < command.getInputItems().size(); i++) {
-            FileParseTaskInputCommand inputCommand = command.getInputItems().get(i);
-            FileParseTaskInputView inputView = createTaskInput(taskId, targetPlan, user, inputCommand, i + 1);
-            inputViews.add(inputView);
-        }
-
-        FileParseTaskDetailView view = new FileParseTaskDetailView();
-        view.setId(taskId);
-        view.setTaskNo(taskNo);
-        view.setDocumentTitle(documentTitle);
-        view.setTargetPlanId(targetPlan.getId());
-        view.setTargetPlanCode(targetPlan.getCode());
-        view.setTargetPlanLabel(targetPlan.getLabel());
-        view.setDocumentType(targetPlan.getDocumentType());
-        view.setDocumentName(targetPlan.getDocumentName());
-        view.setStandardVersion(targetPlan.getStandardVersion());
-        view.setCurrentVersion(targetPlan.getCurrentVersion());
-        view.setStatus("reading");
-        view.setResultId(null);
-        view.setDataScopeType("global");
-        view.setDataScopeKey("global:*");
-        view.setDocumentGroupId(documentGroupId);
-        view.setParentTaskId(parentTaskId);
-        view.setIterationNo(iterationNo);
-        view.setRemark(remark);
-        view.setMessage(parentTaskId == null
-                ? "解析文档已创建，文件和文本输入已完成归档，等待后续 AI 解析执行。"
-                : "源文件更新任务已创建，本次解析会基于当前生效版本重新对比。");
-        view.setInputItems(inputViews);
-        return view;
+        return taskCreationService.create(user, targetPlan, parentTask, command, idempotencyKey);
     }
 
     public FileParseTaskRunView startParseTask(AuthenticatedSession session, Long taskId) {
@@ -1335,96 +1271,6 @@ public class LocalDbFileManagementParseService {
         return view;
     }
 
-    private FileParseTaskInputView createTaskInput(
-            Long taskId,
-            FileParseTargetPlanRow targetPlan,
-            FileParseUserContext user,
-            FileParseTaskInputCommand inputCommand,
-            int defaultSortNo
-    ) {
-        if (inputCommand == null) {
-            throw new IllegalArgumentException("输入项不能为空。");
-        }
-
-        FileParseFileAssetRow asset = null;
-        String inputType = normalizeInputType(inputCommand);
-        if (FILE_INPUT_TYPES.contains(inputType)) {
-            asset = requireUsableInputFile(user, targetPlan, taskId, inputCommand.getFileAssetId());
-            inputType = normalizeFileInputType(inputType, asset.getFileExtension());
-        } else if (TEXT_INPUT_TYPES.contains(inputType)) {
-            if (!StringUtils.hasText(inputCommand.getTextContent())) {
-                throw new IllegalArgumentException("文本输入内容不能为空。");
-            }
-        } else {
-            throw new IllegalArgumentException("不支持的输入类型：" + inputType);
-        }
-
-        String inputRole = normalizeInputRole(inputCommand.getInputRole());
-        String textContent = TEXT_INPUT_TYPES.contains(inputType)
-                ? trimToLength(inputCommand.getTextContent(), 20000, "文本输入内容")
-                : trimOptional(inputCommand.getTextContent(), 20000, "文本输入内容");
-        String displayName = normalizeDisplayName(inputCommand, asset);
-        Integer sortNo = inputCommand.getSortNo() == null ? defaultSortNo : Math.max(inputCommand.getSortNo(), 0);
-        Long inputId = fileManagementParseMapper.nextTaskInputId();
-
-        int inserted = fileManagementParseMapper.insertTaskInput(
-                inputId,
-                taskId,
-                inputType,
-                inputRole,
-                asset == null ? null : asset.getId(),
-                textContent,
-                displayName,
-                sortNo,
-                user.getUserId()
-        );
-        if (inserted != 1) {
-            throw new IllegalStateException("解析文档输入项创建失败。");
-        }
-
-        FileParseTaskInputView view = new FileParseTaskInputView();
-        view.setId(inputId);
-        view.setInputType(inputType);
-        view.setInputRole(inputRole);
-        view.setFileAssetId(asset == null ? null : asset.getId());
-        view.setDisplayName(displayName);
-        view.setDownloadUrl(asset == null ? null : uploadArchiveService.downloadUrl(asset.getId()));
-        view.setSortNo(sortNo);
-        return view;
-    }
-
-    private FileParseFileAssetRow requireUsableInputFile(
-            FileParseUserContext user,
-            FileParseTargetPlanRow targetPlan,
-            Long taskId,
-            Long fileAssetId
-    ) {
-        if (fileAssetId == null) {
-            throw new IllegalArgumentException("文件输入项必须先上传文件。");
-        }
-        FileParseFileAssetRow asset = fileManagementParseMapper.selectFileAsset(fileAssetId);
-        if (asset == null) {
-            throw new IllegalArgumentException("上传文件不存在或已删除。");
-        }
-        if (!targetPlan.getId().equals(asset.getTargetPlanId())) {
-            throw new IllegalArgumentException("上传文件与目标输出方案不匹配。");
-        }
-        if (!actionPolicy.isSystemAdmin(user) && !user.getUserId().equals(asset.getUploadedBy())) {
-            throw new FileParseAccessDeniedException("当前账号不能使用该上传文件。");
-        }
-        if (asset.getExpiresAt() != null && asset.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new IllegalArgumentException("上传文件已过期，请重新上传。");
-        }
-        if (asset.getBoundTaskId() != null && !taskId.equals(asset.getBoundTaskId())) {
-            throw new IllegalArgumentException("上传文件已被其它解析文档使用。");
-        }
-        int updated = fileManagementParseMapper.bindFileAssetToTask(asset.getId(), taskId, user.getUserId());
-        if (updated != 1) {
-            throw new IllegalArgumentException("上传文件已被其它解析文档使用。");
-        }
-        return asset;
-    }
-
     private FileParseUserContext requireFileManagementUser(AuthenticatedSession session) {
         FileParseUserContext user = requireActiveUser(session);
         if (!actionPolicy.isSystemAdmin(user)
@@ -1466,20 +1312,6 @@ public class LocalDbFileManagementParseService {
             throw new IllegalArgumentException("原解析文档仍在解析中，不能更新源文件。");
         }
         return parentTask;
-    }
-
-    private Long resolveDocumentGroupId(FileParseTaskRow parentTask, Long taskId) {
-        if (parentTask == null) {
-            return taskId;
-        }
-        return parentTask.getDocumentGroupId() == null ? parentTask.getId() : parentTask.getDocumentGroupId();
-    }
-
-    private Integer resolveIterationNo(FileParseTaskRow parentTask, Long documentGroupId) {
-        if (parentTask == null) {
-            return 1;
-        }
-        return fileManagementParseMapper.selectMaxIterationNo(documentGroupId) + 1;
     }
 
     private FileParseStandardVersionRow requireStandardVersion(Long standardVersionId) {
@@ -1624,52 +1456,6 @@ public class LocalDbFileManagementParseService {
         return view;
     }
 
-    private String normalizeInputType(FileParseTaskInputCommand inputCommand) {
-        String inputType = trimLowercase(inputCommand.getInputType());
-        if (StringUtils.hasText(inputType)) {
-            return inputType;
-        }
-        return inputCommand.getFileAssetId() == null ? "manual_text" : "file";
-    }
-
-    private String normalizeFileInputType(String inputType, String extension) {
-        if (!"file".equals(inputType)) {
-            return inputType;
-        }
-        if ("pdf".equals(extension)) {
-            return "pdf";
-        }
-        if ("xlsx".equals(extension) || "xls".equals(extension) || "csv".equals(extension)) {
-            return "excel";
-        }
-        if ("png".equals(extension) || "jpg".equals(extension) || "jpeg".equals(extension) || "webp".equals(extension)) {
-            return "image";
-        }
-        return "file";
-    }
-
-    private String normalizeInputRole(String inputRole) {
-        String role = trimLowercase(inputRole);
-        if (!StringUtils.hasText(role)) {
-            return "primary_source";
-        }
-        if (!INPUT_ROLES.contains(role)) {
-            throw new IllegalArgumentException("不支持的输入角色：" + role);
-        }
-        return role;
-    }
-
-    private String normalizeDisplayName(FileParseTaskInputCommand inputCommand, FileParseFileAssetRow asset) {
-        String displayName = trimOptional(inputCommand.getDisplayName(), 300, "展示名称");
-        if (StringUtils.hasText(displayName)) {
-            return displayName;
-        }
-        if (asset != null) {
-            return asset.getOriginalFileName();
-        }
-        return "文本输入";
-    }
-
     private String normalizeOptionalKeyword(String value) {
         if (!StringUtils.hasText(value)) {
             return null;
@@ -1699,24 +1485,6 @@ public class LocalDbFileManagementParseService {
             return defaultPageSize;
         }
         return Math.min(pageSize, 100);
-    }
-
-    private String trimLowercase(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        return value.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private String trimToLength(String value, int maxLength, String label) {
-        String trimmed = value == null ? "" : value.trim();
-        if (!StringUtils.hasText(trimmed)) {
-            throw new IllegalArgumentException(label + "不能为空。");
-        }
-        if (trimmed.length() > maxLength) {
-            throw new IllegalArgumentException(label + "长度不能超过 " + maxLength + " 个字符。");
-        }
-        return trimmed;
     }
 
     private String trimOptional(String value, int maxLength, String label) {

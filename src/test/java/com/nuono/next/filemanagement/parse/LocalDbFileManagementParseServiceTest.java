@@ -76,6 +76,7 @@ class LocalDbFileManagementParseServiceTest {
                 storageProperties,
                 new FileParseUploadArchiveService(fileManagementParseMapper, storageProperties),
                 mock(FileParseTaskCatalogService.class),
+                mock(FileParseTaskCreationService.class),
                 new FileParseActionPolicy(),
                 FileParseInputExtractionService.withDefaultExtractors(),
                 new FileParseStructuredAiService(aiCapabilityService, objectMapper),
@@ -246,132 +247,6 @@ class LocalDbFileManagementParseServiceTest {
                 eq(10003L)
         );
         verify(spyService, never()).startParseTask(any(AuthenticatedSession.class), anyLong());
-    }
-
-    @Test
-    void shouldCreateReadingTaskWithFileAndTextInputs() {
-        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
-        FileParseTargetPlanRow plan = targetPlan(4005L, "logistics_yite", "物流-义特", "logistics_rule");
-        FileParseFileAssetRow asset = uploadedAsset(10001L, 4005L, 5105L, 10001L, "义特FBN报价.xlsx", "xlsx");
-
-        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
-        when(fileManagementParseMapper.selectVisibleTargetPlan(4005L, 0, true)).thenReturn(plan);
-        when(fileManagementParseMapper.nextTaskId()).thenReturn(20001L);
-        when(fileManagementParseMapper.nextTaskInputId()).thenReturn(30001L, 30002L);
-        when(fileManagementParseMapper.insertTask(
-                anyLong(),
-                anyString(),
-                anyString(),
-                anyLong(),
-                anyLong(),
-                anyLong(),
-                anyLong(),
-                nullable(Long.class),
-                anyInt(),
-                nullable(String.class),
-                nullable(String.class),
-                anyString(),
-                anyLong()
-        )).thenReturn(1);
-        when(fileManagementParseMapper.selectFileAsset(10001L)).thenReturn(asset);
-        when(fileManagementParseMapper.bindFileAssetToTask(10001L, 20001L, 10001L)).thenReturn(1);
-        when(fileManagementParseMapper.insertTaskInput(
-                anyLong(),
-                anyLong(),
-                anyString(),
-                anyString(),
-                nullable(Long.class),
-                nullable(String.class),
-                anyString(),
-                anyInt(),
-                anyLong()
-        )).thenReturn(1);
-
-        FileParseCreateTaskCommand command = new FileParseCreateTaskCommand();
-        command.setDocumentTitle("义特 FBN 报价 2026-05");
-        command.setTargetPlanId(4005L);
-        FileParseTaskInputCommand fileInput = new FileParseTaskInputCommand();
-        fileInput.setFileAssetId(10001L);
-        FileParseTaskInputCommand textInput = new FileParseTaskInputCommand();
-        textInput.setInputType("manual_text");
-        textInput.setTextContent("补充说明：阿联酋 FBN 迪拜。");
-        command.setInputItems(List.of(fileInput, textInput));
-
-        FileParseTaskDetailView task = service.createTask(new AuthenticatedSession(10001L, 1L, 0), command, "idem-1");
-
-        assertEquals(20001L, task.getId());
-        assertEquals("reading", task.getStatus());
-        assertEquals("global", task.getDataScopeType());
-        assertEquals("global:*", task.getDataScopeKey());
-        assertEquals(20001L, task.getDocumentGroupId());
-        assertEquals(1, task.getIterationNo());
-        assertEquals(2, task.getInputItems().size());
-        assertEquals("excel", task.getInputItems().get(0).getInputType());
-        assertEquals("manual_text", task.getInputItems().get(1).getInputType());
-        verify(fileManagementParseMapper).bindFileAssetToTask(10001L, 20001L, 10001L);
-    }
-
-    @Test
-    void shouldCreateSourceUpdateTaskUnderSameDocumentGroup() {
-        FileParseUserContext admin = user(10001L, 0, "SYSTEM_ADMIN", "系统管理员");
-        FileParseTargetPlanRow plan = targetPlan(4001L, "commission_ksa", "佣金-KSA", "official_commission");
-        FileParseTaskRow parentTask = task(20024L, 4001L, "published", 0);
-        parentTask.setDocumentTitle("Noon 佣金 2026-05");
-        parentTask.setStandardVersionId(2001L);
-        parentTask.setDocumentGroupId(20024L);
-        parentTask.setIterationNo(1);
-        FileParseFileAssetRow asset = uploadedAsset(10002L, 4001L, 2001L, 10001L, "Noon佣金新版.xlsx", "xlsx");
-
-        when(fileManagementParseMapper.selectUserContext(10001L)).thenReturn(admin);
-        when(fileManagementParseMapper.selectTask(20024L)).thenReturn(parentTask);
-        when(fileManagementParseMapper.selectVisibleTargetPlan(4001L, 0, true)).thenReturn(plan);
-        when(fileManagementParseMapper.nextTaskId()).thenReturn(20025L);
-        when(fileManagementParseMapper.selectMaxIterationNo(20024L)).thenReturn(1);
-        when(fileManagementParseMapper.nextTaskInputId()).thenReturn(30003L);
-        when(fileManagementParseMapper.insertTask(
-                anyLong(),
-                anyString(),
-                anyString(),
-                anyLong(),
-                anyLong(),
-                anyLong(),
-                anyLong(),
-                nullable(Long.class),
-                anyInt(),
-                nullable(String.class),
-                nullable(String.class),
-                anyString(),
-                anyLong()
-        )).thenReturn(1);
-        when(fileManagementParseMapper.selectFileAsset(10002L)).thenReturn(asset);
-        when(fileManagementParseMapper.bindFileAssetToTask(10002L, 20025L, 10001L)).thenReturn(1);
-        when(fileManagementParseMapper.insertTaskInput(
-                anyLong(),
-                anyLong(),
-                anyString(),
-                anyString(),
-                nullable(Long.class),
-                nullable(String.class),
-                anyString(),
-                anyInt(),
-                anyLong()
-        )).thenReturn(1);
-
-        FileParseCreateTaskCommand command = new FileParseCreateTaskCommand();
-        command.setParentTaskId(20024L);
-        command.setDocumentTitle("Noon 佣金 2026-05");
-        FileParseTaskInputCommand fileInput = new FileParseTaskInputCommand();
-        fileInput.setFileAssetId(10002L);
-        command.setInputItems(List.of(fileInput));
-
-        FileParseTaskDetailView task = service.createTask(new AuthenticatedSession(10001L, 1L, 0), command, "idem-update-1");
-
-        assertEquals(20025L, task.getId());
-        assertEquals(20024L, task.getDocumentGroupId());
-        assertEquals(20024L, task.getParentTaskId());
-        assertEquals(2, task.getIterationNo());
-        assertEquals(4001L, task.getTargetPlanId());
-        assertEquals("reading", task.getStatus());
     }
 
     @Test
@@ -3035,25 +2910,6 @@ class LocalDbFileManagementParseServiceTest {
         row.setStandardVersion("STD-2026.05");
         row.setCurrentVersionId(6105L);
         row.setCurrentVersion(code + "-2026-04");
-        return row;
-    }
-
-    private FileParseFileAssetRow uploadedAsset(
-            Long id,
-            Long targetPlanId,
-            Long standardVersionId,
-            Long uploadedBy,
-            String originalFileName,
-            String fileExtension
-    ) {
-        FileParseFileAssetRow row = new FileParseFileAssetRow();
-        row.setId(id);
-        row.setTargetPlanId(targetPlanId);
-        row.setStandardVersionId(standardVersionId);
-        row.setOriginalFileName(originalFileName);
-        row.setFileExtension(fileExtension);
-        row.setUploadedBy(uploadedBy);
-        row.setExpiresAt(LocalDateTime.now().plusHours(1));
         return row;
     }
 

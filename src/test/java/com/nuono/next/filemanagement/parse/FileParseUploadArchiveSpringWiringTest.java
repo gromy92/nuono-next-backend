@@ -41,15 +41,20 @@ class FileParseUploadArchiveSpringWiringTest {
                     FileParseActionPolicy actionPolicy = context.getBean(FileParseActionPolicy.class);
                     FileParseUploadArchiveService archiveService = context.getBean(FileParseUploadArchiveService.class);
                     FileParseTaskCatalogService catalogService = context.getBean(FileParseTaskCatalogService.class);
+                    FileParseTaskCreationService creationService = context.getBean(FileParseTaskCreationService.class);
                     LocalDbFileManagementParseService facade = context.getBean(LocalDbFileManagementParseService.class);
                     assertNotNull(actionPolicy);
                     assertNotNull(archiveService);
                     assertNotNull(catalogService);
+                    assertNotNull(creationService);
                     assertSame(actionPolicy, ReflectionTestUtils.getField(facade, "actionPolicy"));
                     assertSame(archiveService, ReflectionTestUtils.getField(facade, "uploadArchiveService"));
                     assertSame(catalogService, ReflectionTestUtils.getField(facade, "taskCatalogService"));
+                    assertSame(creationService, ReflectionTestUtils.getField(facade, "taskCreationService"));
                     assertSame(actionPolicy, ReflectionTestUtils.getField(catalogService, "actionPolicy"));
                     assertSame(archiveService, ReflectionTestUtils.getField(catalogService, "uploadArchiveService"));
+                    assertSame(actionPolicy, ReflectionTestUtils.getField(creationService, "actionPolicy"));
+                    assertSame(archiveService, ReflectionTestUtils.getField(creationService, "uploadArchiveService"));
                 });
     }
 
@@ -58,6 +63,7 @@ class FileParseUploadArchiveSpringWiringTest {
             FileParseActionPolicy.class,
             FileParseUploadArchiveService.class,
             FileParseTaskCatalogService.class,
+            FileParseTaskCreationService.class,
             LocalDbFileManagementParseService.class
     })
     static class WiringConfig {

@@ -7,7 +7,7 @@ src/test/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunnerTes
 src/test/java/com/nuono/next/filemanagement/parse/FileParseNaturalKeySupportTest.java	849
 src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceLogisticsTest.java	633
 src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceOutboundFeeTest.java	553
-src/test/java/com/nuono/next/filemanagement/parse/LocalDbFileManagementParseServiceTest.java	3545
+src/test/java/com/nuono/next/filemanagement/parse/LocalDbFileManagementParseServiceTest.java	3401
 src/test/java/com/nuono/next/intransit/InTransitBatchSchemaContractTest.java	427
 src/test/java/com/nuono/next/intransit/InTransitBatchServiceTest.java	1632
 src/test/java/com/nuono/next/intransit/InTransitFreightCostServiceTest.java	424
