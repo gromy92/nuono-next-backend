@@ -47,6 +47,9 @@ class LocalDbSourceCollectionServiceTest {
     @Mock
     private LocalDbAli1688CollectionService ali1688CollectionService;
 
+    @Mock
+    private PluginSourceCollectionUpsertService pluginUpsertService;
+
     private InMemoryNoonRiskBackoffRepository riskBackoffRepository;
     private NoonRiskBackoffGuard riskBackoffGuard;
     private LocalDbSourceCollectionService service;
@@ -64,7 +67,8 @@ class LocalDbSourceCollectionServiceTest {
                 completenessCalculator,
                 ali1688CollectionService,
                 new ObjectMapper(),
-                riskBackoffGuard
+                riskBackoffGuard,
+                pluginUpsertService
         );
         ReflectionTestUtils.setField(service, "sourceCollectionSchedulerEnabled", true);
         ReflectionTestUtils.setField(service, "sourceCollectionSchedulerMaxItems", 3);

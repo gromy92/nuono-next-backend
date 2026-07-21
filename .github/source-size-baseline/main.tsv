@@ -214,7 +214,7 @@ src/main/java/com/nuono/next/productselection/Ali1688CandidateAiAssessmentServic
 src/main/java/com/nuono/next/productselection/Ali1688PluginAssignmentService.java	544
 src/main/java/com/nuono/next/productselection/AmazonExternalCrawlerSourceCollector.java	533
 src/main/java/com/nuono/next/productselection/LocalDbAli1688CollectionService.java	706
-src/main/java/com/nuono/next/productselection/LocalDbSourceCollectionService.java	1209
+src/main/java/com/nuono/next/productselection/LocalDbSourceCollectionService.java	1189
 src/main/java/com/nuono/next/productselection/NoonPublicProductPayloadParser.java	460
 src/main/java/com/nuono/next/productselection/ProductSelectionAnalysisCommand.java	358
 src/main/java/com/nuono/next/productselection/ProductSelectionAnalysisSkill.java	325
