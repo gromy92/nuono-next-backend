@@ -1,7 +1,7 @@
 package com.nuono.next.product;
 
 import com.nuono.next.infrastructure.mapper.ProductLiteMapper;
-import com.nuono.next.permission.access.BusinessStoreAccess;
+import com.nuono.next.permission.access.BusinessAccessContext;
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
@@ -22,21 +22,23 @@ public class ProductLiteQueryService {
         this.mapper = mapper;
     }
 
-    public List<ProductLiteView> search(BusinessStoreAccess storeAccess, ProductLiteQuery query) {
-        if (storeAccess == null) {
+    public List<ProductLiteView> search(BusinessAccessContext context, ProductLiteQuery query) {
+        ProductLiteQuery safeQuery = query == null ? new ProductLiteQuery() : query;
+        String storeCode = requireStoreCode(safeQuery.getStoreCode());
+        if (context == null || !context.canAccessStore(storeCode)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRODUCT_LITE_STORE_SCOPE_REQUIRED");
         }
-        ProductLiteQuery safeQuery = query == null ? new ProductLiteQuery() : query;
+        Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);
+        if (ownerUserId == null) {
+            ownerUserId = context.getBusinessOwnerUserId();
+        }
+        if (ownerUserId == null || ownerUserId <= 0) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PRODUCT_LITE_OWNER_SCOPE_REQUIRED");
+        }
         String siteCode = normalizeUpper(safeQuery.getSiteCode());
         String titleKeyword = normalizeText(safeQuery.getTitleKeyword());
         int limit = normalizeLimit(safeQuery.getLimit());
-        return mapper.search(
-                        storeAccess.getOwnerUserId(),
-                        storeAccess.getStoreCode(),
-                        siteCode,
-                        titleKeyword,
-                        limit
-                )
+        return mapper.search(ownerUserId, storeCode, siteCode, titleKeyword, limit)
                 .stream()
                 .map(this::toView)
                 .collect(Collectors.toList());
@@ -58,6 +60,14 @@ public class ProductLiteQueryService {
         view.setProductFulltype(record.getProductFulltype());
         view.setSourceType(record.getSourceType());
         return view;
+    }
+
+    private String requireStoreCode(String storeCode) {
+        String normalized = normalizeUpper(storeCode);
+        if (normalized == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PRODUCT_LITE_STORE_REQUIRED");
+        }
+        return normalized;
     }
 
     private String normalizeUpper(String value) {

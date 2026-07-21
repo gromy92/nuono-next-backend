@@ -1,9 +1,18 @@
 package com.nuono.next.product;
 
 public class ProductLiteQuery {
+    private String storeCode;
     private String siteCode;
     private String titleKeyword;
     private Integer limit;
+
+    public String getStoreCode() {
+        return storeCode;
+    }
+
+    public void setStoreCode(String storeCode) {
+        this.storeCode = storeCode;
+    }
 
     public String getSiteCode() {
         return siteCode;

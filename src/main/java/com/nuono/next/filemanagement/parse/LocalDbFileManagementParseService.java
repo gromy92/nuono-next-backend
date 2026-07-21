@@ -3,8 +3,11 @@ package com.nuono.next.filemanagement.parse;
 import com.nuono.next.auth.AuthenticatedSession;
 import com.nuono.next.infrastructure.mapper.FileManagementParseMapper;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
@@ -34,6 +37,10 @@ public class LocalDbFileManagementParseService {
 
     static final long FILE_MANAGEMENT_MENU_ID = 9301L;
     private static final DateTimeFormatter TASK_DATE_FORMATTER = DateTimeFormatter.BASIC_ISO_DATE;
+    private static final String STORAGE_BUCKET = "local-file-management-parse";
+    private static final Set<String> ALLOWED_UPLOAD_EXTENSIONS = Set.of(
+            "pdf", "xlsx", "xls", "csv", "txt", "png", "jpg", "jpeg", "webp", "doc", "docx"
+    );
     private static final int MAX_AI_CHUNK_SOURCE_ROWS = 30;
     private static final int MAX_AI_CHUNK_TEXT_LENGTH = 18_000;
     private static final int AI_CHUNK_CONTEXT_SOURCE_ROWS = 5;
@@ -42,9 +49,6 @@ public class LocalDbFileManagementParseService {
     private static final Set<String> INPUT_ROLES = Set.of("primary_source", "parsed_file", "supplement", "reference");
     private final FileManagementParseMapper fileManagementParseMapper;
     private final FileParseStorageProperties storageProperties;
-    private final FileParseUploadArchiveService uploadArchiveService;
-    private final FileParseTaskCatalogService taskCatalogService;
-    private final FileParseActionPolicy actionPolicy;
     private final FileParseInputExtractionService inputExtractionService;
     private final FileParseStructuredAiService structuredAiService;
     private final FileParseResultDiffService resultDiffService;
@@ -80,9 +84,6 @@ public class LocalDbFileManagementParseService {
     public LocalDbFileManagementParseService(
             FileManagementParseMapper fileManagementParseMapper,
             FileParseStorageProperties storageProperties,
-            FileParseUploadArchiveService uploadArchiveService,
-            FileParseTaskCatalogService taskCatalogService,
-            FileParseActionPolicy actionPolicy,
             FileParseInputExtractionService inputExtractionService,
             FileParseStructuredAiService structuredAiService,
             FileParseResultDiffService resultDiffService,
@@ -94,9 +95,6 @@ public class LocalDbFileManagementParseService {
     ) {
         this.fileManagementParseMapper = fileManagementParseMapper;
         this.storageProperties = storageProperties;
-        this.uploadArchiveService = uploadArchiveService;
-        this.taskCatalogService = taskCatalogService;
-        this.actionPolicy = actionPolicy;
         this.inputExtractionService = inputExtractionService;
         this.structuredAiService = structuredAiService;
         this.resultDiffService = resultDiffService;
@@ -109,7 +107,10 @@ public class LocalDbFileManagementParseService {
 
     public List<FileParseTargetPlanSummary> listTargetPlans(AuthenticatedSession session) {
         FileParseUserContext user = requireFileManagementUser(session);
-        return taskCatalogService.listTargetPlans(user);
+        boolean systemAdmin = isSystemAdmin(user);
+        return fileManagementParseMapper.selectVisibleTargetPlans(user.getRoleLevel(), systemAdmin).stream()
+                .map(row -> toSummary(row, user))
+                .collect(Collectors.toList());
     }
 
     public FileParseTaskListView listTasks(
@@ -121,21 +122,73 @@ public class LocalDbFileManagementParseService {
             Integer requestedPageSize
     ) {
         FileParseUserContext user = requireFileManagementUser(session);
-        return taskCatalogService.listTasks(
-                user,
-                keyword,
+        boolean systemAdmin = isSystemAdmin(user);
+        String normalizedKeyword = normalizeOptionalKeyword(keyword);
+        String normalizedStatus = normalizeOptionalKeyword(status);
+        int page = normalizePage(requestedPage);
+        int pageSize = normalizePageSize(requestedPageSize, 20);
+        int offset = (page - 1) * pageSize;
+
+        int total = fileManagementParseMapper.countTasks(
+                normalizedKeyword,
                 targetPlanId,
-                status,
-                requestedPage,
-                requestedPageSize
+                normalizedStatus,
+                user.getRoleLevel(),
+                systemAdmin
         );
+        List<FileParseTaskListItemView> items = fileManagementParseMapper
+                .selectTasks(
+                        normalizedKeyword,
+                        targetPlanId,
+                        normalizedStatus,
+                        user.getRoleLevel(),
+                        systemAdmin,
+                        pageSize,
+                        offset
+                )
+                .stream()
+                .peek(item -> item.setAvailableActions(resolveActions(toTargetPlanRow(item), user)))
+                .collect(Collectors.toList());
+        enrichTaskListInputs(items);
+
+        FileParseTaskListView view = new FileParseTaskListView();
+        view.setTotal(total);
+        view.setPage(page);
+        view.setPageSize(pageSize);
+        view.setItems(items);
+        return view;
+    }
+
+    private void enrichTaskListInputs(List<FileParseTaskListItemView> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        List<Long> taskIds = items.stream()
+                .map(FileParseTaskListItemView::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (taskIds.isEmpty()) {
+            return;
+        }
+        Map<Long, List<FileParseTaskInputView>> inputItemsByTaskId = fileManagementParseMapper
+                .selectTaskInputsByTaskIds(taskIds)
+                .stream()
+                .filter(row -> row.getTaskId() != null)
+                .collect(Collectors.groupingBy(
+                        FileParseTaskInputRow::getTaskId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(this::toTaskInputView, Collectors.toList())
+                ));
+        for (FileParseTaskListItemView item : items) {
+            item.setInputItems(inputItemsByTaskId.getOrDefault(item.getId(), List.of()));
+        }
     }
 
     public FileParseTaskDetailView getTask(AuthenticatedSession session, Long taskId) {
         FileParseUserContext user = requireFileManagementUser(session);
         FileParseTaskRow task = requireTask(taskId);
         FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, task.getTargetPlanId());
-        return taskCatalogService.getTask(task, targetPlan);
+        return toTaskDetailView(task, targetPlan, fileManagementParseMapper.selectTaskInputs(task.getId()));
     }
 
     @Transactional
@@ -187,12 +240,93 @@ public class LocalDbFileManagementParseService {
         FileParseUserContext user = requireFileManagementUser(session);
         FileParseTargetPlanRow targetPlan = requireVisibleTargetPlan(user, targetPlanId);
         requireCanCreateTask(targetPlan, user);
-        return uploadArchiveService.archive(targetPlan, user.getUserId(), file);
+        validateUpload(file);
+
+        String originalFileName = sanitizeFileName(file.getOriginalFilename());
+        String fileExtension = extractFileExtension(originalFileName);
+        if (!ALLOWED_UPLOAD_EXTENSIONS.contains(fileExtension)) {
+            throw new IllegalArgumentException("暂不支持该文件格式：" + fileExtension);
+        }
+
+        Long fileId = fileManagementParseMapper.nextFileAssetId();
+        String uploadId = "UP-" + LocalDate.now().format(TASK_DATE_FORMATTER) + "-" + fileId;
+        Path rootDir = storageRoot();
+        String storageKey = buildStorageKey(fileId, originalFileName);
+        Path storagePath = rootDir.resolve(storageKey).normalize();
+        if (!storagePath.startsWith(rootDir)) {
+            throw new IllegalArgumentException("文件路径不合法。");
+        }
+
+        try {
+            Files.createDirectories(storagePath.getParent());
+            try (InputStream inputStream = file.getInputStream()) {
+                Files.copy(inputStream, storagePath, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException error) {
+            throw new IllegalStateException("文件归档失败。", error);
+        }
+
+        String sha256Hash;
+        try {
+            sha256Hash = sha256Hex(storagePath);
+        } catch (IOException error) {
+            deleteQuietly(storagePath);
+            throw new IllegalStateException("文件校验失败。", error);
+        }
+
+        FileParseFileAssetRow row = new FileParseFileAssetRow();
+        row.setId(fileId);
+        row.setUploadId(uploadId);
+        row.setTargetPlanId(targetPlan.getId());
+        row.setStandardVersionId(targetPlan.getStandardVersionId());
+        row.setOriginalFileName(originalFileName);
+        row.setContentType(normalizeContentType(file.getContentType()));
+        row.setFileExtension(fileExtension);
+        row.setFileSizeBytes(file.getSize());
+        row.setSha256Hash(sha256Hash);
+        row.setStorageBucket(STORAGE_BUCKET);
+        row.setStorageKey(storageKey);
+        row.setUploadedBy(user.getUserId());
+        row.setExpiresAt(LocalDateTime.now().plusHours(Math.max(storageProperties.getUploadExpiresHours(), 1L)));
+
+        try {
+            int inserted = fileManagementParseMapper.insertFileAsset(row);
+            if (inserted != 1) {
+                throw new IllegalStateException("文件归档记录写入失败。");
+            }
+        } catch (RuntimeException error) {
+            deleteQuietly(storagePath);
+            throw error;
+        }
+
+        return toUploadView(row);
     }
 
     public FileParseArchivedFile resolveArchivedFile(AuthenticatedSession session, Long fileId) {
         FileParseUserContext user = requireFileManagementUser(session);
-        return uploadArchiveService.resolve(fileId, user.getUserId(), actionPolicy.isSystemAdmin(user));
+        if (fileId == null) {
+            throw new IllegalArgumentException("文件 ID 不能为空。");
+        }
+        FileParseFileAssetRow row = fileManagementParseMapper.selectFileAsset(fileId);
+        if (row == null) {
+            throw new IllegalArgumentException("文件不存在或已删除。");
+        }
+        if (!isSystemAdmin(user) && !user.getUserId().equals(row.getUploadedBy())) {
+            throw new FileParseAccessDeniedException("当前账号不能访问该文件。");
+        }
+        if (row.getBoundTaskId() == null && row.getExpiresAt() != null && row.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("上传文件已过期，请重新上传。");
+        }
+
+        Path rootDir = storageRoot();
+        Path filePath = rootDir.resolve(row.getStorageKey()).normalize();
+        if (!filePath.startsWith(rootDir)) {
+            throw new IllegalArgumentException("文件路径不合法。");
+        }
+        if (!Files.exists(filePath)) {
+            throw new IllegalStateException("归档文件不存在。");
+        }
+        return new FileParseArchivedFile(filePath, row.getOriginalFileName(), row.getContentType());
     }
 
     @Transactional
@@ -1388,7 +1522,7 @@ public class LocalDbFileManagementParseService {
         view.setInputRole(inputRole);
         view.setFileAssetId(asset == null ? null : asset.getId());
         view.setDisplayName(displayName);
-        view.setDownloadUrl(asset == null ? null : uploadArchiveService.downloadUrl(asset.getId()));
+        view.setDownloadUrl(asset == null ? null : buildDownloadUrl(asset.getId()));
         view.setSortNo(sortNo);
         return view;
     }
@@ -1409,7 +1543,7 @@ public class LocalDbFileManagementParseService {
         if (!targetPlan.getId().equals(asset.getTargetPlanId())) {
             throw new IllegalArgumentException("上传文件与目标输出方案不匹配。");
         }
-        if (!actionPolicy.isSystemAdmin(user) && !user.getUserId().equals(asset.getUploadedBy())) {
+        if (!isSystemAdmin(user) && !user.getUserId().equals(asset.getUploadedBy())) {
             throw new FileParseAccessDeniedException("当前账号不能使用该上传文件。");
         }
         if (asset.getExpiresAt() != null && asset.getExpiresAt().isBefore(LocalDateTime.now())) {
@@ -1427,8 +1561,7 @@ public class LocalDbFileManagementParseService {
 
     private FileParseUserContext requireFileManagementUser(AuthenticatedSession session) {
         FileParseUserContext user = requireActiveUser(session);
-        if (!actionPolicy.isSystemAdmin(user)
-                && fileManagementParseMapper.countActiveUserMenu(user.getUserId(), FILE_MANAGEMENT_MENU_ID) <= 0) {
+        if (!isSystemAdmin(user) && fileManagementParseMapper.countActiveUserMenu(user.getUserId(), FILE_MANAGEMENT_MENU_ID) <= 0) {
             throw new FileParseAccessDeniedException("当前账号没有文件管理入口权限。");
         }
         return user;
@@ -1532,7 +1665,7 @@ public class LocalDbFileManagementParseService {
         if (targetPlanId == null) {
             throw new IllegalArgumentException("目标输出方案不能为空。");
         }
-        boolean systemAdmin = actionPolicy.isSystemAdmin(user);
+        boolean systemAdmin = isSystemAdmin(user);
         FileParseTargetPlanRow row = fileManagementParseMapper.selectVisibleTargetPlan(
                 targetPlanId,
                 user.getRoleLevel(),
@@ -1545,32 +1678,42 @@ public class LocalDbFileManagementParseService {
     }
 
     private void requireCanCreateTask(FileParseTargetPlanRow targetPlan, FileParseUserContext user) {
-        if (!actionPolicy.availableActions(targetPlan, user).isCanCreateTask()) {
+        if (!resolveActions(targetPlan, user).isCanCreateTask()) {
             throw new FileParseAccessDeniedException("当前账号没有发起解析权限。");
         }
     }
 
     private void requireCanProcess(FileParseTargetPlanRow targetPlan, FileParseUserContext user) {
-        if (!actionPolicy.availableActions(targetPlan, user).isCanProcess()) {
+        if (!resolveActions(targetPlan, user).isCanProcess()) {
             throw new FileParseAccessDeniedException("当前账号没有解析处理权限。");
         }
     }
 
     private void requireCanPublish(FileParseTargetPlanRow targetPlan, FileParseUserContext user) {
-        if (!actionPolicy.availableActions(targetPlan, user).isCanPublish()) {
+        if (!resolveActions(targetPlan, user).isCanPublish()) {
             throw new FileParseAccessDeniedException("当前账号没有发布版本权限。");
         }
     }
 
     private void requireCanActivateLogisticsChannels(FileParseTargetPlanRow targetPlan, FileParseUserContext user) {
-        if (!actionPolicy.availableActions(targetPlan, user).isCanActivateLogisticsChannels()) {
+        if (!resolveActions(targetPlan, user).isCanActivateLogisticsChannels()) {
             throw new FileParseAccessDeniedException("当前账号没有物流渠道生效选择权限。");
         }
     }
 
     private void requireLogisticsTargetPlan(FileParseTargetPlanRow targetPlan) {
-        if (!actionPolicy.isLogisticsPlan(targetPlan)) {
+        if (!isLogisticsPlan(targetPlan)) {
             throw new IllegalArgumentException("只有物流目标输出方案支持渠道生效选择。");
+        }
+    }
+
+    private void validateUpload(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("上传文件不能为空。");
+        }
+        long maxFileBytes = Math.max(storageProperties.getMaxFileBytes(), 1L);
+        if (file.getSize() > maxFileBytes) {
+            throw new IllegalArgumentException("上传文件超过大小限制。");
         }
     }
 
@@ -1606,6 +1749,128 @@ public class LocalDbFileManagementParseService {
 
     private Long resolveLogisticsActivationOwner(FileParseUserContext user) {
         return user.getUserId();
+    }
+
+    private FileParseTargetPlanSummary toSummary(FileParseTargetPlanRow row, FileParseUserContext user) {
+        FileParseTargetPlanSummary summary = new FileParseTargetPlanSummary();
+        summary.setId(row.getId());
+        summary.setCode(row.getCode());
+        summary.setLabel(row.getLabel());
+        summary.setDocumentType(row.getDocumentType());
+        summary.setDocumentName(row.getDocumentName());
+        summary.setStandardVersion(row.getStandardVersion());
+        summary.setCurrentVersion(row.getCurrentVersion());
+        summary.setDescription(row.getDescription());
+        summary.setAvailableActions(resolveActions(row, user));
+        summary.setItemTypes(toTargetPlanItemTypes(row.getStandardVersionId()));
+        return summary;
+    }
+
+    private List<FileParseTargetPlanItemTypeView> toTargetPlanItemTypes(Long standardVersionId) {
+        if (standardVersionId == null) {
+            return List.of();
+        }
+        List<FileParseItemStandardRow> itemStandards = fileManagementParseMapper.selectItemStandards(standardVersionId);
+        if (itemStandards == null || itemStandards.isEmpty()) {
+            return List.of();
+        }
+        return itemStandards.stream()
+                .map(this::toTargetPlanItemType)
+                .collect(Collectors.toList());
+    }
+
+    private FileParseTargetPlanItemTypeView toTargetPlanItemType(FileParseItemStandardRow row) {
+        FileParseTargetPlanItemTypeView view = new FileParseTargetPlanItemTypeView();
+        view.setValue(row.getItemType());
+        view.setLabel(StringUtils.hasText(row.getItemLabel()) ? row.getItemLabel() : row.getItemType());
+        return view;
+    }
+
+    private FileParseTaskDetailView toTaskDetailView(
+            FileParseTaskRow task,
+            FileParseTargetPlanRow targetPlan,
+            List<FileParseTaskInputRow> inputRows
+    ) {
+        FileParseTaskDetailView view = new FileParseTaskDetailView();
+        view.setId(task.getId());
+        view.setTaskNo(task.getTaskNo());
+        view.setDocumentTitle(task.getDocumentTitle());
+        view.setTargetPlanId(targetPlan.getId());
+        view.setTargetPlanCode(targetPlan.getCode());
+        view.setTargetPlanLabel(targetPlan.getLabel());
+        view.setDocumentType(targetPlan.getDocumentType());
+        view.setDocumentName(targetPlan.getDocumentName());
+        view.setStandardVersion(targetPlan.getStandardVersion());
+        view.setCurrentVersion(targetPlan.getCurrentVersion());
+        view.setStatus(task.getStatus());
+        view.setResultId(task.getCurrentResultId());
+        view.setFailureCode(task.getFailureCode());
+        view.setFailureMessage(task.getFailureMessage());
+        view.setNextRunAt(task.getNextRunAt());
+        view.setDataScopeType(task.getDataScopeType());
+        view.setDataScopeKey(task.getDataScopeKey());
+        view.setDocumentGroupId(task.getDocumentGroupId() == null ? task.getId() : task.getDocumentGroupId());
+        view.setParentTaskId(task.getParentTaskId());
+        view.setIterationNo(task.getIterationNo() == null ? 1 : task.getIterationNo());
+        view.setMessage(task.getFailureMessage());
+        view.setInputItems(inputRows == null ? List.of() : inputRows.stream()
+                .map(this::toTaskInputView)
+                .collect(Collectors.toList()));
+        return view;
+    }
+
+    private FileParseTaskInputView toTaskInputView(FileParseTaskInputRow row) {
+        FileParseTaskInputView view = new FileParseTaskInputView();
+        view.setId(row.getId());
+        view.setInputType(row.getInputType());
+        view.setInputRole(row.getInputRole());
+        view.setFileAssetId(row.getFileAssetId());
+        view.setDisplayName(row.getDisplayName());
+        view.setDownloadUrl(row.getFileAssetId() == null ? null : buildDownloadUrl(row.getFileAssetId()));
+        view.setSortNo(row.getSortNo());
+        return view;
+    }
+
+    private FileParseTargetPlanRow toTargetPlanRow(FileParseTaskListItemView item) {
+        FileParseTargetPlanRow row = new FileParseTargetPlanRow();
+        row.setId(item.getTargetPlanId());
+        row.setCode(item.getTargetPlanCode());
+        row.setLabel(item.getTargetPlanLabel());
+        row.setDocumentType(item.getDocumentType());
+        row.setDocumentName(item.getDocumentName());
+        row.setStandardVersion(item.getStandardVersion());
+        row.setCurrentVersion(item.getCurrentVersion());
+        return row;
+    }
+
+    private FileParseAvailableActions resolveActions(FileParseTargetPlanRow row, FileParseUserContext user) {
+        boolean systemAdmin = isSystemAdmin(user);
+        boolean boss = isBoss(user);
+        boolean opsManager = isOpsManager(user);
+        boolean logisticsPlan = isLogisticsPlan(row);
+
+        FileParseAvailableActions actions = new FileParseAvailableActions();
+        actions.setCanCreateTask(systemAdmin || boss || opsManager);
+        actions.setCanProcess(systemAdmin || boss || opsManager);
+        actions.setCanPublish(systemAdmin);
+        actions.setCanManageStandard(systemAdmin);
+        actions.setCanActivateLogisticsChannels(logisticsPlan && (systemAdmin || boss));
+        return actions;
+    }
+
+    private FileParseUploadView toUploadView(FileParseFileAssetRow row) {
+        FileParseUploadView view = new FileParseUploadView();
+        view.setFileId(row.getId());
+        view.setUploadId(row.getUploadId());
+        view.setTargetPlanId(row.getTargetPlanId());
+        view.setStandardVersionId(row.getStandardVersionId());
+        view.setOriginalFileName(row.getOriginalFileName());
+        view.setContentType(row.getContentType());
+        view.setFileExtension(row.getFileExtension());
+        view.setSizeBytes(row.getFileSizeBytes());
+        view.setSha256Hash(row.getSha256Hash());
+        view.setDownloadUrl(buildDownloadUrl(row.getId()));
+        return view;
     }
 
     private FileParseTaskRunView toRunView(
@@ -1682,7 +1947,7 @@ public class LocalDbFileManagementParseService {
     }
 
     private void requireSystemAdminForAiChunks(FileParseUserContext user) {
-        if (!actionPolicy.isSystemAdmin(user)) {
+        if (!isSystemAdmin(user)) {
             throw new FileParseAccessDeniedException("当前账号不能查看 AI 分块明细。");
         }
     }
@@ -1734,6 +1999,62 @@ public class LocalDbFileManagementParseService {
         return storageProperties.getRootDir().toAbsolutePath().normalize();
     }
 
+    private String buildStorageKey(Long fileId, String originalFileName) {
+        return LocalDate.now().format(TASK_DATE_FORMATTER)
+                + "/"
+                + fileId
+                + "-"
+                + UUID.randomUUID()
+                + "-"
+                + originalFileName;
+    }
+
+    private String buildDownloadUrl(Long fileId) {
+        return "/api/file-management/parse/files/" + fileId + "/download";
+    }
+
+    private String sanitizeFileName(String fileName) {
+        String cleaned = StringUtils.cleanPath(StringUtils.hasText(fileName) ? fileName : "upload-file");
+        int slashIndex = Math.max(cleaned.lastIndexOf('/'), cleaned.lastIndexOf('\\'));
+        if (slashIndex >= 0) {
+            cleaned = cleaned.substring(slashIndex + 1);
+        }
+        cleaned = cleaned
+                .replaceAll("[\\r\\n\\t]", "_")
+                .replaceAll("[\\\\/:*?\"<>|]", "_")
+                .trim();
+        if (!StringUtils.hasText(cleaned)) {
+            return "upload-file";
+        }
+        return cleaned.length() > 180 ? cleaned.substring(cleaned.length() - 180) : cleaned;
+    }
+
+    private String extractFileExtension(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex < 0 || dotIndex == fileName.length() - 1) {
+            throw new IllegalArgumentException("上传文件必须包含文件扩展名。");
+        }
+        return fileName.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeContentType(String contentType) {
+        return StringUtils.hasText(contentType) ? contentType.trim() : "application/octet-stream";
+    }
+
+    private String sha256Hex(Path filePath) throws IOException {
+        MessageDigest digest = sha256Digest();
+        byte[] buffer = new byte[8192];
+        try (InputStream inputStream = Files.newInputStream(filePath)) {
+            int read;
+            while ((read = inputStream.read(buffer)) >= 0) {
+                if (read > 0) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+        }
+        return toHex(digest.digest());
+    }
+
     private String sha256Text(String value) {
         MessageDigest digest = sha256Digest();
         digest.update(nullToEmpty(value).getBytes(StandardCharsets.UTF_8));
@@ -1769,10 +2090,48 @@ public class LocalDbFileManagementParseService {
         return builder.toString();
     }
 
+    private void deleteQuietly(Path filePath) {
+        try {
+            Files.deleteIfExists(filePath);
+        } catch (IOException ignored) {
+            // Best-effort cleanup only; the database write failure is the actionable error.
+        }
+    }
+
     private String trimFailureMessage(String message) {
         String fallback = "解析任务启动失败。";
         String value = StringUtils.hasText(message) ? message.trim() : fallback;
         return value.length() > 1000 ? value.substring(0, 1000) : value;
+    }
+
+    private boolean isSystemAdmin(FileParseUserContext user) {
+        return hasRoleLevel(user, 0)
+                || "SYSTEM_ADMIN".equalsIgnoreCase(user.getRoleCode())
+                || "系统管理员".equals(user.getRoleName());
+    }
+
+    private boolean isBoss(FileParseUserContext user) {
+        return hasRoleLevel(user, 1)
+                || "BOSS".equalsIgnoreCase(user.getRoleCode())
+                || "老板".equals(user.getRoleName());
+    }
+
+    private boolean isOpsManager(FileParseUserContext user) {
+        return hasRoleLevel(user, 2)
+                || "OPS_MANAGER".equalsIgnoreCase(user.getRoleCode())
+                || "运营主管".equals(user.getRoleName());
+    }
+
+    private boolean hasRoleLevel(FileParseUserContext user, int level) {
+        return user != null && user.getRoleLevel() != null && user.getRoleLevel() == level;
+    }
+
+    private boolean isLogisticsPlan(FileParseTargetPlanRow row) {
+        if (row == null) {
+            return false;
+        }
+        return startsWithIgnoreCase(row.getCode(), "logistics")
+                || startsWithIgnoreCase(row.getDocumentType(), "logistics");
     }
 
     private boolean isCommissionPlan(FileParseTargetPlanRow row) {

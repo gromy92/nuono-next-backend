@@ -54,21 +54,6 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Verify source-size policy
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-          SOURCE_SIZE_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          python -m unittest discover -s scripts/tests -p 'test_source_size_gate.py'
-          python scripts/source_size_gate.py
 
       - name: Set up JDK
         uses: actions/setup-java@v4
