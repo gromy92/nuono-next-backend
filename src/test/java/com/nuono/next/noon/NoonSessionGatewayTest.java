@@ -179,6 +179,27 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void shouldRotateProxyWhenInitialPersistedCookieWhoamiDropsConnection() throws Exception {
+        try (AlwaysDropProxy staleProxy = new AlwaysDropProxy();
+                StaticHttpProxy refreshedProxy = new StaticHttpProxy();
+                ProxyProviderServer provider = new ProxyProviderServer(staleProxy.port(), refreshedProxy.port())) {
+            NoonSessionGateway gateway = gateway(provider.url());
+
+            NoonSessionGateway.NoonSession session = gateway.loginWithPersistedCookie(
+                    307L,
+                    "merchant@example.com",
+                    "sid=existing",
+                    "PRJ69486",
+                    "STR69486-NSA"
+            );
+
+            assertEquals("PRJ69486", session.getProjectCode());
+            assertTrue(staleProxy.requestCount() >= 3);
+            assertTrue(refreshedProxy.requestCount() >= 1);
+        }
+    }
+
+    @Test
     void shouldRefreshProxySessionForTunnelFailureStatus() throws Exception {
         NoonSessionGateway gateway = gateway("http://127.0.0.1:1/proxy");
         Method method = NoonSessionGateway.class.getDeclaredMethod(
@@ -1212,6 +1233,25 @@ class NoonSessionGatewayTest {
                 }
             }
             incrementRequestCount();
+        }
+    }
+
+    private static final class AlwaysDropProxy extends StaticHttpProxy {
+        private AlwaysDropProxy() throws IOException {
+            super();
+        }
+
+        @Override
+        protected void handle(Socket socket) throws IOException {
+            try (Socket accepted = socket) {
+                accepted.setSoTimeout(2000);
+                while (accepted.getInputStream().read() != -1) {
+                    if (accepted.getInputStream().available() == 0) {
+                        break;
+                    }
+                }
+                incrementRequestCount();
+            }
         }
     }
 }

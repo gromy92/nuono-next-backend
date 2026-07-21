@@ -83,6 +83,105 @@ class NoonPullSchedulerTest {
     }
 
     @Test
+    void shouldRetrySalesReportAtPolicyBackoffBeforeSixHourCircuit() {
+        Instant failureInstant = Instant.parse("2026-07-20T12:02:00Z");
+        Clock failureClock = Clock.fixed(failureInstant, ZoneOffset.UTC);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(
+                repository,
+                failureClock,
+                new NoonPullFailurePolicy(failureClock)
+        );
+        NoonPullPlanRecord plan = createPlan(
+                NoonPullType.REPORT,
+                NoonPullDataDomain.SALES,
+                NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily"
+        );
+        NoonPullTaskRecord failed = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("sales:2026-06-20..2026-07-19")
+                .targetDateFrom(LocalDate.of(2026, 6, 20))
+                .targetDateTo(LocalDate.of(2026, 7, 19))
+                .build()).orElseThrow();
+        foundationService.markFailedWithPolicy(
+                failed.getId(),
+                "provider unavailable: HTTP/1.1 header parser received no bytes",
+                1
+        );
+        Clock retryClock = Clock.fixed(failureInstant.plus(Duration.ofMinutes(8)), SHANGHAI);
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                retryClock,
+                new NoonOrderReportSchedulePolicy(retryClock),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(retryClock),
+                candidate -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(1, result.getCreatedTaskCount());
+        assertEquals(2, repository.listTasks().size());
+        assertEquals(
+                "sales:2026-06-20..2026-07-19",
+                repository.listTasks().get(1).getTargetIdentity()
+        );
+    }
+
+    @Test
+    void shouldKeepSixHourCircuitAfterTwoSalesProviderFailuresForSameTarget() {
+        Instant failureInstant = Instant.parse("2026-07-20T12:02:00Z");
+        Clock failureClock = Clock.fixed(failureInstant, ZoneOffset.UTC);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(
+                repository,
+                failureClock,
+                new NoonPullFailurePolicy(failureClock)
+        );
+        NoonPullPlanRecord plan = createPlan(
+                NoonPullType.REPORT,
+                NoonPullDataDomain.SALES,
+                NoonPullTriggerMode.SCHEDULED_DAILY,
+                "daily"
+        );
+        NoonPullTaskDraft draft = NoonPullTaskDraft.builder()
+                .ownerUserId(plan.getOwnerUserId())
+                .storeCode(plan.getStoreCode())
+                .siteCode(plan.getSiteCode())
+                .pullType(plan.getPullType())
+                .dataDomain(plan.getDataDomain())
+                .triggerMode(plan.getTriggerMode())
+                .targetIdentity("sales:2026-06-20..2026-07-19")
+                .targetDateFrom(LocalDate.of(2026, 6, 20))
+                .targetDateTo(LocalDate.of(2026, 7, 19))
+                .build();
+        NoonPullTaskRecord first = foundationService.createTaskForPlan(plan.getId(), draft).orElseThrow();
+        foundationService.markFailedWithPolicy(first.getId(), "provider unavailable: EOF", 1);
+        NoonPullTaskRecord second = foundationService.retryTask(first.getId());
+        foundationService.markFailedWithPolicy(second.getId(), "provider unavailable: EOF", 2);
+        Clock retryClock = Clock.fixed(failureInstant.plus(Duration.ofMinutes(21)), SHANGHAI);
+        NoonPullScheduler scheduler = new NoonPullScheduler(
+                foundationService,
+                retryClock,
+                new NoonOrderReportSchedulePolicy(retryClock),
+                new NoonOrderBackfillPlanner(),
+                new NoonSalesRetentionPolicy(retryClock),
+                candidate -> true
+        );
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(2, repository.listTasks().size());
+    }
+
+    @Test
     void shouldResumeScheduledTaskAfterProviderUnavailableCircuitCooldown() {
         NoonPullPlanRecord plan = createPlan(
                 NoonPullType.INTERFACE,
