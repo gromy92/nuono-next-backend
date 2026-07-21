@@ -870,44 +870,12 @@ public class NoonSessionGateway {
                 return existing;
             }
 
-            AuthSessionState created = createCookieOnlyStateWithTransportRefresh(
-                    noonUser,
-                    cookieFingerprint,
-                    persistedCookie,
-                    projectCode,
-                    storeCode
+            AuthSessionState created = NoonTransportRetry.once(
+                    () -> createCookieOnlyState(noonUser, cookieFingerprint, persistedCookie, projectCode, storeCode),
+                    this::shouldRefreshAfterTransientTransportFailure
             );
             sessionCache.put(cacheKey, created);
             return created;
-        }
-    }
-
-    private AuthSessionState createCookieOnlyStateWithTransportRefresh(
-            String noonUser,
-            String cookieFingerprint,
-            String persistedCookie,
-            String projectCode,
-            String storeCode
-    ) {
-        try {
-            return createCookieOnlyState(
-                    noonUser,
-                    cookieFingerprint,
-                    persistedCookie,
-                    projectCode,
-                    storeCode
-            );
-        } catch (IllegalStateException exception) {
-            if (!shouldRefreshAfterTransientTransportFailure(exception)) {
-                throw exception;
-            }
-            return createCookieOnlyState(
-                    noonUser,
-                    cookieFingerprint,
-                    persistedCookie,
-                    projectCode,
-                    storeCode
-            );
         }
     }
 

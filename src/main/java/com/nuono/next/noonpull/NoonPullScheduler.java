@@ -32,7 +32,6 @@ public class NoonPullScheduler {
     private static final Duration STALE_RUNNING_TASK_MAX_AGE = Duration.ofHours(2);
     private static final Duration STALE_QUEUED_TASK_MAX_AGE = Duration.ofMinutes(30);
     private static final Duration PROVIDER_UNAVAILABLE_SCHEDULED_COOLDOWN = Duration.ofHours(6);
-    private static final int MAX_SALES_PROVIDER_ATTEMPTS_PER_TARGET = 2;
 
     private final NoonPullFoundationService foundationService;
     private final Clock clock;
@@ -304,40 +303,13 @@ public class NoonPullScheduler {
     }
 
     private boolean isProviderUnavailableCircuitOpen(NoonPullPlanRecord plan, LocalDateTime persistedNow) {
-        boolean providerCircuitCandidate = plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY
+        return plan.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY
                 && NoonPullFailureType.PROVIDER_UNAVAILABLE.code().equals(plan.getLatestFailureType())
                 && plan.getLatestFailureAt() != null
-                && (plan.getLatestSuccessAt() == null || plan.getLatestFailureAt().isAfter(plan.getLatestSuccessAt()));
-        if (!providerCircuitCandidate) {
-            return false;
-        }
-        if (hasDueBoundedSalesRetry(plan, persistedNow)) {
-            return false;
-        }
-        return plan.getLatestFailureAt()
-                .plus(PROVIDER_UNAVAILABLE_SCHEDULED_COOLDOWN)
-                .isAfter(persistedNow);
-    }
-
-    private boolean hasDueBoundedSalesRetry(NoonPullPlanRecord plan, LocalDateTime persistedNow) {
-        if (plan.getPullType() != NoonPullType.REPORT
-                || plan.getDataDomain() != NoonPullDataDomain.SALES
-                || plan.getNextRetryAt() == null
-                || plan.getNextRetryAt().isAfter(persistedNow)
-                || !isSalesLatestDayReportReadyWindow()) {
-            return false;
-        }
-        LocalDate targetTo = latestAvailableDate();
-        LocalDate targetFrom = targetTo.minusDays(29);
-        String targetIdentity = "sales:" + targetFrom + ".." + targetTo;
-        long providerFailuresForTarget = foundationService.listTasks().stream()
-                .filter(task -> plan.getId().equals(task.getPlanId()))
-                .filter(task -> targetIdentity.equals(task.getTargetIdentity()))
-                .filter(task -> task.getStatus() == NoonPullTaskStatus.FAILED)
-                .filter(task -> NoonPullFailureType.PROVIDER_UNAVAILABLE.code().equals(task.getFailureType()))
-                .count();
-        return providerFailuresForTarget > 0
-                && providerFailuresForTarget < MAX_SALES_PROVIDER_ATTEMPTS_PER_TARGET;
+                && (plan.getLatestSuccessAt() == null || plan.getLatestFailureAt().isAfter(plan.getLatestSuccessAt()))
+                && !NoonSalesProviderRetryPolicy.isDue(plan, persistedNow, latestAvailableDate(),
+                isSalesLatestDayReportReadyWindow(), foundationService.listTasks())
+                && plan.getLatestFailureAt().plus(PROVIDER_UNAVAILABLE_SCHEDULED_COOLDOWN).isAfter(persistedNow);
     }
 
     private Optional<NoonPullTaskRecord> createTask(
