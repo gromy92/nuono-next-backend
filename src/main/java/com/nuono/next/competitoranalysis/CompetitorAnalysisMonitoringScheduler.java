@@ -7,6 +7,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +21,7 @@ public class CompetitorAnalysisMonitoringScheduler {
     private final AtomicBoolean rankRunning = new AtomicBoolean(false);
     private final AtomicBoolean detailRunning = new AtomicBoolean(false);
     private final AtomicBoolean compensationRunning = new AtomicBoolean(false);
+    private final AtomicBoolean taskRecoveryRunning = new AtomicBoolean(false);
 
     @Value("${nuono.competitor-analysis.monitor.scheduler.enabled:false}")
     private boolean enabled;
@@ -85,6 +88,19 @@ public class CompetitorAnalysisMonitoringScheduler {
         }
     }
 
+    @EventListener(ApplicationReadyEvent.class)
+    public void resumeQueuedRefreshTasksAfterStartup() {
+        runStartupRecoveryOnce();
+    }
+
+    @Scheduled(
+            fixedDelayString = "${nuono.competitor-analysis.monitor.scheduler.task-recovery-fixed-delay-ms:60000}",
+            initialDelayString = "${nuono.competitor-analysis.monitor.scheduler.task-recovery-initial-delay-ms:60000}"
+    )
+    public void runScheduledTaskRecovery() {
+        runTaskRecoveryOnce();
+    }
+
     public int runOnce() {
         return runRankOnce();
     }
@@ -107,11 +123,32 @@ public class CompetitorAnalysisMonitoringScheduler {
         );
     }
 
+    public int runStartupRecoveryOnce() {
+        return runTaskRecovery();
+    }
+
+    public int runTaskRecoveryOnce() {
+        return runTaskRecovery();
+    }
+
+    private int runTaskRecovery() {
+        if (!enabled || !taskRecoveryRunning.compareAndSet(false, true)) {
+            return 0;
+        }
+        try {
+            int recovered = refreshService.resumeQueuedRefreshTasks();
+            recovered += refreshService.recoverStaleRefreshTasks();
+            return recovered;
+        } finally {
+            taskRecoveryRunning.set(false);
+        }
+    }
+
     private int runOnce(String executionMode, ScopeSubmitter submitter) {
         if (!enabled) {
             return 0;
         }
-        refreshService.recoverStaleRefreshTasks();
+        runTaskRecoveryOnce();
         List<CompetitorWatchProductScopeRow> scopes = mapper.listRefreshableWatchProductScopes(
                 Math.max(1, maxScopesPerTick)
         );

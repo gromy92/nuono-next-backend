@@ -28,6 +28,19 @@ public class OperationalTaskService {
     }
 
     public OperationalTask start(String taskType, String naturalKey, OperationalTaskPayload payload) {
+        return create(taskType, naturalKey, payload, OperationalTaskStatus.RUNNING);
+    }
+
+    public OperationalTask queue(String taskType, String naturalKey, OperationalTaskPayload payload) {
+        return create(taskType, naturalKey, payload, OperationalTaskStatus.QUEUED);
+    }
+
+    private OperationalTask create(
+            String taskType,
+            String naturalKey,
+            OperationalTaskPayload payload,
+            OperationalTaskStatus initialStatus
+    ) {
         String normalizedTaskType = requireText(taskType, "taskType");
         String normalizedNaturalKey = requireText(naturalKey, "naturalKey");
         OperationalTask activeTask = repository.selectActiveByNaturalKey(normalizedTaskType, normalizedNaturalKey);
@@ -46,13 +59,20 @@ public class OperationalTaskService {
         task.setSiteCode(normalize(safePayload.getSiteCode()));
         task.setPayloadJson(normalize(safePayload.getPayloadJson()));
         task.setMessage(normalize(safePayload.getMessage()));
-        task.setStatus(OperationalTaskStatus.RUNNING);
+        task.setStatus(initialStatus);
         task.setProgressPercent(0);
-        task.setStartedAt(now);
+        task.setStartedAt(initialStatus == OperationalTaskStatus.RUNNING ? now : null);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         repository.insert(task);
         return task.copy();
+    }
+
+    public boolean claimQueued(Long taskId, String message) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId is required");
+        }
+        return repository.claimQueued(taskId, normalize(message), now());
     }
 
     public Optional<OperationalTask> find(Long taskId) {

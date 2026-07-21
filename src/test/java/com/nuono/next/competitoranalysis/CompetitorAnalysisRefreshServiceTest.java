@@ -574,8 +574,8 @@ class CompetitorAnalysisRefreshServiceTest {
         assertEquals(OperationalTaskStatus.SUCCEEDED, task.getStatus());
         assertEquals("竞品监控批次已提交。", task.getMessage());
         assertTrue(task.getResultJson().contains("\"submittedCount\":2"));
-        assertEquals(3, submittedTasks.size(), "batch task plus two product refresh tasks should be queued");
-        verify(mapper, times(2)).insertSearchRun(org.mockito.ArgumentMatchers.any());
+        assertEquals(OperationalTaskStatus.QUEUED, taskRepository.selectById(view.getTaskId() + 1).getStatus());
+        verify(mapper, times(2)).insertSearchRun(org.mockito.ArgumentMatchers.argThat(command -> "QUEUED".equals(command.getStatus())));
     }
 
     @Test

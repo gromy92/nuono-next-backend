@@ -2208,12 +2208,12 @@ public interface CompetitorAnalysisMapper {
             "  keyword_total, keyword_success, keyword_failed, candidate_upserted_count,",
             "  rank_fact_written_count, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{watchProductId}, #{taskId}, #{triggerMode}, #{status}, #{requestedBy}, NOW(),",
+            "  #{id}, #{watchProductId}, #{taskId}, #{triggerMode}, #{status}, #{requestedBy}, CASE WHEN #{status} = 'RUNNING' THEN NOW() ELSE NULL END,",
             "  #{keywordTotal}, 0, 0, 0, 0, b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
             ")"
     })
     int insertSearchRun(CompetitorSearchRunInsertCommand command);
-
+    @Update("UPDATE operations_competitor_search_run SET status = 'RUNNING', started_at = NOW(), gmt_updated = NOW() WHERE id = #{runId} AND status = 'QUEUED' AND is_deleted = b'0'") int markSearchRunRunning(@Param("runId") Long runId);
     @Select({
             "SELECT",
             "  id, watch_product_id AS watchProductId, task_id AS taskId, trigger_mode AS triggerMode,",
