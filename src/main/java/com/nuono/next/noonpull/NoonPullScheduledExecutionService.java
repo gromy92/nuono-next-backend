@@ -30,7 +30,6 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -485,10 +484,6 @@ public class NoonPullScheduledExecutionService {
         );
     }
 
-    @Scheduled(
-            initialDelayString = "${nuono.noon.pull.scheduler.initial-delay-ms:60000}",
-            fixedDelayString = "${nuono.noon.pull.scheduler.fixed-delay-ms:300000}"
-    )
     public void runScheduledTick() {
         if (enabled) {
             runOnce();

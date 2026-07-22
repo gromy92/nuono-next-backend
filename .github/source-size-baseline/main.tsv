@@ -98,7 +98,7 @@ src/main/java/com/nuono/next/nooncompleteness/NoonHistoricalBackfillPolicy.java	
 src/main/java/com/nuono/next/noonpull/NoonProductionSchedulerEnablementGate.java	349
 src/main/java/com/nuono/next/noonpull/NoonPullDiagnosticsView.java	513
 src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	913
-src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1155
+src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1150
 src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
 src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
