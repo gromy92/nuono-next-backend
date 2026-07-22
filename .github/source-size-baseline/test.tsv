@@ -88,7 +88,7 @@ src/test/java/com/nuono/next/productlogisticscost/ProductLogisticsCostController
 src/test/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncServiceTest.java	599
 src/test/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapterTest.java	535
 src/test/java/com/nuono/next/productselection/ProductSelectionSourceCollectionCollectorTest.java	638
-src/test/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanServiceTest.java	739
+src/test/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanServiceTest.java	722
 src/test/java/com/nuono/next/replenishmentplan/ReplenishmentPlanCalculatorTest.java	1109
 src/test/java/com/nuono/next/replenishmentplan/ReplenishmentPlanConfigResolverTest.java	327
 src/test/java/com/nuono/next/sales/SalesAnalyticsServiceTest.java	944

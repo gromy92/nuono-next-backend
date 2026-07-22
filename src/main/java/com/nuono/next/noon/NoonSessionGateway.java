@@ -1747,7 +1747,7 @@ public class NoonSessionGateway {
                     .GET()
                     .timeout(REQUEST_TIMEOUT)
                     .build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = NoonHardDeadlineHttpClient.send(client, request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("HTTP " + response.statusCode() + " " + shrinkBody(response.body()));
             }
@@ -2638,7 +2638,7 @@ public class NoonSessionGateway {
                     if (requestRecorder != null) {
                         requestRecorder.accept(request.uri().toString());
                     }
-                    HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                    HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
                     lastRequestAtMillis = System.currentTimeMillis();
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -2725,7 +2725,7 @@ public class NoonSessionGateway {
                     if (requestRecorder != null) {
                         requestRecorder.accept(request.uri().toString());
                     }
-                    HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                    HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
                     lastRequestAtMillis = System.currentTimeMillis();
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -2809,7 +2809,7 @@ public class NoonSessionGateway {
                     if (requestRecorder != null) {
                         requestRecorder.accept(request.uri().toString());
                     }
-                    HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                    HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
                     lastRequestAtMillis = System.currentTimeMillis();
                     byte[] responseBody = decodeResponseBytes(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
