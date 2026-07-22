@@ -9,6 +9,9 @@ public class ProductSelectionSourceCollectionRow {
     private String collectionNo;
     private String sourceType;
     private String collectionSource;
+    private String pluginBatchId;
+    private String pluginItemKey;
+    private String extractorVersion;
     private String sourcePlatform;
     private String sourceUrl;
     private String pageUrl;
@@ -97,6 +100,30 @@ public class ProductSelectionSourceCollectionRow {
 
     public void setCollectionSource(String collectionSource) {
         this.collectionSource = collectionSource;
+    }
+
+    public String getPluginBatchId() {
+        return pluginBatchId;
+    }
+
+    public void setPluginBatchId(String pluginBatchId) {
+        this.pluginBatchId = pluginBatchId;
+    }
+
+    public String getPluginItemKey() {
+        return pluginItemKey;
+    }
+
+    public void setPluginItemKey(String pluginItemKey) {
+        this.pluginItemKey = pluginItemKey;
+    }
+
+    public String getExtractorVersion() {
+        return extractorVersion;
+    }
+
+    public void setExtractorVersion(String extractorVersion) {
+        this.extractorVersion = extractorVersion;
     }
 
     public String getSourcePlatform() {

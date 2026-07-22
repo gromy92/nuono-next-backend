@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionPluginIngestMapper;
 import java.lang.reflect.Method;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class ProductSelectionMapperSqlTest {
@@ -56,34 +56,40 @@ class ProductSelectionMapperSqlTest {
     }
 
     @Test
-    void pluginIngestDedupeIsScopedAndRefreshesCollectedFields() throws Exception {
+    void pluginIngestRetryLookupIsScopedToBatchItemAndNeverUpdatesHistoricalProducts() throws Exception {
         Method selectMethod = ProductSelectionPluginIngestMapper.class.getMethod(
-                "listRecentForDedupe",
+                "selectByBatchItem",
                 Long.class,
                 Long.class,
                 String.class,
-                String.class,
-                Integer.class
+                String.class
         );
         String selectSql = String.join("\n", selectMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
         assertThat(selectSql)
                 .contains("source.owner_user_id = #{ownerUserId}")
                 .contains("source.logical_store_id = #{logicalStoreId}")
-                .contains("source.site_code = #{siteCode}")
+                .contains("source.plugin_batch_id = #{pluginBatchId}")
+                .contains("source.plugin_item_key = #{pluginItemKey}")
                 .contains("source.collection_source = 'plugin'")
+                .contains("FOR UPDATE")
                 .contains("source.is_deleted = b'0'");
+    }
 
-        Method updateMethod = ProductSelectionPluginIngestMapper.class.getMethod(
-                "update",
+    @Test
+    void sourceCollectionInsertPersistsPluginBatchItemAndExtractorVersion() throws Exception {
+        Method insertMethod = ProductSelectionMapper.class.getMethod(
+                "insertSourceCollection",
                 ProductSelectionSourceCollectionRow.class
         );
-        String updateSql = String.join("\n", updateMethod.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
-        assertThat(updateSql)
-                .contains("category_links_json = #{row.categoryLinksJson}")
-                .contains("source_description_en = #{row.sourceDescriptionEn}")
-                .contains("source_selling_points_ar_json = #{row.sourceSellingPointsArJson}")
-                .contains("collection_source = 'plugin'")
-                .contains("is_deleted = b'0'");
+        String insertSql = String.join("\n", insertMethod.getAnnotation(Insert.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(insertSql)
+                .contains("plugin_batch_id")
+                .contains("plugin_item_key")
+                .contains("extractor_version")
+                .contains("#{row.pluginBatchId}")
+                .contains("#{row.pluginItemKey}")
+                .contains("#{row.extractorVersion}");
     }
     private static void assertStrictSiteFilter(String methodName, Class<?>... parameterTypes) throws Exception {
         Method method = ProductSelectionMapper.class.getMethod(methodName, parameterTypes);

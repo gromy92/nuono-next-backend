@@ -1,18 +1,13 @@
 package com.nuono.next.productselection;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionPluginIngestMapper;
-import java.net.URI;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.context.annotation.Profile;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -20,11 +15,9 @@ import org.springframework.util.StringUtils;
 @Profile("local-db")
 public class PluginSourceCollectionUpsertService {
 
-    private static final int LOOKBACK_LIMIT = 500;
-    private static final Pattern AMAZON_ASIN = Pattern.compile("(?i)/(?:dp|gp/product|gp/aw/d)/([A-Z0-9]{10})(?:/|$)");
-    private static final Pattern NOON_SKU = Pattern.compile("(?i)/([NPZ][A-Z0-9]{8,})/p(?:/|$)");
-    private static final Pattern SHEIN_PRODUCT_ID = Pattern.compile("(?i)-p-(\\d+)(?:\\.html|/|$)");
-    private static final Pattern TEMU_GOODS_ID = Pattern.compile("(?i)-g-(\\d+)(?:\\.html|/|$)");
+    private static final int BATCH_ID_MAX_LENGTH = 100;
+    private static final int ITEM_KEY_MAX_LENGTH = 120;
+    private static final int EXTRACTOR_VERSION_MAX_LENGTH = 160;
 
     private final ProductSelectionMapper sourceMapper;
     private final ProductSelectionPluginIngestMapper pluginMapper;
@@ -60,37 +53,67 @@ public class PluginSourceCollectionUpsertService {
             List<String> sellingPointsAr,
             String warningNotes
     ) {
-        ProductSelectionSourceCollectionRow duplicate = findDuplicate(scope, siteCode, sourcePlatform, pageUrl, sourceUrl);
-        List<String> effectiveImages = preferIncoming(imageUrls, duplicate == null ? null : duplicate.getImageUrlsJson(), STRING_LIST);
-        List<String> effectiveSpecs = preferIncoming(specHints, duplicate == null ? null : duplicate.getSpecHintsJson(), STRING_LIST);
-        List<ProductSelectionCompetitorCategoryLink> effectiveCategories =
-                preferIncoming(categoryLinks, duplicate == null ? null : duplicate.getCategoryLinksJson(), CATEGORY_LIST);
-        List<String> effectivePointsEn = preferIncoming(
-                sellingPointsEn,
-                duplicate == null ? null : duplicate.getSourceSellingPointsEnJson(),
-                STRING_LIST
+        String pluginBatchId = boundedText(
+                source.getCollectionBatchId(), BATCH_ID_MAX_LENGTH, "采集批次标识过长。"
         );
-        List<String> effectivePointsAr = preferIncoming(
-                sellingPointsAr,
-                duplicate == null ? null : duplicate.getSourceSellingPointsArJson(),
-                STRING_LIST
+        String pluginItemKey = boundedText(
+                source.getCollectionItemKey(), ITEM_KEY_MAX_LENGTH, "采集批次条目标识过长。"
         );
+        if ((pluginBatchId == null) != (pluginItemKey == null)) {
+            throw new IllegalArgumentException("采集批次标识和批次条目标识必须同时提供。");
+        }
+
+        ProductSelectionSourceCollectionRow retry = selectRetry(scope, pluginBatchId, pluginItemKey);
+        if (retry != null) {
+            return new Result(retry, true);
+        }
 
         ProductSelectionSourceCollectionRow row = buildRow(
-                scope, siteCode, source, sourcePlatform, sourceUrl, pageUrl, duplicate,
-                effectiveImages, effectiveSpecs, effectiveCategories, effectivePointsEn, effectivePointsAr, warningNotes
+                scope,
+                siteCode,
+                source,
+                sourcePlatform,
+                sourceUrl,
+                pageUrl,
+                imageUrls,
+                specHints,
+                categoryLinks,
+                sellingPointsEn,
+                sellingPointsAr,
+                warningNotes,
+                pluginBatchId,
+                pluginItemKey
         );
-        if (duplicate == null) {
+        try {
             sourceMapper.insertSourceCollection(row);
-        } else if (pluginMapper.update(row) != 1) {
-            throw new IllegalArgumentException("已有插件采集记录更新失败，请刷新后重试。");
+        } catch (DuplicateKeyException exception) {
+            ProductSelectionSourceCollectionRow concurrentRetry = selectRetry(scope, pluginBatchId, pluginItemKey);
+            if (concurrentRetry != null) {
+                return new Result(concurrentRetry, true);
+            }
+            throw exception;
         }
-        ProductSelectionSourceCollectionRow inserted = duplicate == null
-                ? sourceMapper.selectSourceCollectionById(row.getId())
-                : null;
+
+        ProductSelectionSourceCollectionRow inserted = sourceMapper.selectSourceCollectionById(row.getId());
         ProductSelectionSourceCollectionRow effectiveRow = inserted == null ? row : inserted;
         ali1688CollectionService.ensureTaskForSourceCollection(effectiveRow, source.getOperatorUserId());
-        return new Result(effectiveRow, duplicate != null);
+        return new Result(effectiveRow, false);
+    }
+
+    private ProductSelectionSourceCollectionRow selectRetry(
+            ProductSelectionStoreScope scope,
+            String pluginBatchId,
+            String pluginItemKey
+    ) {
+        if (pluginBatchId == null || pluginItemKey == null) {
+            return null;
+        }
+        return pluginMapper.selectByBatchItem(
+                scope.getOwnerUserId(),
+                scope.getLogicalStoreId(),
+                pluginBatchId,
+                pluginItemKey
+        );
     }
 
     private ProductSelectionSourceCollectionRow buildRow(
@@ -100,168 +123,68 @@ public class PluginSourceCollectionUpsertService {
             String platform,
             String sourceUrl,
             String pageUrl,
-            ProductSelectionSourceCollectionRow old,
             List<String> images,
             List<String> specs,
             List<ProductSelectionCompetitorCategoryLink> categories,
             List<String> pointsEn,
             List<String> pointsAr,
-            String warningNotes
+            String warningNotes,
+            String pluginBatchId,
+            String pluginItemKey
     ) {
-        boolean insert = old == null;
-        Long id = insert ? sourceMapper.nextSourceCollectionId() : old.getId();
+        Long id = sourceMapper.nextSourceCollectionId();
         ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
         row.setId(id);
         row.setOwnerUserId(scope.getOwnerUserId());
         row.setLogicalStoreId(scope.getLogicalStoreId());
         row.setSiteCode(siteCode);
-        row.setCollectionNo(insert ? "PSC-" + id : old.getCollectionNo());
+        row.setCollectionNo("PSC-" + id);
         row.setSourceType("marketplace-url");
         row.setCollectionSource("plugin");
+        row.setPluginBatchId(pluginBatchId);
+        row.setPluginItemKey(pluginItemKey);
+        row.setExtractorVersion(boundedText(
+                source.getExtractorVersion(), EXTRACTOR_VERSION_MAX_LENGTH, "插件采集器版本标识过长。"
+        ));
         row.setSourceUrl(sourceUrl);
         row.setPageUrl(pageUrl);
         row.setSourcePlatform(platform);
-        row.setSourceTitle(text(source.getSourceTitle(), insert
-                ? text(source.getSourceTitleCn(), text(source.getSourceTitleAr(), "插件采集源头商品"))
-                : old.getSourceTitle()));
-        row.setSourceTitleCn(text(source.getSourceTitleCn(), insert ? source.getSelectedText() : old.getSourceTitleCn()));
-        row.setSourceTitleAr(text(source.getSourceTitleAr(), insert ? "" : old.getSourceTitleAr()));
-        row.setSourceImageUrl(images.isEmpty() ? text(insert ? "" : old.getSourceImageUrl(), "") : images.get(0));
+        row.setSourceTitle(text(
+                source.getSourceTitle(),
+                text(source.getSourceTitleCn(), text(source.getSourceTitleAr(), "插件采集源头商品"))
+        ));
+        row.setSourceTitleCn(text(source.getSourceTitleCn(), text(source.getSelectedText(), "")));
+        row.setSourceTitleAr(text(source.getSourceTitleAr(), ""));
+        row.setSourceImageUrl(images.isEmpty() ? "" : images.get(0));
         row.setImageUrlsJson(json(images));
-        row.setPriceSummary(text(source.getPriceSummary(), insert ? "" : old.getPriceSummary()));
-        row.setMoqHint(text(source.getMoqHint(), insert ? "" : old.getMoqHint()));
-        row.setShippingFrom(text(source.getShippingFrom(), insert ? "" : old.getShippingFrom()));
+        row.setPriceSummary(text(source.getPriceSummary(), ""));
+        row.setMoqHint(text(source.getMoqHint(), ""));
+        row.setShippingFrom(text(source.getShippingFrom(), ""));
         row.setBrandName(completenessCalculator.firstSpecValue(specs, Set.of("brand", "brand name")));
-        row.setUnitCount(completenessCalculator.firstSpecValue(specs, SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS));
-        row.setColorName(completenessCalculator.firstSpecValue(specs, Set.of("color", "colour", "color name", "colour name")));
+        row.setUnitCount(completenessCalculator.firstSpecValue(
+                specs, SourceCollectionCompletenessCalculator.UNIT_COUNT_SPEC_LABELS
+        ));
+        row.setColorName(completenessCalculator.firstSpecValue(
+                specs, Set.of("color", "colour", "color name", "colour name")
+        ));
         row.setSpecHintsJson(json(specs));
         row.setCategoryLinksJson(json(categories));
         row.setSpecAttributeCount(completenessCalculator.countSpecAttributes(specs));
         row.setSourceDescriptionEn(MarketplaceProductDescriptionSanitizer.preferIncoming(
-                source.getSourceDescriptionEn(),
-                insert ? "" : old.getSourceDescriptionEn()
+                source.getSourceDescriptionEn(), ""
         ));
         row.setSourceDescriptionAr(MarketplaceProductDescriptionSanitizer.preferIncoming(
-                source.getSourceDescriptionAr(),
-                insert ? source.getSelectedTextAr() : old.getSourceDescriptionAr()
+                source.getSourceDescriptionAr(), text(source.getSelectedTextAr(), "")
         ));
         row.setSourceSellingPointsEnJson(json(pointsEn));
         row.setSourceSellingPointsArJson(json(pointsAr));
-        row.setSelectedText(text(source.getSelectedText(), insert ? "" : old.getSelectedText()));
-        row.setSelectedTextAr(text(source.getSelectedTextAr(), insert ? "" : old.getSelectedTextAr()));
-        row.setNotes(text(source.getNotes(), text(warningNotes, insert ? "" : old.getNotes())));
+        row.setSelectedText(text(source.getSelectedText(), ""));
+        row.setSelectedTextAr(text(source.getSelectedTextAr(), ""));
+        row.setNotes(text(source.getNotes(), text(warningNotes, "")));
         row.setStatus("success");
-        row.setCreatedBy(insert ? source.getOperatorUserId() : old.getCreatedBy());
+        row.setCreatedBy(source.getOperatorUserId());
         row.setUpdatedBy(source.getOperatorUserId());
         return row;
-    }
-
-    private ProductSelectionSourceCollectionRow findDuplicate(
-            ProductSelectionStoreScope scope, String siteCode, String platform, String pageUrl, String sourceUrl
-    ) {
-        Set<String> incoming = keys(platform, pageUrl, sourceUrl);
-        if (incoming.isEmpty()) {
-            return null;
-        }
-        List<ProductSelectionSourceCollectionRow> candidates = pluginMapper.listRecentForDedupe(
-                scope.getOwnerUserId(), scope.getLogicalStoreId(), siteCode, platform, LOOKBACK_LIMIT
-        );
-        if (candidates == null) {
-            return null;
-        }
-        return candidates.stream()
-                .filter(candidate -> keys(platform, candidate.getPageUrl(), candidate.getSourceUrl())
-                        .stream().anyMatch(incoming::contains))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private Set<String> keys(String platform, String... urls) {
-        Set<String> result = new LinkedHashSet<>();
-        for (String rawUrl : urls) {
-            URI uri = uri(rawUrl);
-            if (uri == null) {
-                continue;
-            }
-            String identity = productIdentity(platform, uri);
-            String host = host(uri);
-            result.add(StringUtils.hasText(identity)
-                    ? identity
-                    : "url:" + host + text(uri.getPath(), "/").toLowerCase(Locale.ROOT));
-        }
-        return result;
-    }
-
-    private String productIdentity(String platform, URI uri) {
-        String path = text(uri.getPath(), "");
-        String host = host(uri);
-        if ("Amazon".equals(platform)) {
-            return keyed("amazon:" + host, AMAZON_ASIN, path, true);
-        }
-        if ("Noon".equals(platform)) {
-            return keyed("noon:" + noonMarket(path), NOON_SKU, path, true);
-        }
-        if ("SHEIN".equals(platform)) {
-            return keyed("shein:" + host, SHEIN_PRODUCT_ID, path, false);
-        }
-        if ("Temu".equals(platform)) {
-            String id = text(queryParam(uri, "goods_id"), match(TEMU_GOODS_ID, path));
-            return StringUtils.hasText(id) ? "temu:" + host + ":" + id : "";
-        }
-        return "";
-    }
-
-    private String keyed(String prefix, Pattern pattern, String path, boolean uppercase) {
-        String id = match(pattern, path);
-        return StringUtils.hasText(id) ? prefix + ":" + (uppercase ? id.toUpperCase(Locale.ROOT) : id) : "";
-    }
-
-    private String noonMarket(String path) {
-        for (String part : text(path, "").split("/")) {
-            if (StringUtils.hasText(part)) {
-                return part.toLowerCase(Locale.ROOT).replaceFirst("-(?:en|ar)$", "");
-            }
-        }
-        return "noon";
-    }
-
-    private String queryParam(URI uri, String name) {
-        for (String pair : text(uri.getRawQuery(), "").split("&")) {
-            int separator = pair.indexOf('=');
-            if (name.equalsIgnoreCase(separator < 0 ? pair : pair.substring(0, separator))) {
-                return separator < 0 ? "" : pair.substring(separator + 1);
-            }
-        }
-        return "";
-    }
-
-    private URI uri(String value) {
-        try {
-            return StringUtils.hasText(value) ? URI.create(value) : null;
-        } catch (RuntimeException ignored) {
-            return null;
-        }
-    }
-
-    private String host(URI uri) {
-        String host = text(uri.getHost(), "").toLowerCase(Locale.ROOT);
-        return host.startsWith("www.") ? host.substring(4) : host;
-    }
-
-    private String match(Pattern pattern, String value) {
-        Matcher matcher = pattern.matcher(text(value, ""));
-        return matcher.find() ? matcher.group(1) : "";
-    }
-
-    private <T> List<T> preferIncoming(List<T> values, String previousJson, TypeReference<List<T>> type) {
-        if (values != null && !values.isEmpty()) {
-            return values;
-        }
-        try {
-            return StringUtils.hasText(previousJson) ? objectMapper.readValue(previousJson, type) : List.of();
-        } catch (JsonProcessingException ignored) {
-            return List.of();
-        }
     }
 
     private String json(List<?> values) {
@@ -272,12 +195,20 @@ public class PluginSourceCollectionUpsertService {
         }
     }
 
+    private static String boundedText(String value, int maxLength, String errorMessage) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.length() > maxLength) {
+            throw new IllegalArgumentException(errorMessage);
+        }
+        return normalized;
+    }
+
     private static String text(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
     }
-
-    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() { };
-    private static final TypeReference<List<ProductSelectionCompetitorCategoryLink>> CATEGORY_LIST = new TypeReference<>() { };
 
     public static final class Result {
         private final ProductSelectionSourceCollectionRow row;

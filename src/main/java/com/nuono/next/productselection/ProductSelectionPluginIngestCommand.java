@@ -5,10 +5,28 @@ import java.util.List;
 
 public class ProductSelectionPluginIngestCommand extends ProductSelectionSourceCollectionCommand {
 
+    private String collectionBatchId;
+    private String collectionItemKey;
     private String extractorVersion;
     private String pageLanguage;
     private List<ProductSelectionCompetitorCategoryLink> categoryLinks = new ArrayList<>();
     private List<PluginWarning> warnings = new ArrayList<>();
+
+    public String getCollectionBatchId() {
+        return collectionBatchId;
+    }
+
+    public void setCollectionBatchId(String collectionBatchId) {
+        this.collectionBatchId = collectionBatchId;
+    }
+
+    public String getCollectionItemKey() {
+        return collectionItemKey;
+    }
+
+    public void setCollectionItemKey(String collectionItemKey) {
+        this.collectionItemKey = collectionItemKey;
+    }
 
     public String getExtractorVersion() {
         return extractorVersion;

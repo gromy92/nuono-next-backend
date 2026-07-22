@@ -73,6 +73,9 @@ class LocalDbSourceCollectionServicePluginIngestTest {
     void pluginIngestCreatesSuccessfulSourceCollectionWithPluginSourceAndSiteScope() {
         ProductSelectionPluginIngestCommand command = new ProductSelectionPluginIngestCommand();
         command.setStoreCode("STR108065-NAE");
+        command.setCollectionBatchId("batch-20260721-001");
+        command.setCollectionItemKey("tab:51");
+        command.setExtractorVersion("20260721-marketplace-source-new-batch-r5");
         command.setSourcePlatform("Amazon");
         command.setSourceUrl("https://www.amazon.ae/dp/B00006IFHD?th=1");
         command.setPageUrl("https://www.amazon.ae/dp/B00006IFHD?th=1");
@@ -97,6 +100,8 @@ class LocalDbSourceCollectionServicePluginIngestTest {
         )));
         command.setOperatorUserId(307L);
         when(permissionGuard.requireWritableStore(307L, "STR108065-NAE")).thenReturn(storeScope("AE"));
+        when(pluginIngestMapper.selectByBatchItem(307L, 301L, "batch-20260721-001", "tab:51"))
+                .thenReturn(null);
         when(productSelectionMapper.nextSourceCollectionId()).thenReturn(86488L);
 
         ProductSelectionPluginIngestResponse response = service.pluginIngestSourceCollection(command);
@@ -107,6 +112,9 @@ class LocalDbSourceCollectionServicePluginIngestTest {
         ProductSelectionSourceCollectionRow row = rowCaptor.getValue();
         assertEquals("marketplace-url", row.getSourceType());
         assertEquals("plugin", row.getCollectionSource());
+        assertEquals("batch-20260721-001", row.getPluginBatchId());
+        assertEquals("tab:51", row.getPluginItemKey());
+        assertEquals("20260721-marketplace-source-new-batch-r5", row.getExtractorVersion());
         assertEquals("AE", row.getSiteCode());
         assertEquals("Amazon", row.getSourcePlatform());
         assertEquals("success", row.getStatus());
