@@ -1,10 +1,9 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.productselection.ProductSelectionSourceCollectionRow;
-import java.util.List;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
 
 public interface ProductSelectionPluginIngestMapper {
 
@@ -22,43 +21,41 @@ public interface ProductSelectionPluginIngestMapper {
             "FROM product_selection_source_collection source",
             "WHERE source.owner_user_id = #{ownerUserId}",
             "  AND source.logical_store_id = #{logicalStoreId}",
-            "  AND (#{siteCode} IS NULL OR #{siteCode} = '' OR source.site_code = #{siteCode})",
+            "  AND source.plugin_batch_id = #{pluginBatchId}",
+            "  AND source.plugin_item_key = #{pluginItemKey}",
             "  AND source.source_type = 'marketplace-url'",
             "  AND source.collection_source = 'plugin'",
-            "  AND source.source_platform = #{sourcePlatform}",
-            "  AND source.status = 'success'",
             "  AND source.is_deleted = b'0'",
-            "ORDER BY source.collected_at DESC, source.id DESC",
-            "LIMIT #{limit}"
+            "LIMIT 1",
+            "FOR UPDATE"
     })
-    List<ProductSelectionSourceCollectionRow> listRecentForDedupe(
+    ProductSelectionSourceCollectionRow selectByBatchItem(
             @Param("ownerUserId") Long ownerUserId,
             @Param("logicalStoreId") Long logicalStoreId,
-            @Param("siteCode") String siteCode,
-            @Param("sourcePlatform") String sourcePlatform,
-            @Param("limit") Integer limit
+            @Param("pluginBatchId") String pluginBatchId,
+            @Param("pluginItemKey") String pluginItemKey
     );
 
-    @Update({
-            "UPDATE product_selection_source_collection",
-            "SET source_url = #{row.sourceUrl}, page_url = #{row.pageUrl},",
-            "    source_title = #{row.sourceTitle}, source_title_cn = #{row.sourceTitleCn}, source_title_ar = #{row.sourceTitleAr},",
-            "    source_image_url = #{row.sourceImageUrl}, image_urls_json = #{row.imageUrlsJson},",
-            "    price_summary = #{row.priceSummary}, moq_hint = #{row.moqHint}, shipping_from = #{row.shippingFrom},",
-            "    brand_name = #{row.brandName}, unit_count = #{row.unitCount}, color_name = #{row.colorName},",
-            "    spec_hints_json = #{row.specHintsJson}, category_links_json = #{row.categoryLinksJson},",
-            "    spec_attribute_count = #{row.specAttributeCount},",
-            "    source_description_en = #{row.sourceDescriptionEn}, source_description_ar = #{row.sourceDescriptionAr},",
-            "    source_selling_points_en_json = #{row.sourceSellingPointsEnJson},",
-            "    source_selling_points_ar_json = #{row.sourceSellingPointsArJson},",
-            "    selected_text = #{row.selectedText}, selected_text_ar = #{row.selectedTextAr}, notes = #{row.notes},",
-            "    failure_code = NULL, failure_message = NULL, collected_at = NOW(),",
-            "    updated_by = #{row.updatedBy}, gmt_updated = NOW()",
-            "WHERE id = #{row.id}",
-            "  AND source_type = 'marketplace-url'",
-            "  AND collection_source = 'plugin'",
-            "  AND status = 'success'",
-            "  AND is_deleted = b'0'"
+    @Insert({
+            "INSERT INTO product_selection_source_collection (",
+            "  id, owner_user_id, logical_store_id, site_code, collection_no, source_type, collection_source, plugin_batch_id, plugin_item_key, extractor_version, source_platform, source_url, page_url,",
+            "  source_title, source_title_cn, source_title_ar, source_image_url, image_urls_json, price_summary, moq_hint, shipping_from,",
+            "  brand_name, unit_count, color_name, spec_hints_json, category_links_json, spec_attribute_count, source_description_en, source_description_ar,",
+            "  source_selling_points_en_json, source_selling_points_ar_json, selected_text, selected_text_ar, notes, status, failure_code, failure_message,",
+            "  collected_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "  #{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.siteCode}, #{row.collectionNo}, #{row.sourceType}, #{row.collectionSource},",
+            "  #{pluginBatchId}, #{pluginItemKey}, #{extractorVersion}, #{row.sourcePlatform}, #{row.sourceUrl}, #{row.pageUrl},",
+            "  #{row.sourceTitle}, #{row.sourceTitleCn}, #{row.sourceTitleAr}, #{row.sourceImageUrl}, #{row.imageUrlsJson}, #{row.priceSummary}, #{row.moqHint}, #{row.shippingFrom},",
+            "  #{row.brandName}, #{row.unitCount}, #{row.colorName}, #{row.specHintsJson}, #{row.categoryLinksJson}, #{row.specAttributeCount}, #{row.sourceDescriptionEn}, #{row.sourceDescriptionAr},",
+            "  #{row.sourceSellingPointsEnJson}, #{row.sourceSellingPointsArJson}, #{row.selectedText}, #{row.selectedTextAr}, #{row.notes}, #{row.status},",
+            "  #{row.failureCode}, #{row.failureMessage}, NOW(), b'0', #{row.createdBy}, #{row.updatedBy}, NOW(), NOW()",
+            ")"
     })
-    int update(@Param("row") ProductSelectionSourceCollectionRow row);
+    int insert(
+            @Param("row") ProductSelectionSourceCollectionRow row,
+            @Param("pluginBatchId") String pluginBatchId,
+            @Param("pluginItemKey") String pluginItemKey,
+            @Param("extractorVersion") String extractorVersion
+    );
 }
