@@ -77,9 +77,12 @@ class ProductSelectionMapperSqlTest {
 
     @Test
     void sourceCollectionInsertPersistsPluginBatchItemAndExtractorVersion() throws Exception {
-        Method insertMethod = ProductSelectionMapper.class.getMethod(
-                "insertSourceCollection",
-                ProductSelectionSourceCollectionRow.class
+        Method insertMethod = ProductSelectionPluginIngestMapper.class.getMethod(
+                "insert",
+                ProductSelectionSourceCollectionRow.class,
+                String.class,
+                String.class,
+                String.class
         );
         String insertSql = String.join("\n", insertMethod.getAnnotation(Insert.class).value()).replaceAll("\\s+", " ");
 
@@ -87,9 +90,9 @@ class ProductSelectionMapperSqlTest {
                 .contains("plugin_batch_id")
                 .contains("plugin_item_key")
                 .contains("extractor_version")
-                .contains("#{row.pluginBatchId}")
-                .contains("#{row.pluginItemKey}")
-                .contains("#{row.extractorVersion}");
+                .contains("#{pluginBatchId}")
+                .contains("#{pluginItemKey}")
+                .contains("#{extractorVersion}");
     }
     private static void assertStrictSiteFilter(String methodName, Class<?>... parameterTypes) throws Exception {
         Method method = ProductSelectionMapper.class.getMethod(methodName, parameterTypes);

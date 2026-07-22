@@ -62,6 +62,9 @@ public class PluginSourceCollectionUpsertService {
         if ((pluginBatchId == null) != (pluginItemKey == null)) {
             throw new IllegalArgumentException("采集批次标识和批次条目标识必须同时提供。");
         }
+        String extractorVersion = boundedText(
+                source.getExtractorVersion(), EXTRACTOR_VERSION_MAX_LENGTH, "插件采集器版本标识过长。"
+        );
 
         ProductSelectionSourceCollectionRow retry = selectRetry(scope, pluginBatchId, pluginItemKey);
         if (retry != null) {
@@ -80,12 +83,10 @@ public class PluginSourceCollectionUpsertService {
                 categoryLinks,
                 sellingPointsEn,
                 sellingPointsAr,
-                warningNotes,
-                pluginBatchId,
-                pluginItemKey
+                warningNotes
         );
         try {
-            sourceMapper.insertSourceCollection(row);
+            pluginMapper.insert(row, pluginBatchId, pluginItemKey, extractorVersion);
         } catch (DuplicateKeyException exception) {
             ProductSelectionSourceCollectionRow concurrentRetry = selectRetry(scope, pluginBatchId, pluginItemKey);
             if (concurrentRetry != null) {
@@ -128,9 +129,7 @@ public class PluginSourceCollectionUpsertService {
             List<ProductSelectionCompetitorCategoryLink> categories,
             List<String> pointsEn,
             List<String> pointsAr,
-            String warningNotes,
-            String pluginBatchId,
-            String pluginItemKey
+            String warningNotes
     ) {
         Long id = sourceMapper.nextSourceCollectionId();
         ProductSelectionSourceCollectionRow row = new ProductSelectionSourceCollectionRow();
@@ -141,11 +140,6 @@ public class PluginSourceCollectionUpsertService {
         row.setCollectionNo("PSC-" + id);
         row.setSourceType("marketplace-url");
         row.setCollectionSource("plugin");
-        row.setPluginBatchId(pluginBatchId);
-        row.setPluginItemKey(pluginItemKey);
-        row.setExtractorVersion(boundedText(
-                source.getExtractorVersion(), EXTRACTOR_VERSION_MAX_LENGTH, "插件采集器版本标识过长。"
-        ));
         row.setSourceUrl(sourceUrl);
         row.setPageUrl(pageUrl);
         row.setSourcePlatform(platform);

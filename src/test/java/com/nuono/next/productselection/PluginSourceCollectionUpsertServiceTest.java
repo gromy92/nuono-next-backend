@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -81,16 +82,18 @@ class PluginSourceCollectionUpsertServiceTest {
 
         ArgumentCaptor<ProductSelectionSourceCollectionRow> captor =
                 ArgumentCaptor.forClass(ProductSelectionSourceCollectionRow.class);
-        verify(sourceMapper).insertSourceCollection(captor.capture());
+        verify(pluginMapper).insert(
+                captor.capture(),
+                eq("batch-20260721-new"),
+                eq("tab:52"),
+                eq("20260721-marketplace-source-new-batch-r5")
+        );
         ProductSelectionSourceCollectionRow inserted = captor.getValue();
         assertEquals(86481L, inserted.getId());
         assertEquals("PSC-86481", inserted.getCollectionNo());
         assertEquals("English phone case title", inserted.getSourceTitle());
         assertEquals("عنوان حافظة الهاتف بالعربية", inserted.getSourceTitleAr());
         assertEquals("English product description collected by the repaired plugin.", inserted.getSourceDescriptionEn());
-        assertEquals("batch-20260721-new", inserted.getPluginBatchId());
-        assertEquals("tab:52", inserted.getPluginItemKey());
-        assertEquals("20260721-marketplace-source-new-batch-r5", inserted.getExtractorVersion());
         assertTrue(inserted.getCategoryLinksJson().contains("Phone Cases"));
         assertFalse(result.deduped());
         assertEquals(86481L, result.row().getId());
@@ -111,8 +114,6 @@ class PluginSourceCollectionUpsertServiceTest {
         String noonUrl = "https://www.noon.com/saudi-en/vintage-paper/Z161C92DA0421DCAF2786Z/p/";
         existing.setSourceUrl(noonUrl);
         existing.setPageUrl(noonUrl);
-        existing.setPluginBatchId("batch-20260721-retry");
-        existing.setPluginItemKey("tab:31");
         when(pluginMapper.selectByBatchItem(307L, 301L, "batch-20260721-retry", "tab:31"))
                 .thenReturn(existing);
 
@@ -132,7 +133,7 @@ class PluginSourceCollectionUpsertServiceTest {
         );
 
         verify(sourceMapper, never()).nextSourceCollectionId();
-        verify(sourceMapper, never()).insertSourceCollection(any(ProductSelectionSourceCollectionRow.class));
+        verify(pluginMapper, never()).insert(any(), any(), any(), any());
         verify(ali1688CollectionService, never()).ensureTaskForSourceCollection(any(), any());
         assertTrue(result.deduped());
         assertEquals(86480L, result.row().getId());
@@ -162,13 +163,15 @@ class PluginSourceCollectionUpsertServiceTest {
                 List.of(), List.of(), List.of(), List.of(), List.of(), ""
         );
 
-        ArgumentCaptor<ProductSelectionSourceCollectionRow> captor =
+        ArgumentCaptor<ProductSelectionSourceCollectionRow> rowCaptor =
                 ArgumentCaptor.forClass(ProductSelectionSourceCollectionRow.class);
-        verify(sourceMapper, org.mockito.Mockito.times(2)).insertSourceCollection(captor.capture());
-        assertEquals(86481L, captor.getAllValues().get(0).getId());
-        assertEquals(86482L, captor.getAllValues().get(1).getId());
-        assertEquals("tab:51", captor.getAllValues().get(0).getPluginItemKey());
-        assertEquals("tab:52", captor.getAllValues().get(1).getPluginItemKey());
+        ArgumentCaptor<String> itemKeyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(pluginMapper, org.mockito.Mockito.times(2)).insert(
+                rowCaptor.capture(), eq("batch-20260721-duplicates"), itemKeyCaptor.capture(), any()
+        );
+        assertEquals(86481L, rowCaptor.getAllValues().get(0).getId());
+        assertEquals(86482L, rowCaptor.getAllValues().get(1).getId());
+        assertEquals(List.of("tab:51", "tab:52"), itemKeyCaptor.getAllValues());
     }
 
     private ProductSelectionSourceCollectionRow existingRow() {

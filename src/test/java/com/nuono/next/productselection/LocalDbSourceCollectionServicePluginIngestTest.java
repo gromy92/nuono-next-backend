@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -108,13 +109,15 @@ class LocalDbSourceCollectionServicePluginIngestTest {
 
         ArgumentCaptor<ProductSelectionSourceCollectionRow> rowCaptor =
                 ArgumentCaptor.forClass(ProductSelectionSourceCollectionRow.class);
-        verify(productSelectionMapper).insertSourceCollection(rowCaptor.capture());
+        verify(pluginIngestMapper).insert(
+                rowCaptor.capture(),
+                eq("batch-20260721-001"),
+                eq("tab:51"),
+                eq("20260721-marketplace-source-new-batch-r5")
+        );
         ProductSelectionSourceCollectionRow row = rowCaptor.getValue();
         assertEquals("marketplace-url", row.getSourceType());
         assertEquals("plugin", row.getCollectionSource());
-        assertEquals("batch-20260721-001", row.getPluginBatchId());
-        assertEquals("tab:51", row.getPluginItemKey());
-        assertEquals("20260721-marketplace-source-new-batch-r5", row.getExtractorVersion());
         assertEquals("AE", row.getSiteCode());
         assertEquals("Amazon", row.getSourcePlatform());
         assertEquals("success", row.getStatus());
@@ -171,7 +174,7 @@ class LocalDbSourceCollectionServicePluginIngestTest {
 
         ArgumentCaptor<ProductSelectionSourceCollectionRow> rowCaptor =
                 ArgumentCaptor.forClass(ProductSelectionSourceCollectionRow.class);
-        verify(productSelectionMapper).insertSourceCollection(rowCaptor.capture());
+        verify(pluginIngestMapper).insert(rowCaptor.capture(), isNull(), isNull(), isNull());
         ProductSelectionSourceCollectionRow row = rowCaptor.getValue();
         assertFalse(row.getSourceSellingPointsEnJson().contains("Electronics Mobiles"));
         assertFalse(row.getSourceSellingPointsEnJson().contains("iPhone 17 Series"));
@@ -214,7 +217,7 @@ class LocalDbSourceCollectionServicePluginIngestTest {
 
         ArgumentCaptor<ProductSelectionSourceCollectionRow> rowCaptor =
                 ArgumentCaptor.forClass(ProductSelectionSourceCollectionRow.class);
-        verify(productSelectionMapper).insertSourceCollection(rowCaptor.capture());
+        verify(pluginIngestMapper).insert(rowCaptor.capture(), isNull(), isNull(), isNull());
         assertEquals("Temu", rowCaptor.getValue().getSourcePlatform());
         assertEquals("plugin", rowCaptor.getValue().getCollectionSource());
         assertEquals("success", response.getSourceCollection().getStatus());
