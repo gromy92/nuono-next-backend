@@ -12,10 +12,12 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundRow;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.StockRow;
+import com.nuono.next.salesforecast.SalesForecastOverviewView;
 import com.nuono.next.salesforecast.SalesForecastQuery;
 import com.nuono.next.salesforecast.SalesForecastResultRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRepository;
+import com.nuono.next.salesforecast.SalesForecastService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -39,6 +41,8 @@ class DefaultReplenishmentPlanServiceTest {
     private static final LocalDate SOURCE_DATE = LocalDate.of(2026, 7, 6);
 
     @Mock
+    private SalesForecastService forecastService;
+    @Mock
     private SalesForecastRunRepository forecastRunRepository;
     @Mock
     private ReplenishmentPlanRepository repository;
@@ -49,21 +53,14 @@ class DefaultReplenishmentPlanServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DefaultReplenishmentPlanService(
-                forecastRunRepository,
-                repository,
-                configResolver,
-                new ReplenishmentPlanCalculator(),
-                Clock.fixed(Instant.parse("2026-07-06T00:00:00Z"), ZoneOffset.UTC)
-        );
+        service = serviceAt(Instant.parse("2026-07-06T00:00:00Z"));
         when(configResolver.resolve(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(ReplenishmentPlanConfig.defaultBasicV1());
     }
 
     @Test
     void readyForecastMapsStockEtaInboundAndMissingEtaByCanonicalPartnerSku() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithEvidence("PSKU-001", "SKU-001", 900)));
+        givenForecast(List.of(resultWithEvidence("PSKU-001", "SKU-001", 900)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(new StockRow(
                         " psku-001 ",
@@ -155,19 +152,16 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(SOURCE_DATE.plusDays(20), row.getNearestInboundEtaDate());
 
         ArgumentCaptor<SalesForecastQuery> forecastQuery = ArgumentCaptor.forClass(SalesForecastQuery.class);
-        verify(forecastRunRepository).findLatestCompleted(forecastQuery.capture());
+        verify(forecastService).getOverview(forecastQuery.capture());
         assertEquals(OWNER_USER_ID, forecastQuery.getValue().getOwnerUserId());
         assertEquals(STORE_CODE, forecastQuery.getValue().getStoreCode());
         assertEquals(SITE_CODE, forecastQuery.getValue().getSiteCode());
         verify(forecastRunRepository).listResults(100L);
-        verify(forecastRunRepository, never()).saveRun(any());
-        verify(forecastRunRepository, never()).saveResults(any(), any());
     }
 
     @Test
     void unresolvedInboundDestinationBlocksSkuWithoutCountingItsQuantity() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithDailyForecasts(
+        givenForecast(List.of(resultWithDailyForecasts(
                 "PSKU-UNRESOLVED",
                 "SKU-UNRESOLVED",
                 900
@@ -208,7 +202,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void missingForecastRunReturnsEmptyOverviewWithoutReadingRepositoriesOrWritingForecast() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(null);
+        when(forecastService.getOverview(any())).thenReturn(SalesForecastOverviewView.empty(STORE_CODE, SITE_CODE));
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
@@ -216,16 +210,13 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(LocalDate.of(2026, 7, 6), overview.getAnchorDate());
         assertTrue(overview.getRows().isEmpty());
         verify(forecastRunRepository, never()).listResults(any());
-        verify(forecastRunRepository, never()).saveRun(any());
-        verify(forecastRunRepository, never()).saveResults(any(), any());
         verify(repository, never()).listFbnSupermallStock(any(), any(), any());
         verify(repository, never()).listActiveInbound(any(), any(), any());
     }
 
     @Test
     void emptyForecastResultsReturnEmptyOverviewWithoutReadingRepositories() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of());
+        givenForecast(List.of());
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
 
@@ -238,7 +229,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void nullForecastResultsReturnEmptyOverviewWithoutReadingRepositories() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
+        givenForecast(List.of());
         when(forecastRunRepository.listResults(100L)).thenReturn(null);
 
         ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
@@ -252,8 +243,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void missingStockFactsPreserveNullFieldsAndAddWarnings() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-MISSING", "SKU-MISSING", 90)));
+        givenForecast(List.of(result("PSKU-MISSING", "SKU-MISSING", 90)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
@@ -270,8 +260,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void partialStockFactsUseFbnAsCurrentStockAndIgnoreMissingSupermall() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-PARTIAL", "SKU-PARTIAL", 90)));
+        givenForecast(List.of(result("PSKU-PARTIAL", "SKU-PARTIAL", 90)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-PARTIAL",
@@ -295,15 +284,8 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void currentDateControlsPastEtaExclusionAndRecentEtaReviewFlag() {
-        DefaultReplenishmentPlanService serviceOnJuly8 = new DefaultReplenishmentPlanService(
-                forecastRunRepository,
-                repository,
-                configResolver,
-                new ReplenishmentPlanCalculator(),
-                Clock.fixed(Instant.parse("2026-07-08T00:00:00Z"), ZoneOffset.UTC)
-        );
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-ETA", "SKU-ETA", 90)));
+        DefaultReplenishmentPlanService serviceOnJuly8 = serviceAt(Instant.parse("2026-07-08T00:00:00Z"));
+        givenForecast(List.of(result("PSKU-ETA", "SKU-ETA", 90)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE))
                 .thenReturn(List.of(
@@ -358,15 +340,8 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void persistedDailyForecastsAreMappedFromForecastDateToCurrentPlanDate() {
-        DefaultReplenishmentPlanService serviceOnJuly8 = new DefaultReplenishmentPlanService(
-                forecastRunRepository,
-                repository,
-                configResolver,
-                new ReplenishmentPlanCalculator(),
-                Clock.fixed(Instant.parse("2026-07-08T00:00:00Z"), ZoneOffset.UTC)
-        );
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithShiftedDailyForecasts(
+        DefaultReplenishmentPlanService serviceOnJuly8 = serviceAt(Instant.parse("2026-07-08T00:00:00Z"));
+        givenForecast(List.of(resultWithShiftedDailyForecasts(
                 "PSKU-SHIFTED",
                 "SKU-SHIFTED"
         )));
@@ -398,8 +373,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void missingDailyForecastDoesNotFallBackToNinetyDayAverage() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(result("PSKU-DEMAND", "SKU-DEMAND", 180)));
+        givenForecast(List.of(result("PSKU-DEMAND", "SKU-DEMAND", 180)));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
                 .thenReturn(List.of(new StockRow(
                         "PSKU-DEMAND",
@@ -422,8 +396,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void demandCurveUsesPersistedDailyForecastsBeforeNinetyDayAverage() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithDailyForecasts(
+        givenForecast(List.of(resultWithDailyForecasts(
                 "PSKU-DAILY",
                 "SKU-DAILY",
                 900
@@ -447,14 +420,8 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void businessDateUsesAsiaShanghaiAcrossUtcBoundary() {
-        DefaultReplenishmentPlanService boundaryService = new DefaultReplenishmentPlanService(
-                forecastRunRepository,
-                repository,
-                configResolver,
-                new ReplenishmentPlanCalculator(),
-                Clock.fixed(Instant.parse("2026-07-06T16:30:00Z"), ZoneOffset.UTC)
-        );
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(null);
+        DefaultReplenishmentPlanService boundaryService = serviceAt(Instant.parse("2026-07-06T16:30:00Z"));
+        when(forecastService.getOverview(any())).thenReturn(SalesForecastOverviewView.empty(STORE_CODE, SITE_CODE));
 
         ReplenishmentPlanRecords.PlanOverviewView overview = boundaryService.getOverview(query());
 
@@ -463,8 +430,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void missingDailyForecastDoesNotFallBackToFactorBreakdown() {
-        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
-        when(forecastRunRepository.listResults(100L)).thenReturn(List.of(resultWithFactors(
+        givenForecast(List.of(resultWithFactors(
                 "PSKU-DETAIL",
                 "SKU-DETAIL",
                 0,
@@ -490,6 +456,23 @@ class DefaultReplenishmentPlanServiceTest {
         assertTrue(row.getWarnings().contains("daily_forecast_missing"));
         assertEquals(BigDecimal.ZERO, row.getSeaCalculatedUnits());
         assertEquals(BigDecimal.ZERO, row.getSeaSuggestedUnits());
+    }
+
+    private DefaultReplenishmentPlanService serviceAt(Instant instant) {
+        return new DefaultReplenishmentPlanService(
+                forecastService,
+                forecastRunRepository,
+                repository,
+                configResolver,
+                new ReplenishmentPlanCalculator(),
+                Clock.fixed(instant, ZoneOffset.UTC)
+        );
+    }
+
+    private void givenForecast(List<SalesForecastResultRecord> results) {
+        when(forecastService.getOverview(any()))
+                .thenReturn(SalesForecastOverviewView.ready(STORE_CODE, SITE_CODE, run(), results));
+        when(forecastRunRepository.listResults(100L)).thenReturn(results);
     }
 
     private static ReplenishmentPlanRecords.PlanQuery query() {
