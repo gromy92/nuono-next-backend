@@ -229,7 +229,7 @@ src/main/java/com/nuono/next/profit/ProfitCalculationEngine.java	338
 src/main/java/com/nuono/next/profit/ProfitCalculationResult.java	341
 src/main/java/com/nuono/next/profit/ProfitCalculationView.java	476
 src/main/java/com/nuono/next/profit/ProfitQuickSignalsView.java	480
-src/main/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanService.java	400
+src/main/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanService.java	398
 src/main/java/com/nuono/next/replenishmentplan/ReplenishmentPlanCalculator.java	644
 src/main/java/com/nuono/next/replenishmentplan/ReplenishmentPlanRecords.java	1221
 src/main/java/com/nuono/next/sales/ProductLifecycleClassifier.java	359
