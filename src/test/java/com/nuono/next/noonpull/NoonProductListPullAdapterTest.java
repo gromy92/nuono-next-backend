@@ -214,6 +214,7 @@ class NoonProductListPullAdapterTest {
                 List.of("PAPERSAYS440", "PAPERSAYSB440"),
                 writer.command.getProductSeeds().get(0).getBarcodes()
         );
+        assertEquals("PAPERSAYS440", writer.command.getProductSeeds().get(0).getBarcode());
         assertEquals(
                 List.of("PAPERSAYSB442"),
                 writer.command.getProductSeeds().get(1).getBarcodes()
