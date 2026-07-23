@@ -75,7 +75,6 @@ nuono:
   product-management:
     detail-baseline-daily-backfill:
       enabled: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_ENABLED:false}
-      max-items-per-list-sync: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_MAX_ITEMS_PER_LIST_SYNC:10}
       stale-after-minutes: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_STALE_AFTER_MINUTES:360}
     publish-task:
       async-enabled: ${NUONO_PRODUCT_PUBLISH_TASK_ASYNC_ENABLED:true}

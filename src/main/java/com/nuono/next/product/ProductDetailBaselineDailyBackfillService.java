@@ -29,7 +29,6 @@ public class ProductDetailBaselineDailyBackfillService {
     private final LocalDbProductMasterService productMasterService;
     private final OperationalTaskService operationalTaskService;
     private final boolean enabled;
-    private final int maxItemsPerListSync;
     private final int staleAfterMinutes;
     private final Clock clock;
 
@@ -40,8 +39,6 @@ public class ProductDetailBaselineDailyBackfillService {
             LocalDbProductMasterService productMasterService,
             OperationalTaskService operationalTaskService,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.enabled:false}") boolean enabled,
-            @Value("${nuono.product-management.detail-baseline-daily-backfill.max-items-per-list-sync:10}")
-            int maxItemsPerListSync,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.stale-after-minutes:360}")
             int staleAfterMinutes
     ) {
@@ -51,7 +48,6 @@ public class ProductDetailBaselineDailyBackfillService {
                 productMasterService,
                 operationalTaskService,
                 enabled,
-                maxItemsPerListSync,
                 staleAfterMinutes,
                 Clock.systemUTC()
         );
@@ -63,7 +59,6 @@ public class ProductDetailBaselineDailyBackfillService {
             LocalDbProductMasterService productMasterService,
             OperationalTaskService operationalTaskService,
             boolean enabled,
-            int maxItemsPerListSync,
             int staleAfterMinutes,
             Clock clock
     ) {
@@ -72,7 +67,6 @@ public class ProductDetailBaselineDailyBackfillService {
         this.productMasterService = productMasterService;
         this.operationalTaskService = operationalTaskService;
         this.enabled = enabled;
-        this.maxItemsPerListSync = Math.max(1, maxItemsPerListSync);
         this.staleAfterMinutes = Math.max(1, staleAfterMinutes);
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
@@ -89,8 +83,7 @@ public class ProductDetailBaselineDailyBackfillService {
         List<ProductDetailBaselineCandidate> candidates = candidateMapper.listMissingMaintainedCandidates(
                 ownerUserId,
                 storeCode.trim(),
-                siteCode.trim().toUpperCase(Locale.ROOT),
-                maxItemsPerListSync
+                siteCode.trim().toUpperCase(Locale.ROOT)
         );
         Set<String> scheduledProducts = new HashSet<>();
         int enqueued = 0;

@@ -4,10 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,6 +20,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -35,7 +37,35 @@ class ProductDetailBaselineDailyBackfillServiceTest {
                 service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
 
         assertFalse(result.isEnabled());
-        verify(mapper, never()).listMissingMaintainedCandidates(any(), any(), any(), anyInt());
+        verify(mapper, never()).listMissingMaintainedCandidates(any(), any(), any());
+    }
+
+    @Test
+    void shouldEnqueueEveryEligibleCandidateWithoutTheFormerTenItemCap() {
+        ProductDetailBaselineCandidateMapper mapper = mock(ProductDetailBaselineCandidateMapper.class);
+        ProductDetailBaselineBackfillService backfill = mock(ProductDetailBaselineBackfillService.class);
+        List<ProductDetailBaselineCandidate> candidates = IntStream.rangeClosed(1, 12)
+                .mapToObj(index -> candidate(
+                        100L + index,
+                        50003L,
+                        "Z-PARENT-" + index,
+                        "PARTNER-" + index,
+                        "PSKU-" + index
+                ))
+                .collect(Collectors.toList());
+        when(mapper.listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA"))
+                .thenReturn(candidates);
+        when(backfill.enqueue(any(), eq("daily-maintenance-audit"), any())).thenReturn("preparing");
+        ProductDetailBaselineDailyBackfillService service =
+                service(mapper, backfill, mock(LocalDbProductMasterService.class), mock(OperationalTaskService.class), true);
+
+        ProductDetailBaselineDailyBackfillService.EnqueueResult result =
+                service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
+
+        assertEquals(12, result.getCandidateCount());
+        assertEquals(12, result.getEnqueuedCount());
+        verify(mapper).listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA");
+        verify(backfill, times(12)).enqueue(any(), eq("daily-maintenance-audit"), any());
     }
 
     @Test
@@ -45,7 +75,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
         LocalDbProductMasterService productMasterService = mock(LocalDbProductMasterService.class);
         ProductDetailBaselineCandidate first = candidate(101L, 50003L, "Z-PARENT-1", "PARTNER-1", "PSKU-1");
         ProductDetailBaselineCandidate duplicate = candidate(101L, 50003L, "Z-PARENT-1", "PARTNER-2", "PSKU-2");
-        when(mapper.listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA", 10))
+        when(mapper.listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA"))
                 .thenReturn(List.of(first, duplicate));
         when(backfill.enqueue(any(), eq("daily-maintenance-audit"), any())).thenReturn("preparing");
         ProductDetailBaselineDailyBackfillService service =
@@ -84,7 +114,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
         stale.setUpdatedAt(LocalDateTime.of(2026, 7, 22, 18, 0));
         when(taskService.listActive(ProductDetailBaselineBackfillService.TASK_TYPE, 1000))
                 .thenReturn(List.of(stale));
-        when(mapper.listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA", 10))
+        when(mapper.listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA"))
                 .thenReturn(List.of());
         ProductDetailBaselineDailyBackfillService service =
                 service(mapper, backfill, mock(LocalDbProductMasterService.class), taskService, true);
@@ -123,7 +153,6 @@ class ProductDetailBaselineDailyBackfillServiceTest {
                 productMasterService,
                 taskService,
                 enabled,
-                10,
                 360,
                 CLOCK
         );
