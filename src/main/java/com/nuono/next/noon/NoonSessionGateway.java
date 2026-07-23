@@ -29,9 +29,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -2330,6 +2332,9 @@ public class NoonSessionGateway {
         private final Object requestMutex = new Object();
         private final Instant createdAt = Instant.now();
         private volatile long lastRequestAtMillis = 0L;
+        private volatile String preferredExportCookieHost;
+        private volatile URI preferredExportCookieUri;
+        private volatile String preferredExportCookieHeader;
 
         private AuthSessionState(
                 ObjectMapper objectMapper,
@@ -2638,6 +2643,7 @@ public class NoonSessionGateway {
                     if (requestRecorder != null) {
                         requestRecorder.accept(request.uri().toString());
                     }
+                    capturePreferredRequestCookieHeader(request.uri());
                     HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
                     lastRequestAtMillis = System.currentTimeMillis();
                     String responseBody = decodeResponseBody(response);
@@ -3100,6 +3106,8 @@ public class NoonSessionGateway {
             if (!StringUtils.hasText(targetHost)) {
                 throw new IllegalArgumentException("Noon Catalog URL 缺少主机名。");
             }
+            preferredExportCookieHost = targetHost;
+            preferredExportCookieUri = targetUri;
             for (Map.Entry<String, String> cookie : parseCookieHeader(exportAuthCookieHeader()).entrySet()) {
                 HttpCookie targetCookie = new HttpCookie(cookie.getKey(), cookie.getValue());
                 targetCookie.setDomain(targetHost);
@@ -3133,24 +3141,111 @@ public class NoonSessionGateway {
         }
 
         private String exportAuthCookieHeader() {
-            StringJoiner joiner = new StringJoiner("; ");
+            Map<String, HttpCookie> selectedCookies = new LinkedHashMap<>();
+            Set<String> preferredCookieNames = new LinkedHashSet<>();
+            for (Map.Entry<String, String> cookie : parseCookieHeader(preferredExportCookieHeader).entrySet()) {
+                String normalizedName = cookie.getKey().toLowerCase(Locale.ROOT);
+                selectedCookies.put(normalizedName, new HttpCookie(cookie.getKey(), cookie.getValue()));
+                preferredCookieNames.add(normalizedName);
+            }
             for (HttpCookie cookie : cookieManager.getCookieStore().getCookies()) {
                 String name = cookie.getName();
-                if (!StringUtils.hasText(name)) {
+                if (!isExportableAuthCookie(cookie, name)) {
                     continue;
                 }
-                if ("projectCode".equalsIgnoreCase(name)
-                        || "noonStore".equalsIgnoreCase(name)
-                        || "projectUser".equalsIgnoreCase(name)) {
+                String normalizedName = name.toLowerCase(Locale.ROOT);
+                if (preferredCookieNames.contains(normalizedName)) {
                     continue;
                 }
-                if (!StringUtils.hasText(cookie.getValue())) {
-                    continue;
+                HttpCookie current = selectedCookies.get(normalizedName);
+                if (current == null || prefersCookieForExport(cookie, current)) {
+                    selectedCookies.put(normalizedName, cookie);
                 }
-                joiner.add(name + "=" + cookie.getValue());
+            }
+            StringJoiner joiner = new StringJoiner("; ");
+            for (HttpCookie cookie : selectedCookies.values()) {
+                joiner.add(cookie.getName() + "=" + cookie.getValue());
             }
             String exported = joiner.toString();
             return StringUtils.hasText(exported) ? exported : null;
+        }
+
+        private void capturePreferredRequestCookieHeader(URI requestUri) {
+            String preferredHost = normalizeCookieDomain(preferredExportCookieHost);
+            String requestHost = requestUri == null ? "" : normalizeCookieDomain(requestUri.getHost());
+            if (!StringUtils.hasText(preferredHost) || !preferredHost.equals(requestHost)) {
+                return;
+            }
+            try {
+                Map<String, List<String>> requestHeaders = cookieManager.get(requestUri, Map.of());
+                List<String> cookieHeaders = requestHeaders.get("Cookie");
+                if (cookieHeaders == null || cookieHeaders.isEmpty()) {
+                    cookieHeaders = requestHeaders.get("cookie");
+                }
+                if (cookieHeaders != null && !cookieHeaders.isEmpty()) {
+                    String joined = String.join("; ", cookieHeaders);
+                    if (StringUtils.hasText(joined)) {
+                        preferredExportCookieHeader = joined;
+                    }
+                }
+            } catch (IOException ignored) {
+                // Best-effort export hint; the request itself still uses the CookieManager.
+            }
+        }
+
+        private boolean isExportableAuthCookie(HttpCookie cookie, String name) {
+            return cookie != null
+                    && StringUtils.hasText(name)
+                    && !"projectCode".equalsIgnoreCase(name)
+                    && !"noonStore".equalsIgnoreCase(name)
+                    && !"projectUser".equalsIgnoreCase(name)
+                    && StringUtils.hasText(cookie.getValue());
+        }
+
+        private boolean prefersCookieForExport(HttpCookie candidate, HttpCookie current) {
+            int candidatePriority = cookieExportPriority(candidate);
+            int currentPriority = cookieExportPriority(current);
+            if (candidatePriority != currentPriority) {
+                return candidatePriority > currentPriority;
+            }
+            int candidateDomainLength = normalizedCookieDomain(candidate).length();
+            int currentDomainLength = normalizedCookieDomain(current).length();
+            if (candidateDomainLength != currentDomainLength) {
+                return candidateDomainLength > currentDomainLength;
+            }
+            return true;
+        }
+
+        private int cookieExportPriority(HttpCookie cookie) {
+            String preferredHost = normalizeCookieDomain(preferredExportCookieHost);
+            String cookieDomain = normalizedCookieDomain(cookie);
+            if (!StringUtils.hasText(preferredHost)) {
+                return 0;
+            }
+            if (StringUtils.hasText(cookieDomain) && preferredHost.equals(cookieDomain)) {
+                return 3;
+            }
+            URI preferredUri = preferredExportCookieUri;
+            if (preferredUri != null
+                    && cookieManager.getCookieStore().get(preferredUri).contains(cookie)) {
+                return 2;
+            }
+            return StringUtils.hasText(cookieDomain) && preferredHost.endsWith("." + cookieDomain) ? 1 : 0;
+        }
+
+        private String normalizedCookieDomain(HttpCookie cookie) {
+            return cookie == null ? "" : normalizeCookieDomain(cookie.getDomain());
+        }
+
+        private String normalizeCookieDomain(String domain) {
+            if (!StringUtils.hasText(domain)) {
+                return "";
+            }
+            String normalized = domain.trim().toLowerCase(Locale.ROOT);
+            while (normalized.startsWith(".")) {
+                normalized = normalized.substring(1);
+            }
+            return normalized;
         }
     }
 
