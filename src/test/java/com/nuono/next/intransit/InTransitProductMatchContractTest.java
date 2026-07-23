@@ -30,7 +30,8 @@ class InTransitProductMatchContractTest {
                 .contains("match_status", "UNMATCHED");
         assertThat(candidateMapper)
                 .contains("insertProductMatchCandidate", "updateProductMatchCandidate")
-                .contains("resolveProductMatchCandidate");
+                .contains("resolveProductMatchCandidate", "listProductLandingBatchIds")
+                .contains("match_status = 'UNMATCHED'");
         assertThat(pluginSync)
                 .contains("productMatchService.saveCandidate")
                 .doesNotContain("selectProductIdentityByBarcode");
