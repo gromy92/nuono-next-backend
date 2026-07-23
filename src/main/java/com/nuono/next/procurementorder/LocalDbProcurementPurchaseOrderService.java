@@ -876,7 +876,7 @@ public class LocalDbProcurementPurchaseOrderService {
     @Transactional(readOnly = true)
     public List<ShippingOrderView> listShippingOrders(BusinessAccessContext access, String keyword) {
         Long ownerUserId = ownerUserId(access);
-        return emptyIfNull(mapper.listShippingOrders(ownerUserId, trim(keyword), 50)).stream()
+        return emptyIfNull(mapper.listShippingOrders(ownerUserId, trim(keyword))).stream()
                 .map(order -> toShippingOrderView(order, false))
                 .collect(Collectors.toList());
     }

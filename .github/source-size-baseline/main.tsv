@@ -44,7 +44,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitLogisticsClosur
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitMapper.java	1160
 src/main/java/com/nuono/next/infrastructure/mapper/PreOrderProfitMapper.java	310
 src/main/java/com/nuono/next/infrastructure/mapper/ProcurementMapper.java	1180
-src/main/java/com/nuono/next/infrastructure/mapper/ProcurementPurchaseOrderMapper.java	2989
+src/main/java/com/nuono/next/infrastructure/mapper/ProcurementPurchaseOrderMapper.java	2987
 src/main/java/com/nuono/next/infrastructure/mapper/ProcurementRequirementConfirmationMapper.java	1204
 src/main/java/com/nuono/next/infrastructure/mapper/ProductAttributeTemplateMapper.java	322
 src/main/java/com/nuono/next/infrastructure/mapper/ProductGroupMapper.java	520
@@ -57,7 +57,6 @@ src/main/java/com/nuono/next/infrastructure/mapper/ProductPublicDetailMapper.jav
 src/main/java/com/nuono/next/infrastructure/mapper/ProductSelectionMapper.java	1320
 src/main/java/com/nuono/next/infrastructure/mapper/SalesDataMapper.java	969
 src/main/java/com/nuono/next/infrastructure/mapper/StoreSyncMapper.java	605
-src/main/java/com/nuono/next/infrastructure/mapper/WarehouseDispatchMapper.java	1816
 src/main/java/com/nuono/next/intransit/InTransitBatchCommands.java	825
 src/main/java/com/nuono/next/intransit/InTransitBatchRecords.java	1227
 src/main/java/com/nuono/next/intransit/InTransitBatchService.java	1287
@@ -241,7 +240,3 @@ src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastService.java	1047
 src/main/java/com/nuono/next/salesforecast/SalesForecastFeatureBuilder.java	484
 src/main/java/com/nuono/next/store/LocalDbStoreInitializationService.java	3544
 src/main/java/com/nuono/next/store/LocalDbStoreSyncService.java	570
-src/main/java/com/nuono/next/warehousedispatch/LocalDbWarehouseDispatchService.java	5564
-src/main/java/com/nuono/next/warehousedispatch/WarehouseDispatchController.java	416
-src/main/java/com/nuono/next/warehousedispatch/WarehouseDispatchRecords.java	569
-src/main/java/com/nuono/next/warehousedispatch/WarehouseDispatchViews.java	744
