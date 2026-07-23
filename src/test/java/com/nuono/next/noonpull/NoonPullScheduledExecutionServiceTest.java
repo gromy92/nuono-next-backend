@@ -787,7 +787,7 @@ class NoonPullScheduledExecutionServiceTest {
                         .items(List.of(Map.of(
                                 "sku_parent", "Z-PRODUCT-1",
                                 "sku", "Z-PRODUCT-1-1",
-                                "title", "Scheduled Product"
+                                "partner_barcodes", List.of("PARTNER-BARCODE-1", "PARTNER-BARCODE-2")
                         )))
                         .pageNumber(pageNumber)
                         .totalItems(1)
@@ -816,7 +816,7 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals(1, task.getProcessedItemCount());
         assertEquals("PRJ245027", productWriter.command.getProjectCode());
         assertEquals("STR245027-NAE", productWriter.command.getReferenceStoreCode());
-        assertEquals(1, productWriter.command.getProductSeeds().size());
+        assertEquals(List.of("PARTNER-BARCODE-1", "PARTNER-BARCODE-2"), productWriter.command.getProductSeeds().get(0).getBarcodes());
     }
 
     @Test

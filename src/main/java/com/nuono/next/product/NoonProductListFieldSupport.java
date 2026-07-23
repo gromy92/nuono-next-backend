@@ -1,11 +1,15 @@
 package com.nuono.next.product;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.util.StringUtils;
 
 public final class NoonProductListFieldSupport {
+    private static final List<String> BARCODE_FIELDS = List.of("barcode", "gtin", "ean", "upc");
     private static final List<String> PSKU_CODE_FIELDS = List.of(
             "psku_code",
             "pskuCode",
@@ -75,6 +79,55 @@ public final class NoonProductListFieldSupport {
             }
         }
         return null;
+    }
+
+    public static List<String> barcodes(Map<String, Object> item) {
+        Set<String> values = new LinkedHashSet<>();
+        if (item == null || item.isEmpty()) {
+            return new ArrayList<>();
+        }
+        for (String field : BARCODE_FIELDS) {
+            addText(values, item.get(field));
+        }
+        Object partnerBarcodes = item.get("partner_barcodes");
+        if (partnerBarcodes instanceof Iterable<?>) {
+            for (Object value : (Iterable<?>) partnerBarcodes) {
+                addText(values, value);
+            }
+        } else {
+            addText(values, partnerBarcodes);
+        }
+        return new ArrayList<>(values);
+    }
+
+    public static List<String> barcodes(JsonNode node) {
+        Set<String> values = new LinkedHashSet<>();
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return new ArrayList<>();
+        }
+        for (String field : BARCODE_FIELDS) {
+            addJsonValue(values, node.path(field));
+        }
+        addJsonValue(values, node.path("partner_barcodes"));
+        return new ArrayList<>(values);
+    }
+
+    private static void addJsonValue(Set<String> values, JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return;
+        }
+        if (node.isArray()) {
+            node.forEach(value -> addText(values, value.isContainerNode() ? null : value.asText()));
+            return;
+        }
+        addText(values, node.isContainerNode() ? null : node.asText());
+    }
+
+    private static void addText(Set<String> values, Object value) {
+        String normalized = text(value);
+        if (StringUtils.hasText(normalized)) {
+            values.add(normalized);
+        }
     }
 
     private static String firstMapText(Map<?, ?> item, List<String> fields) {

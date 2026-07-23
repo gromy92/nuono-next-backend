@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
@@ -163,6 +164,77 @@ class ProductProjectionPersistenceServicePskuMasterTest {
                 logicalStoreId,
                 "SGGRB113",
                 307L
+        );
+    }
+
+    @Test
+    void initializationProjectionPersistsEveryOfficialPartnerBarcode() {
+        Long logicalStoreId = 50003L;
+        Long productMasterId = 52001L;
+        ProductProjectionPersistenceService.ProductMasterSeed seed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        seed.setSkuParent("Z1A8091E26D63C096412BZ");
+        seed.setPartnerSku("PAPERSAYS440");
+        seed.setChildSku("Z1A8091E26D63C096412BZ-1");
+        seed.setReferenceStoreCode("STR108065-NSA");
+        seed.setBarcodes(List.of("PAPERSAYS440", "PAPERSAYSB440"));
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ108065")).thenReturn(logicalStoreId);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR108065-NSA"))
+                .thenReturn(logicalStoreId);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(logicalStoreId, "STR108065-NSA"))
+                .thenReturn(51003L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, "PAPERSAYS440"))
+                .thenReturn(null, productMasterId);
+        when(productManagementMapper.nextProductMasterId()).thenReturn(productMasterId);
+        when(productManagementMapper.selectProductVariantIdByStorePartnerSku(logicalStoreId, "PAPERSAYS440"))
+                .thenReturn(null, 53001L);
+        when(productManagementMapper.nextProductVariantId()).thenReturn(53001L);
+        when(productManagementMapper.selectProductBarcodeIdByBarcode("PAPERSAYS440")).thenReturn(null);
+        when(productManagementMapper.selectProductBarcodeIdByBarcode("PAPERSAYSB440")).thenReturn(null);
+        when(productManagementMapper.nextProductBarcodeId()).thenReturn(55001L, 55002L);
+        when(productManagementMapper.selectProductBarcodeProductMasterIdByBarcode("PAPERSAYS440"))
+                .thenReturn(productMasterId);
+        when(productManagementMapper.selectProductBarcodeProductMasterIdByBarcode("PAPERSAYSB440"))
+                .thenReturn(productMasterId);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(
+                logicalStoreId,
+                "PAPERSAYS440",
+                "SA"
+        )).thenReturn(null);
+        when(productManagementMapper.nextProductSiteOfferId()).thenReturn(54001L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ108065",
+                "canman",
+                "STR108065-NSA",
+                List.of(new ProductProjectionPersistenceService.SiteSeed("STR108065-NSA", "SA", "ACTIVE", true)),
+                List.of(seed),
+                new ArrayList<>()
+        );
+
+        verify(productManagementMapper).upsertProductBarcode(
+                eq(55001L),
+                eq(53001L),
+                eq(productMasterId),
+                eq(logicalStoreId),
+                eq("PAPERSAYS440"),
+                eq("PAPERSAYS440"),
+                isNull(),
+                eq(true),
+                eq(307L)
+        );
+        verify(productManagementMapper).upsertProductBarcode(
+                eq(55002L),
+                eq(53001L),
+                eq(productMasterId),
+                eq(logicalStoreId),
+                eq("PAPERSAYS440"),
+                eq("PAPERSAYSB440"),
+                isNull(),
+                eq(true),
+                eq(307L)
         );
     }
 

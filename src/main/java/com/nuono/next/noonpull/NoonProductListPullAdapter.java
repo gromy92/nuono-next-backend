@@ -86,7 +86,7 @@ public class NoonProductListPullAdapter {
         seed.setBrandCache(firstNonBlank(text(content, "brand"), text(item, "brand_code"), text(item, "brand")));
         seed.setCoverImageUrl(resolveImageUrl(firstNonBlank(text(content, "image"), text(item, "image"))));
         seed.setProductFulltypeCache(text(item, "product_fulltype"));
-        seed.setBarcode(firstNonBlank(text(item, "barcode"), text(item, "gtin"), text(item, "ean"), text(item, "upc")));
+        seed.setBarcodes(NoonProductListFieldSupport.barcodes(item));
         seed.setOriginalPrice(firstNonBlank(text(item, "base_price"), text(item, "original_price")));
         seed.setSalePrice(text(item, "sale_price"));
         seed.setFinalPrice(firstNonBlank(text(item, "price"), seed.getSalePrice(), seed.getOriginalPrice()));

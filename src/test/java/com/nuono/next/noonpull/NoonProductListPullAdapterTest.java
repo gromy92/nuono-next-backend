@@ -28,7 +28,7 @@ class NoonProductListPullAdapterTest {
                                 "sku_parent", "ZPARENT-1",
                                 "sku", "ZCHILD-1",
                                 "partner_sku", "PARTNER-1",
-                                "offer_code", "OFFER-1",
+                                "barcode", "BARCODE-1",
                                 "content", Map.of("title", "Milkyway bottle", "brand", "Nuono", "image", "img/p1.jpg"),
                                 "currency", "AED",
                                 "price", "39.90",
@@ -54,6 +54,8 @@ class NoonProductListPullAdapterTest {
         assertEquals("Nuono", seed.getBrandCache());
         assertEquals("synced", seed.getSyncStatus());
         assertEquals("STR245027-NAE", seed.getReferenceStoreCode());
+        assertEquals("BARCODE-1", seed.getBarcode());
+        assertEquals(List.of("BARCODE-1"), seed.getBarcodes());
         assertEquals("39.90", seed.getFinalPrice());
         assertEquals(1, seed.getSiteOffers().size());
     }
@@ -170,6 +172,57 @@ class NoonProductListPullAdapterTest {
         ProductProjectionPersistenceService.ProductMasterSeed seed = writer.command.getProductSeeds().get(0);
         assertTrue(seed.getIsActive());
         assertTrue(seed.getSiteOffers().get(0).getIsActive());
+    }
+
+    @Test
+    void shouldReadOfficialPartnerBarcodesFromProductListPayload() {
+        CapturingProjectionWriter writer = new CapturingProjectionWriter();
+        NoonProductListPullAdapter adapter = new NoonProductListPullAdapter(writer);
+        NoonProductListApplyCommand command = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .projectCode("PRJ108065")
+                .projectName("canman")
+                .storeCode("STR108065-NSA")
+                .siteCode("SA")
+                .sourceBatchId("noon-interface-product-partner-barcodes")
+                .items(List.of(
+                        Map.of(
+                                "csku_parent", "Z1A8091E26D63C096412BZ",
+                                "zsku_child", "Z1A8091E26D63C096412BZ-1",
+                                "partner_sku", "PAPERSAYS440",
+                                "partner_barcodes", List.of("PAPERSAYS440", "PAPERSAYSB440")
+                        ),
+                        Map.of(
+                                "csku_parent", "Z199E40249DF52804B4D4Z",
+                                "zsku_child", "Z199E40249DF52804B4D4Z-1",
+                                "partner_sku", "PAPERSAYSB442",
+                                "partner_barcodes", List.of("PAPERSAYSB442")
+                        ),
+                        Map.of(
+                                "csku_parent", "ZB39E8C4EF147B2246BFDZ",
+                                "zsku_child", "ZB39E8C4EF147B2246BFDZ-1",
+                                "partner_sku", "PAPERSAYSB445",
+                                "partner_barcodes", List.of("PAPERSAYSB445")
+                        )
+                ))
+                .build();
+
+        NoonProductListApplyResult result = adapter.apply(command);
+
+        assertEquals(3, result.getAcceptedCount());
+        assertEquals(
+                List.of("PAPERSAYS440", "PAPERSAYSB440"),
+                writer.command.getProductSeeds().get(0).getBarcodes()
+        );
+        assertEquals("PAPERSAYS440", writer.command.getProductSeeds().get(0).getBarcode());
+        assertEquals(
+                List.of("PAPERSAYSB442"),
+                writer.command.getProductSeeds().get(1).getBarcodes()
+        );
+        assertEquals(
+                List.of("PAPERSAYSB445"),
+                writer.command.getProductSeeds().get(2).getBarcodes()
+        );
     }
 
     private static final class CapturingProjectionWriter implements NoonProductProjectionWriter {
