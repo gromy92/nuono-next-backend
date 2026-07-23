@@ -37,7 +37,7 @@ import org.springframework.util.StringUtils;
 public class NoonPullScheduledExecutionService {
     private static final int REPORT_MAX_POLL_ATTEMPTS = 18;
     private static final int DEFAULT_SALES_REPORT_EXECUTIONS_PER_TICK = 4;
-    private static final int DEFAULT_PRODUCT_INTERFACE_EXECUTIONS_PER_TICK = 1;
+    private static final int DEFAULT_PRODUCT_INTERFACE_EXECUTIONS_PER_TICK = 2;
     private static final Duration OFFICIAL_WAREHOUSE_FBN_EXPORT_POLL_DELAY = Duration.ofMinutes(20);
     private static final String FBN_RECEIVED_REPORT_TYPE = "fbn_inbound_fbnreceivedreport";
 
@@ -90,7 +90,7 @@ public class NoonPullScheduledExecutionService {
             ObjectProvider<NoonProductInterfaceSmokeProvider> productProvider,
             @Value("${nuono.noon.pull.scheduler.enabled:false}") boolean enabled,
             @Value("${nuono.noon.pull.scheduler.sales-report-executions-per-tick:4}") int salesReportExecutionsPerTick,
-            @Value("${nuono.noon.pull.scheduler.product-interface-executions-per-tick:1}") int productInterfaceExecutionsPerTick
+            @Value("${nuono.noon.pull.scheduler.product-interface-executions-per-tick:2}") int productInterfaceExecutionsPerTick
     ) {
         this(
                 scheduler,

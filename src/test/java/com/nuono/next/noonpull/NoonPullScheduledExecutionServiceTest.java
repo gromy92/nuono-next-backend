@@ -1078,9 +1078,8 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals("C_ADS_001", adsRepository.campaignFacts.get(0).getCampaignCode());
         assertEquals("notebook", adsRepository.queryFacts.get(0).getQueryText());
     }
-
     @Test
-    void shouldLimitProductInterfaceExecutionsPerTickToAvoidBurstingNoon() {
+    void shouldDrainTwoProductInterfaceTasksPerTickAndContinueAfterFailure() {
         Clock clock = Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();
         foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
@@ -1104,7 +1103,9 @@ class NoonPullScheduledExecutionServiceTest {
                 (Supplier<NoonReportProvider>) () -> null,
                 (Supplier<NoonReportProvider>) () -> null,
                 (Supplier<NoonSalesPageQueryProvider>) () -> null,
-                (Supplier<NoonProductInterfaceSmokeProvider>) () -> (request, pageNumber) -> NoonInterfacePullPage.builder()
+                (Supplier<NoonProductInterfaceSmokeProvider>) () -> (request, pageNumber) -> {
+                    if (request.getStoreCode().endsWith("0-NAE")) throw new IllegalStateException("auth_required: HTTP 307");
+                    return NoonInterfacePullPage.builder()
                         .items(List.of(Map.of(
                                 "sku_parent", "Z-PRODUCT-" + request.getStoreCode(),
                                 "sku", "Z-PRODUCT-" + request.getStoreCode() + "-1"
@@ -1113,7 +1114,8 @@ class NoonPullScheduledExecutionServiceTest {
                         .totalItems(1)
                         .requestCount(1)
                         .hasNextPage(false)
-                        .build(),
+                        .build();
+                },
                 true
         );
         for (int i = 0; i < 3; i++) {
@@ -1127,15 +1129,13 @@ class NoonPullScheduledExecutionServiceTest {
                     .scheduleExpression("daily product offer list")
                     .build());
         }
-
         NoonPullScheduledExecutionResult result = service.runOnce();
-
-        assertEquals(3, result.getCreatedTaskCount());
+        assertEquals(1, result.getFailedTaskCount());
         assertEquals(1, result.getExecutedTaskCount());
         long queued = repository.listTasks().stream()
                 .filter((task) -> task.getStatus() == NoonPullTaskStatus.QUEUED)
                 .count();
-        assertEquals(2L, queued);
+        assertEquals(1L, queued);
     }
 
     private NoonReportProvider salesProvider(String csv) {
