@@ -28,7 +28,7 @@ class ProcurementSpecSourcePolicySqlTest {
     }
 
     @Test
-    void warehouseOrderQuoteQueriesRemainInThePreApplicationAli1688Stage() throws Exception {
+    void preApplicationWarehouseOrderQuoteQueriesReadAli1688Only() throws Exception {
         for (Method method : List.of(
                 ProcurementPurchaseOrderMapper.class.getMethod(
                         "listLogisticsQuoteCandidatesByOrder",
