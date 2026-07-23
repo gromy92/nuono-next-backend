@@ -15,9 +15,9 @@ class NoonCatalogAuthCookieExportTest {
     private static final URI CATALOG_URI = URI.create("https://noon-catalog.noon.partners/catalog");
 
     @Test
-    void exportsCatalogCookieOnceWhenIdentityAndCatalogReuseCookieName() {
+    void preservesIdentityAndCatalogCookiesWhenTheyReuseCookieName() {
         CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
-        addCookie(cookieManager, IDENTITY_URI, "_npsid", "identity-session", "login.noon.partners");
+        addCookie(cookieManager, IDENTITY_URI, "_npsid", "identity-session", ".noon.partners");
         addCookie(cookieManager, CATALOG_URI, "_npsid", "catalog-ready", "noon-catalog.noon.partners");
 
         NoonCatalogAuthCookieExport cookieExport = new NoonCatalogAuthCookieExport(cookieManager);
@@ -26,8 +26,38 @@ class NoonCatalogAuthCookieExportTest {
 
         String exported = cookieExport.exportAuthCookieHeader();
 
+        assertTrue(exported.contains("_npsid=identity-session"), exported);
         assertTrue(exported.contains("_npsid=catalog-ready"), exported);
-        assertEquals(1, countOccurrences(exported, "_npsid="));
+        assertEquals(2, countOccurrences(exported, "_npsid="));
+    }
+
+    @Test
+    void restoresDuplicateAuthCookiesForCatalogRequests() {
+        CookieManager sourceCookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        addCookie(sourceCookieManager, IDENTITY_URI, "_npsid", "identity-session", ".noon.partners");
+        addCookie(sourceCookieManager, CATALOG_URI, "_npsid", "catalog-ready", "noon-catalog.noon.partners");
+        NoonCatalogAuthCookieExport sourceExport = new NoonCatalogAuthCookieExport(sourceCookieManager);
+        sourceExport.prefer(CATALOG_URI);
+        sourceExport.captureRequestCookieHeader(CATALOG_URI);
+        String persisted = sourceExport.exportAuthCookieHeader();
+
+        CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        NoonCatalogAuthCookieExport cookieExport = new NoonCatalogAuthCookieExport(cookieManager);
+
+        cookieExport.importAuthCookieHeader(
+                persisted + "; projectCode=stale-project",
+                CATALOG_URI
+        );
+        cookieExport.prefer(CATALOG_URI);
+        cookieExport.captureRequestCookieHeader(CATALOG_URI);
+
+        String exported = cookieExport.exportAuthCookieHeader();
+
+        assertTrue(exported.contains("_npsid=identity-session"), exported);
+        assertTrue(exported.contains("_npsid=catalog-ready"), exported);
+        assertEquals(2, countOccurrences(exported, "_npsid="));
+        assertEquals(persisted, exported);
+        assertTrue(!exported.contains("projectCode="), exported);
     }
 
     private void addCookie(
