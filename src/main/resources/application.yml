@@ -173,6 +173,7 @@ nuono:
         enabled: ${NUONO_NOON_PULL_SCHEDULER_ENABLED:false}
         initial-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_INITIAL_DELAY_MS:60000}
         fixed-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_FIXED_DELAY_MS:300000}
+        product-interface-executions-per-tick: ${NUONO_NOON_PULL_SCHEDULER_PRODUCT_INTERFACE_EXECUTIONS_PER_TICK:2}
   competitor-analysis:
     noon-search:
       frontend-cookie-header: ${NUONO_COMPETITOR_ANALYSIS_NOON_SEARCH_FRONTEND_COOKIE_HEADER:}
