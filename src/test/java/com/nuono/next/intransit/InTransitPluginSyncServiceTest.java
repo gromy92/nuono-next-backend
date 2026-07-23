@@ -53,18 +53,16 @@ class InTransitPluginSyncServiceTest {
 
     @Mock
     private InTransitGoodsMapper mapper;
-
     @Mock
     private InTransitBatchService batchService;
-
     @Mock
     private InTransitGoodsAccessScopeService accessScopeService;
-
+    @Mock
+    private InTransitProductMatchService productMatchService;
     private InTransitPluginSyncService service;
-
     @BeforeEach
     void setUp() {
-        service = new InTransitPluginSyncService(mapper, batchService, accessScopeService);
+        service = new InTransitPluginSyncService(mapper, batchService, accessScopeService, productMatchService);
         lenient().when(mapper.acquirePluginSyncBatchLock(anyString(), anyInt())).thenReturn(1);
         lenient().when(mapper.selectProductIdentityByBarcode(any(), anyString()))
                 .thenAnswer(invocation -> {
@@ -78,10 +76,8 @@ class InTransitPluginSyncServiceTest {
     void shouldPreviewPluginSyncAndDetectCreateUpdateWork() {
         PluginSyncCommand command = sampleCommand();
         BatchRow existingBatch = batch(53001L);
-        LineRow existingLine = line(54001L);
         NodeRow existingNode = node(55001L);
         when(mapper.selectBatchByReferenceNo(10002L, "XGGEKSA04075")).thenReturn(existingBatch);
-        when(mapper.selectLineByBoxNoAndPsku(10002L, 53001L, "NO1-1", "SGGRB219")).thenReturn(existingLine);
         when(mapper.selectNodeByStatusDescriptionAndHappenedAt(
                 10002L,
                 53001L,
@@ -101,8 +97,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals(1, result.getNodeCount());
         assertEquals(0, result.getNewBatchCount());
         assertEquals(1, result.getUpdateBatchCount());
-        assertEquals(1, result.getNewLineCount());
-        assertEquals(1, result.getUpdateLineCount());
+        assertEquals(2, result.getNewLineCount());
+        assertEquals(0, result.getUpdateLineCount());
         assertEquals(0, result.getNewNodeCount());
         assertEquals(1, result.getSkippedNodeCount());
     }
@@ -133,7 +129,7 @@ class InTransitPluginSyncServiceTest {
         assertEquals("SA", batchCaptor.getValue().getTargetSiteCode());
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService, org.mockito.Mockito.times(2)).saveLine(lineCaptor.capture());
+        verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
         assertEquals(53010L, firstLine.getBatchId());
         assertEquals("NO1-1", firstLine.getBoxNo());
@@ -152,7 +148,7 @@ class InTransitPluginSyncServiceTest {
         assertEquals(new BigDecimal("0.051336"), firstLine.getMeasuredVolumeCbm());
         assertEquals("已封箱", firstLine.getPackageStatus());
         assertEquals("发往海外", firstLine.getLogisticsStatus());
-        assertEquals("SGGRB219", firstLine.getPsku());
+        assertNull(firstLine.getPsku());
         assertNull(firstLine.getStoreCode());
         assertNull(firstLine.getSiteCode());
         assertNull(firstLine.getCartonWeightKg());
@@ -176,7 +172,7 @@ class InTransitPluginSyncServiceTest {
         service.commit(command);
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
         assertNull(firstLine.getStoreCode());
         assertNull(firstLine.getSiteCode());
@@ -195,11 +191,11 @@ class InTransitPluginSyncServiceTest {
         service.commit(command);
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
         assertEquals("STR245027-NAE", firstLine.getStoreCode());
         assertEquals("AE", firstLine.getSiteCode());
-        verify(accessScopeService, times(2)).requireWritableLineScope(any(), any(SaveLineCommand.class));
+        verify(accessScopeService, never()).requireWritableLineScope(any(), any(SaveLineCommand.class));
     }
 
     @Test
@@ -577,7 +573,7 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldReconcileExistingBatchBoxesAndLinesBeforeSavingPluginDetails() {
+    void shouldNotReconcileFormalLinesDuringRawLanding() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncSourceBatchExpectation expectation = new PluginSyncSourceBatchExpectation();
         expectation.setBatchNo("XGGEKSA04075");
@@ -590,13 +586,7 @@ class InTransitPluginSyncServiceTest {
 
         service.commit(command);
 
-        verify(batchService).reconcileSyncedDetails(
-                10002L,
-                90001L,
-                53010L,
-                List.of("NO1-1"),
-                List.of("NO1-1\nSGGRB219", "NO1-1\nPAPERSAYSB011")
-        );
+        verify(batchService, never()).reconcileSyncedDetails(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -642,12 +632,12 @@ class InTransitPluginSyncServiceTest {
         service.commit(command);
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService, org.mockito.Mockito.times(2)).saveLine(lineCaptor.capture());
+        verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         assertEquals(new BigDecimal("7.300000"), lineCaptor.getAllValues().get(0).getPackageChargeableWeightKg());
     }
 
     @Test
-    void shouldStoreOriginalBarcodeAndResolvedSystemPskuWithoutUsingIncomingPsku() {
+    void shouldStoreOriginalBarcodeWithoutResolvingProductDuringLanding() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
         line.setBarcode("PAPERSAYSB031");
@@ -660,15 +650,16 @@ class InTransitPluginSyncServiceTest {
         service.commit(command);
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         SaveLineCommand savedLine = lineCaptor.getAllValues().get(0);
         assertEquals("PAPERSAYSB031", savedLine.getSku());
-        assertEquals("PAPERSAYS031", savedLine.getPsku());
+        assertNull(savedLine.getPsku());
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "PAPERSAYSB031");
         verify(mapper, never()).selectProductIdentityByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
     }
 
     @Test
-    void shouldReuseLegacyBarcodePskuLineWhenResolvedPskuDoesNotExistYet() {
+    void shouldNotTouchLegacyFormalLineDuringRawLanding() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
         line.setPsku("PAPERSAYSB031");
@@ -686,11 +677,12 @@ class InTransitPluginSyncServiceTest {
         service.commit(command);
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         SaveLineCommand savedLine = lineCaptor.getAllValues().get(0);
-        assertEquals(54031L, savedLine.getLineId());
+        assertNull(savedLine.getLineId());
         assertEquals("PAPERSAYSB031", savedLine.getSku());
-        assertEquals("PAPERSAYS031", savedLine.getPsku());
+        assertNull(savedLine.getPsku());
+        verify(mapper, never()).selectLineByBoxNoAndPsku(any(), any(), any(), any());
     }
 
     @Test
@@ -707,27 +699,25 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldRejectPluginBarcodeWhenNoSystemProductMatches() {
+    void shouldLandAllPluginBarcodesWithoutProductMatching() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
         line.setPsku("UNKNOWN-BARCODE");
         line.setSku("UNKNOWN-BARCODE");
-        when(mapper.selectProductIdentityByBarcode(10002L, "UNKNOWN-BARCODE")).thenReturn(null);
-
+        BatchView savedBatch = new BatchView();
+        savedBatch.setBatchId(53010L);
+        when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
         PluginSyncPreviewView preview = service.preview(command);
-
-        assertEquals(false, preview.isCommittable());
-        assertTrue(preview.getIssues().stream().anyMatch(issue ->
-                "barcode".equals(issue.getField())
-                        && issue.getMessage().contains("未匹配到系统商品")
-        ));
-        assertThrows(IllegalStateException.class, () -> service.commit(command));
-        verify(batchService, never()).saveBatch(any(SaveBatchCommand.class));
+        assertEquals(true, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().noneMatch(issue -> "barcode".equals(issue.getField())));
+        service.commit(command);
+        verify(batchService).saveBatch(any(SaveBatchCommand.class));
         verify(batchService, never()).saveLine(any(SaveLineCommand.class));
+        verify(productMatchService).saveCandidate(any(SaveLineCommand.class), eq("UNKNOWN-BARCODE"));
     }
 
     @Test
-    void shouldUseLegacySkuAsBarcodeAndNeverUsePskuAsMatchInput() {
+    void shouldUseLegacySkuAsRawBarcodeWithoutMatchingDuringPreview() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
         line.setSku("PAPERSAYSB031");
@@ -736,7 +726,7 @@ class InTransitPluginSyncServiceTest {
         PluginSyncPreviewView preview = service.preview(command);
 
         assertTrue(preview.isCommittable());
-        verify(mapper).selectProductIdentityByBarcode(10002L, "PAPERSAYSB031");
+        verify(mapper, never()).selectProductIdentityByBarcode(10002L, "PAPERSAYSB031");
         verify(mapper, never()).selectProductIdentityByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
     }
 
@@ -801,7 +791,7 @@ class InTransitPluginSyncServiceTest {
         service.commit(command);
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService, times(2)).saveLine(lineCaptor.capture());
+        verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         assertNull(lineCaptor.getAllValues().get(0).getStoreCode());
         assertNull(lineCaptor.getAllValues().get(0).getSiteCode());
     }
@@ -924,7 +914,7 @@ class InTransitPluginSyncServiceTest {
         assertEquals(new BigDecimal("30.000000"), itemPackage.getPackageHeightCm());
         assertEquals(new BigDecimal("12.500000"), itemPackage.getPackageChargeableWeightKg());
         assertEquals(false, itemPackage.isPackageSnapshotAuthoritative());
-        verify(batchService, times(2)).saveLine(any(SaveLineCommand.class));
+        verify(productMatchService, times(2)).saveCandidate(any(SaveLineCommand.class), any());
     }
 
     @Test
@@ -1084,12 +1074,12 @@ class InTransitPluginSyncServiceTest {
         assertEquals(LocalDate.parse("2026-06-15"), batchCaptor.getValue().getEtaDate());
 
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
-        verify(batchService).saveLine(lineCaptor.capture());
+        verify(productMatchService).saveCandidate(lineCaptor.capture(), eq("PAPERSAYSB293"));
         SaveLineCommand line = lineCaptor.getValue();
         assertEquals(53020L, line.getBatchId());
         assertEquals("24-1", line.getBoxNo());
         assertEquals("X26043047357", line.getExternalBoxNo());
-        assertEquals("PAPERSAYSB293", line.getPsku());
+        assertNull(line.getPsku());
         assertEquals("PAPERSAYSB293", line.getSku());
         assertEquals("PAPERSAYSB293", line.getMsku());
         assertEquals("粉盒马克笔24支48色", line.getProductName());
