@@ -7,6 +7,7 @@ public interface InTransitGoodsMapper extends
         InTransitForwarderMapper,
         InTransitBatchMapper,
         InTransitGoodsLineMapper,
+        InTransitProductMatchCandidateMapper,
         InTransitLogisticsNodeMapper,
         InTransitImportAuditMapper {
 
