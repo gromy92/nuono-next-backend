@@ -70,6 +70,21 @@ public final class WarehouseDispatchCommands {
         public Integer quantity;
     }
 
+    public static class MobileShippingDecisionPreviewCommand {
+        public String siteCode;
+        public String transportMode;
+        public Boolean sensitiveConfirmed;
+        public String generationMode;
+        public List<String> targetForwarderCodes = new ArrayList<>();
+        public List<String> targetOptionKeys = new ArrayList<>();
+        public List<ShippingBatchSourceCommand> sources = new ArrayList<>();
+    }
+
+    public static class MobileShippingDecisionConfirmCommand extends MobileShippingDecisionPreviewCommand {
+        public String acceptedOptionKey;
+        public String remark;
+    }
+
     public static class CreateShippingTargetOptionCommand {
         public String optionName;
         public String airForwarderCode;

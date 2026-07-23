@@ -63,7 +63,7 @@ src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderMapperSq
 src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderSyncServiceTest.java	567
 src/test/java/com/nuono/next/procurement/aliorder/LocalDbAli1688HistoricalOrderServiceTest.java	3545
 src/test/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderServiceTest.java	3358
-src/test/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderMapperSqlTest.java	689
+src/test/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderMapperSqlTest.java	688
 src/test/java/com/nuono/next/product/LocalDbProductMasterServiceDeletionTest.java	1127
 src/test/java/com/nuono/next/product/LocalDbProductMasterServiceSharedOnlySkipTest.java	421
 src/test/java/com/nuono/next/product/ProductImageProfileControllerTest.java	344
@@ -98,5 +98,3 @@ src/test/java/com/nuono/next/salesforecast/DefaultSalesForecastEngineTest.java	3
 src/test/java/com/nuono/next/salesforecast/DefaultSalesForecastServiceTest.java	986
 src/test/java/com/nuono/next/salesforecast/SalesForecastFeatureBuilderTest.java	467
 src/test/java/com/nuono/next/store/LocalDbStoreSyncServiceTest.java	388
-src/test/java/com/nuono/next/warehousedispatch/LocalDbWarehouseDispatchServiceTest.java	1995
-src/test/java/com/nuono/next/warehousedispatch/WarehouseDispatchMapperSqlTest.java	521
