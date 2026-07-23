@@ -1,6 +1,7 @@
 package com.nuono.next.noonpull;
 
 import com.nuono.next.product.NoonProductListFieldSupport;
+import com.nuono.next.product.ProductDetailBaselineDailyBackfillService;
 import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.product.ProductSourceTypeSupport;
@@ -10,15 +11,27 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class NoonProductListPullAdapter {
+    private static final Logger log = LoggerFactory.getLogger(NoonProductListPullAdapter.class);
     private final NoonProductProjectionWriter projectionWriter;
+    private ProductDetailBaselineDailyBackfillService detailBaselineDailyBackfillService;
 
     public NoonProductListPullAdapter(NoonProductProjectionWriter projectionWriter) {
         this.projectionWriter = projectionWriter;
+    }
+
+    @Autowired(required = false)
+    public void setDetailBaselineDailyBackfillService(
+            ProductDetailBaselineDailyBackfillService detailBaselineDailyBackfillService
+    ) {
+        this.detailBaselineDailyBackfillService = detailBaselineDailyBackfillService;
     }
 
     public NoonProductListApplyResult apply(NoonProductListApplyCommand command) {
@@ -49,7 +62,30 @@ public class NoonProductListPullAdapter {
         )));
         writeCommand.setProductSeeds(seeds);
         projectionWriter.write(writeCommand);
+        enqueueDailyDetailBackfill(command);
         return new NoonProductListApplyResult(seeds.size());
+    }
+
+    private void enqueueDailyDetailBackfill(NoonProductListApplyCommand command) {
+        if (!command.isAutomaticDetailBackfill() || detailBaselineDailyBackfillService == null) {
+            return;
+        }
+        try {
+            detailBaselineDailyBackfillService.enqueueMissingAfterDailyList(
+                    command.getOwnerUserId(),
+                    command.getStoreCode(),
+                    command.getSiteCode()
+            );
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "daily detail baseline audit did not start owner={} store={} site={} error={}",
+                    command.getOwnerUserId(),
+                    command.getStoreCode(),
+                    command.getSiteCode(),
+                    exception.getMessage(),
+                    exception
+            );
+        }
     }
 
     @SuppressWarnings("unchecked")

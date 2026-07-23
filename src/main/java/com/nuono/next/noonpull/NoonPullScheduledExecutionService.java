@@ -920,6 +920,7 @@ public class NoonPullScheduledExecutionService {
                         .storeCode(task.getStoreCode())
                         .siteCode(task.getSiteCode())
                         .sourceBatchId(pullResult.getSourceBatchId())
+                        .automaticDetailBackfill(task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY)
                         .items(pullResult.getItems())
                         .build());
             }
@@ -939,7 +940,6 @@ public class NoonPullScheduledExecutionService {
                 && task.getPullType() == NoonPullType.REPORT
                 && task.getDataDomain() == NoonPullDataDomain.SALES;
     }
-
     private boolean isProductInterfaceTask(NoonPullTaskRecord task) {
         return task != null
                 && task.getPullType() == NoonPullType.INTERFACE
