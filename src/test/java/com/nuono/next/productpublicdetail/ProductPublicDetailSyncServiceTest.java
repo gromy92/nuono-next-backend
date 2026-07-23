@@ -203,7 +203,7 @@ class ProductPublicDetailSyncServiceTest {
     }
 
     @Test
-    void runningTaskStopsBeforeNextCandidateWhenAccountWideNoonBackoffAppears() {
+    void runningTaskStopsBeforeNextCandidateWhenPublicAccountWideBackoffAppears() {
         InMemoryRiskBackoffRepository riskRepository = new InMemoryRiskBackoffRepository();
         NoonRiskBackoffGuard riskBackoffGuard = new NoonRiskBackoffGuard(riskRepository, fixedClock());
         ProductPublicDetailSyncService riskAwareService = new ProductPublicDetailSyncService(
@@ -233,12 +233,12 @@ class ProductPublicDetailSyncServiceTest {
         when(adapter.adapterVersion()).thenReturn("test-adapter");
         when(adapter.fetch(any(NoonPublicProductDetailRequest.class))).thenAnswer(invocation -> {
             riskBackoffGuard.recordRiskSignal(
-                    NoonRiskBackoffScope.allNoon(501L, "CANMAN", "SA"),
+                    NoonRiskBackoffScope.allPublicNoon(501L, "CANMAN", "SA"),
                     "blocked_by_risk_control",
-                    "REPORT",
+                    "PUBLIC_SEARCH",
                     130001L,
                     null,
-                    "Sales report hit Noon risk control"
+                    "Public search hit Noon risk control"
             );
             return partialResult();
         });

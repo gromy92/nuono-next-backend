@@ -50,15 +50,19 @@ public class NoonRiskBackoffGuard {
         }
         LocalDateTime now = now();
         NoonRiskBackoffHold hold = repository.selectActiveHold(scope.getScopeKey(), now);
+        NoonRiskBackoffScope accountWideScope = scope.accountWide();
         NoonRiskBackoffHold accountWideHold = repository.selectActiveAccountWideHold(
                 scope.getOwnerUserId(),
                 scope.getStoreCode(),
                 scope.getSiteCode(),
+                accountWideScope == null ? null : accountWideScope.getOperationGroup(),
                 now
         );
-        NoonRiskBackoffScope accountWideScope = scope.accountWide();
         if (accountWideHold == null && accountWideScope != null) {
-            accountWideHold = repository.selectActiveHold(accountWideScope.getScopeKey(), now);
+            NoonRiskBackoffHold fallback = repository.selectActiveHold(accountWideScope.getScopeKey(), now);
+            if (fallback != null && accountWideScope.acceptsAccountWideSourceDomain(fallback.getSourceDomain())) {
+                accountWideHold = fallback;
+            }
         }
         hold = moreRestrictive(
                 hold,
@@ -131,6 +135,9 @@ public class NoonRiskBackoffGuard {
             LocalDateTime now
     ) {
         NoonRiskBackoffHold previous = enabled ? repository.selectLatestHold(scope.getScopeKey()) : null;
+        if (previous != null && !scope.acceptsAccountWideSourceDomain(previous.getSourceDomain())) {
+            previous = null;
+        }
         int attemptCount = nextAttemptCount(previous);
         NoonRiskBackoffHold hold = new NoonRiskBackoffHold();
         hold.setScopeKey(scope.getScopeKey());

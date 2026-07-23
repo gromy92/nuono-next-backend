@@ -25,8 +25,14 @@ public class MyBatisNoonRiskBackoffRepository implements NoonRiskBackoffReposito
     }
 
     @Override
-    public NoonRiskBackoffHold selectActiveAccountWideHold(Long ownerUserId, String storeCode, String siteCode, LocalDateTime now) {
-        return mapper.selectActiveAccountWideHold(ownerUserId, storeCode, siteCode, now);
+    public NoonRiskBackoffHold selectActiveAccountWideHold(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            String operationGroup,
+            LocalDateTime now
+    ) {
+        return mapper.selectActiveAccountWideHold(ownerUserId, storeCode, siteCode, operationGroup, now);
     }
 
     @Override
