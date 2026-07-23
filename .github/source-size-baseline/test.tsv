@@ -98,5 +98,3 @@ src/test/java/com/nuono/next/salesforecast/DefaultSalesForecastEngineTest.java	3
 src/test/java/com/nuono/next/salesforecast/DefaultSalesForecastServiceTest.java	986
 src/test/java/com/nuono/next/salesforecast/SalesForecastFeatureBuilderTest.java	467
 src/test/java/com/nuono/next/store/LocalDbStoreSyncServiceTest.java	388
-src/test/java/com/nuono/next/warehousedispatch/LocalDbWarehouseDispatchServiceTest.java	1995
-src/test/java/com/nuono/next/warehousedispatch/WarehouseDispatchMapperSqlTest.java	521
