@@ -27,7 +27,7 @@ class ProductDetailBaselineCandidateMapperSqlTest {
     }
 
     @Test
-    void shouldPreferNeverAttemptedThenOldestAttemptedProductsWithinTheConfiguredLimit() throws Exception {
+    void shouldReturnEveryEligibleCandidateInStableRetryOrderWithoutAQuantityCap() throws Exception {
         String sql = mapperSql();
 
         assertThat(sql).contains("LEFT JOIN operational_task attempt");
@@ -36,7 +36,7 @@ class ProductDetailBaselineCandidateMapperSqlTest {
         assertThat(sql).contains("attempt.status IN ('QUEUED', 'RUNNING')");
         assertThat(sql).contains("MAX(attempt.gmt_updated) IS NULL");
         assertThat(sql).contains("MAX(attempt.gmt_updated) ASC");
-        assertThat(sql).contains("LIMIT #{limit}");
+        assertThat(sql).doesNotContain("LIMIT");
     }
 
     private static String mapperSql() throws Exception {
@@ -44,8 +44,7 @@ class ProductDetailBaselineCandidateMapperSqlTest {
                 "listMissingMaintainedCandidates",
                 Long.class,
                 String.class,
-                String.class,
-                int.class
+                String.class
         );
         Select select = method.getAnnotation(Select.class);
         return String.join(" ", select.value()).replaceAll("\\s+", " ").trim();

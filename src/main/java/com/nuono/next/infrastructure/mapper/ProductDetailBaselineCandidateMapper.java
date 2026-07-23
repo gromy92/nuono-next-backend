@@ -59,13 +59,11 @@ public interface ProductDetailBaselineCandidateMapper {
             "ORDER BY",
             "  CASE WHEN MAX(attempt.gmt_updated) IS NULL THEN 0 ELSE 1 END ASC,",
             "  MAX(attempt.gmt_updated) ASC,",
-            "  pm.id ASC",
-            "LIMIT #{limit}"
+            "  pm.id ASC"
     })
     List<ProductDetailBaselineCandidate> listMissingMaintainedCandidates(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode,
-            @Param("limit") int limit
+            @Param("siteCode") String siteCode
     );
 }
