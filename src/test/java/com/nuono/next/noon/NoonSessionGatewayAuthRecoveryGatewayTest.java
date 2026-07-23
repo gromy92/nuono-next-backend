@@ -361,6 +361,30 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
     }
 
     @Test
+    void shouldPersistCatalogHostCookieWhenIdentityAndCatalogReuseCookieName() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            server.requireCatalogCookieNameCollision();
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(identityGateway(server)).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            NoonAuthRecoveryProjectResult projectResult = result.getProjectResults().get(0);
+            assertTrue(projectResult.isRecovered());
+            assertTrue(
+                    projectResult.getCookie().contains("_npsid=catalog-ready"),
+                    projectResult.getCookie()
+            );
+            assertEquals(1, countOccurrences(projectResult.getCookie(), "_npsid="));
+            assertEquals(1, server.catalogBootstrapCount());
+            assertEquals(1, server.catalogCount());
+        }
+    }
+
+    @Test
     void shouldRejectWhoamiWithMissingIdentityOrWrongProject() throws Exception {
         List<String> rejectedWhoamiBodies = List.of(
                 "{\"ok\":true}",
@@ -752,6 +776,16 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         return value != null && value.contains("provider-secret");
     }
 
+    private int countOccurrences(String value, String needle) {
+        int count = 0;
+        int offset = 0;
+        while (value != null && (offset = value.indexOf(needle, offset)) >= 0) {
+            count++;
+            offset += needle.length();
+        }
+        return count;
+    }
+
     private static final class RejectedOtpResponse {
         private final int statusCode;
         private final String body;
@@ -852,6 +886,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         private volatile int catalogStatus = 200;
         private volatile boolean catalogSessionCookieRequired;
         private volatile boolean catalogWebSessionBootstrapRequired;
+        private volatile boolean catalogCookieNameCollisionRequired;
         private volatile String lastCatalogCookieHeader = "";
         private volatile String lastSessionProjectCode;
 
@@ -947,7 +982,10 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 sessionCreateCount.incrementAndGet();
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 lastSessionProjectCode = new ObjectMapper().readTree(body).path("projectCode").asText(null);
-                sendJson(exchange, 200, "{\"success\":true}", "sid=recovered; Path=/");
+                String sessionCookie = catalogCookieNameCollisionRequired
+                        ? "_npsid=identity-session; Path=/"
+                        : "sid=recovered; Path=/";
+                sendJson(exchange, 200, "{\"success\":true}", sessionCookie);
                 return;
             }
             if ("/whoami".equals(path)) {
@@ -961,14 +999,20 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             if ("/catalog-bootstrap".equals(path)) {
                 catalogBootstrapCount.incrementAndGet();
                 String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
-                if (cookieHeader == null || !cookieHeader.contains("sid=recovered")) {
+                String requiredSessionCookie = catalogCookieNameCollisionRequired
+                        ? "_npsid=identity-session"
+                        : "sid=recovered";
+                if (cookieHeader == null || !cookieHeader.contains(requiredSessionCookie)) {
                     exchange.getResponseHeaders().set(
                             "Location",
                             "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
                     );
                     sendJson(exchange, 307, "temporary redirect", null);
                 } else {
-                    sendJson(exchange, 200, "<html>catalog</html>", "catalog_sid=ready; Path=/");
+                    String catalogCookie = catalogCookieNameCollisionRequired
+                            ? "_npsid=catalog-ready; Path=/"
+                            : "catalog_sid=ready; Path=/";
+                    sendJson(exchange, 200, "<html>catalog</html>", catalogCookie);
                 }
                 return;
             }
@@ -976,11 +1020,14 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
                 catalogCount.incrementAndGet();
                 String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
                 lastCatalogCookieHeader = cookieHeader == null ? "" : cookieHeader;
+                String requiredCatalogCookie = catalogCookieNameCollisionRequired
+                        ? "_npsid=catalog-ready"
+                        : "catalog_sid=ready";
                 if (catalogStatus == 307
                         || (catalogSessionCookieRequired
                             && (cookieHeader == null || !cookieHeader.contains("sid=recovered")))
                         || (catalogWebSessionBootstrapRequired
-                            && (cookieHeader == null || !cookieHeader.contains("catalog_sid=ready")))) {
+                            && (cookieHeader == null || !cookieHeader.contains(requiredCatalogCookie)))) {
                     exchange.getResponseHeaders().set(
                             "Location",
                             "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
@@ -1039,6 +1086,11 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         }
 
         private void requireCatalogWebSessionBootstrap() {
+            catalogWebSessionBootstrapRequired = true;
+        }
+
+        private void requireCatalogCookieNameCollision() {
+            catalogCookieNameCollisionRequired = true;
             catalogWebSessionBootstrapRequired = true;
         }
 
