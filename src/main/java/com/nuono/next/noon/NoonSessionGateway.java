@@ -32,7 +32,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -2327,6 +2326,7 @@ public class NoonSessionGateway {
         private final String langHeader;
         private final Consumer<String> requestRecorder;
         private final HttpCallRecorder httpCallRecorder;
+        private final NoonCatalogAuthCookieExport authCookieExport;
         private final Object requestMutex = new Object();
         private final Instant createdAt = Instant.now();
         private volatile long lastRequestAtMillis = 0L;
@@ -2354,6 +2354,7 @@ public class NoonSessionGateway {
             this.acceptLanguage = acceptLanguage;
             this.localeHeader = localeHeader;
             this.langHeader = langHeader;
+            this.authCookieExport = new NoonCatalogAuthCookieExport(cookieManager);
             this.requestRecorder = requestRecorder;
             this.httpCallRecorder = httpCallRecorder;
             addCookie("projectUser", noonUser);
@@ -2639,6 +2640,7 @@ public class NoonSessionGateway {
                         requestRecorder.accept(request.uri().toString());
                     }
                     HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
+                    authCookieExport.captureRequestCookieHeader(request.uri());
                     lastRequestAtMillis = System.currentTimeMillis();
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -3100,6 +3102,7 @@ public class NoonSessionGateway {
             if (!StringUtils.hasText(targetHost)) {
                 throw new IllegalArgumentException("Noon Catalog URL 缺少主机名。");
             }
+            authCookieExport.prefer(targetUri);
             for (Map.Entry<String, String> cookie : parseCookieHeader(exportAuthCookieHeader()).entrySet()) {
                 HttpCookie targetCookie = new HttpCookie(cookie.getKey(), cookie.getValue());
                 targetCookie.setDomain(targetHost);
@@ -3133,24 +3136,7 @@ public class NoonSessionGateway {
         }
 
         private String exportAuthCookieHeader() {
-            StringJoiner joiner = new StringJoiner("; ");
-            for (HttpCookie cookie : cookieManager.getCookieStore().getCookies()) {
-                String name = cookie.getName();
-                if (!StringUtils.hasText(name)) {
-                    continue;
-                }
-                if ("projectCode".equalsIgnoreCase(name)
-                        || "noonStore".equalsIgnoreCase(name)
-                        || "projectUser".equalsIgnoreCase(name)) {
-                    continue;
-                }
-                if (!StringUtils.hasText(cookie.getValue())) {
-                    continue;
-                }
-                joiner.add(name + "=" + cookie.getValue());
-            }
-            String exported = joiner.toString();
-            return StringUtils.hasText(exported) ? exported : null;
+            return authCookieExport.exportAuthCookieHeader();
         }
     }
 
