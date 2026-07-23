@@ -455,8 +455,7 @@ class ProcurementPurchaseOrderMapperSqlTest {
         Method listMethod = ProcurementPurchaseOrderMapper.class.getMethod(
                 "listShippingOrders",
                 Long.class,
-                String.class,
-                Integer.class
+                String.class
         );
 
         String detailSql = String.join(" ", detailMethod.getAnnotation(Select.class).value())
