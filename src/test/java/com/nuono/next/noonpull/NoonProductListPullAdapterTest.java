@@ -3,6 +3,7 @@ package com.nuono.next.noonpull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -17,6 +18,27 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class NoonProductListPullAdapterTest {
+
+    @Test
+    void shouldStartDailyBaselineAuditEvenWhenProjectionWriteFails() {
+        NoonProductProjectionWriter writer = command -> {
+            throw new IllegalStateException("duplicate projection key");
+        };
+        ProductDetailBaselineDailyBackfillService dailyBackfill =
+                mock(ProductDetailBaselineDailyBackfillService.class);
+        NoonProductListPullAdapter adapter = new NoonProductListPullAdapter(writer);
+        adapter.setDetailBaselineDailyBackfillService(dailyBackfill);
+        NoonProductListApplyCommand command = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .storeCode("STR108065-NAE")
+                .siteCode("AE")
+                .automaticDetailBackfill(true)
+                .items(List.of())
+                .build();
+
+        assertThrows(IllegalStateException.class, () -> adapter.apply(command));
+        verify(dailyBackfill).enqueueMissingAfterDailyList(307L, "STR108065-NAE", "AE");
+    }
 
     @Test
     void shouldStartDailyBaselineAuditOnlyWhenRequestedAndKeepListApplySuccessfulOnAuditFailure() {
