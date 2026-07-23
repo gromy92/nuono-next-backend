@@ -87,8 +87,8 @@ class LogisticsAutoSyncServiceTest {
                         "XGGEKSA04082",
                         "BOX-01",
                         "secret-login",
-                        "barcode",
-                        "barcode super-secret 未解析，不能提交。"
+                        "batchNo",
+                        "批次 super-secret 重复，不能提交。"
                 )
         ));
         when(pluginSyncService.preview(any(PluginSyncCommand.class))).thenReturn(preview);
@@ -103,16 +103,16 @@ class LogisticsAutoSyncServiceTest {
         verify(taskService).fail(
                 eq(91002L),
                 eq("PREVIEW_BLOCKED"),
-                eq("物流商品 barcode 未匹配 1 条，自动同步已阻断，未提交。"),
+                eq("物流自动同步预览未通过，未提交。"),
                 resultCaptor.capture()
         );
         assertThat(summary.getFailureMessage())
-                .isEqualTo("物流商品 barcode 未匹配 1 条，自动同步已阻断，未提交。");
+                .isEqualTo("物流自动同步预览未通过，未提交。");
         assertThat(resultCaptor.getValue())
                 .contains("\"status\":\"preview_blocked\"")
                 .contains("\"previewIssueCount\":1")
                 .contains("\"batchNo\":\"XGGEKSA04082\"")
-                .contains("\"field\":\"barcode\"")
+                .contains("\"field\":\"batchNo\"")
                 .contains("[redacted]")
                 .doesNotContain("secret-login")
                 .doesNotContain("super-secret");
@@ -120,7 +120,7 @@ class LogisticsAutoSyncServiceTest {
                 eq(180001L), eq(91002L), eq("SUCCESS"), eq("FAILED"), eq("FAILED"),
                 eq("FAILED"), eq(null), any(LocalDateTime.class), eq(null),
                 eq("PREVIEW_BLOCKED"),
-                eq("物流商品 barcode 未匹配 1 条，自动同步已阻断，未提交。"),
+                eq("物流自动同步预览未通过，未提交。"),
                 eq(408L)
         );
     }

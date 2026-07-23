@@ -13,7 +13,7 @@ src/test/java/com/nuono/next/intransit/InTransitBatchServiceTest.java	1632
 src/test/java/com/nuono/next/intransit/InTransitFreightCostServiceTest.java	424
 src/test/java/com/nuono/next/intransit/InTransitGoodsControllerTest.java	461
 src/test/java/com/nuono/next/intransit/InTransitImportServiceTest.java	600
-src/test/java/com/nuono/next/intransit/InTransitPluginSyncServiceTest.java	1441
+src/test/java/com/nuono/next/intransit/InTransitPluginSyncServiceTest.java	1431
 src/test/java/com/nuono/next/intransit/autosync/ChicLogisticsProviderAdapterTest.java	384
 src/test/java/com/nuono/next/intransit/autosync/EtLogisticsProviderAdapterTest.java	409
 src/test/java/com/nuono/next/intransit/autosync/LogisticsAutoSyncAccountServiceTest.java	315

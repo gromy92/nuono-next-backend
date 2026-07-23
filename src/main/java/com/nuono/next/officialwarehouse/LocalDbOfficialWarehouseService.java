@@ -101,7 +101,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private static final DateTimeFormatter SYNC_RETRY_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String APPOINTMENT_RISK_BACKOFF_STAGE = "NOON_RISK_BACKOFF";
     private static final String APPOINTMENT_RISK_BACKOFF_SOURCE = "OFFICIAL_WAREHOUSE_APPOINTMENT";
-
     private final OfficialWarehouseMapper mapper;
     private final NoonSessionGateway noonSessionGateway;
     private final NoonSalesReportBindingResolver bindingResolver;
@@ -111,13 +110,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private final OfficialWarehouseAppointmentRunner appointmentRunner;
     private final NoonRiskBackoffGuard riskBackoffGuard;
     private final NoonPullFailurePolicy failurePolicy;
-
     @Value("${nuono.official-warehouse.appointment.scheduler.enabled:false}")
     private boolean appointmentSchedulerEnabled;
-
     @Value("${nuono.official-warehouse.appointment.scheduler.max-items-per-tick:20}")
     private int appointmentSchedulerMaxItems;
-
     @Value("${nuono.official-warehouse.appointment.scheduler.retry-base-seconds:5}")
     private int appointmentRetryBaseSeconds;
 
@@ -952,7 +948,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         if (lineRows == null || lineRows.isEmpty()) {
             return List.of();
         }
-
+        int pendingProductMatches = mapper.countPendingProductMatchesForBatches(ownerUserId, selectedBatchIds);
+        if (pendingProductMatches > 0) {
+            throw new IllegalArgumentException("选择的物流批次仍有 " + pendingProductMatches + " 条商品待匹配，请先在在途物流中重新匹配。");
+        }
         List<String> partnerSkus = lineRows.stream()
                 .map(row -> trimToNull(row.partnerSku))
                 .filter(value -> value != null)

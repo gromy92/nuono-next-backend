@@ -66,7 +66,7 @@ src/main/java/com/nuono/next/intransit/InTransitFreightCostRecords.java	714
 src/main/java/com/nuono/next/intransit/InTransitFreightCostService.java	635
 src/main/java/com/nuono/next/intransit/InTransitGoodsController.java	418
 src/main/java/com/nuono/next/intransit/InTransitImportService.java	986
-src/main/java/com/nuono/next/intransit/InTransitPluginSyncService.java	1770
+src/main/java/com/nuono/next/intransit/InTransitPluginSyncService.java	1621
 src/main/java/com/nuono/next/intransit/autosync/ChicLogisticsProviderAdapter.java	1334
 src/main/java/com/nuono/next/intransit/autosync/EtLogisticsProviderAdapter.java	1061
 src/main/java/com/nuono/next/intransit/autosync/LogisticsAutoSyncProperties.java	317
@@ -83,7 +83,7 @@ src/main/java/com/nuono/next/mobile/LocalDbMobileAuthService.java	312
 src/main/java/com/nuono/next/mobile/LocalDbMobileWorkbenchService.java	717
 src/main/java/com/nuono/next/noon/ChromeNoonCookieSupport.java	344
 src/main/java/com/nuono/next/noon/ImapNoonEmailOtpReader.java	554
-src/main/java/com/nuono/next/noon/NoonSessionGateway.java	3213
+src/main/java/com/nuono/next/noon/NoonSessionGateway.java	3197
 src/main/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGateway.java	644
 src/main/java/com/nuono/next/noonads/NoonAdvertisingReportAdapter.java	379
 src/main/java/com/nuono/next/noonads/NoonAdvertisingStructureDiagnosticService.java	393
@@ -103,7 +103,7 @@ src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	821
-src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3246
+src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3245
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1171
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java	422
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	349
