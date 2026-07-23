@@ -184,7 +184,7 @@ src/main/java/com/nuono/next/product/ProductListSummaryView.java	567
 src/main/java/com/nuono/next/product/ProductMasterController.java	734
 src/main/java/com/nuono/next/product/ProductNoonCatalogContentService.java	341
 src/main/java/com/nuono/next/product/ProductProjectSiteResolver.java	363
-src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5722
+src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5699
 src/main/java/com/nuono/next/product/ProductPublishChangedDomainComparator.java	510
 src/main/java/com/nuono/next/product/ProductPublishOfferWriter.java	416
 src/main/java/com/nuono/next/product/ProductPublishPreparationService.java	1094
@@ -238,5 +238,5 @@ src/main/java/com/nuono/next/sales/SalesProductRow.java	305
 src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastEngine.java	451
 src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastService.java	1047
 src/main/java/com/nuono/next/salesforecast/SalesForecastFeatureBuilder.java	484
-src/main/java/com/nuono/next/store/LocalDbStoreInitializationService.java	3544
+src/main/java/com/nuono/next/store/LocalDbStoreInitializationService.java	3518
 src/main/java/com/nuono/next/store/LocalDbStoreSyncService.java	570
