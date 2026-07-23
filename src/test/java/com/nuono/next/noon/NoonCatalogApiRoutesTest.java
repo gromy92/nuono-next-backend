@@ -30,13 +30,31 @@ class NoonCatalogApiRoutesTest {
                 "https://noon-catalog.noon.partners/_vs/mp/mp-partner-impex-api/export/status",
                 NoonCatalogApiRoutes.EXPORT_STATUS
         );
+        assertEquals(
+                "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-content/catplat/zsku/retrieve",
+                NoonCatalogApiRoutes.ZSKU_RETRIEVE
+        );
+        assertEquals(
+                "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-content/catplat/variants/information",
+                NoonCatalogApiRoutes.VARIANT_INFORMATION
+        );
+        assertEquals(
+                "https://noon-catalog.noon.partners/_vs/mp/mp-pricing-api/pricing/info",
+                NoonCatalogApiRoutes.PRICING_INFORMATION
+        );
 
         assertFalse(List.of(
                 NoonCatalogApiRoutes.OFFER_LIST_NOON,
                 NoonCatalogApiRoutes.OFFER_LIST_SUPERMALL,
                 NoonCatalogApiRoutes.OFFER_STOCK_NOON,
                 NoonCatalogApiRoutes.EXPORT_CREATE,
-                NoonCatalogApiRoutes.EXPORT_STATUS
+                NoonCatalogApiRoutes.EXPORT_STATUS,
+                NoonCatalogApiRoutes.ZSKU_RETRIEVE,
+                NoonCatalogApiRoutes.GROUP_CURRENT_PREFIX,
+                NoonCatalogApiRoutes.GROUP_DETAIL,
+                NoonCatalogApiRoutes.GROUP_LIST,
+                NoonCatalogApiRoutes.VARIANT_INFORMATION,
+                NoonCatalogApiRoutes.PRICING_INFORMATION
         ).stream().anyMatch(url -> url.contains("/_svc/")));
     }
 }
