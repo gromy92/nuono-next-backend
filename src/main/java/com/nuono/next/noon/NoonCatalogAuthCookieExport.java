@@ -17,6 +17,7 @@ import org.springframework.util.StringUtils;
 
 final class NoonCatalogAuthCookieExport {
 
+    private static final URI DEFAULT_CATALOG_URI = URI.create("https://noon-catalog.noon.partners");
     private final CookieManager cookieManager;
     private volatile String preferredHost;
     private volatile URI preferredUri;
@@ -99,6 +100,11 @@ final class NoonCatalogAuthCookieExport {
             imported.setSecure("https".equalsIgnoreCase(catalogUri.getScheme()));
             cookieManager.getCookieStore().add(catalogUri, imported);
         }
+    }
+
+    void importAuthCookieHeader(String cookieHeader, String catalogUrl) {
+        URI catalogUri = StringUtils.hasText(catalogUrl) ? URI.create(catalogUrl) : DEFAULT_CATALOG_URI;
+        importAuthCookieHeader(cookieHeader, catalogUri);
     }
 
     private boolean catalogCookieComesFirst(URI catalogUri) {
