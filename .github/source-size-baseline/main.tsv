@@ -102,7 +102,7 @@ src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	115
 src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
 src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
-src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	451
+src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	821
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3246
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1171

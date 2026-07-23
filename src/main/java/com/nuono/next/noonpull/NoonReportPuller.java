@@ -61,8 +61,7 @@ public class NoonReportPuller {
             result.setStatus(task.getStatus());
             return result;
         }
-        String previousSourceBatchId = task.getSourceBatchId();
-        String previousReadinessState = task.getReadinessState();
+        NoonPullTaskRecord previousTask = task;
         int pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
         if (pollAttempts >= request.getMaxPollAttempts()
                 || foundationService.isTaskOlderThan(task, REPORT_MAX_ACTIVE_AGE)) {
@@ -217,28 +216,10 @@ public class NoonReportPuller {
                 return result;
             }
             if (processResult.getCode() == NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION) {
-                String emptySummary = emptyReportSummary(request, status, digest, processResult, totalRows);
-                if (isRepeatedStaleOrderExport(
-                        request,
-                        processResult,
-                        sourceBatchId,
-                        previousSourceBatchId,
-                        previousReadinessState
-                )) {
-                    NoonPullTaskRecord confirmedEmpty = foundationService.markReportExportConfirmedEmpty(
-                            taskId,
-                            sourceBatchId,
-                            emptySummary + "; confirmed_empty; repeated_stale_export=true"
-                    );
-                    result.setStatus(confirmedEmpty.getStatus());
-                    return result;
-                }
-                NoonPullTaskRecord pending = foundationService.markReportExportPendingConfirmation(
-                        taskId,
-                        sourceBatchId,
-                        emptySummary,
-                        jitteredDelay(taskId, exportId, EMPTY_CONFIRMATION_POLL_DELAY)
-                );
+                NoonPullTaskRecord pending = NoonStaleOrderExportConfirmation.resolve(
+                        foundationService, taskId, previousTask, request, processResult, sourceBatchId,
+                        emptyReportSummary(request, status, digest, processResult, totalRows),
+                        jitteredDelay(taskId, exportId, EMPTY_CONFIRMATION_POLL_DELAY));
                 result.setStatus(pending.getStatus());
                 return result;
             }
@@ -337,23 +318,6 @@ public class NoonReportPuller {
 
     private boolean isAcceptedEmptyReport(NoonReportPullRequest request) {
         return request != null && request.getDataDomain() == NoonPullDataDomain.FINANCE_TRANSACTION;
-    }
-
-    private boolean isRepeatedStaleOrderExport(
-            NoonReportPullRequest request,
-            NoonReportProcessResult processResult,
-            String sourceBatchId,
-            String previousSourceBatchId,
-            String previousReadinessState
-    ) {
-        return request != null
-                && request.getDataDomain() == NoonPullDataDomain.ORDER
-                && processResult != null
-                && StringUtils.hasText(processResult.getDiagnosticMessage())
-                && processResult.getDiagnosticMessage().contains("provider_reused_latest_export")
-                && "pending_confirmation".equals(previousReadinessState)
-                && StringUtils.hasText(sourceBatchId)
-                && sourceBatchId.equals(previousSourceBatchId);
     }
 
     private boolean isRiskBackoffFailure(NoonPullFailureType failureType) {

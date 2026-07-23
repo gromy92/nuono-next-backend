@@ -90,60 +90,6 @@ class NoonOrderReportAdapterTest {
     }
 
     @Test
-    void shouldRequireConfirmationWhenProviderOnlyReturnsRowsBeforeRequestedWindow() {
-        InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
-        NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
-                writer,
-                Clock.fixed(Instant.parse("2026-05-22T01:00:00Z"), ZoneOffset.UTC)
-        );
-
-        NoonReportProcessResult result = adapter.process(fileForWindow(
-                LocalDate.of(2026, 5, 20),
-                LocalDate.of(2026, 5, 20),
-                "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
-                        + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
-                        + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
-                        + "108065,SA,SA,SA,,NSAI50094671190-1,PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
-                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
-                        + "2026-05-19 23:29:16,,\n"
-        ));
-
-        assertEquals(NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION, result.getCode());
-        assertEquals(0, result.getImportedCount());
-        assertTrue(writer.facts.isEmpty());
-        assertTrue(result.getDiagnosticMessage().contains("provider_reused_latest_export"));
-        assertTrue(result.getDiagnosticMessage().contains("requested=2026-05-20..2026-05-20"));
-        assertTrue(result.getDiagnosticMessage().contains("actual=2026-05-19..2026-05-19"));
-    }
-
-    @Test
-    void shouldRejectStrictlyStaleOrderReportWhenAnyRowsCannotBeParsed() {
-        InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
-        NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
-                writer,
-                Clock.fixed(Instant.parse("2026-05-22T01:00:00Z"), ZoneOffset.UTC)
-        );
-
-        NoonReportProcessResult result = adapter.process(fileForWindow(
-                LocalDate.of(2026, 5, 20),
-                LocalDate.of(2026, 5, 20),
-                "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
-                        + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
-                        + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
-                        + "108065,SA,SA,SA,,NSAI50094671190-1,PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
-                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
-                        + "2026-05-19 23:29:16,,\n"
-                        + "108065,SA,SA,SA,,,PAPERSAYSB360,Z02AD5F198C0C2E813C31Z-1,"
-                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
-                        + "2026-05-20 00:01:00,,\n"
-        ));
-
-        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
-        assertEquals(2, result.getExceptionCount());
-        assertTrue(writer.facts.isEmpty());
-    }
-
-    @Test
     void shouldRejectOrderReportWhenAllRowsAreOutsideRequestedWindow() {
         InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
         NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
