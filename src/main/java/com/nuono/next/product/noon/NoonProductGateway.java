@@ -17,7 +17,7 @@ public class NoonProductGateway {
     public static final String STORE_LIST_URL =
             "https://noon-store.noon.partners/_svc/mp-noon-store/noon/store/list";
     public static final String ZSKU_RETRIEVE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/retrieve";
+            NoonCatalogApiRoutes.ZSKU_RETRIEVE;
     public static final String ZSKU_UPSERT_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
     public static final String PRODUCT_UPDATE_URL =
@@ -29,17 +29,17 @@ public class NoonProductGateway {
     public static final String CATPLAT_SKU_CACHE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
     public static final String GROUP_CURRENT_URL_PREFIX =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/v2/group/";
+            NoonCatalogApiRoutes.GROUP_CURRENT_PREFIX;
     public static final String GROUP_DETAIL_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/group/get";
+            NoonCatalogApiRoutes.GROUP_DETAIL;
     public static final String GROUP_LIST_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/groups/list";
+            NoonCatalogApiRoutes.GROUP_LIST;
     public static final String GROUP_UPSERT_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catalog/group/upsert";
     public static final String VARIANT_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/variants/information";
+            NoonCatalogApiRoutes.VARIANT_INFORMATION;
     public static final String PRICING_INFO_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
+            NoonCatalogApiRoutes.PRICING_INFORMATION;
     public static final String STOCK_INFO_URL =
             NoonCatalogApiRoutes.OFFER_STOCK_NOON;
     public static final String OFFER_LIST_NOON_URL =

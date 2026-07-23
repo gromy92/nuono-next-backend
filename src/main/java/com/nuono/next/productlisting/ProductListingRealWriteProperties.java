@@ -69,7 +69,7 @@ public class ProductListingRealWriteProperties {
         public static final String DEFAULT_UPSERT_ZSKU_URL =
                 "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
         public static final String DEFAULT_RETRIEVE_ZSKU_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/retrieve";
+                NoonCatalogApiRoutes.ZSKU_RETRIEVE;
         public static final String DEFAULT_UPLOAD_IMAGE_URL =
                 "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
         public static final String DEFAULT_PRODUCT_FULLTYPE_SUGGEST_URL =

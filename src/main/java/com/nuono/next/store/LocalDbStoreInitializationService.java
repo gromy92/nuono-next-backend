@@ -52,7 +52,7 @@ public class LocalDbStoreInitializationService {
     private static final String OFFER_LIST_SUPERMALL_URL =
             NoonCatalogApiRoutes.OFFER_LIST_SUPERMALL;
     private static final String ZSKU_RETRIEVE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/retrieve";
+            NoonCatalogApiRoutes.ZSKU_RETRIEVE;
     private static final int OFFER_PAGE_SIZE = 100;
     private static final int RETRIEVE_BATCH_SIZE = 20;
     private static final String NOON_REQUEST_TOTAL_KEY = "__total__";
