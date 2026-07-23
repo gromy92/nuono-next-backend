@@ -64,6 +64,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
 
         assertEquals(12, result.getCandidateCount());
         assertEquals(12, result.getEnqueuedCount());
+        verify(mapper).listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA");
         verify(backfill, times(12)).enqueue(any(), eq("daily-maintenance-audit"), any());
     }
 
