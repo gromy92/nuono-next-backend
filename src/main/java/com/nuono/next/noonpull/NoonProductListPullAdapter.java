@@ -61,8 +61,11 @@ public class NoonProductListPullAdapter {
                 true
         )));
         writeCommand.setProductSeeds(seeds);
-        projectionWriter.write(writeCommand);
-        enqueueDailyDetailBackfill(command);
+        try {
+            projectionWriter.write(writeCommand);
+        } finally {
+            enqueueDailyDetailBackfill(command);
+        }
         return new NoonProductListApplyResult(seeds.size());
     }
 
