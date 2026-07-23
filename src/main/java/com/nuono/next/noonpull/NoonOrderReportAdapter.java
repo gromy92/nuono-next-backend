@@ -88,6 +88,13 @@ public class NoonOrderReportAdapter {
                 if (actualWindowCoversRequestedWindow(file.getRequest(), actualDateFrom, actualDateTo)) {
                     return emptyOrNotReady(diagnostic);
                 }
+                if (exceptions == 0
+                        && file.getRequest() != null
+                        && file.getRequest().getDateFrom() != null
+                        && actualDateTo != null
+                        && actualDateTo.isBefore(file.getRequest().getDateFrom())) {
+                    return emptyOrNotReady(diagnostic, true);
+                }
                 return NoonReportProcessResult.mappingFailed(
                         outsideWindowRows + exceptions,
                         diagnostic
@@ -214,19 +221,25 @@ public class NoonOrderReportAdapter {
     }
 
     private NoonReportProcessResult emptyOrNotReady() {
-        return emptyOrNotReady(null);
+        return emptyOrNotReady(null, false);
     }
 
     private NoonReportProcessResult emptyOrNotReady(String diagnosticMessage) {
+        return emptyOrNotReady(diagnosticMessage, false);
+    }
+
+    private NoonReportProcessResult emptyOrNotReady(String diagnosticMessage, boolean pendingConfirmation) {
         LocalTime localTime = LocalTime.now(clock.withZone(SHANGHAI));
         if (localTime.isBefore(ORDER_READY_AFTER)) {
             return NoonReportProcessResult.reportNotReady();
+        }
+        if (pendingConfirmation) {
+            return NoonReportProcessResult.emptyReportPendingConfirmation(diagnosticMessage);
         }
         return StringUtils.hasText(diagnosticMessage)
                 ? NoonReportProcessResult.emptyReport(diagnosticMessage)
                 : NoonReportProcessResult.emptyReport();
     }
-
     private String[] split(String line) {
         return line.split(",", -1);
     }

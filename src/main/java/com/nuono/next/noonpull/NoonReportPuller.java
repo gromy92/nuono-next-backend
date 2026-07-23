@@ -61,6 +61,7 @@ public class NoonReportPuller {
             result.setStatus(task.getStatus());
             return result;
         }
+        NoonPullTaskRecord previousTask = task;
         int pollAttempts = task.getReportPollAttempts() == null ? 0 : task.getReportPollAttempts();
         if (pollAttempts >= request.getMaxPollAttempts()
                 || foundationService.isTaskOlderThan(task, REPORT_MAX_ACTIVE_AGE)) {
@@ -215,12 +216,10 @@ public class NoonReportPuller {
                 return result;
             }
             if (processResult.getCode() == NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION) {
-                NoonPullTaskRecord pending = foundationService.markReportExportPendingConfirmation(
-                        taskId,
-                        sourceBatchId,
+                NoonPullTaskRecord pending = NoonStaleOrderExportConfirmation.resolve(
+                        foundationService, taskId, previousTask, request, processResult, sourceBatchId,
                         emptyReportSummary(request, status, digest, processResult, totalRows),
-                        jitteredDelay(taskId, exportId, EMPTY_CONFIRMATION_POLL_DELAY)
-                );
+                        jitteredDelay(taskId, exportId, EMPTY_CONFIRMATION_POLL_DELAY));
                 result.setStatus(pending.getStatus());
                 return result;
             }
