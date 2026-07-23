@@ -544,7 +544,7 @@ public class NoonSessionGateway {
                     this::recordRequest,
                     this::recordHttpCall
             );
-            state.importCookieHeader(persistedCookie);
+            state.importCookieHeader(persistedCookie, catalogSessionBootstrapUrl);
             state.applyContextCookies(normalize(projectCode), normalize(storeCode));
             return state.getJson(normalize(projectCode), normalize(storeCode), whoamiUrl, false, null);
         } catch (IllegalArgumentException exception) {
@@ -906,7 +906,7 @@ public class NoonSessionGateway {
                     this::recordRequest,
                     this::recordHttpCall
             );
-            state.importCookieHeader(persistedCookie);
+            state.importCookieHeader(persistedCookie, catalogSessionBootstrapUrl);
             state.applyContextCookies(projectCode, storeCode);
             state.getJson(projectCode, storeCode, whoamiUrl, false, null);
             return state;
@@ -1245,7 +1245,7 @@ public class NoonSessionGateway {
                     this::recordRequest,
                     this::recordHttpCall
             );
-            state.importCookieHeader(persistedCookie);
+            state.importCookieHeader(persistedCookie, catalogSessionBootstrapUrl);
             state.applyContextCookies(projectCode, storeCode);
             state.getJson(projectCode, storeCode, whoamiUrl, false, null);
             return state;
@@ -3090,10 +3090,8 @@ public class NoonSessionGateway {
             cookieManager.getCookieStore().add(URI.create("https://login-alt.noon.partners"), cookie);
         }
 
-        private void importCookieHeader(String cookieHeader) {
-            for (Map.Entry<String, String> cookie : parseCookieHeader(cookieHeader).entrySet()) {
-                addCookie(cookie.getKey(), cookie.getValue());
-            }
+        private void importCookieHeader(String cookieHeader, String catalogUrl) {
+            authCookieExport.importAuthCookieHeader(cookieHeader, URI.create(catalogUrl));
         }
 
         private void handoffAuthCookiesTo(String targetUrl) {
