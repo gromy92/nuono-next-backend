@@ -420,6 +420,70 @@ class NoonReportPullerTest {
     }
 
     @Test
+    void shouldConfirmEmptyWhenOrderProviderRepeatsSameStrictlyStaleExport() {
+        NoonPullTaskRecord task = createOrderTask("orders:repeated-stale-export");
+        FakeReportProvider provider = FakeReportProvider.ready(staleOrderCsv("NSAI50094671190-1"));
+        NoonOrderReportAdapter adapter = new NoonOrderReportAdapter((fact) -> {
+        }, clock);
+
+        NoonReportPullResult first = puller.execute(
+                task.getId(),
+                orderRequest(),
+                provider,
+                adapter::process
+        );
+        NoonPullTaskRecord pending = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.RUNNING, first.getStatus());
+        assertEquals("empty_report_pending_confirmation", pending.getFailureType());
+        assertEquals("pending_confirmation", pending.getReadinessState());
+        assertNotNull(pending.getSourceBatchId());
+
+        NoonReportPullResult second = puller.execute(
+                task.getId(),
+                orderRequest(),
+                provider,
+                adapter::process
+        );
+        NoonPullTaskRecord confirmed = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.FAILED, second.getStatus());
+        assertEquals("confirmed_empty", confirmed.getFailureType());
+        assertEquals("confirmed_empty", confirmed.getReadinessState());
+        assertEquals(Boolean.FALSE, confirmed.getRetryable());
+        assertTrue(confirmed.getDiagnosticSummary().contains("repeated_stale_export=true"));
+    }
+
+    @Test
+    void shouldKeepOrderEmptyPendingWhenStrictlyStaleExportDigestChanges() {
+        NoonPullTaskRecord task = createOrderTask("orders:changed-stale-export");
+        NoonOrderReportAdapter adapter = new NoonOrderReportAdapter((fact) -> {
+        }, clock);
+
+        NoonReportPullResult first = puller.execute(
+                task.getId(),
+                orderRequest(),
+                FakeReportProvider.ready(staleOrderCsv("NSAI50094671190-1")),
+                adapter::process
+        );
+        String firstBatchId = repository.selectTask(task.getId()).getSourceBatchId();
+
+        NoonReportPullResult second = puller.execute(
+                task.getId(),
+                orderRequest(),
+                FakeReportProvider.ready(staleOrderCsv("NSAI50094671191-1")),
+                adapter::process
+        );
+        NoonPullTaskRecord pending = repository.selectTask(task.getId());
+
+        assertEquals(NoonPullTaskStatus.RUNNING, first.getStatus());
+        assertEquals(NoonPullTaskStatus.RUNNING, second.getStatus());
+        assertEquals("empty_report_pending_confirmation", pending.getFailureType());
+        assertEquals("pending_confirmation", pending.getReadinessState());
+        assertTrue(!firstBatchId.equals(pending.getSourceBatchId()));
+    }
+
+    @Test
     void shouldPersistMappingFailedDiagnosticFromReportHandler() {
         NoonPullTaskRecord task = createSalesTask("sales:reused-latest-export");
 
@@ -482,6 +546,15 @@ class NoonReportPullerTest {
                 .dateTo(LocalDate.of(2026, 5, 21))
                 .maxPollAttempts(2)
                 .build();
+    }
+
+    private String staleOrderCsv(String itemNumber) {
+        return "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
+                + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
+                + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
+                + "108065,SA,SA,SA,," + itemNumber + ",PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
+                + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                + "2026-05-20 23:29:16,,\n";
     }
 
     private void executeRiskFailure(NoonPullTaskRecord task, String message) {
