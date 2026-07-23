@@ -60,6 +60,18 @@ class NoonCatalogAuthCookieExportTest {
         assertTrue(!exported.contains("projectCode="), exported);
     }
 
+    @Test
+    void usesCatalogDefaultWhenConfiguredUrlIsBlank() {
+        CookieManager cookieManager = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
+        NoonCatalogAuthCookieExport cookieExport = new NoonCatalogAuthCookieExport(cookieManager);
+
+        cookieExport.importAuthCookieHeader("_npsid=identity-session; _npsid=catalog-ready", "");
+        cookieExport.prefer(CATALOG_URI);
+        cookieExport.captureRequestCookieHeader(CATALOG_URI);
+
+        assertEquals(2, countOccurrences(cookieExport.exportAuthCookieHeader(), "_npsid="));
+    }
+
     private void addCookie(
             CookieManager cookieManager,
             URI uri,

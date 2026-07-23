@@ -3091,7 +3091,7 @@ public class NoonSessionGateway {
         }
 
         private void importCookieHeader(String cookieHeader, String catalogUrl) {
-            authCookieExport.importAuthCookieHeader(cookieHeader, URI.create(catalogUrl));
+            authCookieExport.importAuthCookieHeader(cookieHeader, catalogUrl);
         }
 
         private void handoffAuthCookiesTo(String targetUrl) {
