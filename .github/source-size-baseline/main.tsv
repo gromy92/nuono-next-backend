@@ -44,7 +44,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitLogisticsClosur
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitMapper.java	1160
 src/main/java/com/nuono/next/infrastructure/mapper/PreOrderProfitMapper.java	310
 src/main/java/com/nuono/next/infrastructure/mapper/ProcurementMapper.java	1180
-src/main/java/com/nuono/next/infrastructure/mapper/ProcurementPurchaseOrderMapper.java	2987
+src/main/java/com/nuono/next/infrastructure/mapper/ProcurementPurchaseOrderMapper.java	2915
 src/main/java/com/nuono/next/infrastructure/mapper/ProcurementRequirementConfirmationMapper.java	1204
 src/main/java/com/nuono/next/infrastructure/mapper/ProductAttributeTemplateMapper.java	322
 src/main/java/com/nuono/next/infrastructure/mapper/ProductGroupMapper.java	520
