@@ -47,16 +47,16 @@ public interface ProcurementPurchaseOrderMapper {
             + "DATE_FORMAT(po.gmt_updated, '%Y-%m-%d %H:%i') AS updated_at "
             + "FROM procurement_purchase_order po ";
 
-    String PRODUCT_LENGTH_EXPR = "COALESCE(pvss.product_length_cm, warehouseSpec.product_length_cm, ali1688Spec.product_length_cm, officialSpec.product_length_cm, pvs.product_length_cm)";
-    String PRODUCT_WIDTH_EXPR = "COALESCE(pvss.product_width_cm, warehouseSpec.product_width_cm, ali1688Spec.product_width_cm, officialSpec.product_width_cm, pvs.product_width_cm)";
-    String PRODUCT_HEIGHT_EXPR = "COALESCE(pvss.product_height_cm, warehouseSpec.product_height_cm, ali1688Spec.product_height_cm, officialSpec.product_height_cm, pvs.product_height_cm)";
-    String PRODUCT_WEIGHT_EXPR = "COALESCE(pvss.product_weight_g, warehouseSpec.product_weight_g, ali1688Spec.product_weight_g, officialSpec.product_weight_g, pvs.product_weight_g)";
-    String CARTON_LENGTH_EXPR = "COALESCE(pvss.carton_length_cm, warehouseSpec.carton_length_cm, ali1688Spec.carton_length_cm, officialSpec.carton_length_cm, pvs.carton_length_cm)";
-    String CARTON_WIDTH_EXPR = "COALESCE(pvss.carton_width_cm, warehouseSpec.carton_width_cm, ali1688Spec.carton_width_cm, officialSpec.carton_width_cm, pvs.carton_width_cm)";
-    String CARTON_HEIGHT_EXPR = "COALESCE(pvss.carton_height_cm, warehouseSpec.carton_height_cm, ali1688Spec.carton_height_cm, officialSpec.carton_height_cm, pvs.carton_height_cm)";
-    String CARTON_WEIGHT_EXPR = "COALESCE(pvss.carton_weight_kg, warehouseSpec.carton_weight_kg, ali1688Spec.carton_weight_kg, officialSpec.carton_weight_kg, pvs.carton_weight_kg)";
-    String CARTON_QUANTITY_EXPR = "COALESCE(pvss.carton_quantity, warehouseSpec.carton_quantity, ali1688Spec.carton_quantity, officialSpec.carton_quantity, pvs.carton_quantity)";
-    String SPEC_SOURCE_TYPE_EXPR = "COALESCE(pvss.source_type, warehouseSpec.source_type, ali1688Spec.source_type, officialSpec.source_type, pvs.source_type)";
+    String PRODUCT_LENGTH_EXPR = "ali1688Spec.product_length_cm";
+    String PRODUCT_WIDTH_EXPR = "ali1688Spec.product_width_cm";
+    String PRODUCT_HEIGHT_EXPR = "ali1688Spec.product_height_cm";
+    String PRODUCT_WEIGHT_EXPR = "ali1688Spec.product_weight_g";
+    String CARTON_LENGTH_EXPR = "ali1688Spec.carton_length_cm";
+    String CARTON_WIDTH_EXPR = "ali1688Spec.carton_width_cm";
+    String CARTON_HEIGHT_EXPR = "ali1688Spec.carton_height_cm";
+    String CARTON_WEIGHT_EXPR = "ali1688Spec.carton_weight_kg";
+    String CARTON_QUANTITY_EXPR = "ali1688Spec.carton_quantity";
+    String SPEC_SOURCE_TYPE_EXPR = "ali1688Spec.source_type";
 
     String ITEM_SELECT = ""
             + "SELECT item.id, item.purchase_order_id, item.owner_user_id, item.logical_store_id, "
@@ -100,25 +100,10 @@ public interface ProcurementPurchaseOrderMapper {
             + " AND pv.logical_store_id = item.logical_store_id "
             + " AND pv.partner_sku = item.partner_sku "
             + " AND pv.is_deleted = b'0' "
-            + "LEFT JOIN product_variant_spec pvs "
-            + "  ON pvs.variant_id = item.product_variant_id "
-            + " AND pvs.is_deleted = b'0' "
-            + "LEFT JOIN product_variant_spec_source pvss "
-            + "  ON pvss.id = pvs.effective_source_id "
-            + " AND pvss.variant_id = item.product_variant_id "
-            + " AND pvss.is_deleted = b'0' "
-            + "LEFT JOIN product_variant_spec_source warehouseSpec "
-            + "  ON warehouseSpec.variant_id = item.product_variant_id "
-            + " AND warehouseSpec.source_type = 'warehouse' "
-            + " AND warehouseSpec.is_deleted = b'0' "
             + "LEFT JOIN product_variant_spec_source ali1688Spec "
             + "  ON ali1688Spec.variant_id = item.product_variant_id "
             + " AND ali1688Spec.source_type = 'ali1688' "
             + " AND ali1688Spec.is_deleted = b'0' "
-            + "LEFT JOIN product_variant_spec_source officialSpec "
-            + "  ON officialSpec.variant_id = item.product_variant_id "
-            + " AND officialSpec.source_type = 'noon_official' "
-            + " AND officialSpec.is_deleted = b'0' "
             + "LEFT JOIN product_variant_logistics_profile pvlp "
             + "  ON pvlp.variant_id = item.product_variant_id "
             + " AND pvlp.is_deleted = b'0' "
@@ -261,11 +246,7 @@ public interface ProcurementPurchaseOrderMapper {
             "JOIN product_variant pv ON pv.product_master_id = pm.id AND pv.is_deleted = b'0'",
             "JOIN product_site_offer pso ON pso.variant_id = pv.id AND pso.is_deleted = b'0'",
             "JOIN logical_store_site lss ON lss.id = pso.site_id AND lss.logical_store_id = pm.logical_store_id AND lss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec pvs ON pvs.variant_id = pv.id AND pvs.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source pvss ON pvss.id = pvs.effective_source_id AND pvss.variant_id = pv.id AND pvss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source warehouseSpec ON warehouseSpec.variant_id = pv.id AND warehouseSpec.source_type = 'warehouse' AND warehouseSpec.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source ali1688Spec ON ali1688Spec.variant_id = pv.id AND ali1688Spec.source_type = 'ali1688' AND ali1688Spec.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source officialSpec ON officialSpec.variant_id = pv.id AND officialSpec.source_type = 'noon_official' AND officialSpec.is_deleted = b'0'",
             "WHERE pm.logical_store_id = #{logicalStoreId}",
             "  AND pm.is_deleted = b'0'",
             "<if test='keyword != null and keyword != \"\"'>",
@@ -316,11 +297,7 @@ public interface ProcurementPurchaseOrderMapper {
             "JOIN product_variant pv ON pv.product_master_id = pm.id AND pv.is_deleted = b'0'",
             "LEFT JOIN product_site_offer pso ON pso.variant_id = pv.id AND pso.is_deleted = b'0'",
             "LEFT JOIN logical_store_site lss ON lss.id = pso.site_id AND lss.logical_store_id = pm.logical_store_id AND lss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec pvs ON pvs.variant_id = pv.id AND pvs.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source pvss ON pvss.id = pvs.effective_source_id AND pvss.variant_id = pv.id AND pvss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source warehouseSpec ON warehouseSpec.variant_id = pv.id AND warehouseSpec.source_type = 'warehouse' AND warehouseSpec.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source ali1688Spec ON ali1688Spec.variant_id = pv.id AND ali1688Spec.source_type = 'ali1688' AND ali1688Spec.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source officialSpec ON officialSpec.variant_id = pv.id AND officialSpec.source_type = 'noon_official' AND officialSpec.is_deleted = b'0'",
             "WHERE pm.logical_store_id = #{logicalStoreId}",
             "  AND pm.is_deleted = b'0'",
             "  AND pv.partner_sku = #{psku}",
@@ -359,11 +336,7 @@ public interface ProcurementPurchaseOrderMapper {
             "       " + SPEC_SOURCE_TYPE_EXPR + " AS spec_source_type",
             "FROM product_master pm",
             "JOIN product_variant pv ON pv.product_master_id = pm.id AND pv.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec pvs ON pvs.variant_id = pv.id AND pvs.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source pvss ON pvss.id = pvs.effective_source_id AND pvss.variant_id = pv.id AND pvss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source warehouseSpec ON warehouseSpec.variant_id = pv.id AND warehouseSpec.source_type = 'warehouse' AND warehouseSpec.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source ali1688Spec ON ali1688Spec.variant_id = pv.id AND ali1688Spec.source_type = 'ali1688' AND ali1688Spec.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source officialSpec ON officialSpec.variant_id = pv.id AND officialSpec.source_type = 'noon_official' AND officialSpec.is_deleted = b'0'",
             "WHERE pm.logical_store_id = #{logicalStoreId}",
             "  AND pm.is_deleted = b'0'",
             "  AND pv.id = #{variantId}",
@@ -2295,25 +2268,10 @@ public interface ProcurementPurchaseOrderMapper {
             "LEFT JOIN product_master pm",
             "  ON pm.id = item.product_master_id",
             " AND pm.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec pvs",
-            "  ON pvs.variant_id = item.product_variant_id",
-            " AND pvs.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source pvss",
-            "  ON pvss.id = pvs.effective_source_id",
-            " AND pvss.variant_id = item.product_variant_id",
-            " AND pvss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source warehouseSpec",
-            "  ON warehouseSpec.variant_id = item.product_variant_id",
-            " AND warehouseSpec.source_type = 'warehouse'",
-            " AND warehouseSpec.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source ali1688Spec",
             "  ON ali1688Spec.variant_id = item.product_variant_id",
             " AND ali1688Spec.source_type = 'ali1688'",
             " AND ali1688Spec.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source officialSpec",
-            "  ON officialSpec.variant_id = item.product_variant_id",
-            " AND officialSpec.source_type = 'noon_official'",
-            " AND officialSpec.is_deleted = b'0'",
             "LEFT JOIN product_public_detail_snapshot public_detail",
             "  ON public_detail.product_variant_id = item.product_variant_id",
             " AND public_detail.site_code = site.site_code",
@@ -2391,25 +2349,10 @@ public interface ProcurementPurchaseOrderMapper {
             "LEFT JOIN product_master pm",
             "  ON pm.id = sol.product_master_id",
             " AND pm.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec pvs",
-            "  ON pvs.variant_id = sol.product_variant_id",
-            " AND pvs.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source pvss",
-            "  ON pvss.id = pvs.effective_source_id",
-            " AND pvss.variant_id = sol.product_variant_id",
-            " AND pvss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source warehouseSpec",
-            "  ON warehouseSpec.variant_id = sol.product_variant_id",
-            " AND warehouseSpec.source_type = 'warehouse'",
-            " AND warehouseSpec.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source ali1688Spec",
             "  ON ali1688Spec.variant_id = sol.product_variant_id",
             " AND ali1688Spec.source_type = 'ali1688'",
             " AND ali1688Spec.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source officialSpec",
-            "  ON officialSpec.variant_id = sol.product_variant_id",
-            " AND officialSpec.source_type = 'noon_official'",
-            " AND officialSpec.is_deleted = b'0'",
             "LEFT JOIN product_public_detail_snapshot public_detail",
             "  ON public_detail.product_variant_id = sol.product_variant_id",
             " AND public_detail.site_code = sol.site_code",
@@ -2490,25 +2433,10 @@ public interface ProcurementPurchaseOrderMapper {
             "LEFT JOIN product_master pm",
             "  ON pm.id = sol.product_master_id",
             " AND pm.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec pvs",
-            "  ON pvs.variant_id = sol.product_variant_id",
-            " AND pvs.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source pvss",
-            "  ON pvss.id = pvs.effective_source_id",
-            " AND pvss.variant_id = sol.product_variant_id",
-            " AND pvss.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source warehouseSpec",
-            "  ON warehouseSpec.variant_id = sol.product_variant_id",
-            " AND warehouseSpec.source_type = 'warehouse'",
-            " AND warehouseSpec.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source ali1688Spec",
             "  ON ali1688Spec.variant_id = sol.product_variant_id",
             " AND ali1688Spec.source_type = 'ali1688'",
             " AND ali1688Spec.is_deleted = b'0'",
-            "LEFT JOIN product_variant_spec_source officialSpec",
-            "  ON officialSpec.variant_id = sol.product_variant_id",
-            " AND officialSpec.source_type = 'noon_official'",
-            " AND officialSpec.is_deleted = b'0'",
             "LEFT JOIN product_public_detail_snapshot public_detail",
             "  ON public_detail.product_variant_id = sol.product_variant_id",
             " AND public_detail.site_code = sol.site_code",

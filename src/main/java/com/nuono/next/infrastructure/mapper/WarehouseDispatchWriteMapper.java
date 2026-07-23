@@ -64,12 +64,12 @@ public interface WarehouseDispatchWriteMapper extends WarehouseReceiptMapper {
 @Insert({
             "INSERT INTO procurement_dispatch_plan_line (",
             "id, dispatch_plan_id, owner_user_id, product_master_id, product_variant_id, partner_sku, sku_parent, title_cache,",
-            "image_url_cache, site_code, actual_transport_mode, fulfillment_type, spec_status, quantity, source_count,",
+            "image_url_cache, site_code, actual_transport_mode, fulfillment_type, quantity, source_count,",
             "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.dispatchPlanId}, #{row.ownerUserId}, #{row.productMasterId}, #{row.productVariantId},",
             "#{row.partnerSku}, #{row.skuParent}, #{row.titleCache}, #{row.imageUrlCache}, #{row.siteCode},",
-            "#{row.actualTransportMode}, #{row.fulfillmentType}, #{row.specStatus}, #{row.quantity}, #{row.sourceCount},",
+            "#{row.actualTransportMode}, #{row.fulfillmentType}, #{row.quantity}, #{row.sourceCount},",
             "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
     })
     int insertDispatchPlanLine(

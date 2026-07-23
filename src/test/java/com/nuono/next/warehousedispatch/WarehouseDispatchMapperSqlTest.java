@@ -7,6 +7,7 @@ import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.binding.MapperMethod;
 import org.apache.ibatis.session.Configuration;
@@ -44,6 +45,92 @@ class WarehouseDispatchMapperSqlTest {
         assertThat(sql).contains("COALESCE(quote.quote_status, 'PENDING_QUOTE') AS logisticsQuoteStatus");
         assertThat(sql).contains("COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS logisticsShippingSubmitStatus");
         assertThat(sql).doesNotContain("<>");
+    }
+
+    @Test
+    void preApplicationInventoryReadsAli1688SpecsOnly() {
+        String sql = WarehouseDispatchMapper.BALANCE_SELECT.replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("LEFT JOIN product_variant_spec_source ali1688Spec");
+        assertThat(sql).contains("ali1688Spec.source_type = 'ali1688'");
+        assertThat(sql).contains("ali1688Spec.product_length_cm AS productLengthCm");
+        assertThat(sql).contains("ali1688Spec.product_weight_g AS productWeightG");
+        assertThat(sql).doesNotContain("pvs.effective_source_id");
+        assertThat(sql).doesNotContain("source_type = 'warehouse'");
+    }
+
+    @Test
+    void appReceiptSpecStatusReadsWarehouseSourceOnly() throws Exception {
+        Method method = WarehouseDispatchMapper.class.getMethod(
+                "listReceiptRows",
+                Long.class,
+                Collection.class,
+                String.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("warehouseSpec.source_type = 'warehouse'");
+        assertThat(sql).contains("CASE WHEN warehouseSpec.product_length_cm IS NULL");
+        assertThat(sql).doesNotContain("pvs.effective_source_id");
+        assertThat(sql).doesNotContain("COALESCE(pvss.product_length_cm");
+    }
+
+    @Test
+    void persistedShippingApplicationsQueryCurrentWarehouseSpecs() throws Exception {
+        Method method = WarehouseDispatchMapper.class.getMethod(
+                "listShippingBatchSources",
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("warehouseSpec.source_type = 'warehouse'");
+        assertThat(sql).contains("warehouseSpec.product_length_cm AS productLengthCm");
+        assertThat(sql).doesNotContain("source.product_length_cm AS productLengthCm");
+        assertThat(sql).doesNotContain("pvs.effective_source_id");
+    }
+
+    @Test
+    void newShippingApplicationsDoNotPersistProductSpecSnapshots() throws Exception {
+        Method method = WarehouseDispatchMapper.class.getMethod(
+                "insertShippingBatchSource",
+                WarehouseDispatchRecords.ShippingBatchSourceRecord.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Insert.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).doesNotContain("product_length_cm");
+        assertThat(sql).doesNotContain("product_width_cm");
+        assertThat(sql).doesNotContain("product_height_cm");
+        assertThat(sql).doesNotContain("product_weight_g");
+    }
+
+    @Test
+    void dispatchPlanDetailsReadCurrentWarehouseSpecsWithoutPersistingStatusSnapshot() throws Exception {
+        Method readMethod = WarehouseDispatchMapper.class.getMethod(
+                "listDispatchPlanLines",
+                Long.class
+        );
+        String readSql = String.join(" ", readMethod.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+        assertThat(readSql).contains("warehouseSpec.source_type = 'warehouse'");
+        assertThat(readSql).contains("CASE WHEN warehouseSpec.product_length_cm IS NULL");
+        assertThat(readSql).doesNotContain("line.spec_status AS specStatus");
+
+        Method insertMethod = WarehouseDispatchMapper.class.getMethod(
+                "insertDispatchPlanLine",
+                WarehouseDispatchRecords.DispatchPlanLineRecord.class,
+                Long.class
+        );
+        String insertSql = String.join(" ", insertMethod.getAnnotation(Insert.class).value())
+                .replaceAll("\\s+", " ");
+        assertThat(insertSql).doesNotContain("spec_status");
+        assertThat(insertSql).doesNotContain("#{row.specStatus}");
     }
 
     @Test
