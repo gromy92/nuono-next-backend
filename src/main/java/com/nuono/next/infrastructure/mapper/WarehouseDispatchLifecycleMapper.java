@@ -147,14 +147,25 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
     );
 
 @Select({
-            "SELECT id, dispatch_plan_id AS dispatchPlanId, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
-            "       product_variant_id AS productVariantId, partner_sku AS partnerSku, sku_parent AS skuParent, title_cache AS titleCache,",
-            "       image_url_cache AS imageUrlCache, site_code AS siteCode, actual_transport_mode AS actualTransportMode,",
-            "       fulfillment_type AS fulfillmentType, spec_status AS specStatus, quantity, source_count AS sourceCount",
-            "FROM procurement_dispatch_plan_line",
-            "WHERE dispatch_plan_id = #{dispatchPlanId}",
-            "  AND is_deleted = b'0'",
-            "ORDER BY id ASC"
+            "SELECT line.id, line.dispatch_plan_id AS dispatchPlanId, line.owner_user_id AS ownerUserId,",
+            "       line.product_master_id AS productMasterId, line.product_variant_id AS productVariantId,",
+            "       line.partner_sku AS partnerSku, line.sku_parent AS skuParent, line.title_cache AS titleCache,",
+            "       line.image_url_cache AS imageUrlCache, line.site_code AS siteCode,",
+            "       line.actual_transport_mode AS actualTransportMode, line.fulfillment_type AS fulfillmentType,",
+            "       CASE WHEN warehouseSpec.product_length_cm IS NULL",
+            "              OR warehouseSpec.product_width_cm IS NULL",
+            "              OR warehouseSpec.product_height_cm IS NULL",
+            "              OR warehouseSpec.product_weight_g IS NULL",
+            "            THEN 'SPEC_MISSING' ELSE 'READY' END AS specStatus,",
+            "       line.quantity, line.source_count AS sourceCount",
+            "FROM procurement_dispatch_plan_line line",
+            "LEFT JOIN product_variant_spec_source warehouseSpec",
+            "  ON warehouseSpec.variant_id = line.product_variant_id",
+            " AND warehouseSpec.source_type = 'warehouse'",
+            " AND warehouseSpec.is_deleted = b'0'",
+            "WHERE line.dispatch_plan_id = #{dispatchPlanId}",
+            "  AND line.is_deleted = b'0'",
+            "ORDER BY line.id ASC"
     })
     List<DispatchPlanLineRecord> listDispatchPlanLines(@Param("dispatchPlanId") Long dispatchPlanId);
 

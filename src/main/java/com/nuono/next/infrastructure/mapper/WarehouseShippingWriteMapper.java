@@ -56,17 +56,16 @@ public interface WarehouseShippingWriteMapper extends WarehouseDispatchWriteMapp
             "id, batch_id, owner_user_id, fulfillment_balance_id, source_store_code, source_store_name,",
             "purchase_order_id, purchase_order_no, purchase_order_title, purchase_order_item_id, purchase_order_item_site_id,",
             "product_master_id, product_variant_id, partner_sku, sku_parent, title_cache, image_url_cache, site_code,",
-            "planned_transport_mode, fulfillment_type, source_party_name, spec_status, product_length_cm, product_width_cm,",
-            "product_height_cm, product_weight_g, logistics_profile_status, sensitive_flag, sensitive_reason_json, reserved_quantity,",
+            "planned_transport_mode, fulfillment_type, source_party_name, logistics_profile_status,",
+            "sensitive_flag, sensitive_reason_json, reserved_quantity,",
             "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.batchId}, #{row.ownerUserId}, #{row.fulfillmentBalanceId}, #{row.sourceStoreCode},",
             "#{row.sourceStoreName}, #{row.purchaseOrderId}, #{row.purchaseOrderNo}, #{row.purchaseOrderTitle},",
             "#{row.purchaseOrderItemId}, #{row.purchaseOrderItemSiteId}, #{row.productMasterId}, #{row.productVariantId},",
             "#{row.partnerSku}, #{row.skuParent}, #{row.titleCache}, #{row.imageUrlCache}, #{row.siteCode},",
-            "#{row.plannedTransportMode}, #{row.fulfillmentType}, #{row.sourcePartyName}, #{row.specStatus},",
-            "#{row.productLengthCm}, #{row.productWidthCm}, #{row.productHeightCm}, #{row.productWeightG},",
-            "#{row.logisticsProfileStatus}, CASE WHEN #{row.sensitiveFlag} THEN b'1' ELSE b'0' END,",
+            "#{row.plannedTransportMode}, #{row.fulfillmentType}, #{row.sourcePartyName}, #{row.logisticsProfileStatus},",
+            "CASE WHEN #{row.sensitiveFlag} THEN b'1' ELSE b'0' END,",
             "#{row.sensitiveReasonJson}, #{row.reservedQuantity}, b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
     })
     int insertShippingBatchSource(

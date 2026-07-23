@@ -134,7 +134,7 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         plan.transportSummaryJson = writeJson(transportSummary(view.lines));
         mapper.insertDispatchPlan(plan, operatorUserId);
         log(planId, "CREATE_DISPATCH_PLAN", operatorUserId, null, "DRAFT", planNo);
-        return view;
+        return toDispatchPlanView(plan);
     }
 
 @Transactional(readOnly = true)

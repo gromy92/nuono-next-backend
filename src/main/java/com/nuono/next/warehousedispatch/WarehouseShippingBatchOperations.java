@@ -95,11 +95,12 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
             mapper.insertShippingBatchSource(sourceRow, operatorUserId);
         }
 
+        List<ShippingBatchSourceRecord> currentSources = emptyIfNull(mapper.listShippingBatchSources(batch.id));
         ShippingBatchView view = toShippingBatchView(batch);
-        for (ShippingBatchSourceRecord sourceRow : sourceRows) {
+        for (ShippingBatchSourceRecord sourceRow : currentSources) {
             view.sources.add(toShippingBatchSourceView(sourceRow));
         }
-        view.options.addAll(createDefaultShippingSuggestionOptions(batch, sourceRows, operatorUserId));
+        view.options.addAll(createDefaultShippingSuggestionOptions(batch, currentSources, operatorUserId));
         log(null, "CREATE_SHIPPING_BATCH", operatorUserId, null, "DRAFT", batchNo);
         return view;
     }

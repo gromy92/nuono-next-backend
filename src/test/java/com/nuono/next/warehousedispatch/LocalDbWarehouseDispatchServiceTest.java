@@ -21,6 +21,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.PackingBoxComm
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.PackingBoxItemCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ReplacePackingBoxesCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ShippingBatchSourceCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanLineRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentBalanceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderLineRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderLineSourceRecord;
@@ -80,6 +81,19 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
         when(mapper.nextDispatchPlanId()).thenReturn(340001L);
         when(mapper.nextDispatchLineId()).thenReturn(350001L);
         when(mapper.nextDispatchSourceId()).thenReturn(360001L, 360002L);
+        DispatchPlanLineRecord persistedLine = new DispatchPlanLineRecord();
+        persistedLine.id = 350001L;
+        persistedLine.dispatchPlanId = 340001L;
+        persistedLine.productVariantId = 320001L;
+        persistedLine.partnerSku = "SGGRB115";
+        persistedLine.siteCode = "SA";
+        persistedLine.actualTransportMode = "AIR";
+        persistedLine.fulfillmentType = "WAREHOUSE_RECEIPT";
+        persistedLine.specStatus = "READY";
+        persistedLine.quantity = 12;
+        persistedLine.sourceCount = 2;
+        when(mapper.listDispatchPlanLines(340001L)).thenReturn(List.of(persistedLine));
+        when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of());
 
         CreateDispatchPlanCommand command = new CreateDispatchPlanCommand();
         DispatchPlanSourceCommand firstSource = new DispatchPlanSourceCommand();

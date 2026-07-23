@@ -251,17 +251,18 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(sql).contains("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
         assertThat(sql).contains("quote.purchase_order_item_site_id = site.id");
         assertThat(sql).contains("LEFT JOIN procurement_fulfillment_balance balance");
-        assertThat(sql).contains("LEFT JOIN product_variant_spec pvs");
+        assertThat(sql).contains("LEFT JOIN product_variant_spec_source ali1688Spec");
+        assertThat(sql).contains("ali1688Spec.source_type = 'ali1688'");
         assertThat(sql).contains("LEFT JOIN product_public_detail_snapshot public_detail");
         assertThat(sql).contains("FROM product_barcode pb");
         assertThat(sql).contains("WHERE site.purchase_order_id = #{orderId}");
     }
 
     @Test
-    void procurementProductSpecReadsFallbackSourceRowsWhenEffectivePointerIsMissing() throws Exception {
+    void procurementProductSpecReadsAli1688WithoutEffectiveSourceFallback() throws Exception {
         String itemSql = ProcurementPurchaseOrderMapper.ITEM_SELECT.replaceAll("\\s+", " ");
-        assertProductSpecFallback(itemSql);
-        assertThat(itemSql).contains("COALESCE(pvss.product_length_cm, warehouseSpec.product_length_cm, ali1688Spec.product_length_cm, officialSpec.product_length_cm, pvs.product_length_cm) AS productLengthCm");
+        assertAli1688ProductSpecOnly(itemSql);
+        assertThat(itemSql).contains("ali1688Spec.product_length_cm AS productLengthCm");
 
         Method productOptionsMethod = ProcurementPurchaseOrderMapper.class.getMethod(
                 "listProductOptions",
@@ -271,8 +272,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
         );
         String productOptionsSql = String.join(" ", productOptionsMethod.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");
-        assertProductSpecFallback(productOptionsSql);
-        assertThat(productOptionsSql).contains("COALESCE(pvss.source_type, warehouseSpec.source_type, ali1688Spec.source_type, officialSpec.source_type, pvs.source_type) AS spec_source_type");
+        assertAli1688ProductSpecOnly(productOptionsSql);
+        assertThat(productOptionsSql).contains("ali1688Spec.source_type AS spec_source_type");
 
         Method quoteMethod = ProcurementPurchaseOrderMapper.class.getMethod(
                 "listLogisticsQuoteCandidatesByOrder",
@@ -280,8 +281,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
         );
         String quoteSql = String.join(" ", quoteMethod.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");
-        assertProductSpecFallback(quoteSql);
-        assertThat(quoteSql).contains("COALESCE(pvss.carton_quantity, warehouseSpec.carton_quantity, ali1688Spec.carton_quantity, officialSpec.carton_quantity, pvs.carton_quantity) AS cartonQuantity");
+        assertAli1688ProductSpecOnly(quoteSql);
+        assertThat(quoteSql).contains("ali1688Spec.carton_quantity AS cartonQuantity");
     }
 
     @Test
@@ -675,14 +676,12 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 .doesNotContain("CASE WHEN pv.partner_sku = #{psku}");
     }
 
-    private static void assertProductSpecFallback(String sql) {
+    private static void assertAli1688ProductSpecOnly(String sql) {
         assertThat(sql)
-                .contains("LEFT JOIN product_variant_spec_source pvss")
-                .contains("LEFT JOIN product_variant_spec_source warehouseSpec")
-                .contains("warehouseSpec.source_type = 'warehouse'")
                 .contains("LEFT JOIN product_variant_spec_source ali1688Spec")
                 .contains("ali1688Spec.source_type = 'ali1688'")
-                .contains("LEFT JOIN product_variant_spec_source officialSpec")
-                .contains("officialSpec.source_type = 'noon_official'");
+                .doesNotContain("pvs.effective_source_id")
+                .doesNotContain("warehouseSpec.source_type = 'warehouse'")
+                .doesNotContain("officialSpec.source_type = 'noon_official'");
     }
 }
