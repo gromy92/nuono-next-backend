@@ -2,8 +2,14 @@ package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.nuono.next.product.ProductDetailBaselineDailyBackfillService;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,6 +17,41 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class NoonProductListPullAdapterTest {
+
+    @Test
+    void shouldStartDailyBaselineAuditOnlyWhenRequestedAndKeepListApplySuccessfulOnAuditFailure() {
+        CapturingProjectionWriter writer = new CapturingProjectionWriter();
+        ProductDetailBaselineDailyBackfillService dailyBackfill =
+                mock(ProductDetailBaselineDailyBackfillService.class);
+        when(dailyBackfill.enqueueMissingAfterDailyList(307L, "STR245027-NAE", "AE"))
+                .thenThrow(new IllegalStateException("temporary audit failure"));
+        NoonProductListPullAdapter adapter = new NoonProductListPullAdapter(writer);
+        adapter.setDetailBaselineDailyBackfillService(dailyBackfill);
+        NoonProductListApplyCommand command = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .sourceBatchId("noon-interface-product-130000")
+                .automaticDetailBackfill(true)
+                .items(List.of())
+                .build();
+
+        assertDoesNotThrow(() -> adapter.apply(command));
+        verify(dailyBackfill).enqueueMissingAfterDailyList(307L, "STR245027-NAE", "AE");
+
+        ProductDetailBaselineDailyBackfillService manualBackfill =
+                mock(ProductDetailBaselineDailyBackfillService.class);
+        NoonProductListPullAdapter manualAdapter = new NoonProductListPullAdapter(writer);
+        manualAdapter.setDetailBaselineDailyBackfillService(manualBackfill);
+        NoonProductListApplyCommand manualCommand = NoonProductListApplyCommand.builder()
+                .ownerUserId(307L)
+                .storeCode("STR245027-NAE")
+                .siteCode("AE")
+                .items(List.of())
+                .build();
+        manualAdapter.apply(manualCommand);
+        verify(manualBackfill, never()).enqueueMissingAfterDailyList(307L, "STR245027-NAE", "AE");
+    }
 
     @Test
     void shouldConvertProductListPayloadIntoProjectionSeedsWithoutDraftOrPublishSideEffects() {

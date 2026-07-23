@@ -11,6 +11,7 @@ public class NoonProductListApplyCommand {
     private String storeCode;
     private String siteCode;
     private String sourceBatchId;
+    private boolean automaticDetailBackfill;
     private List<Map<String, Object>> items = new ArrayList<>();
 
     public static Builder builder() {
@@ -39,6 +40,10 @@ public class NoonProductListApplyCommand {
 
     public String getSourceBatchId() {
         return sourceBatchId;
+    }
+
+    public boolean isAutomaticDetailBackfill() {
+        return automaticDetailBackfill;
     }
 
     public List<Map<String, Object>> getItems() {
@@ -75,6 +80,11 @@ public class NoonProductListApplyCommand {
 
         public Builder sourceBatchId(String sourceBatchId) {
             command.sourceBatchId = sourceBatchId;
+            return this;
+        }
+
+        public Builder automaticDetailBackfill(boolean automaticDetailBackfill) {
+            command.automaticDetailBackfill = automaticDetailBackfill;
             return this;
         }
 
