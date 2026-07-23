@@ -22,7 +22,7 @@ class NoonCatalogAuthCookieExportTest {
 
         NoonCatalogAuthCookieExport cookieExport = new NoonCatalogAuthCookieExport(cookieManager);
         cookieExport.prefer(CATALOG_URI);
-        cookieExport.capturePreferredRequestCookieHeader(CATALOG_URI);
+        cookieExport.captureRequestCookieHeader(CATALOG_URI);
 
         String exported = cookieExport.exportAuthCookieHeader();
 

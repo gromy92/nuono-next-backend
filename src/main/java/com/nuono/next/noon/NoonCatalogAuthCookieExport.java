@@ -18,7 +18,7 @@ final class NoonCatalogAuthCookieExport {
     private final CookieManager cookieManager;
     private volatile String preferredHost;
     private volatile URI preferredUri;
-    private volatile String preferredHeader;
+    private volatile String latestRequestHeader;
 
     NoonCatalogAuthCookieExport(CookieManager cookieManager) {
         this.cookieManager = cookieManager;
@@ -29,12 +29,7 @@ final class NoonCatalogAuthCookieExport {
         preferredUri = targetUri;
     }
 
-    void capturePreferredRequestCookieHeader(URI requestUri) {
-        String expectedHost = normalizeDomain(preferredHost);
-        String requestHost = requestUri == null ? "" : normalizeDomain(requestUri.getHost());
-        if (!StringUtils.hasText(expectedHost) || !expectedHost.equals(requestHost)) {
-            return;
-        }
+    void captureRequestCookieHeader(URI requestUri) {
         try {
             Map<String, List<String>> requestHeaders = cookieManager.get(requestUri, Map.of());
             List<String> cookieHeaders = requestHeaders.get("Cookie");
@@ -44,7 +39,7 @@ final class NoonCatalogAuthCookieExport {
             if (cookieHeaders != null && !cookieHeaders.isEmpty()) {
                 String joined = String.join("; ", cookieHeaders);
                 if (StringUtils.hasText(joined)) {
-                    preferredHeader = joined;
+                    latestRequestHeader = joined;
                 }
             }
         } catch (IOException ignored) {
@@ -55,7 +50,7 @@ final class NoonCatalogAuthCookieExport {
     String exportAuthCookieHeader() {
         Map<String, HttpCookie> selectedCookies = new LinkedHashMap<>();
         Set<String> preferredNames = new LinkedHashSet<>();
-        for (Map.Entry<String, String> cookie : parseCookieHeader(preferredHeader).entrySet()) {
+        for (Map.Entry<String, String> cookie : parseCookieHeader(latestRequestHeader).entrySet()) {
             String normalizedName = cookie.getKey().toLowerCase(Locale.ROOT);
             selectedCookies.put(normalizedName, new HttpCookie(cookie.getKey(), cookie.getValue()));
             preferredNames.add(normalizedName);

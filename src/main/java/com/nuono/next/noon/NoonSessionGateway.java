@@ -2639,8 +2639,8 @@ public class NoonSessionGateway {
                     if (requestRecorder != null) {
                         requestRecorder.accept(request.uri().toString());
                     }
-                    authCookieExport.capturePreferredRequestCookieHeader(request.uri());
                     HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
+                    authCookieExport.captureRequestCookieHeader(request.uri());
                     lastRequestAtMillis = System.currentTimeMillis();
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
