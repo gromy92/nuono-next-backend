@@ -298,14 +298,10 @@ public class LocalDbStoreInitializationService {
                                 text(hitNode, "child_sku")
                         );
                     }
-                    if (!StringUtils.hasText(entry.barcode)) {
-                        entry.barcode = firstNonBlank(
-                                firstArrayText(hitNode, "partner_barcodes"),
-                                text(hitNode, "barcode"),
-                                text(hitNode, "gtin"),
-                                text(hitNode, "ean"),
-                                text(hitNode, "upc")
-                        );
+                    List<String> hitBarcodes = NoonProductListFieldSupport.barcodes(hitNode);
+                    if (!hitBarcodes.isEmpty()) {
+                        entry.barcodes.addAll(hitBarcodes);
+                        entry.barcode = firstNonBlank(entry.barcode, hitBarcodes.get(0));
                     }
                     if (!StringUtils.hasText(entry.title)) {
                         entry.title = text(hitNode.path("content"), "title");
@@ -338,11 +334,7 @@ public class LocalDbStoreInitializationService {
                     siteOfferEntry.currency = firstNonBlank(siteOfferEntry.currency, text(hitNode, "currency"));
                     siteOfferEntry.barcode = firstNonBlank(
                             siteOfferEntry.barcode,
-                            firstArrayText(hitNode, "partner_barcodes"),
-                            text(hitNode, "barcode"),
-                            text(hitNode, "gtin"),
-                            text(hitNode, "ean"),
-                            text(hitNode, "upc")
+                            firstItem(hitBarcodes)
                     );
                     siteOfferEntry.originalPrice = firstNonBlank(
                             siteOfferEntry.originalPrice,
@@ -827,7 +819,7 @@ public class LocalDbStoreInitializationService {
             seed.setPartnerSku(productItem.partnerSku);
             seed.setChildSku(productItem.catalogSku);
             seed.setProductSourceType(ProductSourceTypeSupport.resolve(null, productItem.catalogSku, productItem.skuParent));
-            seed.setBarcode(productItem.barcode);
+            seed.setBarcodes(new ArrayList<>(productItem.barcodes));
             seed.setPskuCode(productItem.pskuCode);
             seed.setOfferCode(productItem.offerCode);
             seed.setReferenceStoreCode(productItem.storeCode);
@@ -1730,25 +1722,6 @@ public class LocalDbStoreInitializationService {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    private String firstArrayText(JsonNode node, String fieldName) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        JsonNode valueNode = node.path(fieldName);
-        if (!valueNode.isArray()) {
-            return null;
-        }
-        for (JsonNode itemNode : valueNode) {
-            if (itemNode != null && !itemNode.isMissingNode() && !itemNode.isNull()) {
-                String value = itemNode.asText();
-                if (StringUtils.hasText(value)) {
-                    return value.trim();
-                }
-            }
-        }
-        return null;
-    }
-
     private Boolean booleanValue(JsonNode node, String fieldName) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
@@ -1994,6 +1967,7 @@ public class LocalDbStoreInitializationService {
         private String imageUrl;
         private List<String> galleryImages = new ArrayList<>();
         private String barcode;
+        private final Set<String> barcodes = new LinkedHashSet<>();
         private String currency;
         private String price;
         private String originalPrice;

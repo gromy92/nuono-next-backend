@@ -78,6 +78,7 @@ public class ProductProjectionPersistenceService {
     private static final int RECOVERABLE_SNAPSHOT_LOOKBACK_LIMIT = 50;
 
     private final ProductManagementMapper productManagementMapper;
+    private final ProductBarcodeProjectionWriter productBarcodeProjectionWriter;
     private final CoreTableStatusMapper coreTableStatusMapper;
     private final BootstrapProperties bootstrapProperties;
     private final ObjectMapper objectMapper;
@@ -95,6 +96,7 @@ public class ProductProjectionPersistenceService {
             ProductGroupProjectionService productGroupProjectionService
     ) {
         this.productManagementMapper = productManagementMapper;
+        this.productBarcodeProjectionWriter = new ProductBarcodeProjectionWriter(productManagementMapper);
         this.coreTableStatusMapper = coreTableStatusMapper;
         this.bootstrapProperties = bootstrapProperties;
         this.objectMapper = objectMapper;
@@ -284,7 +286,7 @@ public class ProductProjectionPersistenceService {
         if (variantId == null) {
             return;
         }
-        persistBarcode(
+        productBarcodeProjectionWriter.persist(
                 variantId,
                 productMasterId,
                 logicalStoreId,
@@ -2700,14 +2702,16 @@ public class ProductProjectionPersistenceService {
         if (variantId == null) {
             return;
         }
-        persistBarcode(
-                variantId,
-                productMasterId,
-                logicalStoreId,
-                seed.getPartnerSku(),
-                seed.getBarcode(),
-                updatedBy
-        );
+        for (String barcode : seed.getBarcodes()) {
+            productBarcodeProjectionWriter.persist(
+                    variantId,
+                    productMasterId,
+                    logicalStoreId,
+                    seed.getPartnerSku(),
+                    barcode,
+                    updatedBy
+            );
+        }
         if (seed.getSiteOffers().isEmpty()) {
             seed.addSiteOffer(SiteOfferSeed.fromRepresentative(seed));
         }
@@ -2869,44 +2873,6 @@ public class ProductProjectionPersistenceService {
                 identity.partnerSku(),
                 identity.siteCode()
         );
-    }
-
-    private void persistBarcode(
-            Long variantId,
-            Long productMasterId,
-            Long logicalStoreId,
-            String partnerSku,
-            String barcode,
-            Long updatedBy
-    ) {
-        String normalizedBarcode = normalize(barcode);
-        String normalizedPartnerSku = normalize(partnerSku);
-        if (variantId == null
-                || productMasterId == null
-                || logicalStoreId == null
-                || !StringUtils.hasText(normalizedPartnerSku)
-                || !StringUtils.hasText(normalizedBarcode)) {
-            return;
-        }
-        Long activeId = productManagementMapper.selectProductBarcodeIdByBarcode(normalizedBarcode);
-        Long id = activeId != null ? activeId : productManagementMapper.nextProductBarcodeId();
-        productManagementMapper.upsertProductBarcode(
-                id,
-                variantId,
-                productMasterId,
-                logicalStoreId,
-                normalizedPartnerSku,
-                normalizedBarcode,
-                null,
-                true,
-                updatedBy
-        );
-        Long persistedProductMasterId = productManagementMapper.selectProductBarcodeProductMasterIdByBarcode(normalizedBarcode);
-        if (!productMasterId.equals(persistedProductMasterId)) {
-            throw new IllegalStateException(
-                    "Barcode " + normalizedBarcode + " is already assigned to another product."
-            );
-        }
     }
 
     private Long resolveProductMasterId(
@@ -4757,6 +4723,7 @@ public class ProductProjectionPersistenceService {
         private String sizeEn;
         private String sizeAr;
         private String barcode;
+        private List<String> barcodes = new ArrayList<>();
         private String pskuCode;
         private String offerCode;
         private String referenceStoreCode;
@@ -5039,6 +5006,16 @@ public class ProductProjectionPersistenceService {
 
         public void setBarcode(String barcode) {
             this.barcode = barcode;
+            this.barcodes = StringUtils.hasText(barcode) ? List.of(barcode) : List.of();
+        }
+
+        public List<String> getBarcodes() {
+            return barcodes;
+        }
+
+        public void setBarcodes(List<String> barcodes) {
+            this.barcodes = barcodes == null ? List.of() : List.copyOf(barcodes);
+            this.barcode = this.barcodes.isEmpty() ? null : this.barcodes.get(0);
         }
 
         public String getPskuCode() {
