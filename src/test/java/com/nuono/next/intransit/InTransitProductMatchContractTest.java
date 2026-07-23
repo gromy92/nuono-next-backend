@@ -38,7 +38,9 @@ class InTransitProductMatchContractTest {
         assertThat(officialWarehouse)
                 .contains("countPendingProductMatchesForBatches")
                 .contains("条商品待匹配，请先在在途物流中重新匹配");
-        assertThat(productPreparation).contains("prepareForStoreSite");
+        assertThat(productPreparation)
+                .contains("@PostMapping(\"/prepare\")")
+                .contains("prepareForStoreSite");
     }
 
     private String read(String path) throws Exception {
