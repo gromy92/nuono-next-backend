@@ -1625,13 +1625,11 @@ public interface ProcurementPurchaseOrderMapper {
             "  AND (shipping_order_no LIKE CONCAT('%', #{keyword}, '%') OR title LIKE CONCAT('%', #{keyword}, '%'))",
             "</if>",
             "ORDER BY gmt_create DESC, id DESC",
-            "LIMIT #{limit}",
             "</script>"
     })
     List<ShippingOrderRecord> listShippingOrders(
             @Param("ownerUserId") Long ownerUserId,
-            @Param("keyword") String keyword,
-            @Param("limit") Integer limit
+            @Param("keyword") String keyword
     );
 
     @Select({

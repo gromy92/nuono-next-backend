@@ -38,155 +38,101 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/warehouse/dispatch")
-public class WarehouseDispatchController extends WarehouseDispatchEndpointSupport {
+public class WarehousePackingController extends WarehouseDispatchEndpointSupport {
 
-    public WarehouseDispatchController(
+    public WarehousePackingController(
             ObjectProvider<LocalDbWarehouseDispatchService> serviceProvider,
             BusinessAccessResolver accessResolver
     ) {
         super(serviceProvider, accessResolver);
     }
 
-@PutMapping("/purchase-orders/{purchaseOrderId}/items/{purchaseOrderItemId}/fulfillment")
-    public FulfillmentItemView updateItemFulfillment(
-            @PathVariable String purchaseOrderId,
-            @PathVariable String purchaseOrderItemId,
-            @RequestBody UpdateFulfillmentCommand command,
+@PostMapping("/outbound-orders/{outboundOrderId}/packing-lists")
+    public PackingListView createPackingList(
+            @PathVariable String outboundOrderId,
+            @RequestBody(required = false) CreatePackingListCommand command,
             HttpServletRequest request
     ) {
         try {
-            return service().updateItemFulfillment(access(request), purchaseOrderId, purchaseOrderItemId, command);
+            return service().createPackingList(access(request), outboundOrderId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@PostMapping("/confirmations")
-    public ConfirmationView createConfirmation(
-            @RequestBody ConfirmationCommand command,
+@GetMapping("/outbound-orders/{outboundOrderId}/packing-lists")
+    public List<PackingListView> packingLists(
+            @PathVariable String outboundOrderId,
             HttpServletRequest request
     ) {
         try {
-            return service().createConfirmation(access(request), command);
+            return service().listPackingLists(access(request), outboundOrderId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/receipt-orders")
-    public List<PurchaseReceiptOrderView> receiptOrders(
-            @RequestParam(required = false) String keyword,
+@PutMapping("/packing-lists/{packingListId}/boxes")
+    public PackingListView replacePackingBoxes(
+            @PathVariable String packingListId,
+            @RequestBody ReplacePackingBoxesCommand command,
             HttpServletRequest request
     ) {
         try {
-            return service().listReceiptOrders(access(request), keyword);
+            return service().replacePackingBoxes(access(request), packingListId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/ready-items")
-    public List<ReadyItemView> readyItems(
-            @RequestParam(required = false) String siteCode,
-            @RequestParam(required = false) String fulfillmentType,
-            @RequestParam(required = false) String keyword,
+@PutMapping("/packing-lists/{packingListId}/boxes/{boxNo}")
+    public PackingListView savePackingBox(
+            @PathVariable String packingListId,
+            @PathVariable String boxNo,
+            @RequestBody PackingBoxCommand command,
             HttpServletRequest request
     ) {
         try {
-            return service().listReadyItems(access(request), siteCode, fulfillmentType, keyword);
+            return service().savePackingBox(access(request), packingListId, boxNo, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/purchase-order-logistics-comparisons")
-    public List<PurchaseOrderLogisticsComparisonView> purchaseOrderLogisticsComparisons(
-            @RequestParam(required = false, defaultValue = "10") Integer limit,
+@PostMapping("/packing-lists/{packingListId}/confirm")
+    public PackingListView confirmPackingList(
+            @PathVariable String packingListId,
             HttpServletRequest request
     ) {
         try {
-            return service().listPurchaseOrderLogisticsComparisons(access(request), limit);
+            return service().confirmPackingList(access(request), packingListId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/dispatch-plans")
-    public List<DispatchPlanView> dispatchPlans(HttpServletRequest request) {
+@PostMapping("/packing-lists/confirm-batch")
+    public List<PackingListView> confirmPackingLists(
+            @RequestBody ConfirmPackingListsCommand command,
+            HttpServletRequest request
+    ) {
         try {
-            return service().listDispatchPlans(access(request));
+            return service().confirmPackingLists(
+                    access(request),
+                    command == null ? null : command.packingListIds
+            );
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@PostMapping("/dispatch-plans")
-    public DispatchPlanView createDispatchPlan(
-            @RequestBody CreateDispatchPlanCommand command,
+@PostMapping("/packing-lists/{packingListId}/ship")
+    public PackingListView shipPackingList(
+            @PathVariable String packingListId,
             HttpServletRequest request
     ) {
         try {
-            return service().createDispatchPlan(access(request), command);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@PostMapping("/dispatch-plans/{dispatchPlanId}/ready-for-logistics")
-    public DispatchPlanView readyForLogistics(
-            @PathVariable String dispatchPlanId,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().readyForLogistics(access(request), dispatchPlanId);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@PostMapping("/dispatch-plans/{dispatchPlanId}/reopen-draft")
-    public DispatchPlanView reopenDraft(
-            @PathVariable String dispatchPlanId,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().reopenDraft(access(request), dispatchPlanId);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@GetMapping("/dispatch-plans/{dispatchPlanId}/logistics-handoff")
-    public LogisticsHandoffView logisticsHandoff(
-            @PathVariable String dispatchPlanId,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().getLogisticsHandoff(access(request), dispatchPlanId);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@PostMapping("/handoffs/{handoffRequestNo}/success")
-    public DispatchPlanView markHandoffSuccess(
-            @PathVariable String handoffRequestNo,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().markLogisticsHandoffSuccess(access(request), handoffRequestNo);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@PostMapping("/handoffs/failure")
-    public DispatchPlanView markHandoffFailure(
-            @RequestBody HandoffFailureCommand command,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().markLogisticsHandoffFailure(access(request), command);
+            return service().shipPackingList(access(request), packingListId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

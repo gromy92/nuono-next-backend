@@ -22,10 +22,17 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PurchaseReceiptOr
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PurchaseOrderLogisticsComparisonView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ReadyItemView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ShippingBatchView;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,155 +45,122 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/warehouse/dispatch")
-public class WarehouseDispatchController extends WarehouseDispatchEndpointSupport {
+public class WarehouseShippingBatchController extends WarehouseDispatchEndpointSupport {
 
-    public WarehouseDispatchController(
+    public WarehouseShippingBatchController(
             ObjectProvider<LocalDbWarehouseDispatchService> serviceProvider,
             BusinessAccessResolver accessResolver
     ) {
         super(serviceProvider, accessResolver);
     }
 
-@PutMapping("/purchase-orders/{purchaseOrderId}/items/{purchaseOrderItemId}/fulfillment")
-    public FulfillmentItemView updateItemFulfillment(
-            @PathVariable String purchaseOrderId,
-            @PathVariable String purchaseOrderItemId,
-            @RequestBody UpdateFulfillmentCommand command,
-            HttpServletRequest request
-    ) {
+@GetMapping("/shipping-batches")
+    public List<ShippingBatchView> shippingBatches(HttpServletRequest request) {
         try {
-            return service().updateItemFulfillment(access(request), purchaseOrderId, purchaseOrderItemId, command);
+            return service().listShippingBatches(access(request));
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@PostMapping("/confirmations")
-    public ConfirmationView createConfirmation(
-            @RequestBody ConfirmationCommand command,
+@PostMapping("/shipping-batches")
+    public ShippingBatchView createShippingBatch(
+            @RequestBody CreateShippingBatchCommand command,
             HttpServletRequest request
     ) {
         try {
-            return service().createConfirmation(access(request), command);
+            return service().createShippingBatch(access(request), command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/receipt-orders")
-    public List<PurchaseReceiptOrderView> receiptOrders(
-            @RequestParam(required = false) String keyword,
+@GetMapping("/shipping-batches/{shippingBatchId}")
+    public ShippingBatchView shippingBatch(
+            @PathVariable String shippingBatchId,
             HttpServletRequest request
     ) {
         try {
-            return service().listReceiptOrders(access(request), keyword);
+            return service().getShippingBatch(access(request), shippingBatchId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/ready-items")
-    public List<ReadyItemView> readyItems(
-            @RequestParam(required = false) String siteCode,
-            @RequestParam(required = false) String fulfillmentType,
-            @RequestParam(required = false) String keyword,
+@PostMapping("/shipping-batches/{shippingBatchId}/options")
+    public WarehouseDispatchViews.ShippingSuggestionOptionView createShippingTargetOption(
+            @PathVariable String shippingBatchId,
+            @RequestBody CreateShippingTargetOptionCommand command,
             HttpServletRequest request
     ) {
         try {
-            return service().listReadyItems(access(request), siteCode, fulfillmentType, keyword);
+            return service().createShippingTargetOption(access(request), shippingBatchId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/purchase-order-logistics-comparisons")
-    public List<PurchaseOrderLogisticsComparisonView> purchaseOrderLogisticsComparisons(
-            @RequestParam(required = false, defaultValue = "10") Integer limit,
+@PostMapping("/shipping-batches/{shippingBatchId}/options/{optionId}/select")
+    public ShippingBatchView selectShippingOption(
+            @PathVariable String shippingBatchId,
+            @PathVariable String optionId,
             HttpServletRequest request
     ) {
         try {
-            return service().listPurchaseOrderLogisticsComparisons(access(request), limit);
+            return service().selectShippingOption(access(request), shippingBatchId, optionId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@GetMapping("/dispatch-plans")
-    public List<DispatchPlanView> dispatchPlans(HttpServletRequest request) {
+@PostMapping("/shipping-batches/{shippingBatchId}/outbound-orders")
+    public List<OutboundOrderView> createOutboundOrders(
+            @PathVariable String shippingBatchId,
+            HttpServletRequest request
+    ) {
         try {
-            return service().listDispatchPlans(access(request));
+            return service().createOutboundOrders(access(request), shippingBatchId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@PostMapping("/dispatch-plans")
-    public DispatchPlanView createDispatchPlan(
-            @RequestBody CreateDispatchPlanCommand command,
+@GetMapping("/shipping-batches/{shippingBatchId}/outbound-orders")
+    public List<OutboundOrderView> outboundOrders(
+            @PathVariable String shippingBatchId,
             HttpServletRequest request
     ) {
         try {
-            return service().createDispatchPlan(access(request), command);
+            return service().listOutboundOrders(access(request), shippingBatchId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
-@PostMapping("/dispatch-plans/{dispatchPlanId}/ready-for-logistics")
-    public DispatchPlanView readyForLogistics(
-            @PathVariable String dispatchPlanId,
+@GetMapping("/shipping-batches/{shippingBatchId}/packing-list-export")
+    public ResponseEntity<byte[]> exportPackingList(
+            @PathVariable String shippingBatchId,
+            @RequestParam(required = false) String forwarderCode,
+            @RequestParam(required = false) String routeCode,
             HttpServletRequest request
     ) {
         try {
-            return service().readyForLogistics(access(request), dispatchPlanId);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@PostMapping("/dispatch-plans/{dispatchPlanId}/reopen-draft")
-    public DispatchPlanView reopenDraft(
-            @PathVariable String dispatchPlanId,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().reopenDraft(access(request), dispatchPlanId);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@GetMapping("/dispatch-plans/{dispatchPlanId}/logistics-handoff")
-    public LogisticsHandoffView logisticsHandoff(
-            @PathVariable String dispatchPlanId,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().getLogisticsHandoff(access(request), dispatchPlanId);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@PostMapping("/handoffs/{handoffRequestNo}/success")
-    public DispatchPlanView markHandoffSuccess(
-            @PathVariable String handoffRequestNo,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().markLogisticsHandoffSuccess(access(request), handoffRequestNo);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-@PostMapping("/handoffs/failure")
-    public DispatchPlanView markHandoffFailure(
-            @RequestBody HandoffFailureCommand command,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().markLogisticsHandoffFailure(access(request), command);
+            BusinessAccessContext access = access(request);
+            ShippingBatchView batch = service().getShippingBatch(access, shippingBatchId);
+            List<OutboundOrderView> orders = service().listOutboundOrders(access, shippingBatchId);
+            Map<String, List<PackingListView>> packingListsByOrder = new LinkedHashMap<>();
+            for (OutboundOrderView order : orders) {
+                packingListsByOrder.put(order.id, service().listPackingLists(access, order.id));
+            }
+            WarehousePackingWorkbookExporter.ExportFile export =
+                    WarehousePackingWorkbookExporter.export(
+                            batch, orders, packingListsByOrder, forwarderCode, routeCode
+                    );
+            String encoded = URLEncoder.encode(export.filename, StandardCharsets.UTF_8).replace("+", "%20");
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(WarehousePackingWorkbookExporter.CONTENT_TYPE))
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                    .body(export.content);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
