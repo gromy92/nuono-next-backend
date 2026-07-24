@@ -225,7 +225,6 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         record.localAsnNo = "OWA-501249";
         record.noonAsnNr = "A05693177PN";
         record.totalUnits = 102;
-        record.warehouseFrom = "CHIC";
         record.warehouseToPartnerCode = "RUH01S";
         record.warehouseToCode = "W00105371A";
         record.apStartDateValue = LocalDate.now().plusDays(1);

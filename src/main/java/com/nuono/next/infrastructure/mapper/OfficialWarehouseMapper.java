@@ -1126,12 +1126,12 @@ public interface OfficialWarehouseMapper {
     @Insert({
             "INSERT INTO official_warehouse_appointment (",
             "id, asn_id, owner_user_id, logical_store_id, store_code, store_name, site_code, project_code, partner_id,",
-            "local_asn_no, noon_asn_nr, total_units, warehouse_from, warehouse_to_partner_code, warehouse_to_code,",
+            "local_asn_no, noon_asn_nr, total_units, warehouse_to_partner_code, warehouse_to_code,",
             "ap_start_date, ap_end_date, ap_time_range, is_available_today, status, gate, docks, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.asnId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.storeCode}, #{row.storeName}, #{row.siteCode},",
             "#{row.projectCode}, #{row.partnerId}, #{row.localAsnNo}, #{row.noonAsnNr}, #{row.totalUnits},",
-            "#{row.warehouseFrom}, #{row.warehouseToPartnerCode}, #{row.warehouseToCode},",
+            "#{row.warehouseToPartnerCode}, #{row.warehouseToCode},",
             "#{row.apStartDate}, #{row.apEndDate}, #{row.apTimeRange}, #{row.availableToday}, #{row.status}, #{row.gate}, #{row.docks},",
             "b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
     })
@@ -1139,8 +1139,8 @@ public interface OfficialWarehouseMapper {
 
     @Update({
             "UPDATE official_warehouse_appointment",
-            "SET warehouse_from = #{row.warehouseFrom}, warehouse_to_partner_code = #{row.warehouseToPartnerCode},",
-            "    warehouse_to_code = #{row.warehouseToCode}, ap_start_date = #{row.apStartDate}, ap_end_date = #{row.apEndDate},",
+            "SET warehouse_to_partner_code = #{row.warehouseToPartnerCode}, warehouse_to_code = #{row.warehouseToCode},",
+            "    ap_start_date = #{row.apStartDate}, ap_end_date = #{row.apEndDate},",
             "    ap_time_range = #{row.apTimeRange}, is_available_today = #{row.availableToday}, status = #{row.status},",
             "    appointment_date = NULL, appointment_slot_id = NULL, appointment_time = NULL, gate = NULL, docks = NULL,",
             "    next_attempt_at = NULL, ap_success_time = NULL, error_stage = NULL, failure_type = NULL, error_message = NULL,",
@@ -1150,20 +1150,6 @@ public interface OfficialWarehouseMapper {
             "  AND is_deleted = b'0'"
     })
     int updateAppointmentRequest(@Param("row") AppointmentInsertRecord row);
-
-    @Update({
-            "UPDATE official_warehouse_appointment",
-            "SET warehouse_from = #{warehouseFrom}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
-            "WHERE id = #{appointmentId}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateAppointmentWarehouseFrom(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("appointmentId") Long appointmentId,
-            @Param("warehouseFrom") String warehouseFrom,
-            @Param("operatorUserId") Long operatorUserId
-    );
 
     @Update({
             "UPDATE official_warehouse_appointment",
@@ -1314,7 +1300,7 @@ public interface OfficialWarehouseMapper {
             "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
             "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
             "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
-            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
             "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
             "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
             "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
@@ -1338,7 +1324,7 @@ public interface OfficialWarehouseMapper {
             "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
             "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
             "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
-            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
             "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
             "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
             "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
@@ -1364,7 +1350,7 @@ public interface OfficialWarehouseMapper {
             "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
             "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
             "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
-            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
             "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
             "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
             "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
@@ -1412,7 +1398,7 @@ public interface OfficialWarehouseMapper {
             "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
             "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
             "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
-            "       warehouse_from AS warehouseFrom, warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
+            "       warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
             "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
             "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
             "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",

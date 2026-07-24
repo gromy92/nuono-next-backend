@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS `official_warehouse_appointment` (
     `local_asn_no` VARCHAR(120) NOT NULL,
     `noon_asn_nr` VARCHAR(120) NOT NULL,
     `total_units` INT NOT NULL,
-    `warehouse_from` VARCHAR(120) NOT NULL,
+    `warehouse_from` VARCHAR(120) DEFAULT NULL,
     `warehouse_to_partner_code` VARCHAR(80) NOT NULL,
     `warehouse_to_code` VARCHAR(100) DEFAULT NULL,
     `ap_start_date` DATE NOT NULL,

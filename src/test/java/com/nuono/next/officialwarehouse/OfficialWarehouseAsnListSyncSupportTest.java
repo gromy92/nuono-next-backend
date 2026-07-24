@@ -59,8 +59,6 @@ class OfficialWarehouseAsnListSyncSupportTest {
                 + "\"asn_nr\":\"A05508658PN\","
                 + "\"total_qty\":308,"
                 + "\"status\":\"grn_completed\","
-                + "\"warehouse_from\":\"HANK\","
-                + "\"warehouse_code_from\":\"W00752151SA\","
                 + "\"warehouse_to\":\"RUH01S\","
                 + "\"warehouse_code_to\":\"W00105371A\","
                 + "\"updated_at\":\"2026-06-13T13:58:39\","
@@ -82,7 +80,6 @@ class OfficialWarehouseAsnListSyncSupportTest {
         assertThat(parsed.noonUpdatedAt).isEqualTo(LocalDateTime.parse("2026-06-13T13:58:39"));
         assertThat(parsed.warehouseToPartnerCode).isEqualTo("RUH01S");
         assertThat(parsed.warehouseToCode).isEqualTo("W00105371A");
-        assertThat(parsed.warehouseFrom).isEqualTo("HANK");
     }
 
     @Test

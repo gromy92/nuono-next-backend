@@ -83,7 +83,7 @@ class OfficialWarehouseSchemaTest {
                 .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_appointment`")
                 .contains("`asn_id` BIGINT NOT NULL")
                 .contains("`noon_asn_nr` VARCHAR(120) NOT NULL")
-                .contains("`warehouse_from` VARCHAR(120) NOT NULL")
+                .contains("`warehouse_from` VARCHAR(120) DEFAULT NULL")
                 .contains("`warehouse_to_partner_code` VARCHAR(80) NOT NULL")
                 .contains("`ap_start_date` DATE NOT NULL")
                 .contains("`ap_end_date` DATE NOT NULL")
