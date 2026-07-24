@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class ProductDetailBaselineCandidateMapperSqlTest {
 
     @Test
-    void shouldSelectOnlyMaintainedProductsWithoutAFullBaselineInTheCurrentActiveSite() throws Exception {
+    void shouldSelectOnlyMaintainedProductsWithoutAnyUsableDetailInTheCurrentActiveSite() throws Exception {
         String sql = mapperSql();
 
         assertThat(sql).contains("ls.owner_user_id = #{ownerUserId}");
@@ -23,7 +23,9 @@ class ProductDetailBaselineCandidateMapperSqlTest {
         assertThat(sql).contains("NOT EXISTS");
         assertThat(sql).contains("FROM product_master_snapshot baseline");
         assertThat(sql).contains("baseline.snapshot_type = 'baseline'");
-        assertThat(sql).doesNotContain("product_public_detail_snapshot");
+        assertThat(sql).contains("FROM product_public_detail_snapshot public_detail");
+        assertThat(sql).contains("public_detail.sync_status IN ('SUCCEEDED', 'PARTIAL')");
+        assertThat(sql).contains("public_detail.is_latest = b'1'");
     }
 
     @Test
