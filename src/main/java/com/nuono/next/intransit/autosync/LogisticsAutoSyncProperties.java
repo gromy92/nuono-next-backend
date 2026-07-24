@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class LogisticsAutoSyncProperties {
     private String credentialCipherSecret;
     private Scheduler scheduler = new Scheduler();
+    private Scheduler freightBillScheduler = new Scheduler();
     private Chic chic = new Chic();
     private Et et = new Et();
     private Yite yite = new Yite();
@@ -25,6 +26,14 @@ public class LogisticsAutoSyncProperties {
 
     public void setScheduler(Scheduler scheduler) {
         this.scheduler = scheduler == null ? new Scheduler() : scheduler;
+    }
+
+    public Scheduler getFreightBillScheduler() {
+        return freightBillScheduler;
+    }
+
+    public void setFreightBillScheduler(Scheduler value) {
+        this.freightBillScheduler = value == null ? new Scheduler() : value;
     }
 
     public Chic getChic() {
@@ -105,6 +114,7 @@ public class LogisticsAutoSyncProperties {
         private String loginAccountField = "username";
         private String loginPasswordField = "password";
         private int timeoutSeconds = 30;
+        private String freightBillPath = "/api/order/report/list?customerName=&orderSn=&warehousingSn=&shippingNo=&status=&country=&transportMode=&statusTime=&page=1&rows=50";
 
         public boolean isEnabled() {
             return enabled;
@@ -153,6 +163,9 @@ public class LogisticsAutoSyncProperties {
         public void setTimeoutSeconds(int timeoutSeconds) {
             this.timeoutSeconds = timeoutSeconds;
         }
+
+        public String getFreightBillPath() { return freightBillPath; }
+        public void setFreightBillPath(String value) { this.freightBillPath = value; }
     }
 
     public static class Et {
@@ -229,6 +242,8 @@ public class LogisticsAutoSyncProperties {
         private String loginPasswordField = "password";
         private String loginPayloadType = "json";
         private int timeoutSeconds = 30;
+        private String freightBillPath;
+        private String freightBillMethod = "GET";
 
         public boolean isEnabled() {
             return enabled;
@@ -285,6 +300,11 @@ public class LogisticsAutoSyncProperties {
         public void setTimeoutSeconds(int timeoutSeconds) {
             this.timeoutSeconds = timeoutSeconds;
         }
+
+        public String getFreightBillPath() { return freightBillPath; }
+        public void setFreightBillPath(String value) { this.freightBillPath = value; }
+        public String getFreightBillMethod() { return freightBillMethod; }
+        public void setFreightBillMethod(String value) { this.freightBillMethod = value; }
     }
 
     public static class Zd {

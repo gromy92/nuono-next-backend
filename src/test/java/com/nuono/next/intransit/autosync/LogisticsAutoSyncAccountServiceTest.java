@@ -55,6 +55,8 @@ class LogisticsAutoSyncAccountServiceTest {
         assertThat(row.getEnabled()).isFalse();
         assertThat(row.getScheduleEnabled()).isFalse();
         assertThat(row.getCommitEnabled()).isTrue();
+        assertThat(row.getFreightBillScheduleEnabled()).isFalse();
+        assertThat(row.getFreightBillCommitEnabled()).isFalse();
         assertThat(row.getMinIntervalHours()).isEqualTo(168);
         assertThat(row.getVerificationStatus()).isEqualTo("UNVERIFIED");
         assertThat(row.getCreatedBy()).isEqualTo(501L);
@@ -180,6 +182,8 @@ class LogisticsAutoSyncAccountServiceTest {
         row.setEnabled(true);
         row.setScheduleEnabled(true);
         row.setCommitEnabled(false);
+        row.setFreightBillScheduleEnabled(true);
+        row.setFreightBillCommitEnabled(false);
         row.setScheduleWindowStart(LocalTime.of(1, 0));
         row.setScheduleWindowEnd(LocalTime.of(5, 30));
         row.setMinIntervalHours(24);
@@ -207,6 +211,8 @@ class LogisticsAutoSyncAccountServiceTest {
         assertThat(view.getEnabled()).isTrue();
         assertThat(view.getScheduleEnabled()).isTrue();
         assertThat(view.getCommitEnabled()).isFalse();
+        assertThat(view.getFreightBillScheduleEnabled()).isTrue();
+        assertThat(view.getFreightBillCommitEnabled()).isFalse();
         assertThat(view.getScheduleWindowStart()).isEqualTo(LocalTime.of(1, 0));
         assertThat(view.getScheduleWindowEnd()).isEqualTo(LocalTime.of(5, 30));
         assertThat(view.getMinIntervalHours()).isEqualTo(24);

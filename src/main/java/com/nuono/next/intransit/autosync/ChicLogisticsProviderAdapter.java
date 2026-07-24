@@ -44,7 +44,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
-public class ChicLogisticsProviderAdapter implements LogisticsProviderAdapter {
+public class ChicLogisticsProviderAdapter implements LogisticsProviderAdapter, FreightBillProviderAdapter {
     static final int DEFAULT_DETAIL_LIMIT = 10;
     static final int ORDER_REPORT_LIMIT = 50;
 
@@ -135,6 +135,39 @@ public class ChicLogisticsProviderAdapter implements LogisticsProviderAdapter {
             return LogisticsProviderFetchResult.failure(exception.failureCode, exception.getMessage());
         } catch (RuntimeException exception) {
             return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.PROVIDER_ERROR, "Chic 自动同步返回数据解析失败。");
+        }
+    }
+
+    @Override
+    public FreightBillFetchResult fetchFreightBills(LogisticsProviderFetchRequest request) {
+        LogisticsAutoSyncProperties.Chic chic = chicProperties();
+        if (!chic.isEnabled()) {
+            return FreightBillFetchResult.failure(
+                    LogisticsProviderFailureCode.CONFIGURATION_ERROR,
+                    "Chic 费用账单 HTTP 拉取未启用。"
+            );
+        }
+        if (!StringUtils.hasText(chic.getFreightBillPath())) {
+            return FreightBillFetchResult.failure(
+                    LogisticsProviderFailureCode.CONFIGURATION_ERROR,
+                    "Chic 费用账单缺少 freightBillPath 配置。"
+            );
+        }
+        if (request == null || !StringUtils.hasText(request.getLoginAccount()) || !StringUtils.hasText(request.getPassword())) {
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.INVALID_CREDENTIAL, "Chic 费用账单账号或密码为空。");
+        }
+        try {
+            FetchSession session = login(chic, request);
+            return FreightBillPayloadNormalizer.normalize("CHIC", get(session, chic.getFreightBillPath()));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "Chic 费用账单请求被中断。");
+        } catch (IOException exception) {
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "Chic 费用账单网络请求失败。");
+        } catch (ChicAuthenticationException exception) {
+            return FreightBillFetchResult.failure(exception.failureCode, exception.getMessage());
+        } catch (RuntimeException exception) {
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.PROVIDER_ERROR, "Chic 费用账单返回数据解析失败。");
         }
     }
 

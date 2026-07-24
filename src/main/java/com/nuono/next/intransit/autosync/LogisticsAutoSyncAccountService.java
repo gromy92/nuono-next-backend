@@ -99,6 +99,14 @@ public class LogisticsAutoSyncAccountService {
         row.setEnabled(Boolean.TRUE.equals(command.getEnabled()));
         row.setScheduleEnabled(Boolean.TRUE.equals(command.getScheduleEnabled()));
         row.setCommitEnabled(Boolean.TRUE.equals(command.getCommitEnabled()));
+        row.setFreightBillScheduleEnabled(resolveSwitch(
+                command.getFreightBillScheduleEnabled(),
+                existing == null ? null : existing.getFreightBillScheduleEnabled()
+        ));
+        row.setFreightBillCommitEnabled(resolveSwitch(
+                command.getFreightBillCommitEnabled(),
+                existing == null ? null : existing.getFreightBillCommitEnabled()
+        ));
         row.setScheduleWindowStart(command.getScheduleWindowStart());
         row.setScheduleWindowEnd(command.getScheduleWindowEnd());
         row.setMinIntervalHours(clampMinIntervalHours(command.getMinIntervalHours()));
@@ -119,10 +127,22 @@ public class LogisticsAutoSyncAccountService {
         row.setCooldownUntil(existing.getCooldownUntil());
         row.setLastFailureCode(existing.getLastFailureCode());
         row.setLastFailureMessage(existing.getLastFailureMessage());
+        row.setFreightBillLastPreviewStatus(existing.getFreightBillLastPreviewStatus());
+        row.setFreightBillLastSyncStatus(existing.getFreightBillLastSyncStatus());
+        row.setFreightBillLastTaskId(existing.getFreightBillLastTaskId());
+        row.setFreightBillLastSyncedAt(existing.getFreightBillLastSyncedAt());
+        row.setFreightBillNextEligibleAt(existing.getFreightBillNextEligibleAt());
+        row.setFreightBillCooldownUntil(existing.getFreightBillCooldownUntil());
+        row.setFreightBillLastFailureCode(existing.getFreightBillLastFailureCode());
+        row.setFreightBillLastFailureMessage(existing.getFreightBillLastFailureMessage());
         row.setCreatedBy(existing.getCreatedBy());
         row.setCreatedAt(existing.getCreatedAt());
         row.setUpdatedAt(existing.getUpdatedAt());
         return row;
+    }
+
+    private static boolean resolveSwitch(Boolean requested, Boolean existing) {
+        return requested == null ? Boolean.TRUE.equals(existing) : Boolean.TRUE.equals(requested);
     }
 
     private static void ensureSameOwner(LogisticsAutoSyncAccount existing, Long ownerUserId) {
