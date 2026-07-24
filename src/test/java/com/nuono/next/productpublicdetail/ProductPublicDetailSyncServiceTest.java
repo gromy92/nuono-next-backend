@@ -335,8 +335,8 @@ class ProductPublicDetailSyncServiceTest {
         ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
         ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
         when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
-        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
-        when(mapper.countCandidates(501L, "STR108065-NSA", "SA", 12, true)).thenReturn(3);
+        when(mapper.selectPreferredScope(501L, 601L, 0)).thenReturn(saScope);
+        when(mapper.countCandidates(501L, "STR108065-NSA", "SA", 0, true)).thenReturn(3);
 
         ProductPublicDetailStatusView status = service.syncStatus(contextWith108065Stores(), "STR108065-NAE", "AE");
 
@@ -350,16 +350,16 @@ class ProductPublicDetailSyncServiceTest {
         ProductPublicDetailScope aeScope = scope("STR108065-NAE", "AE");
         ProductPublicDetailScope saScope = scope("STR108065-NSA", "SA");
         when(mapper.selectActiveScope(501L, "STR108065-NAE", "AE")).thenReturn(aeScope);
-        when(mapper.selectPreferredScope(501L, 601L, 12)).thenReturn(saScope);
-        when(mapper.countCandidates(501L, "STR108065-NAE", "AE", 12, false)).thenReturn(5);
+        when(mapper.selectPreferredScope(501L, 601L, 0)).thenReturn(saScope);
+        when(mapper.countCandidates(501L, "STR108065-NAE", "AE", 0, false)).thenReturn(5);
 
         ProductPublicDetailStatusView status = service.syncStatus(contextWith108065AeStore(), "STR108065-NAE", "AE");
 
         assertEquals("STR108065-NAE", status.getStoreCode());
         assertEquals("AE", status.getSiteCode());
         assertEquals(5, status.getCandidateCount());
-        verify(mapper).countCandidates(501L, "STR108065-NAE", "AE", 12, false);
-        verify(mapper, never()).countCandidates(501L, "STR108065-NSA", "SA", 12, true);
+        verify(mapper).countCandidates(501L, "STR108065-NAE", "AE", 0, false);
+        verify(mapper, never()).countCandidates(501L, "STR108065-NSA", "SA", 0, true);
     }
 
     private static BusinessAccessContext context() {

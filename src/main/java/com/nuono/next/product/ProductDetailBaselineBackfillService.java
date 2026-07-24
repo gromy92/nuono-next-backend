@@ -1,7 +1,8 @@
 package com.nuono.next.product;
-
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.productpublicdetail.ProductPublicDetailFetchResult;
+import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskPayload;
 import com.nuono.next.system.task.OperationalTaskService;
@@ -14,50 +15,42 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-
 @Service
 @Profile("local-db")
 public class ProductDetailBaselineBackfillService {
     static final String TASK_TYPE = "product.detail-baseline-backfill";
-
     private static final Logger log = LoggerFactory.getLogger(ProductDetailBaselineBackfillService.class);
     private static final String PREPARING_MESSAGE = "正在后台补齐详情基线。";
     private static final String FAILED_MESSAGE = "详情基线补齐失败，请稍后重试。";
-
     private final OperationalTaskService operationalTaskService;
     private final TaskSubmitter taskSubmitter;
     private final BiFunction<Long, String, Long> storeScopeResolver;
-
+    private final DetailFrontendFetcher frontendFetcher;
     @Autowired
     public ProductDetailBaselineBackfillService(
             OperationalTaskService operationalTaskService,
             NoonAccountTaskQueue noonAccountTaskQueue,
-            ProductManagementMapper productManagementMapper
+            ProductManagementMapper productManagementMapper,
+            ProductDetailFrontendFetchService frontendFetchService
     ) {
         this(
                 operationalTaskService,
                 noonAccountTaskQueue == null ? null : noonAccountTaskQueue::submit,
-                productManagementMapper == null ? null : productManagementMapper::selectLogicalStoreIdByOwnerStoreCode
+                productManagementMapper == null ? null : productManagementMapper::selectLogicalStoreIdByOwnerStoreCode,
+                frontendFetchService == null ? null : frontendFetchService::fetch
         );
     }
-
-    ProductDetailBaselineBackfillService(
-            OperationalTaskService operationalTaskService,
-            TaskSubmitter taskSubmitter
-    ) {
-        this(operationalTaskService, taskSubmitter, null);
-    }
-
     ProductDetailBaselineBackfillService(
             OperationalTaskService operationalTaskService,
             TaskSubmitter taskSubmitter,
-            BiFunction<Long, String, Long> storeScopeResolver
+            BiFunction<Long, String, Long> storeScopeResolver,
+            DetailFrontendFetcher frontendFetcher
     ) {
         this.operationalTaskService = operationalTaskService;
         this.taskSubmitter = taskSubmitter == null ? (accountKey, task) -> task.run() : taskSubmitter;
         this.storeScopeResolver = storeScopeResolver;
+        this.frontendFetcher = frontendFetcher;
     }
-
     public String enqueue(
             ProductMasterFetchCommand command,
             String reason,
@@ -74,7 +67,6 @@ public class ProductDetailBaselineBackfillService {
         if (active.isPresent()) {
             return "preparing";
         }
-
         ProductMasterFetchCommand backfillCommand = copyFetchCommand(command);
         OperationalTask task = operationalTaskService.start(
                 TASK_TYPE,
@@ -92,7 +84,6 @@ public class ProductDetailBaselineBackfillService {
         );
         return "preparing";
     }
-
     public BackfillState state(Long ownerUserId, String storeCode, String skuParent) {
         if (operationalTaskService == null) {
             return null;
@@ -100,7 +91,6 @@ public class ProductDetailBaselineBackfillService {
         String naturalKey = naturalKey(ownerUserId, storeCode, skuParent);
         return stateByNaturalKey(naturalKey);
     }
-
     public BackfillState stateForLogicalStore(Long ownerUserId, Long logicalStoreId, String skuParent) {
         if (operationalTaskService == null) {
             return null;
@@ -108,7 +98,6 @@ public class ProductDetailBaselineBackfillService {
         String naturalKey = naturalKeyForLogicalStore(ownerUserId, logicalStoreId, skuParent);
         return stateByNaturalKey(naturalKey);
     }
-
     private BackfillState stateByNaturalKey(String naturalKey) {
         if (!StringUtils.hasText(naturalKey)) {
             return null;
@@ -127,7 +116,6 @@ public class ProductDetailBaselineBackfillService {
         }
         return null;
     }
-
     public void cancel(ProductMasterFetchCommand command, String message) {
         if (operationalTaskService == null) {
             return;
@@ -139,7 +127,6 @@ public class ProductDetailBaselineBackfillService {
         operationalTaskService.findActive(TASK_TYPE, naturalKey)
                 .ifPresent((task) -> operationalTaskService.cancel(task.getId(), message));
     }
-
     private void runBackfill(
             Long taskId,
             ProductMasterFetchCommand command,
@@ -148,6 +135,28 @@ public class ProductDetailBaselineBackfillService {
     ) {
         try {
             operationalTaskService.progress(taskId, 10, PREPARING_MESSAGE);
+            ProductPublicDetailFetchResult frontendResult = frontendFetcher == null
+                    ? ProductPublicDetailFetchResult.of(
+                            ProductPublicDetailSyncStatus.FAILED,
+                            "Noon 前台详情拉取服务不可用。"
+                    )
+                    : frontendFetcher.fetch(command, taskId);
+            if (frontendResult != null && frontendResult.isUsable()) {
+                operationalTaskService.complete(taskId, "{\"ready\":true,\"source\":\"NOON_FRONTEND\"}", "Noon 前台详情已准备。");
+                return;
+            }
+            if (frontendResult == null || !frontendResult.isExplicitlyNotFound()) {
+                operationalTaskService.fail(
+                        taskId,
+                        "PRODUCT_DETAIL_FRONTEND_FETCH_FAILED",
+                        firstNonBlank(
+                                frontendResult == null ? null : frontendResult.getMessage(),
+                                "Noon 前台详情拉取失败；未回退商家后台。"
+                        )
+                );
+                return;
+            }
+            operationalTaskService.progress(taskId, 50, "Noon 前台明确未找到商品，正在回退商家后台详情接口。");
             ProductMasterSnapshotView snapshot = runner.fetch(
                     command,
                     "detail-baseline-backfill." + normalizeReason(reason)
@@ -174,7 +183,6 @@ public class ProductDetailBaselineBackfillService {
             );
         }
     }
-
     private void safeFail(Long taskId, String errorCode, String message) {
         try {
             operationalTaskService.fail(taskId, errorCode, message);
@@ -182,14 +190,12 @@ public class ProductDetailBaselineBackfillService {
             log.debug("operational task {} was already terminal while recording detail baseline failure", taskId);
         }
     }
-
     private String naturalKey(ProductMasterFetchCommand command) {
         if (command == null) {
             return null;
         }
         return naturalKey(command.getOwnerUserId(), command.getStoreCode(), command.getSkuParent());
     }
-
     private String naturalKey(Long ownerUserId, String storeCode, String skuParent) {
         if (ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(skuParent)) {
             return null;
@@ -199,7 +205,6 @@ public class ProductDetailBaselineBackfillService {
                 + "|" + storeScopeKey
                 + "|skuParent:" + normalize(skuParent);
     }
-
     private String naturalKeyForLogicalStore(Long ownerUserId, Long logicalStoreId, String skuParent) {
         if (ownerUserId == null || logicalStoreId == null || !StringUtils.hasText(skuParent)) {
             return null;
@@ -208,7 +213,6 @@ public class ProductDetailBaselineBackfillService {
                 + "|logicalStore:" + logicalStoreId
                 + "|skuParent:" + normalize(skuParent);
     }
-
     private String storeScopeKey(Long ownerUserId, String storeCode) {
         Long logicalStoreId = resolveLogicalStoreId(ownerUserId, storeCode);
         if (logicalStoreId != null) {
@@ -216,7 +220,6 @@ public class ProductDetailBaselineBackfillService {
         }
         return "store:" + normalize(storeCode);
     }
-
     private Long resolveLogicalStoreId(Long ownerUserId, String storeCode) {
         if (storeScopeResolver == null || ownerUserId == null || !StringUtils.hasText(storeCode)) {
             return null;
@@ -233,14 +236,12 @@ public class ProductDetailBaselineBackfillService {
             return null;
         }
     }
-
     private String accountKey(ProductMasterFetchCommand command) {
         if (command == null) {
             return null;
         }
         return command.getOwnerUserId() + "::" + normalize(command.getStoreCode());
     }
-
     private ProductMasterFetchCommand copyFetchCommand(ProductMasterFetchCommand source) {
         ProductMasterFetchCommand copy = new ProductMasterFetchCommand();
         if (source == null) {
@@ -255,7 +256,6 @@ public class ProductDetailBaselineBackfillService {
         copy.setPskuCode(source.getPskuCode());
         return copy;
     }
-
     private String payloadJson(ProductMasterFetchCommand command, String reason) {
         return "{"
                 + "\"ownerUserId\":" + command.getOwnerUserId()
@@ -264,7 +264,6 @@ public class ProductDetailBaselineBackfillService {
                 + ",\"reason\":\"" + jsonEscape(normalizeReason(reason)) + "\""
                 + "}";
     }
-
     private String normalizeReason(String reason) {
         String normalized = normalize(reason);
         if (!StringUtils.hasText(normalized)) {
@@ -272,7 +271,6 @@ public class ProductDetailBaselineBackfillService {
         }
         return normalized.replaceAll("[^a-zA-Z0-9_.-]", "-");
     }
-
     private String jsonEscape(String value) {
         if (value == null) {
             return "";
@@ -284,41 +282,37 @@ public class ProductDetailBaselineBackfillService {
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
     }
-
     private String normalize(String value) {
         if (!StringUtils.hasText(value)) {
             return null;
         }
         return value.trim();
     }
-
     private String firstNonBlank(String first, String second) {
         return StringUtils.hasText(first) ? first : second;
     }
-
+    @FunctionalInterface
+    interface DetailFrontendFetcher {
+        ProductPublicDetailFetchResult fetch(ProductMasterFetchCommand command, Long taskId);
+    }
     @FunctionalInterface
     interface DetailBaselineBackfillRunner {
         ProductMasterSnapshotView fetch(ProductMasterFetchCommand command, String reason);
     }
-
     @FunctionalInterface
     interface TaskSubmitter {
         void submit(String accountKey, Runnable task);
     }
-
     public static final class BackfillState {
         private final String status;
         private final String message;
-
         BackfillState(String status, String message) {
             this.status = status;
             this.message = message;
         }
-
         public String getStatus() {
             return status;
         }
-
         public String getMessage() {
             return message;
         }

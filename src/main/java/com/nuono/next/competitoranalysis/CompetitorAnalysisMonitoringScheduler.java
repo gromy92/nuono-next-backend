@@ -106,11 +106,11 @@ public class CompetitorAnalysisMonitoringScheduler {
     }
 
     public int runRankOnce() {
-        return runOnce("rank", this::submitRankMonitoring);
+        return runOnce("rank", this::submitRankMonitoring, Math.max(1, maxScopesPerTick));
     }
 
     public int runDetailOnce() {
-        return runOnce("detail", this::submitDetailMonitoring);
+        return runOnce("detail", this::submitDetailMonitoring, Integer.MAX_VALUE);
     }
 
     public int runRankFailureCompensationOnce() {
@@ -144,13 +144,13 @@ public class CompetitorAnalysisMonitoringScheduler {
         }
     }
 
-    private int runOnce(String executionMode, ScopeSubmitter submitter) {
+    private int runOnce(String executionMode, ScopeSubmitter submitter, int scopeLimit) {
         if (!enabled) {
             return 0;
         }
         runTaskRecoveryOnce();
         List<CompetitorWatchProductScopeRow> scopes = mapper.listRefreshableWatchProductScopes(
-                Math.max(1, maxScopesPerTick)
+                scopeLimit
         );
         int submitted = 0;
         for (CompetitorWatchProductScopeRow scope : scopes) {
