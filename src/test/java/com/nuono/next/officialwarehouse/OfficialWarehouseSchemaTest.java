@@ -18,8 +18,7 @@ class OfficialWarehouseSchemaTest {
                 "classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql",
                 "classpath:db/init/136_official_warehouse_appointment.sql",
                 "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql",
-                "classpath:db/init/188_official_warehouse_asn_sync_throttle.sql",
-                "classpath:db/init/201_official_warehouse_remove_departure_dependency.sql"
+                "classpath:db/init/188_official_warehouse_asn_sync_throttle.sql"
         );
     }
 
