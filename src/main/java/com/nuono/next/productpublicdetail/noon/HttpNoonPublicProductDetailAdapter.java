@@ -43,13 +43,11 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     private final HttpClient httpClient;
     private final Duration requestTimeout;
     private final String publicBaseUrl;
-    private final String catalogBaseUrl;
     private final String customerCatalogV3BaseUrl;
     private final String configuredFrontendCookieHeader;
     private final boolean chromeFrontendCookieEnabled;
     private final Supplier<String> frontendCookieHeaderSupplier;
     private final boolean curlEnabled;
-    private final boolean catalogPartnerFallbackEnabled;
 
     @Autowired
     public HttpNoonPublicProductDetailAdapter(
@@ -57,25 +55,21 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             @Value("${nuono.product-public-detail.noon.connect-timeout-seconds:5}") int connectTimeoutSeconds,
             @Value("${nuono.product-public-detail.noon.request-timeout-seconds:20}") int requestTimeoutSeconds,
             @Value("${nuono.product-public-detail.noon.public-base-url:https://www.noon.com}") String publicBaseUrl,
-            @Value("${nuono.product-public-detail.noon.catalog-base-url:https://noon-catalog.noon.partners/_svc/catalog/api/u}") String catalogBaseUrl,
             @Value("${nuono.product-public-detail.noon.customer-catalog-v3-base-url:https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u}") String customerCatalogV3BaseUrl,
             @Value("${nuono.product-public-detail.noon.frontend-cookie-header:}") String configuredFrontendCookieHeader,
             @Value("${nuono.product-public-detail.noon.chrome-frontend-cookie-enabled:false}") boolean chromeFrontendCookieEnabled,
-            @Value("${nuono.product-public-detail.noon.curl-enabled:true}") boolean curlEnabled,
-            @Value("${nuono.product-public-detail.noon.catalog-partner-fallback-enabled:false}") boolean catalogPartnerFallbackEnabled
+            @Value("${nuono.product-public-detail.noon.curl-enabled:true}") boolean curlEnabled
     ) {
         this(
                 parser,
                 Duration.ofSeconds(Math.max(1, connectTimeoutSeconds)),
                 Duration.ofSeconds(Math.max(3, requestTimeoutSeconds)),
                 publicBaseUrl,
-                catalogBaseUrl,
                 customerCatalogV3BaseUrl,
                 configuredFrontendCookieHeader,
                 chromeFrontendCookieEnabled,
                 ChromeNoonCookieSupport::loadNoonFrontendCookieHeader,
-                curlEnabled,
-                catalogPartnerFallbackEnabled
+                curlEnabled
         );
     }
 
@@ -111,123 +105,16 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             boolean chromeFrontendCookieEnabled,
             Supplier<String> frontendCookieHeaderSupplier,
             boolean curlEnabled
-    ) {
-        this(
-                parser,
-                connectTimeout,
-                requestTimeout,
-                publicBaseUrl,
-                customerCatalogV3BaseUrl,
-                configuredFrontendCookieHeader,
-                chromeFrontendCookieEnabled,
-                frontendCookieHeaderSupplier,
-                curlEnabled,
-                true
-        );
-    }
-
-    HttpNoonPublicProductDetailAdapter(
-            NoonFrontendSearchPageParser parser,
-            Duration connectTimeout,
-            Duration requestTimeout,
-            String publicBaseUrl,
-            String customerCatalogV3BaseUrl,
-            String configuredFrontendCookieHeader,
-            boolean chromeFrontendCookieEnabled,
-            Supplier<String> frontendCookieHeaderSupplier,
-            boolean curlEnabled,
-            boolean catalogPartnerFallbackEnabled
-    ) {
-        this(
-                parser,
-                connectTimeout,
-                requestTimeout,
-                publicBaseUrl,
-                "https://noon-catalog.noon.partners/_svc/catalog/api/u",
-                customerCatalogV3BaseUrl,
-                configuredFrontendCookieHeader,
-                chromeFrontendCookieEnabled,
-                frontendCookieHeaderSupplier,
-                curlEnabled,
-                catalogPartnerFallbackEnabled
-        );
-    }
-
-    HttpNoonPublicProductDetailAdapter(
-            NoonFrontendSearchPageParser parser,
-            Duration connectTimeout,
-            Duration requestTimeout,
-            String publicBaseUrl,
-            String catalogBaseUrl,
-            String customerCatalogV3BaseUrl,
-            String configuredFrontendCookieHeader,
-            boolean curlEnabled
-    ) {
-        this(
-                parser,
-                connectTimeout,
-                requestTimeout,
-                publicBaseUrl,
-                catalogBaseUrl,
-                customerCatalogV3BaseUrl,
-                configuredFrontendCookieHeader,
-                false,
-                () -> null,
-                curlEnabled
-        );
-    }
-
-    HttpNoonPublicProductDetailAdapter(
-            NoonFrontendSearchPageParser parser,
-            Duration connectTimeout,
-            Duration requestTimeout,
-            String publicBaseUrl,
-            String catalogBaseUrl,
-            String customerCatalogV3BaseUrl,
-            String configuredFrontendCookieHeader,
-            boolean chromeFrontendCookieEnabled,
-            Supplier<String> frontendCookieHeaderSupplier,
-            boolean curlEnabled
-    ) {
-        this(
-                parser,
-                connectTimeout,
-                requestTimeout,
-                publicBaseUrl,
-                catalogBaseUrl,
-                customerCatalogV3BaseUrl,
-                configuredFrontendCookieHeader,
-                chromeFrontendCookieEnabled,
-                frontendCookieHeaderSupplier,
-                curlEnabled,
-                true
-        );
-    }
-
-    HttpNoonPublicProductDetailAdapter(
-            NoonFrontendSearchPageParser parser,
-            Duration connectTimeout,
-            Duration requestTimeout,
-            String publicBaseUrl,
-            String catalogBaseUrl,
-            String customerCatalogV3BaseUrl,
-            String configuredFrontendCookieHeader,
-            boolean chromeFrontendCookieEnabled,
-            Supplier<String> frontendCookieHeaderSupplier,
-            boolean curlEnabled,
-            boolean catalogPartnerFallbackEnabled
     ) {
         this.parser = parser;
         this.objectMapper = new ObjectMapper();
         this.requestTimeout = requestTimeout == null ? Duration.ofSeconds(20) : requestTimeout;
         this.publicBaseUrl = normalizeBaseUrl(publicBaseUrl);
-        this.catalogBaseUrl = normalizeCatalogBaseUrl(catalogBaseUrl);
         this.customerCatalogV3BaseUrl = normalizeCustomerCatalogV3BaseUrl(customerCatalogV3BaseUrl);
         this.configuredFrontendCookieHeader = configuredFrontendCookieHeader == null ? "" : configuredFrontendCookieHeader.trim();
         this.chromeFrontendCookieEnabled = chromeFrontendCookieEnabled;
         this.frontendCookieHeaderSupplier = frontendCookieHeaderSupplier == null ? () -> null : frontendCookieHeaderSupplier;
         this.curlEnabled = curlEnabled;
-        this.catalogPartnerFallbackEnabled = catalogPartnerFallbackEnabled;
         this.httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(connectTimeout == null ? Duration.ofSeconds(5) : connectTimeout)
@@ -277,64 +164,30 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 try {
                     return fetchFrontendHtmlSearch(searchRequest, code);
                 } catch (NoonSearchProviderException ignored) {
-                    // Continue to the configured legacy fallback decision below.
+                    // Preserve the original frontend provider failure below.
                 } catch (Exception ignored) {
-                    // Continue to the configured legacy fallback decision below.
+                    // Preserve the original frontend provider failure below.
                 }
-                if (!catalogPartnerFallbackEnabled) {
-                    return mapProviderException(code, exception);
-                }
-                try {
-                    return fetchCatalogPartner(searchRequest, code);
-                } catch (NoonSearchProviderException fallbackException) {
-                    return mapProviderException(code, fallbackException);
-                } catch (Exception fallbackException) {
-                    return failed(
-                            code,
-                            "PROVIDER_UNAVAILABLE",
-                            "Noon catalog partner 公开搜索暂不可用：" + shrink(fallbackException.getMessage(), 180),
-                            null,
-                            buildCatalogSearchUrl(searchRequest),
-                            null,
-                            null
-                    );
-                }
+                return mapProviderException(code, exception);
             }
             return mapProviderException(code, exception);
         } catch (Exception exception) {
             try {
                 return fetchFrontendHtmlSearch(searchRequest, code);
             } catch (NoonSearchProviderException ignored) {
-                // Continue to the configured legacy fallback decision below.
+                // Report the original frontend transport failure below.
             } catch (Exception ignored) {
-                // Continue to the configured legacy fallback decision below.
+                // Report the original frontend transport failure below.
             }
-            if (!catalogPartnerFallbackEnabled) {
-                return failed(
-                        code,
-                        "PROVIDER_UNAVAILABLE",
-                        "Noon 前台公开搜索暂不可用：" + shrink(exception.getMessage(), 180),
-                        null,
-                        url,
-                        null,
-                        null
-                );
-            }
-            try {
-                return fetchCatalogPartner(searchRequest, code);
-            } catch (NoonSearchProviderException fallbackException) {
-                return mapProviderException(code, fallbackException);
-            } catch (Exception fallbackException) {
-                return failed(
-                        code,
-                        "PROVIDER_UNAVAILABLE",
-                        "Noon catalog partner 公开搜索暂不可用：" + shrink(fallbackException.getMessage(), 180),
-                        null,
-                        buildCatalogSearchUrl(searchRequest),
-                        null,
-                        null
-                );
-            }
+            return failed(
+                    code,
+                    "PROVIDER_UNAVAILABLE",
+                    "Noon 前台公开搜索暂不可用：" + shrink(exception.getMessage(), 180),
+                    null,
+                    url,
+                    null,
+                    null
+            );
         }
     }
 
@@ -571,21 +424,6 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         return partial(code, exact, page);
     }
 
-    private NoonPublicProductDetailResult fetchCatalogPartner(NoonSearchRequest searchRequest, String code) throws Exception {
-        String url = buildCatalogSearchUrl(searchRequest);
-        String frontendCookieHeader = loadFrontendCookieHeader(url);
-        NoonSearchPage page = curlEnabled
-                ? fetchSearchPageWithCurl(searchRequest, url, frontendCookieHeader)
-                : fetchSearchPageWithHttp(searchRequest, url, frontendCookieHeader);
-        NoonSearchResult exact = findExact(page, code);
-        if (exact == null) {
-            NoonPublicProductDetailResult result = notFound(code, page, "PUBLIC_DETAIL_NOT_FOUND", "Noon catalog partner exact search 未返回该商品码。");
-            result.setProviderSourceUrl(url);
-            return result;
-        }
-        return partial(code, exact, page);
-    }
-
     NoonSearchPage fetchSearchPageWithHttp(NoonSearchRequest request, String url, String frontendCookieHeader) throws IOException, InterruptedException {
         HttpResponse<String> response = httpClient.send(
                 buildCustomerCatalogV3SearchRequest(request, url, frontendCookieHeader),
@@ -702,18 +540,6 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 + "/"
                 + URLEncoder.encode(code == null ? "" : code, StandardCharsets.UTF_8)
                 + "/p";
-    }
-
-    String buildCatalogSearchUrl(NoonSearchRequest request) {
-        String path = marketPath(request == null ? null : request.getSiteCode(), request == null ? null : request.getLocale());
-        String keyword = request == null ? "" : trim(request.getKeyword());
-        int limit = request == null || request.getLimit() == null ? 20 : Math.max(1, Math.min(request.getLimit(), 30));
-        return catalogBaseUrl
-                + path
-                + "/search?q="
-                + URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8)
-                + "&limit="
-                + limit;
     }
 
     String buildFrontendHtmlSearchUrl(NoonSearchRequest request) {
@@ -1281,13 +1107,6 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
 
     private String normalizeBaseUrl(String value) {
         String normalized = StringUtils.hasText(value) ? value.trim() : "https://www.noon.com";
-        return normalized.endsWith("/") ? normalized.substring(0, normalized.length() - 1) : normalized;
-    }
-
-    private String normalizeCatalogBaseUrl(String value) {
-        String normalized = StringUtils.hasText(value)
-                ? value.trim()
-                : "https://noon-catalog.noon.partners/_svc/catalog/api/u";
         return normalized.endsWith("/") ? normalized.substring(0, normalized.length() - 1) : normalized;
     }
 

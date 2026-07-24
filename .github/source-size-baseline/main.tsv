@@ -172,7 +172,7 @@ src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderViews.java
 src/main/java/com/nuono/next/procurementorder/PurchaseOrderLogisticsCostCalculator.java	443
 src/main/java/com/nuono/next/product/LocalDbProductMasterService.java	4654
 src/main/java/com/nuono/next/product/ProductAttributeTemplateService.java	1014
-src/main/java/com/nuono/next/product/ProductDetailBaselineBackfillService.java	326
+src/main/java/com/nuono/next/product/ProductDetailBaselineBackfillService.java	320
 src/main/java/com/nuono/next/product/ProductGroupProjectionService.java	440
 src/main/java/com/nuono/next/product/ProductGroupPublishService.java	350
 src/main/java/com/nuono/next/product/ProductImageMetadataService.java	407
@@ -207,8 +207,8 @@ src/main/java/com/nuono/next/productlisting/ProductListingDraftProjectionFields.
 src/main/java/com/nuono/next/productlisting/ProductListingService.java	1716
 src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1555
 src/main/java/com/nuono/next/productlogisticscost/ProductLogisticsCostLedgerService.java	898
-src/main/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncService.java	752
-src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1327
+src/main/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncService.java	706
+src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1146
 src/main/java/com/nuono/next/productselection/Ali1688CandidateAiAssessmentService.java	377
 src/main/java/com/nuono/next/productselection/Ali1688PluginAssignmentService.java	544
 src/main/java/com/nuono/next/productselection/AmazonExternalCrawlerSourceCollector.java	533

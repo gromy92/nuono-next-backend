@@ -34,9 +34,9 @@ public class ProductPublicDetailSyncScheduler {
         this.mapper = mapper;
         this.syncService = syncService;
         this.enabled = enabled;
-        this.maxScopesPerTick = Math.max(1, Math.min(maxScopesPerTick, 500));
+        this.maxScopesPerTick = Integer.MAX_VALUE;
         this.staleDays = Math.max(1, staleDays);
-        this.failureCooldownHours = Math.max(1, failureCooldownHours);
+        this.failureCooldownHours = 0;
     }
 
     @Autowired(required = false)
