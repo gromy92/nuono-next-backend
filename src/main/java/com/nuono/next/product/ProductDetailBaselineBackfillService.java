@@ -51,22 +51,18 @@ public class ProductDetailBaselineBackfillService {
         this.storeScopeResolver = storeScopeResolver;
         this.frontendFetcher = frontendFetcher;
     }
-    public String enqueue(
-            ProductMasterFetchCommand command,
-            String reason,
-            DetailBaselineBackfillRunner runner
-    ) {
-        if (operationalTaskService == null || runner == null) {
-            return "disabled";
-        }
+    public String enqueue(ProductMasterFetchCommand command, String reason, DetailBaselineBackfillRunner runner) {
+        return enqueue(command, reason, runner, true);
+    }
+    String enqueueInline(ProductMasterFetchCommand command, String reason, DetailBaselineBackfillRunner runner) {
+        return enqueue(command, reason, runner, false);
+    }
+    private String enqueue(ProductMasterFetchCommand command, String reason, DetailBaselineBackfillRunner runner, boolean async) {
+        if (operationalTaskService == null || runner == null) return "disabled";
         String naturalKey = naturalKey(command);
-        if (!StringUtils.hasText(naturalKey)) {
-            return "skipped";
-        }
+        if (!StringUtils.hasText(naturalKey)) return "skipped";
         Optional<OperationalTask> active = operationalTaskService.findActive(TASK_TYPE, naturalKey);
-        if (active.isPresent()) {
-            return "preparing";
-        }
+        if (active.isPresent()) return "preparing";
         ProductMasterFetchCommand backfillCommand = copyFetchCommand(command);
         OperationalTask task = operationalTaskService.start(
                 TASK_TYPE,
@@ -78,10 +74,14 @@ public class ProductDetailBaselineBackfillService {
                         .message(PREPARING_MESSAGE)
                         .build()
         );
-        taskSubmitter.submit(
-                accountKey(backfillCommand),
-                () -> runBackfill(task.getId(), backfillCommand, reason, runner)
-        );
+        if (async) {
+            taskSubmitter.submit(
+                    accountKey(backfillCommand),
+                    () -> runBackfill(task.getId(), backfillCommand, reason, runner)
+            );
+        } else {
+            runBackfill(task.getId(), backfillCommand, reason, runner);
+        }
         return "preparing";
     }
     public BackfillState state(Long ownerUserId, String storeCode, String skuParent) {
