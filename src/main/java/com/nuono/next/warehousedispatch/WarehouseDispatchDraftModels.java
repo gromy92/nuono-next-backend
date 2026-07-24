@@ -25,6 +25,7 @@ import org.springframework.util.StringUtils;
 
 final class PendingDispatchLine {
     final FulfillmentBalanceRecord firstBalance;
+    final String siteCode;
     final String actualTransportMode;
     final String fulfillmentType;
     final String specStatus;
@@ -32,11 +33,13 @@ final class PendingDispatchLine {
 
     PendingDispatchLine(
             FulfillmentBalanceRecord firstBalance,
+            String siteCode,
             String actualTransportMode,
             String fulfillmentType,
             String specStatus
     ) {
         this.firstBalance = firstBalance;
+        this.siteCode = siteCode;
         this.actualTransportMode = actualTransportMode;
         this.fulfillmentType = fulfillmentType;
         this.specStatus = specStatus;
@@ -53,7 +56,7 @@ final class PendingDispatchLine {
         record.skuParent = firstBalance.skuParent;
         record.titleCache = firstBalance.titleCache;
         record.imageUrlCache = firstBalance.imageUrlCache;
-        record.siteCode = firstBalance.siteCode;
+        record.siteCode = siteCode;
         record.actualTransportMode = actualTransportMode;
         record.fulfillmentType = fulfillmentType;
         record.specStatus = specStatus;
@@ -65,10 +68,12 @@ final class PendingDispatchLine {
 
 final class PendingDispatchSource {
     final FulfillmentBalanceRecord balance;
+    final String plannedTransportMode;
     final Integer quantity;
 
-    PendingDispatchSource(FulfillmentBalanceRecord balance, Integer quantity) {
+    PendingDispatchSource(FulfillmentBalanceRecord balance, String plannedTransportMode, Integer quantity) {
         this.balance = balance;
+        this.plannedTransportMode = plannedTransportMode;
         this.quantity = quantity;
     }
 
@@ -91,7 +96,7 @@ final class PendingDispatchSource {
         record.purchaseOrderNo = balance.purchaseOrderNo;
         record.purchaseOrderItemId = balance.purchaseOrderItemId;
         record.purchaseOrderItemSiteId = balance.purchaseOrderItemSiteId;
-        record.plannedTransportMode = balance.plannedTransportMode;
+        record.plannedTransportMode = plannedTransportMode;
         record.fulfillmentType = fulfillmentType;
         record.quantity = quantity;
         return record;

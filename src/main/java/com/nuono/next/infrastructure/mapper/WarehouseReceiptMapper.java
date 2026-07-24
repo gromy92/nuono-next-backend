@@ -97,12 +97,14 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>#{storeCode}</foreach>",
             "</if>",
             "<if test='siteCode != null and siteCode != \"\"'>",
-            "  AND balance.site_code = #{siteCode}",
+            "  AND COALESCE(NULLIF(balance.target_site_code, ''), balance.site_code) = #{siteCode}",
             "</if>",
             "<if test='fulfillmentType != null and fulfillmentType != \"\"'>",
             "  AND balance.fulfillment_type = #{fulfillmentType}",
             "</if>",
-            "ORDER BY balance.product_variant_id ASC, balance.site_code ASC, balance.fulfillment_type ASC, balance.purchase_order_id ASC, balance.id ASC",
+            "ORDER BY balance.product_variant_id ASC, COALESCE(NULLIF(balance.target_site_code, ''), balance.site_code) ASC,",
+            "         COALESCE(NULLIF(balance.target_transport_mode, ''), balance.planned_transport_mode) ASC,",
+            "         balance.fulfillment_type ASC, balance.purchase_order_id ASC, balance.id ASC",
             "</script>"
     })
     List<FulfillmentBalanceRecord> listReadyBalances(

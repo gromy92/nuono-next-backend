@@ -91,7 +91,10 @@ protected ReadySourceView toReadySourceView(FulfillmentBalanceRecord balance) {
         source.purchaseOrderTitle = balance.purchaseOrderTitle;
         source.purchaseOrderItemId = balance.purchaseOrderItemId;
         source.purchaseOrderItemSiteId = balance.purchaseOrderItemSiteId;
+        source.siteCode = balance.siteCode;
         source.plannedTransportMode = normalizeTransportMode(balance.plannedTransportMode);
+        source.targetSiteCode = resolvedSiteCode(balance);
+        source.targetTransportMode = resolvedTransportMode(balance);
         source.logisticsQuoteStatus = normalizeLogisticsQuoteStatus(balance.logisticsQuoteStatus);
         source.logisticsShippingSubmitStatus = normalizeShippingSubmitStatus(balance.logisticsShippingSubmitStatus);
         source.logisticsQuoteBlocking = logisticsQuoteBlocks(balance);

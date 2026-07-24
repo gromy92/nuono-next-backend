@@ -87,6 +87,65 @@ protected String normalizeSiteCode(String value) {
         return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : null;
     }
 
+protected String requireLogisticsSiteCode(String value) {
+        String normalized = normalizeSiteCode(value);
+        if (!"SA".equals(normalized) && !"AE".equals(normalized)) {
+            throw new IllegalArgumentException("物流站点必须为 SA 或 AE。");
+        }
+        return normalized;
+    }
+
+protected String requireLogisticsTransportMode(String value) {
+        String normalized = normalizeTransportMode(value);
+        if (!TRANSPORT_AIR.equals(normalized) && !TRANSPORT_SEA.equals(normalized)) {
+            throw new IllegalArgumentException("运输方式必须为空运或海运。");
+        }
+        return normalized;
+    }
+
+protected String resolvedSiteCode(FulfillmentBalanceRecord balance) {
+        return normalizeSiteCode(defaultText(balance.targetSiteCode, balance.siteCode));
+    }
+
+protected String resolvedTransportMode(FulfillmentBalanceRecord balance) {
+        return normalizeTransportMode(defaultText(balance.targetTransportMode, balance.plannedTransportMode));
+    }
+
+protected String effectiveSiteCode(FulfillmentBalanceRecord balance) {
+        return requireLogisticsSiteCode(resolvedSiteCode(balance));
+    }
+
+protected String effectiveSiteCode(FulfillmentBalanceRecord balance, String requestedSiteCode) {
+        return requireLogisticsSiteCode(defaultText(
+                requestedSiteCode,
+                defaultText(balance.targetSiteCode, balance.siteCode)
+        ));
+    }
+
+protected String effectiveTransportMode(FulfillmentBalanceRecord balance) {
+        return requireLogisticsTransportMode(resolvedTransportMode(balance));
+    }
+
+protected String effectiveTransportMode(FulfillmentBalanceRecord balance, String requestedTransportMode) {
+        return requireLogisticsTransportMode(defaultText(
+                requestedTransportMode,
+                defaultText(balance.targetTransportMode, balance.plannedTransportMode)
+        ));
+    }
+
+protected String logisticsPartitionKey(String siteCode, String transportMode) {
+        return requireLogisticsSiteCode(siteCode) + "|" + requireLogisticsTransportMode(transportMode);
+    }
+
+protected void requireSingleLogisticsPartition(Collection<String> partitionKeys) {
+        if (partitionKeys == null || partitionKeys.isEmpty()) {
+            throw new IllegalArgumentException("物流分区不能为空。");
+        }
+        if (new LinkedHashSet<>(partitionKeys).size() != 1) {
+            throw new IllegalArgumentException("请选择同一物流分区（相同站点和运输方式）的商品。");
+        }
+    }
+
 protected String requiredText(String value, String message) {
         if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(message);
