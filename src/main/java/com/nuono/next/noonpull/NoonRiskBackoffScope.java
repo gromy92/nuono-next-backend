@@ -1,9 +1,19 @@
 package com.nuono.next.noonpull;
 
 import java.util.Locale;
+import java.util.Set;
 import org.springframework.util.StringUtils;
 
 public class NoonRiskBackoffScope {
+    private static final String PARTNER_ACCOUNT_WIDE_OPERATION = "NOON";
+    private static final String PUBLIC_ACCOUNT_WIDE_OPERATION = "NOON_PUBLIC";
+    private static final Set<String> PUBLIC_OPERATION_GROUPS = Set.of(
+            "PUBLIC_DETAIL",
+            "PUBLIC_SEARCH",
+            "SOURCE_COLLECTION",
+            PUBLIC_ACCOUNT_WIDE_OPERATION
+    );
+
     private final String scopeType;
     private final Long ownerUserId;
     private final String storeCode;
@@ -74,12 +84,50 @@ public class NoonRiskBackoffScope {
         return new NoonRiskBackoffScope("OWNER_STORE_SITE", ownerUserId, storeCode, siteCode, "SOURCE_COLLECTION");
     }
 
+    /**
+     * Partner-backoffice account-wide scope. The persisted {@code NOON} operation name is retained
+     * for compatibility with existing report, interface and official-warehouse holds.
+     */
     public static NoonRiskBackoffScope allNoon(Long ownerUserId, String storeCode, String siteCode) {
-        return new NoonRiskBackoffScope("OWNER_STORE_SITE", ownerUserId, storeCode, siteCode, "NOON");
+        return new NoonRiskBackoffScope(
+                "OWNER_STORE_SITE",
+                ownerUserId,
+                storeCode,
+                siteCode,
+                PARTNER_ACCOUNT_WIDE_OPERATION
+        );
+    }
+
+    /**
+     * Consumer-frontoffice account-wide scope, isolated from Partner authentication and risk state.
+     */
+    public static NoonRiskBackoffScope allPublicNoon(Long ownerUserId, String storeCode, String siteCode) {
+        return new NoonRiskBackoffScope(
+                "OWNER_STORE_SITE",
+                ownerUserId,
+                storeCode,
+                siteCode,
+                PUBLIC_ACCOUNT_WIDE_OPERATION
+        );
     }
 
     NoonRiskBackoffScope accountWide() {
-        return allNoon(ownerUserId, storeCode, siteCode);
+        return isPublicOperation()
+                ? allPublicNoon(ownerUserId, storeCode, siteCode)
+                : allNoon(ownerUserId, storeCode, siteCode);
+    }
+
+    private boolean isPublicOperation() {
+        return PUBLIC_OPERATION_GROUPS.contains(operationGroup);
+    }
+
+    boolean acceptsAccountWideSourceDomain(String sourceDomain) {
+        if (!PARTNER_ACCOUNT_WIDE_OPERATION.equals(operationGroup)
+                && !PUBLIC_ACCOUNT_WIDE_OPERATION.equals(operationGroup)) {
+            return true;
+        }
+        boolean publicSource = PUBLIC_OPERATION_GROUPS.contains(normalize(sourceDomain));
+        return PUBLIC_ACCOUNT_WIDE_OPERATION.equals(operationGroup) == publicSource;
     }
 
     public String getScopeType() {

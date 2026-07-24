@@ -364,7 +364,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 NoonRiskBackoffScope.publicSearch(501L, "STR108065-NSA", "SA").getScopeKey()
         ).getRiskType());
         assertEquals("rate_limited", riskRepository.selectLatestHold(
-                NoonRiskBackoffScope.allNoon(501L, "STR108065-NSA", "SA").getScopeKey()
+                NoonRiskBackoffScope.allPublicNoon(501L, "STR108065-NSA", "SA").getScopeKey()
         ).getRiskType());
         verify(keywordRefreshRunner, times(1)).runKeyword(220123L, watchProduct, rateLimitedKeyword, null);
         verify(keywordRefreshRunner, never()).runKeyword(220123L, watchProduct, skippedKeyword, null);
@@ -675,9 +675,9 @@ class CompetitorAnalysisRefreshServiceTest {
         CapturingRiskBackoffRepository repository = new CapturingRiskBackoffRepository();
         NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository);
         guard.recordRiskSignal(
-                NoonRiskBackoffScope.allNoon(501L, "STR108065-NSA", "SA"),
+                NoonRiskBackoffScope.allPublicNoon(501L, "STR108065-NSA", "SA"),
                 "blocked_by_risk_control",
-                "REPORT",
+                "PUBLIC_SEARCH",
                 130001L,
                 LocalDateTime.now().plusMinutes(5),
                 "blocked"

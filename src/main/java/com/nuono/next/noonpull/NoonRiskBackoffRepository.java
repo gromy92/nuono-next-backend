@@ -7,7 +7,13 @@ public interface NoonRiskBackoffRepository {
 
     NoonRiskBackoffHold selectActiveHold(String scopeKey, LocalDateTime now);
 
-    default NoonRiskBackoffHold selectActiveAccountWideHold(Long ownerUserId, String storeCode, String siteCode, LocalDateTime now) {
+    default NoonRiskBackoffHold selectActiveAccountWideHold(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            String operationGroup,
+            LocalDateTime now
+    ) {
         return null;
     }
 
