@@ -18,7 +18,8 @@ class OfficialWarehouseSchemaTest {
                 "classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql",
                 "classpath:db/init/136_official_warehouse_appointment.sql",
                 "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql",
-                "classpath:db/init/188_official_warehouse_asn_sync_throttle.sql"
+                "classpath:db/init/188_official_warehouse_asn_sync_throttle.sql",
+                "classpath:db/init/201_official_warehouse_remove_departure_dependency.sql"
         );
     }
 
@@ -83,7 +84,7 @@ class OfficialWarehouseSchemaTest {
                 .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_appointment`")
                 .contains("`asn_id` BIGINT NOT NULL")
                 .contains("`noon_asn_nr` VARCHAR(120) NOT NULL")
-                .contains("`warehouse_from` VARCHAR(120) NOT NULL")
+                .contains("`warehouse_from` VARCHAR(120) DEFAULT NULL")
                 .contains("`warehouse_to_partner_code` VARCHAR(80) NOT NULL")
                 .contains("`ap_start_date` DATE NOT NULL")
                 .contains("`ap_end_date` DATE NOT NULL")

@@ -30,7 +30,6 @@ public class OfficialWarehouseAppointmentRunner {
             return RunResult.failed("VALIDATION", "缺少 Noon 约仓客户端。");
         }
         AsnDetail detail = client.queryAsnDetail(task);
-        applyAsnWarehouseFrom(task, detail);
         String status = normalize(detail == null ? null : detail.status);
         if (isNoonFailureStatus(status)) {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
@@ -71,7 +70,6 @@ public class OfficialWarehouseAppointmentRunner {
             return List.of();
         }
         AsnDetail detail = client.queryAsnDetail(task);
-        applyAsnWarehouseFrom(task, detail);
         String status = normalize(detail == null ? null : detail.status);
         if (isNoonFailureStatus(status)) {
             return List.of();
@@ -93,7 +91,7 @@ public class OfficialWarehouseAppointmentRunner {
             slots.sort(Comparator.comparingInt((SlotCapacity slot) -> slot.idSlot == null ? -1 : slot.idSlot).reversed());
             for (SlotCapacity slot : slots) {
                 if (matchesTimeRange(slot, acceptedHours)) {
-                    availableSlots.add(new AvailableSlot(capacityDate, slot.idSlot, slot.name, task.warehouseFrom, detail.warehouseFromCode));
+                    availableSlots.add(new AvailableSlot(capacityDate, slot.idSlot, slot.name));
                 }
             }
         }
@@ -116,7 +114,6 @@ public class OfficialWarehouseAppointmentRunner {
             return RunResult.failed("VALIDATION", "请选择可用仓位时段。");
         }
         AsnDetail detail = client.queryAsnDetail(task);
-        applyAsnWarehouseFrom(task, detail);
         String status = normalize(detail == null ? null : detail.status);
         if (isNoonFailureStatus(status)) {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
@@ -143,19 +140,9 @@ public class OfficialWarehouseAppointmentRunner {
         return end == null || !date.isAfter(end);
     }
 
-    private static void applyAsnWarehouseFrom(AppointmentTask task, AsnDetail detail) {
-        if (task != null
-                && !StringUtils.hasText(task.warehouseFrom)
-                && detail != null
-                && StringUtils.hasText(detail.warehouseFrom)) {
-            task.warehouseFrom = detail.warehouseFrom.trim();
-        }
-    }
-
     private static RunResult waitUntilReadyForSchedule(AppointmentTask task, NoonAppointmentClient client) {
         for (int attempt = 0; attempt < MAX_SEALED_CHECK_ATTEMPTS; attempt++) {
             AsnDetail detail = client.queryAsnDetail(task);
-            applyAsnWarehouseFrom(task, detail);
             String status = normalize(detail == null ? null : detail.status);
             if (isNoonFailureStatus(status)) {
                 return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
@@ -188,7 +175,6 @@ public class OfficialWarehouseAppointmentRunner {
             return null;
         }
         AsnDetail confirmed = client.queryAsnDetail(task);
-        applyAsnWarehouseFrom(task, confirmed);
         String confirmedStatus = normalize(confirmed == null ? null : confirmed.status);
         if (isNoonScheduledStatus(confirmedStatus)) {
             return RunResult.scheduled(appointmentDate, slot.idSlot, slot.name);
@@ -330,7 +316,6 @@ public class OfficialWarehouseAppointmentRunner {
         public Integer totalUnits;
         public String warehouseTo;
         public String warehouseToCode;
-        public String warehouseFrom;
         public LocalDate apStartDate;
         public LocalDate apEndDate;
         public String apTimeRange;
@@ -339,21 +324,9 @@ public class OfficialWarehouseAppointmentRunner {
 
     public static class AsnDetail {
         public final String status;
-        public final String warehouseFrom;
-        public final String warehouseFromCode;
 
         public AsnDetail(String status) {
-            this(status, null, null);
-        }
-
-        public AsnDetail(String status, String warehouseFrom) {
-            this(status, warehouseFrom, null);
-        }
-
-        public AsnDetail(String status, String warehouseFrom, String warehouseFromCode) {
             this.status = status;
-            this.warehouseFrom = warehouseFrom;
-            this.warehouseFromCode = warehouseFromCode;
         }
     }
 
@@ -371,19 +344,11 @@ public class OfficialWarehouseAppointmentRunner {
         public final LocalDate capacityDate;
         public final Integer slotId;
         public final String name;
-        public final String warehouseFrom;
-        public final String warehouseFromCode;
 
         public AvailableSlot(LocalDate capacityDate, Integer slotId, String name) {
-            this(capacityDate, slotId, name, null, null);
-        }
-
-        public AvailableSlot(LocalDate capacityDate, Integer slotId, String name, String warehouseFrom, String warehouseFromCode) {
             this.capacityDate = capacityDate;
             this.slotId = slotId;
             this.name = name;
-            this.warehouseFrom = warehouseFrom;
-            this.warehouseFromCode = warehouseFromCode;
         }
     }
 

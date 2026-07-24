@@ -32,7 +32,6 @@ public class OfficialWarehouseNoonInboundClient {
 
     private static final String CREATE_ASN_URL = "https://fbn.noon.partners/_svc/inbound-partners/asn/create";
     private static final String ROUTING_WAREHOUSE_URL = "https://fbn.noon.partners/_svc/inbound-partners/routing/warehouse";
-    private static final String PARTNER_WAREHOUSE_URL = "https://fbn.noon.partners/_svc/inbound-partners/routing/partner_warehouse";
     private static final String CREATE_LINES_URL = "https://fbn.noon.partners/_svc/inbound-partners/asn/lines/create-batch";
     private static final String QUERY_ASN_DETAIL_URL = "https://fbn.noon.partners/_svc/inbound-partners/asn/partner_asn_details";
     private static final String QUERY_DAY_CAPACITY_URL = "https://fbn.noon.partners/_svc/inbound-scheduler/day/fbn/v1/capacity";
@@ -134,13 +133,11 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSalesReportBinding binding,
             NoonCallContext context,
             String asnNr,
-            String warehouseTo,
-            String warehouseFrom
+            String warehouseTo
     ) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("asnNr", asnNr);
         body.put("warehouseTo", warehouseTo);
-        body.put("warehouseFrom", warehouseFrom);
         JsonNode response = postNoonJson(session, binding, context.withOperation("SET_WAREHOUSES"), SET_WAREHOUSES_URL, body);
         Integer status = intValue(response, "status");
         boolean ok = "ok".equalsIgnoreCase(text(response, "data")) || status != null && status == 200;
@@ -168,21 +165,6 @@ public class OfficialWarehouseNoonInboundClient {
             JsonNode body
     ) {
         return postNoonJson(session, binding, context.withOperation("SYNC_ASN_LIST"), QUERY_ASN_DETAIL_URL, body);
-    }
-
-    List<String> listPartnerWarehouses(
-            NoonSession session,
-            NoonSalesReportBinding binding,
-            NoonCallContext context
-    ) {
-        JsonNode response = postNoonJson(
-                session,
-                binding,
-                context.withOperation("PARTNER_WAREHOUSE_LIST"),
-                PARTNER_WAREHOUSE_URL,
-                objectMapper.createObjectNode()
-        );
-        return readStringArray(response);
     }
 
     NoonAppointmentClient appointmentClient(
@@ -253,7 +235,6 @@ public class OfficialWarehouseNoonInboundClient {
             ObjectNode body = objectMapper.createObjectNode();
             body.put("asnNr", task.noonAsnNr);
             body.put("warehouseTo", task.warehouseTo);
-            body.put("warehouseFrom", task.warehouseFrom);
             JsonNode response = postNoonJson(session, binding, context.withOperation("SET_WAREHOUSES"), SET_WAREHOUSES_URL, body);
             Integer status = intValue(response, "status");
             return "ok".equalsIgnoreCase(text(response, "data")) || status != null && status == 200;
@@ -318,11 +299,7 @@ public class OfficialWarehouseNoonInboundClient {
     }
 
     private AsnDetail parseAsnDetail(JsonNode detail) {
-        return new AsnDetail(
-                firstText(detail, "asn_status", "status"),
-                firstText(detail, "warehouse_from", "warehouseFrom"),
-                firstText(detail, "warehouse_code_from", "warehouseCodeFrom")
-        );
+        return new AsnDetail(firstText(detail, "asn_status", "status"));
     }
 
     static List<AsnLineInsertRecord> routingLineRowsFromAsnDetail(JsonNode detail) {
@@ -401,8 +378,7 @@ public class OfficialWarehouseNoonInboundClient {
         return "QUERY_ASN_DETAIL".equals(operation)
                 || "QUERY_DAY_CAPACITY".equals(operation)
                 || "QUERY_SLOT_CAPACITY".equals(operation)
-                || "SYNC_ASN_LIST".equals(operation)
-                || "PARTNER_WAREHOUSE_LIST".equals(operation);
+                || "SYNC_ASN_LIST".equals(operation);
     }
 
     private Map<String, String> noonHeaders(NoonSalesReportBinding binding) {

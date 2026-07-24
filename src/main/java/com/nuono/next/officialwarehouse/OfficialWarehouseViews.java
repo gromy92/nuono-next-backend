@@ -266,7 +266,6 @@ public final class OfficialWarehouseViews {
         public String storeCode;
         public String siteCode;
         public String status;
-        public String warehouseFrom;
         public String warehouseToPartnerCode;
         public String warehouseToCode;
         public String apStartDate;
@@ -293,8 +292,6 @@ public final class OfficialWarehouseViews {
         public String date;
         public Integer slotId;
         public String time;
-        public String warehouseFrom;
-        public String warehouseFromCode;
         public String label;
     }
 }
