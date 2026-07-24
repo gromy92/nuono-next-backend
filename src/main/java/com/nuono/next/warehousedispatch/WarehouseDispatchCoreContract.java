@@ -80,6 +80,18 @@ protected abstract String normalizeTransportMode(String value);
 
 protected abstract String normalizeSiteCode(String value);
 
+protected abstract String requireLogisticsSiteCode(String value);
+
+protected abstract String requireLogisticsTransportMode(String value);
+
+protected abstract String resolvedSiteCode(FulfillmentBalanceRecord balance);
+
+protected abstract String resolvedTransportMode(FulfillmentBalanceRecord balance);
+
+protected abstract String effectiveSiteCode(FulfillmentBalanceRecord balance);
+
+protected abstract String effectiveTransportMode(FulfillmentBalanceRecord balance);
+
 protected abstract String requiredText(String value, String message);
 
 protected abstract String trim(String value);

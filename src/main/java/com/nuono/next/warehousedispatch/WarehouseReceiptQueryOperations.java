@@ -83,7 +83,9 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
             if (!canAccessSourceStore(access, balance.sourceStoreCode)) {
                 continue;
             }
-            String key = productIdentityKey(balance) + "|" + balance.siteCode + "|"
+            String targetSiteCode = resolvedSiteCode(balance);
+            String targetTransportMode = resolvedTransportMode(balance);
+            String key = productIdentityKey(balance) + "|" + targetSiteCode + "|" + targetTransportMode + "|"
                     + normalizeFulfillmentType(balance.fulfillmentType) + "|"
                     + defaultText(balance.specStatus, "READY");
             ReadyItemView view = grouped.computeIfAbsent(key, ignored -> {
@@ -94,6 +96,8 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
                 item.productTitle = defaultText(balance.titleCache, balance.partnerSku);
                 item.productImageUrl = ProductImageUrlSupport.normalize(balance.imageUrlCache);
                 item.siteCode = balance.siteCode;
+                item.targetSiteCode = targetSiteCode;
+                item.targetTransportMode = targetTransportMode;
                 item.isNewProduct = Boolean.TRUE.equals(balance.isNewProduct);
                 item.manualConfirmRequired = requiresManualConfirm(balance);
                 item.fulfillmentType = normalizeFulfillmentType(balance.fulfillmentType);
@@ -112,6 +116,40 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
             view.sources.add(toReadySourceView(balance));
         }
         return new ArrayList<>(grouped.values());
+    }
+
+@Transactional
+    public ReadySourceView updateReadyItemDispatchTarget(
+            BusinessAccessContext access,
+            String fulfillmentBalanceId,
+            UpdateDispatchTargetCommand command
+    ) {
+        if (command == null) {
+            throw new IllegalArgumentException("缺少库存发货目标。");
+        }
+        Long balanceId = parseLongId(fulfillmentBalanceId, "可发运库存不存在或已删除。");
+        List<FulfillmentBalanceRecord> balances = mapper.selectBalancesForUpdate(List.of(balanceId));
+        if (balances.size() != 1) {
+            throw new IllegalArgumentException("可发运库存不存在或已删除。");
+        }
+        FulfillmentBalanceRecord balance = balances.get(0);
+        if (!canUseBalance(access, balance) || nonNull(balance.availableQuantity) <= 0) {
+            throw new IllegalArgumentException("当前账号不能修改所选库存的发货目标。");
+        }
+        String targetSiteCode = requireLogisticsSiteCode(command.targetSiteCode);
+        String targetTransportMode = requireLogisticsTransportMode(command.targetTransportMode);
+        if (mapper.updateBalanceDispatchTarget(
+                balance.id,
+                balance.ownerUserId,
+                targetSiteCode,
+                targetTransportMode,
+                access.getSessionUserId()
+        ) != 1) {
+            throw new IllegalArgumentException("库存状态已变化，请刷新后重试。");
+        }
+        balance.targetSiteCode = targetSiteCode;
+        balance.targetTransportMode = targetTransportMode;
+        return toReadySourceView(balance);
     }
 
 @Transactional(readOnly = true)

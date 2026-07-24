@@ -55,8 +55,8 @@ protected ShippingBatchSourceRecord toShippingBatchSourceRecord(
         record.skuParent = balance.skuParent;
         record.titleCache = balance.titleCache;
         record.imageUrlCache = balance.imageUrlCache;
-        record.siteCode = balance.siteCode;
-        record.plannedTransportMode = normalizeTransportMode(balance.plannedTransportMode);
+        record.siteCode = effectiveSiteCode(balance);
+        record.plannedTransportMode = effectiveTransportMode(balance);
         record.fulfillmentType = fulfillmentType;
         record.sourcePartyName = fulfillmentSourcePartyName(fulfillmentType, balance);
         record.specStatus = defaultText(balance.specStatus, "READY");
@@ -85,6 +85,14 @@ protected ShippingBatchView toShippingBatchView(ShippingBatchRecord record) {
         view.sourceCount = nonNull(record.sourceCount);
         view.skuCount = nonNull(record.skuCount);
         view.totalQuantity = nonNull(record.totalQuantity);
+        view.siteCodes.addAll(readJsonObject(record.siteSummaryJson).keySet().stream()
+                .map(this::normalizeSiteCode)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toList()));
+        view.transportModes.addAll(readJsonObject(record.transportSummaryJson).keySet().stream()
+                .map(this::normalizeTransportMode)
+                .filter(mode -> !TRANSPORT_UNSPECIFIED.equals(mode))
+                .collect(Collectors.toList()));
         view.optionCount = nonNull(record.optionCount);
         view.packingListCount = nonNull(record.packingListCount);
         view.boxCount = nonNull(record.boxCount);

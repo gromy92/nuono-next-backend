@@ -49,6 +49,19 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         if (balances.size() != requested.size()) {
             throw new IllegalArgumentException("可发运来源不存在或已被占用。");
         }
+        List<String> partitionKeys = new ArrayList<>();
+        for (FulfillmentBalanceRecord balance : balances) {
+            List<DispatchPlanSourceCommand> sourceCommands = requested.get(balance.id);
+            validateDispatchBalance(access, balance, sourceCommands);
+            for (DispatchPlanSourceCommand source : sourceCommands) {
+                partitionKeys.add(logisticsPartitionKey(
+                        effectiveSiteCode(balance, source.targetSiteCode),
+                        effectiveTransportMode(balance, source.actualTransportMode)
+                ));
+            }
+        }
+        requireSingleLogisticsPartition(partitionKeys);
+
         Long operatorUserId = access.getSessionUserId();
         Long ownerUserId = ownerUserId(access);
         Long planId = mapper.nextDispatchPlanId();
@@ -57,16 +70,7 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         Map<String, PendingDispatchLine> lineGroups = new LinkedHashMap<>();
         for (FulfillmentBalanceRecord balance : balances) {
             List<DispatchPlanSourceCommand> sourceCommands = requested.get(balance.id);
-            if (!canUseBalance(access, balance)) {
-                throw new IllegalArgumentException("当前账号不能发运所选来源。");
-            }
-            if (logisticsQuoteBlocks(balance)) {
-                throw new IllegalArgumentException(LOGISTICS_QUOTE_BLOCK_MESSAGE);
-            }
             int totalQuantity = sourceCommands.stream().mapToInt(source -> nonNull(source.quantity)).sum();
-            if (totalQuantity > nonNull(balance.availableQuantity)) {
-                throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足。");
-            }
             int reserved = mapper.reserveBalance(balance.id, totalQuantity, operatorUserId);
             if (reserved != 1) {
                 throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足或已被占用。");
@@ -75,18 +79,17 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
             String specStatus = defaultText(balance.specStatus, "READY");
             for (DispatchPlanSourceCommand source : sourceCommands) {
                 int quantity = nonNull(source.quantity);
-                String actualTransportMode = normalizeTransportMode(
-                        StringUtils.hasText(source.actualTransportMode)
-                                ? source.actualTransportMode
-                                : balance.plannedTransportMode
-                );
-                String key = dispatchLineKey(balance, actualTransportMode, fulfillmentType, specStatus);
+                String siteCode = effectiveSiteCode(balance, source.targetSiteCode);
+                String actualTransportMode = effectiveTransportMode(balance, source.actualTransportMode);
+                String key = productIdentityKey(balance) + "|" + siteCode + "|" + actualTransportMode + "|"
+                        + fulfillmentType + "|" + specStatus;
                 lineGroups.computeIfAbsent(key, ignored -> new PendingDispatchLine(
                         balance,
+                        siteCode,
                         actualTransportMode,
                         fulfillmentType,
                         specStatus
-                )).sources.add(new PendingDispatchSource(balance, quantity));
+                )).sources.add(new PendingDispatchSource(balance, actualTransportMode, quantity));
             }
         }
 
@@ -135,6 +138,23 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         mapper.insertDispatchPlan(plan, operatorUserId);
         log(planId, "CREATE_DISPATCH_PLAN", operatorUserId, null, "DRAFT", planNo);
         return toDispatchPlanView(plan);
+    }
+
+    private void validateDispatchBalance(
+            BusinessAccessContext access,
+            FulfillmentBalanceRecord balance,
+            List<DispatchPlanSourceCommand> sourceCommands
+    ) {
+        if (!canUseBalance(access, balance)) {
+            throw new IllegalArgumentException("当前账号不能发运所选来源。");
+        }
+        if (logisticsQuoteBlocks(balance)) {
+            throw new IllegalArgumentException(LOGISTICS_QUOTE_BLOCK_MESSAGE);
+        }
+        int totalQuantity = sourceCommands.stream().mapToInt(source -> nonNull(source.quantity)).sum();
+        if (totalQuantity > nonNull(balance.availableQuantity)) {
+            throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足。");
+        }
     }
 
 @Transactional(readOnly = true)

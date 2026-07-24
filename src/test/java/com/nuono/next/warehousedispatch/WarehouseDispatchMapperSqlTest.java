@@ -9,6 +9,7 @@ import java.util.List;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.binding.MapperMethod;
 import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,38 @@ class WarehouseDispatchMapperSqlTest {
         assertThat(sql).contains("COALESCE(quote.quote_status, 'PENDING_QUOTE') AS logisticsQuoteStatus");
         assertThat(sql).contains("COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS logisticsShippingSubmitStatus");
         assertThat(sql).doesNotContain("<>");
+    }
+
+    @Test
+    void inventoryDispatchTargetUsesPersistedTargetColumns() throws Exception {
+        String balanceSql = WarehouseDispatchMapper.BALANCE_SELECT.replaceAll("\\s+", " ");
+        assertThat(balanceSql).contains("balance.target_site_code AS targetSiteCode");
+        assertThat(balanceSql).contains("balance.target_transport_mode AS targetTransportMode");
+
+        Method listMethod = WarehouseDispatchMapper.class.getMethod(
+                "listReadyBalances",
+                Long.class,
+                Collection.class,
+                String.class,
+                String.class
+        );
+        String listSql = String.join(" ", listMethod.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+        assertThat(listSql).contains("COALESCE(NULLIF(balance.target_site_code, ''), balance.site_code)");
+
+        Method updateMethod = WarehouseDispatchMapper.class.getMethod(
+                "updateBalanceDispatchTarget",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String updateSql = String.join(" ", updateMethod.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+        assertThat(updateSql).contains("target_site_code = #{targetSiteCode}");
+        assertThat(updateSql).contains("target_transport_mode = #{targetTransportMode}");
+        assertThat(updateSql).contains("available_quantity > 0");
     }
 
     @Test

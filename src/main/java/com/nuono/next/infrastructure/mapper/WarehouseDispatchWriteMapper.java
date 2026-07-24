@@ -47,6 +47,25 @@ public interface WarehouseDispatchWriteMapper extends WarehouseReceiptMapper {
     })
     List<FulfillmentBalanceRecord> selectBalancesForUpdate(@Param("balanceIds") List<Long> balanceIds);
 
+@Update({
+            "UPDATE procurement_fulfillment_balance",
+            "SET target_site_code = #{targetSiteCode},",
+            "    target_transport_mode = #{targetTransportMode},",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{balanceId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND available_quantity > 0",
+            "  AND is_deleted = b'0'"
+    })
+    int updateBalanceDispatchTarget(
+            @Param("balanceId") Long balanceId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("targetSiteCode") String targetSiteCode,
+            @Param("targetTransportMode") String targetTransportMode,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
 @Insert({
             "INSERT INTO procurement_dispatch_plan (",
             "id, owner_user_id, plan_no, status, item_count, sku_count, total_quantity, site_summary_json, transport_summary_json,",
