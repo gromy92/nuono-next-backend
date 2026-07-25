@@ -31,12 +31,21 @@ public class WarehouseLogisticsQuotePriceService {
             PurchaseOrderLogisticsQuoteLineRecord line,
             ForwarderRouteRecommendationRecord candidate
     ) {
-        if (isOwnConfirmedSnapshot(line, candidate)) {
+        return resolve(line, candidate, line);
+    }
+
+    public PurchaseOrderLogisticsQuoteChannelLineView resolve(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            ForwarderRouteRecommendationRecord candidate,
+            PurchaseOrderLogisticsQuoteLineRecord channelConfirmation
+    ) {
+        if (isOwnConfirmedSnapshot(channelConfirmation, candidate)) {
             PurchaseOrderLogisticsQuoteChannelLineView view = baseView(line);
             view.quoteStatus = CONFIRMED;
-            view.unitPrice = line.unitPrice;
-            view.currency = line.currency;
-            view.billingUnit = line.billingUnit;
+            view.unitPrice = channelConfirmation.unitPrice;
+            view.currency = channelConfirmation.currency;
+            view.billingUnit = channelConfirmation.billingUnit;
+            view.yiteMaterial = defaultText(channelConfirmation.yiteMaterial, line.yiteMaterial);
             view.priceSource = "SHIPPING_ORDER_SNAPSHOT";
             return view;
         }

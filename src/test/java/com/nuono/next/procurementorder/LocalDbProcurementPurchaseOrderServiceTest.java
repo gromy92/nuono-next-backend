@@ -109,13 +109,13 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         logisticsQuotePriceService = org.mockito.Mockito.spy(
                 new WarehouseLogisticsQuotePriceService(mapper, productLogisticsPriceBridge)
         );
-        service = new LocalDbProcurementPurchaseOrderService(
-                mapper,
-                productSelectionMapper,
-                ali1688CollectionService,
-                new ObjectMapper(),
-                logisticsQuotePriceService
-        );
+        ObjectMapper objectMapper = new ObjectMapper();
+        WarehouseShippingQuoteProjectionService quoteProjectionService = new WarehouseShippingQuoteProjectionService(
+                mapper, logisticsQuotePriceService, objectMapper);
+        WarehouseShippingQuoteChannelService shippingQuoteChannelService =
+                new WarehouseShippingQuoteChannelService(mapper, logisticsQuotePriceService, quoteProjectionService);
+        service = new LocalDbProcurementPurchaseOrderService(mapper, productSelectionMapper, ali1688CollectionService,
+                objectMapper, shippingQuoteChannelService);
         lenient().when(mapper.nextOperationLogId()).thenReturn(240001L);
         lenient().when(mapper.nextProductForwarderChannelQuoteId()).thenReturn(320001L);
         lenient().when(mapper.nextLogisticsExpectedBillId()).thenReturn(330001L);
@@ -421,7 +421,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
 
         when(mapper.selectOrderById(200001L)).thenReturn(order);
-        when(mapper.selectLogisticsQuoteLineByItemSiteForUpdate(200001L, 220002L)).thenReturn(line);
+        when(mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(200001L, 280001L, 220002L)).thenReturn(line);
 
         PurchaseOrderLogisticsQuoteImportView result = service.importLogisticsQuoteReport(
                 access(),
@@ -452,7 +452,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
 
         when(mapper.selectOrderById(200001L)).thenReturn(order);
-        when(mapper.selectLogisticsQuoteLineByItemSiteForUpdate(200001L, 220002L)).thenReturn(line);
+        when(mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(200001L, 280001L, 220002L)).thenReturn(line);
 
         PurchaseOrderLogisticsQuoteImportView result = service.importLogisticsQuoteReport(
                 access(),
@@ -536,7 +536,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         assertThat(result.totalRows).isEqualTo(1);
         assertThat(result.updatedRows).isEqualTo(1);
         assertThat(result.errors).isEmpty();
-        verify(mapper).selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(290001L, 220002L);
+        verify(mapper).selectLogisticsQuoteLineByDocumentLineForUpdate(290001L, 280001L, 220002L);
         verify(mapper).listLogisticsQuoteCandidatesByShippingOrder(290001L);
         ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
                 ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
@@ -594,7 +594,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
 
         when(mapper.selectOrderById(200001L)).thenReturn(order);
-        when(mapper.selectLogisticsQuoteLineByItemSiteForUpdate(200001L, 220002L)).thenReturn(line);
+        when(mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(200001L, 280001L, 220002L)).thenReturn(line);
 
         PurchaseOrderLogisticsQuoteImportView result = service.importLogisticsQuoteReport(
                 access(),
@@ -634,7 +634,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         command.segmentIds = List.of("292001");
 
         when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
-        when(mapper.selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(290001L, 220002L)).thenReturn(line);
+        when(mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(290001L, 280001L, 220002L)).thenReturn(line);
 
         PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
                 access(),
@@ -663,7 +663,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         command.segmentIds = List.of("292001");
 
         when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
-        when(mapper.selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(290001L, 220002L)).thenReturn(line);
+        when(mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(290001L, 280001L, 220002L)).thenReturn(line);
 
         PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
                 access(),
