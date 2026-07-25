@@ -78,7 +78,7 @@ public interface InTransitProductMatchCandidateMapper extends InTransitGoodsSequ
             "       AND landingStore.is_deleted = b'0'",
             "      WHERE landingBarcode.is_deleted = b'0'",
             "        AND landingBarcode.logical_store_id IS NOT NULL",
-            "        AND COALESCE(landingBarcode.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'",
+            "        AND COALESCE(landingBarcode.barcode_type, '') != 'PARTNER_SKU_ALIAS'",
             "        AND BINARY landingBarcode.barcode = BINARY candidate.source_barcode",
             "        AND UPPER(landingSite.store_code) = UPPER(#{storeCode})",
             "        AND UPPER(landingSite.site) = UPPER(#{siteCode})",

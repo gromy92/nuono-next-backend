@@ -2,8 +2,10 @@ package com.nuono.next.intransit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.nuono.next.infrastructure.mapper.InTransitProductMatchCandidateMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.Test;
 
 class InTransitProductMatchContractTest {
@@ -58,6 +60,18 @@ class InTransitProductMatchContractTest {
                 .contains("scopeBarcode.logical_store_id = ls.id")
                 .contains("COALESCE(pmScope.partner_sku, '')")
                 .contains("COALESCE(pm.partner_sku, '')");
+    }
+
+    @Test
+    void shouldRenderNonScriptLandingSqlWithoutXmlEntities() throws Exception {
+        Select select = InTransitProductMatchCandidateMapper.class
+                .getMethod("listProductLandingBatchIds", Long.class, String.class, String.class)
+                .getAnnotation(Select.class);
+        String sql = String.join(" ", select.value());
+
+        assertThat(sql)
+                .doesNotContain("&lt;", "&gt;")
+                .contains("!= 'PARTNER_SKU_ALIAS'");
     }
 
     private String read(String path) throws Exception {
