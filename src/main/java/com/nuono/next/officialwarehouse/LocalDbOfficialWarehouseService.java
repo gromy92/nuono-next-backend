@@ -952,10 +952,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         if (lineRows == null || lineRows.isEmpty()) {
             return List.of();
         }
-        int pendingProductMatches = mapper.countPendingProductMatchesForBatches(ownerUserId, selectedBatchIds);
-        if (pendingProductMatches > 0) {
-            throw new IllegalArgumentException("选择的物流批次仍有 " + pendingProductMatches + " 条商品待匹配，请先在在途物流中重新匹配。");
-        }
         List<String> partnerSkus = lineRows.stream()
                 .map(row -> trimToNull(row.partnerSku))
                 .filter(value -> value != null)
