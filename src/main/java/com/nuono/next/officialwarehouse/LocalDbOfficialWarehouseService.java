@@ -79,7 +79,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
@@ -124,7 +123,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     @Value("${nuono.official-warehouse.appointment.scheduler.system-operator-user-id:0}")
     private long appointmentSystemOperatorUserId;
 
-    @Autowired
     public LocalDbOfficialWarehouseService(
             OfficialWarehouseMapper mapper,
             NoonSessionGateway noonSessionGateway,
