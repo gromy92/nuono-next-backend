@@ -18,6 +18,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class InTransitProductMatchService {
     private static final String UNMATCHED_MESSAGE = "物流 barcode 尚未匹配系统商品。";
+    private static final String EXCLUDED_MESSAGE = "人工确认非库存物料，不参与 ASN。";
 
     private final InTransitGoodsMapper mapper;
     private final InTransitBatchService batchService;
@@ -169,6 +170,31 @@ public class InTransitProductMatchService {
         List<InTransitProductMatchCandidate> pending = mapper.listProductMatchCandidates(ownerUserId, batchId);
         RematchView view = new RematchView();
         view.setMatchedCount(matched);
+        view.setPendingCount(pending.size());
+        view.setPendingItems(pending);
+        return view;
+    }
+
+    @Transactional
+    public RematchView excludeFromAsn(
+            Long ownerUserId,
+            Long operatorUserId,
+            Long batchId,
+            Long candidateId
+    ) {
+        int affected = mapper.excludeProductMatchCandidate(
+                ownerUserId,
+                batchId,
+                candidateId,
+                EXCLUDED_MESSAGE,
+                operatorUserId
+        );
+        if (affected == 0) {
+            throw new IllegalArgumentException("待匹配商品不存在或已不可操作。");
+        }
+        List<InTransitProductMatchCandidate> pending = mapper.listProductMatchCandidates(ownerUserId, batchId);
+        RematchView view = new RematchView();
+        view.setMatchedCount(0);
         view.setPendingCount(pending.size());
         view.setPendingItems(pending);
         return view;

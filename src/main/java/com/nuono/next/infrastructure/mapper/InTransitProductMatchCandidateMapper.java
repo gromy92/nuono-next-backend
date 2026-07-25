@@ -59,11 +59,33 @@ public interface InTransitProductMatchCandidateMapper extends InTransitGoodsSequ
     );
 
     @Select({
-            "SELECT DISTINCT batch_id FROM in_transit_product_match_candidate",
-            "WHERE owner_user_id = #{ownerUserId} AND UPPER(store_code) = UPPER(#{storeCode})",
-            "AND UPPER(site_code) = UPPER(#{siteCode})",
-            "AND match_status = 'UNMATCHED' AND is_deleted = b'0'",
-            "ORDER BY batch_id"
+            "SELECT DISTINCT candidate.batch_id FROM in_transit_product_match_candidate candidate",
+            "WHERE candidate.owner_user_id = #{ownerUserId}",
+            "AND candidate.match_status = 'UNMATCHED' AND candidate.is_deleted = b'0'",
+            "AND (",
+            "  (UPPER(candidate.store_code) = UPPER(#{storeCode})",
+            "   AND UPPER(candidate.site_code) = UPPER(#{siteCode}))",
+            "  OR (",
+            "    COALESCE(candidate.store_code, '') = '' AND COALESCE(candidate.site_code, '') = ''",
+            "    AND EXISTS (",
+            "      SELECT 1 FROM product_barcode landingBarcode",
+            "      JOIN logical_store_site landingSite",
+            "        ON landingSite.logical_store_id = landingBarcode.logical_store_id",
+            "       AND landingSite.is_deleted = b'0'",
+            "      JOIN logical_store landingStore",
+            "        ON landingStore.id = landingBarcode.logical_store_id",
+            "       AND landingStore.owner_user_id = candidate.owner_user_id",
+            "       AND landingStore.is_deleted = b'0'",
+            "      WHERE landingBarcode.is_deleted = b'0'",
+            "        AND landingBarcode.logical_store_id IS NOT NULL",
+            "        AND COALESCE(landingBarcode.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'",
+            "        AND BINARY landingBarcode.barcode = BINARY candidate.source_barcode",
+            "        AND UPPER(landingSite.store_code) = UPPER(#{storeCode})",
+            "        AND UPPER(landingSite.site) = UPPER(#{siteCode})",
+            "    )",
+            "  )",
+            ")",
+            "ORDER BY candidate.batch_id"
     })
     List<Long> listProductLandingBatchIds(
             @Param("ownerUserId") Long ownerUserId,
@@ -124,6 +146,21 @@ public interface InTransitProductMatchCandidateMapper extends InTransitGoodsSequ
     })
     int markProductMatchCandidateUnmatched(
             @Param("ownerUserId") Long ownerUserId,
+            @Param("id") Long id,
+            @Param("matchMessage") String matchMessage,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE in_transit_product_match_candidate",
+            "SET match_status = 'EXCLUDED', match_message = #{matchMessage},",
+            "updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{id} AND owner_user_id = #{ownerUserId} AND batch_id = #{batchId}",
+            "AND match_status IN ('UNMATCHED', 'EXCLUDED') AND is_deleted = b'0'"
+    })
+    int excludeProductMatchCandidate(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("batchId") Long batchId,
             @Param("id") Long id,
             @Param("matchMessage") String matchMessage,
             @Param("operatorUserId") Long operatorUserId

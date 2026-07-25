@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.intransit.InTransitBatchRecords.BatchView;
 import com.nuono.next.intransit.InTransitProductMatchViews.CandidateListView;
+import com.nuono.next.intransit.InTransitProductMatchViews.RematchView;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
@@ -56,6 +57,32 @@ class InTransitProductMatchControllerTest {
         when(productMatchService.list(10002L, 53001L)).thenReturn(expected);
 
         CandidateListView result = controller.list(53001L, request);
+
+        assertSame(expected, result);
+        verify(accessScopeService).requireBatchAccess(context, batch);
+    }
+
+    @Test
+    void shouldExcludeCandidateOnlyAfterBatchAccessCheck() {
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .businessOwnerUserId(10002L)
+                .sessionUserId(90001L)
+                .build();
+        BatchView batch = new BatchView();
+        RematchView expected = new RematchView();
+        when(businessAccessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.IN_TRANSIT_GOODS
+        )).thenReturn(context);
+        when(batchService.getBatch(10002L, 53001L)).thenReturn(batch);
+        when(productMatchService.excludeFromAsn(
+                10002L,
+                90001L,
+                53001L,
+                59001L
+        )).thenReturn(expected);
+
+        RematchView result = controller.excludeFromAsn(53001L, 59001L, request);
 
         assertSame(expected, result);
         verify(accessScopeService).requireBatchAccess(context, batch);
