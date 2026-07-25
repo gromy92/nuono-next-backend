@@ -142,8 +142,8 @@ public final class ProcurementPurchaseOrderViews {
         public String currency;
         public String billingUnit;
         public String yiteMaterial;
+        public String priceSource;
     }
-
     public static class PurchaseOrderLogisticsQuoteReportExportView {
         public String filename;
         public String contentType;
