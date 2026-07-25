@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -27,6 +28,7 @@ public class WarehouseProductLogisticsPriceBridge {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    @Autowired
     public WarehouseProductLogisticsPriceBridge(
             ProductLogisticsCostMapper mapper,
             ObjectMapper objectMapper
