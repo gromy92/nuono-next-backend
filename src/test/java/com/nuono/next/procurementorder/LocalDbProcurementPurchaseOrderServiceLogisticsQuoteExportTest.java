@@ -87,7 +87,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
     @Test
     void yiteTemplateExportsHistoryQuoteColumn() throws Exception {
         LocalDbProcurementPurchaseOrderService service =
-                new LocalDbProcurementPurchaseOrderService(null, null, null, new ObjectMapper());
+                new LocalDbProcurementPurchaseOrderService(null, null, null, new ObjectMapper(), null);
         Method method = LocalDbProcurementPurchaseOrderService.class.getDeclaredMethod(
                 "buildYiteLogisticsQuoteWorkbook",
                 PurchaseOrderRecord.class,

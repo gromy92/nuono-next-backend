@@ -54,7 +54,6 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrd
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsCostComponentView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsPlanLineView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsRecommendationView;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelOptionView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteForwarderOptionView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteImportErrorView;
@@ -254,18 +253,21 @@ public class LocalDbProcurementPurchaseOrderService {
     private final ProductSelectionMapper productSelectionMapper;
     private final LocalDbAli1688CollectionService ali1688CollectionService;
     private final ObjectMapper objectMapper;
+    private final WarehouseLogisticsQuotePriceService logisticsQuotePriceService;
     private final PurchaseOrderLogisticsCostCalculator costCalculator = new PurchaseOrderLogisticsCostCalculator();
 
     public LocalDbProcurementPurchaseOrderService(
             ProcurementPurchaseOrderMapper mapper,
             ProductSelectionMapper productSelectionMapper,
             LocalDbAli1688CollectionService ali1688CollectionService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            WarehouseLogisticsQuotePriceService logisticsQuotePriceService
     ) {
         this.mapper = mapper;
         this.productSelectionMapper = productSelectionMapper;
         this.ali1688CollectionService = ali1688CollectionService;
         this.objectMapper = objectMapper;
+        this.logisticsQuotePriceService = logisticsQuotePriceService;
     }
 
     public List<PurchaseOrderView> listOrders(
@@ -1025,7 +1027,12 @@ public class LocalDbProcurementPurchaseOrderService {
         quoteLine.estimatedAmount = null;
         quoteLine.remark = trimToNull(command == null ? null : command.remark);
         mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
-        persistProductForwarderChannelQuote(quoteLine, operatorUserId, "WEB_INLINE_QUOTE", "SHIPPING_ORDER_INLINE_QUOTE");
+        persistConfirmedWarehouseQuote(
+                quoteLine,
+                operatorUserId,
+                "WEB_INLINE_QUOTE",
+                "SHIPPING_ORDER_INLINE_QUOTE"
+        );
         mapper.refreshShippingOrderQuoteState(order.id, quoteLine, operatorUserId);
         if (quoteLine.shippingOrderSegmentId != null) {
             mapper.refreshShippingOrderSegmentState(
@@ -1134,7 +1141,12 @@ public class LocalDbProcurementPurchaseOrderService {
             quoteLine.estimatedAmount = null;
             quoteLine.remark = remark;
             mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
-            persistProductForwarderChannelQuote(quoteLine, operatorUserId, "WEB_INLINE_QUOTE", "SHIPPING_ORDER_INLINE_QUOTE");
+            persistConfirmedWarehouseQuote(
+                    quoteLine,
+                    operatorUserId,
+                    "WEB_INLINE_QUOTE",
+                    "SHIPPING_ORDER_INLINE_QUOTE"
+            );
         }
 
         PurchaseOrderLogisticsQuoteLineRecord sampleLine = selectedQuoteLines.get(0);
@@ -2293,6 +2305,7 @@ public class LocalDbProcurementPurchaseOrderService {
             List<PurchaseOrderLogisticsQuoteLineRecord> lines,
             List<LogisticsQuoteExportOption> options
     ) {
+        PublishedLogisticsQuotePriceResolver.hydrate(mapper, options);
         PurchaseOrderLogisticsQuoteOptionsView view = new PurchaseOrderLogisticsQuoteOptionsView();
         view.purchaseOrderId = String.valueOf(order.id);
         view.purchaseOrderNo = order.orderNo;
@@ -2333,6 +2346,7 @@ public class LocalDbProcurementPurchaseOrderService {
         view.routeName = candidate.routeName;
         view.serviceCode = candidate.serviceCode;
         view.serviceName = candidate.serviceName;
+        view.quoteVersionCode = candidate.quoteVersionCode;
         view.siteCode = candidate.siteCode;
         view.transportMode = normalizeTransportMode(candidate.transportMode);
         view.transportModeLabel = transportModeLabel(candidate.transportMode);
@@ -2346,6 +2360,8 @@ public class LocalDbProcurementPurchaseOrderService {
         view.pendingLineCount = option.pendingLineCount;
         view.confirmedLineCount = option.confirmedLineCount;
         view.newProductLineCount = option.newProductLineCount;
+        view.publishedPrices = option.publishedPrices;
+        view.surcharges = option.surcharges;
         view.lineQuotes = option.lineQuotes;
         return view;
     }
@@ -2356,56 +2372,9 @@ public class LocalDbProcurementPurchaseOrderService {
     ) {
         List<PurchaseOrderLogisticsQuoteChannelLineView> views = new ArrayList<>();
         for (PurchaseOrderLogisticsQuoteLineRecord line : emptyIfNull(lines)) {
-            ProductForwarderChannelQuoteRecord currentQuote = selectCurrentProductForwarderChannelQuote(line, candidate);
-            views.add(toLogisticsQuoteChannelLineView(line, currentQuote));
+            views.add(logisticsQuotePriceService.resolve(line, candidate));
         }
         return views;
-    }
-
-    private ProductForwarderChannelQuoteRecord selectCurrentProductForwarderChannelQuote(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ForwarderRouteRecommendationRecord candidate
-    ) {
-        if (line == null
-                || candidate == null
-                || line.ownerUserId == null
-                || line.productVariantId == null
-                || !StringUtils.hasText(candidate.forwarderCode)
-                || !StringUtils.hasText(candidate.routeCode)) {
-            return null;
-        }
-        return mapper.selectCurrentProductForwarderChannelQuote(
-                line.ownerUserId,
-                line.sourceStoreCode,
-                line.logicalStoreId,
-                line.partnerSku,
-                line.productVariantId,
-                candidate.forwarderCode,
-                normalizeSiteCode(firstText(candidate.siteCode, line.siteCode)),
-                candidate.routeCode,
-                candidate.serviceCode
-        );
-    }
-
-    private PurchaseOrderLogisticsQuoteChannelLineView toLogisticsQuoteChannelLineView(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ProductForwarderChannelQuoteRecord currentQuote
-    ) {
-        PurchaseOrderLogisticsQuoteChannelLineView view = new PurchaseOrderLogisticsQuoteChannelLineView();
-        view.shippingOrderLineId = line.shippingOrderLineId == null ? null : String.valueOf(line.shippingOrderLineId);
-        view.purchaseOrderItemSiteId = line.purchaseOrderItemSiteId == null ? null : String.valueOf(line.purchaseOrderItemSiteId);
-        view.partnerSku = line.partnerSku;
-        view.barcode = line.barcode;
-        view.yiteMaterial = line.yiteMaterial;
-        if (currentQuote == null || currentQuote.unitPrice == null) {
-            view.quoteStatus = LOGISTICS_QUOTE_PENDING;
-            return view;
-        }
-        view.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
-        view.unitPrice = currentQuote.unitPrice;
-        view.currency = currentQuote.currency;
-        view.billingUnit = currentQuote.billingUnit;
-        return view;
     }
 
     private LogisticsQuoteExportOption requireLogisticsQuoteExportOption(
@@ -3372,6 +3341,12 @@ public class LocalDbProcurementPurchaseOrderService {
         line.estimatedAmount = estimatedAmount == null ? line.estimatedAmount : estimatedAmount;
         line.remark = defaultText(readTextCell(row, ET_HIDDEN_REMARK_COLUMN), etPackingRemark(row));
         mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+        persistConfirmedWarehouseQuote(
+                line,
+                operatorUserId,
+                sourceFilename,
+                "SHIPPING_ORDER_QUOTE_IMPORT"
+        );
         view.updatedRows += 1;
     }
 
@@ -3527,6 +3502,12 @@ public class LocalDbProcurementPurchaseOrderService {
             line.estimatedAmount = estimatedAmount;
             line.remark = defaultText(readTextCell(row, YITE_HIDDEN_REMARK_COLUMN), "义特模板回传确认");
             mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+            persistConfirmedWarehouseQuote(
+                    line,
+                    operatorUserId,
+                    sourceFilename,
+                    "SHIPPING_ORDER_QUOTE_IMPORT"
+            );
         }
         view.updatedRows += 1;
     }
@@ -3649,11 +3630,27 @@ public class LocalDbProcurementPurchaseOrderService {
         line.estimatedAmount = estimatedAmount;
         line.remark = readTextCell(row, 26);
         mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+        persistConfirmedWarehouseQuote(
+                line,
+                operatorUserId,
+                sourceFilename,
+                "SHIPPING_ORDER_QUOTE_IMPORT"
+        );
         view.updatedRows += 1;
     }
 
+    private void persistConfirmedWarehouseQuote(
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            Long operatorUserId,
+            String sourceFilename,
+            String sourceType
+    ) {
+        persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename, sourceType);
+        logisticsQuotePriceService.syncConfirmedQuote(line, operatorUserId, sourceType);
+    }
+
     // Legacy product quote projection retained for migration compatibility.
-    // Product logistics cost facts are curated by AI/data correction jobs and displayed from productlogisticscost.
+    // Canonical current product cost is synchronized by WarehouseProductLogisticsPriceBridge.
     private void persistProductForwarderChannelQuote(
             PurchaseOrderLogisticsQuoteLineRecord line,
             Long operatorUserId,
@@ -3671,6 +3668,8 @@ public class LocalDbProcurementPurchaseOrderService {
         if (line == null
                 || line.ownerUserId == null
                 || line.productVariantId == null
+                || line.unitPrice == null
+                || line.unitPrice.signum() <= 0
                 || !StringUtils.hasText(line.forwarderCode)) {
             return;
         }
@@ -6057,15 +6056,6 @@ public class LocalDbProcurementPurchaseOrderService {
             return "阿联酋 AE";
         }
         return siteCode;
-    }
-
-    private static final class LogisticsQuoteExportOption {
-        private ForwarderRouteRecommendationRecord candidate;
-        private String templateType;
-        private Integer pendingLineCount = 0;
-        private Integer confirmedLineCount = 0;
-        private Integer newProductLineCount = 0;
-        private List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();
     }
 
     private static final class Ali1688HistoryAccumulator {
