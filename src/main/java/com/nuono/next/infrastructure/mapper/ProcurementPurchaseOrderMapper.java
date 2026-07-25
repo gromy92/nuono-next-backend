@@ -570,7 +570,7 @@ public interface ProcurementPurchaseOrderMapper {
 
     @Select({
             "<script>",
-            "SELECT id, quote_version_code AS quoteVersionCode, service_code AS serviceCode, price_rule_code AS priceRuleCode,",
+            "SELECT id, service_code AS serviceCode, price_rule_code AS priceRuleCode,",
             "       cargo_category_code AS cargoCategoryCode, cargo_category_name AS cargoCategoryName,",
             "       pricing_model AS pricingModel, currency, unit_price AS unitPrice, billing_unit AS billingUnit,",
             "       billing_basis AS billingBasis, volume_divisor AS volumeDivisor, min_billable_unit AS minBillableUnit,",
@@ -603,7 +603,7 @@ public interface ProcurementPurchaseOrderMapper {
 
     @Select({
             "<script>",
-            "SELECT id, quote_version_code AS quoteVersionCode, service_code AS serviceCode, fee_name AS feeName, fee_type AS feeType, target_platform AS targetPlatform,",
+            "SELECT id, service_code AS serviceCode, fee_name AS feeName, fee_type AS feeType, target_platform AS targetPlatform,",
             "       delivery_city AS deliveryCity, trigger_condition AS triggerCondition, pricing_model AS pricingModel, currency,",
             "       amount, rate, billing_unit AS billingUnit, billing_basis AS billingBasis, min_charge AS minCharge,",
             "       min_billable_unit AS minBillableUnit, rounding_rule AS roundingRule, included_in_base_price AS includedInBasePrice",

@@ -1741,74 +1741,17 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         qikeQuote.currency = "CNY";
         qikeQuote.billingUnit = "KG";
         qikeQuote.unitPrice = new BigDecimal("67.50");
-        ForwarderRouteRecommendationRecord qikeRoute = routeCandidate(
-                "AIR", "QIKE-SAU-AIR-FBN-RUH-20260523", "QIKE", "启客物流",
-                "QIKE-SAU-AIR-FBN-RUH-20260523", "启客沙特空运双清 + FBN利雅得送仓 20260523",
-                "CNY", "67.50", "KG", null
-        );
-        qikeRoute.quoteVersionCode = "QIKE-20260523";
-        ForwarderBasePriceRecord generalCargoPrice = publishedBasePrice(
-                qikeRoute.serviceCode, "沙特空运（普货）", "67.00"
-        );
-        generalCargoPrice.quoteVersionCode = "QIKE-20260523";
-        generalCargoPrice.volumeDivisor = new BigDecimal("6000");
-        generalCargoPrice.minBillableUnit = new BigDecimal("10");
-        generalCargoPrice.minBillableUnitType = "KG";
-        ForwarderBasePriceRecord liquidPrice = publishedBasePrice(
-                qikeRoute.serviceCode, "沙特空运（化妆品及液体）", "82.00"
-        );
-        liquidPrice.quoteVersionCode = "QIKE-20260523";
-        ForwarderBasePriceRecord historicalPrice = publishedBasePrice(
-                qikeRoute.serviceCode, "历史普货价", "66.00"
-        );
-        historicalPrice.quoteVersionCode = "QIKE-20250401";
-        ForwarderTransportFeeRecord fbnDeliveryFee = transportFee();
-        fbnDeliveryFee.serviceCode = qikeRoute.serviceCode;
-        fbnDeliveryFee.quoteVersionCode = "QIKE-20260523";
-        fbnDeliveryFee.feeName = "沙特利雅得FBN/FBA送仓费";
-        fbnDeliveryFee.feeType = "FBN_DELIVERY";
-        fbnDeliveryFee.currency = "RMB";
-        fbnDeliveryFee.amount = new BigDecimal("2");
-        fbnDeliveryFee.billingUnit = "KG";
-        fbnDeliveryFee.targetPlatform = "FBN";
-        fbnDeliveryFee.deliveryCity = "利雅得/RUH";
-        fbnDeliveryFee.includedInBasePrice = false;
-        ForwarderTransportFeeRecord historicalFee = transportFee();
-        historicalFee.serviceCode = qikeRoute.serviceCode;
-        historicalFee.quoteVersionCode = "QIKE-20250401";
-        historicalFee.feeName = "历史送仓费";
-        historicalFee.targetPlatform = "FBN";
-        historicalFee.deliveryCity = "利雅得/RUH";
-        historicalFee.includedInBasePrice = false;
 
         ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
         command.segmentIds = List.of("292001");
         when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
         when(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(290001L, List.of(292001L))).thenReturn(List.of(line));
         when(mapper.listRouteRecommendationCandidates(List.of("SA"), "AIR")).thenReturn(List.of(
-                qikeRoute,
+                routeCandidate("AIR", "QIKE-SAU-AIR-FBN-RUH-20260523", "QIKE", "启客物流",
+                        "QIKE-SAU-AIR-FBN-RUH-20260523", "启客沙特空运双清 + FBN利雅得送仓 20260523", "CNY", "67.50", "KG", null),
                 routeCandidate("AIR", "YT-SAU-AIR-FBN-RUH", "YT", "义特物流",
                         "YT-SAU-AIR-FBN-RUH", "义特沙特空运一档 + 海外仓", "CNY", "58.00", "KG", null)
         ));
-        when(mapper.listBasePricesByServiceCodes(List.of(
-                "YT-SAU-AIR-FBN-RUH",
-                "QIKE-SAU-AIR-FBN-RUH-20260523"
-        ))).thenReturn(List.of(generalCargoPrice, liquidPrice, historicalPrice));
-        when(mapper.listRouteSegments(List.of(
-                "YT-SAU-AIR-FBN-RUH",
-                "QIKE-SAU-AIR-FBN-RUH-20260523"
-        ))).thenReturn(List.of(
-                routeSegment(
-                        "QIKE-SAU-AIR-FBN-RUH-20260523",
-                        1,
-                        "HEADHAUL",
-                        "QIKE-SAU-AIR-FBN-RUH-20260523"
-                )
-        ));
-        when(mapper.listTransportFeesByServiceCodes(List.of(
-                "YT-SAU-AIR-FBN-RUH",
-                "QIKE-SAU-AIR-FBN-RUH-20260523"
-        ))).thenReturn(List.of(fbnDeliveryFee, historicalFee));
         when(mapper.selectCurrentProductForwarderChannelQuote(
                 307L,
                 "STR69486-NSA",
@@ -1827,18 +1770,6 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         assertThat(options.forwarders).anySatisfy(forwarder -> {
             assertThat(forwarder.forwarderCode).isEqualTo("QIKE");
             assertThat(forwarder.channels).hasSize(1);
-            assertThat(forwarder.channels.get(0).quoteVersionCode).isEqualTo("QIKE-20260523");
-            assertThat(forwarder.channels.get(0).publishedPrices)
-                    .extracting(price -> price.cargoCategoryName)
-                    .containsExactly("沙特空运（普货）", "沙特空运（化妆品及液体）");
-            assertThat(forwarder.channels.get(0).publishedPrices)
-                    .extracting(price -> price.unitPrice)
-                    .containsExactly(new BigDecimal("67.00"), new BigDecimal("82.00"));
-            assertThat(forwarder.channels.get(0).surcharges).singleElement().satisfies(fee -> {
-                assertThat(fee.feeName).isEqualTo("沙特利雅得FBN/FBA送仓费");
-                assertThat(fee.amount).isEqualByComparingTo("2");
-                assertThat(fee.billingUnit).isEqualTo("KG");
-            });
             assertThat(forwarder.channels.get(0).confirmedLineCount).isEqualTo(1);
             assertThat(forwarder.channels.get(0).pendingLineCount).isZero();
             assertThat(forwarder.channels.get(0).lineQuotes).hasSize(1);
@@ -3351,22 +3282,6 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         price.unitPrice = new BigDecimal("150");
         price.billingUnit = "CBM";
         price.deliveryCity = "利雅得/RUH";
-        price.priceStatus = "NORMAL";
-        return price;
-    }
-
-    private ForwarderBasePriceRecord publishedBasePrice(
-            String serviceCode,
-            String cargoCategoryName,
-            String unitPrice
-    ) {
-        ForwarderBasePriceRecord price = new ForwarderBasePriceRecord();
-        price.serviceCode = serviceCode;
-        price.cargoCategoryName = cargoCategoryName;
-        price.currency = "RMB";
-        price.unitPrice = new BigDecimal(unitPrice);
-        price.billingUnit = "KG";
-        price.billingBasis = "按计费重量";
         price.priceStatus = "NORMAL";
         return price;
     }

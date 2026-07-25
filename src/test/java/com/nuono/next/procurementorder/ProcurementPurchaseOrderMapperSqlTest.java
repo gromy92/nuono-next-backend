@@ -215,10 +215,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(basePriceSql).contains("FROM forwarder_quote_base_price");
-        assertThat(basePriceSql).contains("quote_version_code AS quoteVersionCode");
         assertThat(warehouseSql).contains("FROM forwarder_warehouse_processing_fee");
         assertThat(transportSql).contains("FROM forwarder_quote_transport_fee");
-        assertThat(transportSql).contains("quote_version_code AS quoteVersionCode");
     }
 
     @Test
