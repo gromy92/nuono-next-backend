@@ -31,6 +31,8 @@ class InTransitProductMatchContractTest {
         assertThat(candidateMapper)
                 .contains("insertProductMatchCandidate", "updateProductMatchCandidate")
                 .contains("resolveProductMatchCandidate", "listProductLandingBatchIds")
+                .contains("excludeProductMatchCandidate", "match_status = 'EXCLUDED'")
+                .contains("product_barcode landingBarcode", "logical_store_site landingSite")
                 .contains("match_status = 'UNMATCHED'");
         assertThat(pluginSync)
                 .contains("productMatchService.saveCandidate")
@@ -41,6 +43,21 @@ class InTransitProductMatchContractTest {
         assertThat(productPreparation)
                 .contains("@PostMapping(\"/prepare\")")
                 .contains("prepareForStoreSite");
+    }
+
+    @Test
+    void shouldResolveOfficialWarehouseScopeFromMatchedBarcodeIdentity() throws Exception {
+        String mapper = read(
+                "src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"
+        ) + read(
+                "src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseSqlFragments.java"
+        );
+
+        assertThat(mapper)
+                .contains("product_barcode scopeBarcode")
+                .contains("scopeBarcode.logical_store_id = ls.id")
+                .contains("COALESCE(pmScope.partner_sku, '')")
+                .contains("COALESCE(pm.partner_sku, '')");
     }
 
     private String read(String path) throws Exception {

@@ -138,6 +138,36 @@ class InTransitProductMatchServiceTest {
         verify(batchService).saveLine(any(SaveLineCommand.class));
     }
 
+    @Test
+    void shouldExcludeConfirmedNonInventoryCandidateFromPendingGate() {
+        InTransitProductMatchCandidate packaging = candidate("机器狗包材");
+        when(mapper.excludeProductMatchCandidate(
+                10002L,
+                53001L,
+                packaging.getId(),
+                "人工确认非库存物料，不参与 ASN。",
+                90001L
+        )).thenReturn(1);
+        when(mapper.listProductMatchCandidates(10002L, 53001L)).thenReturn(List.of());
+
+        RematchView result = service.excludeFromAsn(
+                10002L,
+                90001L,
+                53001L,
+                packaging.getId()
+        );
+
+        assertEquals(0, result.getMatchedCount());
+        assertEquals(0, result.getPendingCount());
+        verify(mapper).excludeProductMatchCandidate(
+                10002L,
+                53001L,
+                packaging.getId(),
+                "人工确认非库存物料，不参与 ASN。",
+                90001L
+        );
+    }
+
     private SaveLineCommand sourceLine() {
         SaveLineCommand command = new SaveLineCommand();
         command.setOwnerUserId(10002L);
