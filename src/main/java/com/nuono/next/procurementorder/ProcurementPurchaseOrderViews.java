@@ -137,6 +137,7 @@ public final class ProcurementPurchaseOrderViews {
         public String routeName;
         public String serviceCode;
         public String serviceName;
+        public String quoteVersionCode;
         public String siteCode;
         public String transportMode;
         public String transportModeLabel;
@@ -150,7 +151,37 @@ public final class ProcurementPurchaseOrderViews {
         public Integer pendingLineCount = 0;
         public Integer confirmedLineCount = 0;
         public Integer newProductLineCount = 0;
+        public List<PurchaseOrderLogisticsQuotePublishedPriceView> publishedPrices = new ArrayList<>();
+        public List<PurchaseOrderLogisticsQuoteSurchargeView> surcharges = new ArrayList<>();
         public List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();
+    }
+
+    public static class PurchaseOrderLogisticsQuotePublishedPriceView {
+        public String priceRuleCode;
+        public String cargoCategoryCode;
+        public String cargoCategoryName;
+        public String priceStatus;
+        public String currency;
+        public BigDecimal unitPrice;
+        public String billingUnit;
+        public String billingBasis;
+        public BigDecimal volumeDivisor;
+        public BigDecimal minBillableUnit;
+        public String minBillableUnitType;
+        public BigDecimal minCharge;
+    }
+
+    public static class PurchaseOrderLogisticsQuoteSurchargeView {
+        public String feeName;
+        public String feeType;
+        public String triggerCondition;
+        public String currency;
+        public BigDecimal amount;
+        public BigDecimal rate;
+        public String billingUnit;
+        public String billingBasis;
+        public BigDecimal minCharge;
+        public BigDecimal minBillableUnit;
     }
 
     public static class PurchaseOrderLogisticsQuoteChannelLineView {

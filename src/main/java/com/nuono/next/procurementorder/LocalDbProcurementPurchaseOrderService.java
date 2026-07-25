@@ -60,7 +60,9 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrd
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteImportErrorView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteImportView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteOptionsView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuotePublishedPriceView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteReportExportView;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteSurchargeView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteSummaryView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsPlanView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderItemView;
@@ -108,6 +110,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -2288,11 +2291,104 @@ public class LocalDbProcurementPurchaseOrderService {
                 .collect(Collectors.toList());
     }
 
+    private void hydratePublishedQuotePrices(List<LogisticsQuoteExportOption> options) {
+        List<String> headhaulServiceCodes = options.stream()
+                .map(option -> option.candidate.serviceCode)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, List<ForwarderBasePriceRecord>> pricesByService = headhaulServiceCodes.isEmpty()
+                ? Collections.emptyMap()
+                : emptyIfNull(mapper.listBasePricesByServiceCodes(headhaulServiceCodes)).stream()
+                        .collect(Collectors.groupingBy(
+                                price -> price.serviceCode,
+                                LinkedHashMap::new,
+                                Collectors.toList()
+                        ));
+
+        List<String> routeCodes = options.stream()
+                .map(option -> option.candidate.routeCode)
+                .filter(StringUtils::hasText)
+                .distinct()
+                .collect(Collectors.toList());
+        List<ForwarderRouteSegmentRecord> routeSegments = routeCodes.isEmpty()
+                ? Collections.emptyList()
+                : emptyIfNull(mapper.listRouteSegments(routeCodes));
+        Map<String, List<ForwarderRouteSegmentRecord>> segmentsByRoute = routeSegments.stream()
+                .collect(Collectors.groupingBy(
+                        segment -> segment.routeCode,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+        List<String> surchargeServiceCodes = Stream.concat(
+                        headhaulServiceCodes.stream(),
+                        routeSegments.stream().map(segment -> segment.serviceCode)
+                )
+                .filter(StringUtils::hasText)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<String, List<ForwarderTransportFeeRecord>> feesByService = surchargeServiceCodes.isEmpty()
+                ? Collections.emptyMap()
+                : emptyIfNull(mapper.listTransportFeesByServiceCodes(surchargeServiceCodes)).stream()
+                        .collect(Collectors.groupingBy(
+                                fee -> fee.serviceCode,
+                                LinkedHashMap::new,
+                                Collectors.toList()
+                        ));
+
+        for (LogisticsQuoteExportOption option : options) {
+            ForwarderRouteRecommendationRecord candidate = option.candidate;
+            option.publishedPrices = pricesByService.getOrDefault(
+                    candidate.serviceCode,
+                    Collections.emptyList()
+            ).stream()
+                    .filter(price -> matchesPublishedQuoteVersion(candidate.quoteVersionCode, price.quoteVersionCode))
+                    .collect(Collectors.toList());
+            LinkedHashSet<String> routeServiceCodes = new LinkedHashSet<>();
+            if (StringUtils.hasText(candidate.serviceCode)) {
+                routeServiceCodes.add(candidate.serviceCode);
+            }
+            for (ForwarderRouteSegmentRecord segment :
+                    segmentsByRoute.getOrDefault(candidate.routeCode, Collections.emptyList())) {
+                if (StringUtils.hasText(segment.serviceCode)) {
+                    routeServiceCodes.add(segment.serviceCode);
+                }
+            }
+            option.surcharges = routeServiceCodes.stream()
+                    .flatMap(serviceCode -> feesByService.getOrDefault(serviceCode, Collections.emptyList()).stream())
+                    .filter(fee -> matchesPublishedQuoteVersion(candidate.quoteVersionCode, fee.quoteVersionCode))
+                    .filter(fee -> !Boolean.TRUE.equals(fee.includedInBasePrice))
+                    .filter(fee -> matchesPublishedQuoteScope(candidate, fee))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    private boolean matchesPublishedQuoteVersion(String selectedVersion, String rowVersion) {
+        return !StringUtils.hasText(selectedVersion)
+                || !StringUtils.hasText(rowVersion)
+                || selectedVersion.trim().equalsIgnoreCase(rowVersion.trim());
+    }
+
+    private boolean matchesPublishedQuoteScope(
+            ForwarderRouteRecommendationRecord candidate,
+            ForwarderTransportFeeRecord fee
+    ) {
+        return matchesOptionalQuoteScope(candidate.targetPlatform, fee.targetPlatform)
+                && matchesOptionalQuoteScope(candidate.deliveryCity, fee.deliveryCity);
+    }
+
+    private boolean matchesOptionalQuoteScope(String selectedValue, String scopedValue) {
+        return !StringUtils.hasText(scopedValue)
+                || !StringUtils.hasText(selectedValue)
+                || scopedValue.trim().equalsIgnoreCase(selectedValue.trim());
+    }
+
     private PurchaseOrderLogisticsQuoteOptionsView toLogisticsQuoteOptionsView(
             PurchaseOrderRecord order,
             List<PurchaseOrderLogisticsQuoteLineRecord> lines,
             List<LogisticsQuoteExportOption> options
     ) {
+        hydratePublishedQuotePrices(options);
         PurchaseOrderLogisticsQuoteOptionsView view = new PurchaseOrderLogisticsQuoteOptionsView();
         view.purchaseOrderId = String.valueOf(order.id);
         view.purchaseOrderNo = order.orderNo;
@@ -2333,6 +2429,7 @@ public class LocalDbProcurementPurchaseOrderService {
         view.routeName = candidate.routeName;
         view.serviceCode = candidate.serviceCode;
         view.serviceName = candidate.serviceName;
+        view.quoteVersionCode = candidate.quoteVersionCode;
         view.siteCode = candidate.siteCode;
         view.transportMode = normalizeTransportMode(candidate.transportMode);
         view.transportModeLabel = transportModeLabel(candidate.transportMode);
@@ -2346,7 +2443,51 @@ public class LocalDbProcurementPurchaseOrderService {
         view.pendingLineCount = option.pendingLineCount;
         view.confirmedLineCount = option.confirmedLineCount;
         view.newProductLineCount = option.newProductLineCount;
+        view.publishedPrices = option.publishedPrices.stream()
+                .map(this::toPublishedPriceView)
+                .collect(Collectors.toList());
+        view.surcharges = option.surcharges.stream()
+                .map(this::toSurchargeView)
+                .collect(Collectors.toList());
         view.lineQuotes = option.lineQuotes;
+        return view;
+    }
+
+    private PurchaseOrderLogisticsQuotePublishedPriceView toPublishedPriceView(
+            ForwarderBasePriceRecord price
+    ) {
+        PurchaseOrderLogisticsQuotePublishedPriceView view =
+                new PurchaseOrderLogisticsQuotePublishedPriceView();
+        view.priceRuleCode = price.priceRuleCode;
+        view.cargoCategoryCode = price.cargoCategoryCode;
+        view.cargoCategoryName = price.cargoCategoryName;
+        view.priceStatus = price.priceStatus;
+        view.currency = price.currency;
+        view.unitPrice = price.unitPrice;
+        view.billingUnit = price.billingUnit;
+        view.billingBasis = price.billingBasis;
+        view.volumeDivisor = price.volumeDivisor;
+        view.minBillableUnit = price.minBillableUnit;
+        view.minBillableUnitType = price.minBillableUnitType;
+        view.minCharge = price.minCharge;
+        return view;
+    }
+
+    private PurchaseOrderLogisticsQuoteSurchargeView toSurchargeView(
+            ForwarderTransportFeeRecord fee
+    ) {
+        PurchaseOrderLogisticsQuoteSurchargeView view =
+                new PurchaseOrderLogisticsQuoteSurchargeView();
+        view.feeName = fee.feeName;
+        view.feeType = fee.feeType;
+        view.triggerCondition = fee.triggerCondition;
+        view.currency = fee.currency;
+        view.amount = fee.amount;
+        view.rate = fee.rate;
+        view.billingUnit = fee.billingUnit;
+        view.billingBasis = fee.billingBasis;
+        view.minCharge = fee.minCharge;
+        view.minBillableUnit = fee.minBillableUnit;
         return view;
     }
 
@@ -6065,6 +6206,8 @@ public class LocalDbProcurementPurchaseOrderService {
         private Integer pendingLineCount = 0;
         private Integer confirmedLineCount = 0;
         private Integer newProductLineCount = 0;
+        private List<ForwarderBasePriceRecord> publishedPrices = new ArrayList<>();
+        private List<ForwarderTransportFeeRecord> surcharges = new ArrayList<>();
         private List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();
     }
 

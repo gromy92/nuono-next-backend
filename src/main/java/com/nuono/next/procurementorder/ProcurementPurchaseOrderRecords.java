@@ -127,6 +127,7 @@ public final class ProcurementPurchaseOrderRecords {
 
     public static class ForwarderBasePriceRecord {
         public Long id;
+        public String quoteVersionCode;
         public String serviceCode;
         public String priceRuleCode;
         public String cargoCategoryCode;
@@ -162,6 +163,7 @@ public final class ProcurementPurchaseOrderRecords {
 
     public static class ForwarderTransportFeeRecord {
         public Long id;
+        public String quoteVersionCode;
         public String serviceCode;
         public String feeName;
         public String feeType;
