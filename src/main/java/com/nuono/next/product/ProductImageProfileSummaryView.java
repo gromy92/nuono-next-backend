@@ -1,5 +1,8 @@
 package com.nuono.next.product;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class ProductImageProfileSummaryView {
     private Long id;
     private Long ownerUserId;
@@ -15,7 +18,11 @@ public class ProductImageProfileSummaryView {
     private String coverImageUrl;
     private Integer assetCount;
     private Integer suiteCount;
+    private Integer activeSuiteCount;
     private Boolean hasAdoptedSuite;
+    private ProductImageProfileReadinessStatus profileReadinessStatus;
+    private List<ProductImageProfileMissingField> missingProfileFields = new ArrayList<>();
+    private ProductImageSummaryStatus imageStatus;
     private String updatedAt;
 
     public Long getId() {
@@ -130,12 +137,44 @@ public class ProductImageProfileSummaryView {
         this.suiteCount = suiteCount;
     }
 
+    public Integer getActiveSuiteCount() {
+        return activeSuiteCount;
+    }
+
+    public void setActiveSuiteCount(Integer activeSuiteCount) {
+        this.activeSuiteCount = activeSuiteCount;
+    }
+
     public Boolean getHasAdoptedSuite() {
         return hasAdoptedSuite;
     }
 
     public void setHasAdoptedSuite(Boolean hasAdoptedSuite) {
         this.hasAdoptedSuite = hasAdoptedSuite;
+    }
+
+    public ProductImageProfileReadinessStatus getProfileReadinessStatus() {
+        return profileReadinessStatus;
+    }
+
+    public void setProfileReadinessStatus(ProductImageProfileReadinessStatus profileReadinessStatus) {
+        this.profileReadinessStatus = profileReadinessStatus;
+    }
+
+    public List<ProductImageProfileMissingField> getMissingProfileFields() {
+        return missingProfileFields;
+    }
+
+    public void setMissingProfileFields(List<ProductImageProfileMissingField> missingProfileFields) {
+        this.missingProfileFields = missingProfileFields == null ? new ArrayList<>() : new ArrayList<>(missingProfileFields);
+    }
+
+    public ProductImageSummaryStatus getImageStatus() {
+        return imageStatus;
+    }
+
+    public void setImageStatus(ProductImageSummaryStatus imageStatus) {
+        this.imageStatus = imageStatus;
     }
 
     public String getUpdatedAt() {

@@ -49,6 +49,7 @@ public class ProductImageProfileService {
     };
 
     private final ProductImageProfileMapper mapper;
+    private final ProductImageProfileCatalogSynchronizer catalogSynchronizer;
     private final OperationsSkinMapper operationsSkinMapper;
     private final ProductPublicDetailMapper productPublicDetailMapper;
     private final AiCapabilityService aiCapabilityService;
@@ -65,6 +66,7 @@ public class ProductImageProfileService {
             ApplicationEventPublisher eventPublisher
     ) {
         this.mapper = mapper;
+        this.catalogSynchronizer = new ProductImageProfileCatalogSynchronizer(mapper);
         this.operationsSkinMapper = operationsSkinMapper;
         this.productPublicDetailMapper = productPublicDetailMapper;
         this.aiCapabilityService = aiCapabilityService;
@@ -91,7 +93,7 @@ public class ProductImageProfileService {
         String keyword = trimToNull(command == null ? null : command.getKeyword());
         Long operatorUserId = command == null ? null : command.getOperatorUserId();
 
-        ensureStoreProfiles(ownerUserId, storeCode, operatorUserId);
+        catalogSynchronizer.ensureStoreProfiles(ownerUserId, storeCode, operatorUserId);
 
         ProductImageProfileListView view = new ProductImageProfileListView();
         view.setOwnerUserId(ownerUserId);
@@ -121,7 +123,7 @@ public class ProductImageProfileService {
         String keyword = trimToNull(command == null ? null : command.getKeyword());
         Long operatorUserId = command == null ? null : command.getOperatorUserId();
 
-        ensureStoreProfiles(ownerUserId, storeCode, operatorUserId);
+        catalogSynchronizer.ensureStoreProfiles(ownerUserId, storeCode, operatorUserId);
 
         ProductImageProfileSummaryListView view = new ProductImageProfileSummaryListView();
         view.setOwnerUserId(ownerUserId);
@@ -129,128 +131,19 @@ public class ProductImageProfileService {
 
         Map<String, ProductImageProfileSummaryView> byIdentity = new LinkedHashMap<>();
         for (ProductImageProfileSummaryRecord summary : safeList(mapper.selectProfileSummariesForStore(ownerUserId, storeCode, keyword))) {
-            ProductImageProfileSummaryView item = toSummaryView(summary);
+            ProductImageProfileSummaryView item = ProductImageProfileSummaryAssembler.fromRecord(summary);
             byIdentity.put(identityKey(summary.getPskuCode(), summary.getProductIdentityKey()), item);
         }
 
         for (ProductImageProductCandidateRecord candidate : safeList(mapper.selectProductCandidates(ownerUserId, storeCode, keyword))) {
             String candidateKey = identityKey(candidate.getPskuCode(), candidate.getProductIdentityKey());
-            byIdentity.putIfAbsent(candidateKey, toTransientSummaryView(ownerUserId, storeCode, candidate));
+            byIdentity.putIfAbsent(candidateKey, ProductImageProfileSummaryAssembler.fromCandidate(
+                    ownerUserId, storeCode, candidate, catalogSynchronizer.initialProductFactText(candidate)
+            ));
         }
 
         view.setItems(new ArrayList<>(byIdentity.values()));
         return view;
-    }
-
-    private void ensureStoreProfiles(Long ownerUserId, String storeCode, Long operatorUserId) {
-        LocalDateTime now = LocalDateTime.now();
-        for (ProductImageProductCandidateRecord candidate : safeList(mapper.selectAllProductCandidatesForStore(ownerUserId, storeCode))) {
-            String pskuCode = trimToNull(candidate.getPskuCode());
-            String productIdentityKey = trimToNull(candidate.getProductIdentityKey());
-            if (pskuCode == null || productIdentityKey == null) {
-                continue;
-            }
-            ProductImageProfileRecord existing = mapper.selectProfileByIdentity(ownerUserId, storeCode, pskuCode, productIdentityKey);
-            if (existing == null) {
-                mapper.insertProfile(newInitialProfile(ownerUserId, storeCode, candidate, operatorUserId, now));
-                continue;
-            }
-            ProductImageProfileRecord refreshed = refreshedProfile(existing, candidate, operatorUserId, now);
-            if (shouldRefreshProfile(existing, refreshed)) {
-                mapper.updateProfile(refreshed);
-            }
-        }
-    }
-
-    private ProductImageProfileRecord newInitialProfile(
-            Long ownerUserId,
-            String storeCode,
-            ProductImageProductCandidateRecord candidate,
-            Long operatorUserId,
-            LocalDateTime now
-    ) {
-        ProductImageProfileRecord record = new ProductImageProfileRecord();
-        record.setOwnerUserId(ownerUserId);
-        record.setStoreCode(storeCode);
-        record.setPskuCode(trimToNull(candidate.getPskuCode()));
-        record.setProductIdentityKey(trimToNull(candidate.getProductIdentityKey()));
-        record.setProductMasterId(candidate.getProductMasterId());
-        record.setProductTitle(trimToNull(candidate.getProductTitle()));
-        record.setBrand(trimToNull(candidate.getBrand()));
-        record.setTitleEn(trimToNull(candidate.getProductTitle()));
-        record.setTitleAr(null);
-        record.setSpecSummary(null);
-        record.setProductFactText(buildInitialProductFactText(candidate));
-        record.setHeroSellingPointsJson("[]");
-        record.setProfileStatus("ACTIVE");
-        record.setCreatedBy(operatorUserId);
-        record.setUpdatedBy(operatorUserId);
-        record.setCreatedAt(now);
-        record.setUpdatedAt(now);
-        record.setDeleted(false);
-        return record;
-    }
-
-    private ProductImageProfileRecord refreshedProfile(
-            ProductImageProfileRecord existing,
-            ProductImageProductCandidateRecord candidate,
-            Long operatorUserId,
-            LocalDateTime now
-    ) {
-        String candidateTitle = trimToNull(candidate.getProductTitle());
-        String candidateBrand = trimToNull(candidate.getBrand());
-        ProductImageProfileRecord record = new ProductImageProfileRecord();
-        record.setId(existing.getId());
-        record.setOwnerUserId(existing.getOwnerUserId());
-        record.setStoreCode(existing.getStoreCode());
-        record.setLogicalStoreId(existing.getLogicalStoreId());
-        record.setPskuCode(existing.getPskuCode());
-        record.setProductIdentityKey(existing.getProductIdentityKey());
-        record.setProductMasterId(candidate.getProductMasterId());
-        record.setProductTitle(candidateTitle == null ? trimToNull(existing.getProductTitle()) : candidateTitle);
-        record.setBrand(candidateBrand == null ? trimToNull(existing.getBrand()) : candidateBrand);
-        record.setTitleAr(trimToNull(existing.getTitleAr()));
-        record.setTitleEn(candidateTitle == null ? trimToNull(existing.getTitleEn()) : candidateTitle);
-        record.setSpecSummary(trimToNull(existing.getSpecSummary()));
-        record.setProductFactText(trimToNull(existing.getProductFactText()) == null
-                ? buildInitialProductFactText(candidate)
-                : existing.getProductFactText());
-        record.setHeroSellingPointsJson(trimToNull(existing.getHeroSellingPointsJson()) == null
-                ? "[]"
-                : existing.getHeroSellingPointsJson());
-        record.setProfileStatus(trimToNull(existing.getProfileStatus()) == null ? "ACTIVE" : existing.getProfileStatus());
-        record.setCreatedBy(existing.getCreatedBy());
-        record.setUpdatedBy(operatorUserId == null ? existing.getUpdatedBy() : operatorUserId);
-        record.setCreatedAt(existing.getCreatedAt());
-        record.setUpdatedAt(now);
-        record.setDeleted(false);
-        return record;
-    }
-
-    private boolean shouldRefreshProfile(ProductImageProfileRecord existing, ProductImageProfileRecord refreshed) {
-        return !Objects.equals(existing.getProductMasterId(), refreshed.getProductMasterId())
-                || !Objects.equals(trimToNull(existing.getProductTitle()), refreshed.getProductTitle())
-                || !Objects.equals(trimToNull(existing.getBrand()), refreshed.getBrand())
-                || !Objects.equals(trimToNull(existing.getTitleEn()), refreshed.getTitleEn())
-                || trimToNull(existing.getProductFactText()) == null
-                || trimToNull(existing.getHeroSellingPointsJson()) == null
-                || trimToNull(existing.getProfileStatus()) == null;
-    }
-
-    private String buildInitialProductFactText(ProductImageProductCandidateRecord candidate) {
-        List<String> lines = new ArrayList<>();
-        appendFactLine(lines, "商品", candidate.getProductTitle());
-        appendFactLine(lines, "PSKU", candidate.getPskuCode());
-        appendFactLine(lines, "品牌", candidate.getBrand());
-        appendFactLine(lines, "英文完整标题", candidate.getProductTitle());
-        return String.join("\n", lines);
-    }
-
-    private void appendFactLine(List<String> lines, String label, String value) {
-        String text = trimToNull(value);
-        if (text != null) {
-            lines.add(label + "：" + text);
-        }
     }
 
     public ProductImageProfileDetailView detail(Long ownerUserId, String storeCode, Long profileId) {
@@ -1491,27 +1384,6 @@ public class ProductImageProfileService {
         return view;
     }
 
-    private ProductImageProfileSummaryView toSummaryView(ProductImageProfileSummaryRecord record) {
-        ProductImageProfileSummaryView view = new ProductImageProfileSummaryView();
-        view.setId(record.getId());
-        view.setOwnerUserId(record.getOwnerUserId());
-        view.setStoreCode(record.getStoreCode());
-        view.setPskuCode(record.getPskuCode());
-        view.setProductIdentityKey(record.getProductIdentityKey());
-        view.setProductMasterId(record.getProductMasterId());
-        view.setProductTitle(record.getProductTitle());
-        view.setBrand(record.getBrand());
-        view.setTitleAr(record.getTitleAr());
-        view.setTitleEn(record.getTitleEn());
-        view.setSpecSummary(record.getSpecSummary());
-        view.setCoverImageUrl(record.getCoverImageUrl());
-        view.setAssetCount(record.getAssetCount() == null ? 0 : record.getAssetCount());
-        view.setSuiteCount(record.getSuiteCount() == null ? 0 : record.getSuiteCount());
-        view.setHasAdoptedSuite(Boolean.TRUE.equals(record.getHasAdoptedSuite()));
-        view.setUpdatedAt(format(record.getUpdatedAt()));
-        return view;
-    }
-
     private ProductImageProfileDetailView toTransientDetailView(
             Long ownerUserId,
             String storeCode,
@@ -1526,26 +1398,6 @@ public class ProductImageProfileService {
         view.setProductTitle(candidate.getProductTitle());
         view.setBrand(candidate.getBrand());
         view.setAssets(baseAssets(candidate.getProductMasterId(), candidate.getCoverImageUrl()));
-        return view;
-    }
-
-    private ProductImageProfileSummaryView toTransientSummaryView(
-            Long ownerUserId,
-            String storeCode,
-            ProductImageProductCandidateRecord candidate
-    ) {
-        ProductImageProfileSummaryView view = new ProductImageProfileSummaryView();
-        view.setOwnerUserId(ownerUserId);
-        view.setStoreCode(storeCode);
-        view.setPskuCode(candidate.getPskuCode());
-        view.setProductIdentityKey(candidate.getProductIdentityKey());
-        view.setProductMasterId(candidate.getProductMasterId());
-        view.setProductTitle(candidate.getProductTitle());
-        view.setBrand(candidate.getBrand());
-        view.setCoverImageUrl(candidate.getCoverImageUrl());
-        view.setAssetCount(StringUtils.hasText(candidate.getCoverImageUrl()) ? 1 : 0);
-        view.setSuiteCount(0);
-        view.setHasAdoptedSuite(false);
         return view;
     }
 

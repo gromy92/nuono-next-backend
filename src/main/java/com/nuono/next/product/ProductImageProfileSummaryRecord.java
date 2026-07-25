@@ -14,10 +14,13 @@ public class ProductImageProfileSummaryRecord {
     private String titleAr;
     private String titleEn;
     private String specSummary;
+    private String productFactText;
     private String coverImageUrl;
     private Integer assetCount;
     private Integer suiteCount;
+    private Integer activeSuiteCount;
     private Boolean hasAdoptedSuite;
+    private ProductImageSuiteStatus primarySuiteStatus;
     private LocalDateTime updatedAt;
 
     public Long getId() {
@@ -108,6 +111,14 @@ public class ProductImageProfileSummaryRecord {
         this.specSummary = specSummary;
     }
 
+    public String getProductFactText() {
+        return productFactText;
+    }
+
+    public void setProductFactText(String productFactText) {
+        this.productFactText = productFactText;
+    }
+
     public String getCoverImageUrl() {
         return coverImageUrl;
     }
@@ -132,12 +143,28 @@ public class ProductImageProfileSummaryRecord {
         this.suiteCount = suiteCount;
     }
 
+    public Integer getActiveSuiteCount() {
+        return activeSuiteCount;
+    }
+
+    public void setActiveSuiteCount(Integer activeSuiteCount) {
+        this.activeSuiteCount = activeSuiteCount;
+    }
+
     public Boolean getHasAdoptedSuite() {
         return hasAdoptedSuite;
     }
 
     public void setHasAdoptedSuite(Boolean hasAdoptedSuite) {
         this.hasAdoptedSuite = hasAdoptedSuite;
+    }
+
+    public ProductImageSuiteStatus getPrimarySuiteStatus() {
+        return primarySuiteStatus;
+    }
+
+    public void setPrimarySuiteStatus(ProductImageSuiteStatus primarySuiteStatus) {
+        this.primarySuiteStatus = primarySuiteStatus;
     }
 
     public LocalDateTime getUpdatedAt() {

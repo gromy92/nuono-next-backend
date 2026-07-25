@@ -48,7 +48,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/ProcurementPurchaseOrderMappe
 src/main/java/com/nuono/next/infrastructure/mapper/ProcurementRequirementConfirmationMapper.java	1204
 src/main/java/com/nuono/next/infrastructure/mapper/ProductAttributeTemplateMapper.java	322
 src/main/java/com/nuono/next/infrastructure/mapper/ProductGroupMapper.java	520
-src/main/java/com/nuono/next/infrastructure/mapper/ProductImageProfileMapper.java	1133
+src/main/java/com/nuono/next/infrastructure/mapper/ProductImageProfileMapper.java	1025
 src/main/java/com/nuono/next/infrastructure/mapper/ProductKeywordMapper.java	332
 src/main/java/com/nuono/next/infrastructure/mapper/ProductListingMapper.java	506
 src/main/java/com/nuono/next/infrastructure/mapper/ProductLogisticsCostMapper.java	395
@@ -177,7 +177,7 @@ src/main/java/com/nuono/next/product/ProductGroupProjectionService.java	440
 src/main/java/com/nuono/next/product/ProductGroupPublishService.java	350
 src/main/java/com/nuono/next/product/ProductImageMetadataService.java	407
 src/main/java/com/nuono/next/product/ProductImageProfileController.java	766
-src/main/java/com/nuono/next/product/ProductImageProfileService.java	2401
+src/main/java/com/nuono/next/product/ProductImageProfileService.java	2253
 src/main/java/com/nuono/next/product/ProductKeyAttributeBuilder.java	551
 src/main/java/com/nuono/next/product/ProductListProjectionRecord.java	466
 src/main/java/com/nuono/next/product/ProductListSummaryView.java	567
