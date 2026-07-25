@@ -60,7 +60,8 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 noonInboundClient,
                 new ObjectMapper(),
                 riskBackoffGuard,
-                new NoonPullFailurePolicy()
+                new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
 
         AppointmentRecord appointment = appointment();
@@ -107,7 +108,8 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 noonInboundClient,
                 new ObjectMapper(),
                 NoonRiskBackoffGuard.disabled(),
-                new NoonPullFailurePolicy()
+                new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
         AppointmentRecord appointment = appointment();
         when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
@@ -133,7 +135,8 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 noonInboundClient,
                 new ObjectMapper(),
                 NoonRiskBackoffGuard.disabled(),
-                new NoonPullFailurePolicy()
+                new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
         AppointmentRecord appointment = appointment();
         when(mapper.listDueAppointments(1)).thenReturn(List.of(appointment));
@@ -163,7 +166,8 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 noonInboundClient,
                 new ObjectMapper(),
                 riskBackoffGuard,
-                new NoonPullFailurePolicy()
+                new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
         AppointmentRecord appointment = appointment();
         when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
