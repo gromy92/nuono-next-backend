@@ -147,7 +147,7 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
-    void listShouldRefreshStoredShortTitleToFullTitleWithoutClearingArabicTitle() {
+    void listShouldPreserveStoredManualTitleWithoutClearingArabicTitle() {
         ProductImageProductCandidateRecord candidate = candidateRecord();
         candidate.setProductTitle("3-piece white flameless LED candles with remote control and timer for home hotel party decor");
         ProductImageProfileRecord existing = profileRecord();
@@ -174,7 +174,7 @@ class ProductImageProfileServiceTest {
         verify(mapper).updateProfile(profileCaptor.capture());
         assertEquals("٣ قطع شموع LED بدون لهب", profileCaptor.getValue().getTitleAr());
         assertEquals(
-                "3-piece white flameless LED candles with remote control and timer for home hotel party decor",
+                "3Pcs Flameless LED Candles",
                 profileCaptor.getValue().getTitleEn()
         );
         org.junit.jupiter.api.Assertions.assertTrue(
