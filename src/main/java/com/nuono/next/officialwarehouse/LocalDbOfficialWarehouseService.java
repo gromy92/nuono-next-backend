@@ -92,7 +92,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
 
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
     private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
-    private static final int APPOINTMENT_RETRY_CAP_SECONDS = 1800;
     private static final int DEFAULT_SEAL_CHECK_ATTEMPTS = 8;
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
     private static final int DEFAULT_ASN_LIST_SYNC_PER_PAGE = 50;
@@ -110,6 +109,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private final OfficialWarehouseAppointmentRunner appointmentRunner;
     private final NoonRiskBackoffGuard riskBackoffGuard;
     private final NoonPullFailurePolicy failurePolicy;
+    private final OfficialWarehouseAppointmentAuthRecovery appointmentAuthRecovery;
     @Value("${nuono.official-warehouse.appointment.scheduler.enabled:false}")
     private boolean appointmentSchedulerEnabled;
     @Value("${nuono.official-warehouse.appointment.scheduler.max-items-per-tick:20}")
@@ -131,7 +131,8 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             OfficialWarehouseNoonInboundClient noonInboundClient,
             ObjectMapper objectMapper,
             NoonRiskBackoffGuard riskBackoffGuard,
-            NoonPullFailurePolicy failurePolicy
+            NoonPullFailurePolicy failurePolicy,
+            OfficialWarehouseAppointmentAuthRecovery appointmentAuthRecovery
     ) {
         this.mapper = mapper;
         this.noonSessionGateway = noonSessionGateway;
@@ -142,6 +143,9 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         this.appointmentRunner = new OfficialWarehouseAppointmentRunner(Clock.systemDefaultZone());
         this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
         this.failurePolicy = failurePolicy == null ? new NoonPullFailurePolicy() : failurePolicy;
+        this.appointmentAuthRecovery = appointmentAuthRecovery == null
+                ? OfficialWarehouseAppointmentAuthRecovery.disabled()
+                : appointmentAuthRecovery;
     }
 
     public List<AsnView> listAsns(
@@ -1774,9 +1778,16 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
             }
         }
+        NoonSalesReportBinding binding = null;
         try {
             AppointmentTask task = toAppointmentTask(appointment);
-            NoonSalesReportBinding binding = resolveBinding(appointment);
+            binding = resolveBinding(appointment);
+            OfficialWarehouseAppointmentAuthRecovery.AuthWait blocked =
+                    appointmentAuthRecovery.blockedWait(appointment.ownerUserId, binding.getProjectCode());
+            if (blocked != null) {
+                markAppointmentPendingAuthRecovery(appointment, operatorId, blocked);
+                return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+            }
             NoonSession session = openNoonSession(appointment.ownerUserId, binding);
             RunResult result = appointmentRunner.runOnce(
                     task,
@@ -1832,6 +1843,19 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             }
         } catch (Exception exception) {
             String message = shrinkMessage(exception);
+            OfficialWarehouseAppointmentAuthRecovery.AuthWait authWait =
+                    allowRetry && shouldRetryAppointment(appointment, "AUTH_RECOVERY_PENDING")
+                            ? appointmentAuthRecovery.enqueue(
+                                    appointment.ownerUserId,
+                                    binding == null ? null : binding.getProjectCode(),
+                                    appointment.storeCode,
+                                    message
+                            )
+                            : null;
+            if (authWait != null) {
+                markAppointmentPendingAuthRecovery(appointment, operatorId, authWait);
+                return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+            }
             NoonRiskBackoffHold riskBackoffHold = recordAppointmentRiskBackoffIfNeeded(appointment, message);
             if (riskBackoffHold != null && allowRetry && shouldRetryAppointment(appointment, riskBackoffHold.getRiskType())) {
                 markAppointmentPendingRiskBackoff(appointment, riskBackoffHold, operatorId);
@@ -1871,6 +1895,21 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             }
         }
         return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
+    }
+
+    private void markAppointmentPendingAuthRecovery(
+            AppointmentRecord appointment,
+            Long operatorUserId,
+            OfficialWarehouseAppointmentAuthRecovery.AuthWait wait
+    ) {
+        mapper.markAppointmentPendingRetry(
+                appointment.id,
+                wait.retrySeconds,
+                wait.errorStage,
+                wait.failureType,
+                wait.message,
+                operatorUserId
+        );
     }
 
     private AppointmentView runSelectedAppointmentRecord(
@@ -2064,11 +2103,11 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     private boolean shouldRetryAppointment(AppointmentRecord appointment, String failureType) {
-        if (failureType != null && failureType.startsWith("NOON_ASN_")) {
-            return false;
-        }
-        LocalDate today = LocalDate.now();
-        return appointment.apEndDateValue == null || !today.isAfter(appointment.apEndDateValue);
+        return OfficialWarehouseAppointmentRetryPolicy.shouldRetry(
+                appointment,
+                failureType,
+                LocalDate.now()
+        );
     }
 
     private int safeRetryBaseSeconds() {
@@ -2076,7 +2115,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     static int nextAppointmentRetrySeconds(int baseRetrySeconds, AppointmentRecord appointment) {
-        return nextAppointmentRetrySeconds(baseRetrySeconds, appointment, "SCHEDULE", "SCHEDULE_APPOINTMENT", null);
+        return OfficialWarehouseAppointmentRetryPolicy.nextRetrySeconds(baseRetrySeconds, appointment);
     }
 
     static int nextAppointmentRetrySeconds(
@@ -2086,96 +2125,37 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             String failureType,
             String errorMessage
     ) {
-        if (isNoCapacityFailure(failureType)) {
-            return 0;
-        }
-        int safeBase = baseRetrySeconds <= 0 ? DEFAULT_APPOINTMENT_RETRY_SECONDS : baseRetrySeconds;
-        int previousAttemptCount = appointment == null || appointment.attemptCount == null
-                ? 0
-                : Math.max(0, appointment.attemptCount);
-        int failedAttemptsAfterCurrentRun = previousAttemptCount + 1;
-        long multiplier = 1L << Math.min(30, failedAttemptsAfterCurrentRun);
-        long seconds = (long) safeBase * multiplier;
-        return (int) Math.min(seconds, APPOINTMENT_RETRY_CAP_SECONDS);
+        return OfficialWarehouseAppointmentRetryPolicy.nextRetrySeconds(
+                baseRetrySeconds,
+                appointment,
+                errorStage,
+                failureType,
+                errorMessage
+        );
     }
 
     static String appointmentRetryFailureType(String errorStage, String failureType, String errorMessage) {
-        if ("NOON_NO_CAPACITY".equalsIgnoreCase(trimToNull(failureType))) {
-            return "NO_CAPACITY";
-        }
-        if (isNoonAccessBlocked(errorStage, failureType, errorMessage)) {
-            return "NOON_ACCESS_BLOCKED";
-        }
-        if (isNoonAccessFailure(errorStage, failureType, errorMessage)) {
-            return "NOON_ACCESS_FAILURE";
-        }
-        return failureType;
+        return OfficialWarehouseAppointmentRetryPolicy.failureType(
+                errorStage,
+                failureType,
+                errorMessage
+        );
     }
 
     static boolean isRetryableNoonCallFailure(String retryFailureType) {
-        return isNoonAccessFailureType(retryFailureType);
+        return OfficialWarehouseAppointmentRetryPolicy.isRetryableNoonCallFailure(retryFailureType);
     }
 
     private static String appointmentRetryErrorStage(String fallbackStage, String retryFailureType) {
-        if (isNoCapacityFailure(retryFailureType)) {
-            return "SCHEDULE";
-        }
-        return isNoonAccessFailureType(retryFailureType) ? "NOON_ACCESS" : fallbackStage;
+        return OfficialWarehouseAppointmentRetryPolicy.errorStage(fallbackStage, retryFailureType);
     }
 
     private static String noonFailureType(Exception exception) {
-        if (exception instanceof NoonOperationException) {
-            return ((NoonOperationException) exception).getClassification().getCode();
-        }
-        return exception == null ? "UNKNOWN" : exception.getClass().getSimpleName();
+        return OfficialWarehouseAppointmentRetryPolicy.noonFailureType(exception);
     }
 
     private static boolean isNoCapacityFailure(String failureType) {
-        return "NO_CAPACITY".equalsIgnoreCase(trimToNull(failureType));
-    }
-
-    private static boolean isNoonAccessBlocked(String errorStage, String failureType, String errorMessage) {
-        String combined = retryText(errorStage, failureType, errorMessage);
-        return combined.contains("http 407")
-                || combined.contains("proxy authentication")
-                || combined.contains("tunnel failed");
-    }
-
-    private static boolean isNoonAccessFailure(String errorStage, String failureType, String errorMessage) {
-        if (isNoonAccessBlocked(errorStage, failureType, errorMessage)) {
-            return true;
-        }
-        String combined = retryText(errorStage, failureType, errorMessage);
-        return combined.contains("io_exception")
-                || combined.contains("connection reset")
-                || combined.contains("connection refused")
-                || combined.contains("connect timed out")
-                || combined.contains("request timed out")
-                || combined.contains("read timed out")
-                || combined.contains("no route to host")
-                || combined.contains("buffer_underflow")
-                || combined.contains("header parser received no bytes")
-                || combined.contains("with eof")
-                || combined.contains("non decrypted")
-                || combined.contains("eof reached")
-                || combined.contains("unexpected end")
-                || combined.contains("connection closed")
-                || combined.contains("closed channel")
-                || combined.contains("http 408")
-                || combined.contains("http 500")
-                || combined.contains("http 502")
-                || combined.contains("http 503")
-                || combined.contains("http 504");
-    }
-
-    private static boolean isNoonAccessFailureType(String retryFailureType) {
-        return "NOON_ACCESS_BLOCKED".equalsIgnoreCase(trimToNull(retryFailureType))
-                || "NOON_ACCESS_FAILURE".equalsIgnoreCase(trimToNull(retryFailureType));
-    }
-
-    private static String retryText(String errorStage, String failureType, String errorMessage) {
-        return (String.valueOf(errorStage) + " " + String.valueOf(failureType) + " " + String.valueOf(errorMessage))
-                .toLowerCase(Locale.ROOT);
+        return OfficialWarehouseAppointmentRetryPolicy.isNoCapacity(failureType);
     }
 
     private Long schedulerOperatorUserId(AppointmentRecord appointment) {
