@@ -588,8 +588,6 @@ public interface OfficialWarehouseMapper {
             @Param("variantIds") Collection<Long> variantIds,
             @Param("partnerSkus") Collection<String> partnerSkus
     );
-    @Select("<script>SELECT COUNT(*) FROM in_transit_product_match_candidate WHERE owner_user_id = #{ownerUserId} AND match_status = 'UNMATCHED' AND is_deleted = b'0' AND batch_id IN <foreach collection='batchIds' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
-    int countPendingProductMatchesForBatches(@Param("ownerUserId") Long ownerUserId, @Param("batchIds") List<Long> batchIds);
     @Insert({
             "INSERT INTO official_warehouse_asn (",
             "id, owner_user_id, logical_store_id, store_code, store_name, site_code, project_code, partner_id,",

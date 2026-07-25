@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class InTransitProductMatchContractTest {
 
     @Test
-    void shouldKeepRawCandidateSchemaAndDeferredBusinessGate() throws Exception {
+    void shouldKeepRawCandidatesWithoutBlockingMatchedAsnLines() throws Exception {
         String migration = read("src/main/resources/db/init/199_in_transit_product_match_candidate.sql");
         String candidateMapper = read(
                 "src/main/java/com/nuono/next/infrastructure/mapper/InTransitProductMatchCandidateMapper.java"
@@ -40,8 +40,11 @@ class InTransitProductMatchContractTest {
                 .contains("productMatchService.saveCandidate")
                 .doesNotContain("selectProductIdentityByBarcode");
         assertThat(officialWarehouse)
-                .contains("countPendingProductMatchesForBatches")
-                .contains("条商品待匹配，请先在在途物流中重新匹配");
+                .contains("listShippingBatchSourceAllocations")
+                .contains("选择的物流批次没有匹配当前 ASN 商品")
+                .contains("选择的物流批次数量不足")
+                .doesNotContain("countPendingProductMatchesForBatches")
+                .doesNotContain("条商品待匹配，请先在在途物流中重新匹配");
         assertThat(productPreparation)
                 .contains("@PostMapping(\"/prepare\")")
                 .contains("prepareForStoreSite");
