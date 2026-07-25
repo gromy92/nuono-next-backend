@@ -1758,6 +1758,10 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 qikeRoute.serviceCode, "沙特空运（化妆品及液体）", "82.00"
         );
         liquidPrice.quoteVersionCode = "QIKE-20260523";
+        ForwarderBasePriceRecord historicalPrice = publishedBasePrice(
+                qikeRoute.serviceCode, "历史普货价", "66.00"
+        );
+        historicalPrice.quoteVersionCode = "QIKE-20250401";
         ForwarderTransportFeeRecord fbnDeliveryFee = transportFee();
         fbnDeliveryFee.serviceCode = qikeRoute.serviceCode;
         fbnDeliveryFee.quoteVersionCode = "QIKE-20260523";
@@ -1769,6 +1773,13 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         fbnDeliveryFee.targetPlatform = "FBN";
         fbnDeliveryFee.deliveryCity = "利雅得/RUH";
         fbnDeliveryFee.includedInBasePrice = false;
+        ForwarderTransportFeeRecord historicalFee = transportFee();
+        historicalFee.serviceCode = qikeRoute.serviceCode;
+        historicalFee.quoteVersionCode = "QIKE-20250401";
+        historicalFee.feeName = "历史送仓费";
+        historicalFee.targetPlatform = "FBN";
+        historicalFee.deliveryCity = "利雅得/RUH";
+        historicalFee.includedInBasePrice = false;
 
         ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
         command.segmentIds = List.of("292001");
@@ -1782,7 +1793,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.listBasePricesByServiceCodes(List.of(
                 "YT-SAU-AIR-FBN-RUH",
                 "QIKE-SAU-AIR-FBN-RUH-20260523"
-        ))).thenReturn(List.of(generalCargoPrice, liquidPrice));
+        ))).thenReturn(List.of(generalCargoPrice, liquidPrice, historicalPrice));
         when(mapper.listRouteSegments(List.of(
                 "YT-SAU-AIR-FBN-RUH",
                 "QIKE-SAU-AIR-FBN-RUH-20260523"
@@ -1797,7 +1808,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.listTransportFeesByServiceCodes(List.of(
                 "YT-SAU-AIR-FBN-RUH",
                 "QIKE-SAU-AIR-FBN-RUH-20260523"
-        ))).thenReturn(List.of(fbnDeliveryFee));
+        ))).thenReturn(List.of(fbnDeliveryFee, historicalFee));
         when(mapper.selectCurrentProductForwarderChannelQuote(
                 307L,
                 "STR69486-NSA",
