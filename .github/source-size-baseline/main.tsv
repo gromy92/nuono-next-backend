@@ -36,7 +36,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/MasterDataMapper.java	1062
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAdvertisingMapper.java	628
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1355
 src/main/java/com/nuono/next/infrastructure/mapper/NoonFinanceTransactionMapper.java	602
-src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1418
+src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1416
 src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java	1367
 src/main/java/com/nuono/next/infrastructure/mapper/OperationsSkinMapper.java	463
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitBatchAttributionMapper.java	450
@@ -103,7 +103,7 @@ src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	821
-src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3086
+src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3082
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1171
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java	387
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335
