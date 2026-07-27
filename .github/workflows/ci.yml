@@ -46,6 +46,7 @@ jobs:
           python -m unittest
           scripts/tests/test_release_cutover_maintenance.py
           scripts/tests/test_release_database_idle.py
+          scripts/tests/test_release_schema_drain.py
           scripts/tests/test_release_schema_cutover.py
 
       - name: Set up JDK
