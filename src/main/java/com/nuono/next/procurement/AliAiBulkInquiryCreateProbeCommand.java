@@ -3,10 +3,9 @@ package com.nuono.next.procurement;
 import java.util.ArrayList;
 import java.util.List;
 
-public class AliAiBulkInquiryCreateProbeCommand {
+public class AliAiBulkInquiryCreateProbeCommand extends ProcurementAutoInquiryProbeCommand {
 
     private Long taskId;
-    private Long operatorUserId;
     private List<String> offerUrls = new ArrayList<>();
     private String inquiryMessage;
     private Integer quantity;
@@ -20,14 +19,6 @@ public class AliAiBulkInquiryCreateProbeCommand {
 
     public void setTaskId(Long taskId) {
         this.taskId = taskId;
-    }
-
-    public Long getOperatorUserId() {
-        return operatorUserId;
-    }
-
-    public void setOperatorUserId(Long operatorUserId) {
-        this.operatorUserId = operatorUserId;
     }
 
     public List<String> getOfferUrls() {

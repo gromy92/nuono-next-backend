@@ -131,6 +131,17 @@ public class BusinessAccessResolver {
         }
     }
 
+    public Long requireOwnerUserId(
+            BusinessAccessContext context,
+            Long requestedOwnerUserId
+    ) {
+        try {
+            return guard.requireOwnerUserId(context, requestedOwnerUserId);
+        } catch (BusinessAccessDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        }
+    }
+
     public BusinessAccessContext resolve(HttpServletRequest request) {
         Object existingContext = request == null ? null : request.getAttribute(CONTEXT_REQUEST_ATTRIBUTE);
         if (existingContext instanceof BusinessAccessContext) {
