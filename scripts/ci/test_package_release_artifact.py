@@ -41,6 +41,7 @@ class PackageReleaseArtifactTest(unittest.TestCase):
             migration_dir.mkdir(parents=True)
             names = [
                 "182_product_barcode_psku_identity.sql",
+                "189_product_barcode_store_identity_repair.sql",
                 "190_noon_shared_email_auth_recovery.sql",
                 "204_product_listing_workflow_attempt_claim.sql",
                 "205_product_listing_reauthentication_attempt.sql",

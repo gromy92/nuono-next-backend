@@ -9,7 +9,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-
 MODULE_PATH = Path(__file__).parents[1] / "release_cutover_maintenance.py"
 
 
@@ -28,6 +27,7 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
             expected_jar_sha256="a" * 64,
             expected_commit="b" * 40,
             expected_182_sha256="1" * 64,
+            expected_189_sha256="2" * 64,
             expected_190_sha256="c" * 64,
             expected_204_sha256="d" * 64,
             expected_205_sha256="e" * 64,
@@ -41,6 +41,7 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
             expected_jar_sha256="a" * 64,
             expected_commit="b" * 40,
             expected_182_sha256="1" * 64,
+            expected_189_sha256="2" * 64,
             expected_206_sha256="c" * 64,
             active_slot="green",
             active_port=18088,

@@ -1,6 +1,6 @@
 # Managed product-listing schema cutover
 
-This runbook governs migrations 182, 204, 205, and the irreversible 206
+This runbook governs migrations 182, 189, 204, 205, and the irreversible 206
 cutover. It supplements the workspace production release runbook. It does not
 authorize a production execution.
 
@@ -11,10 +11,11 @@ Its release manifest must bind the exact commit, Jar SHA-256, and these
 migration files in this order:
 
 1. `182_product_barcode_psku_identity.sql`
-2. `190_noon_shared_email_auth_recovery.sql`
-3. `204_product_listing_workflow_attempt_claim.sql`
-4. `205_product_listing_reauthentication_attempt.sql`
-5. `206_product_barcode_store_uniqueness.sql`
+2. `189_product_barcode_store_identity_repair.sql`
+3. `190_noon_shared_email_auth_recovery.sql`
+4. `204_product_listing_workflow_attempt_claim.sql`
+5. `205_product_listing_reauthentication_attempt.sql`
+6. `206_product_barcode_store_uniqueness.sql`
 
 The managed entry extracts migrations from the staged or active frozen Jar and
 checks every file SHA against the same manifest. It reads the remote `.env`
@@ -39,9 +40,14 @@ The entry dynamically classifies `product_barcode`:
 
 If a `READY` schema has incomplete active-row backfill, the entry checks
 mapping safety, reruns the idempotent 182 file from the frozen Jar, and
-postchecks it. It then proves migration 190's dependency structures, applies
-204 and its postcheck, then 205 and its postcheck. Release the lock after the
-action passes.
+postchecks it. The entry then applies migration 189 from the same frozen Jar.
+Migration 189 aligns `logical_store_id` from the related product variant for
+every mappable barcode row, including deleted compatibility rows, and
+postchecks that the full table has no missing variant, null store, or
+variant/barcode store mismatch. It is idempotent and must pass on a second
+test-database run with zero affected rows. The entry then proves migration
+190's dependency structures, applies 204 and its postcheck, then 205 and its
+postcheck. Release the lock after the action passes.
 
 ## Phase B: final backend becomes the only scheduler
 
@@ -62,9 +68,10 @@ Run only the workspace `irreversible-schema-cutover` action under the same
 shared production lock namespace. The entry must prove before maintenance:
 
 - the active process is the final frozen Jar from phase B;
-- migration 182 and 206 were extracted from that active Jar and match the
+- migrations 182, 189, and 206 were extracted from that active Jar and match the
   manifest;
-- the exact pre-206 migration-182 columns, index order, and backfill contract;
+- the exact pre-206 migration-182 columns and index order, plus migration 189's
+  full-table store-identity postcheck;
 - the old global unique `(barcode)` index and absence of the new store index;
 - no orphan, null-store, store-mismatch, or projected duplicate barcode;
 - listing, publish, delete, rebuild, image, pull, auth-recovery, reauth, and
@@ -75,11 +82,26 @@ The managed sequence is:
 1. Start loopback JSON 503 and verify the same 503 externally.
 2. Recheck the drain.
 3. Stop the only already-new backend JVM.
-4. Recheck both application ports, the drain, and database lock waits.
-5. Mark the irreversible boundary, apply 206, and postcheck it.
-6. Restart the exact same new Jar and verify SHA, health, and one scheduler.
-7. Restore backend traffic and stop the maintenance responder.
-8. Only then may the matching frontend be published.
+4. Recheck both application ports and the drain. Query accessible
+   `information_schema` activity and optional `performance_schema` lock-wait
+   evidence. If `performance_schema` is denied, that absence is not green
+   evidence.
+5. With `autocommit=0` and five-second row-lock and metadata-lock timeouts,
+   acquire `LOCK TABLES product_barcode WRITE, product_variant READ`. The same
+   session emits `ACQUIRED` only when `@@innodb_table_locks=1`, then runs
+   `COMMIT` and `UNLOCK TABLES`. Permission denial, timeout, disabled InnoDB
+   table locks, or malformed evidence fails before the irreversible marker.
+   The probe is a fresh session with no pre-existing transaction:
+   `LOCK TABLES`' implicit commit cannot commit application work, `COMMIT`
+   releases InnoDB's internal table locks, and `UNLOCK TABLES` releases the
+   server-layer table locks.
+6. Mark the irreversible boundary, apply 206, and postcheck it. Migration 206's
+   own session sets the same bounded `innodb_lock_wait_timeout` and
+   `lock_wait_timeout`; a race after the proof probe fails into repair-forward
+   rather than waiting indefinitely.
+7. Restart the exact same new Jar and verify SHA, health, and one scheduler.
+8. Restore backend traffic and stop the maintenance responder.
+9. Only then may the matching frontend be published.
 
 ## Failure boundary
 

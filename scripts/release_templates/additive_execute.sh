@@ -1,5 +1,8 @@
 validate_additive_migrations
 ensure_migration_182
+assert_migration_189_mappable
+apply_migration "$MIGRATION_189"
+postcheck_migration_189
 require_migration_190
 apply_migration "$MIGRATION_204"
 postcheck_migration_204
@@ -8,6 +11,7 @@ postcheck_migration_205
 emit ADDITIVE_SCHEMA_RESULT PASS
 emit EXPECTED_COMMIT "$EXPECTED_COMMIT"
 emit MIGRATION_182_SHA256 "$EXPECTED_182_SHA256"
+emit MIGRATION_189_SHA256 "$EXPECTED_189_SHA256"
 emit MIGRATION_190_SHA256 "$EXPECTED_190_SHA256"
 emit MIGRATION_204_SHA256 "$EXPECTED_204_SHA256"
 emit MIGRATION_205_SHA256 "$EXPECTED_205_SHA256"

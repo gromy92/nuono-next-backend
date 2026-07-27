@@ -1,5 +1,10 @@
 -- A barcode is unique within one logical store, not across every logical store.
 
+-- Bound both row-lock and metadata-lock waits in the irreversible migration
+-- session. Timeout is a repair-forward failure, never permission to continue.
+SET SESSION innodb_lock_wait_timeout = 5;
+SET SESSION lock_wait_timeout = 5;
+
 UPDATE `product_barcode` pb
 JOIN `product_variant` pv
   ON pv.id = pb.variant_id
