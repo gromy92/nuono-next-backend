@@ -38,6 +38,37 @@ class ProductLogisticsRateCardReaderTest {
         assertThat(view.items).containsExactly(manual, publishedB);
     }
 
+    @Test
+    void publishedEtCategoriesNormalizeBeforeManualPrecedenceAndDisplay() {
+        RateCardRow manualA = etRateCard(430004L, "A", "A类别运费", "1400.00", "CBM", "ET_RATE_CARD_20260604");
+        RateCardRow publishedA = etRateCard(
+                912072L,
+                "ET-SAU-SEA-WH-20260604-CAT-A",
+                "æ²™ç‰¹æµ·è¿Aç±»",
+                "1400.00",
+                "CBM",
+                "PUBLISHED_FORWARDER_QUOTE"
+        );
+        RateCardRow publishedG = etRateCard(
+                912078L,
+                "ET-SAU-SEA-WH-20260604-CAT-G",
+                "æ²™ç‰¹æµ·è¿Gç±»",
+                "32.00",
+                "KG",
+                "PUBLISHED_FORWARDER_QUOTE"
+        );
+        when(productCostMapper.listRateCards(307L, "SA", "ET", "SEA")).thenReturn(List.of(manualA));
+        when(publishedRateCardMapper.listPublishedRateCards(307L, "SA", "ET", "SEA"))
+                .thenReturn(List.of(publishedA, publishedG));
+
+        RateCardView view = new ProductLogisticsRateCardReader(productCostMapper, publishedRateCardMapper)
+                .read(307L, "SA", "ET", "SEA");
+
+        assertThat(view.items).containsExactly(manualA, publishedG);
+        assertThat(publishedG.cargoCategoryCode).isEqualTo("G");
+        assertThat(publishedG.cargoCategoryName).isEqualTo("G类别运费");
+    }
+
     private RateCardRow rateCard(Long id, String category, String price, String sourceType) {
         RateCardRow row = new RateCardRow();
         row.id = id;
@@ -49,6 +80,29 @@ class ProductLogisticsRateCardReaderTest {
         row.cargoCategoryCode = category;
         row.cargoCategoryName = category;
         row.chargeUnit = "CBM";
+        row.unitCostCny = new BigDecimal(price);
+        row.sourceType = sourceType;
+        return row;
+    }
+
+    private RateCardRow etRateCard(
+            Long id,
+            String categoryCode,
+            String categoryName,
+            String price,
+            String chargeUnit,
+            String sourceType
+    ) {
+        RateCardRow row = new RateCardRow();
+        row.id = id;
+        row.siteCode = "SA";
+        row.forwarderCode = "ET";
+        row.forwarderName = "易通物流";
+        row.transportMode = "SEA";
+        row.feeType = "HEADHAUL";
+        row.cargoCategoryCode = categoryCode;
+        row.cargoCategoryName = categoryName;
+        row.chargeUnit = chargeUnit;
         row.unitCostCny = new BigDecimal(price);
         row.sourceType = sourceType;
         return row;

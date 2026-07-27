@@ -46,7 +46,26 @@ public class ProductLogisticsRateCardReader {
         if (rows == null) {
             return;
         }
-        rows.forEach(row -> rowsBySlot.putIfAbsent(slot(row), row));
+        rows.forEach(row -> {
+            normalizePublishedEtCategory(row);
+            rowsBySlot.putIfAbsent(slot(row), row);
+        });
+    }
+
+    private void normalizePublishedEtCategory(RateCardRow row) {
+        if (row == null
+                || !"ET".equals(text(row.forwarderCode))
+                || !"PUBLISHED_FORWARDER_QUOTE".equals(text(row.sourceType))) {
+            return;
+        }
+        String categoryCode = text(row.cargoCategoryCode);
+        int marker = categoryCode.lastIndexOf("-CAT-");
+        String normalizedCode = marker < 0 ? "" : categoryCode.substring(marker + 5);
+        if (normalizedCode.length() != 1 || !Character.isLetterOrDigit(normalizedCode.charAt(0))) {
+            return;
+        }
+        row.cargoCategoryCode = normalizedCode;
+        row.cargoCategoryName = normalizedCode + "类别运费";
     }
 
     private String slot(RateCardRow row) {
