@@ -41,6 +41,9 @@ jobs:
           python -m unittest discover -s scripts/tests -p 'test_source_size_gate.py'
           python scripts/source_size_gate.py
 
+      - name: Verify single-scheduler release cutover
+        run: python scripts/tests/test_release_cutover_maintenance.py
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
