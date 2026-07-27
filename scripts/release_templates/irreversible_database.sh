@@ -106,7 +106,7 @@ schema_write_blocker_count() {
          ))
       + (SELECT COUNT(*) FROM noon_pull_task
          WHERE is_deleted = b'0'
-           AND (status = 'RUNNING' OR locked_by IS NOT NULL)
+           AND status IN ('QUEUED', 'RUNNING')
            AND (
              data_domain = 'PRODUCT'
              OR data_domain IS NULL
@@ -136,7 +136,7 @@ preserved_noon_backlog_count() {
     WHERE is_deleted = b'0'
       AND status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')
       AND NOT (
-        (status = 'RUNNING' OR locked_by IS NOT NULL)
+        status IN ('QUEUED', 'RUNNING')
         AND (
           data_domain = 'PRODUCT'
           OR data_domain IS NULL

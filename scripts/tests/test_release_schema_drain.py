@@ -1,4 +1,5 @@
 import importlib.util
+import sqlite3
 import unittest
 from pathlib import Path
 
@@ -38,12 +39,63 @@ class ReleaseSchemaDrainTest(unittest.TestCase):
             : script.index("precheck_migration_206()")
         ]
 
+    def noon_schema_blocker_count(self, rows):
+        contract = self.drain_contract()
+        start = contract.index("(SELECT COUNT(*) FROM noon_pull_task")
+        end = contract.index("+ (SELECT COUNT(*) FROM noon_auth_identity_recovery", start)
+        query = contract[start:end].strip()[1:-1].replace("b'0'", "0")
+        connection = sqlite3.connect(":memory:")
+        self.addCleanup(connection.close)
+        connection.execute(
+            """
+            CREATE TABLE noon_pull_task (
+              status TEXT,
+              data_domain TEXT,
+              locked_by TEXT,
+              is_deleted INTEGER
+            )
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO noon_pull_task(status, data_domain, locked_by, is_deleted)
+            VALUES (?, ?, ?, 0)
+            """,
+            rows,
+        )
+        return connection.execute(query).fetchone()[0]
+
+    def test_terminal_product_lock_history_is_not_schema_writing_work(self):
+        rows = [
+            (status, "PRODUCT", "historical-worker")
+            for status in (
+                "FAILED",
+                "PARTIAL",
+                "SUCCEEDED",
+                "SKIPPED",
+                "CANCELLED",
+                "BLOCKED_AUTH",
+            )
+        ]
+
+        self.assertEqual(0, self.noon_schema_blocker_count(rows))
+
+    def test_executable_product_and_unknown_domain_tasks_block_schema_cutover(self):
+        rows = [
+            ("QUEUED", "PRODUCT", None),
+            ("RUNNING", "PRODUCT", "active-worker"),
+            ("QUEUED", None, None),
+            ("RUNNING", "FUTURE_SCHEMA_DOMAIN", "active-worker"),
+        ]
+
+        self.assertEqual(4, self.noon_schema_blocker_count(rows))
+
     def test_non_product_noon_backlog_is_preserved_without_becoming_a_schema_blocker(self):
         contract = self.drain_contract()
 
         self.assertIn("data_domain = 'PRODUCT'", contract)
-        self.assertIn("status = 'RUNNING'", contract)
-        self.assertIn("locked_by IS NOT NULL", contract)
+        self.assertIn("status IN ('QUEUED', 'RUNNING')", contract)
+        self.assertNotIn("(status = 'RUNNING' OR locked_by IS NOT NULL)", contract)
         self.assertIn("PRESERVED_NOON_BACKLOG", contract)
         self.assertNotIn(
             "WHERE status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH'))",
