@@ -12,6 +12,8 @@ public class ProductListingTaskView {
     private Long ownerUserId;
     private String storeCode;
     private String partnerSku;
+    private String skuParent;
+    private String pskuCode;
     private String mode;
     private String status;
     private Long sourceTaskId;
@@ -70,6 +72,22 @@ public class ProductListingTaskView {
 
     public void setPartnerSku(String partnerSku) {
         this.partnerSku = partnerSku;
+    }
+
+    public String getSkuParent() {
+        return skuParent;
+    }
+
+    public void setSkuParent(String skuParent) {
+        this.skuParent = skuParent;
+    }
+
+    public String getPskuCode() {
+        return pskuCode;
+    }
+
+    public void setPskuCode(String pskuCode) {
+        this.pskuCode = pskuCode;
     }
 
     public String getMode() {

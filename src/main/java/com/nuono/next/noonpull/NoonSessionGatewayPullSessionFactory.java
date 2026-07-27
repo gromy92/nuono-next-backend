@@ -1,6 +1,7 @@
 package com.nuono.next.noonpull;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import java.nio.charset.StandardCharsets;
@@ -24,14 +25,14 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
     @Override
     public NoonPullGatewaySession login(NoonPullStoreBinding binding) {
         if (projectAuthGate.isBlocked(binding.getOwnerUserId(), binding.getProjectCode())) {
-            throw new NoonInterfacePullException(
-                    "auth_required: Noon Project authorization recovery is pending; project="
+            throw new NoonAuthenticationRequiredException(
+                    "Noon Project authorization recovery is pending; project="
                             + binding.getProjectCode()
             );
         }
         NoonSession session = noonSessionGateway.loginWithPersistedCookie(
                 binding.getOwnerUserId(),
-                binding.getNoonUser(),
+                binding.getSessionProjectUser(),
                 binding.getPersistedCookie(),
                 binding.getProjectCode(),
                 binding.getStoreCode()

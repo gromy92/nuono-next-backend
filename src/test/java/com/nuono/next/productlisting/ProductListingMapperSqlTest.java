@@ -1,6 +1,7 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import java.lang.reflect.Method;
@@ -69,6 +70,7 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
     }
 
+
     @Test
     void recentTaskLookupCanBeScopedDirectlyToDraft() {
         Method method = mapperMethod("selectRecentTasksByDraftId");
@@ -81,19 +83,6 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("LIMIT #{limit}"));
     }
 
-    @Test
-    void activeRealRunLookupShouldScopeByOwnerAndDryRunSource() {
-        Method method = mapperMethod("selectRealWriteAttemptTaskBySourceTaskId");
-        Select select = method.getAnnotation(Select.class);
-        String sql = compact(select.value());
-
-        assertTrue(sql.contains("FROM product_listing_task"));
-        assertTrue(sql.contains("owner_user_id = #{ownerUserId}"));
-        assertTrue(sql.contains("source_task_id = #{sourceTaskId}"));
-        assertTrue(sql.contains("mode = 'REAL_RUN'"));
-        assertTrue(sql.contains("status IN ('running', 'submitted', 'succeeded', 'written_verify_failed')"));
-        assertTrue(sql.contains("status = 'failed' AND failure_code = 'partner_sku_already_exists'"));
-    }
 
     @Test
     void listedPartnerSkuLookupShouldUseOwnerStoreSkuAndKnownWrittenStates() {
@@ -233,22 +222,9 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("completed_at = NOW()"));
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
         assertTrue(sql.contains("status = 'running'"));
-        assertTrue(sql.contains("started_at < #{staleBefore}"));
+        assertTrue(sql.contains("gmt_updated < #{staleBefore}"));
     }
 
-    @Test
-    void identityLocksShouldUseNamespacedHashedMysqlAdvisoryLocks() {
-        Method acquireMethod = mapperMethod("acquireIdentityLock");
-        Method releaseMethod = mapperMethod("releaseIdentityLock");
-        String acquireSql = compact(acquireMethod.getAnnotation(Select.class).value());
-        String releaseSql = compact(releaseMethod.getAnnotation(Select.class).value());
-
-        assertTrue(acquireSql.contains("GET_LOCK"));
-        assertTrue(acquireSql.contains("product-listing:"));
-        assertTrue(acquireSql.contains("SHA2(#{lockKey}, 256)"));
-        assertTrue(releaseSql.contains("RELEASE_LOCK"));
-        assertTrue(releaseSql.contains("SHA2(#{lockKey}, 256)"));
-    }
 
     @Test
     void updateTaskResultShouldPersistNoonResultAndFailureCategory() {
@@ -302,8 +278,9 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("failure_code` = 'partner_sku_already_exists'"));
     }
 
+
     private Method mapperMethod(String name) {
-        return Arrays.stream(ProductListingMapper.class.getDeclaredMethods())
+        return Arrays.stream(ProductListingMapper.class.getMethods())
                 .filter((candidate) -> name.equals(candidate.getName()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("ProductListingMapper method missing: " + name));

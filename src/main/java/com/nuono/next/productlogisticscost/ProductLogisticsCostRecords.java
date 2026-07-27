@@ -117,6 +117,7 @@ public final class ProductLogisticsCostRecords {
         public String feeType;
         public String cargoCategoryCode;
         public String cargoCategoryName;
+        public String cargoCategoryDescription;
         public String chargeUnit;
         public BigDecimal unitCostCny;
         public String currencyCode;

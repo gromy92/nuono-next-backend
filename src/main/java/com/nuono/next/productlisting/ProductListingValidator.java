@@ -27,6 +27,7 @@ public class ProductListingValidator {
         validateProductFullType(issues, safeCommand);
         validatePricingRules(issues, safeCommand);
         validateNoonImageRequirements(issues, safeCommand);
+        validateUnsupportedWarehouseStockFields(issues, safeCommand);
 
         return issues;
     }
@@ -44,6 +45,13 @@ public class ProductListingValidator {
         }
         addSourceImageSizeWarnings(issues, safeCommand);
         return issues;
+    }
+
+    boolean hasBlockingDraftIssues(List<ProductListingValidationIssue> issues) {
+        return issues != null && issues.stream().anyMatch(issue ->
+                issue != null
+                        && !"warning".equalsIgnoreCase(issue.getSeverity())
+                        && !"noon_image_dimension_missing".equals(issue.getCode()));
     }
 
     private void validateRequirement(
@@ -171,6 +179,34 @@ public class ProductListingValidator {
                         "商品图 " + imageIndex + " 比例不符合 Noon 0.73，请适配后再上架。"
                 ));
             }
+        }
+    }
+
+    private void validateUnsupportedWarehouseStockFields(
+            List<ProductListingValidationIssue> issues,
+            ProductListingDraftCommand command
+    ) {
+        if (command.getFbp() != null) {
+            issues.add(error(
+                    "fbp",
+                    "noon_fbp_not_supported",
+                    "当前上架流程不会写入 Noon FBP 模式，请清空该字段后再上架。"
+            ));
+        }
+        if (text(command.getWarehouseId()).length() > 0
+                || text(command.getWarehouseCode()).length() > 0) {
+            issues.add(error(
+                    "warehouseStock",
+                    "noon_warehouse_not_supported",
+                    "当前上架流程不会写入 Noon 仓库，请清空仓库字段后再上架。"
+            ));
+        }
+        if (command.getQuantity() != null) {
+            issues.add(error(
+                    "quantity",
+                    "noon_stock_quantity_not_supported",
+                    "当前上架流程不会写入 Noon 库存数量，请清空数量后再上架。"
+            ));
         }
     }
 

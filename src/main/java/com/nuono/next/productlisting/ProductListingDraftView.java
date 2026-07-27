@@ -12,6 +12,7 @@ public class ProductListingDraftView {
     private String status;
     private ProductListingDraftCommand draft;
     private List<ProductListingValidationIssue> validationIssues = new ArrayList<>();
+    private ProductListingWorkflowSummaryView workflow;
 
     public Long getDraftId() {
         return draftId;
@@ -67,5 +68,13 @@ public class ProductListingDraftView {
 
     public void setValidationIssues(List<ProductListingValidationIssue> validationIssues) {
         this.validationIssues = validationIssues == null ? new ArrayList<>() : validationIssues;
+    }
+
+    public ProductListingWorkflowSummaryView getWorkflow() {
+        return workflow;
+    }
+
+    public void setWorkflow(ProductListingWorkflowSummaryView workflow) {
+        this.workflow = workflow;
     }
 }

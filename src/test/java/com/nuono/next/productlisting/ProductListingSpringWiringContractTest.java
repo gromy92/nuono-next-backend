@@ -111,7 +111,9 @@ class ProductListingSpringWiringContractTest {
     @Configuration
     @Import({
             ProductListingValidator.class,
+            ProductListingImageMetadataEnricher.class,
             ProductListingService.class,
+            ProductListingWorkflowService.class,
             ProductListingRealRunTaskListener.class,
             ProductListingRealRunTaskScheduler.class,
             ProductListingController.class
