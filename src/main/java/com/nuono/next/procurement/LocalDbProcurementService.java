@@ -132,16 +132,18 @@ public class LocalDbProcurementService {
     }
 
     @Transactional
-    public ProcurementCandidatePoolView selectCandidate(ProcurementDecisionCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
+    public ProcurementCandidatePoolView selectCandidate(ProcurementCandidatePoolWriteContext writeContext, ProcurementDecisionCommand command) {
+        if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能提交采购决策。");
         }
+        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "提交采购决策");
+        Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null || command.getCandidateId() == null) {
             throw new IllegalArgumentException("请先选择要确认的候选商品。");
         }
 
         Integer ownedCount = procurementMapper.countOwnedCandidate(
-                command.getOwnerUserId(),
+                ownerUserId,
                 command.getDemandItemId(),
                 command.getCandidateId()
         );
@@ -149,14 +151,14 @@ public class LocalDbProcurementService {
             throw new IllegalArgumentException("当前候选商品不在老板名下的采购单里，不能直接设为意向采购。");
         }
 
-        procurementMapper.clearSelectedCandidates(command.getDemandItemId(), command.getOwnerUserId());
-        procurementMapper.selectCandidate(command.getDemandItemId(), command.getCandidateId(), command.getOwnerUserId());
-        procurementMapper.markDemandItemDecided(command.getDemandItemId(), command.getCandidateId(), command.getOwnerUserId());
+        procurementMapper.clearSelectedCandidates(command.getDemandItemId(), operatorUserId);
+        procurementMapper.selectCandidate(command.getDemandItemId(), command.getCandidateId(), operatorUserId);
+        procurementMapper.markDemandItemDecided(command.getDemandItemId(), command.getCandidateId(), operatorUserId);
 
-        ProcurementCandidatePoolView refreshedView = buildCandidatePool(command.getOwnerUserId(), command.getOrderNo());
+        ProcurementCandidatePoolView refreshedView = buildCandidatePool(ownerUserId, command.getOrderNo());
         if (refreshedView.getOrder() != null && refreshedView.getOrder().getId() != null) {
-            procurementMapper.syncOrderDecisionSummary(refreshedView.getOrder().getId(), command.getOwnerUserId());
-            refreshedView = buildCandidatePool(command.getOwnerUserId(), command.getOrderNo());
+            procurementMapper.syncOrderDecisionSummary(refreshedView.getOrder().getId(), operatorUserId);
+            refreshedView = buildCandidatePool(ownerUserId, command.getOrderNo());
         }
         refreshedView.setSelectedDemandItemId(command.getDemandItemId());
         refreshedView.setMessage("已把候选商品标记为意向采购，可继续处理下一条需求。");
@@ -164,16 +166,18 @@ public class LocalDbProcurementService {
     }
 
     @Transactional
-    public ProcurementCandidatePoolView saveCandidateReview(ProcurementCandidateReviewCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
+    public ProcurementCandidatePoolView saveCandidateReview(ProcurementCandidatePoolWriteContext writeContext, ProcurementCandidateReviewCommand command) {
+        if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能保存人工判断。");
         }
+        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "保存人工判断");
+        Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null || command.getCandidateId() == null) {
             throw new IllegalArgumentException("请先选择要记录判断的候选商品。");
         }
 
         Integer ownedCount = procurementMapper.countOwnedCandidate(
-                command.getOwnerUserId(),
+                ownerUserId,
                 command.getDemandItemId(),
                 command.getCandidateId()
         );
@@ -195,13 +199,13 @@ public class LocalDbProcurementService {
                 normalize(command.getManualReviewNote()),
                 normalize(command.getInquirySummary()),
                 nextAction,
-                command.getOwnerUserId()
+                operatorUserId
         );
         if (updatedRows <= 0) {
             throw new IllegalStateException("人工判断保存失败，请刷新后重试。");
         }
 
-        ProcurementCandidatePoolView refreshedView = buildCandidatePool(command.getOwnerUserId(), command.getOrderNo());
+        ProcurementCandidatePoolView refreshedView = buildCandidatePool(ownerUserId, command.getOrderNo());
         refreshedView.setMessage("已保存当前候选的人工判断，可继续比对、询价或设为意向采购。");
         return refreshedView;
     }
@@ -256,10 +260,12 @@ public class LocalDbProcurementService {
     }
 
     @Transactional
-    public ProcurementCandidatePoolView importSearchPageCandidates(ProcurementImportSearchPageCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
+    public ProcurementCandidatePoolView importSearchPageCandidates(ProcurementCandidatePoolWriteContext writeContext, ProcurementImportSearchPageCommand command) {
+        if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能导入搜索页候选。");
         }
+        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "导入搜索页候选");
+        Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null) {
             throw new IllegalArgumentException("请先选择要导入候选的采购需求。");
         }
@@ -267,7 +273,7 @@ public class LocalDbProcurementService {
             throw new IllegalArgumentException("请先粘贴 1688 搜索结果页 HTML。");
         }
 
-        DemandItemView demandItem = procurementMapper.selectOwnedDemandItem(command.getOwnerUserId(), command.getDemandItemId());
+        DemandItemView demandItem = procurementMapper.selectOwnedDemandItem(ownerUserId, command.getDemandItemId());
         if (demandItem == null) {
             throw new IllegalArgumentException("当前采购需求不在老板名下，不能直接导入候选。");
         }
@@ -278,8 +284,8 @@ public class LocalDbProcurementService {
             throw new IllegalArgumentException("当前 HTML 里没有识别出可导入的 1688 候选卡。");
         }
 
-        procurementMapper.archiveCandidatesByDemandItem(command.getDemandItemId(), command.getOwnerUserId());
-        procurementMapper.markDemandItemScreening(command.getDemandItemId(), command.getOwnerUserId());
+        procurementMapper.archiveCandidatesByDemandItem(command.getDemandItemId(), operatorUserId);
+        procurementMapper.markDemandItemScreening(command.getDemandItemId(), operatorUserId);
 
         List<GeneratedCandidate> generatedCandidates = new ArrayList<>();
         int rankNo = 1;
@@ -315,23 +321,18 @@ public class LocalDbProcurementService {
                 ),
                 now,
                 now,
-                command.getOwnerUserId(),
-                command.getOwnerUserId()
+                operatorUserId,
+                operatorUserId
         );
 
-        persistGeneratedCandidates(
-                command.getDemandItemId(),
-                command.getOwnerUserId(),
-                taskId,
-                generatedCandidates
-        );
+        persistGeneratedCandidates(command.getDemandItemId(), taskId, generatedCandidates, operatorUserId);
         procurementMapper.updateDemandItemStatus(
                 command.getDemandItemId(),
                 recommendedCount > 0 ? "REVIEWING" : "SCREENING",
-                command.getOwnerUserId()
+                operatorUserId
         );
 
-        ProcurementCandidatePoolView refreshedView = buildCandidatePool(command.getOwnerUserId(), command.getOrderNo());
+        ProcurementCandidatePoolView refreshedView = buildCandidatePool(ownerUserId, command.getOrderNo());
         refreshedView.setSelectedDemandItemId(command.getDemandItemId());
         refreshedView.setMessage(
                 String.format(
@@ -343,10 +344,12 @@ public class LocalDbProcurementService {
     }
 
     @Transactional
-    public ProcurementCandidatePoolView backfillManualCandidates(ProcurementManualCandidateBackfillCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
+    public ProcurementCandidatePoolView backfillManualCandidates(ProcurementCandidatePoolWriteContext writeContext, ProcurementManualCandidateBackfillCommand command) {
+        if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能回填候选。");
         }
+        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "回填候选");
+        Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null) {
             throw new IllegalArgumentException("请先选择要回填候选的采购需求。");
         }
@@ -354,7 +357,7 @@ public class LocalDbProcurementService {
             throw new IllegalArgumentException("请先填写至少一条 1688 候选。");
         }
 
-        DemandItemView demandItem = procurementMapper.selectOwnedDemandItem(command.getOwnerUserId(), command.getDemandItemId());
+        DemandItemView demandItem = procurementMapper.selectOwnedDemandItem(ownerUserId, command.getDemandItemId());
         if (demandItem == null) {
             throw new IllegalArgumentException("当前采购需求不在老板名下，不能直接回填候选。");
         }
@@ -402,23 +405,18 @@ public class LocalDbProcurementService {
                 ),
                 now,
                 now,
-                command.getOwnerUserId(),
-                command.getOwnerUserId()
+                operatorUserId,
+                operatorUserId
         );
 
-        persistGeneratedCandidates(
-                command.getDemandItemId(),
-                command.getOwnerUserId(),
-                taskId,
-                generatedCandidates
-        );
+        persistGeneratedCandidates(command.getDemandItemId(), taskId, generatedCandidates, operatorUserId);
         procurementMapper.updateDemandItemStatus(
                 command.getDemandItemId(),
                 recommendedCount > 0 ? "REVIEWING" : "SCREENING",
-                command.getOwnerUserId()
+                operatorUserId
         );
 
-        ProcurementCandidatePoolView refreshedView = buildCandidatePool(command.getOwnerUserId(), command.getOrderNo());
+        ProcurementCandidatePoolView refreshedView = buildCandidatePool(ownerUserId, command.getOrderNo());
         refreshedView.setSelectedDemandItemId(command.getDemandItemId());
         refreshedView.setMessage(
                 String.format(
@@ -430,22 +428,24 @@ public class LocalDbProcurementService {
     }
 
     @Transactional
-    public ProcurementCandidatePoolView runAutoSelection(ProcurementAutoSelectionCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
+    public ProcurementCandidatePoolView runAutoSelection(ProcurementCandidatePoolWriteContext writeContext, ProcurementAutoSelectionCommand command) {
+        if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能运行自动选品。");
         }
+        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "运行自动选品");
+        Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null) {
             throw new IllegalArgumentException("请先选择要执行自动选品的采购需求。");
         }
 
-        DemandItemView demandItem = procurementMapper.selectOwnedDemandItem(command.getOwnerUserId(), command.getDemandItemId());
+        DemandItemView demandItem = procurementMapper.selectOwnedDemandItem(ownerUserId, command.getDemandItemId());
         if (demandItem == null) {
             throw new IllegalArgumentException("当前采购需求不在老板名下，不能直接运行自动选品。");
         }
 
         procurementStructuredFieldParser.enrichDemandItem(demandItem);
-        procurementMapper.archiveCandidatesByDemandItem(command.getDemandItemId(), command.getOwnerUserId());
-        procurementMapper.markDemandItemScreening(command.getDemandItemId(), command.getOwnerUserId());
+        procurementMapper.archiveCandidatesByDemandItem(command.getDemandItemId(), operatorUserId);
+        procurementMapper.markDemandItemScreening(command.getDemandItemId(), operatorUserId);
 
         AutoSelectionResult result = procurementAutoSelectionEngine.generate(demandItem);
         LocalDateTime now = LocalDateTime.now();
@@ -463,34 +463,24 @@ public class LocalDbProcurementService {
                 result.getMessage(),
                 now,
                 now,
-                command.getOwnerUserId(),
-                command.getOwnerUserId()
+                operatorUserId,
+                operatorUserId
         );
 
-        persistGeneratedCandidates(
-                command.getDemandItemId(),
-                command.getOwnerUserId(),
-                taskId,
-                result.getCandidates()
-        );
+        persistGeneratedCandidates(command.getDemandItemId(), taskId, result.getCandidates(), operatorUserId);
         procurementMapper.updateDemandItemStatus(
                 command.getDemandItemId(),
                 result.getRecommendedCount() > 0 ? "REVIEWING" : "SCREENING",
-                command.getOwnerUserId()
+                operatorUserId
         );
 
-        ProcurementCandidatePoolView refreshedView = buildCandidatePool(command.getOwnerUserId(), command.getOrderNo());
+        ProcurementCandidatePoolView refreshedView = buildCandidatePool(ownerUserId, command.getOrderNo());
         refreshedView.setSelectedDemandItemId(command.getDemandItemId());
         refreshedView.setMessage("已按当前采购要求重新执行自动选品，候选池已刷新。");
         return refreshedView;
     }
 
-    private void persistGeneratedCandidates(
-            Long demandItemId,
-            Long ownerUserId,
-            Long taskId,
-            List<GeneratedCandidate> candidates
-    ) {
+    private void persistGeneratedCandidates(Long demandItemId, Long taskId, List<GeneratedCandidate> candidates, Long operatorUserId) {
         Long nextCandidateId = procurementMapper.nextCandidateId();
         for (GeneratedCandidate candidate : candidates) {
             procurementMapper.insertCandidate(
@@ -529,8 +519,8 @@ public class LocalDbProcurementService {
                     joinPipeText(candidate.getBadges()),
                     joinPipeText(candidate.getReasons()),
                     joinPipeText(candidate.getWarnings()),
-                    ownerUserId,
-                    ownerUserId
+                    operatorUserId,
+                    operatorUserId
             );
             nextCandidateId += 1;
         }

@@ -1,5 +1,8 @@
 package com.nuono.next.logisticsquote;
 
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.permission.access.RequiredBusinessAccess;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -41,13 +44,19 @@ public class LogisticsQuoteController {
     public LogisticsQuoteWorkbenchView workbench(
             @RequestParam(required = false) Long bundleId,
             @RequestParam(required = false) Long noteId,
-            @RequestParam(required = false) Long fileId
+            @RequestParam(required = false) Long fileId,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         return logisticsQuoteWorkbenchService.buildWorkbench(bundleId, noteId, fileId);
     }
 
     @PostMapping("/source-bundles")
-    public LogisticsQuoteWorkbenchView createSourceBundle(@RequestBody LogisticsQuoteSourceBundleCreateCommand command) {
+    public LogisticsQuoteWorkbenchView createSourceBundle(
+            @RequestBody LogisticsQuoteSourceBundleCreateCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
+    ) {
         try {
             return logisticsQuoteWorkbenchService.createSourceBundle(command);
         } catch (IllegalArgumentException exception) {
@@ -60,7 +69,9 @@ public class LogisticsQuoteController {
             @PathVariable Long bundleId,
             @RequestParam(required = false) Long selectedNoteId,
             @RequestParam(required = false) Long selectedFileId,
-            @RequestBody LogisticsQuoteSourceBundleFileCreateCommand command
+            @RequestBody LogisticsQuoteSourceBundleFileCreateCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
             return logisticsQuoteWorkbenchService.appendSourceBundleFile(bundleId, selectedNoteId, command);
@@ -74,7 +85,9 @@ public class LogisticsQuoteController {
             @PathVariable Long bundleId,
             @RequestParam(required = false) Long selectedNoteId,
             @RequestParam(required = false) Long fileId,
-            @RequestParam("file") MultipartFile file
+            @RequestParam("file") MultipartFile file,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
             return logisticsQuoteWorkbenchService.archiveSourceBundleFile(bundleId, selectedNoteId, fileId, file);
@@ -86,7 +99,11 @@ public class LogisticsQuoteController {
     }
 
     @GetMapping("/source-files/{fileId}/archive")
-    public ResponseEntity<Resource> archivedSourceFile(@PathVariable Long fileId) {
+    public ResponseEntity<Resource> archivedSourceFile(
+            @PathVariable Long fileId,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
+    ) {
         try {
             LogisticsQuoteArchivedFile archivedFile = logisticsQuoteWorkbenchService.resolveArchivedSourceFile(fileId);
             String contentType = Files.probeContentType(archivedFile.getPath());
@@ -98,7 +115,7 @@ public class LogisticsQuoteController {
                     .replace("+", "%20");
             return ResponseEntity.ok()
                     .contentType(mediaType)
-                    .cacheControl(CacheControl.noCache())
+                    .cacheControl(CacheControl.noStore())
                     .header(
                             HttpHeaders.CONTENT_DISPOSITION,
                             "attachment; filename*=UTF-8''" + encodedFileName
@@ -116,7 +133,9 @@ public class LogisticsQuoteController {
             @PathVariable Long bundleId,
             @RequestParam(required = false) Long selectedNoteId,
             @RequestParam(required = false) Long selectedFileId,
-            @RequestBody LogisticsQuoteSourceBundleFileUpdateCommand command
+            @RequestBody LogisticsQuoteSourceBundleFileUpdateCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
             return logisticsQuoteWorkbenchService.updateSourceBundleFile(bundleId, selectedNoteId, selectedFileId, command);
@@ -129,7 +148,9 @@ public class LogisticsQuoteController {
     public LogisticsQuoteWorkbenchView appendSourceBundleNote(
             @PathVariable Long bundleId,
             @RequestParam(required = false) Long selectedFileId,
-            @RequestBody LogisticsQuoteSourceBundleNoteCreateCommand command
+            @RequestBody LogisticsQuoteSourceBundleNoteCreateCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
             return logisticsQuoteWorkbenchService.appendSourceBundleNote(bundleId, selectedFileId, command);
@@ -142,7 +163,9 @@ public class LogisticsQuoteController {
     public LogisticsQuoteWorkbenchView createQuoteDraftFromNote(
             @PathVariable Long bundleId,
             @RequestParam(required = false) Long selectedFileId,
-            @RequestBody LogisticsQuoteDraftFromNoteCommand command
+            @RequestBody LogisticsQuoteDraftFromNoteCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
             return logisticsQuoteWorkbenchService.createQuoteDraftFromNote(bundleId, selectedFileId, command);
@@ -155,7 +178,9 @@ public class LogisticsQuoteController {
     public LogisticsQuoteWorkbenchView updateSourceBundleNote(
             @PathVariable Long bundleId,
             @RequestParam(required = false) Long selectedFileId,
-            @RequestBody LogisticsQuoteSourceBundleNoteUpdateCommand command
+            @RequestBody LogisticsQuoteSourceBundleNoteUpdateCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
             return logisticsQuoteWorkbenchService.updateSourceBundleNote(bundleId, selectedFileId, command);
@@ -169,7 +194,9 @@ public class LogisticsQuoteController {
             @PathVariable Long bundleId,
             @RequestParam(required = false) Long selectedNoteId,
             @RequestParam(required = false) Long selectedFileId,
-            @RequestBody LogisticsQuoteSourceBundleAnalysisSummaryUpdateCommand command
+            @RequestBody LogisticsQuoteSourceBundleAnalysisSummaryUpdateCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
             return logisticsQuoteWorkbenchService.updateSourceBundleAnalysisSummary(bundleId, selectedNoteId, selectedFileId, command);
@@ -179,7 +206,11 @@ public class LogisticsQuoteController {
     }
 
     @PostMapping("/note-preview")
-    public LogisticsQuoteNotePreviewView notePreview(@RequestBody LogisticsQuoteNotePreviewCommand command) {
+    public LogisticsQuoteNotePreviewView notePreview(
+            @RequestBody LogisticsQuoteNotePreviewCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
+    ) {
         try {
             return logisticsQuoteWorkbenchService.previewNote(command);
         } catch (IllegalArgumentException exception) {
@@ -191,17 +222,21 @@ public class LogisticsQuoteController {
     public LogisticsQuoteOperationPriceItemsView operationPriceItems(
             @RequestParam(required = false) String transportMode,
             @RequestParam(required = false) Long forwarderId,
-            @RequestParam(required = false) String priceStatus
+            @RequestParam(required = false) String priceStatus,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         return logisticsQuoteOperationService.listPriceItems(transportMode, forwarderId, priceStatus);
     }
 
     @PostMapping("/operations/price-adjustments")
     public LogisticsQuoteOperationPriceAdjustmentView saveOperationPriceAdjustment(
-            @RequestBody LogisticsQuoteOperationPriceAdjustmentCommand command
+            @RequestBody LogisticsQuoteOperationPriceAdjustmentCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
+            BusinessAccessContext context
     ) {
         try {
-            return logisticsQuoteOperationService.savePriceAdjustment(command);
+            return logisticsQuoteOperationService.savePriceAdjustment(context.getSessionUserId(), command);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
