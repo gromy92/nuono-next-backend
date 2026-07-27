@@ -208,6 +208,7 @@ public final class ProcurementPurchaseOrderViews {
         public String serviceName;
         public String quoteStatus;
         public String shippingSubmitStatus;
+        public Integer purchaseOrderCount = 0;
         public Integer lineCount = 0;
         public Integer skuCount = 0;
         public Integer totalQuantity = 0;

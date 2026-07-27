@@ -430,6 +430,7 @@ public final class ProcurementPurchaseOrderRecords {
         public String serviceName;
         public String quoteStatus;
         public String shippingSubmitStatus;
+        public Integer purchaseOrderCount;
         public Integer lineCount;
         public Integer skuCount;
         public Integer totalQuantity;

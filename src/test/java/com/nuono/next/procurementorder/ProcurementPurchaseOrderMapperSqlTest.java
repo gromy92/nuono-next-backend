@@ -17,6 +17,22 @@ import org.junit.jupiter.api.Test;
 class ProcurementPurchaseOrderMapperSqlTest {
 
     @Test
+    void shippingOrderSegmentsCountDistinctSourcePurchaseOrders() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "listShippingOrderSegments",
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("COUNT(DISTINCT sol.purchase_order_id)");
+        assertThat(sql).contains("sol.shipping_order_segment_id = procurement_shipping_order_segment.id");
+        assertThat(sql).contains("sol.is_deleted = b'0'");
+        assertThat(sql).contains("AS purchaseOrderCount");
+    }
+
+    @Test
     void listOrdersSortsByPurchaseOrderCreateTimeNewestFirst() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "listOrders",
