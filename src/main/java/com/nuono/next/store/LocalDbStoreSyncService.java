@@ -268,11 +268,11 @@ public class LocalDbStoreSyncService {
             cookie = owner == null ? null : normalize(owner.getNoonPartnerCookie());
         }
         String noonUser = firstNonBlank(
-                capabilityStore.getNoonPartnerUser(),
                 capabilityStore.getNoonPartnerProjectUser(),
-                owner == null ? null : owner.getNoonPartnerUser(),
-                owner == null ? null : owner.getNoonPartnerProjectUser()
-        );
+                capabilityStore.getNoonPartnerUserCode(), capabilityStore.getNoonPartnerUser(),
+                owner == null ? null : owner.getNoonPartnerProjectUser(),
+                owner == null ? null : owner.getNoonPartnerUserCode(),
+                owner == null ? null : owner.getNoonPartnerUser());
         String capabilityStoreCode = firstNonBlank(capabilityStore.getStoreCode(), project.getStoreCode());
 
         NoonSessionGateway.RequestCountScope requestCountScope = noonSessionGateway.openRequestCountScope();
@@ -417,9 +417,8 @@ public class LocalDbStoreSyncService {
         if (StringUtils.hasText(project.getNoonPartnerUser())) {
             return project.getNoonPartnerUser();
         }
-        return project.getNoonPartnerProjectUser();
+        return firstNonBlank(project.getNoonPartnerProjectUser(), project.getNoonPartnerUserCode());
     }
-
     private String resolveNoonPartnerId(StoreSyncStoreRecord project) {
         return firstNonBlank(project.getNoonPartnerId(), derivePartnerId(project.getProjectCode()), project.getProjectCode());
     }
@@ -463,7 +462,8 @@ public class LocalDbStoreSyncService {
 
     private boolean isConnectionReady(StoreSyncStoreRecord project) {
         boolean hasCredential = StringUtils.hasText(project.getNoonPartnerUser())
-                || StringUtils.hasText(project.getNoonPartnerProjectUser());
+                || StringUtils.hasText(project.getNoonPartnerProjectUser())
+                || StringUtils.hasText(project.getNoonPartnerUserCode());
         boolean hasCookie = StringUtils.hasText(project.getNoonPartnerCookie());
         boolean bound = project.getBindStatus() != null && project.getBindStatus() == 1;
         return Boolean.TRUE.equals(project.getOwnerAuthorized()) && hasCredential && hasCookie && bound;

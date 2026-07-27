@@ -18,6 +18,8 @@ public class StoreSyncOwnerContext {
 
     private String noonPartnerProjectUser;
 
+    private String noonPartnerUserCode;
+
     private String noonPartnerPwd;
 
     private String noonPartnerMailAuthCode;
@@ -82,6 +84,14 @@ public class StoreSyncOwnerContext {
 
     public void setNoonPartnerProjectUser(String noonPartnerProjectUser) {
         this.noonPartnerProjectUser = noonPartnerProjectUser;
+    }
+
+    public String getNoonPartnerUserCode() {
+        return noonPartnerUserCode;
+    }
+
+    public void setNoonPartnerUserCode(String noonPartnerUserCode) {
+        this.noonPartnerUserCode = noonPartnerUserCode;
     }
 
     public String getNoonPartnerPwd() {
