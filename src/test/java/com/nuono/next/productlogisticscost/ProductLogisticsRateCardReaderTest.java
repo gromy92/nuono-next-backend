@@ -25,9 +25,10 @@ class ProductLogisticsRateCardReaderTest {
 
     @Test
     void ownerManualRateCardWinsWhilePublishedZdCategoriesFillMissingSlots() {
-        RateCardRow manual = rateCard(430001L, "ZD_SA_SEA_A", "1500.00", "MANUAL_RATE_CARD");
+        RateCardRow manual = rateCard(430001L, "ZD_SA_SEA_B", "1500.00", "MANUAL_RATE_CARD");
         RateCardRow publishedA = rateCard(912003L, "ZD_SA_SEA_A", "1550.00", "PUBLISHED_FORWARDER_QUOTE");
         RateCardRow publishedB = rateCard(912004L, "ZD_SA_SEA_B", "1550.00", "PUBLISHED_FORWARDER_QUOTE");
+        publishedB.cargoCategoryDescription = "收纳盒、收纳架等";
         when(productCostMapper.listRateCards(307L, "SA", "ZD", "SEA")).thenReturn(List.of(manual));
         when(publishedRateCardMapper.listPublishedRateCards(307L, "SA", "ZD", "SEA"))
                 .thenReturn(List.of(publishedA, publishedB));
@@ -35,7 +36,9 @@ class ProductLogisticsRateCardReaderTest {
         RateCardView view = new ProductLogisticsRateCardReader(productCostMapper, publishedRateCardMapper)
                 .read(307L, "SA", "ZD", "SEA");
 
-        assertThat(view.items).containsExactly(manual, publishedB);
+        assertThat(view.items).containsExactly(publishedA, manual);
+        assertThat(view.items.get(1).unitCostCny).isEqualByComparingTo("1500.00");
+        assertThat(view.items.get(1).cargoCategoryDescription).isEqualTo("收纳盒、收纳架等");
     }
 
     @Test

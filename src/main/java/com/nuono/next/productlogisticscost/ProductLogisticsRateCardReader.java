@@ -4,6 +4,8 @@ import com.nuono.next.infrastructure.mapper.ProductLogisticsCostMapper;
 import com.nuono.next.infrastructure.mapper.PublishedProductLogisticsRateCardMapper;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.RateCardRow;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.RateCardView;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,14 @@ public class ProductLogisticsRateCardReader {
                 transportMode
         ));
         RateCardView view = new RateCardView();
-        view.items.addAll(rowsBySlot.values());
+        List<RateCardRow> rows = new ArrayList<>(rowsBySlot.values());
+        rows.sort(Comparator
+                .comparing((RateCardRow row) -> text(row.siteCode))
+                .thenComparing(row -> text(row.forwarderCode))
+                .thenComparing(row -> text(row.transportMode))
+                .thenComparing(row -> text(row.cargoCategoryCode))
+                .thenComparing(row -> text(row.chargeUnit)));
+        view.items.addAll(rows);
         return view;
     }
 
@@ -48,8 +57,21 @@ public class ProductLogisticsRateCardReader {
         }
         rows.forEach(row -> {
             normalizePublishedEtCategory(row);
-            rowsBySlot.putIfAbsent(slot(row), row);
+            RateCardRow existing = rowsBySlot.putIfAbsent(slot(row), row);
+            if (existing != null) {
+                inheritPublishedCategoryDescription(existing, row);
+            }
         });
+    }
+
+    private void inheritPublishedCategoryDescription(RateCardRow preferred, RateCardRow fallback) {
+        if (preferred == null
+                || fallback == null
+                || !text(preferred.cargoCategoryDescription).isEmpty()
+                || !"PUBLISHED_FORWARDER_QUOTE".equals(text(fallback.sourceType))) {
+            return;
+        }
+        preferred.cargoCategoryDescription = fallback.cargoCategoryDescription;
     }
 
     private void normalizePublishedEtCategory(RateCardRow row) {
