@@ -64,9 +64,12 @@ class CompetitorProductDetailRefreshServiceTest {
             return detail(request.getNoonProductCode());
         });
 
-        int refreshed = service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
+        CompetitorProductDetailRefreshResult result =
+                service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
-        assertEquals(2, refreshed);
+        assertEquals(2, result.getAttemptedCount());
+        assertEquals(2, result.getSucceededCount());
+        assertEquals(0, result.getFailedCount());
         ArgumentCaptor<NoonProductDetailRequest> requestCaptor =
                 ArgumentCaptor.forClass(NoonProductDetailRequest.class);
         verify(detailAdapter, times(2)).fetch(requestCaptor.capture());
@@ -100,7 +103,7 @@ class CompetitorProductDetailRefreshServiceTest {
     }
 
     @Test
-    void recordsFallbackSnapshotFromSearchDiscoveryWhenDetailFetchFails() {
+    void doesNotRecordSearchDiscoveryAsDetailWhenDetailFetchFails() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorProductRow confirmed = confirmedProduct(200010L, "ZCOMP001", "https://www.noon.com/saudi-en/sample/ZCOMP001/p/");
         confirmed.setTitleSnapshot("Search title");
@@ -114,23 +117,20 @@ class CompetitorProductDetailRefreshServiceTest {
         when(detailAdapter.fetch(any(NoonProductDetailRequest.class)))
                 .thenThrow(new IllegalStateException("Noon catalog returned empty product list"));
 
-        int refreshed = service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
+        CompetitorProductDetailRefreshResult result =
+                service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
-        assertEquals(1, refreshed);
+        assertEquals(2, result.getAttemptedCount());
+        assertEquals(0, result.getSucceededCount());
+        assertEquals(2, result.getFailedCount());
+        assertEquals("DETAIL_REFRESH_FAILED", result.getFirstErrorCode());
         verify(mapper, never()).updateCompetitorProductFromDetail(any());
-        verify(snapshotService).recordProductDetailSnapshot(
-                org.mockito.ArgumentMatchers.eq(watchProduct),
-                org.mockito.ArgumentMatchers.eq(confirmed),
-                argThat((detail) ->
-                        "ZCOMP001".equals(detail.getNoonProductCode())
-                                && "Search title".equals(detail.getTitleEn())
-                                && "Search brand".equals(detail.getBrand())
-                                && "https://f.nooncdn.com/p/search.jpg".equals(detail.getMainImageUrlRaw())
-                                && new BigDecimal("22.34").compareTo(detail.getPriceAmount()) == 0
-                                && detail.getRawDetailJson().contains("SEARCH_DISCOVERY_FALLBACK")
-                ),
-                org.mockito.ArgumentMatchers.eq(220123L),
-                org.mockito.ArgumentMatchers.eq(601L)
+        verify(snapshotService, never()).recordProductDetailSnapshot(
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
         );
     }
 
