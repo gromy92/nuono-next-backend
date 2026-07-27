@@ -53,7 +53,9 @@ class ProductImageWorkflowService {
     void generate(Long suiteId, Long ownerUserId, String storeCode, Long operatorUserId) {
         ProductImageSuiteRecord suite = requireSuite(suiteId);
         ProductImageProfileRecord profile = requireProfile(suite, ownerUserId, storeCode);
-        boolean rework = suite.getParentSuiteId() != null;
+        List<ProductImageSuiteReviewTargetRecord> reviewTargets = mapper.selectReviewTargets(suiteId);
+        if (reviewTargets == null) reviewTargets = List.of();
+        boolean rework = suite.getParentSuiteId() != null || !reviewTargets.isEmpty();
         mapper.updateSuiteWorkflowStatus(
                 suiteId,
                 rework ? ProductImageSuiteStatus.REGENERATING : ProductImageSuiteStatus.GENERATING,
@@ -63,10 +65,14 @@ class ProductImageWorkflowService {
         );
         try {
             List<ProductImageSuiteAssetRecord> existing = mapper.selectSuiteAssets(suiteId);
+            List<String> baseReferences = baseReferences(profile);
+            ProductImageSuiteReworkGenerator.replace(
+                    mapper, generator, suite, reviewTargets, existing,
+                    baseReferences, storeCode, this::rolePrompt, this::saveGeneratedImage
+            );
             Set<ProductImageSuiteAssetRole> completed = existing.stream()
                     .map(ProductImageSuiteAssetRecord::getImageRole)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
-            List<String> baseReferences = baseReferences(profile);
             for (int roleIndex = 0; roleIndex < REQUIRED_ROLES.size(); roleIndex++) {
                 ProductImageSuiteAssetRole role = REQUIRED_ROLES.get(roleIndex);
                 if (completed.contains(role)) continue;

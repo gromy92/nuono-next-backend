@@ -264,4 +264,5 @@ class ProductImageWorkflowServiceTest {
         asset.setSortOrder(10);
         return asset;
     }
+
 }
