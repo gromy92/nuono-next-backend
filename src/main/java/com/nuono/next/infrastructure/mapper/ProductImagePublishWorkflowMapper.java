@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Update;
 
 public interface ProductImagePublishWorkflowMapper {
 
-    @ResultMap("productImageSuiteMap")
+    @ResultMap("com.nuono.next.infrastructure.mapper.ProductImageProfileMapper.productImageSuiteMap")
     @Select({
             "SELECT *",
             "FROM product_image_suite",
