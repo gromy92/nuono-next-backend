@@ -151,6 +151,8 @@ abstract class ProductListingServiceTest {
         final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
         final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
         final Map<String, Long> realRunAttemptClaims = new LinkedHashMap<>();
+        final ProductListingFakeLeaseSupport leaseSupport =
+                new ProductListingFakeLeaseSupport(tasks);
         final Map<String, Long> localPartnerSkuProducts = new LinkedHashMap<>();
         final Map<String, Long> localBarcodeProducts = new LinkedHashMap<>();
         final Map<Long, Long> localProductListingDraftIds = new LinkedHashMap<>();
@@ -174,36 +176,30 @@ abstract class ProductListingServiceTest {
                 localProductListingDraftIds.put(productMasterId, listingDraftId);
             }
         }
-
         @Override
         public int allocateProductListingId(IdSequenceCommand command) {
             return 1;
         }
-
         @Override
         public Long nextProductListingDraftId() {
             return nextDraftId++;
         }
-
         @Override
         public Long nextProductListingTaskId() {
             return nextTaskId++;
         }
-
         @Override
         public int insertDraft(ProductListingDraftRecord draft) {
             insertedDraft = draft;
             drafts.put(draft.getId(), draft);
             return 1;
         }
-
         @Override
         public int updateDraft(ProductListingDraftRecord draft) {
             updateCount++;
             drafts.put(draft.getId(), draft);
             return 1;
         }
-
         @Override
         public ProductListingDraftRecord selectDraftById(Long draftId, Long ownerUserId) {
             ProductListingDraftRecord draft = drafts.get(draftId);
@@ -212,12 +208,10 @@ abstract class ProductListingServiceTest {
             }
             return draft;
         }
-
         @Override
         public ProductListingDraftRecord selectDraftByIdForUpdate(Long draftId, Long ownerUserId) {
             return selectDraftById(draftId, ownerUserId);
         }
-
         @Override
         public Long findActiveDraftId(Long ownerUserId, String storeCode, String sourceType, Long sourceRefId) {
             Long latest = null;
@@ -235,7 +229,6 @@ abstract class ProductListingServiceTest {
             }
             return latest;
         }
-
         @Override
         public List<ProductListingDraftRecord> selectRecentDrafts(Long ownerUserId, String storeCode, int limit) {
             List<ProductListingDraftRecord> result = new ArrayList<>();
@@ -252,14 +245,12 @@ abstract class ProductListingServiceTest {
             }
             return new ArrayList<>(result.subList(0, limit));
         }
-
         @Override
         public int insertTask(ProductListingTaskRecord task) {
             insertedTask = task;
             tasks.put(task.getId(), task);
             return 1;
         }
-
         @Override
         public ProductListingTaskRecord selectTaskById(Long taskId, Long ownerUserId) {
             ProductListingTaskRecord task = tasks.get(taskId);
@@ -268,17 +259,14 @@ abstract class ProductListingServiceTest {
             }
             return task;
         }
-
         @Override
         public ProductListingTaskRecord selectTaskByIdForUpdate(Long taskId, Long ownerUserId) {
             return selectTaskById(taskId, ownerUserId);
         }
-
         @Override
         public ProductListingTaskRecord selectTaskByIdForWorker(Long taskId) {
             return tasks.get(taskId);
         }
-
         @Override
         public List<ProductListingTaskRecord> selectRecentTasks(Long ownerUserId, String storeCode, int limit) {
             List<ProductListingTaskRecord> result = new ArrayList<>();
@@ -289,7 +277,6 @@ abstract class ProductListingServiceTest {
             }
             return result;
         }
-
         @Override
         public List<ProductListingTaskRecord> selectRecentTasksByDraftId(
                 Long ownerUserId,
@@ -302,7 +289,6 @@ abstract class ProductListingServiceTest {
                     .limit(limit)
                     .collect(java.util.stream.Collectors.toList());
         }
-
         @Override
         public ProductListingTaskRecord selectCurrentRealRunTaskByDraftId(Long ownerUserId, Long draftId) {
             return tasks.values().stream()
@@ -313,7 +299,6 @@ abstract class ProductListingServiceTest {
                     .max(java.util.Comparator.comparing(ProductListingTaskRecord::getId))
                     .orElse(null);
         }
-
         @Override
         public ProductListingTaskRecord selectLatestDryRunTaskByDraftId(Long ownerUserId, Long draftId) {
             return tasks.values().stream()
@@ -323,7 +308,6 @@ abstract class ProductListingServiceTest {
                     .max(java.util.Comparator.comparing(ProductListingTaskRecord::getId))
                     .orElse(null);
         }
-
         @Override
         public int markValidatedDryRunSuperseded(Long taskId, Long ownerUserId) {
             ProductListingTaskRecord task = tasks.get(taskId);
@@ -336,7 +320,6 @@ abstract class ProductListingServiceTest {
             task.setStatus("superseded");
             return 1;
         }
-
         @Override
         public int persistRecoveredCreateReference(
                 Long taskId,
@@ -353,7 +336,6 @@ abstract class ProductListingServiceTest {
             task.setNoonResultJson(newNoonResultJson);
             return 1;
         }
-
         @Override
         public int markCreateOutcomeLookupAuthenticationRequired(
                 Long taskId,
@@ -424,7 +406,7 @@ abstract class ProductListingServiceTest {
                 if (!ownerUserId.equals(task.getOwnerUserId())
                         || !storeCode.equals(task.getStoreCode())
                         || !"REAL_RUN".equals(task.getMode())
-                        || !List.of("submitted", "running", "succeeded", "written_verify_failed").contains(task.getStatus())
+                        || !isReservedIdentityTask(task)
                         || !normalize(barcode).equalsIgnoreCase(normalize(readBarcode(task)))) {
                     continue;
                 }
@@ -516,27 +498,12 @@ abstract class ProductListingServiceTest {
 
         @Override
         public int recoverStaleRunningRealRunTasks(java.time.LocalDateTime staleBefore) {
-            int recovered = 0;
-            for (ProductListingTaskRecord task : tasks.values()) {
-                if ("REAL_RUN".equals(task.getMode())
-                        && "running".equals(task.getStatus())
-                        && task.getStartedAt() != null
-                        && (task.getGmtUpdated() == null
-                        ? task.getStartedAt()
-                        : task.getGmtUpdated()).isBefore(staleBefore)) {
-                    task.setStatus("written_verify_failed");
-                    task.setFailureCategory("recovery");
-                    task.setFailureCode("real_run_interrupted");
-                    task.setFailureMessage("真实上架任务执行中断，需人工核对。");
-                    task.setCompletedAt(java.time.LocalDateTime.now());
-                    recovered++;
-                }
-            }
-            return recovered;
+            return leaseSupport.recoverStale(staleBefore);
         }
 
         @Override
         public int updateTaskResult(ProductListingTaskRecord task) {
+            leaseSupport.release(task.getId());
             tasks.put(task.getId(), task);
             return 1;
         }
@@ -561,17 +528,44 @@ abstract class ProductListingServiceTest {
 
         @Override
         public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
-            ProductListingTaskRecord task = tasks.get(taskId);
-            if (task == null
-                    || !"REAL_RUN".equals(task.getMode())
-                    || !"submitted".equals(task.getStatus())) {
-                return 0;
-            }
-            task.setStatus("running");
-            task.setStartedAt(startedAt);
-            task.setGmtUpdated(startedAt);
-            tasks.put(taskId, task);
-            return 1;
+            return leaseSupport.markRunning(taskId, startedAt);
+        }
+
+        @Override
+        public int markTaskRecoveryRunning(
+                Long taskId,
+                Long ownerUserId,
+                String expectedStatus,
+                java.time.LocalDateTime startedAt
+        ) {
+            return leaseSupport.markRecovery(taskId, ownerUserId, expectedStatus, startedAt);
+        }
+
+        @Override
+        public int heartbeatRunningTask(
+                Long taskId,
+                Long ownerUserId,
+                java.time.LocalDateTime startedAt
+        ) {
+            return leaseSupport.heartbeat(taskId, ownerUserId, startedAt);
+        }
+
+        @Override
+        public int checkpointRunningTaskNoonResult(
+                Long taskId,
+                Long ownerUserId,
+                String noonResultJson,
+                java.time.LocalDateTime startedAt
+        ) {
+            return leaseSupport.checkpoint(taskId, ownerUserId, noonResultJson, startedAt);
+        }
+
+        @Override
+        public int completeRunningTaskResult(
+                ProductListingTaskRecord task,
+                java.time.LocalDateTime expectedStartedAt
+        ) {
+            return leaseSupport.complete(task, expectedStartedAt);
         }
 
         ProductListingDraftRecord insertedDraft() {
@@ -631,10 +625,15 @@ abstract class ProductListingServiceTest {
         }
 
         boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {
-            return "succeeded".equals(task.getStatus())
-                    || "written_verify_failed".equals(task.getStatus())
+            return isReservedIdentityTask(task);
+        }
+
+        boolean isReservedIdentityTask(ProductListingTaskRecord task) {
+            return List.of("submitted", "running", "succeeded", "written_verify_failed")
+                    .contains(task.getStatus())
                     || ("failed".equals(task.getStatus())
-                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+                    && List.of("partner_sku_already_exists", ProductListingWriteAuthRecovery.FAILURE_CODE)
+                    .contains(task.getFailureCode()));
         }
 
         String readPartnerSku(ProductListingTaskRecord task) {

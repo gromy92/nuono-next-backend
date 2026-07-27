@@ -17,6 +17,61 @@ import org.junit.jupiter.api.Test;
 class ProductImageProfileMapperSqlTest {
 
     @Test
+    void publishCheckpointAndManualRetryShouldUsePublishingAndFailedStateFences() throws Exception {
+        Method checkpointMethod = ProductImageProfileMapper.class.getMethod(
+                "updateSuitePublishManifest",
+                Long.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String checkpointSql = String.join(
+                " ",
+                checkpointMethod.getAnnotation(Update.class).value()
+        ).replaceAll("\\s+", " ");
+        assertThat(checkpointSql)
+                .contains("publish_manifest_json = #{manifestJson}")
+                .contains("suite_status = 'PUBLISHING'")
+                .contains("'$.attemptId'")
+                .contains("= #{attemptId}");
+
+        Method retryMethod = ProductImageProfileMapper.class.getMethod(
+                "retryFailedSuitePublishWorkflow",
+                Long.class,
+                Long.class,
+                String.class,
+                Long.class
+        );
+        String retrySql = String.join(
+                " ",
+                retryMethod.getAnnotation(Update.class).value()
+        ).replaceAll("\\s+", " ");
+        assertThat(retrySql)
+                .contains("suite_status = 'PUBLISHING'")
+                .contains("publish_manifest_json = #{manifestJson}")
+                .contains("suite_status = 'FAILED'")
+                .contains("profile_id = #{profileId}");
+
+        Method failPublishMethod = ProductImageProfileMapper.class.getMethod(
+                "failPublishingSuiteWorkflow",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String failPublishSql = String.join(
+                " ",
+                failPublishMethod.getAnnotation(Update.class).value()
+        ).replaceAll("\\s+", " ");
+        assertThat(failPublishSql)
+                .contains("suite_status = 'FAILED'")
+                .contains("suite_status = 'PUBLISHING'")
+                .contains("'$.attemptId'")
+                .contains("= #{attemptId}");
+    }
+
+    @Test
     void profileIdentityLookupUsesLogicalStoreScopeAndCanonicalAssetRichRecord() throws Exception {
         Method method = ProductImageProfileMapper.class.getMethod(
                 "selectProfileByIdentity",

@@ -21,6 +21,10 @@ public interface ProductListingNoonWriteAdapter {
         return step;
     }
 
+    default boolean isAuthorizationRecoveryPending(ProductListingNoonWriteRequest request) {
+        return false;
+    }
+
     ProductListingNoonWriteStepResult verifyReadBack(
             ProductListingNoonWriteRequest request,
             String skuParent,

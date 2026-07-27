@@ -1,24 +1,23 @@
 package com.nuono.next.product.publish;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
+import com.nuono.next.noon.NoonTransientTransportFailurePolicy;
 import com.nuono.next.product.ProductMasterWorkbenchView;
 import com.nuono.next.product.ProductPublishTaskRecord;
 import com.nuono.next.product.ProductPublishTaskView;
+import com.nuono.next.product.ProductWriteAuthRecovery;
+import com.nuono.next.product.ProductWriteAuthRequiredException;
 import com.nuono.next.product.noon.NoonProductException;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.dao.DuplicateKeyException;
@@ -38,6 +37,7 @@ public class ProductPublishCommandService {
     public static final String PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE = "product_delete_pending_effective";
     public static final String PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED = "product_delete_write_retry_scheduled";
     public static final String PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT = "product_delete_verify_timeout";
+    public static final String ERROR_CODE_NOON_AUTH_RECOVERY_PENDING = "noon_auth_recovery_pending";
 
     private static final Set<String> ACTIVE_STATUSES = Set.of(
             "queued",
@@ -62,17 +62,11 @@ public class ProductPublishCommandService {
             "cancelled",
             "pending_manual_check"
     );
-    private static final Set<Integer> RETRYABLE_NOON_WRITE_HTTP_STATUSES = Set.of(408, 429, 500, 502, 503, 504);
-    private static final Pattern HTTP_STATUS_PATTERN = Pattern.compile("\\bHTTP\\s+(\\d{3})\\b", Pattern.CASE_INSENSITIVE);
-    private static final Set<String> NON_RETRYABLE_NOON_AUTH_MARKERS = Set.of(
-            "invalid username or password",
-            "password validate",
-            "invalid password",
-            "bad credentials",
-            "账号或密码错误"
-    );
-
     private final ProductManagementMapper productManagementMapper;
+    private final ProductPublishTaskMessageFormatter taskMessageFormatter =
+            new ProductPublishTaskMessageFormatter();
+    private final ProductPublishAuthRetryGuard authRetryGuard = new ProductPublishAuthRetryGuard();
+    private ProductWriteAuthRecovery productWriteAuthRecovery = ProductWriteAuthRecovery.disabled();
 
     @Value("${nuono.product-management.publish-task.default-poll-after-millis:2000}")
     private long defaultPollAfterMillis;
@@ -88,6 +82,13 @@ public class ProductPublishCommandService {
 
     public ProductPublishCommandService(ProductManagementMapper productManagementMapper) {
         this.productManagementMapper = productManagementMapper;
+    }
+
+    @Autowired(required = false)
+    public void setProductWriteAuthRecovery(ProductWriteAuthRecovery productWriteAuthRecovery) {
+        if (productWriteAuthRecovery != null) {
+            this.productWriteAuthRecovery = productWriteAuthRecovery;
+        }
     }
 
     public ProductPublishTaskView loadTask(
@@ -120,6 +121,7 @@ public class ProductPublishCommandService {
             throw new IllegalArgumentException("发布任务不存在或已删除。");
         }
         ensureOwner(task, ownerUserId);
+        authRetryGuard.requireSafeToRetry(task, productWriteAuthRecovery);
         ProductPublishTaskRecord activeTask = task.getProductMasterId() == null
                 ? null
                 : productManagementMapper.selectActiveProductPublishTask(task.getProductMasterId());
@@ -238,7 +240,7 @@ public class ProductPublishCommandService {
                 TASK_TYPE_PRODUCT_DELETE,
                 PRODUCT_DELETE_STATUS_QUEUED,
                 "[\"delete\"]",
-                Integer.MAX_VALUE
+                Math.max(0, transientAutomaticMaxRetryCount)
         );
     }
 
@@ -318,6 +320,16 @@ public class ProductPublishCommandService {
 
     public List<ProductPublishTaskRecord> selectRunnableTasks(int limit) {
         recoverStaleRunningTasks();
+        int stopped = productManagementMapper.stopExhaustedProductDeleteRetries(
+                Math.max(0, transientAutomaticMaxRetryCount),
+                0L
+        );
+        if (stopped > 0) {
+            log.warn(
+                    "product-management stopped exhausted product delete retries before provider call count={}",
+                    stopped
+            );
+        }
         return productManagementMapper.selectRunnableProductPublishTasks(Math.max(1, limit));
     }
 
@@ -442,139 +454,33 @@ public class ProductPublishCommandService {
     }
 
     public String message(ProductPublishTaskRecord task, List<String> changedDomains) {
-        String status = task == null ? null : normalize(task.getStatus());
-        if (isProductDeleteTask(task)) {
-            return productDeleteMessage(status);
-        }
-        if ("queued".equalsIgnoreCase(status)) {
-            return "发布已排队，等待后台执行。";
-        }
-        if ("running".equalsIgnoreCase(status)) {
-            return "正在提交 Noon。";
-        }
-        if ("submitted".equalsIgnoreCase(status)) {
-            return "发布已提交，等待回读校验。";
-        }
-        if ("verifying".equalsIgnoreCase(status)) {
-            return "正在校验 Noon 结果。";
-        }
-        if ("pending_effective".equalsIgnoreCase(status)) {
-            return "Noon 可能延迟生效，系统将继续回读校验。";
-        }
-        if ("write_unknown".equalsIgnoreCase(status)) {
-            return "Noon 写入请求超时，系统只回读校验，不会自动重复写入。";
-        }
-        if ("write_retry_scheduled".equalsIgnoreCase(status)) {
-            return "发布正在后台处理，系统会自动核对 Noon 结果。";
-        }
-        if ("verify_timeout".equalsIgnoreCase(status)) {
-            return "Noon 回读校验超时，系统稍后继续核对。";
-        }
-        if ("pending_manual_check".equalsIgnoreCase(status)) {
-            String changedDomainText = changedDomainText(changedDomains);
-            String targetText = StringUtils.hasText(changedDomainText)
-                    ? "【" + changedDomainText + "】"
-                    : "本次修改";
-            return "Noon 多轮回读仍未确认" + targetText + "已生效。诺诺草稿已保留，请在官方后台核对后选择重试发布或从 Noon 同步。";
-        }
-        if ("synced".equalsIgnoreCase(status)) {
-            return "发布已完成，本地基线已更新。";
-        }
-        if ("failed".equalsIgnoreCase(status)) {
-            if ("publish_conflict".equalsIgnoreCase(normalize(task.getErrorCode()))) {
-                return "该发布任务按旧冲突规则失败，诺诺草稿已保留。请重新点击发布当前修改，系统会按本地草稿覆盖 Noon 对应字段。";
-            }
-            return firstNonBlank(task.getErrorMessage(), "发布失败，诺诺草稿已保留。");
-        }
-        if ("cancelled".equalsIgnoreCase(status)) {
-            return "发布任务已取消。";
-        }
-        return firstNonBlank(task != null ? task.getErrorMessage() : null, "发布任务状态已更新。");
-    }
-
-    private String productDeleteMessage(String status) {
-        status = normalizeProductDeleteStatus(status);
-        if ("queued".equalsIgnoreCase(status)) {
-            return "商品删除已排队，后台会先处理 Noon 删除，成功后再清理本地商品目录。";
-        }
-        if ("running".equalsIgnoreCase(status)) {
-            return "商品删除正在后台执行。";
-        }
-        if ("submitted".equalsIgnoreCase(status)
-                || "verifying".equalsIgnoreCase(status)
-                || "pending_effective".equalsIgnoreCase(status)
-                || "write_unknown".equalsIgnoreCase(status)
-                || "write_retry_scheduled".equalsIgnoreCase(status)
-                || "verify_timeout".equalsIgnoreCase(status)) {
-            return "商品删除正在后台自动处理，系统会继续核对 Noon 删除结果。";
-        }
-        if ("pending_manual_check".equalsIgnoreCase(status)) {
-            return "商品删除结果需要人工核对：请在 Noon 后台确认 ZSKU/catalog 是否已删除后重试或联系技术处理。";
-        }
-        if ("failed".equalsIgnoreCase(status)) {
-            return "商品删除失败，诺诺本地商品未删除，请重试或联系技术处理。";
-        }
-        if ("synced".equalsIgnoreCase(status)) {
-            return "商品删除已完成。";
-        }
-        if ("cancelled".equalsIgnoreCase(status)) {
-            return "商品删除任务已取消。";
-        }
-        return "商品删除任务状态已更新，系统会在后台继续处理。";
+        return taskMessageFormatter.message(task, changedDomains);
     }
 
     public boolean isRetryableNoonWriteFailure(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof NoonProductException && ((NoonProductException) current).isRetryable()) {
-                return true;
+        for (Throwable current = throwable; current != null; current = current.getCause()) {
+            if (current instanceof ProductWriteAuthRequiredException) {
+                return false;
             }
-            current = current.getCause();
-        }
-        String details = throwableDetails(throwable);
-        Matcher matcher = HTTP_STATUS_PATTERN.matcher(details);
-        while (matcher.find()) {
-            try {
-                int status = Integer.parseInt(matcher.group(1));
-                if (RETRYABLE_NOON_WRITE_HTTP_STATUSES.contains(status)) {
-                    return true;
+            if (current instanceof NoonProductException) {
+                NoonProductException productFailure = (NoonProductException) current;
+                switch (productFailure.getCode()) {
+                    case NOON_AUTH_REQUIRED:
+                    case NOON_CREDENTIAL_INVALID:
+                    case NOON_PROJECT_SCOPE_MISSING:
+                    case NOON_TLS_CERTIFICATE_FAILURE:
+                    case NOON_RATE_LIMITED:
+                        return false;
+                    default:
+                        break;
                 }
-            } catch (NumberFormatException ignored) {
-                // continue scanning other status fragments
             }
         }
-        return false;
+        return NoonTransientTransportFailurePolicy.isRetryable(throwable);
     }
 
     public boolean isRetryableNoonRequestFailure(Throwable throwable) {
-        if (isNonRetryableNoonAuthFailure(throwable)) {
-            return false;
-        }
-        if (isRetryableNoonWriteFailure(throwable)) {
-            return true;
-        }
-        return isNoonAccessDeniedTransientFailure(throwable);
-    }
-
-    private boolean isNonRetryableNoonAuthFailure(Throwable throwable) {
-        String details = throwableDetails(throwable).toLowerCase(Locale.ROOT);
-        for (String marker : NON_RETRYABLE_NOON_AUTH_MARKERS) {
-            if (details.contains(marker.toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isNoonAccessDeniedTransientFailure(Throwable throwable) {
-        String details = throwableDetails(throwable).toLowerCase(Locale.ROOT);
-        return details.contains("http 403")
-                && details.contains("access denied")
-                && details.contains("you don't have permission to access")
-                && (details.contains("login")
-                || details.contains("noon.partners")
-                || details.contains("http&#58;")
-                || details.contains("&#47;&#47;login"));
+        return isRetryableNoonWriteFailure(throwable);
     }
 
     public boolean scheduleNoonWriteRetryOrManualCheck(
@@ -686,7 +592,7 @@ public class ProductPublishCommandService {
     }
 
     public boolean isProductDeleteTask(ProductPublishTaskRecord task) {
-        return task != null && TASK_TYPE_PRODUCT_DELETE.equalsIgnoreCase(normalize(task.getTaskType()));
+        return ProductPublishTaskClassifier.isProductDelete(task);
     }
 
     public boolean isMissingTaskTable(Throwable exception) {
@@ -740,26 +646,17 @@ public class ProductPublishCommandService {
     }
 
     private int effectiveTransientMaxRetryCount(ProductPublishTaskRecord task) {
-        return Math.max(maxRetryCount(task), Math.max(0, transientAutomaticMaxRetryCount));
+        int configuredLimit = Math.max(0, transientAutomaticMaxRetryCount);
+        if (isProductDeleteTask(task)) {
+            return Math.min(maxRetryCount(task), configuredLimit);
+        }
+        return Math.max(maxRetryCount(task), configuredLimit);
     }
 
     private LocalDateTime nextAutomaticWriteRetryRunAt(ProductPublishTaskRecord task) {
         int attemptsAfterCurrentFailure = retryCount(task) + 1;
         int seconds = attemptsAfterCurrentFailure <= 1 ? 120 : attemptsAfterCurrentFailure == 2 ? 600 : 1800;
         return LocalDateTime.now().plusSeconds(seconds);
-    }
-
-    private String throwableDetails(Throwable throwable) {
-        StringBuilder builder = new StringBuilder();
-        Throwable current = throwable;
-        while (current != null) {
-            if (StringUtils.hasText(current.getMessage())) {
-                builder.append(' ').append(current.getMessage());
-            }
-            builder.append(' ').append(current.getClass().getSimpleName());
-            current = current.getCause();
-        }
-        return builder.toString();
     }
 
     private int versionNo(ProductPublishTaskRecord task) {
@@ -781,71 +678,8 @@ public class ProductPublishCommandService {
         return domains == null ? List.of() : domains;
     }
 
-    private String changedDomainText(List<String> changedDomains) {
-        Set<String> labels = new LinkedHashSet<>();
-        for (String domain : changedDomains == null ? new ArrayList<String>() : changedDomains) {
-            String label = changedDomainLabel(domain);
-            if (StringUtils.hasText(label)) {
-                labels.add(label);
-            }
-        }
-        return String.join("、", labels);
-    }
-
-    private String changedDomainLabel(String domain) {
-        String normalized = normalize(domain);
-        if ("main".equalsIgnoreCase(normalized)) {
-            return "商品主档";
-        }
-        if ("content".equalsIgnoreCase(normalized)) {
-            return "图文内容";
-        }
-        if ("attributes".equalsIgnoreCase(normalized)) {
-            return "关键属性";
-        }
-        if ("site".equalsIgnoreCase(normalized) || "site_offer".equalsIgnoreCase(normalized)) {
-            return "当前站点经营";
-        }
-        if ("grouping".equalsIgnoreCase(normalized)) {
-            return "Group 与变体";
-        }
-        if ("sizes".equalsIgnoreCase(normalized)) {
-            return "尺码";
-        }
-        if ("delete".equalsIgnoreCase(normalized)) {
-            return "商品删除";
-        }
-        return null;
-    }
-
     private String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
-    }
-
-    private String normalizeProductDeleteStatus(String status) {
-        String normalized = normalize(status);
-        if (PRODUCT_DELETE_STATUS_QUEUED.equalsIgnoreCase(normalized)) {
-            return "queued";
-        }
-        if (PRODUCT_DELETE_STATUS_RUNNING.equalsIgnoreCase(normalized)) {
-            return "running";
-        }
-        if (PRODUCT_DELETE_STATUS_SUBMITTED.equalsIgnoreCase(normalized)) {
-            return "submitted";
-        }
-        if (PRODUCT_DELETE_STATUS_VERIFYING.equalsIgnoreCase(normalized)) {
-            return "verifying";
-        }
-        if (PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE.equalsIgnoreCase(normalized)) {
-            return "pending_effective";
-        }
-        if (PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED.equalsIgnoreCase(normalized)) {
-            return "write_retry_scheduled";
-        }
-        if (PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT.equalsIgnoreCase(normalized)) {
-            return "verify_timeout";
-        }
-        return normalized;
     }
 
     private String firstNonBlank(String first, String second) {

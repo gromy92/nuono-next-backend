@@ -60,17 +60,6 @@ public class NoonProductGateway {
         String normalized = details.toLowerCase(Locale.ROOT);
         if (containsAny(
                 normalized,
-                "auth_required",
-                "noon cookie 无效或已过期"
-        )) {
-            return new NoonProductError(
-                    NoonProductErrorCode.NOON_AUTH_REQUIRED,
-                    false,
-                    "Noon 授权已失效，请在店铺管理中人工重新连接。"
-            );
-        }
-        if (containsAny(
-                normalized,
                 "invalid username or password",
                 "password validate",
                 "invalid password",
@@ -80,6 +69,34 @@ public class NoonProductGateway {
                     NoonProductErrorCode.NOON_CREDENTIAL_INVALID,
                     false,
                     "Noon 账号或密码错误，请检查店铺管理中的 Noon 登录账号。"
+            );
+        }
+        if (containsAny(
+                normalized,
+                "project.list 未返回目标项目",
+                "project list missing target",
+                "target project missing",
+                "noon 项目列表未返回目标项目",
+                "account does not contain current project",
+                "account does not include current project",
+                "账号不包含当前项目",
+                "project_access_denied"
+        )) {
+            return new NoonProductError(
+                    NoonProductErrorCode.NOON_PROJECT_SCOPE_MISSING,
+                    false,
+                    "Noon project.list 未返回目标项目，请检查当前账号是否有该项目权限。"
+            );
+        }
+        if (containsAny(
+                normalized,
+                "auth_required",
+                "noon cookie 无效或已过期"
+        )) {
+            return new NoonProductError(
+                    NoonProductErrorCode.NOON_AUTH_REQUIRED,
+                    false,
+                    "Noon 授权已失效，请在店铺管理中人工重新连接。"
             );
         }
         if (containsAny(
@@ -94,19 +111,6 @@ public class NoonProductGateway {
                     NoonProductErrorCode.NOON_TLS_CERTIFICATE_FAILURE,
                     false,
                     "请求 Noon 失败：TLS 证书校验失败，请检查运行环境证书链或代理证书配置。"
-            );
-        }
-        if (containsAny(
-                normalized,
-                "project.list 未返回目标项目",
-                "project list missing target",
-                "target project missing",
-                "noon 项目列表未返回目标项目"
-        )) {
-            return new NoonProductError(
-                    NoonProductErrorCode.NOON_PROJECT_SCOPE_MISSING,
-                    false,
-                    "Noon project.list 未返回目标项目，请检查当前账号是否有该项目权限。"
             );
         }
         if (containsAny(

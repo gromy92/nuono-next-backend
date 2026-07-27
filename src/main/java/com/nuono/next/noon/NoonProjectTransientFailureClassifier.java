@@ -72,6 +72,7 @@ final class NoonProjectTransientFailureClassifier {
         }
         if (throwable instanceof java.io.IOException
                 && (normalized.equals("connect timeout")
+                || normalized.equals("connection timeout")
                 || normalized.contains("http connect timeout")
                 || normalized.contains("connect timed out")
                 || normalized.contains("connection timed out"))) {

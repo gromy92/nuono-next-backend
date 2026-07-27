@@ -37,8 +37,7 @@ final class ProductListingTestFixtures {
             public void backfillDraftListing(
                     ProductListingDraftRecord record,
                     ProductListingDraftCommand draft
-            ) {
-            }
+            ) {}
             @Override
             public boolean backfillSuccessfulListing(
                     ProductListingTaskRecord task,
@@ -150,6 +149,8 @@ final class ProductListingTestFixtures {
         private final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
         private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
         private final Map<String, Long> realRunAttemptClaims = new LinkedHashMap<>();
+        private final ProductListingFakeLeaseSupport leaseSupport =
+                new ProductListingFakeLeaseSupport(tasks);
         private ProductListingTaskRecord insertedTask;
         private ProductListingTaskRecord updatedTask;
         @Override
@@ -377,7 +378,7 @@ final class ProductListingTestFixtures {
                 if (!ownerUserId.equals(task.getOwnerUserId())
                         || !storeCode.equals(task.getStoreCode())
                         || !"REAL_RUN".equals(task.getMode())
-                        || !List.of("submitted", "running", "succeeded", "written_verify_failed").contains(task.getStatus())
+                        || !isRealWriteAttemptLocked(task)
                         || !normalize(barcode).equalsIgnoreCase(normalize(readBarcode(task)))) {
                     continue;
                 }
@@ -453,27 +454,12 @@ final class ProductListingTestFixtures {
         }
         @Override
         public int recoverStaleRunningRealRunTasks(java.time.LocalDateTime staleBefore) {
-            int recovered = 0;
-            for (ProductListingTaskRecord task : tasks.values()) {
-                if ("REAL_RUN".equals(task.getMode())
-                        && "running".equals(task.getStatus())
-                        && task.getStartedAt() != null
-                        && (task.getGmtUpdated() == null
-                        ? task.getStartedAt()
-                        : task.getGmtUpdated()).isBefore(staleBefore)) {
-                    task.setStatus("written_verify_failed");
-                    task.setFailureCategory("recovery");
-                    task.setFailureCode("real_run_interrupted");
-                    task.setFailureMessage("真实上架任务执行中断，需人工核对。");
-                    task.setCompletedAt(java.time.LocalDateTime.now());
-                    recovered++;
-                }
-            }
-            return recovered;
+            return leaseSupport.recoverStale(staleBefore);
         }
         @Override
         public int updateTaskResult(ProductListingTaskRecord task) {
             updatedTask = task;
+            leaseSupport.release(task.getId());
             tasks.put(task.getId(), task);
             return 1;
         }
@@ -495,17 +481,33 @@ final class ProductListingTestFixtures {
         }
         @Override
         public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
-            ProductListingTaskRecord task = tasks.get(taskId);
-            if (task == null
-                    || !"REAL_RUN".equals(task.getMode())
-                    || !"submitted".equals(task.getStatus())) {
-                return 0;
+            return leaseSupport.markRunning(taskId, startedAt);
+        }
+        @Override
+        public int markTaskRecoveryRunning(
+                Long taskId, Long ownerUserId, String expectedStatus,
+                java.time.LocalDateTime startedAt
+        ) {
+            return leaseSupport.markRecovery(taskId, ownerUserId, expectedStatus, startedAt);
+        }
+        @Override
+        public int heartbeatRunningTask(
+                Long taskId, Long ownerUserId, java.time.LocalDateTime startedAt) {
+            return leaseSupport.heartbeat(taskId, ownerUserId, startedAt);
+        }
+        @Override
+        public int checkpointRunningTaskNoonResult(
+                Long taskId, Long ownerUserId, String noonResultJson, java.time.LocalDateTime startedAt) {
+            return leaseSupport.checkpoint(taskId, ownerUserId, noonResultJson, startedAt);
+        }
+        @Override
+        public int completeRunningTaskResult(
+                ProductListingTaskRecord task, java.time.LocalDateTime expectedStartedAt) {
+            int completed = leaseSupport.complete(task, expectedStartedAt);
+            if (completed == 1) {
+                updatedTask = task;
             }
-            task.setStatus("running");
-            task.setStartedAt(startedAt);
-            task.setGmtUpdated(startedAt);
-            tasks.put(taskId, task);
-            return 1;
+            return completed;
         }
         ProductListingTaskRecord insertedTask() {
             return insertedTask;
@@ -514,13 +516,10 @@ final class ProductListingTestFixtures {
             return updatedTask;
         }
         void forceRunning(Long taskId, java.time.LocalDateTime startedAt) {
-            ProductListingTaskRecord task = tasks.get(taskId);
-            if (task == null) {
-                throw new IllegalArgumentException("Task not found: " + taskId);
-            }
-            task.setStatus("running");
-            task.setStartedAt(startedAt);
-            tasks.put(taskId, task);
+            leaseSupport.forceRunning(taskId, startedAt);
+        }
+        void forceLeaseLoss(Long taskId) {
+            leaseSupport.forceLoss(taskId);
         }
         private boolean isRealWriteAttemptLocked(ProductListingTaskRecord task) {
             return !"real_run_already_active".equals(task.getFailureCode())
@@ -570,10 +569,11 @@ final class ProductListingTestFixtures {
                     == ProductListingWorkflowView.WriteCertainty.NOT_STARTED;
         }
         private boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {
-            return "succeeded".equals(task.getStatus())
-                    || "written_verify_failed".equals(task.getStatus())
+            return List.of("submitted", "running", "succeeded", "written_verify_failed")
+                    .contains(task.getStatus())
                     || ("failed".equals(task.getStatus())
-                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+                    && List.of("partner_sku_already_exists", ProductListingWriteAuthRecovery.FAILURE_CODE)
+                    .contains(task.getFailureCode()));
         }
         private String readPartnerSku(ProductListingTaskRecord task) {
             try {

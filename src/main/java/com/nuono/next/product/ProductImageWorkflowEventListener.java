@@ -31,7 +31,13 @@ class ProductImageWorkflowEventListener {
     public void onPublish(ProductImagePublishSubmittedEvent event) {
         CompletableFuture.runAsync(() -> {
             try {
-                workflowService.publish(event.suiteId(), event.ownerUserId(), event.storeCode(), event.operatorUserId());
+                workflowService.publish(
+                        event.suiteId(),
+                        event.ownerUserId(),
+                        event.storeCode(),
+                        event.operatorUserId(),
+                        event.attemptId()
+                );
             } catch (RuntimeException exception) {
                 LOGGER.warn("Product image Noon publication failed: suiteId={}", event.suiteId(), exception);
             }

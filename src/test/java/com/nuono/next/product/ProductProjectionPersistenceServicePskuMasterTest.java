@@ -190,12 +190,12 @@ class ProductProjectionPersistenceServicePskuMasterTest {
         when(productManagementMapper.selectProductVariantIdByStorePartnerSku(logicalStoreId, "PAPERSAYS440"))
                 .thenReturn(null, 53001L);
         when(productManagementMapper.nextProductVariantId()).thenReturn(53001L);
-        when(productManagementMapper.selectProductBarcodeIdByBarcode("PAPERSAYS440")).thenReturn(null);
-        when(productManagementMapper.selectProductBarcodeIdByBarcode("PAPERSAYSB440")).thenReturn(null);
+        when(productManagementMapper.selectProductBarcodeIdByBarcode(logicalStoreId, "PAPERSAYS440")).thenReturn(null);
+        when(productManagementMapper.selectProductBarcodeIdByBarcode(logicalStoreId, "PAPERSAYSB440")).thenReturn(null);
         when(productManagementMapper.nextProductBarcodeId()).thenReturn(55001L, 55002L);
-        when(productManagementMapper.selectProductBarcodeProductMasterIdByBarcode("PAPERSAYS440"))
+        when(productManagementMapper.selectProductBarcodeProductMasterIdByBarcode(logicalStoreId, "PAPERSAYS440"))
                 .thenReturn(productMasterId);
-        when(productManagementMapper.selectProductBarcodeProductMasterIdByBarcode("PAPERSAYSB440"))
+        when(productManagementMapper.selectProductBarcodeProductMasterIdByBarcode(logicalStoreId, "PAPERSAYSB440"))
                 .thenReturn(productMasterId);
         when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(
                 logicalStoreId,

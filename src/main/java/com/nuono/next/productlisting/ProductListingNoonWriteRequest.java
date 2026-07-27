@@ -1,5 +1,6 @@
 package com.nuono.next.productlisting;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,6 +15,8 @@ public class ProductListingNoonWriteRequest {
     private ProductListingDraftCommand draft;
     private List<ProductListingValidationIssue> validationIssues = new ArrayList<>();
     private ProductListingRealRunCommand confirmation;
+    @JsonIgnore
+    private transient Runnable executionLeaseHeartbeat;
 
     public Long getOwnerUserId() {
         return ownerUserId;
@@ -85,5 +88,43 @@ public class ProductListingNoonWriteRequest {
 
     public void setConfirmation(ProductListingRealRunCommand confirmation) {
         this.confirmation = confirmation;
+    }
+
+    @JsonIgnore
+    public void setExecutionLeaseHeartbeat(Runnable executionLeaseHeartbeat) {
+        this.executionLeaseHeartbeat = executionLeaseHeartbeat;
+    }
+
+    @JsonIgnore
+    public void heartbeatOrThrow() {
+        if (executionLeaseHeartbeat == null) {
+            return;
+        }
+        try {
+            executionLeaseHeartbeat.run();
+        } catch (ExecutionLeaseLostException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new ExecutionLeaseLostException(exception);
+        }
+    }
+
+    static boolean isExecutionLeaseLost(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof ExecutionLeaseLostException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static final class ExecutionLeaseLostException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        private ExecutionLeaseLostException(Throwable cause) {
+            super("Product listing execution lease lost.", cause);
+        }
     }
 }

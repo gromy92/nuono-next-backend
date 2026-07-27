@@ -6,12 +6,13 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.ProductGroupMapper;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
+import com.nuono.next.noon.NoonTransientTransportFailurePolicy;
 import com.nuono.next.product.noon.NoonProductGateway;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import java.math.BigDecimal;
-import java.net.http.HttpTimeoutException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -38,7 +39,10 @@ public class ProductGroupPublishService {
     ) {
         this.productGroupMapper = productGroupMapper;
         this.objectMapper = objectMapper;
-        this.productNoonAdapter = productNoonAdapter;
+        this.productNoonAdapter = Objects.requireNonNull(
+                productNoonAdapter,
+                "Product Group publishing requires the guarded ProductNoonAdapter."
+        );
     }
 
     public void publishGroupChanges(
@@ -245,9 +249,6 @@ public class ProductGroupPublishService {
     }
 
     private JsonNode postWriteJsonThroughAdapter(NoonSession session, String url, ObjectNode body) {
-        if (productNoonAdapter == null) {
-            return session.postWriteJson(url, body, true);
-        }
         return productNoonAdapter.postWriteJson(session, url, body, true);
     }
 
@@ -317,19 +318,11 @@ public class ProductGroupPublishService {
     }
 
     private boolean isNoonWriteResultUnknown(Throwable exception) {
-        Throwable current = exception;
-        while (current != null) {
-            if (current instanceof HttpTimeoutException) {
-                return true;
-            }
-            current = current.getCause();
+        if (NoonTransientTransportFailurePolicy.isRetryable(exception)) {
+            return true;
         }
         String message = shrink(exception != null ? exception.getMessage() : null).toLowerCase();
-        return message.contains("timed out")
-                || message.contains("timeout")
-                || message.contains("connection reset")
-                || message.contains("broken pipe")
-                || message.contains("eof")
+        return message.contains("broken pipe")
                 || message.contains("closed")
                 || message.contains("goaway");
     }

@@ -3,6 +3,7 @@ package com.nuono.next.product;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -181,6 +182,34 @@ class ProductSiteOfferFetcherTest {
         assertEquals("STR245027-NAE", offer.get("storeCode"));
         assertEquals(true, offer.get("reference"));
         verify(productNoonAdapter, never()).postJson(any(NoonSession.class), any(String.class), any(JsonNode.class), eq(true));
+    }
+
+    @Test
+    void shouldPropagateAuthRequiredFromOptionalStockRead() {
+        ProductWriteAuthRequiredException authFailure = new ProductWriteAuthRequiredException(
+                77L, false, "Noon Project 授权恢复中", null
+        );
+        when(productNoonAdapter.postJson(
+                any(NoonSession.class),
+                eq(NoonProductGateway.STOCK_INFO_URL),
+                any(JsonNode.class),
+                eq(true)
+        )).thenThrow(authFailure);
+
+        ProductWriteAuthRequiredException thrown = assertThrows(
+                ProductWriteAuthRequiredException.class,
+                () -> fetcher.loadSiteOffers(
+                        session,
+                        List.of(new ProductProjectSiteContext("STR245027-NSA", "SA", "ACTIVE")),
+                        "STR245027-NSA",
+                        "",
+                        "",
+                        "PSKU-SA",
+                        new ArrayList<>()
+                )
+        );
+
+        assertSame(authFailure, thrown);
     }
 
     @Test

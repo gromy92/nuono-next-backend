@@ -28,6 +28,7 @@ class NoonProjectTransientFailureClassifierTest {
                 NoonTransientErrorType.CONNECT_TIMEOUT
         );
         cases.put(new java.net.ConnectException("connect timeout"), NoonTransientErrorType.CONNECT_TIMEOUT);
+        cases.put(new IOException("connection timeout"), NoonTransientErrorType.CONNECT_TIMEOUT);
         cases.put(new NoonHttpException(408, "", "/catalog"), NoonTransientErrorType.HTTP_408);
         cases.put(new NoonHttpException(500, "", "/catalog"), NoonTransientErrorType.HTTP_500);
         cases.put(new NoonHttpException(502, "", "/catalog"), NoonTransientErrorType.HTTP_502);

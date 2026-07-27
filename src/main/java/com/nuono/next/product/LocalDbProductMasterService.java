@@ -108,9 +108,6 @@ public class LocalDbProductMasterService {
     private final ProductSnapshotMessageBuilder productSnapshotMessageBuilder = new ProductSnapshotMessageBuilder();
     private final ProductDeleteRequestBuilder productDeleteRequestBuilder;
 
-    @Value("${nuono.product-management.publish-task.async-enabled:true}")
-    private boolean publishTaskAsyncEnabled;
-
     @Value("${nuono.product-management.publish-task.scheduler.enabled:true}")
     private boolean publishTaskSchedulerEnabled;
 
@@ -1192,174 +1189,7 @@ public class LocalDbProductMasterService {
             );
         }
 
-        if (publishTaskAsyncEnabled && !isPublishTaskWorkerMode()) {
-            return queuePublishCurrentTask(command, record, requestedSnapshot, currentSiteCode, unsupportedChanges);
-        }
-
-        long liveBeforePublishStartedAt = System.nanoTime();
-        boolean skipSiteOfferLiveReadForSharedOnlyPublish = shouldSkipSiteOfferLiveReadForSharedOnlyPublish(
-                publishableSnapshot,
-                record.getBaselineSnapshot(),
-                currentSiteCode
-        );
-        ProductMasterSnapshotView liveBeforePublish = fetchSnapshot(
-                command,
-                "publish-current.before",
-                skipSiteOfferLiveReadForSharedOnlyPublish ? record.getBaselineSnapshot() : null
-        );
-        log.info(
-                "product-management publish-current pre-read total trace={} durationMs={}",
-                buildFetchTraceLabel(command, "publish-current.before-total"),
-                nanosToMillis(liveBeforePublishStartedAt)
-        );
-        List<String> prePublishWarnings = new ArrayList<>();
-        boolean liveChangedSinceBaseline = !sameScopedSnapshot(
-                liveBeforePublish,
-                record.getBaselineSnapshot(),
-                currentSiteCode
-        );
-        boolean localChangedSinceBaseline = !sameScopedSnapshot(
-                publishableSnapshot,
-                record.getBaselineSnapshot(),
-                currentSiteCode
-        );
-        if (liveChangedSinceBaseline && localChangedSinceBaseline) {
-            List<Map<String, Object>> publishConflictFields = detectPublishConflictFields(
-                    record.getBaselineSnapshot(),
-                    publishableSnapshot,
-                    liveBeforePublish,
-                    currentSiteCode
-            );
-            if (!publishConflictFields.isEmpty()) {
-                prePublishWarnings.add("发布前校验：Noon 当前内容与本地草稿存在同字段差异，本次按本地草稿覆盖 Noon 对应字段。");
-            } else {
-                prePublishWarnings.add("发布前校验：Noon 存在非本次编辑字段变化，未发现同字段冲突，已继续发布。");
-            }
-        }
-
-        StoreSyncStoreRecord store = requirePublishStore(command.getOwnerUserId(), command.getStoreCode());
-        ProductMasterSnapshotView baselineBeforePublish = copySnapshot(record.getBaselineSnapshot());
-
-        List<String> actionWarnings = new ArrayList<>(prePublishWarnings);
-        try {
-            productPublishWriteService.publishSupportedChanges(
-                    command,
-                    store,
-                    publishableSnapshot,
-                    record.getBaselineSnapshot(),
-                    liveBeforePublish,
-                    currentSiteCode,
-                    unsupportedChanges,
-                    actionWarnings
-            );
-        } catch (IllegalStateException exception) {
-            log.warn(
-                    "product-management publish-current noon write failed owner={} store={} skuParent={} site={} error={}",
-                    command.getOwnerUserId(),
-                    command.getStoreCode(),
-                    textValue(requestedSnapshot.getIdentity().get("skuParent")),
-                    currentSiteCode,
-                    shrink(exception.getMessage())
-            );
-            if (exception instanceof ProductGroupPartialPublishException) {
-                record.setDraftSnapshot(requestedSnapshot);
-                record.setSyncStatus("pending_manual_check");
-                record.setNote("Group 写回可能已部分提交到 Noon，请先从 Noon 同步后确认结果。");
-                appendRecentAction(record, "publish-current", "pending_manual_check", record.getNote(), currentSiteCode, requestedSnapshot);
-                productWorkbenchRecordStore.put(key, record);
-                return finalizeWorkbenchView(
-                        command.getOwnerUserId(),
-                        "publish-current",
-                        currentSiteCode,
-                        record,
-                        record.getNote(),
-                        mergeWarnings(
-                                record.getDraftSnapshot().getWarnings(),
-                                List.of(record.getNote(), shrink(exception.getMessage()))
-                        )
-                );
-            }
-            if (exception instanceof ProductGroupValidationException) {
-                record.setDraftSnapshot(requestedSnapshot);
-                record.setSyncStatus("failed");
-                record.setNote(shrink(exception.getMessage()));
-                appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-                productWorkbenchRecordStore.put(key, record);
-                return finalizeWorkbenchView(
-                        command.getOwnerUserId(),
-                        "publish-current",
-                        currentSiteCode,
-                        record,
-                        record.getNote(),
-                        mergeWarnings(record.getDraftSnapshot().getWarnings(), List.of(record.getNote()))
-                );
-            }
-            record.setDraftSnapshot(requestedSnapshot);
-            record.setSyncStatus("failed");
-            record.setNote("Noon 发布接口暂时不可用，诺诺草稿已保留。请稍后重试或先从 Noon 同步后再发布。");
-            appendRecentAction(record, "publish-current", "failed", record.getNote(), currentSiteCode, requestedSnapshot);
-            productWorkbenchRecordStore.put(key, record);
-            return finalizeWorkbenchView(
-                    command.getOwnerUserId(),
-                    "publish-current",
-                    currentSiteCode,
-                    record,
-                    record.getNote(),
-                    mergeWarnings(
-                            record.getDraftSnapshot().getWarnings(),
-                            List.of(record.getNote(), "Noon 发布返回错误，系统已保留本地草稿并记录后端日志。")
-                    )
-            );
-        }
-
-        long liveAfterPublishStartedAt = System.nanoTime();
-        ProductMasterSnapshotView liveAfterPublish = fetchSnapshot(command, "publish-current.after");
-        log.info(
-                "product-management publish-current post-read total trace={} durationMs={}",
-                buildFetchTraceLabel(command, "publish-current.after-total"),
-                nanosToMillis(liveAfterPublishStartedAt)
-        );
-        ProductWorkbenchRecord refreshed = createSyncedRecord(liveAfterPublish);
-        refreshed.setDraftSnapshot(copySnapshot(liveAfterPublish));
-        productPublishSupportedSnapshotBuilder.overlayUnsupportedDraft(refreshed.getDraftSnapshot(), requestedSnapshot, unsupportedChanges);
-
-        if (sameBusinessSnapshot(refreshed.getDraftSnapshot(), refreshed.getBaselineSnapshot())) {
-            refreshed.setSyncStatus("synced");
-            refreshed.setNote("共享主档和当前站点经营面已同步完成。");
-        } else {
-            refreshed.setSyncStatus("draft");
-            refreshed.setNote(
-                    "已发布共享主档与当前站点经营字段，其他站点变更仍留在诺诺草稿中。"
-            );
-        }
-        appendRecentAction(refreshed, "publish-current", refreshed.getSyncStatus(), refreshed.getNote(), currentSiteCode, refreshed.getDraftSnapshot());
-        productWorkbenchRecordStore.put(key, refreshed);
-
-        List<String> mergedWarnings = mergeWarnings(liveAfterPublish.getWarnings(), actionWarnings);
-        ProductMasterWorkbenchView view = finalizeWorkbenchView(
-                command.getOwnerUserId(),
-                "publish-current",
-                currentSiteCode,
-                refreshed,
-                "已执行当前站点发布。",
-                mergedWarnings,
-                baselineBeforePublish,
-                publishableSnapshot
-        );
-        productProjectionPersistenceService.persistPublishedKeyContentHistory(
-                command.getOwnerUserId(),
-                baselineBeforePublish,
-                publishableSnapshot,
-                currentSiteCode,
-                view.getWarnings()
-        );
-        hydratePendingKeyContentHistoryState(
-                command.getOwnerUserId(),
-                refreshed.getBaselineSnapshot(),
-                refreshed,
-                view
-        );
-        return view;
+        return queuePublishCurrentTask(command, record, requestedSnapshot, currentSiteCode, unsupportedChanges);
     }
 
     public ProductPublishTaskView loadPublishTask(Long taskId, Long ownerUserId) {
@@ -1954,7 +1784,25 @@ public class LocalDbProductMasterService {
                     if (shouldSkipNoonProductUnmap(preDeleteSnapshot)) {
                         addLocalWarning(actionWarnings, "Noon 回读未提供旧 catalog/Child SKU 映射，系统跳过解除映射请求，直接执行删除。");
                     } else {
-                        executeNoonProductUnmap(task, session, preDeleteSnapshot);
+                        try {
+                            executeNoonProductUnmap(task, session, preDeleteSnapshot);
+                        } catch (IllegalStateException exception) {
+                            ProductWriteAuthRequiredException authRequired =
+                                    ProductWriteAuthRequiredException.find(exception);
+                            handleProductDeleteFailure(
+                                    task,
+                                    record,
+                                    draft,
+                                    requestCountScope.snapshot(),
+                                    actionWarnings,
+                                    exception,
+                                    authRequired != null && !authRequired.isWriteMayHaveOccurred()
+                                            ? "pre_delete_captured"
+                                            : "unmap_submitted",
+                                    preDeleteSnapshot
+                            );
+                            return;
+                        }
                         updatePublishTaskStatus(
                                 task,
                                 ProductPublishCommandService.PRODUCT_DELETE_STATUS_SUBMITTED,
@@ -1978,6 +1826,14 @@ public class LocalDbProductMasterService {
                     executeNoonProductDelete(task, session, preDeleteSnapshot);
                 } catch (IllegalStateException exception) {
                     if (!isNoonDeleteTargetInvalidOrDeleted(exception)) {
+                        ProductWriteAuthRequiredException authRequired =
+                                ProductWriteAuthRequiredException.find(exception);
+                        String failureStage =
+                                authRequired != null && !authRequired.isWriteMayHaveOccurred()
+                                        ? firstNonBlank(stage, "pre_delete_captured")
+                                        : isNoonPskuUnmapRequired(exception) && authRequired == null
+                                                ? "pre_delete_captured"
+                                                : "delete_submitted";
                         handleProductDeleteFailure(
                                 task,
                                 record,
@@ -1985,7 +1841,7 @@ public class LocalDbProductMasterService {
                                 requestCountScope.snapshot(),
                                 actionWarnings,
                                 exception,
-                                isNoonPskuUnmapRequired(exception) ? "pre_delete_captured" : stage,
+                                failureStage,
                                 preDeleteSnapshot
                         );
                         return;
@@ -2055,6 +1911,8 @@ public class LocalDbProductMasterService {
                         executeNoonProductDelete(session, currentPskuCode);
                     } catch (IllegalStateException exception) {
                         if (!isNoonDeleteTargetInvalidOrDeleted(exception)) {
+                            ProductWriteAuthRequiredException authRequired =
+                                    ProductWriteAuthRequiredException.find(exception);
                             handleProductDeleteFailure(
                                     task,
                                     record,
@@ -2062,7 +1920,9 @@ public class LocalDbProductMasterService {
                                     requestCountScope.snapshot(),
                                     actionWarnings,
                                     exception,
-                                    "current_psku_delete_submitted",
+                                    authRequired != null && !authRequired.isWriteMayHaveOccurred()
+                                            ? stage
+                                            : "current_psku_delete_submitted",
                                     preDeleteSnapshot
                             );
                             return;
@@ -2244,6 +2104,17 @@ public class LocalDbProductMasterService {
                         null
                 );
             } catch (IllegalStateException exception) {
+                if (suspendPublishTaskForAuthRecovery(
+                        task,
+                        record,
+                        draft,
+                        currentSiteCode,
+                        requestCountScope.snapshot(),
+                        actionWarnings,
+                        exception
+                )) {
+                    return;
+                }
                 if (exception instanceof ProductGroupPartialPublishException) {
                     String partialMessage = "Group 写回可能已部分提交到 Noon，请先同步官方结果后确认。";
                     List<String> partialWarnings = mergeWarnings(actionWarnings, List.of(shrink(exception.getMessage())));
@@ -2252,7 +2123,7 @@ public class LocalDbProductMasterService {
                             "pending_manual_check",
                             "group_partial_write_unknown",
                             partialMessage,
-                            buildTaskResultJson("pending_manual_check", requestCountScope.snapshot(), partialWarnings),
+                            buildTaskResultJson("pending_manual_check", requestCountScope.snapshot(), partialWarnings, Map.of("writeMayHaveOccurred", true)),
                             null,
                             LocalDateTime.now(),
                             null
@@ -2398,6 +2269,17 @@ public class LocalDbProductMasterService {
             );
         } catch (IllegalStateException exception) {
             requestCounts = requestCountScope.snapshot();
+            if (suspendPublishTaskForAuthRecovery(
+                    task,
+                    record,
+                    draft,
+                    currentSiteCode,
+                    requestCounts,
+                    List.of(),
+                    exception
+            )) {
+                return;
+            }
             if (writeSubmitted && isTimeoutException(exception)) {
                 updatePublishTaskStatus(
                         task,
@@ -2502,6 +2384,23 @@ public class LocalDbProductMasterService {
                     verifyAttempt
             );
         } catch (IllegalStateException exception) {
+            ProductWorkbenchRecord record = buildTaskWorkbenchRecord(
+                    baseline,
+                    draft,
+                    "failed",
+                    "Noon 授权恢复中。"
+            );
+            if (suspendPublishTaskForAuthRecovery(
+                    task,
+                    record,
+                    draft,
+                    task.getCurrentSiteCode(),
+                    requestCountScope.snapshot(),
+                    List.of("已从状态 " + previousStatus + " 进入只读核对。"),
+                    exception
+            )) {
+                return;
+            }
             if (isTimeoutException(exception)) {
                 updatePublishTaskStatus(
                         task,
@@ -2545,7 +2444,7 @@ public class LocalDbProductMasterService {
                         "pending_manual_check",
                         "noon_effect_not_confirmed",
                         "多轮回读仍未确认 Noon 已生效，请人工核对官方后台后再处理。",
-                        buildTaskResultJson("pending_manual_check", requestCounts, actionWarnings),
+                        buildTaskResultJson("pending_manual_check", requestCounts, actionWarnings, Map.of("writeMayHaveOccurred", true)),
                         null,
                         null,
                         verifyAttempt
@@ -2641,6 +2540,44 @@ public class LocalDbProductMasterService {
                 errorMessage,
                 mergeWarnings(draft.getWarnings(), List.of(errorMessage))
         );
+    }
+
+    private boolean suspendPublishTaskForAuthRecovery(
+            ProductPublishTaskRecord task,
+            ProductWorkbenchRecord record,
+            ProductMasterSnapshotView draft,
+            String currentSiteCode,
+            Map<String, Integer> requestCounts,
+            List<String> actionWarnings,
+            IllegalStateException exception
+    ) {
+        ProductPublishAuthSuspensionPolicy.Decision authDecision = ProductPublishAuthSuspensionPolicy.forPublish(exception, text(readTaskResultNode(task), "status"));
+        if (authDecision == null) {
+            return false;
+        }
+        String message = authDecision.getMessage();
+        updatePublishTaskStatus(
+                task,
+                "pending_manual_check",
+                authDecision.getErrorCode(),
+                message,
+                buildTaskResultJson(
+                        "pending_manual_check",
+                        requestCounts,
+                        mergeWarnings(actionWarnings, List.of(shrink(exception.getMessage()))),
+                        authDecision.newResultMetadata()
+                ),
+                null,
+                LocalDateTime.now(),
+                null
+        );
+        record.setDraftSnapshot(draft);
+        record.setSyncStatus("failed");
+        record.setNote(message);
+        record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+        appendRecentAction(record, "publish-current", "pending_manual_check", message, currentSiteCode, draft);
+        productWorkbenchRecordStore.put(workbenchKey(task), record);
+        return true;
     }
 
     private void completeProductDeleteTaskAfterNoonMissing(
@@ -2937,37 +2874,89 @@ public class LocalDbProductMasterService {
             String stage,
             ProductMasterSnapshotView preDeleteSnapshot
     ) {
-        String retryMessage = "商品删除正在后台自动处理，系统会继续核对 Noon 删除结果。";
-        String manualCheckMessage = "商品删除结果需要人工核对：请在 Noon 后台确认 ZSKU/catalog 是否已删除后重试或联系技术处理。";
+        ProductPublishAuthSuspensionPolicy.Decision authDecision =
+                ProductPublishAuthSuspensionPolicy.forDelete(exception, isProductDeleteAfterUnmapStage(stage));
+        if (authDecision != null) {
+            finishProductDeleteFailure(
+                    task, record, draft, requestCounts, actionWarnings, exception,
+                    "pending_manual_check",
+                    ProductPublishCommandService.ERROR_CODE_NOON_AUTH_RECOVERY_PENDING,
+                    authDecision.getMessage(), stage, preDeleteSnapshot, authDecision.newResultMetadata()
+            );
+            log.warn(
+                    "product-management product delete suspended for auth recovery id={} owner={} store={} "
+                            + "skuParent={} recoveryId={} writeMayHaveOccurred={}",
+                    task.getId(), task.getOwnerUserId(), task.getStoreCode(),
+                    task.getSkuParent(), authDecision.getRecoveryId(), authDecision.isWriteMayHaveOccurred()
+            );
+            return;
+        }
+        if (isProductDeleteAfterUnmapStage(stage)) {
+            finishProductDeleteFailure(
+                    task, record, draft, requestCounts, actionWarnings, exception,
+                    "pending_manual_check", "product_delete_result_unknown",
+                    "商品删除写入结果不确定，系统不会自动重放；请先在 Noon 后台核对后再人工重试。",
+                    stage, preDeleteSnapshot, Map.of("writeMayHaveOccurred", true)
+            );
+            return;
+        }
+        if (!requirePublishCommandService().isRetryableNoonRequestFailure(exception)) {
+            finishProductDeleteFailure(
+                    task, record, draft, requestCounts, actionWarnings, exception,
+                    "failed", "product_delete_failed",
+                    "商品删除失败，系统不会自动重试：" + shrink(exception.getMessage()),
+                    stage, preDeleteSnapshot, Map.of("writeMayHaveOccurred", false)
+            );
+            return;
+        }
+        String retryMessage = "Noon 临时不可用，商品删除将在后台退避后重试。";
+        String manualCheckMessage = "商品删除多次遇到临时故障，系统已停止自动重试，请人工核对。";
         boolean scheduled = requirePublishCommandService().scheduleProductDeleteRetryOrManualCheck(
-                task,
-                isTimeoutException(exception) ? "product_delete_timeout" : "product_delete_failed",
-                retryMessage,
-                "product_delete_retry_exhausted",
-                manualCheckMessage,
+                task, isTimeoutException(exception) ? "product_delete_timeout" : "product_delete_transient_failure",
+                retryMessage, "product_delete_retry_exhausted", manualCheckMessage,
                 buildTaskResultJson(
-                        "write_retry_scheduled",
-                        requestCounts,
+                        "write_retry_scheduled", requestCounts,
                         mergeWarnings(actionWarnings, List.of(shrink(exception.getMessage()))),
                         productDeleteResultExtras(stage, preDeleteSnapshot, NoonProductGateway.PSKU_DELETE_URL)
                 )
         );
         log.warn(
-                "product-management product delete task failure id={} owner={} store={} skuParent={} scheduled={} retryCount={} error={}",
-                task.getId(),
-                task.getOwnerUserId(),
-                task.getStoreCode(),
-                task.getSkuParent(),
-                scheduled,
-                task.getRetryCount(),
-                shrink(exception.getMessage()),
-                exception
+                "product-management product delete transient failure id={} owner={} store={} skuParent={} "
+                        + "scheduled={} retryCount={} error={}",
+                task.getId(), task.getOwnerUserId(), task.getStoreCode(), task.getSkuParent(),
+                scheduled, task.getRetryCount(), shrink(exception.getMessage()), exception
         );
         record.setDraftSnapshot(draft);
-        record.setSyncStatus("draft");
+        record.setSyncStatus(scheduled ? "draft" : "failed");
         record.setNote(scheduled ? retryMessage : manualCheckMessage);
         record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
         appendRecentAction(record, "product-delete", task.getStatus(), record.getNote(), task.getCurrentSiteCode(), draft);
+        productWorkbenchRecordStore.put(workbenchKey(task), record);
+    }
+
+    private void finishProductDeleteFailure(
+            ProductPublishTaskRecord task, ProductWorkbenchRecord record, ProductMasterSnapshotView draft,
+            Map<String, Integer> requestCounts, List<String> actionWarnings, IllegalStateException exception,
+            String status, String errorCode, String message, String stage, ProductMasterSnapshotView preDeleteSnapshot,
+            Map<String, Object> metadata
+    ) {
+        Map<String, Object> extras =
+                productDeleteResultExtras(stage, preDeleteSnapshot, NoonProductGateway.PSKU_DELETE_URL);
+        extras.putAll(metadata);
+        updatePublishTaskStatus(
+                task, status, errorCode, message,
+                buildTaskResultJson(
+                        status, requestCounts,
+                        mergeWarnings(actionWarnings, List.of(shrink(exception.getMessage()))),
+                        extras
+                ),
+                null, LocalDateTime.now(), null
+        );
+        record.setDraftSnapshot(draft);
+        record.setSyncStatus("failed");
+        record.setNote(message);
+        record.setPublishTask(productPublishTaskViewBuilder.build(task, false));
+        appendRecentAction(record, "product-delete", status, message, task.getCurrentSiteCode(), draft);
         productWorkbenchRecordStore.put(workbenchKey(task), record);
     }
 
@@ -3534,69 +3523,7 @@ public class LocalDbProductMasterService {
     }
 
     private boolean isProductDeleteBackgroundTask(ProductPublishTaskRecord task) {
-        if (requirePublishCommandService().isProductDeleteTask(task)) {
-            return true;
-        }
-        return isTaskRequestAction(task, "product-delete")
-                || isTaskIdempotencyPrefix(task, "delete:")
-                || isTaskChangedDomain(task, "delete")
-                || isTaskSnapshotMode(task, "product-delete-task");
-    }
-
-    private boolean isTaskRequestAction(ProductPublishTaskRecord task, String expectedAction) {
-        if (!StringUtils.hasText(expectedAction)) {
-            return false;
-        }
-        JsonNode request = readTaskRequestNode(task);
-        return expectedAction.equalsIgnoreCase(normalize(text(request, "action")));
-    }
-
-    private boolean isTaskIdempotencyPrefix(ProductPublishTaskRecord task, String prefix) {
-        if (task == null || !StringUtils.hasText(prefix)) {
-            return false;
-        }
-        String idempotencyKey = normalize(task.getIdempotencyKey());
-        return idempotencyKey != null && idempotencyKey.toLowerCase(Locale.ROOT).startsWith(prefix.toLowerCase(Locale.ROOT));
-    }
-
-    private boolean isTaskChangedDomain(ProductPublishTaskRecord task, String expectedDomain) {
-        if (task == null || !StringUtils.hasText(expectedDomain) || !StringUtils.hasText(task.getChangedDomainsJson())) {
-            return false;
-        }
-        try {
-            JsonNode domains = objectMapper.readTree(task.getChangedDomainsJson());
-            if (domains.isArray()) {
-                for (JsonNode domain : domains) {
-                    if (expectedDomain.equalsIgnoreCase(normalize(domain.asText()))) {
-                        return true;
-                    }
-                }
-            }
-            return expectedDomain.equalsIgnoreCase(normalize(text(domains, "domain")))
-                    || expectedDomain.equalsIgnoreCase(normalize(text(domains, "action")));
-        } catch (Exception exception) {
-            return false;
-        }
-    }
-
-    private boolean isTaskSnapshotMode(ProductPublishTaskRecord task, String expectedMode) {
-        if (!StringUtils.hasText(expectedMode)) {
-            return false;
-        }
-        return expectedMode.equalsIgnoreCase(normalize(readTaskSnapshotMode(task == null ? null : task.getDraftJson())))
-                || expectedMode.equalsIgnoreCase(normalize(readTaskSnapshotMode(task == null ? null : task.getBaselineJson())));
-    }
-
-    private String readTaskSnapshotMode(String snapshotJson) {
-        if (!StringUtils.hasText(snapshotJson)) {
-            return null;
-        }
-        try {
-            JsonNode snapshot = objectMapper.readTree(snapshotJson);
-            return text(snapshot, "mode");
-        } catch (Exception exception) {
-            return null;
-        }
+        return com.nuono.next.product.publish.ProductPublishTaskClassifier.isProductDelete(task);
     }
 
     private JsonNode readTaskRequestNode(ProductPublishTaskRecord task) {
