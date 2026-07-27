@@ -28,6 +28,7 @@ def build_additive_schema_migration_script(
     expected_jar_sha256: str,
     expected_commit: str,
     expected_182_sha256: str,
+    expected_189_sha256: str,
     expected_190_sha256: str,
     expected_204_sha256: str,
     expected_205_sha256: str,
@@ -42,6 +43,7 @@ def build_additive_schema_migration_script(
             "EXPECTED_JAR_SHA256": expected_jar_sha256,
             "EXPECTED_COMMIT": expected_commit,
             "EXPECTED_182_SHA256": expected_182_sha256,
+            "EXPECTED_189_SHA256": expected_189_sha256,
             "EXPECTED_190_SHA256": expected_190_sha256,
             "EXPECTED_204_SHA256": expected_204_sha256,
             "EXPECTED_205_SHA256": expected_205_sha256,
@@ -49,6 +51,7 @@ def build_additive_schema_migration_script(
         },
         "additive_schema_migrations.sh",
         "migration_182_contract.sh",
+        "migration_189_contract.sh",
         "additive_execute.sh",
     )
 
@@ -58,6 +61,7 @@ def build_irreversible_schema_cutover_script(
     expected_jar_sha256: str,
     expected_commit: str,
     expected_182_sha256: str,
+    expected_189_sha256: str,
     expected_206_sha256: str,
     active_slot: str,
     active_port: int,
@@ -75,6 +79,7 @@ def build_irreversible_schema_cutover_script(
             "EXPECTED_JAR_SHA256": expected_jar_sha256,
             "EXPECTED_COMMIT": expected_commit,
             "EXPECTED_182_SHA256": expected_182_sha256,
+            "EXPECTED_189_SHA256": expected_189_sha256,
             "EXPECTED_206_SHA256": expected_206_sha256,
             "ACTIVE_SLOT": active_slot,
             "ACTIVE_PORT": active_port,
@@ -86,6 +91,8 @@ def build_irreversible_schema_cutover_script(
         },
         "irreversible_runtime.sh",
         "irreversible_database.sh",
+        "irreversible_database_idle.sh",
         "migration_182_contract.sh",
+        "migration_189_contract.sh",
         "irreversible_execute.sh",
     )

@@ -123,22 +123,6 @@ assert_drained() {
   emit DRAIN_BLOCKERS "$blockers"
   [ "$blockers" = 0 ]
 }
-assert_database_idle() {
-  local blockers
-  blockers="$(db_scalar "
-    SELECT
-      (SELECT COUNT(*) FROM information_schema.innodb_trx)
-      + (SELECT COUNT(*) FROM performance_schema.metadata_locks
-         WHERE lock_status = 'PENDING')
-      + (SELECT COUNT(*) FROM performance_schema.data_lock_waits)
-      + (SELECT COUNT(*) FROM information_schema.processlist
-         WHERE id <> CONNECTION_ID()
-           AND db = DATABASE()
-           AND command <> 'Sleep');
-  ")"
-  emit DATABASE_LOCK_BLOCKERS "$blockers"
-  [ "$blockers" = 0 ]
-}
 precheck_migration_206() {
   local blockers
   blockers="$(db_scalar "
@@ -257,11 +241,16 @@ validate_irreversible_cutover() {
   [ -s "$MIGRATION_182" ]
   [ "$(sha256_file "$MIGRATION_182")" = "$EXPECTED_182_SHA256" ]
   unzip -p "$ACTIVE_JAR" \
+    "BOOT-INF/classes/db/init/189_product_barcode_store_identity_repair.sql" > "$MIGRATION_189"
+  [ -s "$MIGRATION_189" ]
+  [ "$(sha256_file "$MIGRATION_189")" = "$EXPECTED_189_SHA256" ]
+  unzip -p "$ACTIVE_JAR" \
     "BOOT-INF/classes/db/init/206_product_barcode_store_uniqueness.sql" > "$MIGRATION_206"
   [ -s "$MIGRATION_206" ]
   [ "$(sha256_file "$MIGRATION_206")" = "$EXPECTED_206_SHA256" ]
   prepare_mysql_client
   assert_drained
   postcheck_migration_182
+  postcheck_migration_189
   precheck_migration_206
 }

@@ -20,6 +20,7 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
             expected_jar_sha256="a" * 64,
             expected_commit="b" * 40,
             expected_182_sha256="1" * 64,
+            expected_189_sha256="5" * 64,
             expected_190_sha256="2" * 64,
             expected_204_sha256="3" * 64,
             expected_205_sha256="4" * 64,
@@ -32,6 +33,7 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
             expected_jar_sha256="a" * 64,
             expected_commit="b" * 40,
             expected_182_sha256="1" * 64,
+            expected_189_sha256="3" * 64,
             expected_206_sha256="2" * 64,
             active_slot="green",
             active_port=18088,
@@ -58,6 +60,40 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         self.assertIn("APPLIED_DATA_REPAIR", script)
         self.assertIn("BLOCKED_PARTIAL_UNSAFE", script)
 
+    def test_189_repairs_every_mappable_barcode_before_later_additive_migrations(self):
+        script = self.additive_script()
+        execution = script[script.index("validate_additive_migrations\n") :]
+
+        migration_182 = execution.index("ensure_migration_182")
+        migration_189 = execution.index('apply_migration "$MIGRATION_189"')
+        postcheck_189 = execution.index("postcheck_migration_189")
+        migration_204 = execution.index('apply_migration "$MIGRATION_204"')
+
+        self.assertLess(migration_182, migration_189)
+        self.assertLess(migration_189, postcheck_189)
+        self.assertLess(postcheck_189, migration_204)
+        self.assertIn("189_product_barcode_store_identity_repair.sql", script)
+        self.assertIn('"$EXPECTED_189_SHA256"', script)
+        self.assertIn("MIGRATION_189_FULL_ROW_BLOCKERS", script)
+        self.assertIn("MIGRATION_189_SHA256", script)
+
+        migration_sql = (
+            Path(__file__).parents[2]
+            / "src/main/resources/db/init/189_product_barcode_store_identity_repair.sql"
+        ).read_text(encoding="utf-8")
+        self.assertIn("JOIN `product_variant`", migration_sql)
+        self.assertIn("pb.logical_store_id = pv.logical_store_id", migration_sql)
+        self.assertNotIn("is_deleted", migration_sql)
+
+    def test_206_has_bounded_row_and_metadata_lock_waits(self):
+        migration_sql = (
+            Path(__file__).parents[2]
+            / "src/main/resources/db/init/206_product_barcode_store_uniqueness.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("SET SESSION innodb_lock_wait_timeout = 5", migration_sql)
+        self.assertIn("SET SESSION lock_wait_timeout = 5", migration_sql)
+
     def test_182_contract_proves_exact_columns_and_index_order(self):
         script = self.additive_script()
 
@@ -81,8 +117,10 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
 
         self.assertIn('"$ACTIVE_JAR"', validation)
         self.assertIn("182_product_barcode_psku_identity.sql", validation)
+        self.assertIn("189_product_barcode_store_identity_repair.sql", validation)
         self.assertIn("206_product_barcode_store_uniqueness.sql", validation)
         self.assertIn('"$EXPECTED_182_SHA256"', validation)
+        self.assertIn('"$EXPECTED_189_SHA256"', validation)
         self.assertIn('"$EXPECTED_206_SHA256"', validation)
         self.assertLess(
             validation.index("postcheck_migration_182"),

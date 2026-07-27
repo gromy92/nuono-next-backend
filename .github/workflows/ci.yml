@@ -42,7 +42,11 @@ jobs:
           python scripts/source_size_gate.py
 
       - name: Verify single-scheduler release cutover
-        run: python scripts/tests/test_release_cutover_maintenance.py
+        run: >-
+          python -m unittest
+          scripts/tests/test_release_cutover_maintenance.py
+          scripts/tests/test_release_database_idle.py
+          scripts/tests/test_release_schema_cutover.py
 
       - name: Set up JDK
         uses: actions/setup-java@v4
