@@ -82,10 +82,10 @@ operational backlog row become terminal. It blocks:
 
 - active listing, publish, delete, rebuild, and image work already covered by
   their governed task states and locks;
-- a non-deleted Noon PRODUCT task that is `RUNNING` or still has `locked_by`,
-  because PRODUCT projection can write `product_variant` and
-  `product_barcode`;
-- an active/leased task with a null or unknown data domain. Only the known
+- a non-deleted Noon PRODUCT task that is `QUEUED` or `RUNNING`, because the
+  first drain must also prevent a queued PRODUCT projection from being claimed
+  before the final-new-Jar JVM stops;
+- a `QUEUED` or `RUNNING` task with a null or unknown data domain. Only the known
   non-product domains SALES, ORDER, FINANCE_TRANSACTION, NOON_ADVERTISING,
   OFFICIAL_WAREHOUSE_INVENTORY, and OFFICIAL_WAREHOUSE_FBN_RECEIVED are
   eligible for preservation;
@@ -94,7 +94,9 @@ operational backlog row become terminal. It blocks:
 
 It preserves without updating or deleting:
 
-- Noon `QUEUED` and `BLOCKED_AUTH` backlog that is not currently executing;
+- Noon `BLOCKED_AUTH` backlog, including historical `locked_by` audit markers;
+- terminal Noon `FAILED`, `PARTIAL`, `SUCCEEDED`, `SKIPPED`, and `CANCELLED`
+  history even if `locked_by` remains populated;
 - non-PRODUCT `RUNNING` backlog, including report exports with persisted export
   identity and queued sales, order, finance, advertising, or inventory work;
 - inactive pending auth-recovery items and listing reauthentication attempts;
