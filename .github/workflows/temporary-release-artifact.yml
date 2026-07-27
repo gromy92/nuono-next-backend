@@ -12,7 +12,7 @@ jobs:
       - name: Checkout frozen master
         uses: actions/checkout@v4
         with:
-          ref: 39ed7531e7d40a94778d20dc7b209997f31887df
+          ref: 5c76e76948eded12ebf648cab89030ddfdbbaa41
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -27,7 +27,7 @@ jobs:
       - name: Upload release Jar
         uses: actions/upload-artifact@v4
         with:
-          name: nuono-next-backend-39ed7531
+          name: nuono-next-backend-5c76e769
           path: target/nuono-next-backend-0.0.1-SNAPSHOT.jar
           if-no-files-found: error
           retention-days: 1
