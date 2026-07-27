@@ -120,6 +120,8 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
 
         self.assertIn("IRREVERSIBLE_SCHEMA_RESULT REPAIR_FORWARD_REQUIRED", irreversible_branch)
         self.assertIn("MAINTENANCE_STATUS HELD", irreversible_branch)
+        self.assertIn("ensure_repair_forward_maintenance", irreversible_branch)
+        self.assertIn("MAINTENANCE_STATUS ROUTE_REPAIR_REQUIRED", irreversible_branch)
         self.assertNotIn("restart_same_new_runtime", irreversible_branch)
         self.assertNotIn("switch_nginx_to_active", irreversible_branch)
 
@@ -132,6 +134,8 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
 
         self.assertIn("restart_same_new_runtime", failure_handler)
         self.assertIn("switch_nginx_to_active", failure_handler)
+        self.assertIn("stop_maintenance_responder", failure_handler)
+        self.assertIn('MAINTENANCE_STARTED" = 0', failure_handler)
         self.assertIn("FAILED_BEFORE_206", failure_handler)
         self.assertNotIn("restart_old_runtime", failure_handler)
         self.assertNotIn("EXPECTED_ACTIVE_JAR_SHA256", script)

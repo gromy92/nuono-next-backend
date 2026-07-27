@@ -11,6 +11,7 @@ MIGRATION_206="$MIGRATION_DIR/206_product_barcode_store_uniqueness.sql"
 MAINTENANCE_PID=""
 ACTIVE_PID=""
 NEW_PID=""
+MAINTENANCE_STARTED=0
 MAINTENANCE_ROUTED=0
 RUNTIME_STOPPED=0
 IRREVERSIBLE_STARTED=0
@@ -103,6 +104,7 @@ ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
 PY
   nohup python3 "$MAINTENANCE_DIR/server.py" "$MAINTENANCE_PORT"     > "$MAINTENANCE_DIR/server.log" 2>&1 &
   MAINTENANCE_PID="$!"
+  MAINTENANCE_STARTED=1
   printf '%s\n' "$MAINTENANCE_PID" > "$MAINTENANCE_DIR/server.pid"
   local status=""
   for _ in $(seq 1 20); do
@@ -142,6 +144,22 @@ switch_nginx_to_active() {
     head -n 1)"
   [ "$external_health" = UP ]
 }
+ensure_repair_forward_maintenance() {
+  if [ "$(maintenance_response_status)" != 503 ]; then
+    MAINTENANCE_PID=""
+    start_maintenance_responder || true
+  fi
+  [ "$(maintenance_response_status)" = 503 ] || return 1
+  switch_nginx_to_maintenance || true
+  [ "$(current_upstream_port)" = "$MAINTENANCE_PORT" ] || return 1
+  [ "$(maintenance_response_status)" = 503 ] || return 1
+  local external_status
+  external_status="$(external_maintenance_status)"
+  [ "$external_status" = 503 ] || return 1
+  grep -F -q "服务正在更新，请稍后重试" \
+    "$MAINTENANCE_DIR/external-response.json" || return 1
+  MAINTENANCE_ROUTED=1
+}
 restart_same_new_runtime() {
   [ -f "$ACTIVE_JAR" ]
   [ "$(sha256_file "$ACTIVE_JAR")" = "$EXPECTED_JAR_SHA256" ]
@@ -164,16 +182,21 @@ handle_irreversible_failure() {
   FAILURE_HANDLER_RUNNING=1
   if [ "$IRREVERSIBLE_STARTED" = 1 ]; then
     emit IRREVERSIBLE_SCHEMA_RESULT REPAIR_FORWARD_REQUIRED
-    emit MAINTENANCE_STATUS HELD
+    if (set -Eeuo pipefail; ensure_repair_forward_maintenance); then
+      emit MAINTENANCE_STATUS HELD
+    else
+      emit MAINTENANCE_STATUS ROUTE_REPAIR_REQUIRED
+    fi
     emit SAFE_OLD_JAR_ROLLBACK FORBIDDEN
     exit "$original_status"
   fi
   if [ "$RUNTIME_STOPPED" = 1 ]; then
     restart_same_new_runtime || true
   fi
-  if [ "$MAINTENANCE_ROUTED" = 1 ] && [ "$(health_status "$ACTIVE_PORT")" = UP ]; then
-    switch_nginx_to_active || true
-    stop_maintenance_responder || true
+  if [ "$(health_status "$ACTIVE_PORT")" = UP ] &&
+     (set -Eeuo pipefail; switch_nginx_to_active); then
+    [ "$MAINTENANCE_STARTED" = 0 ] ||
+      (set -Eeuo pipefail; stop_maintenance_responder) || true
   fi
   emit IRREVERSIBLE_SCHEMA_RESULT FAILED_BEFORE_206
   emit SAME_NEW_JAR_RESTORE "$([ "$(health_status "$ACTIVE_PORT")" = UP ] && printf PASS || printf FAILED)"
