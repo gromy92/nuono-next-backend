@@ -3,6 +3,7 @@ package com.nuono.next.productlisting;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,7 +79,12 @@ public class RealProductListingOfferStockWriteAdapter implements ProductListingO
             return step;
         } catch (RuntimeException exception) {
             step.setStatus("failed");
-            step.setFailureCode("noon_offer_stock_write_failed");
+            step.setFailureCode(
+                    NoonAuthenticationFailureClassifier
+                            .isAuthenticationFailure(exception)
+                            ? "noon_auth_required"
+                            : "noon_offer_stock_write_failed"
+            );
             step.setFailureMessage(StringUtils.hasText(exception.getMessage())
                     ? exception.getMessage()
                     : "Noon offer split write failed.");

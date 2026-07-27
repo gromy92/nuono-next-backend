@@ -56,6 +56,25 @@ class ProductSelectionMapperSqlTest {
     }
 
     @Test
+    void selectionGroupListOrdersByLatestVisibleMaterialJoin() throws Exception {
+        Method method = ProductSelectionMapper.class.getMethod(
+                "listSelectionGroups",
+                Long.class,
+                String.class,
+                Integer.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join("\n", select.value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("material.is_deleted = b'0'")
+                .contains("ORDER BY "
+                        + "MAX(CASE WHEN source.id IS NOT NULL THEN material.gmt_create END) DESC, "
+                        + "MAX(CASE WHEN source.id IS NOT NULL THEN material.id END) DESC, "
+                        + "grp.gmt_create DESC, grp.id DESC");
+    }
+
+    @Test
     void pluginIngestRetryLookupIsScopedToBatchItemAndNeverUpdatesHistoricalProducts() throws Exception {
         Method selectMethod = ProductSelectionPluginIngestMapper.class.getMethod(
                 "selectByBatchItem",

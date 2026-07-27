@@ -44,11 +44,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
-
 class NoonSessionGatewayTest {
-
     private final ObjectMapper objectMapper = new ObjectMapper();
-
     @Test
     void legacyDirectEmailOtpEntrypointsAreNotPublicApi() throws Exception {
         List<Method> legacyEntrypoints = List.of(
@@ -83,78 +80,62 @@ class NoonSessionGatewayTest {
                         String.class
                 )
         );
-
         assertTrue(legacyEntrypoints.stream().noneMatch(method -> Modifier.isPublic(method.getModifiers())));
     }
-
     @Test
     void shouldParsePartnerIdentityLookupPasswordChannel() throws Exception {
         JsonNode root = objectMapper.readTree(
                 "[{\"user_code\":\"prd-user@idp.noon.partners\",\"channels\":[{\"channel_code\":\"password\"}]}]"
         );
-
         NoonSessionGateway.PartnerIdentityUser user = NoonSessionGateway.extractPartnerIdentityUser(root);
-
         assertEquals("prd-user@idp.noon.partners", user.getUserCode());
     }
-
     @Test
     void shouldRejectPartnerIdentityLookupWithoutPasswordChannel() throws Exception {
         JsonNode root = objectMapper.readTree(
                 "[{\"userCode\":\"prd-user@idp.noon.partners\",\"channels\":[{\"channelCode\":\"emailotp\"}]}]"
         );
-
         IllegalStateException exception = assertThrows(
                 IllegalStateException.class,
                 () -> NoonSessionGateway.extractPartnerIdentityUser(root)
         );
         assertTrue(exception.getMessage().contains("密码登录"));
     }
-
     @Test
     void shouldParsePartnerIdentityLookupEmailOtpChannel() throws Exception {
         JsonNode root = objectMapper.readTree(
                 "[{\"userCode\":\"prd-user@idp.noon.partners\",\"channels\":[{\"channelCode\":\"emailotp\"}]}]"
         );
-
         NoonSessionGateway.PartnerIdentityUser user = NoonSessionGateway.extractPartnerIdentityEmailOtpUser(root);
-
         assertEquals("prd-user@idp.noon.partners", user.getUserCode());
     }
-
     @Test
     void shouldSelectRequestedProjectFromPartnerIdentityProjectList() throws Exception {
         JsonNode root = objectMapper.readTree(
                 "{\"projects\":[{\"project_code\":\"PRJ108065\"},{\"project_code\":\"PRJ245027\"}]}"
         );
-
         assertEquals("PRJ245027", NoonSessionGateway.selectPartnerIdentityProjectCode(root, "prj245027"));
     }
-
     @Test
     void shouldRejectMissingRequestedProjectFromPartnerIdentityProjectList() throws Exception {
         JsonNode root = objectMapper.readTree(
                 "{\"projects\":[{\"projectCode\":\"PRJ108065\"}]}"
         );
-
         IllegalStateException exception = assertThrows(
                 IllegalStateException.class,
                 () -> NoonSessionGateway.selectPartnerIdentityProjectCode(root, "PRJ245027")
         );
         assertTrue(exception.getMessage().contains("PRJ245027"));
     }
-
     @Test
     void shouldGenerateSpecLengthPkceVerifierAndKnownChallenge() {
         String verifier = NoonSessionGateway.generateCodeVerifier();
-
         assertEquals(128, verifier.length());
         assertEquals(
                 "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
                 NoonSessionGateway.generateCodeChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
         );
     }
-
     @Test
     void shouldRefreshProxySessionWhenCachedProxyDropsConnection() throws Exception {
         try (OneGoodThenDropProxy staleProxy = new OneGoodThenDropProxy();
@@ -169,15 +150,12 @@ class NoonSessionGatewayTest {
                     "PRJ1",
                     "STORE1"
             );
-
             String body = session.getText("http://noon.test/report.csv", false, null);
-
             assertEquals("download-ok", body);
             assertTrue(staleProxy.requestCount() >= 2);
             assertTrue(refreshedProxy.awaitRequests(2));
         }
     }
-
     @Test
     void shouldRefreshProxySessionForTunnelFailureStatus() throws Exception {
         NoonSessionGateway gateway = gateway("http://127.0.0.1:1/proxy");
@@ -186,15 +164,12 @@ class NoonSessionGatewayTest {
                 IllegalStateException.class
         );
         method.setAccessible(true);
-
         assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 435")));
         assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 436")));
     }
-
     @Test
     void shouldRejectNoonRequestWhenProxyEnabledWithoutEndpoint() {
         NoonSessionGateway gateway = gatewayWithSignin("");
-
         IllegalStateException exception = assertThrows(
                 IllegalStateException.class,
                 () -> gateway.login(
@@ -206,20 +181,15 @@ class NoonSessionGatewayTest {
                         "STORE1"
                 )
         );
-
         assertTrue(exception.getMessage().contains("Noon 代理已启用但未配置"));
     }
-
     @Test
     void shouldPersistSessionCookieForRequestedProjectOnly() {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         NoonSessionGateway gateway = gateway(mapper, "");
-
         gateway.persistCookie(308L, "PRJ100085", "sid=project-session");
-
         verify(mapper).updateProjectSessionCookie(308L, "PRJ100085", "sid=project-session", 308L);
     }
-
     @Test
     void shouldUseValidPersistedCookieWithoutEmailOtp() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -228,7 +198,6 @@ class NoonSessionGatewayTest {
             gateway.setEmailOtpReader((email, mailAuthCode) -> {
                 throw new AssertionError("cookie-only session must not read email OTP");
             });
-
             NoonSessionGateway.NoonSession session = gateway.loginWithPersistedCookie(
                     308L,
                     "merchant@example.com",
@@ -236,13 +205,11 @@ class NoonSessionGatewayTest {
                     "PRJ313934",
                     "STR313934-NAE"
             );
-
             assertEquals("PRJ313934", session.getProjectCode());
             assertEquals(0, server.generateCount());
             verifyNoInteractions(mapper);
         }
     }
-
     @Test
     void shouldRejectInvalidPersistedCookieWithoutEmailOtp() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -251,7 +218,6 @@ class NoonSessionGatewayTest {
             gateway.setEmailOtpReader((email, mailAuthCode) -> {
                 throw new AssertionError("cookie-only session must not read email OTP");
             });
-
             NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
                     NoonSessionGateway.NoonCookieAuthRequiredException.class,
                     () -> gateway.loginWithPersistedCookie(
@@ -262,14 +228,12 @@ class NoonSessionGatewayTest {
                             "STR313934-NAE"
                     )
             );
-
             assertTrue(exception.getMessage().contains("auth_required"));
             assertTrue(exception.getMessage().contains("PRJ313934"));
             assertEquals(0, server.generateCount());
             verifyNoInteractions(mapper);
         }
     }
-
     @Test
     void shouldClassifyWhoamiRedirectAsAuthRequired() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -278,7 +242,6 @@ class NoonSessionGatewayTest {
             gateway.setEmailOtpReader((email, mailAuthCode) -> {
                 throw new AssertionError("cookie-only session must not read email OTP");
             });
-
             NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
                     NoonSessionGateway.NoonCookieAuthRequiredException.class,
                     () -> gateway.loginWithPersistedCookie(
@@ -289,14 +252,12 @@ class NoonSessionGatewayTest {
                             "STR313934-NAE"
                     )
             );
-
             assertTrue(exception.getMessage().contains("auth_required"));
             assertTrue(exception.getMessage().contains("307"));
             assertEquals(0, server.generateCount());
             verifyNoInteractions(mapper);
         }
     }
-
     @Test
     void shouldClassifyCatalogLoginRedirectAsAuthRequired() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -309,7 +270,6 @@ class NoonSessionGatewayTest {
                     "PRJ313934",
                     "STR313934-NAE"
             );
-
             NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
                     NoonSessionGateway.NoonCookieAuthRequiredException.class,
                     () -> session.postJson(
@@ -318,13 +278,11 @@ class NoonSessionGatewayTest {
                             true
                     )
             );
-
             assertTrue(exception.getMessage().contains("auth_required"));
             assertTrue(exception.getMessage().contains("307"));
             verifyNoInteractions(mapper);
         }
     }
-
     @Test
     void shouldPreserveRateLimitClassificationWhenCookieValidationIsThrottled() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -333,7 +291,6 @@ class NoonSessionGatewayTest {
             gateway.setEmailOtpReader((email, mailAuthCode) -> {
                 throw new AssertionError("cookie-only session must not read email OTP");
             });
-
             IllegalStateException exception = assertThrows(
                     IllegalStateException.class,
                     () -> gateway.loginWithPersistedCookie(
@@ -344,14 +301,12 @@ class NoonSessionGatewayTest {
                             "STR313934-NAE"
                     )
             );
-
             assertTrue(exception.getMessage().contains("429"));
             assertFalse(exception.getMessage().contains("auth_required"));
             assertEquals(0, server.generateCount());
             verifyNoInteractions(mapper);
         }
     }
-
     @Test
     void shouldNotRefreshEmailOtpWhenCookieOnlySessionExpiresDuringRequest() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -367,18 +322,15 @@ class NoonSessionGatewayTest {
                     "PRJ313934",
                     "STR313934-NAE"
             );
-
             NoonSessionGateway.NoonCookieAuthRequiredException exception = assertThrows(
                     NoonSessionGateway.NoonCookieAuthRequiredException.class,
                     () -> session.getJson(server.url("/protected"), false)
             );
-
             assertTrue(exception.getMessage().contains("auth_required"));
             assertEquals(0, server.generateCount());
             verifyNoInteractions(mapper);
         }
     }
-
     @Test
     void shouldPersistCookieWhenRefreshingExpiredRuntimeSession() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -392,9 +344,7 @@ class NoonSessionGatewayTest {
                     "PRJ1",
                     "STORE1"
             );
-
             JsonNode response = session.getJson(server.url("/protected"), false);
-
             assertTrue(response.path("ok").asBoolean(false));
             verify(mapper).updateProjectSessionCookie(
                     eq(10001L),
@@ -404,7 +354,6 @@ class NoonSessionGatewayTest {
             );
         }
     }
-
     @Test
     void shouldReturnProjectChoicesWithoutCreatingSessionWhenMerchantLoginHasMultipleProjects() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
@@ -416,7 +365,6 @@ class NoonSessionGatewayTest {
                 "sid=new; Path=/"
         )) {
             NoonSessionGateway gateway = identityGateway(mapper, server);
-
             NoonSessionGateway.MerchantAuthorization result = gateway.authorizeMerchantLogin(
                     10001L,
                     "merchant@example.com",
@@ -465,6 +413,32 @@ class NoonSessionGatewayTest {
                     argThat(cookie -> cookie != null && cookie.contains("sid=selected")),
                     eq(10001L)
             );
+        }
+    }
+
+    @Test
+    void candidateMerchantSessionReturnsCanonicalUserCodeWithoutPersistingCookie() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":[{\"projectCode\":\"PRJ8001\",\"projectName\":\"另一个店铺\"}]}",
+                "sid=candidate; Path=/"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+
+            NoonSessionGateway.MerchantAuthorization result =
+                    gateway.authorizeMerchantLoginCandidate(
+                            10001L,
+                            "merchant@example.com",
+                            "password",
+                            "PRJ8001",
+                            "STR8001-NAE"
+                    );
+
+            assertTrue(result.isSuccess());
+            assertEquals("merchant@example.com", result.getUserCode());
+            assertTrue(result.getCookie().contains("sid=candidate"));
+            assertEquals(1, server.sessionCreateCount());
+            verifyNoInteractions(mapper);
         }
     }
 
@@ -569,9 +543,7 @@ class NoonSessionGatewayTest {
             }
 
             @Override
-            public MailboxCursor snapshot(String email, String mailAuthCode) {
-                return new MailboxCursor(7L, 100L, Instant.parse("2026-07-16T00:00:00Z"));
-            }
+            public MailboxCursor snapshot(String email, String mailAuthCode){ return new MailboxCursor(7L, 100L, Instant.parse("2026-07-16T00:00:00Z")); }
 
             @Override
             public Optional<OtpCandidate> pollAfter(
@@ -767,9 +739,55 @@ class NoonSessionGatewayTest {
         }
     }
 
-    private NoonSessionGateway gateway(String proxyProviderUrl) {
-        return gateway(mock(StoreSyncMapper.class), proxyProviderUrl);
+    @Test
+    void shouldNeverRefreshAndReplayAuthenticationFailedWriteRequest()
+            throws Exception {
+        AtomicInteger writeCount = new AtomicInteger();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
+                0
+        );
+        server.createContext("/", exchange -> {
+            if ("/whoami".equals(exchange.getRequestURI().getPath())) {
+                AuthRefreshServer.sendJson(
+                        exchange, 200, "{\"ok\":true}", null);
+                return;
+            }
+            writeCount.incrementAndGet();
+            AuthRefreshServer.sendJson(
+                    exchange, 401, "{\"error\":\"expired\"}", null);
+        });
+        server.start();
+        try {
+            String baseUrl =
+                    "http://127.0.0.1:" + server.getAddress().getPort();
+            NoonSessionGateway gateway =
+                    directGateway(baseUrl + "/whoami");
+            NoonSessionGateway.NoonSession session = gateway.login(
+                    10001L,
+                    "merchant@example.com",
+                    "password",
+                    "sid=existing",
+                    "PRJ1",
+                    "STORE1"
+            );
+
+            assertThrows(
+                    NoonSessionGateway.NoonCookieAuthRequiredException.class,
+                    () -> session.postWriteJson(
+                            baseUrl + "/write",
+                            objectMapper.createObjectNode(),
+                            false
+                    )
+            );
+
+            assertEquals(1, writeCount.get());
+        } finally {
+            server.stop(0);
+        }
     }
+
+    private NoonSessionGateway gateway(String proxyProviderUrl){ return gateway(mock(StoreSyncMapper.class), proxyProviderUrl); }
 
     private NoonSessionGateway gateway(StoreSyncMapper storeSyncMapper, String proxyProviderUrl) {
         return new NoonSessionGateway(
@@ -1020,21 +1038,13 @@ class NoonSessionGatewayTest {
             );
         }
 
-        private String url(String path) {
-            return "http://127.0.0.1:" + server.getAddress().getPort() + path;
-        }
+        private String url(String path){ return "http://127.0.0.1:" + server.getAddress().getPort() + path; }
 
-        private int sessionCreateCount() {
-            return sessionCreateCount.get();
-        }
+        private int sessionCreateCount(){ return sessionCreateCount.get(); }
 
-        private int generateCount() {
-            return generateCount.get();
-        }
+        private int generateCount(){ return generateCount.get(); }
 
-        private JsonNode lastValidateBody() {
-            return lastValidateBody == null ? new ObjectMapper().createObjectNode() : lastValidateBody;
-        }
+        private JsonNode lastValidateBody(){ return lastValidateBody == null ? new ObjectMapper().createObjectNode() : lastValidateBody; }
 
         @Override
         public void close() {
@@ -1083,9 +1093,7 @@ class NoonSessionGatewayTest {
             server.start();
         }
 
-        private String url() {
-            return "http://127.0.0.1:" + server.getAddress().getPort() + "/proxy";
-        }
+        private String url(){ return "http://127.0.0.1:" + server.getAddress().getPort() + "/proxy"; }
 
         @Override
         public void close() {
@@ -1107,18 +1115,12 @@ class NoonSessionGatewayTest {
             acceptThread.start();
         }
 
-        protected int port() {
-            return serverSocket.getLocalPort();
-        }
+        protected int port(){ return serverSocket.getLocalPort(); }
 
-        protected int requestCount() {
-            return requestCount.get();
-        }
+        protected int requestCount(){ return requestCount.get(); }
 
         private boolean awaitRequests(int count) throws InterruptedException {
-            if (requestCount.get() >= count) {
-                return true;
-            }
+            if (requestCount.get() >= count){ return true; }
             return requestLatch.await(2, TimeUnit.SECONDS);
         }
 
@@ -1152,9 +1154,7 @@ class NoonSessionGatewayTest {
             }
         }
 
-        protected String responseBody(String request) {
-            return request.contains("whoami") ? "{}" : "download-ok";
-        }
+        protected String responseBody(String request){ return request.contains("whoami") ? "{}" : "download-ok"; }
 
         protected void incrementRequestCount() {
             requestCount.incrementAndGet();

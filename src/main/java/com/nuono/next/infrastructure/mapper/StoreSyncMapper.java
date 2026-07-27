@@ -10,8 +10,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-public interface StoreSyncMapper {
-
+public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
     @Select({
             "SELECT",
             "  u.id,",
@@ -52,8 +51,8 @@ public interface StoreSyncMapper {
             "  u.real_name,",
             "  r.name AS role_name,",
             "  u.company_name,",
-            "  project_credential.noon_partner_user,",
-            "  project_credential.noon_partner_project_user,",
+            "  project_credential.noon_partner_user,   project_credential.noon_partner_project_user,",
+            "  project_credential.noon_partner_user_code,",
             "  project_credential.noon_partner_pwd,",
             "  project_credential.noon_partner_mail_auth_code,",
             "  project_credential.noon_partner_cookie,",
@@ -64,8 +63,8 @@ public interface StoreSyncMapper {
             "LEFT JOIN (",
             "  SELECT",
             "    user_id,",
-            "    MAX(NULLIF(noon_partner_user, '')) AS noon_partner_user,",
-            "    MAX(NULLIF(noon_partner_project_user, '')) AS noon_partner_project_user,",
+            "    MAX(NULLIF(noon_partner_user, '')) AS noon_partner_user,     MAX(NULLIF(noon_partner_project_user, '')) AS noon_partner_project_user,",
+            "    MAX(NULLIF(noon_partner_user_code, '')) AS noon_partner_user_code,",
             "    MAX(NULLIF(noon_partner_pwd, '')) AS noon_partner_pwd,",
             "    MAX(NULLIF(noon_partner_mail_auth_code, '')) AS noon_partner_mail_auth_code,",
             "    MAX(NULLIF(noon_partner_cookie, '')) AS noon_partner_cookie,",
@@ -88,8 +87,8 @@ public interface StoreSyncMapper {
             "  NULL AS site,",
             "  is_authorized AS owner_authorized,",
             "  project_code,",
-            "  noon_partner_user,",
-            "  noon_partner_project_user,",
+            "  noon_partner_user,   noon_partner_project_user,",
+            "  noon_partner_user_code,",
             "  noon_partner_pwd,",
             "  noon_partner_mail_auth_code,",
             "  noon_partner_cookie,",
@@ -111,8 +110,8 @@ public interface StoreSyncMapper {
             "  NULL AS site,",
             "  up.is_authorized AS owner_authorized,",
             "  up.project_code,",
-            "  up.noon_partner_user,",
-            "  up.noon_partner_project_user,",
+            "  up.noon_partner_user,   up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -148,8 +147,8 @@ public interface StoreSyncMapper {
             "  us.site,",
             "  COALESCE(up.is_authorized, us.is_authorized) AS owner_authorized,",
             "  us.project_code,",
-            "  up.noon_partner_user,",
-            "  up.noon_partner_project_user,",
+            "  up.noon_partner_user,   up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -174,8 +173,8 @@ public interface StoreSyncMapper {
             "    us.site,",
             "    COALESCE(up.is_authorized, us.is_authorized) AS owner_authorized,",
             "    us.project_code,",
-            "    up.noon_partner_user,",
-            "    up.noon_partner_project_user,",
+            "    up.noon_partner_user,     up.noon_partner_project_user,",
+            "    up.noon_partner_user_code,",
             "    up.noon_partner_pwd,",
             "    up.noon_partner_mail_auth_code,",
             "    up.noon_partner_cookie,",
@@ -229,8 +228,8 @@ public interface StoreSyncMapper {
             "  lss.site,",
             "  COALESCE(up.is_authorized, b'1') AS owner_authorized,",
             "  ls.project_code,",
-            "  up.noon_partner_user,",
-            "  up.noon_partner_project_user,",
+            "  up.noon_partner_user,   up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -272,8 +271,8 @@ public interface StoreSyncMapper {
             "  us.site,",
             "  up.is_authorized AS owner_authorized,",
             "  us.project_code,",
-            "  up.noon_partner_user,",
-            "  up.noon_partner_project_user,",
+            "  up.noon_partner_user,   up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -307,8 +306,8 @@ public interface StoreSyncMapper {
             "  lss.site,",
             "  COALESCE(up.is_authorized, b'1') AS owner_authorized,",
             "  ls.project_code,",
-            "  up.noon_partner_user,",
-            "  up.noon_partner_project_user,",
+            "  up.noon_partner_user,   up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -460,6 +459,7 @@ public interface StoreSyncMapper {
             @Param("cookie") String cookie,
             @Param("updatedBy") Long updatedBy
     );
+
 
     @Update({
             "UPDATE user_project",
