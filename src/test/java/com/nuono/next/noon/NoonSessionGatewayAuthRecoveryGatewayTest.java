@@ -12,9 +12,11 @@ import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
@@ -23,14 +25,18 @@ import com.nuono.next.noonlog.NoonHttpCallLogService;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand.LeaseLostException;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
+import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureStage;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureCode;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
+import com.nuono.next.noonauth.gateway.NoonTransientErrorType;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -44,15 +50,121 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.mail.AuthenticationFailedException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-class NoonSessionGatewayAuthRecoveryGatewayTest {
+class NoonSessionGatewayAuthRecoveryGatewayTest
+        extends AbstractNoonSessionGatewayAuthRecoveryTestSupport {
 
-    private static final Instant ATTEMPTED_AT = Instant.parse("2026-07-16T00:00:00Z");
-    private static final String TARGET_PROJECT = "PRJ7001";
+    @Test
+    void exactTransientHttpStatusTakesPrecedenceOverAuthMarkersInResponseBody() {
+        for (int status : List.of(408, 500, 502, 503, 504)) {
+            assertFalse(NoonSessionResponseClassifier.isAuthExpiredResponse(
+                    status,
+                    "{\"error\":\"unauthorized invalid session signin\"}",
+                    "/_svc/auth-v1/whoami",
+                    "https://login.noon.partners/"
+            ));
+        }
+        assertTrue(NoonSessionResponseClassifier.isAuthExpiredResponse(
+                401,
+                "{\"error\":\"unauthorized\"}",
+                "/catalog",
+                null
+        ));
+    }
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    @Test
+    void mailboxSnapshotAndPollingTransportFailuresKeepTheirExactStageAndType() throws Exception {
+        try (RecoveryServer server = RecoveryServer.forProjects(List.of(TARGET_PROJECT))) {
+            NoonSessionGateway gateway = identityGateway(server);
+            NoonEmailOtpReader snapshotFailureReader = mock(NoonEmailOtpReader.class);
+            when(snapshotFailureReader.snapshot(anyString(), anyString())).thenThrow(
+                    new IllegalStateException("mailbox snapshot failed", new EOFException("EOF"))
+            );
+            MutableClock snapshotClock = new MutableClock(ATTEMPTED_AT);
+
+            NoonAuthRecoveryAttemptResult snapshotResult = recoveryGateway(
+                    gateway,
+                    snapshotFailureReader,
+                    Duration.ofMillis(1),
+                    Duration.ofMillis(1),
+                    snapshotClock,
+                    snapshotClock::advanceMillis
+            ).attempt(command());
+
+            assertTrue(snapshotResult.isTransientFailure());
+            assertEquals(
+                    NoonAuthRecoveryFailureStage.MAILBOX_SNAPSHOT,
+                    snapshotResult.getFailureStage()
+            );
+            assertEquals(
+                    NoonTransientErrorType.NETWORK_EOF,
+                    snapshotResult.getTransientErrorType()
+            );
+            assertEquals(0, server.generateCount());
+
+            NoonEmailOtpReader pollingFailureReader = mock(NoonEmailOtpReader.class);
+            when(pollingFailureReader.snapshot(anyString(), anyString()))
+                    .thenReturn(new NoonEmailOtpReader.MailboxCursor(7L, 100L, ATTEMPTED_AT));
+            when(pollingFailureReader.pollAfter(anyString(), anyString(), any(), any(), any()))
+                    .thenThrow(new IllegalStateException(
+                            "mailbox poll failed",
+                            new HttpConnectTimeoutException("connect timed out")
+                    ));
+            MutableClock pollingClock = new MutableClock(ATTEMPTED_AT);
+
+            NoonAuthRecoveryAttemptResult pollingResult = recoveryGateway(
+                    gateway,
+                    pollingFailureReader,
+                    Duration.ofMillis(1),
+                    Duration.ofSeconds(1),
+                    pollingClock,
+                    pollingClock::advanceMillis
+            ).attempt(command());
+
+            assertTrue(pollingResult.isTransientFailure());
+            assertEquals(
+                    NoonAuthRecoveryFailureStage.MAILBOX_POLLING,
+                    pollingResult.getFailureStage()
+            );
+            assertEquals(
+                    NoonTransientErrorType.CONNECT_TIMEOUT,
+                    pollingResult.getTransientErrorType()
+            );
+            assertEquals(1, server.generateCount());
+        }
+    }
+
+    @Test
+    void mailboxAuthenticationFailureStaysDeterministicEvenIfItsMessageMentionsEof()
+            throws Exception {
+        try (RecoveryServer server = RecoveryServer.forProjects(List.of(TARGET_PROJECT))) {
+            NoonSessionGateway gateway = identityGateway(server);
+            NoonEmailOtpReader reader = mock(NoonEmailOtpReader.class);
+            when(reader.snapshot(anyString(), anyString())).thenThrow(
+                    new IllegalStateException(
+                            "EOF",
+                            new AuthenticationFailedException("authentication failed")
+                    )
+            );
+            MutableClock clock = new MutableClock(ATTEMPTED_AT);
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(
+                    gateway,
+                    reader,
+                    Duration.ofMillis(1),
+                    Duration.ofMillis(1),
+                    clock,
+                    clock::advanceMillis
+            ).attempt(command());
+
+            assertFalse(result.isTransientFailure());
+            assertEquals(NoonAuthRecoveryFailureCode.MAILBOX_AUTH_FAILED, result.getFailureCode());
+            assertEquals(0, server.generateCount());
+        }
+    }
 
     @Test
     void shouldClassifyInvalidOrExpiredOtpHttpResponsesWithoutLeakingProviderBody() throws Exception {
@@ -248,7 +360,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
     }
 
     @Test
-    void shouldRetryIdentityPreparationOnceAfterTransientTransportFailureBeforeOtpSend() throws Exception {
+    void identityPreparationTransportFailureIsTypedWithoutAnOuterReplay() throws Exception {
         try (RecoveryServer server = new RecoveryServer(
                 200,
                 "{\"success\":true,\"access_token\":\"token-1\"}",
@@ -257,20 +369,131 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             NoonSessionGateway gateway = spy(identityGateway(server));
             doThrow(new IllegalStateException(
                     "Noon request failed",
-                    new IOException("connection reset")
-            )).doCallRealMethod().when(gateway).prepareEmailOtpGeneration(anyString());
+                    new HttpConnectTimeoutException("connect timed out")
+            )).when(gateway).prepareEmailOtpGeneration(anyString());
 
             NoonAuthRecoveryAttemptResult result = recoveryGateway(gateway).attempt(command());
 
-            assertTrue(result.isIdentityAuthenticated());
-            assertTrue(result.getProjectResults().get(0).isRecovered());
-            verify(gateway, times(2)).prepareEmailOtpGeneration(anyString());
+            assertFalse(result.isIdentityAuthenticated());
+            assertTrue(result.isTransientFailure());
+            assertEquals(
+                    NoonAuthRecoveryFailureCode.PROVIDER_TRANSIENT_FAILURE,
+                    result.getFailureCode()
+            );
+            assertEquals(
+                    NoonAuthRecoveryFailureStage.IDENTITY_PREPARATION,
+                    result.getFailureStage()
+            );
+            assertEquals(NoonTransientErrorType.CONNECT_TIMEOUT, result.getTransientErrorType());
+            verify(gateway).prepareEmailOtpGeneration(anyString());
+            assertEquals(0, server.generateCount());
+        }
+    }
+
+    @Test
+    void otpSendExactTransientStatusWinsOverRateOrRiskWordsInProviderBody() throws Exception {
+        try (RecoveryServer server = RecoveryServer.forProjects(List.of(TARGET_PROJECT))) {
+            server.failGenerate(
+                    500,
+                    "{\"error\":\"captcha rate limit unauthorized\"}"
+            );
+            NoonSessionGateway gateway = identityGateway(server);
+            NoonEmailOtpReader noMailReader = mock(NoonEmailOtpReader.class);
+            when(noMailReader.snapshot(anyString(), anyString()))
+                    .thenReturn(new NoonEmailOtpReader.MailboxCursor(7L, 100L, ATTEMPTED_AT));
+            when(noMailReader.pollAfter(anyString(), anyString(), any(), any(), any()))
+                    .thenReturn(Optional.empty());
+            MutableClock clock = new MutableClock(ATTEMPTED_AT);
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(
+                    gateway,
+                    noMailReader,
+                    Duration.ofMillis(1),
+                    Duration.ofMillis(1),
+                    clock,
+                    clock::advanceMillis
+            ).attempt(command());
+
+            assertTrue(result.isTransientFailure());
+            assertEquals(NoonAuthRecoveryFailureStage.OTP_SEND, result.getFailureStage());
+            assertEquals(NoonTransientErrorType.HTTP_500, result.getTransientErrorType());
             assertEquals(1, server.generateCount());
         }
     }
 
     @Test
-    void shouldRetryWhoamiOnceAfterTransientTransportEof() throws Exception {
+    void otpSendUnauthorizedStatusIsDeterministicAndNeverResent() throws Exception {
+        try (RecoveryServer server = RecoveryServer.forProjects(List.of(TARGET_PROJECT))) {
+            server.failGenerate(401, "{\"error\":\"unauthorized\"}");
+            NoonSessionGateway gateway = identityGateway(server);
+            NoonEmailOtpReader reader = mock(NoonEmailOtpReader.class);
+            when(reader.snapshot(anyString(), anyString()))
+                    .thenReturn(new NoonEmailOtpReader.MailboxCursor(7L, 100L, ATTEMPTED_AT));
+            MutableClock clock = new MutableClock(ATTEMPTED_AT);
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(
+                    gateway,
+                    reader,
+                    Duration.ofMillis(1),
+                    Duration.ofSeconds(1),
+                    clock,
+                    clock::advanceMillis
+            ).attempt(command());
+
+            assertFalse(result.isTransientFailure());
+            assertEquals(NoonAuthRecoveryFailureCode.IDENTITY_AUTH_FAILED, result.getFailureCode());
+            verify(reader, never()).pollAfter(anyString(), anyString(), any(), any(), any());
+            assertEquals(1, server.generateCount());
+        }
+    }
+
+    @Test
+    void otpSendAndMailboxPollingTransientFailuresAreBothPreserved() throws Exception {
+        try (RecoveryServer server = RecoveryServer.forProjects(List.of(TARGET_PROJECT))) {
+            server.failGenerate(503, "");
+            NoonSessionGateway gateway = identityGateway(server);
+            NoonEmailOtpReader reader = mock(NoonEmailOtpReader.class);
+            when(reader.snapshot(anyString(), anyString()))
+                    .thenReturn(new NoonEmailOtpReader.MailboxCursor(7L, 100L, ATTEMPTED_AT));
+            when(reader.pollAfter(anyString(), anyString(), any(), any(), any()))
+                    .thenThrow(new IllegalStateException(
+                            "mailbox poll eof",
+                            new EOFException("EOF")
+                    ));
+            MutableClock clock = new MutableClock(ATTEMPTED_AT);
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(
+                    gateway,
+                    reader,
+                    Duration.ofMillis(1),
+                    Duration.ofSeconds(1),
+                    clock,
+                    clock::advanceMillis
+            ).attempt(command());
+
+            assertTrue(result.isTransientFailure());
+            assertEquals(2, result.getTransientFailures().size());
+            assertEquals(
+                    NoonAuthRecoveryFailureStage.OTP_SEND,
+                    result.getTransientFailures().get(0).getStage()
+            );
+            assertEquals(
+                    NoonTransientErrorType.HTTP_503,
+                    result.getTransientFailures().get(0).getErrorType()
+            );
+            assertEquals(
+                    NoonAuthRecoveryFailureStage.MAILBOX_POLLING,
+                    result.getTransientFailures().get(1).getStage()
+            );
+            assertEquals(
+                    NoonTransientErrorType.NETWORK_EOF,
+                    result.getTransientFailures().get(1).getErrorType()
+            );
+        }
+    }
+
+    @Test
+    void whoamiTransportEofIsTypedWithoutAnOuterReplay() throws Exception {
         try (RecoveryServer server = new RecoveryServer(
                 200,
                 "{\"success\":true,\"access_token\":\"token-1\"}",
@@ -278,8 +501,9 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         )) {
             NoonSessionGateway gateway = spy(identityGateway(server));
             doThrow(new IllegalStateException(
-                    "Noon WHOAMI 验证失败：HTTP/1.1 header parser received no bytes | EOF reached"
-            )).doCallRealMethod().when(gateway).whoamiWithProjectSession(
+                    "Noon WHOAMI 验证失败",
+                    new EOFException("HTTP/1.1 header parser received no bytes")
+            )).when(gateway).whoamiWithProjectSession(
                     any(NoonSessionGateway.ProjectSessionCookie.class),
                     anyString()
             );
@@ -287,12 +511,84 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
             NoonAuthRecoveryAttemptResult result = recoveryGateway(gateway).attempt(command());
 
             assertTrue(result.isIdentityAuthenticated());
-            assertTrue(result.getProjectResults().get(0).isRecovered());
-            verify(gateway, times(2)).whoamiWithProjectSession(
+            NoonAuthRecoveryProjectResult projectResult = result.getProjectResults().get(0);
+            assertTrue(projectResult.isTransientFailure());
+            assertEquals(
+                    NoonAuthRecoveryFailureStage.WHOAMI_VALIDATION,
+                    projectResult.getFailureStage()
+            );
+            assertEquals(NoonTransientErrorType.NETWORK_EOF, projectResult.getTransientErrorType());
+            verify(gateway).whoamiWithProjectSession(
                     any(NoonSessionGateway.ProjectSessionCookie.class),
                     anyString()
             );
-            assertEquals(1, server.whoamiCount());
+            assertEquals(0, server.whoamiCount());
+        }
+    }
+
+    @Test
+    void continuousWhoami503StopsAfterThreeTransportAttemptsAndStaysTyped() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            server.failWhoami(503);
+
+            NoonAuthRecoveryAttemptResult result =
+                    recoveryGateway(identityGateway(server)).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            NoonAuthRecoveryProjectResult projectResult = result.getProjectResults().get(0);
+            assertTrue(projectResult.isTransientFailure());
+            assertEquals(
+                    NoonAuthRecoveryFailureStage.WHOAMI_VALIDATION,
+                    projectResult.getFailureStage()
+            );
+            assertEquals(NoonTransientErrorType.HTTP_503, projectResult.getTransientErrorType());
+            assertEquals(3, server.whoamiCount());
+            assertEquals(1, server.generateCount());
+            assertEquals(1, server.sessionCreateCount());
+        }
+    }
+
+    @Test
+    void catalogEofIsReturnedAsTypedTransientProjectFailureWithoutAnOuterReplay() throws Exception {
+        try (RecoveryServer server = new RecoveryServer(
+                200,
+                "{\"success\":true,\"access_token\":\"token-1\"}",
+                "{\"ok\":true,\"email\":\"merchant@example.com\"}"
+        )) {
+            NoonSessionGateway gateway = spy(identityGateway(server));
+            IllegalStateException catalogEof = new IllegalStateException(
+                    "Noon catalog bootstrap failed",
+                    new EOFException("HTTP/1.1 header parser received no bytes")
+            );
+            doThrow(catalogEof).when(gateway).validateCatalogProjectSession(
+                    any(NoonSessionGateway.ProjectSessionCookie.class),
+                    anyString()
+            );
+
+            NoonAuthRecoveryAttemptResult result = recoveryGateway(gateway).attempt(command());
+
+            assertTrue(result.isIdentityAuthenticated());
+            NoonAuthRecoveryProjectResult projectResult = result.getProjectResults().get(0);
+            assertEquals(
+                    NoonAuthRecoveryProjectResult.Code.TRANSIENT_PROVIDER_FAILURE,
+                    projectResult.getCode()
+            );
+            assertTrue(projectResult.isTransientFailure());
+            assertEquals(NoonAuthRecoveryFailureStage.CATALOG_VALIDATION, projectResult.getFailureStage());
+            assertEquals(NoonTransientErrorType.NETWORK_EOF, projectResult.getTransientErrorType());
+            assertFalse(projectResult.isRecovered());
+            assertNull(projectResult.getCookie());
+            assertFalse(projectResult.getSafeDiagnostic().contains("header parser"));
+            verify(gateway).validateCatalogProjectSession(
+                    any(NoonSessionGateway.ProjectSessionCookie.class),
+                    anyString()
+            );
+            assertEquals(1, server.generateCount());
+            assertEquals(1, server.sessionCreateCount());
         }
     }
 
@@ -392,28 +688,28 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
 
     @Test
     void shouldFailClosedForAmbiguousOrCaseMismatchedWhoamiProjectFields() throws Exception {
-        assertTrue(NoonSessionGatewayAuthRecoveryGateway.whoamiMatchesTargetProject(
+        assertTrue(NoonProjectSessionValidator.matchesTargetProject(
                 objectMapper.readTree("{\"projectCode\":\" PRJ7001 \"}"),
                 TARGET_PROJECT
         ));
-        assertTrue(NoonSessionGatewayAuthRecoveryGateway.whoamiMatchesTargetProject(
+        assertTrue(NoonProjectSessionValidator.matchesTargetProject(
                 objectMapper.readTree("{\"context\":{\"project\":{\"code\":\"PRJ7001\"}}}"),
                 TARGET_PROJECT
         ));
-        assertTrue(NoonSessionGatewayAuthRecoveryGateway.whoamiMatchesTargetProject(
+        assertTrue(NoonProjectSessionValidator.matchesTargetProject(
                 objectMapper.readTree("{\"current_project_code\":\"PRJ7001\"}"),
                 TARGET_PROJECT
         ));
 
-        assertFalse(NoonSessionGatewayAuthRecoveryGateway.whoamiMatchesTargetProject(
+        assertFalse(NoonProjectSessionValidator.matchesTargetProject(
                 objectMapper.readTree("{\"projects\":[{\"projectCode\":\"PRJ7001\"}]}"),
                 TARGET_PROJECT
         ));
-        assertFalse(NoonSessionGatewayAuthRecoveryGateway.whoamiMatchesTargetProject(
+        assertFalse(NoonProjectSessionValidator.matchesTargetProject(
                 objectMapper.readTree("{\"projectCode\":\"PRJ7001\",\"context\":{\"project_code\":\"PRJ9999\"}}"),
                 TARGET_PROJECT
         ));
-        assertFalse(NoonSessionGatewayAuthRecoveryGateway.whoamiMatchesTargetProject(
+        assertFalse(NoonProjectSessionValidator.matchesTargetProject(
                 objectMapper.readTree("{\"projectCode\":\"prj7001\"}"),
                 TARGET_PROJECT
         ));
@@ -584,492 +880,4 @@ class NoonSessionGatewayAuthRecoveryGatewayTest {
         }
     }
 
-    private NoonSessionGatewayAuthRecoveryGateway recoveryGateway(NoonSessionGateway gateway) {
-        MutableClock clock = new MutableClock(ATTEMPTED_AT);
-        return recoveryGateway(
-                gateway,
-                immediateOtpReader(),
-                Duration.ofMillis(1),
-                Duration.ofMillis(1),
-                clock,
-                clock::advanceMillis
-        );
-    }
-
-    private NoonSessionGatewayAuthRecoveryGateway recoveryGateway(
-            NoonSessionGateway gateway,
-            NoonEmailOtpReader otpReader,
-            Duration pollInterval,
-            Duration pollTimeout,
-            Clock clock,
-            NoonSessionGatewayAuthRecoveryGateway.Sleeper sleeper
-    ) {
-        gateway.setConfiguredMerchantEmailOtpCredential("merchant@example.com", "imap-secret");
-        return new NoonSessionGatewayAuthRecoveryGateway(
-                gateway,
-                otpReader,
-                pollInterval,
-                pollTimeout,
-                clock,
-                sleeper
-        );
-    }
-
-    private NoonSessionGateway identityGateway(RecoveryServer server) {
-        NoonSessionGateway gateway = new NoonSessionGateway(
-                objectMapper,
-                mock(StoreSyncMapper.class),
-                false,
-                0L,
-                true,
-                "",
-                "",
-                "",
-                "",
-                true,
-                false,
-                "",
-                server.url("/whoami"),
-                server.url("/lookup"),
-                server.url("/pkce"),
-                server.url("/generate"),
-                server.url("/validate"),
-                server.url("/projects"),
-                server.url("/session-create"),
-                false,
-                "HTTP",
-                "",
-                0,
-                ""
-        );
-        gateway.setCatalogCapabilityProbeUrl(server.catalogUrl("/catalog"));
-        gateway.setCatalogSessionBootstrapUrl(server.catalogUrl("/catalog-bootstrap"));
-        return gateway;
-    }
-
-    private NoonEmailOtpReader immediateOtpReader() {
-        return new NoonEmailOtpReader() {
-            @Override
-            public String readOtp(String email, String mailAuthCode) {
-                throw new AssertionError("central recovery must use generation-aware mailbox reads");
-            }
-
-            @Override
-            public MailboxCursor snapshot(String email, String mailAuthCode) {
-                return new MailboxCursor(7L, 100L, ATTEMPTED_AT);
-            }
-
-            @Override
-            public Optional<OtpCandidate> pollAfter(
-                    String email,
-                    String mailAuthCode,
-                    MailboxCursor cursor,
-                    Instant notBefore,
-                    Set<String> excludedMessageKeyHashes
-            ) {
-                if (excludedMessageKeyHashes.contains("message-key-hash")) {
-                    return Optional.empty();
-                }
-                return Optional.of(new OtpCandidate(
-                        "654321",
-                        "message-key-hash",
-                        ATTEMPTED_AT.plusSeconds(1),
-                        7L,
-                        101L
-                ));
-            }
-
-            @Override
-            public void acknowledge(String email, String mailAuthCode, OtpCandidate candidate) {
-                // no-op
-            }
-        };
-    }
-
-    private OtpCandidate otpCandidate(String code, String messageKeyHash, long uid) {
-        return new OtpCandidate(
-                code,
-                messageKeyHash,
-                ATTEMPTED_AT.plusSeconds(1),
-                7L,
-                uid
-        );
-    }
-
-    private NoonAuthRecoveryAttemptCommand command() {
-        return command(
-                List.of(new NoonAuthRecoveryProjectTarget(307L, TARGET_PROJECT, "STR7001-NAE", 0L)),
-                () -> true
-        );
-    }
-
-    private NoonAuthRecoveryAttemptCommand command(
-            List<NoonAuthRecoveryProjectTarget> targets,
-            NoonAuthRecoveryAttemptCommand.LeaseHeartbeat leaseHeartbeat
-    ) {
-        return command(targets, leaseHeartbeat, () -> true);
-    }
-
-    private NoonAuthRecoveryAttemptCommand command(
-            List<NoonAuthRecoveryProjectTarget> targets,
-            NoonAuthRecoveryAttemptCommand.LeaseHeartbeat leaseHeartbeat,
-            NoonAuthRecoveryAttemptCommand.BeforeOtpSend beforeOtpSend
-    ) {
-        return new NoonAuthRecoveryAttemptCommand(
-                9001L,
-                1,
-                ATTEMPTED_AT,
-                Set.of(),
-                targets,
-                leaseHeartbeat,
-                beforeOtpSend
-        );
-    }
-
-    private List<NoonAuthRecoveryProjectTarget> projectTargets(int count) {
-        java.util.ArrayList<NoonAuthRecoveryProjectTarget> targets = new java.util.ArrayList<>();
-        for (int index = 0; index < count; index++) {
-            String suffix = String.format("%04d", 7001 + index);
-            targets.add(new NoonAuthRecoveryProjectTarget(
-                    307L + index,
-                    "PRJ" + suffix,
-                    "STR" + suffix + "-NAE",
-                    0L
-            ));
-        }
-        return List.copyOf(targets);
-    }
-
-    private List<String> projectCodes(List<NoonAuthRecoveryProjectTarget> targets) {
-        java.util.ArrayList<String> projectCodes = new java.util.ArrayList<>();
-        for (NoonAuthRecoveryProjectTarget target : targets) {
-            projectCodes.add(target.getProjectCode());
-        }
-        return List.copyOf(projectCodes);
-    }
-
-    private boolean containsProviderSecret(String value) {
-        return value != null && value.contains("provider-secret");
-    }
-
-    private static final class RejectedOtpResponse {
-        private final int statusCode;
-        private final String body;
-
-        private RejectedOtpResponse(int statusCode, String body) {
-            this.statusCode = statusCode;
-            this.body = body;
-        }
-
-        private int statusCode() {
-            return statusCode;
-        }
-
-        private String body() {
-            return body;
-        }
-    }
-
-    private static final class SequencedOtpReader implements NoonEmailOtpReader {
-        private final List<OtpCandidate> candidates;
-        private final List<String> acknowledgedMessageKeyHashes = new ArrayList<>();
-
-        private SequencedOtpReader(List<OtpCandidate> candidates) {
-            this.candidates = List.copyOf(candidates);
-        }
-
-        @Override
-        public String readOtp(String email, String mailAuthCode) {
-            throw new AssertionError("central recovery must use generation-aware mailbox reads");
-        }
-
-        @Override
-        public MailboxCursor snapshot(String email, String mailAuthCode) {
-            return new MailboxCursor(7L, 100L, ATTEMPTED_AT);
-        }
-
-        @Override
-        public Optional<OtpCandidate> pollAfter(
-                String email,
-                String mailAuthCode,
-                MailboxCursor cursor,
-                Instant notBefore,
-                Set<String> excludedMessageKeyHashes
-        ) {
-            return candidates.stream()
-                    .filter(candidate -> !excludedMessageKeyHashes.contains(candidate.getMessageKeyHash()))
-                    .findFirst();
-        }
-
-        @Override
-        public void acknowledge(String email, String mailAuthCode, OtpCandidate candidate) {
-            acknowledgedMessageKeyHashes.add(candidate.getMessageKeyHash());
-        }
-
-        private List<String> acknowledgedMessageKeyHashes() {
-            return List.copyOf(acknowledgedMessageKeyHashes);
-        }
-    }
-
-    private static final class MutableClock extends Clock {
-        private Instant current;
-
-        private MutableClock(Instant current) {
-            this.current = current;
-        }
-
-        @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return current;
-        }
-
-        private void advanceMillis(long millis) {
-            current = current.plusMillis(millis);
-        }
-    }
-
-    private static final class RecoveryServer implements AutoCloseable {
-        private final HttpServer server;
-        private final List<RejectedOtpResponse> validateResponses;
-        private final String whoamiBody;
-        private final String projectsBody;
-        private final AtomicInteger generateCount = new AtomicInteger();
-        private final AtomicInteger validateCount = new AtomicInteger();
-        private final AtomicInteger sessionCreateCount = new AtomicInteger();
-        private final AtomicInteger whoamiCount = new AtomicInteger();
-        private final AtomicInteger catalogBootstrapCount = new AtomicInteger();
-        private final AtomicInteger catalogCount = new AtomicInteger();
-        private volatile int catalogStatus = 200;
-        private volatile boolean catalogSessionCookieRequired;
-        private volatile boolean catalogWebSessionBootstrapRequired;
-        private volatile String lastCatalogCookieHeader = "";
-        private volatile String lastSessionProjectCode;
-
-        private RecoveryServer(int validateStatus, String validateBody, String whoamiBody) throws IOException {
-            this(
-                    validateStatus,
-                    validateBody,
-                    whoamiBody,
-                    "{\"projects\":[{\"projectCode\":\"PRJ7001\"}]}"
-            );
-        }
-
-        private RecoveryServer(
-                int validateStatus,
-                String validateBody,
-                String whoamiBody,
-                String projectsBody
-        ) throws IOException {
-            this(
-                    List.of(new RejectedOtpResponse(validateStatus, validateBody)),
-                    whoamiBody,
-                    projectsBody
-            );
-        }
-
-        private RecoveryServer(
-                List<RejectedOtpResponse> validateResponses,
-                String whoamiBody
-        ) throws IOException {
-            this(
-                    validateResponses,
-                    whoamiBody,
-                    "{\"projects\":[{\"projectCode\":\"PRJ7001\"}]}"
-            );
-        }
-
-        private RecoveryServer(
-                List<RejectedOtpResponse> validateResponses,
-                String whoamiBody,
-                String projectsBody
-        ) throws IOException {
-            if (validateResponses == null || validateResponses.isEmpty()) {
-                throw new IllegalArgumentException("validateResponses must not be empty");
-            }
-            this.validateResponses = List.copyOf(validateResponses);
-            this.whoamiBody = whoamiBody;
-            this.projectsBody = projectsBody;
-            this.server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-            this.server.createContext("/", this::handle);
-            this.server.start();
-        }
-
-        private static RecoveryServer forProjects(List<String> projectCodes) throws IOException {
-            return new RecoveryServer(
-                    200,
-                    "{\"success\":true,\"access_token\":\"token-1\"}",
-                    null,
-                    projectsBody(projectCodes)
-            );
-        }
-
-        private void handle(HttpExchange exchange) throws IOException {
-            String path = exchange.getRequestURI().getPath();
-            if ("/lookup".equals(path)) {
-                sendJson(exchange, 200,
-                        "[{\"userCode\":\"merchant@example.com\",\"channels\":[{\"channelCode\":\"emailotp\"}]}]",
-                        null);
-                return;
-            }
-            if ("/pkce".equals(path)) {
-                sendJson(exchange, 200, "{\"success\":true,\"pkce_key\":\"pkce-1\"}", null);
-                return;
-            }
-            if ("/generate".equals(path)) {
-                generateCount.incrementAndGet();
-                sendJson(exchange, 200, "{\"emailotp\":\"ok\"}", null);
-                return;
-            }
-            if ("/validate".equals(path)) {
-                int invocation = validateCount.incrementAndGet();
-                RejectedOtpResponse response = validateResponses.get(Math.min(
-                        invocation - 1,
-                        validateResponses.size() - 1
-                ));
-                sendJson(exchange, response.statusCode(), response.body(), null);
-                return;
-            }
-            if ("/projects".equals(path)) {
-                sendJson(exchange, 200, projectsBody, null);
-                return;
-            }
-            if ("/session-create".equals(path)) {
-                sessionCreateCount.incrementAndGet();
-                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-                lastSessionProjectCode = new ObjectMapper().readTree(body).path("projectCode").asText(null);
-                sendJson(exchange, 200, "{\"success\":true}", "sid=recovered; Path=/");
-                return;
-            }
-            if ("/whoami".equals(path)) {
-                whoamiCount.incrementAndGet();
-                String body = whoamiBody != null
-                        ? whoamiBody
-                        : "{\"projectCode\":\"" + lastSessionProjectCode + "\"}";
-                sendJson(exchange, 200, body, null);
-                return;
-            }
-            if ("/catalog-bootstrap".equals(path)) {
-                catalogBootstrapCount.incrementAndGet();
-                String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
-                if (cookieHeader == null || !cookieHeader.contains("sid=recovered")) {
-                    exchange.getResponseHeaders().set(
-                            "Location",
-                            "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
-                    );
-                    sendJson(exchange, 307, "temporary redirect", null);
-                } else {
-                    sendJson(exchange, 200, "<html>catalog</html>", "catalog_sid=ready; Path=/");
-                }
-                return;
-            }
-            if ("/catalog".equals(path)) {
-                catalogCount.incrementAndGet();
-                String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
-                lastCatalogCookieHeader = cookieHeader == null ? "" : cookieHeader;
-                if (catalogStatus == 307
-                        || (catalogSessionCookieRequired
-                            && (cookieHeader == null || !cookieHeader.contains("sid=recovered")))
-                        || (catalogWebSessionBootstrapRequired
-                            && (cookieHeader == null || !cookieHeader.contains("catalog_sid=ready")))) {
-                    exchange.getResponseHeaders().set(
-                            "Location",
-                            "https://login.noon.partners/en/?domain=noon-catalog.noon.partners"
-                    );
-                    sendJson(exchange, 307, "temporary redirect", null);
-                } else {
-                    sendJson(exchange, 200, "{\"data\":{\"hits\":[],\"total\":0}}", null);
-                }
-                return;
-            }
-            sendJson(exchange, 404, "{\"error\":\"not found\"}", null);
-        }
-
-        private String url(String path) {
-            return "http://127.0.0.1:" + server.getAddress().getPort() + path;
-        }
-
-        private String catalogUrl(String path) {
-            return "http://localhost:" + server.getAddress().getPort() + path;
-        }
-
-        private int validateCount() {
-            return validateCount.get();
-        }
-
-        private int generateCount() {
-            return generateCount.get();
-        }
-
-        private int sessionCreateCount() {
-            return sessionCreateCount.get();
-        }
-
-        private int whoamiCount() {
-            return whoamiCount.get();
-        }
-
-        private int catalogCount() {
-            return catalogCount.get();
-        }
-
-        private int catalogBootstrapCount() {
-            return catalogBootstrapCount.get();
-        }
-
-        private String lastCatalogCookieHeader() {
-            return lastCatalogCookieHeader;
-        }
-
-        private void redirectCatalogToLogin() {
-            catalogStatus = 307;
-        }
-
-        private void requireCatalogSessionCookie() {
-            catalogSessionCookieRequired = true;
-        }
-
-        private void requireCatalogWebSessionBootstrap() {
-            catalogWebSessionBootstrapRequired = true;
-        }
-
-        @Override
-        public void close() {
-            server.stop(0);
-        }
-
-        private static void sendJson(HttpExchange exchange, int status, String body, String setCookie) throws IOException {
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().set("Content-Type", "application/json");
-            if (setCookie != null) {
-                exchange.getResponseHeaders().add("Set-Cookie", setCookie);
-            }
-            exchange.sendResponseHeaders(status, bytes.length);
-            try (var output = exchange.getResponseBody()) {
-                output.write(bytes);
-            }
-        }
-
-        private static String projectsBody(List<String> projectCodes) {
-            StringBuilder body = new StringBuilder("{\"projects\":[");
-            for (int index = 0; index < projectCodes.size(); index++) {
-                if (index > 0) {
-                    body.append(',');
-                }
-                body.append("{\"projectCode\":\"")
-                        .append(projectCodes.get(index))
-                        .append("\"}");
-            }
-            return body.append("]}").toString();
-        }
-    }
 }

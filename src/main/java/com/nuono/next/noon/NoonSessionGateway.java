@@ -453,11 +453,15 @@ public class NoonSessionGateway {
         if (generation == null) {
             throw new IllegalArgumentException("缺少 Noon 邮箱验证码代次。");
         }
-        generatePartnerIdentityEmailOtp(
-                generation.state,
-                generation.user.getUserCode(),
-                generation.pkce
-        );
+        try {
+            generatePartnerIdentityEmailOtp(
+                    generation.state,
+                    generation.user.getUserCode(),
+                    generation.pkce
+            );
+        } catch (SessionExpiredException exception) {
+            throw exception.toHttpException();
+        }
     }
 
     EmailIdentityGrant validateEmailOtp(EmailOtpGeneration generation, String otpCode) {
@@ -2650,7 +2654,7 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(
+                        if (NoonSessionResponseClassifier.isAuthExpiredResponse(
                                 response.statusCode(),
                                 responseBody,
                                 request.uri().getPath(),
@@ -2737,7 +2741,7 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(
+                        if (NoonSessionResponseClassifier.isAuthExpiredResponse(
                                 response.statusCode(),
                                 responseBody,
                                 request.uri().getPath(),
@@ -2822,7 +2826,7 @@ public class NoonSessionGateway {
                             sleepForRateLimit(attempt);
                             continue;
                         }
-                        if (isAuthExpiredResponse(
+                        if (NoonSessionResponseClassifier.isAuthExpiredResponse(
                                 response.statusCode(),
                                 responseText,
                                 request.uri().getPath(),
@@ -2958,59 +2962,6 @@ public class NoonSessionGateway {
             );
             delay += ThreadLocalRandom.current().nextLong(100L, 501L);
             Thread.sleep(delay);
-        }
-
-        private boolean isAuthExpiredResponse(
-                int statusCode,
-                String responseBody,
-                String requestPath,
-                String redirectLocation
-        ) {
-            if (statusCode == 401 || statusCode == 403) {
-                return true;
-            }
-            if (isRedirectStatus(statusCode) && isWhoamiPath(requestPath)) {
-                return true;
-            }
-            if (isRedirectStatus(statusCode) && isNoonLoginRedirect(redirectLocation)) {
-                return true;
-            }
-            if (!StringUtils.hasText(responseBody)) {
-                return false;
-            }
-            String normalized = responseBody.toLowerCase(Locale.ROOT);
-            return normalized.contains("unauthorized")
-                    || normalized.contains("invalid session")
-                    || normalized.contains("signin");
-        }
-
-        private boolean isNoonLoginRedirect(String redirectLocation) {
-            if (!StringUtils.hasText(redirectLocation)) {
-                return false;
-            }
-            try {
-                String host = URI.create(redirectLocation.trim()).getHost();
-                return "login.noon.partners".equalsIgnoreCase(host)
-                        || "login-alt.noon.partners".equalsIgnoreCase(host);
-            } catch (IllegalArgumentException ignored) {
-                return false;
-            }
-        }
-
-        private boolean isRedirectStatus(int statusCode) {
-            return statusCode == 301
-                    || statusCode == 302
-                    || statusCode == 303
-                    || statusCode == 307
-                    || statusCode == 308;
-        }
-
-        private boolean isWhoamiPath(String requestPath) {
-            if (!StringUtils.hasText(requestPath)) {
-                return false;
-            }
-            String normalized = requestPath.trim().toLowerCase(Locale.ROOT);
-            return normalized.endsWith("/whoami") || normalized.contains("/auth-v1/whoami");
         }
 
         private boolean isRateLimitedResponse(int statusCode, String responseBody) {

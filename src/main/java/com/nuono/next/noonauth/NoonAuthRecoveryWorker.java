@@ -1,25 +1,28 @@
 package com.nuono.next.noonauth;
 
+import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.excludedMessageHashes;
+import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.isInterruptedAttempt;
+import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.projectKey;
+import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.safeLong;
+import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.uniqueProjectItems;
+import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.uniqueTargets;
+
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand.LeaseLostException;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureCode;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryGateway;
-import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,6 +43,8 @@ public class NoonAuthRecoveryWorker {
     private final NoonAuthRecoveryRepository repository;
     private final NoonAuthRecoveryProperties properties;
     private final NoonAuthRecoveryGateway gateway;
+    private final NoonAuthTransientOrchestrator transientOrchestrator;
+    private final NoonAuthRecoveryProjectOutcomeHandler projectOutcomeHandler;
     private final Clock clock;
     private final String workerId;
     private final String configuredIdentityKey;
@@ -50,6 +55,7 @@ public class NoonAuthRecoveryWorker {
             NoonAuthRecoveryRepository repository,
             NoonAuthRecoveryProperties properties,
             ObjectProvider<NoonAuthRecoveryGateway> gatewayProvider,
+            NoonAuthTransientBackoffGuard transientBackoffGuard,
             @Value("${nuono.noon.auth.email-otp.email:}") String configuredEmail,
             @Value("${nuono.noon.auth.email-otp.mail-auth-code:}") String configuredMailboxAuthCode
     ) {
@@ -57,6 +63,7 @@ public class NoonAuthRecoveryWorker {
                 repository,
                 properties,
                 gatewayProvider == null ? null : gatewayProvider.getIfAvailable(),
+                transientBackoffGuard,
                 Clock.systemUTC(),
                 "noon-auth-recovery-" + UUID.randomUUID(),
                 configuredEmail,
@@ -71,13 +78,23 @@ public class NoonAuthRecoveryWorker {
             Clock clock,
             String workerId
     ) {
-        this(repository, properties, gateway, clock, workerId, null, null);
+        this(
+                repository,
+                properties,
+                gateway,
+                NoonAuthTransientBackoffGuard.disabled(clock),
+                clock,
+                workerId,
+                null,
+                null
+        );
     }
 
     NoonAuthRecoveryWorker(
             NoonAuthRecoveryRepository repository,
             NoonAuthRecoveryProperties properties,
             NoonAuthRecoveryGateway gateway,
+            NoonAuthTransientBackoffGuard transientBackoffGuard,
             Clock clock,
             String workerId,
             String configuredEmail,
@@ -86,6 +103,13 @@ public class NoonAuthRecoveryWorker {
         this.repository = repository;
         this.properties = properties;
         this.gateway = gateway;
+        NoonAuthTransientBackoffGuard resolvedTransientBackoffGuard = transientBackoffGuard == null
+                ? NoonAuthTransientBackoffGuard.disabled(clock)
+                : transientBackoffGuard;
+        this.transientOrchestrator =
+                new NoonAuthTransientOrchestrator(resolvedTransientBackoffGuard);
+        this.projectOutcomeHandler =
+                new NoonAuthRecoveryProjectOutcomeHandler(repository, transientOrchestrator);
         this.clock = clock;
         this.workerId = StringUtils.hasText(workerId) ? workerId : "noon-auth-recovery-worker";
         this.configuredIdentityKey = StringUtils.hasText(configuredEmail)
@@ -99,6 +123,27 @@ public class NoonAuthRecoveryWorker {
                         properties.normalizedTrustedSenderDomains()
                 )
                 : null;
+    }
+
+    NoonAuthRecoveryWorker(
+            NoonAuthRecoveryRepository repository,
+            NoonAuthRecoveryProperties properties,
+            NoonAuthRecoveryGateway gateway,
+            Clock clock,
+            String workerId,
+            String configuredEmail,
+            String configuredMailboxAuthCode
+    ) {
+        this(
+                repository,
+                properties,
+                gateway,
+                NoonAuthTransientBackoffGuard.disabled(clock),
+                clock,
+                workerId,
+                configuredEmail,
+                configuredMailboxAuthCode
+        );
     }
 
     public int runOnce() {
@@ -201,11 +246,52 @@ public class NoonAuthRecoveryWorker {
             return;
         }
 
+        List<NoonAuthRecoveryProjectTarget> allTargets = uniqueTargets(pending);
+        NoonAuthTransientOrchestrator.Selection targetSelection =
+                transientOrchestrator.selectDueTargets(allTargets);
+        if (!targetSelection.unmappedTargets.isEmpty()) {
+            if (!holdUnmappedProjects(
+                    candidate,
+                    fence,
+                    pending,
+                    targetSelection.unmappedTargets
+            )) {
+                return;
+            }
+            Set<String> unmappedKeys = targetSelection.unmappedTargets.stream()
+                    .map(NoonAuthRecoveryProjectTarget::key)
+                    .collect(Collectors.toSet());
+            pending = pending.stream()
+                    .filter(item -> !unmappedKeys.contains(projectKey(item)))
+                    .collect(Collectors.toList());
+            allTargets = targetSelection.mappedTargets;
+            if (allTargets.isEmpty()) {
+                complete(
+                        fence,
+                        "PROJECT_PARTIAL_FAILURE",
+                        "all pending projects require logical-store mapping repair"
+                );
+                return;
+            }
+        }
+        if (targetSelection.dueTargets.isEmpty()
+                && targetSelection.nextBlockedUntil != null) {
+            cooldown(
+                    fence,
+                    "TRANSIENT_BACKOFF_ACTIVE",
+                    "project transient backoff is active",
+                    targetSelection.nextBlockedUntil
+            );
+            return;
+        }
+
         if (isInterruptedAttempt(candidate.getStatus())) {
             holdInterruptedAttempt(
                     candidate,
                     fence,
-                    pending
+                    pending,
+                    allTargets,
+                    targetSelection.logicalStoreIds
             );
             return;
         }
@@ -226,8 +312,14 @@ public class NoonAuthRecoveryWorker {
                     candidate,
                     fence,
                     pending,
-                    NoonAuthRecoveryFailureCode.OTP_INVALID_OR_EXPIRED,
-                    "auth recovery exhausted its two generations"
+                    transientOrchestrator.hasFailureForRecovery(
+                            allTargets,
+                            targetSelection.logicalStoreIds,
+                            candidate.getId()
+                    )
+                            ? NoonAuthRecoveryFailureCode.PROJECT_TRANSIENT_RETRY_EXHAUSTED
+                            : NoonAuthRecoveryFailureCode.OTP_INVALID_OR_EXPIRED,
+                    "shared identity recovery exhausted its two OTP generations; no third generation is allowed"
             );
             return;
         }
@@ -250,7 +342,7 @@ public class NoonAuthRecoveryWorker {
                 && !transition(fence, NoonAuthRecoveryStatus.AUTHENTICATING, null, null, null, false)) {
             return;
         }
-        List<NoonAuthRecoveryProjectTarget> targets = uniqueTargets(pending);
+        List<NoonAuthRecoveryProjectTarget> targets = targetSelection.dueTargets;
         now = now();
         for (NoonAuthRecoveryProjectTarget target : targets) {
             if (!repository.markProjectRecovering(
@@ -330,172 +422,40 @@ public class NoonAuthRecoveryWorker {
 
         if (!attemptResult.isIdentityAuthenticated()) {
             int sendAttemptCount = sendsInBatch + (sendIntentRecorded.get() ? 1 : 0);
+            if (attemptResult.isTransientFailure()) {
+                NoonAuthTransientOrchestrator.IdentityFailureOutcome outcome =
+                        transientOrchestrator.recordIdentityFailure(
+                        targets,
+                        targetSelection.logicalStoreIds,
+                        targetSelection.nextBlockedUntil,
+                        now().plus(properties.minResendDelay()),
+                        attemptResult,
+                        () -> renewFence(fence) ? backoffFence(fence) : null
+                );
+                if (outcome.recorded) {
+                    cooldown(
+                            fence,
+                            outcome.failureCode,
+                            outcome.diagnostic,
+                            outcome.nextBlockedUntil
+                    );
+                }
+                return;
+            }
             handleIdentityFailure(candidate, fence, pending, attemptResult, sendAttemptCount);
             return;
         }
-        applyAuthenticatedProjects(candidate, fence, pending, targets, attemptResult);
-    }
-
-    private void applyAuthenticatedProjects(
-            NoonAuthIdentityRecoveryRecord candidate,
-            ExecutionFence fence,
-            List<NoonAuthRecoveryItemRecord> pending,
-            List<NoonAuthRecoveryProjectTarget> targets,
-            NoonAuthRecoveryAttemptResult attemptResult
-    ) {
-        if (!transition(fence, NoonAuthRecoveryStatus.APPLYING_PROJECTS, null, null, null, false)) {
-            return;
-        }
-        Map<String, NoonAuthRecoveryProjectResult> resultsByKey = attemptResult.getProjectResults().stream()
-                .collect(Collectors.toMap(
-                        result -> result.getTarget().key(),
-                        Function.identity(),
-                        (left, right) -> left,
-                        LinkedHashMap::new
-                ));
-        Set<String> recoveredKeys = new LinkedHashSet<>();
-        int failedProjects = 0;
-        for (NoonAuthRecoveryProjectTarget target : targets) {
-            if (!renewFence(fence)) {
-                return;
-            }
-            LocalDateTime now = now();
-            NoonAuthRecoveryProjectResult result = resultsByKey.get(target.key());
-            boolean providerRecovered = result != null
-                    && result.isRecovered()
-                    && StringUtils.hasText(result.getCookie());
-            boolean persisted = providerRecovered
-                    && repository.persistRecoveredProjectCookieCas(
-                            target.getOwnerUserId(),
-                            target.getProjectCode(),
-                            candidate.getId(),
-                            target.getExpectedAuthVersion(),
-                            fence.status,
-                            fence.version,
-                            fence.leaseToken,
-                            result.getCookie(),
-                            target.getOwnerUserId(),
-                            now
-                    );
-            if (persisted) {
-                recoveredKeys.add(target.key());
-                continue;
-            }
-            if (!renewFence(fence)) {
-                return;
-            }
-            now = now();
-            failedProjects++;
-            String failureCode;
-            String diagnostic;
-            if (providerRecovered) {
-                failureCode = "PROJECT_BINDING_CHANGED";
-                diagnostic = "project binding changed while auth recovery was in progress";
-            } else {
-                failureCode = result == null ? "PROJECT_RESULT_MISSING" : result.getCode().name();
-                diagnostic = result == null ? "provider returned no project result" : result.getSafeDiagnostic();
-            }
-            if (!repository.markProjectRecoveryFailed(
-                    target.getOwnerUserId(),
-                    target.getProjectCode(),
-                    candidate.getId(),
-                    target.getExpectedAuthVersion(),
-                    fence.status,
-                    fence.version,
-                    fence.leaseToken,
-                    NoonProjectAuthStatus.MANUAL_HOLD,
-                    failureCode,
-                    diagnostic,
-                    now
-            )) {
-                return;
-            }
-            if (!failSnapshotItemsTaskFirst(
-                    pending,
-                    target,
-                    candidate.getId(),
-                    fence,
-                    failureCode,
-                    diagnostic,
-                    now
-            )) {
-                return;
-            }
-        }
-
-        if (!transition(fence, NoonAuthRecoveryStatus.RECOVERING_PULLS, null, null, null, false)) {
-            return;
-        }
-        int recoveredTasks = recoverPullTasks(candidate.getId(), pending, recoveredKeys, fence);
-        if (recoveredTasks < 0) {
-            return;
-        }
-        String failureCode = failedProjects == 0 ? null : "PROJECT_PARTIAL_FAILURE";
-        complete(
+        projectOutcomeHandler.apply(
+                this,
                 fence,
-                failureCode,
-                "projectsRecovered=" + recoveredKeys.size()
-                        + "; projectsFailed=" + failedProjects
-                        + "; tasksRecovered=" + recoveredTasks
+                candidate,
+                pending,
+                targets,
+                targetSelection.logicalStoreIds,
+                targetSelection.nextBlockedUntil,
+                now().plus(properties.minResendDelay()),
+                attemptResult
         );
-    }
-
-    private int recoverPullTasks(
-            Long recoveryId,
-            List<NoonAuthRecoveryItemRecord> items,
-            Set<String> recoveredKeys,
-            ExecutionFence fence
-    ) {
-        int recoveredTasks = 0;
-        for (NoonAuthRecoveryItemRecord item : items) {
-            if (!recoveredKeys.contains(projectKey(item))) {
-                continue;
-            }
-            if (!renewFence(fence)) {
-                return -1;
-            }
-            LocalDateTime now = now();
-            NoonAuthRecoveryItemStatus targetStatus = NoonAuthRecoveryItemStatus.RECOVERED;
-            String failureCode = null;
-            String diagnostic = "project cookie verified";
-            if (item.getSourceTaskId() != null) {
-                boolean resumed = repository.requeueBlockedTaskAfterRecoveryCas(
-                        item.getSourceTaskId(),
-                        recoveryId,
-                        fence.status,
-                        fence.version,
-                        fence.leaseToken,
-                        now
-                );
-                if (resumed) {
-                    recoveredTasks++;
-                } else {
-                    if (!renewFence(fence)) {
-                        return -1;
-                    }
-                    targetStatus = NoonAuthRecoveryItemStatus.STALE;
-                    failureCode = "SOURCE_TASK_STALE";
-                    diagnostic = "project recovered but source task is no longer auth-blocked";
-                }
-            }
-            boolean transitioned = repository.transitionRecoveryItem(
-                    item.getId(),
-                    recoveryId,
-                    NoonAuthRecoveryItemStatus.PENDING,
-                    targetStatus,
-                    fence.status,
-                    fence.version,
-                    fence.leaseToken,
-                    failureCode,
-                    diagnostic,
-                    targetStatus == NoonAuthRecoveryItemStatus.RECOVERED ? now : null,
-                    now
-            );
-            if (!transitioned && !renewFence(fence)) {
-                return -1;
-            }
-        }
-        return recoveredTasks;
     }
 
     private void handleIdentityFailure(
@@ -544,7 +504,9 @@ public class NoonAuthRecoveryWorker {
     private void holdInterruptedAttempt(
             NoonAuthIdentityRecoveryRecord candidate,
             ExecutionFence fence,
-            List<NoonAuthRecoveryItemRecord> pending
+            List<NoonAuthRecoveryItemRecord> pending,
+            List<NoonAuthRecoveryProjectTarget> targets,
+            Map<String, Long> logicalStoreIds
     ) {
         if (safeInt(candidate.getSendAttemptCount()) < properties.getMaxSendAttemptsPerRecovery()) {
             cooldown(
@@ -555,12 +517,19 @@ public class NoonAuthRecoveryWorker {
             );
             return;
         }
+        NoonAuthRecoveryFailureCode code = transientOrchestrator.hasFailureForRecovery(
+                targets,
+                logicalStoreIds,
+                candidate.getId()
+        )
+                ? NoonAuthRecoveryFailureCode.PROJECT_TRANSIENT_RETRY_EXHAUSTED
+                : NoonAuthRecoveryFailureCode.SEND_RESULT_UNKNOWN;
         holdIdentityAndItems(
                 candidate,
                 fence,
                 pending,
-                NoonAuthRecoveryFailureCode.SEND_RESULT_UNKNOWN,
-                "previous auth generation lost its lease or in-memory PKCE state"
+                code,
+                "shared identity recovery exhausted its two OTP generations after an interrupted attempt"
         );
     }
 
@@ -733,15 +702,45 @@ public class NoonAuthRecoveryWorker {
                     || safeLong(state.getAuthVersion()) <= safeLong(representative.getExpectedAuthVersion())) {
                 continue;
             }
+            NoonAuthRecoveryProjectTarget target = new NoonAuthRecoveryProjectTarget(
+                    representative.getOwnerUserId(),
+                    representative.getProjectCode(),
+                    representative.getStoreCode(),
+                    safeLong(representative.getExpectedAuthVersion())
+            );
+            try {
+                Long logicalStoreId = transientOrchestrator.resolveLogicalStoreId(target);
+                if (logicalStoreId != null
+                        && !transientOrchestrator.recordSuccess(
+                                logicalStoreId,
+                                backoffFence(fence)
+                        )) {
+                    return false;
+                }
+            } catch (RuntimeException exception) {
+                LOGGER.error(
+                        "Failed to reconcile Noon auth transient backoff. recoveryId={} project={}",
+                        candidate.getId(),
+                        representative.getProjectCode(),
+                        exception
+                );
+                return false;
+            }
             Set<String> recovered = Collections.singleton(projectKey(representative));
-            if (recoverPullTasks(candidate.getId(), pending, recovered, fence) < 0) {
+            if (projectOutcomeHandler.recoverPullTasks(
+                    this,
+                    candidate.getId(),
+                    pending,
+                    recovered,
+                    fence
+            ) < 0) {
                 return false;
             }
         }
         return true;
     }
 
-    private boolean renewFence(ExecutionFence fence) {
+    boolean renewFence(ExecutionFence fence) {
         LocalDateTime now = now();
         return repository.renewLease(
                 fence.recoveryId,
@@ -753,7 +752,7 @@ public class NoonAuthRecoveryWorker {
         );
     }
 
-    private void complete(ExecutionFence fence, String failureCode, String diagnostic) {
+    void complete(ExecutionFence fence, String failureCode, String diagnostic) {
         LocalDateTime now = now();
         boolean completed = repository.completeRecoveryIfDrained(
                 fence.recoveryId,
@@ -793,7 +792,7 @@ public class NoonAuthRecoveryWorker {
         );
     }
 
-    private boolean failSnapshotItemsTaskFirst(
+    boolean failSnapshotItemsTaskFirst(
             List<NoonAuthRecoveryItemRecord> items,
             NoonAuthRecoveryProjectTarget target,
             Long recoveryId,
@@ -889,7 +888,7 @@ public class NoonAuthRecoveryWorker {
         return true;
     }
 
-    private void cooldown(
+    void cooldown(
             ExecutionFence fence,
             String failureCode,
             String diagnostic,
@@ -905,7 +904,7 @@ public class NoonAuthRecoveryWorker {
         );
     }
 
-    private boolean transition(
+    boolean transition(
             ExecutionFence fence,
             NoonAuthRecoveryStatus targetStatus,
             LocalDateTime nextAttemptAt,
@@ -934,53 +933,56 @@ public class NoonAuthRecoveryWorker {
         return updated;
     }
 
-    private List<NoonAuthRecoveryProjectTarget> uniqueTargets(List<NoonAuthRecoveryItemRecord> items) {
-        List<NoonAuthRecoveryProjectTarget> targets = new ArrayList<>();
-        for (NoonAuthRecoveryItemRecord item : uniqueProjectItems(items).values()) {
-            targets.add(new NoonAuthRecoveryProjectTarget(
-                    item.getOwnerUserId(),
-                    item.getProjectCode(),
-                    item.getStoreCode(),
-                    safeLong(item.getExpectedAuthVersion())
-            ));
-        }
-        return targets;
-    }
-
-    private Map<String, NoonAuthRecoveryItemRecord> uniqueProjectItems(List<NoonAuthRecoveryItemRecord> items) {
-        Map<String, NoonAuthRecoveryItemRecord> projects = new LinkedHashMap<>();
-        if (items == null) {
-            return projects;
-        }
-        for (NoonAuthRecoveryItemRecord item : items) {
-            if (item != null && item.getOwnerUserId() != null && StringUtils.hasText(item.getProjectCode())) {
-                projects.putIfAbsent(projectKey(item), item);
+    private boolean holdUnmappedProjects(
+            NoonAuthIdentityRecoveryRecord candidate,
+            ExecutionFence fence,
+            List<NoonAuthRecoveryItemRecord> pending,
+            List<NoonAuthRecoveryProjectTarget> unmappedTargets
+    ) {
+        String failureCode = "LOGICAL_STORE_MAPPING_MISSING";
+        String diagnostic = "project has no canonical logical-store mapping";
+        for (NoonAuthRecoveryProjectTarget target : unmappedTargets) {
+            if (!renewFence(fence)) {
+                return false;
+            }
+            LocalDateTime now = now();
+            if (!repository.markProjectRecoveryFailed(
+                    target.getOwnerUserId(),
+                    target.getProjectCode(),
+                    candidate.getId(),
+                    target.getExpectedAuthVersion(),
+                    fence.status,
+                    fence.version,
+                    fence.leaseToken,
+                    NoonProjectAuthStatus.MANUAL_HOLD,
+                    failureCode,
+                    diagnostic,
+                    now
+            )) {
+                return false;
+            }
+            if (!failSnapshotItemsTaskFirst(
+                    pending,
+                    target,
+                    candidate.getId(),
+                    fence,
+                    failureCode,
+                    diagnostic,
+                    now
+            )) {
+                return false;
             }
         }
-        return projects;
+        return true;
     }
 
-    private Set<String> excludedMessageHashes(NoonAuthIdentityRecoveryRecord candidate) {
-        Set<String> hashes = new LinkedHashSet<>();
-        if (StringUtils.hasText(candidate.getLastMailUidHash())) {
-            hashes.add(candidate.getLastMailUidHash());
-        }
-        if (StringUtils.hasText(candidate.getLastMessageIdHash())) {
-            hashes.add(candidate.getLastMessageIdHash());
-        }
-        return hashes;
-    }
-
-    private boolean isInterruptedAttempt(NoonAuthRecoveryStatus status) {
-        return status == NoonAuthRecoveryStatus.AUTHENTICATING
-                || status == NoonAuthRecoveryStatus.WAITING_EMAIL
-                || status == NoonAuthRecoveryStatus.VALIDATING
-                || status == NoonAuthRecoveryStatus.APPLYING_PROJECTS
-                || status == NoonAuthRecoveryStatus.RECOVERING_PULLS;
-    }
-
-    private String projectKey(NoonAuthRecoveryItemRecord item) {
-        return item.getOwnerUserId() + ":" + item.getProjectCode();
+    NoonAuthTransientBackoffWriteFence backoffFence(ExecutionFence fence) {
+        return new NoonAuthTransientBackoffWriteFence(
+                fence.recoveryId,
+                fence.status,
+                fence.version,
+                fence.leaseToken
+        );
     }
 
     private String safeDiagnostic(String value) {
@@ -991,7 +993,7 @@ public class NoonAuthRecoveryWorker {
         return normalized.length() <= 1000 ? normalized : normalized.substring(0, 1000);
     }
 
-    private LocalDateTime now() {
+    LocalDateTime now() {
         return LocalDateTime.ofInstant(clock.instant(), clock.getZone());
     }
 
@@ -999,15 +1001,11 @@ public class NoonAuthRecoveryWorker {
         return value == null ? 0 : Math.max(0, value);
     }
 
-    private static long safeLong(Long value) {
-        return value == null ? 0L : Math.max(0L, value);
-    }
-
-    private static final class ExecutionFence {
-        private final Long recoveryId;
-        private final String leaseToken;
-        private NoonAuthRecoveryStatus status;
-        private long version;
+    static final class ExecutionFence {
+        final Long recoveryId;
+        final String leaseToken;
+        NoonAuthRecoveryStatus status;
+        long version;
 
         private ExecutionFence(
                 Long recoveryId,
@@ -1021,4 +1019,5 @@ public class NoonAuthRecoveryWorker {
             this.leaseToken = leaseToken;
         }
     }
+
 }
