@@ -255,20 +255,6 @@ public class OfficialWarehouseController {
         }
     }
 
-    @GetMapping("/asns/{asnId}/appointment/warehouses")
-    public List<String> appointmentWarehouses(
-            @PathVariable String asnId,
-            HttpServletRequest request
-    ) {
-        try {
-            return service().listAppointmentWarehouseFromOptions(access(request), asnId);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        } catch (IllegalStateException exception) {
-            throw upstreamFailure(exception);
-        }
-    }
-
     @PostMapping("/appointments/{appointmentId}/run-once")
     public AppointmentView runAppointmentOnce(
             @PathVariable String appointmentId,

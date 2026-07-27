@@ -53,6 +53,8 @@ public class WarehouseProcurementViews {
         public String productTitle;
         public String productImageUrl;
         public String siteCode;
+        public String targetSiteCode;
+        public String targetTransportMode;
         public Boolean isNewProduct;
         public Boolean manualConfirmRequired;
         public Boolean logisticsQuoteBlocking;
@@ -103,7 +105,10 @@ public class WarehouseProcurementViews {
         public String purchaseOrderTitle;
         public Long purchaseOrderItemId;
         public Long purchaseOrderItemSiteId;
+        public String siteCode;
         public String plannedTransportMode;
+        public String targetSiteCode;
+        public String targetTransportMode;
         public String logisticsQuoteStatus;
         public String logisticsShippingSubmitStatus;
         public Boolean logisticsQuoteBlocking;

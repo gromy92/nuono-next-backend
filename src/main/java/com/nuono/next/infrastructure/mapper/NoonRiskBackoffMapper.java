@@ -55,7 +55,10 @@ public interface NoonRiskBackoffMapper {
             "  risk_type, source_domain, source_task_id, blocked_until, attempt_count, diagnostic_summary,",
             "  gmt_create AS created_at, gmt_updated AS updated_at",
             "FROM noon_risk_backoff_state",
-            "WHERE operation_group = 'NOON'",
+            "WHERE operation_group = #{operationGroup}",
+            "  AND (operation_group <> 'NOON'",
+            "    OR source_domain IS NULL",
+            "    OR source_domain NOT IN ('PUBLIC_DETAIL', 'PUBLIC_SEARCH', 'SOURCE_COLLECTION'))",
             "  AND owner_user_id <=> #{ownerUserId}",
             "  AND store_code <=> #{storeCode}",
             "  AND (#{siteCode} IS NULL OR site_code = #{siteCode} OR site_code IS NULL)",
@@ -68,6 +71,7 @@ public interface NoonRiskBackoffMapper {
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode,
+            @Param("operationGroup") String operationGroup,
             @Param("now") LocalDateTime now
     );
 

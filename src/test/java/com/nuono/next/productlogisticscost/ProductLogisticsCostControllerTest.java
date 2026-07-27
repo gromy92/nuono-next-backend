@@ -619,7 +619,7 @@ class ProductLogisticsCostControllerTest {
     }
 
     private ProductLogisticsCostLedgerService ledgerService() {
-        return new ProductLogisticsCostLedgerService(mapper);
+        return new ProductLogisticsCostLedgerService(mapper, new ProductLogisticsRateCardReader(mapper, org.mockito.Mockito.mock(com.nuono.next.infrastructure.mapper.PublishedProductLogisticsRateCardMapper.class)));
     }
 
     private BusinessAccessContext context() {

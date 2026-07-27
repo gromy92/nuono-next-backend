@@ -29,6 +29,8 @@ public class WarehouseShippingBatchViews extends WarehouseShippingSuggestionView
         public Integer sourceCount;
         public Integer skuCount;
         public Integer totalQuantity;
+        public List<String> siteCodes = new ArrayList<>();
+        public List<String> transportModes = new ArrayList<>();
         public Integer optionCount;
         public Integer packingListCount;
         public Integer boxCount;

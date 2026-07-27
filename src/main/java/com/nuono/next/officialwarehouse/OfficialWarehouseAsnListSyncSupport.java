@@ -65,8 +65,6 @@ final class OfficialWarehouseAsnListSyncSupport {
         parsed.totalQty = intValue(row, "total_qty");
         parsed.remoteStatus = firstText(row, "status", "asn_status");
         parsed.localAsnStatus = OfficialWarehouseStatusPolicy.localAsnStatusFromNoon(parsed.remoteStatus);
-        parsed.warehouseFrom = firstText(row, "warehouse_from", "warehouseFrom");
-        parsed.warehouseFromCode = firstText(row, "warehouse_code_from", "warehouseCodeFrom");
         parsed.warehouseToPartnerCode = firstText(row, "warehouse_to", "warehouseTo");
         parsed.warehouseToCode = firstText(row, "warehouse_code_to", "warehouseCodeTo");
         parsed.countryCode = firstText(row, "country_code_to", "country_code", "countryCode");
@@ -167,8 +165,6 @@ final class OfficialWarehouseAsnListSyncSupport {
         Integer totalQty;
         String remoteStatus;
         String localAsnStatus;
-        String warehouseFrom;
-        String warehouseFromCode;
         String warehouseToPartnerCode;
         String warehouseToCode;
         String countryCode;

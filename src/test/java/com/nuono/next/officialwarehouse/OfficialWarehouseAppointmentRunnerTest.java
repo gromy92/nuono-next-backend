@@ -38,7 +38,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(result.appointmentTime).isEqualTo("9am-10am");
         assertThat(client.calls).containsExactly(
                 "detail",
-                "set-warehouses:JED01:ETWAREHOUSE",
+                "set-warehouses:JED01",
                 "detail",
                 "days",
                 "slots:2026-06-16",
@@ -75,7 +75,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(result.appointmentDate).isEqualTo(LocalDate.parse("2026-06-16"));
         assertThat(client.calls).containsExactly(
                 "detail",
-                "set-warehouses:JED01:ETWAREHOUSE",
+                "set-warehouses:JED01",
                 "detail",
                 "days",
                 "slots:2026-06-16",
@@ -101,7 +101,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(slots.get(0).slotId).isEqualTo(9);
         assertThat(client.calls).containsExactly(
                 "detail",
-                "set-warehouses:JED01:ETWAREHOUSE",
+                "set-warehouses:JED01",
                 "detail",
                 "days",
                 "slots:2026-06-16"
@@ -117,7 +117,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         runner.queryAvailability(task(""), client);
 
         assertThat(client.calls).containsSubsequence(
-                "set-warehouses:JED01:ETWAREHOUSE",
+                "set-warehouses:JED01",
                 "warehouse-confirmed:JED01"
         );
     }
@@ -131,24 +131,22 @@ class OfficialWarehouseAppointmentRunnerTest {
 
         runner.queryAvailability(task(""), client);
 
-        assertThat(client.calls).contains("set-warehouses:JED01:ETWAREHOUSE");
+        assertThat(client.calls).contains("set-warehouses:JED01");
         assertThat(client.calls).doesNotContain("warehouse-confirmed:JED01");
     }
 
     @Test
-    void selectedSlotUsesWarehouseFromReturnedByNoonAsnDetail() {
+    void selectedSlotDoesNotNeedDepartureWarehouse() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "created";
-        client.asnWarehouseFrom = "CHICSONGCANGAE";
         AppointmentTask task = task("");
-        task.warehouseFrom = "";
 
         RunResult result = runner.scheduleSelectedSlot(task, client, LocalDate.parse("2026-06-16"), new SlotCapacity(9, "9am-10am"));
 
         assertThat(result.status).isEqualTo("SCHEDULED");
         assertThat(client.calls).containsExactly(
                 "detail",
-                "set-warehouses:JED01:CHICSONGCANGAE",
+                "set-warehouses:JED01",
                 "detail",
                 "schedule:2026-06-16:9",
                 "detail"
@@ -156,12 +154,10 @@ class OfficialWarehouseAppointmentRunnerTest {
     }
 
     @Test
-    void selectedSlotKeepsWarehouseFromSelectedByUser() {
+    void selectedSlotReschedulesWithDestinationWarehouseOnly() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "scheduled";
-        client.asnWarehouseFrom = "OLDWAREHOUSE";
         AppointmentTask task = task("");
-        task.warehouseFrom = "HANKSONGCANGAE";
 
         RunResult result = runner.scheduleSelectedSlot(task, client, LocalDate.parse("2026-06-16"), new SlotCapacity(9, "9am-10am"));
 
@@ -169,7 +165,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(client.calls).containsExactly(
                 "detail",
                 "reschedule:A05531714PN",
-                "set-warehouses:JED01:HANKSONGCANGAE",
+                "set-warehouses:JED01",
                 "detail",
                 "schedule:2026-06-16:9",
                 "detail"
@@ -189,7 +185,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(result.errorMessage).contains("Noon");
         assertThat(client.calls).containsExactly(
                 "detail",
-                "set-warehouses:JED01:ETWAREHOUSE",
+                "set-warehouses:JED01",
                 "detail",
                 "schedule:2026-06-16:43",
                 "detail"
@@ -203,7 +199,6 @@ class OfficialWarehouseAppointmentRunnerTest {
         task.noonAsnNr = "A05531714PN";
         task.totalUnits = 10;
         task.warehouseTo = "JED01";
-        task.warehouseFrom = "ETWAREHOUSE";
         task.apStartDate = LocalDate.parse("2026-06-15");
         task.apEndDate = LocalDate.parse("2026-06-18");
         task.apTimeRange = timeRange;
@@ -213,7 +208,6 @@ class OfficialWarehouseAppointmentRunnerTest {
 
     private static class FakeNoonAppointmentClient implements NoonAppointmentClient {
         private String asnStatus;
-        private String asnWarehouseFrom;
         private String asnStatusAfterSchedule = "scheduled";
         private boolean setWarehousesAccepted = true;
         private boolean recordWarehouseConfirmation;
@@ -224,7 +218,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         @Override
         public AsnDetail queryAsnDetail(AppointmentTask task) {
             calls.add("detail");
-            return new AsnDetail(asnStatus, asnWarehouseFrom);
+            return new AsnDetail(asnStatus);
         }
 
         @Override
@@ -245,7 +239,7 @@ class OfficialWarehouseAppointmentRunnerTest {
 
         @Override
         public boolean setWarehouses(AppointmentTask task) {
-            calls.add("set-warehouses:" + task.warehouseTo + ":" + task.warehouseFrom);
+            calls.add("set-warehouses:" + task.warehouseTo);
             if (setWarehousesAccepted && "created".equals(asnStatus)) {
                 asnStatus = "sealed";
             }

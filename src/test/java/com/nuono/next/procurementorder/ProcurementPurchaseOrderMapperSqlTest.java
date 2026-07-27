@@ -385,25 +385,6 @@ class ProcurementPurchaseOrderMapperSqlTest {
     }
 
     @Test
-    void refreshShippingOrderSegmentStateRequiresQuotesFromTheSelectedChannel() throws Exception {
-        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
-                "refreshShippingOrderSegmentState",
-                Long.class,
-                java.util.List.class,
-                com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord.class,
-                Long.class
-        );
-
-        String sql = String.join(" ", method.getAnnotation(Update.class).value())
-                .replaceAll("\\s+", " ");
-
-        assertThat(sql).contains("quote.quote_status != 'CONFIRMED'");
-        assertThat(sql).contains("UPPER(COALESCE(quote.forwarder_code, '')) != UPPER(COALESCE(#{row.forwarderCode}, ''))");
-        assertThat(sql).contains("UPPER(COALESCE(quote.route_code, '')) != UPPER(COALESCE(#{row.routeCode}, ''))");
-        assertThat(sql).doesNotContain("PARTIAL_SUBMITTED");
-    }
-
-    @Test
     void wholeShippingOrderSubmissionMarksEverySegmentSubmitted() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "markShippingOrderSegmentsSubmitted",

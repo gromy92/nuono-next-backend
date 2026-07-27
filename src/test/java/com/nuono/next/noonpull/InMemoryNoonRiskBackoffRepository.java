@@ -22,9 +22,16 @@ public final class InMemoryNoonRiskBackoffRepository implements NoonRiskBackoffR
     }
 
     @Override
-    public NoonRiskBackoffHold selectActiveAccountWideHold(Long ownerUserId, String storeCode, String siteCode, LocalDateTime now) {
+    public NoonRiskBackoffHold selectActiveAccountWideHold(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            String operationGroup,
+            LocalDateTime now
+    ) {
         return holds.values().stream()
-                .filter(hold -> "NOON".equals(hold.getOperationGroup()))
+                .filter(hold -> same(operationGroup, hold.getOperationGroup()))
+                .filter(hold -> !"NOON".equals(operationGroup) || !isPublicSourceDomain(hold.getSourceDomain()))
                 .filter(hold -> same(hold.getOwnerUserId(), ownerUserId))
                 .filter(hold -> same(hold.getStoreCode(), storeCode))
                 .filter(hold -> siteCode == null || same(hold.getSiteCode(), siteCode) || hold.getSiteCode() == null)
@@ -32,6 +39,12 @@ public final class InMemoryNoonRiskBackoffRepository implements NoonRiskBackoffR
                 .max((first, second) -> first.getBlockedUntil().compareTo(second.getBlockedUntil()))
                 .map(NoonRiskBackoffHold::copy)
                 .orElse(null);
+    }
+
+    private boolean isPublicSourceDomain(String sourceDomain) {
+        return "PUBLIC_DETAIL".equals(sourceDomain)
+                || "PUBLIC_SEARCH".equals(sourceDomain)
+                || "SOURCE_COLLECTION".equals(sourceDomain);
     }
 
     @Override

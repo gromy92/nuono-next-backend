@@ -4,12 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand.LeaseLostException;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
+import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureStage;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureCode;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryGateway;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult.Code;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
-import java.io.IOException;
+import com.nuono.next.noonauth.gateway.NoonAuthTransientFailure;
+import com.nuono.next.noonauth.gateway.NoonTransientErrorType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -88,9 +90,18 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
 
         final NoonSessionGateway.EmailOtpGeneration generation;
         try {
-            generation = prepareEmailOtpGenerationWithOneTransientRetry(email, command);
+            generation = sessionGateway.prepareEmailOtpGeneration(email);
         } catch (RuntimeException exception) {
             command.heartbeatOrThrow();
+            Optional<NoonTransientErrorType> transientType =
+                    NoonProjectTransientFailureClassifier.classify(exception);
+            if (transientType.isPresent()) {
+                return transientIdentityFailure(
+                        NoonAuthRecoveryFailureStage.IDENTITY_PREPARATION,
+                        transientType.get(),
+                        null
+                );
+            }
             return failed(classifyIdentityFailure(exception), null, safeDiagnostic("identity preparation", exception));
         }
         command.heartbeatOrThrow();
@@ -100,23 +111,46 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
             cursor = emailOtpReader.snapshot(email, mailAuthCode);
         } catch (RuntimeException exception) {
             command.heartbeatOrThrow();
-            return failed(classifyMailboxFailure(exception), null, safeDiagnostic("mailbox snapshot", exception));
+            NoonAuthRecoveryFailureCode mailboxFailure = classifyMailboxFailure(exception);
+            Optional<NoonTransientErrorType> transientType =
+                    NoonProjectTransientFailureClassifier.classify(exception);
+            if (mailboxFailure != NoonAuthRecoveryFailureCode.MAILBOX_AUTH_FAILED
+                    && transientType.isPresent()) {
+                return transientIdentityFailure(
+                        NoonAuthRecoveryFailureStage.MAILBOX_SNAPSHOT,
+                        transientType.get(),
+                        null
+                );
+            }
+            return failed(mailboxFailure, null, safeDiagnostic("mailbox snapshot", exception));
         }
         command.heartbeatOrThrow();
         command.beforeOtpSendOrThrow();
 
         Instant sentAt = clock.instant();
         boolean sendResultUnknown = false;
+        NoonTransientErrorType sendTransientType = null;
+        List<NoonAuthTransientFailure> observedTransientFailures = new ArrayList<>();
         try {
             sessionGateway.sendEmailOtp(generation);
         } catch (RuntimeException exception) {
-            NoonAuthRecoveryFailureCode sendFailure = classifySendFailure(exception);
             command.heartbeatOrThrow();
-            if (sendFailure == NoonAuthRecoveryFailureCode.SEND_RATE_LIMITED
+            sendTransientType = NoonProjectTransientFailureClassifier.classify(exception)
+                    .orElse(null);
+            NoonAuthRecoveryFailureCode sendFailure = classifySendFailure(exception);
+            if (sendTransientType != null) {
+                observedTransientFailures.add(transientFact(
+                        NoonAuthRecoveryFailureStage.OTP_SEND,
+                        sendTransientType
+                ));
+                sendResultUnknown = true;
+            } else if (sendFailure == NoonAuthRecoveryFailureCode.IDENTITY_AUTH_FAILED
+                    || sendFailure == NoonAuthRecoveryFailureCode.SEND_RATE_LIMITED
                     || sendFailure == NoonAuthRecoveryFailureCode.SEND_RISK_BLOCKED) {
                 return failed(sendFailure, null, safeDiagnostic("otp send rejected", exception));
+            } else {
+                sendResultUnknown = true;
             }
-            sendResultUnknown = true;
         }
         command.heartbeatOrThrow();
 
@@ -141,8 +175,22 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
             } catch (LeaseLostException exception) {
                 throw exception;
             } catch (RuntimeException exception) {
+                NoonAuthRecoveryFailureCode mailboxFailure = classifyMailboxFailure(exception);
+                Optional<NoonTransientErrorType> transientType =
+                        NoonProjectTransientFailureClassifier.classify(exception);
+                if (mailboxFailure != NoonAuthRecoveryFailureCode.MAILBOX_AUTH_FAILED
+                        && transientType.isPresent()) {
+                    observedTransientFailures.add(transientFact(
+                            NoonAuthRecoveryFailureStage.MAILBOX_POLLING,
+                            transientType.get()
+                    ));
+                    return transientIdentityFailures(
+                            observedTransientFailures,
+                            lastInvalidMessageKeyHash
+                    );
+                }
                 return failed(
-                        classifyMailboxFailure(exception),
+                        mailboxFailure,
                         lastInvalidMessageKeyHash,
                         safeDiagnostic("mailbox polling", exception)
                 );
@@ -158,6 +206,9 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
                 NoonAuthRecoveryFailureCode code = sendResultUnknown
                         ? NoonAuthRecoveryFailureCode.SEND_RESULT_UNKNOWN
                         : NoonAuthRecoveryFailureCode.OTP_NOT_FOUND;
+                if (sendResultUnknown && sendTransientType != null) {
+                    return transientIdentityFailures(observedTransientFailures, null);
+                }
                 return failed(
                         code,
                         null,
@@ -177,6 +228,18 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
                 throw exception;
             } catch (RuntimeException exception) {
                 command.heartbeatOrThrow();
+                Optional<NoonTransientErrorType> transientType =
+                        NoonProjectTransientFailureClassifier.classify(exception);
+                if (transientType.isPresent()) {
+                    observedTransientFailures.add(transientFact(
+                            NoonAuthRecoveryFailureStage.OTP_VALIDATION,
+                            transientType.get()
+                    ));
+                    return transientIdentityFailures(
+                            observedTransientFailures,
+                            otpCandidate.getMessageKeyHash()
+                    );
+                }
                 NoonAuthRecoveryFailureCode failureCode = classifyOtpValidationFailure(exception);
                 if (failureCode == NoonAuthRecoveryFailureCode.OTP_INVALID_OR_EXPIRED) {
                     lastInvalidMessageKeyHash = otpCandidate.getMessageKeyHash();
@@ -278,228 +341,110 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         } catch (RuntimeException exception) {
             command.heartbeatOrThrow();
             String message = throwableMessage(exception).toLowerCase(Locale.ROOT);
-            Code code = message.contains("不包含当前项目") || message.contains("does not contain")
-                    ? Code.PROJECT_ACCESS_DENIED
-                    : Code.SESSION_CREATE_FAILED;
-            return NoonAuthRecoveryProjectResult.failed(target, code, safeDiagnostic("project session", exception));
+            if (message.contains("不包含当前项目") || message.contains("does not contain")) {
+                return NoonAuthRecoveryProjectResult.failed(
+                        target,
+                        Code.PROJECT_ACCESS_DENIED,
+                        safeDiagnostic("project session", exception)
+                );
+            }
+            Optional<NoonTransientErrorType> transientType =
+                    NoonProjectTransientFailureClassifier.classify(exception);
+            if (transientType.isPresent()) {
+                return transientFailure(
+                        target,
+                        NoonAuthRecoveryFailureStage.PROJECT_SESSION_CREATE,
+                        transientType.get()
+                );
+            }
+            return NoonAuthRecoveryProjectResult.failed(
+                    target,
+                    Code.SESSION_CREATE_FAILED,
+                    safeDiagnostic("project session", exception)
+            );
         }
         command.heartbeatOrThrow();
 
+        final JsonNode whoami;
         try {
-            JsonNode whoami = whoamiWithOneTransientRetry(projectSession, target, command);
+            whoami = sessionGateway.whoamiWithProjectSession(
+                    projectSession,
+                    target.getStoreCode()
+            );
             command.heartbeatOrThrow();
-            if (!whoamiValidatesProjectSession(
-                    whoami,
-                    expectedEmail,
-                    target.getProjectCode(),
-                    projectSession
-            )) {
-                return NoonAuthRecoveryProjectResult.failed(
-                        target,
-                        Code.COOKIE_VALIDATION_FAILED,
-                        "project cookie validation: identity or target project not confirmed"
-                );
-            }
-            sessionGateway.validateCatalogProjectSession(projectSession, target.getStoreCode());
+        } catch (LeaseLostException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            command.heartbeatOrThrow();
+            return projectValidationFailure(
+                    target,
+                    NoonAuthRecoveryFailureStage.WHOAMI_VALIDATION,
+                    "whoami validation",
+                    exception
+            );
+        }
+        if (!NoonProjectSessionValidator.validatesProjectSession(
+                whoami,
+                expectedEmail,
+                target.getProjectCode(),
+                projectSession
+        )) {
+            return NoonAuthRecoveryProjectResult.failed(
+                    target,
+                    Code.COOKIE_VALIDATION_FAILED,
+                    "project cookie validation: identity or target project not confirmed"
+            );
+        }
+
+        try {
+            sessionGateway.validateCatalogProjectSession(
+                    projectSession,
+                    target.getStoreCode()
+            );
             command.heartbeatOrThrow();
             return NoonAuthRecoveryProjectResult.recovered(target, projectSession.getCookie());
         } catch (LeaseLostException exception) {
             throw exception;
         } catch (RuntimeException exception) {
             command.heartbeatOrThrow();
-            return NoonAuthRecoveryProjectResult.failed(
+            return projectValidationFailure(
                     target,
-                    Code.COOKIE_VALIDATION_FAILED,
-                    safeDiagnostic("project cookie validation", exception)
+                    NoonAuthRecoveryFailureStage.CATALOG_VALIDATION,
+                    "catalog validation",
+                    exception
             );
         }
     }
 
-    private NoonSessionGateway.EmailOtpGeneration prepareEmailOtpGenerationWithOneTransientRetry(
-            String email,
-            NoonAuthRecoveryAttemptCommand command
-    ) {
-        try {
-            return sessionGateway.prepareEmailOtpGeneration(email);
-        } catch (LeaseLostException exception) {
-            throw exception;
-        } catch (RuntimeException exception) {
-            if (!isTransientTransportFailure(exception)) {
-                throw exception;
-            }
-            command.heartbeatOrThrow();
-            return sessionGateway.prepareEmailOtpGeneration(email);
-        }
-    }
-
-    private JsonNode whoamiWithOneTransientRetry(
-            NoonSessionGateway.ProjectSessionCookie projectSession,
+    private NoonAuthRecoveryProjectResult projectValidationFailure(
             NoonAuthRecoveryProjectTarget target,
-            NoonAuthRecoveryAttemptCommand command
+            NoonAuthRecoveryFailureStage failureStage,
+            String operation,
+            RuntimeException exception
     ) {
-        try {
-            return sessionGateway.whoamiWithProjectSession(projectSession, target.getStoreCode());
-        } catch (LeaseLostException exception) {
-            throw exception;
-        } catch (RuntimeException exception) {
-            if (!isTransientTransportFailure(exception)) {
-                throw exception;
-            }
-            command.heartbeatOrThrow();
-            return sessionGateway.whoamiWithProjectSession(projectSession, target.getStoreCode());
+        Optional<NoonTransientErrorType> transientType =
+                NoonProjectTransientFailureClassifier.classify(exception);
+        if (transientType.isPresent()) {
+            return transientFailure(target, failureStage, transientType.get());
         }
+        return NoonAuthRecoveryProjectResult.failed(
+                target,
+                Code.COOKIE_VALIDATION_FAILED,
+                safeDiagnostic(operation, exception)
+        );
     }
 
-    private boolean isTransientTransportFailure(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof IOException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        String message = throwableMessage(throwable).toLowerCase(Locale.ROOT);
-        return message.contains("header parser received no bytes")
-                || message.contains("eof reached")
-                || message.contains("premature eof")
-                || message.contains("connection reset")
-                || message.contains("connection closed")
-                || message.contains("timed out")
-                || message.contains("timeout");
-    }
-
-    static boolean whoamiMatchesTargetProject(JsonNode whoami, String targetProjectCode) {
-        String normalizedTarget = normalizeProjectCode(targetProjectCode);
-        if (!StringUtils.hasText(normalizedTarget) || whoami == null || !whoami.isObject()) {
-            return false;
-        }
-        Set<String> confirmedProjectCodes = whoamiProjectCodes(whoami);
-        return confirmedProjectCodes.size() == 1 && confirmedProjectCodes.contains(normalizedTarget);
-    }
-
-    static boolean whoamiValidatesProjectSession(
-            JsonNode whoami,
-            String expectedEmail,
-            String targetProjectCode,
-            NoonSessionGateway.ProjectSessionCookie projectSession
+    private NoonAuthRecoveryProjectResult transientFailure(
+            NoonAuthRecoveryProjectTarget target,
+            NoonAuthRecoveryFailureStage failureStage,
+            NoonTransientErrorType transientType
     ) {
-        String normalizedTarget = normalizeProjectCode(targetProjectCode);
-        if (!StringUtils.hasText(normalizedTarget) || whoami == null || !whoami.isObject()) {
-            return false;
-        }
-
-        Set<String> confirmedProjectCodes = whoamiProjectCodes(whoami);
-        if (!confirmedProjectCodes.isEmpty()) {
-            return confirmedProjectCodes.size() == 1
-                    && confirmedProjectCodes.contains(normalizedTarget);
-        }
-
-        return whoamiMatchesIdentityEmail(whoami, expectedEmail)
-                && projectSessionMatchesTarget(projectSession, normalizedTarget);
-    }
-
-    private static Set<String> whoamiProjectCodes(JsonNode whoami) {
-        Set<String> confirmedProjectCodes = new LinkedHashSet<>();
-        collectWhoamiProjectCodes(whoami, confirmedProjectCodes, 0);
-        return confirmedProjectCodes;
-    }
-
-    private static boolean whoamiMatchesIdentityEmail(JsonNode whoami, String expectedEmail) {
-        if (!StringUtils.hasText(expectedEmail)) {
-            return false;
-        }
-        JsonNode emailNode = whoami.get("email");
-        return emailNode != null
-                && emailNode.isTextual()
-                && expectedEmail.trim().equalsIgnoreCase(emailNode.asText("").trim());
-    }
-
-    private static boolean projectSessionMatchesTarget(
-            NoonSessionGateway.ProjectSessionCookie projectSession,
-            String normalizedTarget
-    ) {
-        if (projectSession == null
-                || projectSession.getProject() == null
-                || !normalizedTarget.equals(normalizeProjectCode(projectSession.getProject().getProjectCode()))
-                || !StringUtils.hasText(projectSession.getCookie())) {
-            return false;
-        }
-
-        boolean targetContextFound = false;
-        for (String segment : projectSession.getCookie().split(";")) {
-            String normalizedSegment = segment == null ? "" : segment.trim();
-            int separatorIndex = normalizedSegment.indexOf('=');
-            if (separatorIndex <= 0) {
-                continue;
-            }
-            String name = normalizedSegment.substring(0, separatorIndex).trim();
-            if (!"projectCode".equals(name)) {
-                continue;
-            }
-            String value = normalizeProjectCode(normalizedSegment.substring(separatorIndex + 1));
-            if (!normalizedTarget.equals(value)) {
-                return false;
-            }
-            targetContextFound = true;
-        }
-        return targetContextFound;
-    }
-
-    private static void collectWhoamiProjectCodes(JsonNode node, Set<String> projectCodes, int depth) {
-        if (node == null || !node.isObject() || depth > 2) {
-            return;
-        }
-        addProjectCode(node, projectCodes,
-                "projectCode",
-                "project_code",
-                "currentProjectCode",
-                "current_project_code",
-                "selectedProjectCode",
-                "selected_project_code");
-        collectProjectNode(node.get("project"), projectCodes);
-        collectProjectNode(node.get("currentProject"), projectCodes);
-        collectProjectNode(node.get("current_project"), projectCodes);
-        collectProjectNode(node.get("selectedProject"), projectCodes);
-        collectProjectNode(node.get("selected_project"), projectCodes);
-
-        collectWhoamiProjectCodes(node.get("data"), projectCodes, depth + 1);
-        collectWhoamiProjectCodes(node.get("context"), projectCodes, depth + 1);
-        collectWhoamiProjectCodes(node.get("result"), projectCodes, depth + 1);
-        collectWhoamiProjectCodes(node.get("identity"), projectCodes, depth + 1);
-        collectWhoamiProjectCodes(node.get("user"), projectCodes, depth + 1);
-    }
-
-    private static void collectProjectNode(JsonNode projectNode, Set<String> projectCodes) {
-        if (projectNode == null || projectNode.isNull() || projectNode.isMissingNode()) {
-            return;
-        }
-        if (projectNode.isTextual()) {
-            addProjectCode(projectNode.asText(null), projectCodes);
-            return;
-        }
-        if (projectNode.isObject()) {
-            addProjectCode(projectNode, projectCodes, "code", "projectCode", "project_code");
-        }
-    }
-
-    private static void addProjectCode(JsonNode node, Set<String> projectCodes, String... fieldNames) {
-        for (String fieldName : fieldNames) {
-            JsonNode value = node.get(fieldName);
-            if (value != null && value.isTextual()) {
-                addProjectCode(value.asText(null), projectCodes);
-            }
-        }
-    }
-
-    private static void addProjectCode(String value, Set<String> projectCodes) {
-        String normalized = normalizeProjectCode(value);
-        if (StringUtils.hasText(normalized)) {
-            projectCodes.add(normalized);
-        }
-    }
-
-    private static String normalizeProjectCode(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
+        return NoonAuthRecoveryProjectResult.transientFailure(
+                target,
+                failureStage,
+                transientType,
+                failureStage.name() + ": transient " + transientType.name()
+        );
     }
 
     private NoonAuthRecoveryAttemptResult failed(
@@ -510,7 +455,47 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         return NoonAuthRecoveryAttemptResult.failed(code, messageKeyHash, diagnostic);
     }
 
+    private NoonAuthRecoveryAttemptResult transientIdentityFailure(
+            NoonAuthRecoveryFailureStage failureStage,
+            NoonTransientErrorType transientType,
+            String messageKeyHash
+    ) {
+        return transientIdentityFailures(
+                List.of(transientFact(failureStage, transientType)),
+                messageKeyHash
+        );
+    }
+
+    private NoonAuthRecoveryAttemptResult transientIdentityFailures(
+            List<NoonAuthTransientFailure> failures,
+            String messageKeyHash
+    ) {
+        String diagnostic = failures.size() == 1
+                ? failures.get(0).getSafeDiagnostic()
+                : "multiple exact transient failures";
+        return NoonAuthRecoveryAttemptResult.transientFailures(
+                failures,
+                messageKeyHash,
+                diagnostic
+        );
+    }
+
+    private NoonAuthTransientFailure transientFact(
+            NoonAuthRecoveryFailureStage failureStage,
+            NoonTransientErrorType transientType
+    ) {
+        return new NoonAuthTransientFailure(
+                failureStage,
+                transientType,
+                failureStage.name() + ": transient " + transientType.name()
+        );
+    }
+
     private NoonAuthRecoveryFailureCode classifySendFailure(Throwable throwable) {
+        NoonHttpException httpFailure = findNoonHttpException(throwable);
+        if (httpFailure != null && httpFailure.hasStatusCode(401, 403)) {
+            return NoonAuthRecoveryFailureCode.IDENTITY_AUTH_FAILED;
+        }
         String message = throwableMessage(throwable).toLowerCase(Locale.ROOT);
         if (message.contains("429")
                 || message.contains("418")

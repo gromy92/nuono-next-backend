@@ -69,7 +69,7 @@ class CompetitorAnalysisMonitoringSchedulerTest {
     void enabledDetailSchedulerSubmitsOnlyDetailMonitoring() {
         ReflectionTestUtils.setField(scheduler, "enabled", true);
         CompetitorWatchProductScopeRow scope = scope();
-        when(mapper.listRefreshableWatchProductScopes(100)).thenReturn(List.of(scope));
+        when(mapper.listRefreshableWatchProductScopes(Integer.MAX_VALUE)).thenReturn(List.of(scope));
 
         assertEquals(1, scheduler.runDetailOnce());
 
@@ -85,14 +85,14 @@ class CompetitorAnalysisMonitoringSchedulerTest {
     void enabledSchedulerRecoversStaleRefreshTasksBeforeSubmittingScopes() {
         ReflectionTestUtils.setField(scheduler, "enabled", true);
         CompetitorWatchProductScopeRow scope = scope();
-        when(mapper.listRefreshableWatchProductScopes(100)).thenReturn(List.of(scope));
+        when(mapper.listRefreshableWatchProductScopes(Integer.MAX_VALUE)).thenReturn(List.of(scope));
 
         assertEquals(1, scheduler.runDetailOnce());
 
         InOrder inOrder = inOrder(refreshService, mapper);
         inOrder.verify(refreshService).resumeQueuedRefreshTasks();
         inOrder.verify(refreshService).recoverStaleRefreshTasks();
-        inOrder.verify(mapper).listRefreshableWatchProductScopes(100);
+        inOrder.verify(mapper).listRefreshableWatchProductScopes(Integer.MAX_VALUE);
         inOrder.verify(refreshService).requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
     }
 

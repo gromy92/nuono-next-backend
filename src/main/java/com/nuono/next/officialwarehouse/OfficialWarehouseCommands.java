@@ -32,7 +32,6 @@ public final class OfficialWarehouseCommands {
     }
 
     public static class UpsertAppointmentCommand {
-        public String warehouseFrom;
         public String warehouseToPartnerCode;
         public String warehouseToCode;
         public String apStartDate;

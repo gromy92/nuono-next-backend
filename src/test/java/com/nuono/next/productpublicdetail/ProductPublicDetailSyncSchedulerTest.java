@@ -37,7 +37,7 @@ class ProductPublicDetailSyncSchedulerTest {
         scope.setOwnerUserId(501L);
         scope.setStoreCode("CANMAN");
         scope.setSiteCode("SA");
-        when(mapper.listDueScopes(50, 1, 12)).thenReturn(List.of(scope));
+        when(mapper.listDueScopes(Integer.MAX_VALUE, 1, 0)).thenReturn(List.of(scope));
 
         assertEquals(1, scheduler.runOnce());
 
@@ -56,7 +56,7 @@ class ProductPublicDetailSyncSchedulerTest {
         active.setOwnerUserId(501L);
         active.setStoreCode("ACTIVE");
         active.setSiteCode("AE");
-        when(mapper.listDueScopes(50, 1, 12)).thenReturn(List.of(maintained, active));
+        when(mapper.listDueScopes(Integer.MAX_VALUE, 1, 0)).thenReturn(List.of(maintained, active));
 
         assertEquals(1, scheduler.runOnce());
 

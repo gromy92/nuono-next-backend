@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.nuono.next.productpublicdetail.ProductPublicDetailFetchResult;
+import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskRepository;
 import com.nuono.next.system.task.OperationalTaskService;
@@ -169,13 +171,29 @@ class ProductDetailBaselineBackfillServiceTest {
             BiFunction<Long, String, Long> storeScopeResolver,
             ProductDetailBaselineBackfillService.TaskSubmitter taskSubmitter
     ) {
+        return newService(
+                storeScopeResolver,
+                taskSubmitter,
+                (command, taskId) -> ProductPublicDetailFetchResult.of(
+                        ProductPublicDetailSyncStatus.NOT_FOUND,
+                        "frontend explicitly not found"
+                )
+        );
+    }
+
+    private ProductDetailBaselineBackfillService newService(
+            BiFunction<Long, String, Long> storeScopeResolver,
+            ProductDetailBaselineBackfillService.TaskSubmitter taskSubmitter,
+            ProductDetailBaselineBackfillService.DetailFrontendFetcher frontendFetcher
+    ) {
         return new ProductDetailBaselineBackfillService(
                 new OperationalTaskService(
                         repository,
                         Clock.fixed(Instant.parse("2026-06-04T05:00:00Z"), ZoneOffset.UTC)
                 ),
                 taskSubmitter,
-                storeScopeResolver
+                storeScopeResolver,
+                frontendFetcher
         );
     }
 

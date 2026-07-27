@@ -135,10 +135,10 @@ protected List<ShippingBatchSourceRecord> buildMobileShippingDecisionSources(
             if (quantity <= 0 || quantity > nonNull(balance.availableQuantity)) {
                 throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足。");
             }
-            if (!request.siteCode.equalsIgnoreCase(defaultText(balance.siteCode, ""))) {
+            if (!request.siteCode.equals(effectiveSiteCode(balance))) {
                 throw new IllegalArgumentException(balance.partnerSku + " 不属于当前站点发运范围。");
             }
-            if (!request.transportMode.equals(normalizeTransportMode(balance.plannedTransportMode))) {
+            if (!request.transportMode.equals(effectiveTransportMode(balance))) {
                 throw new IllegalArgumentException(balance.partnerSku + " 不属于当前运输方式发运范围。");
             }
             sources.add(toShippingBatchSourceRecord(

@@ -12,6 +12,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.HandoffFailure
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.PackingBoxCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ReplacePackingBoxesCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.UpdateFulfillmentCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.UpdateDispatchTargetCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ConfirmationView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.DispatchPlanView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.FulfillmentItemView;
@@ -21,6 +22,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PackingListView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PurchaseReceiptOrderView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PurchaseOrderLogisticsComparisonView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ReadyItemView;
+import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ReadySourceView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ShippingBatchView;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
@@ -94,6 +96,19 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
     ) {
         try {
             return service().listReadyItems(access(request), siteCode, fulfillmentType, keyword);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        }
+    }
+
+@PutMapping("/ready-items/{fulfillmentBalanceId}/dispatch-target")
+    public ReadySourceView updateReadyItemDispatchTarget(
+            @PathVariable String fulfillmentBalanceId,
+            @RequestBody UpdateDispatchTargetCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().updateReadyItemDispatchTarget(access(request), fulfillmentBalanceId, command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

@@ -9,6 +9,7 @@ import java.util.List;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.binding.MapperMethod;
 import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
@@ -40,11 +41,44 @@ class WarehouseDispatchMapperSqlTest {
     void balanceSelectCarriesPurchaseOrderLogisticsQuoteGateState() {
         String sql = WarehouseDispatchMapper.BALANCE_SELECT.replaceAll("\\s+", " ");
 
-        assertThat(sql).contains("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
+        assertThat(sql).contains("EXISTS (SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote");
         assertThat(sql).contains("quote.purchase_order_item_site_id = balance.purchase_order_item_site_id");
-        assertThat(sql).contains("COALESCE(quote.quote_status, 'PENDING_QUOTE') AS logisticsQuoteStatus");
-        assertThat(sql).contains("COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS logisticsShippingSubmitStatus");
+        assertThat(sql).contains("THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END AS logisticsQuoteStatus");
+        assertThat(sql).contains("THEN 'SUBMITTED' ELSE 'NOT_SUBMITTED' END AS logisticsShippingSubmitStatus");
+        assertThat(sql).doesNotContain("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
         assertThat(sql).doesNotContain("<>");
+    }
+
+    @Test
+    void inventoryDispatchTargetUsesPersistedTargetColumns() throws Exception {
+        String balanceSql = WarehouseDispatchMapper.BALANCE_SELECT.replaceAll("\\s+", " ");
+        assertThat(balanceSql).contains("balance.target_site_code AS targetSiteCode");
+        assertThat(balanceSql).contains("balance.target_transport_mode AS targetTransportMode");
+
+        Method listMethod = WarehouseDispatchMapper.class.getMethod(
+                "listReadyBalances",
+                Long.class,
+                Collection.class,
+                String.class,
+                String.class
+        );
+        String listSql = String.join(" ", listMethod.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+        assertThat(listSql).contains("COALESCE(NULLIF(balance.target_site_code, ''), balance.site_code)");
+
+        Method updateMethod = WarehouseDispatchMapper.class.getMethod(
+                "updateBalanceDispatchTarget",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String updateSql = String.join(" ", updateMethod.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+        assertThat(updateSql).contains("target_site_code = #{targetSiteCode}");
+        assertThat(updateSql).contains("target_transport_mode = #{targetTransportMode}");
+        assertThat(updateSql).contains("available_quantity > 0");
     }
 
     @Test
@@ -144,11 +178,11 @@ class WarehouseDispatchMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql).contains("FROM warehouse_outbound_order_line_source source");
-        assertThat(sql).contains("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
+        assertThat(sql).contains("NOT EXISTS ( SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote");
         assertThat(sql).contains("quote.purchase_order_item_site_id = source.purchase_order_item_site_id");
-        assertThat(sql).contains("quote.id IS NULL");
-        assertThat(sql).contains("quote.quote_status != 'CONFIRMED'");
-        assertThat(sql).contains("quote.shipping_submit_status != 'SUBMITTED'");
+        assertThat(sql).contains("quote.quote_status = 'CONFIRMED'");
+        assertThat(sql).contains("quote.shipping_submit_status = 'SUBMITTED'");
+        assertThat(sql).doesNotContain("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
     }
 
     @Test

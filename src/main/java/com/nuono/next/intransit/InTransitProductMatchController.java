@@ -49,6 +49,21 @@ public class InTransitProductMatchController {
         );
     }
 
+    @PostMapping("/{candidateId}/exclude-from-asn")
+    public RematchView excludeFromAsn(
+            @PathVariable Long batchId,
+            @PathVariable Long candidateId,
+            HttpServletRequest request
+    ) {
+        BusinessAccessContext context = requireBatchAccess(batchId, request);
+        return productMatchService.excludeFromAsn(
+                context.getBusinessOwnerUserId(),
+                context.getSessionUserId(),
+                batchId,
+                candidateId
+        );
+    }
+
     private BusinessAccessContext requireBatchAccess(Long batchId, HttpServletRequest request) {
         BusinessAccessContext context = businessAccessResolver.requireBusinessContext(
                 request,

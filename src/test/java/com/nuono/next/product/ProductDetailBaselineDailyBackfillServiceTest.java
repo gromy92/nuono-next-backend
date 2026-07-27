@@ -55,9 +55,19 @@ class ProductDetailBaselineDailyBackfillServiceTest {
                 .collect(Collectors.toList());
         when(mapper.listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA"))
                 .thenReturn(candidates);
-        when(backfill.enqueue(any(), eq("daily-maintenance-audit"), any())).thenReturn("preparing");
-        ProductDetailBaselineDailyBackfillService service =
-                service(mapper, backfill, mock(LocalDbProductMasterService.class), mock(OperationalTaskService.class), true);
+        when(backfill.enqueueInline(any(), eq("daily-maintenance-audit"), any())).thenReturn("preparing");
+        ProductDetailBaselineDailyBackfillService.BatchSubmitter batchSubmitter =
+                mock(ProductDetailBaselineDailyBackfillService.BatchSubmitter.class);
+        ProductDetailBaselineDailyBackfillService service = new ProductDetailBaselineDailyBackfillService(
+                mapper,
+                backfill,
+                mock(LocalDbProductMasterService.class),
+                mock(OperationalTaskService.class),
+                batchSubmitter,
+                true,
+                360,
+                CLOCK
+        );
 
         ProductDetailBaselineDailyBackfillService.EnqueueResult result =
                 service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
@@ -65,7 +75,11 @@ class ProductDetailBaselineDailyBackfillServiceTest {
         assertEquals(12, result.getCandidateCount());
         assertEquals(12, result.getEnqueuedCount());
         verify(mapper).listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA");
-        verify(backfill, times(12)).enqueue(any(), eq("daily-maintenance-audit"), any());
+        ArgumentCaptor<Runnable> batchCaptor = ArgumentCaptor.forClass(Runnable.class);
+        verify(batchSubmitter).submit(eq("307::str108065-nsa"), batchCaptor.capture());
+        verify(backfill, never()).enqueueInline(any(), any(), any());
+        batchCaptor.getValue().run();
+        verify(backfill, times(12)).enqueueInline(any(), eq("daily-maintenance-audit"), any());
     }
 
     @Test
@@ -77,7 +91,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
         ProductDetailBaselineCandidate duplicate = candidate(101L, 50003L, "Z-PARENT-1", "PARTNER-2", "PSKU-2");
         when(mapper.listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA"))
                 .thenReturn(List.of(first, duplicate));
-        when(backfill.enqueue(any(), eq("daily-maintenance-audit"), any())).thenReturn("preparing");
+        when(backfill.enqueueInline(any(), eq("daily-maintenance-audit"), any())).thenReturn("preparing");
         ProductDetailBaselineDailyBackfillService service =
                 service(mapper, backfill, productMasterService, mock(OperationalTaskService.class), true);
 
@@ -88,7 +102,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
                 ArgumentCaptor.forClass(ProductMasterFetchCommand.class);
         ArgumentCaptor<ProductDetailBaselineBackfillService.DetailBaselineBackfillRunner> runnerCaptor =
                 ArgumentCaptor.forClass(ProductDetailBaselineBackfillService.DetailBaselineBackfillRunner.class);
-        verify(backfill).enqueue(commandCaptor.capture(), eq("daily-maintenance-audit"), runnerCaptor.capture());
+        verify(backfill).enqueueInline(commandCaptor.capture(), eq("daily-maintenance-audit"), runnerCaptor.capture());
         ProductMasterFetchCommand command = commandCaptor.getValue();
         assertEquals(307L, command.getOwnerUserId());
         assertEquals("STR108065-NSA", command.getStoreCode());

@@ -1,6 +1,8 @@
 package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
@@ -12,7 +14,96 @@ import org.junit.jupiter.api.Test;
 class NoonRiskBackoffGuardTest {
 
     @Test
-    void recordRiskSignalAlsoCreatesAccountWideHoldForOtherNoonOperations() {
+    void publicRiskDoesNotBlockPartnerOperations() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, clock);
+
+        guard.recordRiskSignal(
+                NoonRiskBackoffScope.publicDetail(307L, "STR108065-NSA", "SA"),
+                "rate_limited",
+                "PUBLIC_DETAIL",
+                130001L,
+                null,
+                "public detail rate limited"
+        );
+
+        assertNotNull(repository.selectLatestHold(
+                NoonRiskBackoffScope.allPublicNoon(307L, "STR108065-NSA", "SA").getScopeKey()
+        ));
+        assertTrue(guard.currentHold(
+                NoonRiskBackoffScope.publicSearch(307L, "STR108065-NSA", "SA")
+        ).isPresent());
+        assertFalse(guard.currentHold(
+                NoonRiskBackoffScope.report(307L, "STR108065-NSA", "SA")
+        ).isPresent());
+        assertFalse(guard.currentHold(
+                NoonRiskBackoffScope.productInterface(307L, "STR108065-NSA", "SA")
+        ).isPresent());
+    }
+
+    @Test
+    void partnerRiskDoesNotBlockPublicOperations() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, clock);
+
+        guard.recordRiskSignal(
+                NoonRiskBackoffScope.report(307L, "STR108065-NSA", "SA"),
+                "blocked_by_risk_control",
+                "SALES",
+                130001L,
+                null,
+                "partner report blocked"
+        );
+
+        assertFalse(guard.currentHold(
+                NoonRiskBackoffScope.publicDetail(307L, "STR108065-NSA", "SA")
+        ).isPresent());
+        assertFalse(guard.currentHold(
+                NoonRiskBackoffScope.publicSearch(307L, "STR108065-NSA", "SA")
+        ).isPresent());
+        assertFalse(guard.currentHold(
+                NoonRiskBackoffScope.sourceCollection(307L, "STR108065-NSA", null)
+        ).isPresent());
+    }
+
+    @Test
+    void legacyPublicAccountWideHoldDoesNotBlockOrEscalatePartnerOperations() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, clock);
+
+        NoonRiskBackoffHold legacyPublicHold = guard.recordRiskSignal(
+                NoonRiskBackoffScope.allNoon(307L, "STR108065-NSA", "SA"),
+                "rate_limited",
+                "PUBLIC_DETAIL",
+                130001L,
+                null,
+                "legacy public hold stored under NOON"
+        );
+        legacyPublicHold.setAttemptCount(4);
+        legacyPublicHold.setBlockedUntil(LocalDateTime.of(2026, 5, 22, 9, 16));
+        repository.upsert(legacyPublicHold);
+
+        assertFalse(guard.currentHold(
+                NoonRiskBackoffScope.report(307L, "STR108065-NSA", "SA")
+        ).isPresent());
+        NoonRiskBackoffHold partnerHold = guard.recordRiskSignal(
+                NoonRiskBackoffScope.report(307L, "STR108065-NSA", "SA"),
+                "rate_limited",
+                "SALES",
+                130002L,
+                null,
+                "partner report rate limited"
+        );
+
+        assertEquals(1, partnerHold.getAttemptCount());
+        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), partnerHold.getBlockedUntil());
+    }
+
+    @Test
+    void partnerRiskSignalAlsoCreatesAccountWideHoldForOtherPartnerOperations() {
         Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
         InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
         NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, clock);
@@ -68,7 +159,25 @@ class NoonRiskBackoffGuardTest {
     }
 
     @Test
-    void accountWideHoldWithSpecificSiteBlocksNoonCallerWhenSiteIsUnknown() {
+    void publicAccountWideHoldWithSpecificSiteBlocksPublicCallerWhenSiteIsUnknown() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
+        InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, clock);
+
+        guard.recordRiskSignal(
+                NoonRiskBackoffScope.publicSearch(307L, "STR108065-NSA", "SA"),
+                "blocked_by_risk_control",
+                "PUBLIC_SEARCH",
+                130001L,
+                null,
+                "public search blocked"
+        );
+
+        assertTrue(guard.currentHold(NoonRiskBackoffScope.sourceCollection(307L, "STR108065-NSA", null)).isPresent());
+    }
+
+    @Test
+    void partnerAccountWideHoldWithSpecificSiteBlocksPartnerCallerWhenSiteIsUnknown() {
         Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
         InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
         NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, clock);
@@ -79,10 +188,12 @@ class NoonRiskBackoffGuardTest {
                 "SALES",
                 130001L,
                 null,
-                "sales blocked"
+                "partner report blocked"
         );
 
-        assertTrue(guard.currentHold(NoonRiskBackoffScope.sourceCollection(307L, "STR108065-NSA", null)).isPresent());
+        assertTrue(guard.currentHold(
+                NoonRiskBackoffScope.productInterface(307L, "STR108065-NSA", null)
+        ).isPresent());
     }
 
     @Test

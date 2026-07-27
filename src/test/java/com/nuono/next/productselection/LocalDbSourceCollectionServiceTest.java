@@ -75,15 +75,15 @@ class LocalDbSourceCollectionServiceTest {
     }
 
     @Test
-    void noonSourceCollectionWaitsForExistingNoonRiskHoldInsteadOfCallingCollector() {
+    void noonSourceCollectionWaitsForExistingPublicRiskHoldInsteadOfCallingCollector() {
         ProductSelectionSourceCollectionRow row = noonSourceCollection();
         NoonRiskBackoffHold hold = riskBackoffGuard.recordRiskSignal(
-                NoonRiskBackoffScope.report(row.getOwnerUserId(), row.getStoreCode(), "SA"),
+                NoonRiskBackoffScope.publicSearch(row.getOwnerUserId(), row.getStoreCode(), "SA"),
                 "blocked_by_risk_control",
-                "SALES",
+                "PUBLIC_SEARCH",
                 130001L,
                 null,
-                "sales blocked"
+                "public search blocked"
         );
         when(productSelectionMapper.listRunningSourceCollections(3)).thenReturn(List.of(row));
         when(productSelectionMapper.claimSourceCollection(eq(row.getId()), anyString())).thenReturn(1);

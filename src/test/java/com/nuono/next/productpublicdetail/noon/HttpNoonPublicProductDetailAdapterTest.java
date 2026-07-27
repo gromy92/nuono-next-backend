@@ -217,7 +217,7 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
-    void fallsBackToCatalogPartnerWhenCustomerCatalogIsUnavailable() {
+    void neverFallsBackToCatalogPartnerWhenNoonFrontendIsUnavailable() {
         StubAdapter adapter = new StubAdapter(null, false, "");
         adapter.failure = new NoonSearchProviderException(
                 "PROVIDER_UNAVAILABLE",
@@ -235,14 +235,15 @@ class HttpNoonPublicProductDetailAdapterTest {
                 .noonProductCode("ZABCDEF12")
                 .build());
 
-        assertEquals(ProductPublicDetailSyncStatus.PARTIAL, detail.getStatus());
-        assertEquals("ZABCDEF12", detail.getNoonProductCode());
-        assertTrue(detail.getProviderSourceUrl().contains("noon-catalog.noon.partners"));
+        assertEquals(ProductPublicDetailSyncStatus.FAILED, detail.getStatus());
+        assertEquals("PROVIDER_UNAVAILABLE", detail.getFailureCode());
+        assertTrue(detail.getProviderSourceUrl().contains("www.noon.com/_vs/nc/"));
+        assertEquals(0, adapter.catalogRequestCount.get());
     }
 
     @Test
-    void catalogPartnerFallbackCanBeDisabledForProductionGateway() {
-        StubAdapter adapter = new StubAdapter(null, false, "", false);
+    void catalogPartnerFallbackCannotBeEnabledForProductDetail() {
+        StubAdapter adapter = new StubAdapter(null, false, "", true);
         adapter.failure = new NoonSearchProviderException(
                 "PROVIDER_UNAVAILABLE",
                 "Noon customer catalog timed out",
@@ -293,7 +294,7 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
-    void genericCustomerAndFallbackFailuresReportFallbackSource() {
+    void genericFrontendFailuresDoNotUseCatalogPartnerFallback() {
         StubAdapter adapter = new StubAdapter(null, false, "");
         adapter.runtimeFailure = new IllegalStateException("customer transport exploded");
         adapter.catalogRuntimeFailure = new IllegalStateException("catalog transport exploded");
@@ -306,9 +307,9 @@ class HttpNoonPublicProductDetailAdapterTest {
 
         assertEquals(ProductPublicDetailSyncStatus.FAILED, detail.getStatus());
         assertEquals("PROVIDER_UNAVAILABLE", detail.getFailureCode());
-        assertTrue(detail.getProviderSourceUrl().contains("noon-catalog.noon.partners"));
-        assertTrue(detail.getFailureMessage().contains("catalog transport exploded"));
-        assertFalse(detail.getFailureMessage().contains("customer transport exploded"));
+        assertTrue(detail.getProviderSourceUrl().contains("www.noon.com/_vs/nc/"));
+        assertTrue(detail.getFailureMessage().contains("customer transport exploded"));
+        assertEquals(0, adapter.catalogRequestCount.get());
     }
 
     @Test
@@ -424,8 +425,7 @@ class HttpNoonPublicProductDetailAdapterTest {
                     cookie,
                     chromeCookieEnabled,
                     frontendCookieHeaderSupplier,
-                    curlEnabled,
-                    catalogPartnerFallbackEnabled
+                    curlEnabled
             );
             this.page = page;
         }

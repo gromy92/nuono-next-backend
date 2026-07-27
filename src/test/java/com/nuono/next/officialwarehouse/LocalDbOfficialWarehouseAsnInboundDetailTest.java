@@ -39,7 +39,8 @@ class LocalDbOfficialWarehouseAsnInboundDetailTest {
                 mock(OfficialWarehouseNoonInboundClient.class),
                 new ObjectMapper(),
                 null,
-                new NoonPullFailurePolicy()
+                new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
     }
 

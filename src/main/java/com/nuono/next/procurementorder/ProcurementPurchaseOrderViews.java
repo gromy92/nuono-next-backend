@@ -132,27 +132,6 @@ public final class ProcurementPurchaseOrderViews {
         public List<PurchaseOrderLogisticsQuoteChannelOptionView> channels = new ArrayList<>();
     }
 
-    public static class PurchaseOrderLogisticsQuoteChannelOptionView {
-        public String routeCode;
-        public String routeName;
-        public String serviceCode;
-        public String serviceName;
-        public String siteCode;
-        public String transportMode;
-        public String transportModeLabel;
-        public String country;
-        public String targetPlatform;
-        public String deliveryCity;
-        public String destinationNode;
-        public String transitTimeText;
-        public String priceSummary;
-        public Integer totalLineCount = 0;
-        public Integer pendingLineCount = 0;
-        public Integer confirmedLineCount = 0;
-        public Integer newProductLineCount = 0;
-        public List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();
-    }
-
     public static class PurchaseOrderLogisticsQuoteChannelLineView {
         public String shippingOrderLineId;
         public String purchaseOrderItemSiteId;
@@ -163,8 +142,8 @@ public final class ProcurementPurchaseOrderViews {
         public String currency;
         public String billingUnit;
         public String yiteMaterial;
+        public String priceSource;
     }
-
     public static class PurchaseOrderLogisticsQuoteReportExportView {
         public String filename;
         public String contentType;

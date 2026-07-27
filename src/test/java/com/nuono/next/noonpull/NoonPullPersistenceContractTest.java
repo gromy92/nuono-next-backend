@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -244,12 +245,17 @@ class NoonPullPersistenceContractTest {
                 .filter((candidate) -> "selectLatestHold".equals(candidate.getName()))
                 .findFirst()
                 .orElseThrow();
+        Method selectActiveAccountWideHold = Arrays.stream(NoonRiskBackoffMapper.class.getDeclaredMethods())
+                .filter((candidate) -> "selectActiveAccountWideHold".equals(candidate.getName()))
+                .findFirst().orElseThrow();
         Method resetAfterSuccess = Arrays.stream(NoonRiskBackoffMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "resetAfterSuccess".equals(candidate.getName()))
                 .findFirst()
                 .orElseThrow();
         String insertSql = String.join(" ", upsert.getAnnotation(Insert.class).value()).replaceAll("\\s+", " ");
         String activeSql = String.join(" ", selectActiveHold.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        String accountWideSql = String.join(" ",
+                selectActiveAccountWideHold.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
         String latestSql = String.join(" ", selectLatestHold.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
         String resetSql = String.join(" ", resetAfterSuccess.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
 
@@ -263,6 +269,10 @@ class NoonPullPersistenceContractTest {
         assertTrue(activeSql.contains("scope_key = #{scopeKey}"));
         assertTrue(activeSql.contains("blocked_until > #{now}"));
         assertTrue(activeSql.contains("is_deleted = b'0'"));
+        assertTrue(accountWideSql.contains("operation_group = #{operationGroup}"));
+        assertFalse(accountWideSql.contains("operation_group = 'NOON'"));
+        assertTrue(accountWideSql.contains(
+                "source_domain NOT IN ('PUBLIC_DETAIL', 'PUBLIC_SEARCH', 'SOURCE_COLLECTION')"));
         assertTrue(latestSql.contains("ORDER BY gmt_updated DESC"));
         assertTrue(resetSql.contains("attempt_count = 0"));
         assertTrue(resetSql.contains("scope_key = #{scopeKey}"));

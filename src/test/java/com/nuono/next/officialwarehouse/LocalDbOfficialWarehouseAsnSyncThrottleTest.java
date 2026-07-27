@@ -75,7 +75,8 @@ class LocalDbOfficialWarehouseAsnSyncThrottleTest {
                 mock(OfficialWarehouseNoonInboundClient.class),
                 new ObjectMapper(),
                 NoonRiskBackoffGuard.disabled(),
-                new NoonPullFailurePolicy()
+                new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
     }
 

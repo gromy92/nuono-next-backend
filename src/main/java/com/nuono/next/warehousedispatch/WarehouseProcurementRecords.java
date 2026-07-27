@@ -89,6 +89,8 @@ public class WarehouseProcurementRecords {
         public String siteCode;
         public Boolean isNewProduct;
         public String plannedTransportMode;
+        public String targetSiteCode;
+        public String targetTransportMode;
         public String fulfillmentType;
         public Integer plannedQuantity;
         public Integer confirmedQuantity;

@@ -49,12 +49,6 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
         if (balances.size() != requested.size()) {
             throw new IllegalArgumentException("可发运来源不存在或已被占用。");
         }
-
-        Long operatorUserId = access.getSessionUserId();
-        Long ownerUserId = ownerUserId(access);
-        Long batchId = mapper.nextShippingBatchId();
-
-        List<ShippingBatchSourceRecord> sourceRows = new ArrayList<>();
         for (FulfillmentBalanceRecord balance : balances) {
             if (!canUseBalance(access, balance)) {
                 throw new IllegalArgumentException("当前账号不能发运所选来源。");
@@ -63,6 +57,21 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
             if (quantity <= 0 || quantity > nonNull(balance.availableQuantity)) {
                 throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足。");
             }
+        }
+        requireSingleLogisticsPartition(balances.stream()
+                .map(balance -> logisticsPartitionKey(
+                        effectiveSiteCode(balance),
+                        effectiveTransportMode(balance)
+                ))
+                .collect(Collectors.toList()));
+
+        Long operatorUserId = access.getSessionUserId();
+        Long ownerUserId = ownerUserId(access);
+        Long batchId = mapper.nextShippingBatchId();
+
+        List<ShippingBatchSourceRecord> sourceRows = new ArrayList<>();
+        for (FulfillmentBalanceRecord balance : balances) {
+            int quantity = requested.getOrDefault(balance.id, 0);
             int reserved = mapper.reserveBalance(balance.id, quantity, operatorUserId);
             if (reserved != 1) {
                 throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足或已被占用。");
@@ -214,7 +223,13 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
         Map<Long, List<ShippingSuggestionLineSourceRecord>> suggestionSourcesByLine = optionSources.stream()
                 .collect(Collectors.groupingBy(source -> source.lineId, LinkedHashMap::new, Collectors.toList()));
         List<OutboundOrderView> result = new ArrayList<>();
-        for (List<ShippingSuggestionLineRecord> originLines : List.of(optionLines)) {
+        Map<String, List<ShippingSuggestionLineRecord>> linesByPartition = optionLines.stream()
+                .collect(Collectors.groupingBy(
+                        line -> logisticsPartitionKey(line.siteCode, line.actualTransportMode),
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ));
+        for (List<ShippingSuggestionLineRecord> originLines : linesByPartition.values()) {
             ShippingSuggestionLineRecord firstLine = originLines.get(0);
             Long outboundOrderId = mapper.nextOutboundOrderId();
             OutboundOrderRecord order = new OutboundOrderRecord();

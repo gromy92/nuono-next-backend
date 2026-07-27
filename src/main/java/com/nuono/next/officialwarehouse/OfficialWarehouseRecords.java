@@ -369,7 +369,6 @@ public final class OfficialWarehouseRecords {
         public String localAsnNo;
         public String noonAsnNr;
         public Integer totalUnits;
-        public String warehouseFrom;
         public String warehouseToPartnerCode;
         public String warehouseToCode;
         public LocalDate apStartDate;
@@ -395,7 +394,6 @@ public final class OfficialWarehouseRecords {
         public String localAsnNo;
         public String noonAsnNr;
         public Integer totalUnits;
-        public String warehouseFrom;
         public String warehouseToPartnerCode;
         public String warehouseToCode;
         public LocalDate apStartDateValue;

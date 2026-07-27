@@ -39,7 +39,6 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductOf
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderItemSiteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderChannelQuoteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderDeclarationAttributeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderRecord;
@@ -54,7 +53,6 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrd
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsCostComponentView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsPlanLineView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsRecommendationView;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelOptionView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteForwarderOptionView;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteImportErrorView;
@@ -192,6 +190,10 @@ public class LocalDbProcurementPurchaseOrderService {
     private static final int YITE_HIDDEN_BILLING_UNIT_COLUMN = YITE_HIDDEN_START_COLUMN + 6;
     private static final int YITE_HIDDEN_ESTIMATED_AMOUNT_COLUMN = YITE_HIDDEN_START_COLUMN + 7;
     private static final int YITE_HIDDEN_REMARK_COLUMN = YITE_HIDDEN_START_COLUMN + 8;
+    private static final int YITE_HIDDEN_ROUTE_CODE_COLUMN = YITE_HIDDEN_START_COLUMN + 9;
+    private static final int YITE_HIDDEN_ROUTE_NAME_COLUMN = YITE_HIDDEN_START_COLUMN + 10;
+    private static final int YITE_HIDDEN_SERVICE_CODE_COLUMN = YITE_HIDDEN_START_COLUMN + 11;
+    private static final int YITE_HIDDEN_SERVICE_NAME_COLUMN = YITE_HIDDEN_START_COLUMN + 12;
     private static final int YITE_VISIBLE_DECLARED_UNIT_PRICE_COLUMN = 9;
     private static final int YITE_VISIBLE_LATEST_QUOTE_COLUMN = 16;
     private static final String[] YITE_DETAIL_HEADERS = {
@@ -201,7 +203,8 @@ public class LocalDbProcurementPurchaseOrderService {
     };
     private static final String[] YITE_HIDDEN_HEADERS = {
             "Nuono报价行ID", "Nuono采购单ID", "Nuono采购商品ID", "Nuono采购站点行ID",
-            "Nuono货代编码", "货代确认单价", "计费单位", "确认金额", "物流备注"
+            "Nuono货代编码", "货代确认单价", "计费单位", "确认金额", "物流备注",
+            "Nuono路线编码", "Nuono路线名称", "Nuono服务编码", "Nuono服务名称"
     };
     private static final int ET_HEADER_ROW_INDEX = 1;
     private static final int ET_FIRST_DATA_ROW_INDEX = 2;
@@ -254,18 +257,21 @@ public class LocalDbProcurementPurchaseOrderService {
     private final ProductSelectionMapper productSelectionMapper;
     private final LocalDbAli1688CollectionService ali1688CollectionService;
     private final ObjectMapper objectMapper;
+    private final WarehouseShippingQuoteChannelService shippingQuoteChannelService;
     private final PurchaseOrderLogisticsCostCalculator costCalculator = new PurchaseOrderLogisticsCostCalculator();
 
     public LocalDbProcurementPurchaseOrderService(
             ProcurementPurchaseOrderMapper mapper,
             ProductSelectionMapper productSelectionMapper,
             LocalDbAli1688CollectionService ali1688CollectionService,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            WarehouseShippingQuoteChannelService shippingQuoteChannelService
     ) {
         this.mapper = mapper;
         this.productSelectionMapper = productSelectionMapper;
         this.ali1688CollectionService = ali1688CollectionService;
         this.objectMapper = objectMapper;
+        this.shippingQuoteChannelService = shippingQuoteChannelService;
     }
 
     public List<PurchaseOrderView> listOrders(
@@ -998,21 +1004,25 @@ public class LocalDbProcurementPurchaseOrderService {
 
         List<PurchaseOrderLogisticsQuoteLineRecord> refreshedLines =
                 refreshShippingOrderLogisticsQuoteLines(order, operatorUserId);
-        PurchaseOrderLogisticsQuoteLineRecord quoteLine = refreshedLines.stream()
+        PurchaseOrderLogisticsQuoteLineRecord baseLine = refreshedLines.stream()
                 .filter(line -> parsedLineId.equals(line.shippingOrderLineId)
                         || (line.shippingOrderLineId == null
                         && shippingLine.purchaseOrderItemSiteId != null
                         && shippingLine.purchaseOrderItemSiteId.equals(line.purchaseOrderItemSiteId)))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("发货单商品报价行不存在或已删除。"));
-        List<LogisticsQuoteExportOption> options = collectLogisticsQuoteExportOptions(List.of(quoteLine));
+        List<LogisticsQuoteExportOption> options = collectLogisticsQuoteExportOptions(List.of(baseLine));
         LogisticsQuoteExportOption selectedOption = requireLogisticsQuoteChannelOption(
                 options,
                 selectedForwarderCode,
                 selectedRouteCode
         );
         String yiteMaterial = normalizeInlineQuoteYiteMaterial(command, selectedOption);
-        applyLogisticsQuoteChannel(quoteLine, selectedOption.candidate);
+        PurchaseOrderLogisticsQuoteLineRecord quoteLine = shippingQuoteChannelService.requireChannelLine(
+                baseLine,
+                selectedOption.candidate,
+                operatorUserId
+        );
         if (yiteMaterial != null) {
             persistShippingOrderLineYiteMaterial(order, shippingLine, yiteMaterial, operatorUserId);
             quoteLine.yiteMaterial = yiteMaterial;
@@ -1025,7 +1035,12 @@ public class LocalDbProcurementPurchaseOrderService {
         quoteLine.estimatedAmount = null;
         quoteLine.remark = trimToNull(command == null ? null : command.remark);
         mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
-        persistProductForwarderChannelQuote(quoteLine, operatorUserId, "WEB_INLINE_QUOTE", "SHIPPING_ORDER_INLINE_QUOTE");
+        persistConfirmedWarehouseQuote(
+                quoteLine,
+                operatorUserId,
+                "WEB_INLINE_QUOTE",
+                "SHIPPING_ORDER_INLINE_QUOTE"
+        );
         mapper.refreshShippingOrderQuoteState(order.id, quoteLine, operatorUserId);
         if (quoteLine.shippingOrderSegmentId != null) {
             mapper.refreshShippingOrderSegmentState(
@@ -1113,15 +1128,20 @@ public class LocalDbProcurementPurchaseOrderService {
         String yiteMaterial = normalizeOptionalInlineQuoteYiteMaterial(command, selectedOption);
         String remark = trimToNull(command.remark);
 
-        for (PurchaseOrderLogisticsQuoteLineRecord quoteLine : selectedQuoteLines) {
+        List<PurchaseOrderLogisticsQuoteLineRecord> confirmedQuoteLines = new ArrayList<>();
+        for (PurchaseOrderLogisticsQuoteLineRecord baseLine : selectedQuoteLines) {
             ShippingOrderLineRecord shippingLine = selectedShippingLines.stream()
-                    .filter(line -> line.id != null && line.id.equals(quoteLine.shippingOrderLineId)
-                            || (quoteLine.shippingOrderLineId == null
+                    .filter(line -> line.id != null && line.id.equals(baseLine.shippingOrderLineId)
+                            || (baseLine.shippingOrderLineId == null
                             && line.purchaseOrderItemSiteId != null
-                            && line.purchaseOrderItemSiteId.equals(quoteLine.purchaseOrderItemSiteId)))
+                            && line.purchaseOrderItemSiteId.equals(baseLine.purchaseOrderItemSiteId)))
                     .findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("发货单商品不存在或已删除。"));
-            applyLogisticsQuoteChannel(quoteLine, selectedOption.candidate);
+            PurchaseOrderLogisticsQuoteLineRecord quoteLine = shippingQuoteChannelService.requireChannelLine(
+                    baseLine,
+                    selectedOption.candidate,
+                    operatorUserId
+            );
             if (yiteMaterial != null) {
                 persistShippingOrderLineYiteMaterial(order, shippingLine, yiteMaterial, operatorUserId);
                 quoteLine.yiteMaterial = yiteMaterial;
@@ -1134,12 +1154,18 @@ public class LocalDbProcurementPurchaseOrderService {
             quoteLine.estimatedAmount = null;
             quoteLine.remark = remark;
             mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
-            persistProductForwarderChannelQuote(quoteLine, operatorUserId, "WEB_INLINE_QUOTE", "SHIPPING_ORDER_INLINE_QUOTE");
+            persistConfirmedWarehouseQuote(
+                    quoteLine,
+                    operatorUserId,
+                    "WEB_INLINE_QUOTE",
+                    "SHIPPING_ORDER_INLINE_QUOTE"
+            );
+            confirmedQuoteLines.add(quoteLine);
         }
 
-        PurchaseOrderLogisticsQuoteLineRecord sampleLine = selectedQuoteLines.get(0);
+        PurchaseOrderLogisticsQuoteLineRecord sampleLine = confirmedQuoteLines.get(0);
         mapper.refreshShippingOrderQuoteState(order.id, sampleLine, operatorUserId);
-        List<Long> affectedSegmentIds = selectedQuoteLines.stream()
+        List<Long> affectedSegmentIds = confirmedQuoteLines.stream()
                 .map(line -> line.shippingOrderSegmentId)
                 .filter(Objects::nonNull)
                 .distinct()
@@ -1273,6 +1299,9 @@ public class LocalDbProcurementPurchaseOrderService {
         List<PurchaseOrderLogisticsQuoteLineRecord> quoteLines =
                 refreshShippingOrderLogisticsQuoteLines(shippingOrder, operatorUserId);
         for (PurchaseOrderLogisticsQuoteLineRecord quoteLine : quoteLines) {
+            if (quoteLine.id == null) {
+                continue;
+            }
             mapper.updateShippingOrderLineQuoteLine(
                     shippingOrderId,
                     quoteLine.purchaseOrderItemSiteId,
@@ -1375,8 +1404,14 @@ public class LocalDbProcurementPurchaseOrderService {
             throw new IllegalArgumentException("当前货代渠道没有报价缺失商品。");
         }
         for (PurchaseOrderLogisticsQuoteLineRecord line : reportLines) {
+            PurchaseOrderLogisticsQuoteLineRecord persisted = shippingQuoteChannelService.requireChannelLine(
+                    line,
+                    selectedOption.candidate,
+                    operatorUserId
+            );
+            mapper.assignLogisticsQuoteLineChannel(persisted, operatorUserId);
+            line.id = persisted.id;
             applyLogisticsQuoteChannel(line, selectedOption.candidate);
-            mapper.assignLogisticsQuoteLineChannel(line, operatorUserId);
         }
         mapper.refreshShippingOrderQuoteState(shippingOrder.id, reportLines.get(0), operatorUserId);
 
@@ -1465,23 +1500,13 @@ public class LocalDbProcurementPurchaseOrderService {
         } catch (IOException exception) {
             throw new IllegalArgumentException("报价回传表读取失败，请确认文件格式为 xls 或 xlsx。", exception);
         }
-        List<PurchaseOrderLogisticsQuoteLineRecord> lines =
-                requestedSegmentIds.isEmpty()
-                        ? emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrder(shippingOrder.id))
-                        : emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(
-                                shippingOrder.id,
-                                requestedSegmentIds
-                        ));
-        PurchaseOrderLogisticsQuoteLineRecord sample = lines.stream()
-                .filter(line -> line.forwarderCode != null || line.routeCode != null)
-                .findFirst()
-                .orElse(new PurchaseOrderLogisticsQuoteLineRecord());
-        if (requestedSegmentIds.isEmpty()) {
-            mapper.refreshShippingOrderQuoteState(shippingOrder.id, sample, access.getSessionUserId());
-        } else {
-            mapper.refreshShippingOrderSegmentState(shippingOrder.id, requestedSegmentIds, sample, access.getSessionUserId());
-            mapper.refreshShippingOrderHeaderState(shippingOrder.id, shippingOrder.ownerUserId, access.getSessionUserId());
-        }
+        shippingQuoteChannelService.refreshSelectedSegmentStates(
+                shippingOrder.id,
+                shippingOrder.ownerUserId,
+                emptyIfNull(mapper.listShippingOrderSegments(shippingOrder.id)),
+                allowedSegmentIds,
+                access.getSessionUserId()
+        );
         return view;
     }
 
@@ -1493,14 +1518,24 @@ public class LocalDbProcurementPurchaseOrderService {
         );
         List<ShippingOrderSegmentRecord> availableSegments =
                 emptyIfNull(mapper.listShippingOrderSegments(shippingOrder.id));
-        List<PurchaseOrderLogisticsQuoteLineRecord> lines =
+        List<PurchaseOrderLogisticsQuoteLineRecord> baseLines =
                 emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrder(shippingOrder.id));
-        requireShippingOrderQuoteLinesSubmittable(
+        List<PurchaseOrderLogisticsQuoteLineRecord> lines = shippingQuoteChannelService.resolveSelectedLines(
+                baseLines,
+                availableSegments,
+                emptyIfNull(mapper.listConfirmedLogisticsQuoteLinesByShippingOrder(shippingOrder.id))
+        );
+        shippingQuoteChannelService.requireSubmittable(
                 lines,
                 availableSegments,
                 "当前仓库单没有可提交发货的报价行。"
         );
         Long operatorUserId = access.getSessionUserId();
+        lines = shippingQuoteChannelService.materializeSubmissionFacts(
+                lines,
+                availableSegments,
+                operatorUserId
+        );
         mapper.submitLogisticsQuoteLinesForShippingOrder(shippingOrder.id, operatorUserId);
         if (!availableSegments.isEmpty()) {
             mapper.markShippingOrderSegmentsSubmitted(shippingOrder.id, shippingOrder.ownerUserId, operatorUserId);
@@ -1512,111 +1547,6 @@ public class LocalDbProcurementPurchaseOrderService {
         view.shippingSubmitStatus = SHIPPING_SUBMITTED;
         view.submittedLineCount = lines.size();
         return view;
-    }
-
-    private void requireShippingOrderQuoteLinesSubmittable(
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            String emptyMessage
-    ) {
-        requireShippingOrderQuoteLinesSubmittable(lines, List.of(), emptyMessage);
-    }
-
-    private void requireShippingOrderQuoteLinesSubmittable(
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            List<ShippingOrderSegmentRecord> segments,
-            String emptyMessage
-    ) {
-        if (lines.isEmpty()) {
-            throw new IllegalArgumentException(emptyMessage);
-        }
-        Map<Long, ShippingOrderSegmentRecord> segmentById = emptyIfNull(segments).stream()
-                .filter(segment -> segment.id != null)
-                .collect(Collectors.toMap(segment -> segment.id, Function.identity(), (left, ignored) -> left));
-        boolean missingQuote = lines.stream()
-                .anyMatch(line -> {
-                    ShippingOrderSegmentRecord segment = segmentById.get(line.shippingOrderSegmentId);
-                    if (!segmentById.isEmpty() && segment == null) {
-                        return true;
-                    }
-                    if (segment != null && !shippingQuoteMatchesSegmentChannel(line, segment)) {
-                        return true;
-                    }
-                    return isShippingQuotePriceBlocking(line, segment)
-                            && !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus));
-                });
-        if (missingQuote) {
-            throw new IllegalArgumentException("仓库单还有物流报价缺失，不能提交。");
-        }
-        boolean missingYiteMaterial = lines.stream()
-                .filter(line -> isYiteShippingQuoteLine(line, segmentById.get(line.shippingOrderSegmentId)))
-                .anyMatch(line -> !StringUtils.hasText(line.yiteMaterial));
-        if (missingYiteMaterial) {
-            throw new IllegalArgumentException("义特材质缺失，不能提交发货单。");
-        }
-    }
-
-    private boolean isShippingQuotePriceBlocking(PurchaseOrderLogisticsQuoteLineRecord line) {
-        return isShippingQuotePriceBlocking(line, null);
-    }
-
-    private boolean isShippingQuotePriceBlocking(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ShippingOrderSegmentRecord segment
-    ) {
-        if (segment != null && isZdShippingQuoteSegment(segment)) {
-            return false;
-        }
-        return !isZdShippingQuoteLine(line);
-    }
-
-    private boolean shippingQuoteMatchesSegmentChannel(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ShippingOrderSegmentRecord segment
-    ) {
-        return line != null
-                && segment != null
-                && StringUtils.hasText(segment.forwarderCode)
-                && StringUtils.hasText(segment.routeCode)
-                && sameCode(line.forwarderCode, segment.forwarderCode)
-                && sameCode(line.routeCode, segment.routeCode);
-    }
-
-    private boolean isYiteShippingQuoteLine(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ShippingOrderSegmentRecord segment
-    ) {
-        String forwarderCode = segment == null ? null : segment.forwarderCode;
-        return YITE_FORWARDER_CODE.equalsIgnoreCase(defaultText(forwarderCode, line == null ? null : line.forwarderCode));
-    }
-
-    private boolean isZdShippingQuoteSegment(ShippingOrderSegmentRecord segment) {
-        if (segment == null) {
-            return false;
-        }
-        if (sameCode(segment.forwarderCode, "ZD")) {
-            return true;
-        }
-        String routeCode = trim(segment.routeCode);
-        return StringUtils.hasText(routeCode)
-                && ("ZD".equalsIgnoreCase(routeCode) || routeCode.toUpperCase(Locale.ROOT).startsWith("ZD-"));
-    }
-
-    private boolean isZdShippingQuoteLine(PurchaseOrderLogisticsQuoteLineRecord line) {
-        if (line == null) {
-            return false;
-        }
-        if (sameCode(line.forwarderCode, "ZD")) {
-            return true;
-        }
-        String routeCode = trim(line.routeCode);
-        if (StringUtils.hasText(routeCode)) {
-            String normalizedRouteCode = routeCode.toUpperCase(Locale.ROOT);
-            if ("ZD".equals(normalizedRouteCode) || normalizedRouteCode.startsWith("ZD-")) {
-                return true;
-            }
-        }
-        String text = defaultText(line.forwarderName, "") + " " + defaultText(line.routeName, "");
-        return text.contains("众鸫") || text.contains("众东");
     }
 
     private List<Long> resolveShippingOrderSegmentScope(
@@ -1679,9 +1609,24 @@ public class LocalDbProcurementPurchaseOrderService {
         if (requestedSegmentIds.size() > 1) {
             throw new IllegalArgumentException("一次只能选择一个子发货单生成账单。");
         }
-        List<PurchaseOrderLogisticsQuoteLineRecord> quoteLines = requestedSegmentIds.isEmpty()
+        List<ShippingOrderSegmentRecord> availableSegments =
+                emptyIfNull(mapper.listShippingOrderSegments(shippingOrder.id));
+        if (requestedSegmentIds.isEmpty() && availableSegments.size() > 1) {
+            throw new IllegalArgumentException("请选择一个站点/运输方式子发货单生成预估账单。");
+        }
+        List<ShippingOrderSegmentRecord> billingSegments = requestedSegmentIds.isEmpty()
+                ? availableSegments
+                : availableSegments.stream()
+                        .filter(segment -> requestedSegmentIds.contains(segment.id))
+                        .collect(Collectors.toList());
+        List<PurchaseOrderLogisticsQuoteLineRecord> baseQuoteLines = requestedSegmentIds.isEmpty()
                 ? emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrder(shippingOrder.id))
                 : emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrderSegments(shippingOrder.id, requestedSegmentIds));
+        List<PurchaseOrderLogisticsQuoteLineRecord> quoteLines = shippingQuoteChannelService.resolveSelectedLines(
+                baseQuoteLines,
+                billingSegments,
+                emptyIfNull(mapper.listConfirmedLogisticsQuoteLinesByShippingOrder(shippingOrder.id))
+        );
         if (quoteLines.isEmpty()) {
             throw new IllegalArgumentException("发货单没有可生成账单的报价行。");
         }
@@ -1752,7 +1697,7 @@ public class LocalDbProcurementPurchaseOrderService {
             component.expectedAmount = expectedAmount;
             component.expectedAmountCny = expectedAmount.multiply(exchangeRate);
             component.allocationBasis = "QUOTE_LINE";
-            component.rawSnapshotJson = productForwarderChannelQuoteSnapshot(line);
+            component.rawSnapshotJson = shippingQuoteChannelService.snapshot(line);
             components.add(component);
         }
 
@@ -1878,14 +1823,6 @@ public class LocalDbProcurementPurchaseOrderService {
             line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
             line.fulfillmentType = normalizeFulfillmentType(line.fulfillmentType);
             line.plannedTransportMode = normalizeTransportMode(line.plannedTransportMode);
-            if (line.id == null) {
-                line.id = mapper.nextLogisticsQuoteLineId();
-                line.quoteStatus = LOGISTICS_QUOTE_PENDING;
-                line.shippingSubmitStatus = SHIPPING_NOT_SUBMITTED;
-                mapper.insertLogisticsQuoteLine(line, operatorUserId);
-            } else {
-                mapper.refreshLogisticsQuoteLineSnapshot(line, operatorUserId);
-            }
         }
         return lines;
     }
@@ -2238,6 +2175,8 @@ public class LocalDbProcurementPurchaseOrderService {
             List<PurchaseOrderLogisticsQuoteLineRecord> lines
     ) {
         List<PurchaseOrderLogisticsQuoteLineRecord> routableLines = routableLogisticsQuoteLines(lines);
+        Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> confirmationsByShippingOrder =
+                shippingQuoteChannelService.loadConfirmations(routableLines);
         Map<String, List<PurchaseOrderLogisticsQuoteLineRecord>> linesBySiteTransport = routableLines.stream()
                 .collect(Collectors.groupingBy(
                         line -> logisticsQuoteRouteKey(line.siteCode, line.plannedTransportMode),
@@ -2268,7 +2207,11 @@ public class LocalDbProcurementPurchaseOrderService {
                 LogisticsQuoteExportOption option = new LogisticsQuoteExportOption();
                 option.candidate = candidate;
                 option.templateType = logisticsQuoteTemplateType(candidate);
-                option.lineQuotes = buildLogisticsQuoteChannelLineViews(matchingLines, candidate);
+                option.lineQuotes = buildLogisticsQuoteChannelLineViews(
+                        matchingLines,
+                        candidate,
+                        confirmationsByShippingOrder
+                );
                 option.confirmedLineCount = (int) option.lineQuotes.stream()
                         .filter(line -> LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
                         .count();
@@ -2293,6 +2236,7 @@ public class LocalDbProcurementPurchaseOrderService {
             List<PurchaseOrderLogisticsQuoteLineRecord> lines,
             List<LogisticsQuoteExportOption> options
     ) {
+        PublishedLogisticsQuotePriceResolver.hydrate(mapper, options);
         PurchaseOrderLogisticsQuoteOptionsView view = new PurchaseOrderLogisticsQuoteOptionsView();
         view.purchaseOrderId = String.valueOf(order.id);
         view.purchaseOrderNo = order.orderNo;
@@ -2333,6 +2277,7 @@ public class LocalDbProcurementPurchaseOrderService {
         view.routeName = candidate.routeName;
         view.serviceCode = candidate.serviceCode;
         view.serviceName = candidate.serviceName;
+        view.quoteVersionCode = candidate.quoteVersionCode;
         view.siteCode = candidate.siteCode;
         view.transportMode = normalizeTransportMode(candidate.transportMode);
         view.transportModeLabel = transportModeLabel(candidate.transportMode);
@@ -2346,66 +2291,26 @@ public class LocalDbProcurementPurchaseOrderService {
         view.pendingLineCount = option.pendingLineCount;
         view.confirmedLineCount = option.confirmedLineCount;
         view.newProductLineCount = option.newProductLineCount;
+        view.publishedPrices = option.publishedPrices;
+        view.surcharges = option.surcharges;
         view.lineQuotes = option.lineQuotes;
         return view;
     }
 
     private List<PurchaseOrderLogisticsQuoteChannelLineView> buildLogisticsQuoteChannelLineViews(
             List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            ForwarderRouteRecommendationRecord candidate
+            ForwarderRouteRecommendationRecord candidate,
+            Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> confirmationsByShippingOrder
     ) {
         List<PurchaseOrderLogisticsQuoteChannelLineView> views = new ArrayList<>();
         for (PurchaseOrderLogisticsQuoteLineRecord line : emptyIfNull(lines)) {
-            ProductForwarderChannelQuoteRecord currentQuote = selectCurrentProductForwarderChannelQuote(line, candidate);
-            views.add(toLogisticsQuoteChannelLineView(line, currentQuote));
+            views.add(shippingQuoteChannelService.resolvePrice(
+                    line,
+                    candidate,
+                    confirmationsByShippingOrder
+            ));
         }
         return views;
-    }
-
-    private ProductForwarderChannelQuoteRecord selectCurrentProductForwarderChannelQuote(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ForwarderRouteRecommendationRecord candidate
-    ) {
-        if (line == null
-                || candidate == null
-                || line.ownerUserId == null
-                || line.productVariantId == null
-                || !StringUtils.hasText(candidate.forwarderCode)
-                || !StringUtils.hasText(candidate.routeCode)) {
-            return null;
-        }
-        return mapper.selectCurrentProductForwarderChannelQuote(
-                line.ownerUserId,
-                line.sourceStoreCode,
-                line.logicalStoreId,
-                line.partnerSku,
-                line.productVariantId,
-                candidate.forwarderCode,
-                normalizeSiteCode(firstText(candidate.siteCode, line.siteCode)),
-                candidate.routeCode,
-                candidate.serviceCode
-        );
-    }
-
-    private PurchaseOrderLogisticsQuoteChannelLineView toLogisticsQuoteChannelLineView(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ProductForwarderChannelQuoteRecord currentQuote
-    ) {
-        PurchaseOrderLogisticsQuoteChannelLineView view = new PurchaseOrderLogisticsQuoteChannelLineView();
-        view.shippingOrderLineId = line.shippingOrderLineId == null ? null : String.valueOf(line.shippingOrderLineId);
-        view.purchaseOrderItemSiteId = line.purchaseOrderItemSiteId == null ? null : String.valueOf(line.purchaseOrderItemSiteId);
-        view.partnerSku = line.partnerSku;
-        view.barcode = line.barcode;
-        view.yiteMaterial = line.yiteMaterial;
-        if (currentQuote == null || currentQuote.unitPrice == null) {
-            view.quoteStatus = LOGISTICS_QUOTE_PENDING;
-            return view;
-        }
-        view.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
-        view.unitPrice = currentQuote.unitPrice;
-        view.currency = currentQuote.currency;
-        view.billingUnit = currentQuote.billingUnit;
-        return view;
     }
 
     private LogisticsQuoteExportOption requireLogisticsQuoteExportOption(
@@ -3019,6 +2924,10 @@ public class LocalDbProcurementPurchaseOrderService {
         writeStringCell(row, YITE_HIDDEN_BILLING_UNIT_COLUMN, line.billingUnit);
         writeDecimalCell(row, YITE_HIDDEN_ESTIMATED_AMOUNT_COLUMN, line.estimatedAmount);
         writeStringCell(row, YITE_HIDDEN_REMARK_COLUMN, line.remark);
+        writeStringCell(row, YITE_HIDDEN_ROUTE_CODE_COLUMN, line.routeCode);
+        writeStringCell(row, YITE_HIDDEN_ROUTE_NAME_COLUMN, line.routeName);
+        writeStringCell(row, YITE_HIDDEN_SERVICE_CODE_COLUMN, line.serviceCode);
+        writeStringCell(row, YITE_HIDDEN_SERVICE_NAME_COLUMN, line.serviceName);
     }
 
     private String yiteHistoryQuoteText(PurchaseOrderLogisticsQuoteLineRecord line) {
@@ -3332,6 +3241,7 @@ public class LocalDbProcurementPurchaseOrderService {
             Set<Long> allowedSegmentIds
     ) {
         Long itemSiteId = readLongCell(row, ET_HIDDEN_PURCHASE_ORDER_ITEM_SITE_ID_COLUMN);
+        Long quoteLineId = readLongCell(row, ET_HIDDEN_QUOTE_LINE_ID_COLUMN);
         if (itemSiteId == null) {
             addImportError(view, rowNumber, "缺少采购站点行ID，请使用采购单导出的易通模板回传。");
             return;
@@ -3341,7 +3251,7 @@ public class LocalDbProcurementPurchaseOrderService {
             return;
         }
         PurchaseOrderLogisticsQuoteLineRecord line =
-                selectLogisticsQuoteLineForImport(order, itemSiteId);
+                selectLogisticsQuoteLineForImport(order, quoteLineId, itemSiteId);
         if (line == null) {
             addImportError(view, rowNumber, "报价行不存在或不属于当前导出单据。");
             return;
@@ -3350,20 +3260,38 @@ public class LocalDbProcurementPurchaseOrderService {
             addImportError(view, rowNumber, "报价行不属于当前筛选的子发货单。");
             return;
         }
-        line.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
-        line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
-        line.forwarderCode = defaultText(
+        String forwarderCode = defaultText(
                 readTextCell(row, ET_HIDDEN_FORWARDER_CODE_COLUMN),
                 defaultText(line.forwarderCode, ET_FORWARDER_CODE)
         );
-        line.forwarderName = defaultText(
+        String forwarderName = defaultText(
                 readTextCell(row, ET_HIDDEN_FORWARDER_NAME_COLUMN),
                 defaultText(line.forwarderName, ET_FORWARDER_NAME)
         );
-        line.routeCode = defaultText(readTextCell(row, ET_HIDDEN_ROUTE_CODE_COLUMN), line.routeCode);
-        line.routeName = defaultText(readTextCell(row, ET_HIDDEN_ROUTE_NAME_COLUMN), line.routeName);
-        line.serviceCode = defaultText(readTextCell(row, ET_HIDDEN_SERVICE_CODE_COLUMN), line.serviceCode);
-        line.serviceName = defaultText(readTextCell(row, ET_HIDDEN_SERVICE_NAME_COLUMN), line.serviceName);
+        String routeCode = defaultText(readTextCell(row, ET_HIDDEN_ROUTE_CODE_COLUMN), line.routeCode);
+        String routeName = defaultText(readTextCell(row, ET_HIDDEN_ROUTE_NAME_COLUMN), line.routeName);
+        String serviceCode = defaultText(readTextCell(row, ET_HIDDEN_SERVICE_CODE_COLUMN), line.serviceCode);
+        String serviceName = defaultText(readTextCell(row, ET_HIDDEN_SERVICE_NAME_COLUMN), line.serviceName);
+        line = shippingQuoteChannelService.requireImportedChannelLine(
+                isShippingOrderDocument(order),
+                order.id,
+                line,
+                forwarderCode,
+                forwarderName,
+                routeCode,
+                routeName,
+                serviceCode,
+                serviceName,
+                operatorUserId
+        );
+        line.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
+        line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
+        line.forwarderCode = forwarderCode;
+        line.forwarderName = forwarderName;
+        line.routeCode = routeCode;
+        line.routeName = routeName;
+        line.serviceCode = serviceCode;
+        line.serviceName = serviceName;
         line.currency = defaultText(line.currency, "RMB");
         BigDecimal unitPrice = readDecimalCell(row, ET_HIDDEN_UNIT_PRICE_COLUMN);
         BigDecimal estimatedAmount = readDecimalCell(row, ET_HIDDEN_ESTIMATED_AMOUNT_COLUMN);
@@ -3372,17 +3300,33 @@ public class LocalDbProcurementPurchaseOrderService {
         line.estimatedAmount = estimatedAmount == null ? line.estimatedAmount : estimatedAmount;
         line.remark = defaultText(readTextCell(row, ET_HIDDEN_REMARK_COLUMN), etPackingRemark(row));
         mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+        persistConfirmedWarehouseQuote(
+                line,
+                operatorUserId,
+                sourceFilename,
+                "SHIPPING_ORDER_QUOTE_IMPORT"
+        );
         view.updatedRows += 1;
     }
 
     private PurchaseOrderLogisticsQuoteLineRecord selectLogisticsQuoteLineForImport(
             PurchaseOrderRecord order,
+            Long quoteLineId,
             Long itemSiteId
     ) {
-        if (order != null && StringUtils.hasText(order.orderNo) && order.orderNo.startsWith("SO-")) {
-            return mapper.selectLogisticsQuoteLineByShippingOrderItemSiteForUpdate(order.id, itemSiteId);
+        if (quoteLineId != null) {
+            return mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(order.id, quoteLineId, itemSiteId);
+        }
+        if (isShippingOrderDocument(order)) {
+            return null;
         }
         return mapper.selectLogisticsQuoteLineByItemSiteForUpdate(order.id, itemSiteId);
+    }
+
+    private boolean isShippingOrderDocument(PurchaseOrderRecord order) {
+        return order != null
+                && StringUtils.hasText(order.orderNo)
+                && order.orderNo.startsWith("SO-");
     }
 
     private boolean isOutsideSelectedShippingOrderSegment(
@@ -3487,6 +3431,7 @@ public class LocalDbProcurementPurchaseOrderService {
             Set<Long> allowedSegmentIds
     ) {
         Long itemSiteId = readLongCell(row, YITE_HIDDEN_PURCHASE_ORDER_ITEM_SITE_ID_COLUMN);
+        Long quoteLineId = readLongCell(row, YITE_HIDDEN_QUOTE_LINE_ID_COLUMN);
         String productCode = readTextCell(row, 5);
         BigDecimal latestQuote = readDecimalCell(row, YITE_VISIBLE_LATEST_QUOTE_COLUMN);
         BigDecimal declaredUnitPrice = readDecimalCell(row, YITE_VISIBLE_DECLARED_UNIT_PRICE_COLUMN);
@@ -3500,7 +3445,13 @@ public class LocalDbProcurementPurchaseOrderService {
             return;
         }
         List<PurchaseOrderLogisticsQuoteLineRecord> lines =
-                selectLogisticsQuoteLinesForYiteImport(order, itemSiteId, productCode, allowedSegmentIds);
+                selectLogisticsQuoteLinesForYiteImport(
+                        order,
+                        quoteLineId,
+                        itemSiteId,
+                        productCode,
+                        allowedSegmentIds
+                );
         if (lines.isEmpty()) {
             addImportError(view, rowNumber, "报价行不存在或不属于当前导出单据，请检查产品SKU。");
             return;
@@ -3512,33 +3463,72 @@ public class LocalDbProcurementPurchaseOrderService {
             }
         }
         for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
+            String forwarderCode = defaultText(
+                    readTextCell(row, YITE_HIDDEN_FORWARDER_CODE_COLUMN),
+                    defaultText(line.forwarderCode, YITE_FORWARDER_CODE)
+            );
+            String routeCode = defaultText(
+                    readTextCell(row, YITE_HIDDEN_ROUTE_CODE_COLUMN),
+                    defaultText(line.routeCode, serviceName)
+            );
+            String routeName = defaultText(
+                    readTextCell(row, YITE_HIDDEN_ROUTE_NAME_COLUMN),
+                    defaultText(line.routeName, serviceName)
+            );
+            String serviceCode = defaultText(
+                    readTextCell(row, YITE_HIDDEN_SERVICE_CODE_COLUMN),
+                    defaultText(line.serviceCode, serviceName)
+            );
+            String importedServiceName = defaultText(
+                    readTextCell(row, YITE_HIDDEN_SERVICE_NAME_COLUMN),
+                    defaultText(line.serviceName, serviceName)
+            );
+            line = shippingQuoteChannelService.requireImportedChannelLine(
+                    isShippingOrderDocument(order),
+                    order.id,
+                    line,
+                    forwarderCode,
+                    defaultText(line.forwarderName, YITE_FORWARDER_NAME),
+                    routeCode,
+                    routeName,
+                    serviceCode,
+                    importedServiceName,
+                    operatorUserId
+            );
             line.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
             line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
-            String hiddenForwarderCode = readTextCell(row, YITE_HIDDEN_FORWARDER_CODE_COLUMN);
-            line.forwarderCode = defaultText(hiddenForwarderCode, defaultText(line.forwarderCode, YITE_FORWARDER_CODE));
+            line.forwarderCode = forwarderCode;
             line.forwarderName = defaultText(line.forwarderName, YITE_FORWARDER_NAME);
-            line.routeCode = defaultText(line.routeCode, serviceName);
-            line.routeName = defaultText(line.routeName, serviceName);
-            line.serviceCode = defaultText(line.serviceCode, serviceName);
-            line.serviceName = defaultText(line.serviceName, serviceName);
+            line.routeCode = routeCode;
+            line.routeName = routeName;
+            line.serviceCode = serviceCode;
+            line.serviceName = importedServiceName;
             line.currency = "RMB";
             line.unitPrice = unitPrice;
             line.billingUnit = defaultText(readTextCell(row, YITE_HIDDEN_BILLING_UNIT_COLUMN), line.billingUnit);
             line.estimatedAmount = estimatedAmount;
             line.remark = defaultText(readTextCell(row, YITE_HIDDEN_REMARK_COLUMN), "义特模板回传确认");
             mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+            persistConfirmedWarehouseQuote(
+                    line,
+                    operatorUserId,
+                    sourceFilename,
+                    "SHIPPING_ORDER_QUOTE_IMPORT"
+            );
         }
         view.updatedRows += 1;
     }
 
     private List<PurchaseOrderLogisticsQuoteLineRecord> selectLogisticsQuoteLinesForYiteImport(
             PurchaseOrderRecord order,
+            Long quoteLineId,
             Long itemSiteId,
             String productCode,
             Set<Long> allowedSegmentIds
     ) {
         if (itemSiteId != null) {
-            PurchaseOrderLogisticsQuoteLineRecord line = selectLogisticsQuoteLineForImport(order, itemSiteId);
+            PurchaseOrderLogisticsQuoteLineRecord line =
+                    selectLogisticsQuoteLineForImport(order, quoteLineId, itemSiteId);
             if (line != null) {
                 return List.of(line);
             }
@@ -3615,12 +3605,13 @@ public class LocalDbProcurementPurchaseOrderService {
             Set<Long> allowedSegmentIds
     ) {
         Long itemSiteId = readLongCell(row, 3);
+        Long quoteLineId = readLongCell(row, 0);
         if (itemSiteId == null) {
             addImportError(view, rowNumber, "缺少采购站点行ID。");
             return;
         }
         PurchaseOrderLogisticsQuoteLineRecord line =
-                selectLogisticsQuoteLineForImport(order, itemSiteId);
+                selectLogisticsQuoteLineForImport(order, quoteLineId, itemSiteId);
         if (line == null) {
             addImportError(view, rowNumber, "报价行不存在或不属于当前导出单据。");
             return;
@@ -3635,113 +3626,59 @@ public class LocalDbProcurementPurchaseOrderService {
             addImportError(view, rowNumber, "请填写单价或确认金额。");
             return;
         }
+        String forwarderCode = readTextCell(row, 16);
+        String forwarderName = readTextCell(row, 17);
+        String routeCode = readTextCell(row, 18);
+        String routeName = readTextCell(row, 19);
+        String serviceCode = readTextCell(row, 20);
+        String serviceName = readTextCell(row, 21);
+        line = shippingQuoteChannelService.requireImportedChannelLine(
+                isShippingOrderDocument(order),
+                order.id,
+                line,
+                forwarderCode,
+                forwarderName,
+                routeCode,
+                routeName,
+                serviceCode,
+                serviceName,
+                operatorUserId
+        );
         line.quoteStatus = LOGISTICS_QUOTE_CONFIRMED;
         line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
-        line.forwarderCode = readTextCell(row, 16);
-        line.forwarderName = readTextCell(row, 17);
-        line.routeCode = readTextCell(row, 18);
-        line.routeName = readTextCell(row, 19);
-        line.serviceCode = readTextCell(row, 20);
-        line.serviceName = readTextCell(row, 21);
+        line.forwarderCode = forwarderCode;
+        line.forwarderName = forwarderName;
+        line.routeCode = routeCode;
+        line.routeName = routeName;
+        line.serviceCode = serviceCode;
+        line.serviceName = serviceName;
         line.currency = defaultText(readTextCell(row, 22), "RMB");
         line.unitPrice = unitPrice;
         line.billingUnit = readTextCell(row, 24);
         line.estimatedAmount = estimatedAmount;
         line.remark = readTextCell(row, 26);
         mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+        persistConfirmedWarehouseQuote(
+                line,
+                operatorUserId,
+                sourceFilename,
+                "SHIPPING_ORDER_QUOTE_IMPORT"
+        );
         view.updatedRows += 1;
     }
 
-    // Legacy product quote projection retained for migration compatibility.
-    // Product logistics cost facts are curated by AI/data correction jobs and displayed from productlogisticscost.
-    private void persistProductForwarderChannelQuote(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            Long operatorUserId,
-            String sourceFilename
-    ) {
-        persistProductForwarderChannelQuote(line, operatorUserId, sourceFilename, "SHIPPING_ORDER_QUOTE");
-    }
-
-    private void persistProductForwarderChannelQuote(
+    private void persistConfirmedWarehouseQuote(
             PurchaseOrderLogisticsQuoteLineRecord line,
             Long operatorUserId,
             String sourceFilename,
             String sourceType
     ) {
-        if (line == null
-                || line.ownerUserId == null
-                || line.productVariantId == null
-                || !StringUtils.hasText(line.forwarderCode)) {
-            return;
-        }
-        ProductForwarderChannelQuoteRecord quote = new ProductForwarderChannelQuoteRecord();
-        quote.id = mapper.nextProductForwarderChannelQuoteId();
-        quote.ownerUserId = line.ownerUserId;
-        quote.productMasterId = line.productMasterId;
-        quote.productVariantId = line.productVariantId;
-        quote.logicalStoreId = line.logicalStoreId;
-        quote.sourceStoreCode = line.sourceStoreCode;
-        quote.partnerSku = line.partnerSku;
-        quote.barcode = trim(line.barcode);
-        quote.forwarderCode = trim(line.forwarderCode);
-        quote.forwarderName = trim(line.forwarderName);
-        quote.routeCode = trim(line.routeCode);
-        quote.routeName = trim(line.routeName);
-        quote.serviceCode = trim(line.serviceCode);
-        quote.serviceName = trim(line.serviceName);
-        quote.siteCode = trim(line.siteCode);
-        quote.transportMode = trim(line.plannedTransportMode);
-        quote.currency = trim(line.currency);
-        quote.unitPrice = line.unitPrice;
-        quote.billingUnit = defaultText(line.billingUnit, "UNKNOWN");
-        quote.estimatedAmount = line.estimatedAmount;
-        quote.sourceType = defaultText(sourceType, "SHIPPING_ORDER_QUOTE");
-        quote.sourceShippingOrderId = line.shippingOrderId;
-        quote.sourceShippingOrderLineId = line.shippingOrderLineId;
-        quote.sourceQuoteLineId = line.id;
-        quote.sourceFilename = trim(sourceFilename);
-        quote.effectiveStatus = "CURRENT";
-        quote.rawSnapshotJson = productForwarderChannelQuoteSnapshot(line);
-        mapper.markHistoricalProductForwarderChannelQuote(
-                quote.ownerUserId,
-                quote.sourceStoreCode,
-                quote.logicalStoreId,
-                quote.partnerSku,
-                quote.productVariantId,
-                quote.forwarderCode,
-                quote.siteCode,
-                quote.routeCode,
-                quote.serviceCode,
-                quote.billingUnit,
-                operatorUserId
+        shippingQuoteChannelService.persistConfirmedQuote(
+                line,
+                operatorUserId,
+                sourceFilename,
+                sourceType
         );
-        mapper.insertProductForwarderChannelQuote(quote, operatorUserId);
-    }
-
-    private String productForwarderChannelQuoteSnapshot(PurchaseOrderLogisticsQuoteLineRecord line) {
-        Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("quoteLineId", line.id);
-        snapshot.put("shippingOrderId", line.shippingOrderId);
-        snapshot.put("shippingOrderNo", line.shippingOrderNo);
-        snapshot.put("purchaseOrderId", line.purchaseOrderId);
-        snapshot.put("purchaseOrderNo", line.purchaseOrderNo);
-        snapshot.put("purchaseOrderItemSiteId", line.purchaseOrderItemSiteId);
-        snapshot.put("barcode", line.barcode);
-        snapshot.put("pskuCode", line.pskuCode);
-        snapshot.put("siteCode", line.siteCode);
-        snapshot.put("quantity", line.quantity);
-        snapshot.put("forwarderCode", line.forwarderCode);
-        snapshot.put("routeCode", line.routeCode);
-        snapshot.put("serviceCode", line.serviceCode);
-        snapshot.put("currency", line.currency);
-        snapshot.put("unitPrice", line.unitPrice);
-        snapshot.put("billingUnit", line.billingUnit);
-        snapshot.put("estimatedAmount", line.estimatedAmount);
-        try {
-            return objectMapper.writeValueAsString(snapshot);
-        } catch (JsonProcessingException exception) {
-            return null;
-        }
     }
 
     private void addImportError(PurchaseOrderLogisticsQuoteImportView view, int rowNumber, String message) {
@@ -6057,15 +5994,6 @@ public class LocalDbProcurementPurchaseOrderService {
             return "阿联酋 AE";
         }
         return siteCode;
-    }
-
-    private static final class LogisticsQuoteExportOption {
-        private ForwarderRouteRecommendationRecord candidate;
-        private String templateType;
-        private Integer pendingLineCount = 0;
-        private Integer confirmedLineCount = 0;
-        private Integer newProductLineCount = 0;
-        private List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();
     }
 
     private static final class Ali1688HistoryAccumulator {

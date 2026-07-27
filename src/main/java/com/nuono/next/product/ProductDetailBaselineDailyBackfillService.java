@@ -1,8 +1,10 @@
 package com.nuono.next.product;
 
 import com.nuono.next.infrastructure.mapper.ProductDetailBaselineCandidateMapper;
+import com.nuono.next.noon.NoonAccountTaskQueue;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskService;
+import java.util.ArrayList;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -28,6 +30,7 @@ public class ProductDetailBaselineDailyBackfillService {
     private final ProductDetailBaselineBackfillService backfillService;
     private final LocalDbProductMasterService productMasterService;
     private final OperationalTaskService operationalTaskService;
+    private final BatchSubmitter batchSubmitter;
     private final boolean enabled;
     private final int staleAfterMinutes;
     private final Clock clock;
@@ -38,6 +41,7 @@ public class ProductDetailBaselineDailyBackfillService {
             ProductDetailBaselineBackfillService backfillService,
             LocalDbProductMasterService productMasterService,
             OperationalTaskService operationalTaskService,
+            NoonAccountTaskQueue noonAccountTaskQueue,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.enabled:false}") boolean enabled,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.stale-after-minutes:360}")
             int staleAfterMinutes
@@ -47,6 +51,7 @@ public class ProductDetailBaselineDailyBackfillService {
                 backfillService,
                 productMasterService,
                 operationalTaskService,
+                noonAccountTaskQueue == null ? null : noonAccountTaskQueue::submit,
                 enabled,
                 staleAfterMinutes,
                 Clock.systemUTC()
@@ -62,10 +67,33 @@ public class ProductDetailBaselineDailyBackfillService {
             int staleAfterMinutes,
             Clock clock
     ) {
+        this(
+                candidateMapper,
+                backfillService,
+                productMasterService,
+                operationalTaskService,
+                (accountKey, task) -> task.run(),
+                enabled,
+                staleAfterMinutes,
+                clock
+        );
+    }
+
+    ProductDetailBaselineDailyBackfillService(
+            ProductDetailBaselineCandidateMapper candidateMapper,
+            ProductDetailBaselineBackfillService backfillService,
+            LocalDbProductMasterService productMasterService,
+            OperationalTaskService operationalTaskService,
+            BatchSubmitter batchSubmitter,
+            boolean enabled,
+            int staleAfterMinutes,
+            Clock clock
+    ) {
         this.candidateMapper = candidateMapper;
         this.backfillService = backfillService;
         this.productMasterService = productMasterService;
         this.operationalTaskService = operationalTaskService;
+        this.batchSubmitter = batchSubmitter == null ? (accountKey, task) -> task.run() : batchSubmitter;
         this.enabled = enabled;
         this.staleAfterMinutes = Math.max(1, staleAfterMinutes);
         this.clock = clock == null ? Clock.systemUTC() : clock;
@@ -86,35 +114,26 @@ public class ProductDetailBaselineDailyBackfillService {
                 siteCode.trim().toUpperCase(Locale.ROOT)
         );
         Set<String> scheduledProducts = new HashSet<>();
-        int enqueued = 0;
-        int failed = 0;
+        List<ProductMasterFetchCommand> commands = new ArrayList<>();
         for (ProductDetailBaselineCandidate candidate : safeCandidates(candidates)) {
             String productKey = productKey(candidate);
             if (!StringUtils.hasText(productKey) || !scheduledProducts.add(productKey)) {
                 continue;
             }
-            try {
-                String state = backfillService.enqueue(
-                        toFetchCommand(ownerUserId, storeCode, candidate),
-                        REASON,
-                        (command, ignoredReason) -> productMasterService.fetchSnapshot(command)
-                );
-                if ("preparing".equals(state)) {
-                    enqueued++;
-                }
-            } catch (RuntimeException exception) {
-                failed++;
-                log.warn(
-                        "daily product detail baseline enqueue failed owner={} store={} skuParent={} error={}",
-                        ownerUserId,
-                        storeCode,
-                        candidate == null ? null : candidate.getSkuParent(),
-                        exception.getMessage(),
-                        exception
-                );
-            }
+            commands.add(toFetchCommand(ownerUserId, storeCode, candidate));
         }
-        EnqueueResult result = EnqueueResult.enabled(candidates == null ? 0 : candidates.size(), enqueued, failed, recovered);
+        if (!commands.isEmpty()) {
+            batchSubmitter.submit(
+                    ownerUserId + "::" + storeCode.trim().toLowerCase(Locale.ROOT),
+                    () -> runBatch(commands)
+            );
+        }
+        EnqueueResult result = EnqueueResult.enabled(
+                candidates == null ? 0 : candidates.size(),
+                commands.size(),
+                0,
+                recovered
+        );
         log.info(
                 "daily product detail baseline audit owner={} store={} site={} candidates={} enqueued={} failed={} staleRecovered={}",
                 ownerUserId,
@@ -126,6 +145,27 @@ public class ProductDetailBaselineDailyBackfillService {
                 result.getStaleRecoveredCount()
         );
         return result;
+    }
+
+    private void runBatch(List<ProductMasterFetchCommand> commands) {
+        for (ProductMasterFetchCommand command : commands) {
+            try {
+                backfillService.enqueueInline(
+                        command,
+                        REASON,
+                        (fetchCommand, ignoredReason) -> productMasterService.fetchSnapshot(fetchCommand)
+                );
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "daily product detail baseline execution failed owner={} store={} skuParent={} error={}",
+                        command.getOwnerUserId(),
+                        command.getStoreCode(),
+                        command.getSkuParent(),
+                        exception.getMessage(),
+                        exception
+                );
+            }
+        }
     }
 
     private int recoverStaleTasks(Long ownerUserId, String storeCode) {
@@ -177,6 +217,11 @@ public class ProductDetailBaselineDailyBackfillService {
 
     private boolean equalsIgnoreCase(String left, String right) {
         return StringUtils.hasText(left) && StringUtils.hasText(right) && left.trim().equalsIgnoreCase(right.trim());
+    }
+
+    @FunctionalInterface
+    interface BatchSubmitter {
+        void submit(String accountKey, Runnable task);
     }
 
     public static final class EnqueueResult {
