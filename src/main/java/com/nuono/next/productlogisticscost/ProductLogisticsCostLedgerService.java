@@ -32,9 +32,14 @@ public class ProductLogisticsCostLedgerService {
     private static final int MAX_READ_LIMIT = 5000;
 
     private final ProductLogisticsCostMapper mapper;
+    private final ProductLogisticsRateCardReader rateCardReader;
 
-    public ProductLogisticsCostLedgerService(ProductLogisticsCostMapper mapper) {
+    public ProductLogisticsCostLedgerService(
+            ProductLogisticsCostMapper mapper,
+            ProductLogisticsRateCardReader rateCardReader
+    ) {
         this.mapper = mapper;
+        this.rateCardReader = rateCardReader;
     }
 
     @Transactional(readOnly = true)
@@ -112,17 +117,12 @@ public class ProductLogisticsCostLedgerService {
             String forwarderCode,
             String transportMode
     ) {
-        RateCardView view = new RateCardView();
-        List<RateCardRow> rows = mapper.listRateCards(
+        return rateCardReader.read(
                 requireOwnerUserId(ownerUserId),
                 normalizeCode(siteCode),
                 normalizeForwarderCode(forwarderCode),
                 normalizeCode(transportMode)
         );
-        if (rows != null) {
-            view.items.addAll(rows);
-        }
-        return view;
     }
 
     @Transactional

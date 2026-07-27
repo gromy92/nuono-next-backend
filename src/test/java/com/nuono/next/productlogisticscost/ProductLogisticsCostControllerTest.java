@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductLogisticsCostMapper;
+import com.nuono.next.infrastructure.mapper.PublishedProductLogisticsRateCardMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessAccountType;
@@ -54,6 +55,9 @@ class ProductLogisticsCostControllerTest {
 
     @Mock
     private ProductLogisticsCostMapper mapper;
+
+    @Mock
+    private PublishedProductLogisticsRateCardMapper publishedRateCardMapper;
 
     private ProductLogisticsCostController controller;
 
@@ -619,7 +623,10 @@ class ProductLogisticsCostControllerTest {
     }
 
     private ProductLogisticsCostLedgerService ledgerService() {
-        return new ProductLogisticsCostLedgerService(mapper);
+        return new ProductLogisticsCostLedgerService(
+                mapper,
+                new ProductLogisticsRateCardReader(mapper, publishedRateCardMapper)
+        );
     }
 
     private BusinessAccessContext context() {
