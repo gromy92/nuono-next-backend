@@ -136,7 +136,7 @@ public class LocalDbProcurementService {
         if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能提交采购决策。");
         }
-        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "提交采购决策");
+        writeContext = ProcurementCandidatePoolWriteContext.requireUserWrite(writeContext, "提交采购决策");
         Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null || command.getCandidateId() == null) {
             throw new IllegalArgumentException("请先选择要确认的候选商品。");
@@ -170,7 +170,7 @@ public class LocalDbProcurementService {
         if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能保存人工判断。");
         }
-        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "保存人工判断");
+        writeContext = ProcurementCandidatePoolWriteContext.requireUserWrite(writeContext, "保存人工判断");
         Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null || command.getCandidateId() == null) {
             throw new IllegalArgumentException("请先选择要记录判断的候选商品。");
@@ -264,7 +264,7 @@ public class LocalDbProcurementService {
         if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能导入搜索页候选。");
         }
-        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "导入搜索页候选");
+        writeContext = ProcurementCandidatePoolWriteContext.requireUserWrite(writeContext, "导入搜索页候选");
         Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null) {
             throw new IllegalArgumentException("请先选择要导入候选的采购需求。");
@@ -348,7 +348,7 @@ public class LocalDbProcurementService {
         if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能回填候选。");
         }
-        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "回填候选");
+        writeContext = ProcurementCandidatePoolWriteContext.requireUserWrite(writeContext, "回填候选");
         Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null) {
             throw new IllegalArgumentException("请先选择要回填候选的采购需求。");
@@ -432,7 +432,7 @@ public class LocalDbProcurementService {
         if (command == null) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能运行自动选品。");
         }
-        writeContext = ProcurementCandidatePoolWriteContext.requireAuthenticated(writeContext, "运行自动选品");
+        writeContext = ProcurementCandidatePoolWriteContext.requireUserWrite(writeContext, "运行自动选品");
         Long ownerUserId = writeContext.ownerUserId, operatorUserId = writeContext.operatorUserId;
         if (command.getDemandItemId() == null) {
             throw new IllegalArgumentException("请先选择要执行自动选品的采购需求。");

@@ -12,7 +12,7 @@ final class ProcurementCandidatePoolWriteContext {
         this.operatorRole = operatorRole;
     }
 
-    static ProcurementCandidatePoolWriteContext requireAuthenticated(
+    static ProcurementCandidatePoolWriteContext requireUserWrite(
             ProcurementCandidatePoolWriteContext context,
             String actionName
     ) {

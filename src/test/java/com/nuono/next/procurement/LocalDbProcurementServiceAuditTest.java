@@ -2,8 +2,10 @@ package com.nuono.next.procurement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProcurementMapper;
@@ -97,6 +99,7 @@ class LocalDbProcurementServiceAuditTest {
         verify(mapper).updateCandidateReview(
                 DEMAND_ITEM_ID, CANDIDATE_ID, null, null, "HOLD", OPERATOR_USER_ID
         );
+        verify(mapper).selectLatestOrder(OWNER_USER_ID, null);
     }
 
     @Test
@@ -160,6 +163,24 @@ class LocalDbProcurementServiceAuditTest {
         assertGeneratedWriteAudit(true);
     }
 
+    @Test
+    void shouldRejectMissingOperatorBeforeAnyCandidateMutation() {
+        ProcurementDecisionCommand command = new ProcurementDecisionCommand();
+        command.setDemandItemId(DEMAND_ITEM_ID);
+        command.setCandidateId(CANDIDATE_ID);
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.selectCandidate(
+                        new ProcurementCandidatePoolWriteContext(OWNER_USER_ID, null, "PURCHASE"),
+                        command
+                )
+        );
+
+        assertEquals("缺少操作人，暂时不能提交采购决策。", exception.getMessage());
+        verifyNoInteractions(mapper);
+    }
+
     private void stubGeneratedWrite() {
         when(mapper.selectOwnedDemandItem(OWNER_USER_ID, DEMAND_ITEM_ID)).thenReturn(new DemandItemView());
         when(mapper.nextTaskId()).thenReturn(71L);
@@ -195,6 +216,7 @@ class LocalDbProcurementServiceAuditTest {
                 "REVIEWING",
                 OPERATOR_USER_ID
         );
+        verify(mapper).selectLatestOrder(OWNER_USER_ID, null);
         assertAuditPair("insertMatchTask");
         assertAuditPair("insertCandidate");
     }
