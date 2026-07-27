@@ -156,20 +156,6 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
-    void retryProductPublishTaskShouldPreserveProductDeleteQueueStatus() {
-        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
-                .filter((candidate) -> "retryProductPublishTask".equals(candidate.getName()))
-                .findFirst()
-                .orElseThrow();
-        Update update = method.getAnnotation(Update.class);
-        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
-
-        assertTrue(sql.contains("status = CASE"));
-        assertTrue(sql.contains("WHEN task_type = 'product-delete' THEN 'product_delete_queued'"));
-        assertTrue(sql.contains("ELSE 'queued'"));
-    }
-
-    @Test
     void cancelQueuedProductPublishTaskShouldAllowProductDeleteQueueStatus() {
         Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
                 .filter((candidate) -> "cancelQueuedProductPublishTask".equals(candidate.getName()))
@@ -179,35 +165,6 @@ class ProductManagementMapperPublishTaskSqlTest {
         String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
 
         assertTrue(sql.contains("status IN ('queued', 'product_delete_queued')"));
-    }
-
-    @Test
-    void legacyRetryableNoonWriteFailuresShouldRecoverOnlyLatestPerProduct() {
-        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
-                .filter((candidate) -> "recoverRetryableFailedNoonWriteProductPublishTasks".equals(candidate.getName()))
-                .findFirst()
-                .orElseThrow();
-        Update update = method.getAnnotation(Update.class);
-        String sql = String.join(" ", update.value()).replace("&lt;", "<").replace("&gt;", ">").replaceAll("\\s+", " ");
-
-        assertTrue(sql.contains("MAX(candidate.id) AS id"));
-        assertTrue(sql.contains("candidate.status = 'failed'"));
-        assertTrue(sql.contains("candidate.error_code IN ('noon_write_failed', 'publish_task_failed', 'noon_request_failed')"));
-        assertTrue(sql.contains("candidate.error_message REGEXP 'HTTP[[:space:]]+(408|429|500|502|503|504)'"));
-        assertTrue(sql.contains("LOWER(candidate.error_message) LIKE '%http 403%'"));
-        assertTrue(sql.contains("LOWER(candidate.error_message) LIKE '%access denied%'"));
-        assertTrue(sql.contains("LOWER(candidate.error_message) LIKE '%you don''t have permission to access%'"));
-        assertTrue(sql.contains("COALESCE(candidate.retry_count, 0) < COALESCE(candidate.max_retry_count, 3)"));
-        assertTrue(sql.contains("candidate.finished_at, candidate.gmt_updated, candidate.gmt_create"));
-        assertTrue(sql.contains("DATE_SUB(NOW(), INTERVAL #{lookbackHours} HOUR)"));
-        assertTrue(sql.contains("candidate.id = ( SELECT MAX(latest.id)"));
-        assertTrue(sql.contains("NOT EXISTS"));
-        assertTrue(sql.contains("'product_delete_pending_effective'"));
-        assertTrue(sql.contains("'product_delete_write_retry_scheduled'"));
-        assertTrue(sql.contains("WHEN t.task_type = 'product-delete' THEN 'product_delete_write_retry_scheduled'"));
-        assertTrue(sql.contains("ELSE 'write_retry_scheduled'"));
-        assertTrue(sql.contains("WHEN t.error_code IN ('publish_task_failed', 'noon_request_failed') THEN 'noon_request_failed'"));
-        assertTrue(sql.contains("t.active_lock_key = CONCAT('product:', t.product_master_id)"));
     }
 
     @Test

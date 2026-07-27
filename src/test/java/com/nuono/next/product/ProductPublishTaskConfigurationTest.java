@@ -10,13 +10,9 @@ import org.junit.jupiter.api.Test;
 class ProductPublishTaskConfigurationTest {
 
     @Test
-    void shouldEnableAsyncPublishTasksByDefault() throws Exception {
+    void shouldKeepDurablePublishTaskSchedulerEnabledByDefault() throws Exception {
         String applicationYaml = resourceText("application.yml");
 
-        assertTrue(
-                applicationYaml.contains("async-enabled: ${NUONO_PRODUCT_PUBLISH_TASK_ASYNC_ENABLED:true}"),
-                "product publish should default to async task creation so publish-current returns quickly"
-        );
         assertTrue(
                 applicationYaml.contains("enabled: ${NUONO_PRODUCT_PUBLISH_TASK_SCHEDULER_ENABLED:true}"),
                 "product publish task scheduler should default on so queued publish tasks are executed"

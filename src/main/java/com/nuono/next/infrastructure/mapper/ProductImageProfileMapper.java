@@ -16,7 +16,6 @@ import com.nuono.next.product.ProductImageSuiteRecord;
 import com.nuono.next.product.ProductImageSuiteStatus;
 import java.time.LocalDateTime;
 import java.util.List;
-import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
@@ -26,7 +25,8 @@ import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProductImageProfileMapper extends ProductImageProfileSummaryMapper, ProductImageSuiteWorkflowMapper {
+public interface ProductImageProfileMapper extends ProductImageProfileSummaryMapper, ProductImagePublishWorkflowMapper,
+        ProductImageSuiteAssetMutationMapper, ProductImageSuiteWorkflowMapper {
 
     @Results(id = "productImageProfileMap", value = {
             @Result(column = "id", property = "id"),
@@ -846,6 +846,7 @@ public interface ProductImageProfileMapper extends ProductImageProfileSummaryMap
             "    updated_at = NOW()",
             "WHERE id = #{suiteId}",
             "  AND profile_id = #{profileId}",
+            "  AND suite_status <> 'PUBLISHING'",
             "  AND deleted = b'0'"
     })
     int updateSuiteStatus(
@@ -885,19 +886,12 @@ public interface ProductImageProfileMapper extends ProductImageProfileSummaryMap
 
     @Update({
             "UPDATE product_image_suite",
-            "SET suite_status = 'ONLINE', published_at = NOW(), publish_manifest_json = #{manifestJson},",
-            "    failure_stage = NULL, failure_reason = NULL, updated_at = NOW()",
-            "WHERE id = #{suiteId} AND suite_status = 'PUBLISHING' AND deleted = b'0'"
-    })
-    int markSuiteOnline(@Param("suiteId") Long suiteId, @Param("manifestJson") String manifestJson);
-
-    @Update({
-            "UPDATE product_image_suite",
             "SET deleted = b'1',",
             "    updated_by = #{updatedBy},",
             "    updated_at = NOW()",
             "WHERE id = #{suiteId}",
             "  AND profile_id = #{profileId}",
+            "  AND suite_status <> 'PUBLISHING'",
             "  AND deleted = b'0'"
     })
     int softDeleteSuite(
@@ -912,6 +906,7 @@ public interface ProductImageProfileMapper extends ProductImageProfileSummaryMap
             "    updated_at = NOW()",
             "WHERE id = #{suiteId}",
             "  AND profile_id = #{profileId}",
+            "  AND suite_status <> 'PUBLISHING'",
             "  AND deleted = b'0'"
     })
     int touchSuite(
@@ -980,46 +975,4 @@ public interface ProductImageProfileMapper extends ProductImageProfileSummaryMap
     })
     String selectSkuParentByProductMasterId(@Param("productMasterId") Long productMasterId);
 
-    @Delete({
-            "DELETE FROM product_image_suite_asset",
-            "WHERE id = #{assetId}",
-            "  AND suite_id = #{suiteId}"
-    })
-    int deleteSuiteAsset(
-            @Param("suiteId") Long suiteId,
-            @Param("assetId") Long assetId
-    );
-
-    @Update({
-            "UPDATE product_image_suite_asset",
-            "SET suite_id = #{targetSuiteId},",
-            "    sort_order = #{sortOrder}",
-            "WHERE id = #{assetId}",
-            "  AND suite_id = #{sourceSuiteId}"
-    })
-    int moveSuiteAssetToSuite(
-            @Param("sourceSuiteId") Long sourceSuiteId,
-            @Param("assetId") Long assetId,
-            @Param("targetSuiteId") Long targetSuiteId,
-            @Param("sortOrder") Integer sortOrder
-    );
-
-    @Update({
-            "UPDATE product_image_suite_asset",
-            "SET sort_order = #{sortOrder}",
-            "WHERE id = #{assetId}",
-            "  AND suite_id = #{suiteId}"
-    })
-    int updateSuiteAssetSortOrder(
-            @Param("suiteId") Long suiteId,
-            @Param("assetId") Long assetId,
-            @Param("sortOrder") Integer sortOrder
-    );
-
-    @Select({
-            "SELECT COALESCE(MAX(sort_order), 0)",
-            "FROM product_image_suite_asset",
-            "WHERE suite_id = #{suiteId}"
-    })
-    int selectMaxSuiteAssetSortOrder(@Param("suiteId") Long suiteId);
 }

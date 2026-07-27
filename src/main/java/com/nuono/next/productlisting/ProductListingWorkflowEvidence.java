@@ -8,6 +8,10 @@ import org.springframework.util.StringUtils;
 final class ProductListingWorkflowEvidence {
 
     private static final String READ_BACK_STEP = "verify_noon_readback";
+    private static final String CREATE_REFERENCE_STEP =
+            "resolve_create_reference";
+    private static final String AUTH_RECOVERY_STEP =
+            "authorization_recovery";
 
     private ProductListingWorkflowEvidence() {
     }
@@ -26,15 +30,21 @@ final class ProductListingWorkflowEvidence {
             if (READ_BACK_STEP.equals(stepKey)) {
                 continue;
             }
+            if (CREATE_REFERENCE_STEP.equals(stepKey)) {
+                if ("succeeded".equalsIgnoreCase(step.getStatus())
+                        && hasCompleteCreateReference(
+                        step.getExternalReference())) {
+                    latestFailures.put("create_product", false);
+                }
+                continue;
+            }
+            if (AUTH_RECOVERY_STEP.equals(stepKey)) {
+                continue;
+            }
             if (!StringUtils.hasText(stepKey)) {
                 stepKey = "__unnamed_" + unnamedIndex++;
             }
             latestFailures.put(stepKey, "failed".equalsIgnoreCase(step.getStatus()));
-            if ("resolve_create_reference".equals(stepKey)
-                    && "succeeded".equalsIgnoreCase(step.getStatus())
-                    && hasCompleteCreateReference(step.getExternalReference())) {
-                latestFailures.put("create_product", false);
-            }
         }
         return latestFailures.values().stream().anyMatch(Boolean.TRUE::equals);
     }

@@ -1,11 +1,12 @@
 package com.nuono.next.auth;
 
 import java.time.LocalDateTime;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConditionalOnMissingBean(AuthEmailCodeSender.class)
+@ConditionalOnExpression("!T(org.springframework.util.StringUtils)"
+        + ".hasText('${nuono.auth.email-code.smtp.host:}')")
 public class DisabledAuthEmailCodeSender implements AuthEmailCodeSender {
 
     @Override

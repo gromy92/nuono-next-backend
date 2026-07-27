@@ -3,7 +3,6 @@ package com.nuono.next.product;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -14,10 +13,7 @@ import com.nuono.next.productlisting.ProductListingRealRunSubmission;
 import com.nuono.next.productlisting.ProductListingService;
 import com.nuono.next.productlisting.ProductListingTaskRecord;
 import com.nuono.next.productlisting.ProductListingTaskView;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -33,13 +29,15 @@ import org.springframework.util.StringUtils;
 public class ProductRebuildService {
 
     private static final Logger log = LoggerFactory.getLogger(ProductRebuildService.class);
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String SOURCE_TYPE_PRODUCT_REBUILD = "PRODUCT_REBUILD";
+    private static final long LISTING_CLAIM_LEASE_MINUTES = 5L;
 
     private final ProductManagementMapper productManagementMapper;
     private final ProductListingMapper productListingMapper;
     private final ProductListingService productListingService;
     private final ObjectMapper objectMapper;
+    private final ProductRebuildListingState listingState;
+    private final ProductRebuildWorkflowStore workflowStore;
 
     @Value("${nuono.product-management.rebuild-listing.scheduler.enabled:true}")
     private boolean schedulerEnabled;
@@ -57,8 +55,12 @@ public class ProductRebuildService {
         this.productListingMapper = productListingMapper;
         this.productListingService = productListingService;
         this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
+        this.listingState = new ProductRebuildListingState(this.objectMapper);
+        this.workflowStore = new ProductRebuildWorkflowStore(
+                this.productManagementMapper,
+                this.objectMapper
+        );
     }
-
     @Scheduled(
             initialDelayString = "${nuono.product-management.rebuild-listing.scheduler.initial-delay-ms:5000}",
             fixedDelayString = "${nuono.product-management.rebuild-listing.scheduler.fixed-delay-ms:5000}"
@@ -82,6 +84,7 @@ public class ProductRebuildService {
     int processReadyRebuildDeletes(int limit) {
         int submitted = 0;
         for (ProductPublishTaskRecord task : productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(
+                staleClaimBefore(),
                 Math.max(1, limit)
         )) {
             try {
@@ -102,7 +105,6 @@ public class ProductRebuildService {
         }
         return submitted;
     }
-
     int reconcileSubmittedRebuildListings(int limit) {
         int reconciled = 0;
         for (ProductPublishTaskRecord task : productManagementMapper.selectProductRebuildDeleteTasksPendingListingReconciliation(
@@ -126,8 +128,10 @@ public class ProductRebuildService {
         }
         return reconciled;
     }
-
     private boolean processReadyRebuildDeleteTask(ProductPublishTaskRecord task) {
+        if (task == null || !"synced".equalsIgnoreCase(task.getStatus())) {
+            return false;
+        }
         ProductListingDraftCommand draft = readRebuildListingDraft(task);
         String storeCode = requireText(firstNonBlank(draft.getStoreCode(), task.getStoreCode()), "重建上架缺少店铺编码。");
         Long ownerUserId = requireOwnerUserId(task);
@@ -143,10 +147,6 @@ public class ProductRebuildService {
         }
         applyRebuildListingDraftDefaults(draft);
         requireText(draft.getInheritedListingStartedAt(), "重建上架缺少旧 PSKU 上架时间。");
-        if (!claimRebuildListingTask(task)) {
-            return false;
-        }
-
         ProductListingTaskRecord existingRealRun = productListingMapper.selectLatestRealRunTaskByDraftSource(
                 ownerUserId,
                 storeCode,
@@ -157,52 +157,115 @@ public class ProductRebuildService {
             recordExistingRealRunState(task, ownerUserId, storeCode, existingRealRun);
             return false;
         }
-
-        BusinessAccessContext context = businessAccessContext(ownerUserId, storeCode);
-        ProductListingRealRunSubmission submission = productListingService.submitConfirmedRealRunFromDraft(
-                context,
-                draft,
-                "confirmed by product rebuild after delete task " + task.getId()
+        String claimToken = workflowStore.claim(
+                task,
+                staleClaimBefore(),
+                token -> listingState.claimed(LISTING_CLAIM_LEASE_MINUTES, token)
         );
-        ProductListingDraftView draftView = submission == null ? null : submission.getDraft();
-        ProductListingTaskView dryRun = submission == null ? null : submission.getDryRun();
-        if (dryRun == null || !"validated".equalsIgnoreCase(dryRun.getStatus())) {
-            recordRebuildListingState(task, rebuildState(
-                    "listing_validation_failed",
-                    draftView == null ? null : draftView.getDraftId(),
-                    dryRun == null ? null : dryRun.getTaskId(),
-                    null,
-                    dryRun == null ? null : dryRun.getStatus(),
-                    dryRun == null ? "dry_run_missing" : dryRun.getFailureCode(),
-                    dryRun == null ? "重建上架 dry-run 没有返回任务。" : dryRun.getFailureMessage()
-            ));
+        if (claimToken == null) {
             return false;
         }
-
-        ProductListingTaskView realRun = submission.getRealRun();
-        ProductListingTaskRecord latestRealRun = loadSubmittedRealRun(ownerUserId, realRun);
-        String listingStatus = firstNonBlank(
-                latestRealRun == null ? null : latestRealRun.getStatus(),
-                realRun == null ? null : realRun.getStatus()
+        existingRealRun = productListingMapper.selectLatestRealRunTaskByDraftSource(
+                ownerUserId,
+                storeCode,
+                draft.getSourceType(),
+                draft.getSourceRefId()
         );
-        recordRebuildListingState(task, rebuildState(
-                rebuildStatusForListingStatus(listingStatus),
-                draftView == null ? null : draftView.getDraftId(),
-                dryRun.getTaskId(),
-                realRun == null ? null : realRun.getTaskId(),
-                listingStatus,
-                firstNonBlank(
-                        latestRealRun == null ? null : latestRealRun.getFailureCode(),
-                        realRun == null ? null : realRun.getFailureCode()
-                ),
-                firstNonBlank(
-                        latestRealRun == null ? null : latestRealRun.getFailureMessage(),
-                        realRun == null ? null : realRun.getFailureMessage()
-                )
-        ));
-        return realRun != null && realRun.getTaskId() != null && !"rejected".equalsIgnoreCase(realRun.getStatus());
-    }
+        try {
+            if (existingRealRun != null) {
+                recordExistingRealRunState(task, ownerUserId, storeCode, existingRealRun, claimToken);
+                return false;
+            }
+            if (!workflowStore.renew(
+                    task,
+                    claimToken,
+                    listingState.claimed(LISTING_CLAIM_LEASE_MINUTES, claimToken)
+            )) {
+                return false;
+            }
 
+            BusinessAccessContext context = businessAccessContext(ownerUserId, storeCode);
+            ProductListingRealRunSubmission submission = productListingService.submitConfirmedRealRunFromDraft(
+                    context,
+                    draft,
+                    "confirmed by product rebuild after delete task " + task.getId()
+            );
+            ProductListingDraftView draftView = submission == null ? null : submission.getDraft();
+            ProductListingTaskView dryRun = submission == null ? null : submission.getDryRun();
+            if (dryRun == null || !"validated".equalsIgnoreCase(dryRun.getStatus())) {
+                workflowStore.complete(task, claimToken, listingState.create(
+                        "listing_validation_failed",
+                        draftView == null ? null : draftView.getDraftId(),
+                        dryRun == null ? null : dryRun.getTaskId(),
+                        null,
+                        dryRun == null ? null : dryRun.getStatus(),
+                        dryRun == null ? "dry_run_missing" : dryRun.getFailureCode(),
+                        dryRun == null ? "重建上架 dry-run 没有返回任务。" : dryRun.getFailureMessage()
+                ));
+                return false;
+            }
+
+            ProductListingTaskView realRun = submission.getRealRun();
+            ProductListingTaskRecord latestRealRun = loadSubmittedRealRun(ownerUserId, realRun);
+            String listingStatus = firstNonBlank(
+                    latestRealRun == null ? null : latestRealRun.getStatus(),
+                    realRun == null ? null : realRun.getStatus()
+            );
+            boolean completed = workflowStore.complete(task, claimToken, listingState.create(
+                    listingState.statusForListing(
+                            listingStatus,
+                            firstNonBlank(
+                                    latestRealRun == null ? null : latestRealRun.getFailureCode(),
+                                    realRun == null ? null : realRun.getFailureCode()
+                            )
+                    ),
+                    draftView == null ? null : draftView.getDraftId(),
+                    dryRun.getTaskId(),
+                    realRun == null ? null : realRun.getTaskId(),
+                    listingStatus,
+                    firstNonBlank(
+                            latestRealRun == null ? null : latestRealRun.getFailureCode(),
+                            realRun == null ? null : realRun.getFailureCode()
+                    ),
+                    firstNonBlank(
+                            latestRealRun == null ? null : latestRealRun.getFailureMessage(),
+                            realRun == null ? null : realRun.getFailureMessage()
+                    ),
+                    latestRealRun == null ? null : latestRealRun.getNoonResultJson()
+            ));
+            return completed
+                    && realRun != null
+                    && realRun.getTaskId() != null
+                    && !"rejected".equalsIgnoreCase(realRun.getStatus());
+        } catch (RuntimeException exception) {
+            try {
+                workflowStore.complete(task, claimToken, listingState.create(
+                        "listing_failed",
+                        null,
+                        null,
+                        null,
+                        null,
+                        "product_rebuild_listing_failed",
+                        shrink(exception.getMessage())
+                ));
+            } catch (RuntimeException persistenceFailure) {
+                log.warn(
+                        "product-rebuild failed to persist fenced listing failure deleteTaskId={} claimToken={}",
+                        task.getId(),
+                        claimToken,
+                        persistenceFailure
+                );
+            }
+            log.warn(
+                    "product-rebuild claimed listing submission failed deleteTaskId={} claimToken={} error={}",
+                    task.getId(),
+                    claimToken,
+                    shrink(exception.getMessage()),
+                    exception
+            );
+            return false;
+        }
+    }
     private boolean reconcileSubmittedRebuildListingTask(ProductPublishTaskRecord task) {
         ProductListingDraftCommand draft = readRebuildListingDraft(task);
         String storeCode = requireText(firstNonBlank(draft.getStoreCode(), task.getStoreCode()), "重建上架缺少店铺编码。");
@@ -222,12 +285,21 @@ public class ProductRebuildService {
         recordExistingRealRunState(task, ownerUserId, storeCode, existingRealRun);
         return true;
     }
-
     private void recordExistingRealRunState(
             ProductPublishTaskRecord task,
             Long ownerUserId,
             String storeCode,
             ProductListingTaskRecord existingRealRun
+    ) {
+        recordExistingRealRunState(task, ownerUserId, storeCode, existingRealRun, null);
+    }
+
+    private void recordExistingRealRunState(
+            ProductPublishTaskRecord task,
+            Long ownerUserId,
+            String storeCode,
+            ProductListingTaskRecord existingRealRun,
+            String claimToken
     ) {
         String existingListingStatus = existingRealRun.getStatus();
         if ("succeeded".equalsIgnoreCase(existingListingStatus)) {
@@ -236,22 +308,21 @@ public class ProductRebuildService {
                     existingRealRun.getId()
             );
         }
-        recordRebuildListingState(task, rebuildState(
-                rebuildStatusForExistingRealRun(existingListingStatus),
+        Map<String, Object> state = listingState.create(
+                listingState.statusForExisting(existingListingStatus, existingRealRun.getFailureCode()),
                 null,
                 null,
                 existingRealRun.getId(),
                 existingListingStatus,
                 existingRealRun.getFailureCode(),
-                existingRealRun.getFailureMessage()
-        ));
-    }
-
-    private String rebuildStatusForExistingRealRun(String listingStatus) {
-        if ("submitted".equalsIgnoreCase(listingStatus)) {
-            return "listing_already_submitted";
+                existingRealRun.getFailureMessage(),
+                existingRealRun.getNoonResultJson()
+        );
+        if (StringUtils.hasText(claimToken)) {
+            workflowStore.complete(task, claimToken, state);
+        } else {
+            workflowStore.record(task, state);
         }
-        return rebuildStatusForListingStatus(listingStatus);
     }
 
     private ProductListingTaskRecord loadSubmittedRealRun(Long ownerUserId, ProductListingTaskView realRun) {
@@ -259,21 +330,6 @@ public class ProductRebuildService {
             return null;
         }
         return productListingMapper.selectTaskById(realRun.getTaskId(), ownerUserId);
-    }
-
-    private String rebuildStatusForListingStatus(String listingStatus) {
-        if ("succeeded".equalsIgnoreCase(listingStatus)) {
-            return "listing_succeeded";
-        }
-        if ("failed".equalsIgnoreCase(listingStatus)
-                || "rejected".equalsIgnoreCase(listingStatus)
-                || "written_verify_failed".equalsIgnoreCase(listingStatus)) {
-            return "listing_failed";
-        }
-        if ("running".equalsIgnoreCase(listingStatus)) {
-            return "listing_running";
-        }
-        return "listing_submitted";
     }
 
     private void applyRebuildListingDraftDefaults(ProductListingDraftCommand draft) {
@@ -286,24 +342,6 @@ public class ProductRebuildService {
         if (!StringUtils.hasText(draft.getSupplyEvidenceType())) {
             draft.setSupplyEvidenceType(SOURCE_TYPE_PRODUCT_REBUILD);
         }
-    }
-
-    private boolean claimRebuildListingTask(ProductPublishTaskRecord task) {
-        String resultJson = writeResultJson(task, rebuildState(
-                "listing_running",
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-        ));
-        int claimed = productManagementMapper.claimProductRebuildDeleteTaskForListing(
-                task.getId(),
-                task.getOwnerUserId(),
-                resultJson
-        );
-        return claimed > 0;
     }
 
     private ProductListingDraftCommand readRebuildListingDraft(ProductPublishTaskRecord task) {
@@ -329,7 +367,7 @@ public class ProductRebuildService {
         if (task == null || task.getId() == null || task.getOwnerUserId() == null) {
             return;
         }
-        recordRebuildListingState(task, rebuildState(
+        workflowStore.record(task, listingState.create(
                 "listing_failed",
                 null,
                 null,
@@ -338,52 +376,6 @@ public class ProductRebuildService {
                 "product_rebuild_listing_failed",
                 shrink(exception.getMessage())
         ));
-    }
-
-    private Map<String, Object> rebuildState(
-            String status,
-            Long listingDraftId,
-            Long listingDryRunTaskId,
-            Long listingRealRunTaskId,
-            String listingStatus,
-            String failureCode,
-            String failureMessage
-    ) {
-        Map<String, Object> state = new LinkedHashMap<>();
-        state.put("status", status);
-        putIfNotNull(state, "listingDraftId", listingDraftId);
-        putIfNotNull(state, "listingDryRunTaskId", listingDryRunTaskId);
-        putIfNotNull(state, "listingRealRunTaskId", listingRealRunTaskId);
-        putIfNotBlank(state, "listingStatus", listingStatus);
-        putIfNotBlank(state, "failureCode", failureCode);
-        putIfNotBlank(state, "failureMessage", failureMessage);
-        state.put("recordedAt", TIME_FORMATTER.format(ZonedDateTime.now(ZoneId.of("Asia/Shanghai"))));
-        return state;
-    }
-
-    private void recordRebuildListingState(ProductPublishTaskRecord task, Map<String, Object> rebuildState) {
-        productManagementMapper.updateProductRebuildDeleteTaskResult(
-                task.getId(),
-                task.getOwnerUserId(),
-                writeResultJson(task, rebuildState)
-        );
-    }
-
-    private String writeResultJson(ProductPublishTaskRecord task, Map<String, Object> rebuildState) {
-        ObjectNode root = objectMapper.createObjectNode();
-        JsonNode existing = readJson(task.getResultJson());
-        if (existing != null && existing.isObject()) {
-            root.setAll((ObjectNode) existing);
-        }
-        if (!StringUtils.hasText(text(root, "status"))) {
-            root.put("status", task.getStatus());
-        }
-        root.set("rebuild", objectMapper.valueToTree(rebuildState == null ? Map.of() : rebuildState));
-        try {
-            return objectMapper.writeValueAsString(root);
-        } catch (Exception exception) {
-            throw new IllegalStateException("商品重建结果 JSON 序列化失败：" + exception.getMessage(), exception);
-        }
     }
 
     private BusinessAccessContext businessAccessContext(Long ownerUserId, String storeCode) {
@@ -444,16 +436,8 @@ public class ProductRebuildService {
         return first != null ? first : second;
     }
 
-    private void putIfNotNull(Map<String, Object> target, String key, Object value) {
-        if (target != null && key != null && value != null) {
-            target.put(key, value);
-        }
-    }
-
-    private void putIfNotBlank(Map<String, Object> target, String key, String value) {
-        if (target != null && key != null && StringUtils.hasText(value)) {
-            target.put(key, value);
-        }
+    private LocalDateTime staleClaimBefore() {
+        return LocalDateTime.now().minusMinutes(LISTING_CLAIM_LEASE_MINUTES);
     }
 
     private boolean isMissingProductRebuildTable(RuntimeException exception) {

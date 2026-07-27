@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
+import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noonpull.NoonInterfacePullRequest;
 import com.nuono.next.noonpull.NoonPullDataDomain;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
@@ -12,6 +12,7 @@ import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
 import com.nuono.next.noonpull.NoonPullStoreBinding;
 import com.nuono.next.noonpull.NoonPullStoreBindingResolver;
 import com.nuono.next.product.NoonProductListFieldSupport;
+import com.nuono.next.product.ProductWriteAuthRecovery;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -46,7 +47,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     private static final String MISSING_SESSION_FACTORY_MESSAGE =
             "Product listing real Noon writes require nuono.noon.pull.real-provider.enabled=true "
                     + "so a NoonPullGatewaySessionFactory bean is available.";
-
     private final ObjectMapper objectMapper;
     private final NoonPullStoreBindingResolver bindingResolver;
     private final NoonPullGatewaySessionFactory sessionFactory;
@@ -55,7 +55,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     private final ProductListingOfferStockWriteAdapter offerStockWriteAdapter;
     private final ProductListingNoonReadBackVerifier readBackVerifier;
     private final ProductListingNoonWriteFailureSupport failureSupport;
-
+    private ProductListingWriteAuthRecovery writeAuthRecovery = ProductListingWriteAuthRecovery.disabled();
     @Autowired
     public RealProductListingNoonWriteAdapter(
             ObjectMapper objectMapper,
@@ -73,7 +73,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 offerStockWriteAdapter
         );
     }
-
     RealProductListingNoonWriteAdapter(
             ObjectMapper objectMapper,
             NoonPullStoreBindingResolver bindingResolver,
@@ -90,7 +89,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 new UnavailableProductListingOfferStockWriteAdapter()
         );
     }
-
     RealProductListingNoonWriteAdapter(
             ObjectMapper objectMapper,
             NoonPullStoreBindingResolver bindingResolver,
@@ -113,22 +111,47 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 new ProductListingNoonReadBackVerifier(objectMapper, this.properties);
         this.failureSupport = new ProductListingNoonWriteFailureSupport();
     }
-
+    @Autowired(required = false)
+    public void setProductWriteAuthRecovery(ProductWriteAuthRecovery authRecovery) {
+        this.writeAuthRecovery = new ProductListingWriteAuthRecovery(authRecovery);
+    }
+    @Override
+    public boolean isAuthorizationRecoveryPending(ProductListingNoonWriteRequest request) {
+        NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
+        return ProductListingNoonCallGuard.isAuthorizationRecoveryPending(
+                request, binding, writeAuthRecovery);
+    }
     @Override
     public ProductListingNoonWriteResult execute(ProductListingNoonWriteRequest request) {
         List<ProductListingNoonWriteStepResult> steps = new ArrayList<>();
+        NoonPullStoreBinding binding = null;
         try {
             ProductListingDraftCommand draft = requireDraft(request);
             ProductListingNoonWriteResult unsupported =
                     failureSupport.unsupportedWarehouseStockResult(draft);
-            if (unsupported != null){ return unsupported; }
-            NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
-            NoonPullGatewaySession session = requireSessionFactory().login(binding);
+            if (unsupported != null) {
+                return unsupported;
+            }
+            binding = bindingResolver.resolve(interfaceRequest(request));
+            NoonPullGatewaySession session = ProductListingNoonCallGuard.loginGuarded(
+                    request, binding, writeAuthRecovery, requireSessionFactory());
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             ProductListingRealWriteProperties.Endpoints endpoints = properties.getEndpoints();
-            verifyCatalogSessionBeforeCreate(session, binding, endpoints, headers);
+            ProductListingNoonWriteStepResult absenceProof =
+                    ProductListingCatalogSessionPreflight.verifyCreateTargetAbsent(
+                            objectMapper,
+                            session,
+                            binding,
+                            endpoints,
+                            headers,
+                            draft.getPsku(),
+                            request.getRealRunTaskId()
+                    );
+            steps.add(absenceProof);
+            if (!"succeeded".equals(absenceProof.getStatus())) {
+                throw new IllegalStateException(absenceProof.getFailureMessage());
+            }
             ProductFullTypeLabels fullTypeLabels = resolveProductFullTypeLabels(session, endpoints, draft, headers);
-
             JsonNode createProduct = postStep(
                     steps,
                     "create_product",
@@ -147,73 +170,28 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 throw exception;
             }
             setLastStepExternalReference(steps, externalReference(skuParent, pskuCode));
-
+            steps.remove(absenceProof);
             return writeAfterCreate(request, draft, binding, session, endpoints, headers, fullTypeLabels, skuParent, pskuCode, steps);
         } catch (RuntimeException exception) {
-            if (steps.isEmpty()){ return failureSupport.preCreateFailure(exception); }
-            boolean authenticationFailure =
-                    NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception);
-            if (authenticationFailure) {
-                failureSupport.markLastFailedStepAuthenticationRequired(
-                        steps, exception.getMessage());
+            ProductListingNoonWriteResult mappedFailure = writeAuthRecovery.mapFailure(
+                    request, binding, exception, steps, "Product listing Noon write failed.");
+            if (ProductListingWriteAuthRecovery.FAILURE_CODE.equals(
+                    mappedFailure.getFailureCode()) || !steps.isEmpty()) {
+                return mappedFailure;
             }
-            String failureCode = authenticationFailure
-                    ? "noon_auth_required"
-                    : failureSupport.failedStepCode(steps, "noon_write_failed");
-            return ProductListingNoonWriteResult.failed(
-                    authenticationFailure ? "authentication" : "noon_api",
-                    failureCode,
-                    StringUtils.hasText(exception.getMessage())
-                            ? exception.getMessage()
-                            : "Product listing Noon write failed.",
-                    steps
-            );
+            return failureSupport.preCreateFailure(exception);
         }
     }
-
-    private void verifyCatalogSessionBeforeCreate(
-            NoonPullGatewaySession session,
-            NoonPullStoreBinding binding,
-            ProductListingRealWriteProperties.Endpoints endpoints,
-            Map<String, String> headers
-    ) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("page", 1);
-        body.put("per_page", 1);
-        body.put("noon_store_code", binding.getStoreCode());
-        body.put("noonChannelType", "noon");
-        JsonNode root = session.postJson(
-                endpoints.getOfferListUrl(),
-                body,
-                true,
-                headers
-        );
-        JsonNode error = root == null ? null : root.get("error");
-        if (error != null
-                && !error.isNull()
-                && !error.isMissingNode()
-                && !(error.isTextual() && !StringUtils.hasText(error.asText()))) {
-            throw new IllegalStateException(
-                    "Noon Catalog 商品接口预检返回业务错误，未发起商品创建。"
-            );
-        }
-        if (root == null
-                || !root.path("data").isObject()
-                || !root.path("data").path("hits").isArray()) {
-            throw new IllegalStateException(
-                    "Noon Catalog 商品接口预检返回结构异常，未发起商品创建。"
-            );
-        }
-    }
-
     @Override
     public ProductListingNoonWriteStepResult resolveCreateReference(ProductListingNoonWriteRequest request) {
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey("resolve_create_reference");
+        NoonPullStoreBinding binding = null;
         try {
             ProductListingDraftCommand draft = requireDraft(request);
-            NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
-            NoonPullGatewaySession session = requireSessionFactory().login(binding);
+            binding = bindingResolver.resolve(interfaceRequest(request));
+            NoonPullGatewaySession session = ProductListingNoonCallGuard.loginGuarded(
+                    request, binding, writeAuthRecovery, requireSessionFactory());
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             String partnerSku = normalize(draft.getPsku());
             for (int page = 1; page <= CREATE_REFERENCE_LOOKUP_MAX_PAGES; page++) {
@@ -223,7 +201,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 body.put("noon_store_code", binding.getStoreCode());
                 body.put("noonChannelType", "noon");
                 body.put("search", partnerSku);
-                JsonNode root = session.postJson(properties.getEndpoints().getOfferListUrl(), body, true, headers);
+                JsonNode root = ProductListingNoonCallGuard.requireAuthorized(
+                        session.postJson(properties.getEndpoints().getOfferListUrl(), body, true, headers));
                 JsonNode data = root.path("data");
                 JsonNode hits = data.path("hits");
                 if (hits.isArray()) {
@@ -256,21 +235,11 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             step.setFailureMessage("Noon 中暂未找到该 PSKU 的创建结果，请稍后重新核对，不要重复上架。");
             return step;
         } catch (RuntimeException exception) {
-            boolean authenticationFailure =
-                    NoonAuthenticationFailureClassifier.isAuthenticationFailure(
-                            exception
-                    );
-            step.setStatus("failed");
-            step.setFailureCode(authenticationFailure
-                    ? "noon_auth_required"
-                    : "noon_create_reference_lookup_failed");
-            step.setFailureMessage(StringUtils.hasText(exception.getMessage())
-                    ? exception.getMessage()
-                    : "Noon create reference lookup failed.");
-            return step;
+            return writeAuthRecovery.mapReadFailure(
+                    request, binding, exception, false, "resolve_create_reference",
+                    "noon_create_reference_lookup_failed", "Noon create reference lookup failed.");
         }
     }
-
     @Override
     public ProductListingNoonWriteResult continueAfterCreate(
             ProductListingNoonWriteRequest request,
@@ -278,6 +247,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             String pskuCode
     ) {
         List<ProductListingNoonWriteStepResult> steps = new ArrayList<>();
+        NoonPullStoreBinding binding = null;
         try {
             ProductListingDraftCommand draft = requireDraft(request);
             if (!StringUtils.hasText(skuParent)) {
@@ -286,40 +256,26 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             if (!StringUtils.hasText(pskuCode)) {
                 throw new IllegalArgumentException("Product listing continuation pskuCode is required.");
             }
-            NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
-            NoonPullGatewaySession session = requireSessionFactory().login(binding);
+            binding = bindingResolver.resolve(interfaceRequest(request));
+            NoonPullGatewaySession session = ProductListingNoonCallGuard.loginGuarded(
+                    request, binding, writeAuthRecovery, requireSessionFactory());
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             ProductListingRealWriteProperties.Endpoints endpoints = properties.getEndpoints();
             ProductFullTypeLabels fullTypeLabels = resolveProductFullTypeLabels(session, endpoints, draft, headers);
             return writeAfterCreate(request, draft, binding, session, endpoints, headers, fullTypeLabels, skuParent, pskuCode, steps);
         } catch (RuntimeException exception) {
-            boolean authenticationFailure =
-                    NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception);
             if (steps.isEmpty()) {
                 steps.add(failureSupport.continuationPreflightFailure(
                         skuParent,
                         pskuCode,
-                        authenticationFailure,
+                        writeAuthRecovery.isExplicitAuthFailure(exception),
                         exception.getMessage()
                 ));
-            } else if (authenticationFailure) {
-                failureSupport.markLastFailedStepAuthenticationRequired(
-                        steps, exception.getMessage());
             }
-            return ProductListingNoonWriteResult.failed(
-                    authenticationFailure ? "authentication" : "noon_api",
-                    authenticationFailure
-                            ? "noon_auth_required"
-                            : failureSupport.failedStepCode(
-                                    steps, "noon_write_continuation_failed"),
-                    StringUtils.hasText(exception.getMessage())
-                            ? exception.getMessage()
-                            : "Product listing Noon write continuation failed.",
-                    steps
-            );
+            return writeAuthRecovery.mapFailure(
+                    request, binding, exception, steps, "Product listing Noon write continuation failed.");
         }
     }
-
     @Override
     public ProductListingNoonWriteStepResult verifyReadBack(
             ProductListingNoonWriteRequest request,
@@ -327,15 +283,18 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             String pskuCode,
             List<String> expectedImageValues
     ) {
+        NoonPullStoreBinding binding = null;
         try {
             ProductListingDraftCommand draft = requireDraft(request);
             if (!StringUtils.hasText(skuParent)) {
                 throw new IllegalArgumentException("Product listing read-back skuParent is required.");
             }
-            NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
-            NoonPullGatewaySession session = requireSessionFactory().login(binding);
+            binding = bindingResolver.resolve(interfaceRequest(request));
+            NoonPullGatewaySession session = ProductListingNoonCallGuard.loginGuarded(
+                    request, binding, writeAuthRecovery, requireSessionFactory());
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
             return verifyNoonReadBack(
+                    request,
                     session,
                     properties.getEndpoints(),
                     draft,
@@ -346,22 +305,13 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                     headers
             );
         } catch (RuntimeException exception) {
-            ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
-            step.setStepKey("verify_noon_readback");
-            step.setStatus("failed");
+            ProductListingNoonWriteStepResult step = writeAuthRecovery.mapReadFailure(
+                    request, binding, exception, true, "verify_noon_readback",
+                    "noon_listing_readback_failed", "Noon listing read-back failed.");
             step.setExternalReference(externalReference(skuParent, pskuCode) + ";readBackAttempts=0");
-            step.setFailureCode(
-                    NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)
-                            ? "noon_auth_required"
-                            : "noon_listing_readback_failed"
-            );
-            step.setFailureMessage(StringUtils.hasText(exception.getMessage())
-                    ? exception.getMessage()
-                    : "Noon listing read-back failed.");
             return step;
         }
     }
-
     private ProductListingNoonWriteResult writeAfterCreate(
             ProductListingNoonWriteRequest request,
             ProductListingDraftCommand draft,
@@ -406,8 +356,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         if (StringUtils.hasText(draft.getBarcode())) {
             postStep(steps, "upsert_barcode", session, endpoints.getUpsertBarcodeUrl(), upsertBarcodeBody(draft), headers);
         }
-
         ProductListingNoonWriteStepResult readBack = verifyNoonReadBack(
+                request,
                 session,
                 endpoints,
                 draft,
@@ -419,17 +369,22 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         );
         steps.add(readBack);
         if (!"succeeded".equals(readBack.getStatus())) {
-            return ProductListingNoonWriteResult.failed(
-                    "noon_readback",
+            boolean authorizationRecovery = ProductListingWriteAuthRecovery.FAILURE_CODE
+                    .equals(readBack.getFailureCode());
+            ProductListingNoonWriteResult failure = ProductListingNoonWriteResult.failed(
+                    authorizationRecovery ? "authorization" : "noon_readback",
                     readBack.getFailureCode(),
                     readBack.getFailureMessage(),
                     steps
             );
+            if (authorizationRecovery) {
+                failure.setRecoveryId(readBack.getRecoveryId());
+                failure.setWriteMayHaveOccurred(readBack.getWriteMayHaveOccurred());
+            }
+            return failure;
         }
-
         return ProductListingNoonWriteResult.succeeded(steps);
     }
-
     private void appendOfferStockStep(
             List<ProductListingNoonWriteStepResult> steps,
             ProductListingNoonWriteRequest request,
@@ -459,10 +414,9 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         if ("failed".equals(step.getStatus())) {
             throw new IllegalStateException(StringUtils.hasText(step.getFailureMessage())
                     ? step.getFailureMessage()
-                    : "Product listing offer/stock write failed.");
+                    : "Product listing offer/stock write failed.", step.originalFailure());
         }
     }
-
     private ProductListingOfferStockWriteRequest offerStockWriteRequest(
             ProductListingNoonWriteRequest request,
             ProductListingDraftCommand draft,
@@ -528,8 +482,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 || draft.getIsActive() != null
                 || draft.getOfferNote() != null;
     }
-
     private ProductListingNoonWriteStepResult verifyNoonReadBack(
+            ProductListingNoonWriteRequest request,
             NoonPullGatewaySession session,
             ProductListingRealWriteProperties.Endpoints endpoints,
             ProductListingDraftCommand draft,
@@ -539,8 +493,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             NoonPullStoreBinding binding,
             Map<String, String> headers
     ) {
-        return readBackVerifier.verify(
-                session,
+        ProductListingNoonWriteStepResult step = readBackVerifier.verify(
+                authEnvelopeGuardedReadSession(session),
                 endpoints,
                 draft,
                 expectedImageValues,
@@ -549,6 +503,54 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 binding,
                 headers
         );
+        if (!"failed".equals(step.getStatus())) {
+            return step;
+        }
+        RuntimeException failure = "noon_auth_required".equals(step.getFailureCode())
+                ? new NoonAuthenticationRequiredException(step.getFailureMessage())
+                : new IllegalStateException(step.getFailureMessage());
+        if (!writeAuthRecovery.isExplicitAuthFailure(failure)) {
+            return step;
+        }
+        ProductListingNoonWriteStepResult recovery = writeAuthRecovery.mapReadFailure(
+                request,
+                binding,
+                failure,
+                true,
+                "verify_noon_readback",
+                "noon_listing_readback_failed",
+                "Noon listing read-back failed."
+        );
+        recovery.setExternalReference(step.getExternalReference());
+        return recovery;
+    }
+
+    private NoonPullGatewaySession authEnvelopeGuardedReadSession(NoonPullGatewaySession session) {
+        return new NoonPullGatewaySession() {
+            @Override
+            public JsonNode postJson(
+                    String url, JsonNode body, boolean withProject,
+                    Map<String, String> extraHeaders
+            ) {
+                try {
+                    return ProductListingNoonCallGuard.requireAuthorized(
+                            session.postJson(url, body, withProject, extraHeaders));
+                } catch (RuntimeException exception) {
+                    if (writeAuthRecovery.isExplicitAuthFailure(exception)) {
+                        throw new NoonAuthenticationRequiredException(
+                                exception.getMessage(), exception);
+                    }
+                    throw exception;
+                }
+            }
+
+            @Override
+            public byte[] getBytes(
+                    String url, boolean withProject, Map<String, String> extraHeaders
+            ) {
+                return session.getBytes(url, withProject, extraHeaders);
+            }
+        };
     }
 
     private void sleepBeforeReadBackRetry(long retryDelayMillis) {
@@ -739,7 +741,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         step.setStepKey(stepKey);
         boolean stepRecorded = false;
         try {
-            JsonNode response = session.postWriteJson(url, body, true, headers);
+            JsonNode response = ProductListingNoonCallGuard.requireAuthorized(
+                    session.postWriteJson(url, body, true, headers));
             String failureMessage = noonWriteFailureMessage(response);
             if (StringUtils.hasText(failureMessage)) {
                 step.setStatus("failed");
@@ -757,17 +760,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             return response == null ? objectMapper.createObjectNode() : response;
         } catch (RuntimeException exception) {
             if (!stepRecorded) {
-                step.setStatus("failed");
-                boolean createAuthenticationRejected =
-                        "create_product".equals(stepKey)
-                                && NoonAuthenticationFailureClassifier
-                                .isExplicitAuthenticationRejection(exception);
-                step.setFailureCode(createAuthenticationRejected
-                        ? "noon_auth_required"
-                        : "create_product".equals(stepKey)
-                                ? "noon_create_outcome_unknown"
-                                : "noon_write_outcome_unknown");
-                step.setFailureMessage(exception.getMessage());
+                writeAuthRecovery.markWriteFailure(step, stepKey, exception);
                 steps.add(step);
             }
             throw exception;
@@ -785,6 +778,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         List<String> uploadedPaths = new ArrayList<>();
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey("upload_images");
+        boolean providerCallStarted = false;
         try {
             for (String sourceImage : sourceImages) {
                 if (!StringUtils.hasText(sourceImage)) {
@@ -793,8 +787,10 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 if (uploadedPaths.size() >= MAX_IMAGE_UPLOADS) {
                     break;
                 }
+                providerCallStarted = false;
                 ProductListingImageDownload download = imageDownloader.download(sourceImage.trim());
-                JsonNode response = session.postMultipartFile(
+                providerCallStarted = true;
+                JsonNode response = ProductListingNoonCallGuard.requireAuthorized(session.postMultipartFile(
                         imageUploadUrl(endpoints.getUploadImageUrl()),
                         "file",
                         uploadFileName(download),
@@ -802,7 +798,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                         download.content,
                         true,
                         headers
-                );
+                ));
                 String failureMessage = noonWriteFailureMessage(response);
                 if (StringUtils.hasText(failureMessage)) {
                     throw new IllegalStateException(failureMessage);
@@ -823,11 +819,12 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             steps.add(step);
             return uploadedPaths;
         } catch (RuntimeException exception) {
-            step.setStatus("failed");
-            step.setFailureCode("noon_image_upload_failed");
-            step.setFailureMessage(StringUtils.hasText(exception.getMessage())
-                    ? exception.getMessage()
-                    : "Noon image upload failed.");
+            writeAuthRecovery.markUploadFailure(
+                    step,
+                    exception,
+                    ProductListingNoonCallGuard.writeMayHaveOccurred(
+                            !uploadedPaths.isEmpty(), providerCallStarted, exception)
+            );
             step.setExternalReference(uploadedImagesReference(uploadedPaths));
             steps.add(step);
             throw exception;
@@ -1249,14 +1246,14 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         for (String url : urls) {
             try {
                 byte[] bytes = session.getBytes(url, false, taxonomyHeaders(headers));
-                JsonNode root = objectMapper.readTree(bytes);
+                JsonNode root = ProductListingNoonCallGuard.requireAuthorized(objectMapper.readTree(bytes));
                 ProductFullTypeLabels labels = labelsFromTaxonomy(root, draft);
                 if (labels.complete()){ return labels; }
                 if (!bestPartial.hasAny() && labels.hasAny()) {
                     bestPartial = labels;
                 }
             } catch (RuntimeException exception) {
-                if (NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)) {
+                if (writeAuthRecovery.shouldStopImmediately(exception)) {
                     throw exception;
                 }
                 lastFailure = exception;
@@ -1266,6 +1263,9 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                         "Noon product fulltype taxonomy response could not be read.",
                         exception
                 );
+                if (writeAuthRecovery.shouldStopImmediately(exception)) {
+                    throw new IllegalStateException(exception.getMessage(), exception);
+                }
                 // Try the next taxonomy endpoint before failing the real write.
             }
         }
@@ -1429,7 +1429,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         }
         steps.get(steps.size() - 1).setExternalReference(externalReference);
     }
-
     private void markLastCreateStepOutcomeUnknown(
             List<ProductListingNoonWriteStepResult> steps,
             String failureMessage
@@ -1445,6 +1444,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         step.setFailureCode("noon_create_outcome_unknown");
         step.setFailureMessage(failureMessage);
         step.setExternalReference(null);
+        step.setWriteMayHaveOccurred(true);
     }
 
     private String externalReference(String skuParent, String pskuCode){ return "skuParent=" + normalize(skuParent) + ";pskuCode=" + normalize(pskuCode); }

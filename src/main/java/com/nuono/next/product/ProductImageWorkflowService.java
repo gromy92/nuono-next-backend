@@ -1,6 +1,5 @@
 package com.nuono.next.product;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
 import java.io.IOException;
@@ -14,6 +13,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,8 @@ class ProductImageWorkflowService {
     private final ProductImageGenerator generator;
     private final ObjectProvider<ProductImageNoonPublisher> publisherProvider;
     private final ObjectMapper objectMapper;
+    private final ProductImagePublishExecutionLocks publishExecutionLocks =
+            new ProductImagePublishExecutionLocks();
 
     ProductImageWorkflowService(
             ProductImageProfileMapper mapper,
@@ -63,7 +66,10 @@ class ProductImageWorkflowService {
         try {
             List<ProductImageSuiteAssetRecord> existing = mapper.selectSuiteAssets(suiteId);
             List<String> baseReferences = baseReferences(profile);
-            replaceReviewTargets(suite, reviewTargets, existing, baseReferences, storeCode);
+            ProductImageSuiteReworkGenerator.replace(
+                    mapper, generator, suite, reviewTargets, existing,
+                    baseReferences, storeCode, this::rolePrompt, this::saveGeneratedImage
+            );
             Set<ProductImageSuiteAssetRole> completed = existing.stream()
                     .map(ProductImageSuiteAssetRecord::getImageRole)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -86,60 +92,86 @@ class ProductImageWorkflowService {
         }
     }
 
-    private void replaceReviewTargets(
-            ProductImageSuiteRecord suite,
-            List<ProductImageSuiteReviewTargetRecord> reviewTargets,
-            List<ProductImageSuiteAssetRecord> existing,
-            List<String> baseReferences,
-            String storeCode
+    void publish(
+            Long suiteId,
+            Long ownerUserId,
+            String storeCode,
+            Long operatorUserId,
+            String attemptId
     ) {
-        if (reviewTargets.isEmpty() || existing.isEmpty()) return;
-        boolean wholeSuite = reviewTargets.stream()
-                .anyMatch(target -> "SUITE".equalsIgnoreCase(target.getTargetScope()));
-        Set<Long> selectedIds = reviewTargets.stream()
-                .map(ProductImageSuiteReviewTargetRecord::getAssetId)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        for (ProductImageSuiteAssetRecord asset : existing) {
-            if (!wholeSuite && !selectedIds.contains(asset.getId())) continue;
-            List<String> references = new ArrayList<>(baseReferences);
-            if (StringUtils.hasText(asset.getImageUrl())) references.add(0, asset.getImageUrl());
-            GeneratedProductImage image = generator.generate(rolePrompt(suite, asset.getImageRole()), references);
-            ProductImageSuiteAssetRecord replacement = saveGeneratedImage(
-                    suite,
-                    asset.getImageRole(),
-                    image,
-                    storeCode,
-                    asset.getSortOrder() == null ? 10 : asset.getSortOrder()
-            );
-            mapper.updateSuiteAssetContent(
-                    suite.getId(),
-                    asset.getId(),
-                    replacement.getImageUrl(),
-                    replacement.getContentType(),
-                    replacement.getSizeBytes(),
-                    replacement.getSha256()
-            );
+        Lock executionLock = publishExecutionLocks.lockFor(suiteId);
+        executionLock.lock();
+        try {
+            publishAttempt(suiteId, ownerUserId, storeCode, operatorUserId, attemptId);
+        } finally {
+            executionLock.unlock();
         }
     }
 
-    void publish(Long suiteId, Long ownerUserId, String storeCode, Long operatorUserId) {
+    private void publishAttempt(
+            Long suiteId,
+            Long ownerUserId,
+            String storeCode,
+            Long operatorUserId,
+            String attemptId
+    ) {
         ProductImageSuiteRecord suite = requireSuite(suiteId);
         ProductImageProfileRecord profile = requireProfile(suite, ownerUserId, storeCode);
+        ProductImagePublishCheckpoint checkpoint =
+                ProductImagePublishCheckpoint.parse(objectMapper, suite.getPublishManifestJson());
+        if (suite.getSuiteStatus() != ProductImageSuiteStatus.PUBLISHING
+                || !checkpoint.matchesAttempt(attemptId)) {
+            return;
+        }
+        String executionToken = UUID.randomUUID().toString();
+        if (mapper.claimSuitePublishExecution(
+                suiteId, attemptId, executionToken, operatorUserId
+        ) == 0) {
+            return;
+        }
         try {
             ProductImageNoonPublisher publisher = publisherProvider.getIfAvailable();
             if (publisher == null) throw new IllegalStateException("Noon 图片发布服务暂时不可用。");
-            List<String> images = mapper.selectSuiteAssets(suiteId).stream()
-                    .map(ProductImageSuiteAssetRecord::getImageUrl)
-                    .filter(StringUtils::hasText)
-                    .collect(Collectors.toList());
+            List<String> images = checkpoint.approvedImageUrls();
             if (images.isEmpty()) throw new IllegalArgumentException("套图没有可发布的图片。");
             String skuParent = mapper.selectSkuParentByProductMasterId(profile.getProductMasterId());
-            List<String> noonUrls = publisher.publish(ownerUserId, storeCode, skuParent, images);
-            mapper.markSuiteOnline(suiteId, writeManifest(noonUrls));
+            AtomicReference<String> latestCheckpointJson =
+                    new AtomicReference<>(suite.getPublishManifestJson());
+            publisher.publish(
+                    ownerUserId,
+                    storeCode,
+                    skuParent,
+                    images,
+                    suite.getPublishManifestJson(),
+                    nextCheckpoint -> {
+                        if (mapper.updateSuitePublishManifest(
+                                suiteId,
+                                attemptId,
+                                executionToken,
+                                nextCheckpoint,
+                                operatorUserId
+                        ) == 0) {
+                            throw new IllegalStateException("商品图片发布任务状态已变化，已停止继续写入。");
+                        }
+                        latestCheckpointJson.set(nextCheckpoint);
+                    }
+            );
+            if (mapper.markSuiteOnline(
+                    suiteId, attemptId, executionToken, latestCheckpointJson.get()
+            ) == 0) {
+                throw new IllegalStateException("商品图片发布任务状态已变化，已停止写入在线状态。");
+            }
         } catch (RuntimeException exception) {
-            mapper.updateSuiteWorkflowStatus(
-                    suiteId, ProductImageSuiteStatus.FAILED, "PUBLISH", safeMessage(exception), operatorUserId
+            String failureStage = ProductWriteAuthRequiredException.find(exception) == null
+                    ? "PUBLISH"
+                    : "PUBLISH_AUTH_RECOVERY";
+            mapper.failPublishingSuiteWorkflow(
+                    suiteId,
+                    attemptId,
+                    executionToken,
+                    failureStage,
+                    safeMessage(exception),
+                    operatorUserId
             );
             throw exception;
         }
@@ -225,11 +257,6 @@ class ProductImageWorkflowService {
         } catch (IOException exception) {
             throw new IllegalStateException("AI 图片保存失败：" + exception.getMessage(), exception);
         }
-    }
-
-    private String writeManifest(List<String> noonUrls) {
-        try { return objectMapper.writeValueAsString(noonUrls); }
-        catch (JsonProcessingException exception) { throw new IllegalStateException("发布清单保存失败。", exception); }
     }
 
     private String sha256(byte[] content) {

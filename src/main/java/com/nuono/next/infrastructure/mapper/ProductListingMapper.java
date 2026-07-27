@@ -1,13 +1,14 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.productlisting.ProductListingTaskRecord;
-import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-public interface ProductListingMapper extends ProductListingDraftTaskMapper {
+
+public interface ProductListingMapper extends
+        ProductListingDraftTaskMapper, ProductListingTaskLeaseMapper {
     @Select({
             "SELECT",
             "  real_run.id, real_run.draft_id, real_run.owner_user_id, real_run.store_code,",
@@ -215,7 +216,9 @@ public interface ProductListingMapper extends ProductListingDraftTaskMapper {
             "  AND mode = 'REAL_RUN'",
             "  AND (",
             "    status IN ('submitted', 'running', 'succeeded', 'written_verify_failed')",
-            "    OR (status = 'failed' AND failure_code = 'partner_sku_already_exists')",
+            "    OR (status = 'failed' AND failure_code IN (",
+            "      'partner_sku_already_exists', 'noon_auth_required'",
+            "    ))",
             "  )",
             "  AND UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(input_snapshot_json, '$.psku')))) = UPPER(TRIM(#{partnerSku}))",
             "  AND NOT EXISTS (",
@@ -248,7 +251,10 @@ public interface ProductListingMapper extends ProductListingDraftTaskMapper {
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND store_code = #{storeCode}",
             "  AND mode = 'REAL_RUN'",
-            "  AND status IN ('submitted', 'running', 'succeeded', 'written_verify_failed')",
+            "  AND (",
+            "    status IN ('submitted', 'running', 'succeeded', 'written_verify_failed')",
+            "    OR (status = 'failed' AND failure_code = 'noon_auth_required')",
+            "  )",
             "  AND UPPER(TRIM(JSON_UNQUOTE(JSON_EXTRACT(input_snapshot_json, '$.barcode')))) = UPPER(TRIM(#{barcode}))",
             "  AND NOT EXISTS (",
             "      SELECT 1",
@@ -391,7 +397,6 @@ public interface ProductListingMapper extends ProductListingDraftTaskMapper {
             @Param("barcode") String barcode,
             @Param("excludeListingDraftId") Long excludeListingDraftId
     );
-
     @Select({
             "SELECT",
             "  t.id, t.draft_id, t.owner_user_id, t.store_code, t.task_no, t.mode, t.status,",
@@ -407,6 +412,7 @@ public interface ProductListingMapper extends ProductListingDraftTaskMapper {
             "  AND d.source_type = #{sourceType}",
             "  AND d.source_ref_id = #{sourceRefId}",
             "  AND t.mode = 'REAL_RUN'",
+            "  AND t.status <> 'rejected'",
             "ORDER BY t.submitted_at DESC, t.id DESC",
             "LIMIT 1"
     })
@@ -430,65 +436,6 @@ public interface ProductListingMapper extends ProductListingDraftTaskMapper {
             "LIMIT #{limit}"
     })
     List<ProductListingTaskRecord> selectRunnableRealRunTasks(@Param("limit") int limit);
-
-    @Update({
-            "UPDATE product_listing_task",
-            "SET status = 'written_verify_failed',",
-            "    failure_category = 'recovery',",
-            "    failure_code = 'real_run_interrupted',",
-            "    failure_message = '真实上架任务执行中断，系统不会自动重放 Noon 写入；请人工核对 Noon 后继续。',",
-            "    completed_at = NOW(),",
-            "    gmt_updated = NOW()",
-            "WHERE mode = 'REAL_RUN'",
-            "  AND status = 'running'",
-            "  AND started_at IS NOT NULL",
-            "  AND gmt_updated < #{staleBefore}"
-    })
-    int recoverStaleRunningRealRunTasks(@Param("staleBefore") LocalDateTime staleBefore);
-
-    @Update({
-            "UPDATE product_listing_task",
-            "SET status = 'running',",
-            "    started_at = #{startedAt},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}",
-            "  AND mode = 'REAL_RUN'",
-            "  AND status = 'submitted'"
-    })
-    int markTaskRunning(
-            @Param("taskId") Long taskId,
-            @Param("startedAt") LocalDateTime startedAt
-    );
-
-    @Update({
-            "UPDATE product_listing_task",
-            "SET gmt_updated = NOW()",
-            "WHERE id = #{taskId}",
-            "  AND mode = 'REAL_RUN'",
-            "  AND status = 'running'",
-            "  AND started_at = #{startedAt}"
-    })
-    int heartbeatRunningRealRunTask(
-            @Param("taskId") Long taskId,
-            @Param("startedAt") LocalDateTime startedAt
-    );
-
-    @Update({
-            "UPDATE product_listing_task",
-            "SET status = #{task.status},",
-            "    noon_result_json = #{task.noonResultJson},",
-            "    failure_category = #{task.failureCategory},",
-            "    failure_code = #{task.failureCode},",
-            "    failure_message = #{task.failureMessage},",
-            "    completed_at = #{task.completedAt},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{task.id}",
-            "  AND owner_user_id = #{task.ownerUserId}",
-            "  AND mode = 'REAL_RUN'",
-            "  AND status = 'running'",
-            "  AND started_at = #{task.startedAt}"
-    })
-    int updateRunningTaskResult(@Param("task") ProductListingTaskRecord task);
 
     @Update({
             "UPDATE product_listing_task",

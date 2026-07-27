@@ -49,6 +49,13 @@ class ProductManagementBarcodeMapperSqlTest {
     }
 
     @Test
+    void productBarcodeLookupsAreScopedToLogicalStore() throws Exception {
+        assertStoreScopedBarcodeLookup("selectProductBarcodeIdByBarcode", true);
+        assertStoreScopedBarcodeLookup("selectProductBarcodeProductMasterIdByBarcode", true);
+        assertStoreScopedBarcodeLookup("selectProductBarcodeIdByBarcodeIncludingDeleted", false);
+    }
+
+    @Test
     void deletedBarcodeCanBeExplicitlyRestoredToNewVariant() throws Exception {
         Method method = ProductManagementMapper.class.getMethod(
                 "restoreDeletedProductBarcode",
@@ -126,5 +133,16 @@ class ProductManagementBarcodeMapperSqlTest {
 
         assertThat(allocatedId).isEqualTo(54744L);
         verify(mapper).advanceProductManagementIdSequence("product_barcode", 54744L);
+    }
+
+    private void assertStoreScopedBarcodeLookup(String methodName, boolean activeOnly) throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(methodName, Long.class, String.class);
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("logical_store_id = #{logicalStoreId}")
+                .contains("barcode = #{barcode}");
+        assertThat(sql.contains("is_deleted = 0")).isEqualTo(activeOnly);
     }
 }

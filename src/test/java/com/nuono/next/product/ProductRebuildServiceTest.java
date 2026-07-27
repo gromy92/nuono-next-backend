@@ -38,8 +38,16 @@ class ProductRebuildServiceTest {
                 objectMapper
         );
         ProductPublishTaskRecord deleteTask = productRebuildDeleteTask();
-        when(productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(10)).thenReturn(java.util.List.of(deleteTask));
-        when(productManagementMapper.claimProductRebuildDeleteTaskForListing(eq(77001L), eq(10002L), any()))
+        when(productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(any(), eq(10)))
+                .thenReturn(java.util.List.of(deleteTask));
+        when(productManagementMapper.claimProductRebuildDeleteTaskForListing(
+                eq(77001L), eq(10002L), any(), any()))
+                .thenReturn(1);
+        when(productManagementMapper.renewProductRebuildListingClaim(
+                eq(77001L), eq(10002L), any(), any()))
+                .thenReturn(1);
+        when(productManagementMapper.completeProductRebuildListingClaim(
+                eq(77001L), eq(10002L), any(), any()))
                 .thenReturn(1);
         when(productListingMapper.selectLatestRealRunTaskByDraftSource(
                 10002L,
@@ -82,9 +90,10 @@ class ProductRebuildServiceTest {
         assertEquals("PRODUCT_REBUILD", submittedDraft.getSupplyEvidenceType());
         assertEquals("2026-03-12 00:00:00", submittedDraft.getInheritedListingStartedAt());
         ArgumentCaptor<String> resultCaptor = ArgumentCaptor.forClass(String.class);
-        verify(productManagementMapper).updateProductRebuildDeleteTaskResult(
+        verify(productManagementMapper).completeProductRebuildListingClaim(
                 eq(77001L),
                 eq(10002L),
+                any(),
                 resultCaptor.capture()
         );
         JsonNode result = objectMapper.readTree(resultCaptor.getValue());
@@ -93,6 +102,30 @@ class ProductRebuildServiceTest {
         assertEquals(88002L, result.path("rebuild").path("listingDryRunTaskId").asLong());
         assertEquals(88003L, result.path("rebuild").path("listingRealRunTaskId").asLong());
         assertEquals("succeeded", result.path("rebuild").path("listingStatus").asText());
+    }
+
+    @Test
+    void shouldNeverRebuildDeleteTaskPendingManualAuthRecovery() throws Exception {
+        ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
+        ProductListingMapper productListingMapper = mock(ProductListingMapper.class);
+        ProductListingService productListingService = mock(ProductListingService.class);
+        ProductRebuildService service = new ProductRebuildService(
+                productManagementMapper,
+                productListingMapper,
+                productListingService,
+                objectMapper
+        );
+        ProductPublishTaskRecord deleteTask = productRebuildDeleteTask();
+        deleteTask.setStatus("pending_manual_check");
+        when(productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(any(), eq(10)))
+                .thenReturn(java.util.List.of(deleteTask));
+
+        int submitted = service.processReadyRebuildDeletes(10);
+
+        assertEquals(0, submitted);
+        verify(productManagementMapper, never()).claimProductRebuildDeleteTaskForListing(
+                any(), any(), any(), any());
+        verify(productListingService, never()).submitConfirmedRealRunFromDraft(any(), any(), any());
     }
 
     @Test
@@ -107,8 +140,10 @@ class ProductRebuildServiceTest {
                 objectMapper
         );
         ProductPublishTaskRecord deleteTask = productRebuildDeleteTask();
-        when(productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(10)).thenReturn(java.util.List.of(deleteTask));
-        when(productManagementMapper.claimProductRebuildDeleteTaskForListing(eq(77001L), eq(10002L), any()))
+        when(productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(any(), eq(10)))
+                .thenReturn(java.util.List.of(deleteTask));
+        when(productManagementMapper.claimProductRebuildDeleteTaskForListing(
+                eq(77001L), eq(10002L), any(), any()))
                 .thenReturn(1);
         ProductListingTaskRecord existing = new ProductListingTaskRecord();
         existing.setId(88003L);
@@ -148,8 +183,10 @@ class ProductRebuildServiceTest {
                 objectMapper
         );
         ProductPublishTaskRecord deleteTask = productRebuildDeleteTask();
-        when(productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(10)).thenReturn(java.util.List.of(deleteTask));
-        when(productManagementMapper.claimProductRebuildDeleteTaskForListing(eq(77001L), eq(10002L), any()))
+        when(productManagementMapper.selectProductRebuildDeleteTasksReadyForListing(any(), eq(10)))
+                .thenReturn(java.util.List.of(deleteTask));
+        when(productManagementMapper.claimProductRebuildDeleteTaskForListing(
+                eq(77001L), eq(10002L), any(), any()))
                 .thenReturn(1);
         ProductListingTaskRecord existing = new ProductListingTaskRecord();
         existing.setId(88003L);

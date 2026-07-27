@@ -32,16 +32,25 @@ abstract class ProductListingCreateOutcomeTestSupport {
     }
 
     protected ProductListingTaskRecord uncertainTaskRecord(ObjectMapper objectMapper) throws Exception {
+        ProductListingNoonWriteStepResult absence = new ProductListingNoonWriteStepResult();
+        absence.setStepKey("pre_create_absence_verified");
+        absence.setStatus("succeeded");
+        absence.setExternalReference(
+                "storeCode=STR245027-NAE;partnerSku=NN-TEST-PSKU;realRunTaskId=20002"
+                        + ";checkedAt=2026-07-27T10:15:30+08:00");
+        absence.setWriteMayHaveOccurred(false);
         ProductListingNoonWriteStepResult create = new ProductListingNoonWriteStepResult();
         create.setStepKey("create_product");
         create.setStatus("failed");
         create.setFailureCode("noon_create_outcome_unknown");
+        create.setWriteMayHaveOccurred(true);
         ProductListingNoonWriteResult result = ProductListingNoonWriteResult.failed(
                 "noon_uncertain_write",
                 "noon_create_outcome_unknown",
                 "unknown",
-                List.of(create)
+                List.of(absence, create)
         );
+        result.setWriteMayHaveOccurred(true);
         ProductListingTaskRecord record = new ProductListingTaskRecord();
         record.setId(20002L);
         record.setDraftId(10001L);

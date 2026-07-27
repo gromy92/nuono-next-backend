@@ -1,11 +1,13 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
 import java.util.ArrayList;
@@ -88,6 +90,105 @@ class RealProductListingOfferStockWriteAdapterTest {
 
         assertEquals("failed", step.getStatus());
         assertEquals("noon_auth_required", step.getFailureCode());
+        assertEquals(Boolean.TRUE, step.getWriteMayHaveOccurred());
+        assertSame(session.failure, step.originalFailure());
+    }
+
+    @Test
+    void authEnvelopeIsAuthenticationAndProvesTheOfferWriteWasRejected() {
+        FakeSession session = new FakeSession();
+        session.response = session.objectMapper.createObjectNode()
+                .set("error", session.objectMapper
+                        .createObjectNode().put("status", 403));
+        ProductListingOfferStockWriteRequest request = request();
+        request.setOfferNote("Launch note");
+
+        ProductListingNoonWriteStepResult step =
+                new RealProductListingOfferStockWriteAdapter(new ObjectMapper())
+                        .writeOfferStock(
+                                request,
+                                session,
+                                new ProductListingRealWriteProperties.Endpoints(),
+                                headers()
+                        );
+
+        assertEquals("noon_auth_required", step.getFailureCode());
+        assertEquals(Boolean.FALSE, step.getWriteMayHaveOccurred());
+        assertTrue(ProductListingNoonCallGuard
+                .isAuthEnvelopeFailure(step.originalFailure()));
+    }
+
+    @Test
+    void bareRedirectIsNotAuthenticationAndKeepsUnknownWriteRisk() {
+        FakeSession session = new FakeSession();
+        session.failure = new IllegalStateException(
+                "wrapped",
+                new NoonHttpException(307, "", "/offer")
+        );
+        ProductListingOfferStockWriteRequest request = request();
+        request.setOfferNote("Launch note");
+
+        ProductListingNoonWriteStepResult step =
+                new RealProductListingOfferStockWriteAdapter(new ObjectMapper())
+                        .writeOfferStock(
+                                request,
+                                session,
+                                new ProductListingRealWriteProperties.Endpoints(),
+                                headers()
+                        );
+
+        assertEquals("noon_offer_stock_write_failed", step.getFailureCode());
+        assertEquals(Boolean.TRUE, step.getWriteMayHaveOccurred());
+        assertSame(session.failure, step.originalFailure());
+    }
+
+    @Test
+    void typedAuthenticationSignalRemainsAuthenticationWithoutDroppingWriteRisk() {
+        FakeSession session = new FakeSession();
+        session.failure = new IllegalStateException(
+                "wrapped",
+                new NoonAuthenticationRequiredException("authorization required")
+        );
+        ProductListingOfferStockWriteRequest request = request();
+        request.setOfferNote("Launch note");
+
+        ProductListingNoonWriteStepResult step =
+                new RealProductListingOfferStockWriteAdapter(new ObjectMapper())
+                        .writeOfferStock(
+                                request,
+                                session,
+                                new ProductListingRealWriteProperties.Endpoints(),
+                                headers()
+                        );
+
+        assertEquals("noon_auth_required", step.getFailureCode());
+        assertEquals(Boolean.TRUE, step.getWriteMayHaveOccurred());
+        assertSame(session.failure, step.originalFailure());
+    }
+
+    @Test
+    void permanent401IsNotAuthenticationAndKeepsUnknownWriteRisk() {
+        FakeSession session = new FakeSession();
+        session.failure = new IllegalStateException(
+                "wrapped",
+                new NoonHttpException(
+                        401, "invalid username or password", "/offer")
+        );
+        ProductListingOfferStockWriteRequest request = request();
+        request.setOfferNote("Launch note");
+
+        ProductListingNoonWriteStepResult step =
+                new RealProductListingOfferStockWriteAdapter(new ObjectMapper())
+                        .writeOfferStock(
+                                request,
+                                session,
+                                new ProductListingRealWriteProperties.Endpoints(),
+                                headers()
+                        );
+
+        assertEquals("noon_offer_stock_write_failed", step.getFailureCode());
+        assertEquals(Boolean.TRUE, step.getWriteMayHaveOccurred());
+        assertSame(session.failure, step.originalFailure());
     }
 
     private ProductListingOfferStockWriteRequest request() {
@@ -114,6 +215,7 @@ class RealProductListingOfferStockWriteAdapterTest {
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final List<Call> calls = new ArrayList<>();
         private RuntimeException failure;
+        private JsonNode response;
 
         @Override
         public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
@@ -126,7 +228,7 @@ class RealProductListingOfferStockWriteAdapterTest {
             if (failure != null) {
                 throw failure;
             }
-            return objectMapper.createObjectNode();
+            return response == null ? objectMapper.createObjectNode() : response;
         }
 
         @Override

@@ -27,7 +27,7 @@ final class ProductBarcodeProjectionWriter {
                 || !StringUtils.hasText(normalizedBarcode)) {
             return;
         }
-        Long activeId = productManagementMapper.selectProductBarcodeIdByBarcode(normalizedBarcode);
+        Long activeId = productManagementMapper.selectProductBarcodeIdByBarcode(logicalStoreId, normalizedBarcode);
         Long id = activeId != null ? activeId : productManagementMapper.nextProductBarcodeId();
         productManagementMapper.upsertProductBarcode(
                 id,
@@ -41,7 +41,7 @@ final class ProductBarcodeProjectionWriter {
                 updatedBy
         );
         Long persistedProductMasterId =
-                productManagementMapper.selectProductBarcodeProductMasterIdByBarcode(normalizedBarcode);
+                productManagementMapper.selectProductBarcodeProductMasterIdByBarcode(logicalStoreId, normalizedBarcode);
         if (!productMasterId.equals(persistedProductMasterId)) {
             throw new IllegalStateException(
                     "Barcode " + normalizedBarcode + " is already assigned to another product."
