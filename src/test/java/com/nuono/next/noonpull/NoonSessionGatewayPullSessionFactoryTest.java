@@ -6,8 +6,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
+import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noon.NoonSessionGateway;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +27,7 @@ class NoonSessionGatewayPullSessionFactoryTest {
                 "AE",
                 "313934",
                 "merchant@example.com",
+                "project-session-user",
                 "legacy-password",
                 "imap-secret",
                 "sid=expired"
@@ -33,7 +37,7 @@ class NoonSessionGatewayPullSessionFactoryTest {
 
         verify(gateway).loginWithPersistedCookie(
                 308L,
-                "merchant@example.com",
+                "project-session-user",
                 "sid=expired",
                 "PRJ313934",
                 "STR313934-NAE"
@@ -59,8 +63,12 @@ class NoonSessionGatewayPullSessionFactoryTest {
                 "sid=expired"
         );
 
-        assertThrows(NoonInterfacePullException.class, () -> factory.login(binding));
+        NoonAuthenticationRequiredException failure = assertThrows(
+                NoonAuthenticationRequiredException.class,
+                () -> factory.login(binding)
+        );
 
+        assertTrue(NoonAuthenticationFailureClassifier.isAuthenticationFailure(failure));
         verifyNoInteractions(gateway);
     }
 }

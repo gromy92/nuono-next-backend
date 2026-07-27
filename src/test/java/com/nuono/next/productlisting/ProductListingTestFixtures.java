@@ -1,5 +1,4 @@
 package com.nuono.next.productlisting;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
@@ -10,14 +9,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
-
 final class ProductListingTestFixtures {
-
-    private ProductListingTestFixtures() {
-    }
-
+    private ProductListingTestFixtures() {}
     static ProductListingService service(
             FakeProductListingMapper mapper,
             boolean realWriteEnabled,
@@ -35,16 +31,13 @@ final class ProductListingTestFixtures {
                 successfulProjectionProvider()
         );
     }
-
     private static ObjectProvider<ProductListingProjectionBackfill> successfulProjectionProvider() {
         ProductListingProjectionBackfill backfill = new ProductListingProjectionBackfill() {
             @Override
             public void backfillDraftListing(
                     ProductListingDraftRecord record,
                     ProductListingDraftCommand draft
-            ) {
-            }
-
+            ) {}
             @Override
             public boolean backfillSuccessfulListing(
                     ProductListingTaskRecord task,
@@ -59,24 +52,20 @@ final class ProductListingTestFixtures {
             public ProductListingProjectionBackfill getObject(Object... args) {
                 return backfill;
             }
-
             @Override
             public ProductListingProjectionBackfill getIfAvailable() {
                 return backfill;
             }
-
             @Override
             public ProductListingProjectionBackfill getIfUnique() {
                 return backfill;
             }
-
             @Override
             public ProductListingProjectionBackfill getObject() {
                 return backfill;
             }
         };
     }
-
     static ProductListingTaskView validatedDryRun(
             ProductListingService service,
             BusinessAccessContext context
@@ -87,14 +76,12 @@ final class ProductListingTestFixtures {
         command.setStoreCode("STR245027-NAE");
         return service.submitDryRun(context, command);
     }
-
     static ProductListingRealRunCommand confirmedCommand() {
         ProductListingRealRunCommand command = new ProductListingRealRunCommand();
         command.setConfirmRealNoonWrite(true);
         command.setConfirmationNote("I understand this will write to Noon.");
         return command;
     }
-
     static ProductListingDraftCommand validCommand() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
         command.setStoreCode("STR245027-NAE");
@@ -116,19 +103,14 @@ final class ProductListingTestFixtures {
         command.setSupplyEvidenceType("1688_OFFER");
         command.setSupplyEvidenceRefId(43101L);
         command.setOptionalPurchaseOrderId(70001L);
-        command.setFbp(true);
-        command.setWarehouseId("73001");
-        command.setWarehouseCode("W00752151SA");
-        command.setQuantity(100);
         command.setIdWarranty(24);
+        command.setIsActive(Boolean.TRUE);
         command.setBarcode("6290000000001");
         return command;
     }
-
     static BusinessAccessContext businessContext(Long ownerUserId, Long sessionUserId, String storeCode) {
         return businessContext(ownerUserId, sessionUserId, Set.of(storeCode));
     }
-
     static BusinessAccessContext businessContext(Long ownerUserId, Long sessionUserId, Set<String> storeCodes) {
         Map<String, Long> storeOwnerUserIds = new LinkedHashMap<>();
         for (String storeCode : storeCodes) {
@@ -146,164 +128,53 @@ final class ProductListingTestFixtures {
                 .menuPaths(Set.of("/purchase/listing", "/api/product-listing"))
                 .build();
     }
-
-    static class TrackingNoonWriteAdapter implements ProductListingNoonWriteAdapter {
-
-        private final ProductListingNoonWriteResult result;
-        private final ProductListingNoonWriteResult continuationResult;
-        private final ProductListingNoonWriteStepResult readBackStep;
-        private int callCount;
-        private int continueAfterCreateCallCount;
-        private int verifyReadBackCallCount;
-        private int resolveCreateReferenceCallCount;
-        private ProductListingNoonWriteStepResult createReferenceStep;
-        private ProductListingNoonWriteRequest lastRequest;
-        private String lastContinueSkuParent;
-        private String lastContinuePskuCode;
-        private String lastReadBackSkuParent;
-        private String lastReadBackPskuCode;
-
-        TrackingNoonWriteAdapter(ProductListingNoonWriteResult result) {
-            this(result, null, null);
+    static class TrackingNoonWriteAdapter extends ProductListingTrackingNoonWriteAdapter {
+        TrackingNoonWriteAdapter(ProductListingNoonWriteResult result) { super(result); }
+        TrackingNoonWriteAdapter(ProductListingNoonWriteResult result, ProductListingNoonWriteStepResult readBackStep) {
+            super(result, readBackStep);
         }
-
-        TrackingNoonWriteAdapter(
-                ProductListingNoonWriteResult result,
-                ProductListingNoonWriteStepResult readBackStep
-        ) {
-            this(result, null, readBackStep);
+        TrackingNoonWriteAdapter(ProductListingNoonWriteResult result, ProductListingNoonWriteResult continuationResult, ProductListingNoonWriteStepResult readBackStep) {
+            super(result, continuationResult, readBackStep);
         }
-
-        TrackingNoonWriteAdapter(
-                ProductListingNoonWriteResult result,
-                ProductListingNoonWriteResult continuationResult,
-                ProductListingNoonWriteStepResult readBackStep
-        ) {
-            this.result = result;
-            this.continuationResult = continuationResult;
-            this.readBackStep = readBackStep;
-        }
-
         @Override
-        public ProductListingNoonWriteResult execute(ProductListingNoonWriteRequest request) {
-            callCount++;
-            lastRequest = request;
-            return result;
-        }
-
-        @Override
-        public ProductListingNoonWriteResult continueAfterCreate(
-                ProductListingNoonWriteRequest request,
-                String skuParent,
-                String pskuCode
-        ) {
-            continueAfterCreateCallCount++;
-            lastRequest = request;
-            lastContinueSkuParent = skuParent;
-            lastContinuePskuCode = pskuCode;
-            return continuationResult;
-        }
-
-        @Override
-        public ProductListingNoonWriteStepResult resolveCreateReference(ProductListingNoonWriteRequest request) {
-            resolveCreateReferenceCallCount++;
-            lastRequest = request;
-            return createReferenceStep;
-        }
-
-        @Override
-        public ProductListingNoonWriteStepResult verifyReadBack(
-                ProductListingNoonWriteRequest request,
-                String skuParent,
-                String pskuCode,
-                List<String> expectedImageValues
-        ) {
-            verifyReadBackCallCount++;
-            lastRequest = request;
-            lastReadBackSkuParent = skuParent;
-            lastReadBackPskuCode = pskuCode;
-            return readBackStep;
-        }
-
-        int callCount() {
-            return callCount;
-        }
-
-        int continueAfterCreateCallCount() {
-            return continueAfterCreateCallCount;
-        }
-
-        int verifyReadBackCallCount() {
-            return verifyReadBackCallCount;
-        }
-
-        int resolveCreateReferenceCallCount() {
-            return resolveCreateReferenceCallCount;
-        }
-
         TrackingNoonWriteAdapter withCreateReferenceStep(ProductListingNoonWriteStepResult step) {
-            this.createReferenceStep = step;
+            super.withCreateReferenceStep(step);
             return this;
         }
-
-        String lastContinueSkuParent() {
-            return lastContinueSkuParent;
-        }
-
-        String lastContinuePskuCode() {
-            return lastContinuePskuCode;
-        }
-
-        String lastReadBackSkuParent() {
-            return lastReadBackSkuParent;
-        }
-
-        String lastReadBackPskuCode() {
-            return lastReadBackPskuCode;
-        }
-
-        ProductListingNoonWriteRequest lastRequest() {
-            return lastRequest;
-        }
     }
-
     static class FakeProductListingMapper implements ProductListingMapper {
-
         private long nextDraftId = 10001L;
         private long nextTaskId = 20001L;
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
         private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
+        private final Map<String, Long> realRunAttemptClaims = new LinkedHashMap<>();
+        private final ProductListingFakeLeaseSupport leaseSupport =
+                new ProductListingFakeLeaseSupport(tasks);
         private ProductListingTaskRecord insertedTask;
         private ProductListingTaskRecord updatedTask;
-
         @Override
         public int allocateProductListingId(IdSequenceCommand command) {
             return 1;
         }
-
         @Override
         public Long nextProductListingDraftId() {
             return nextDraftId++;
         }
-
         @Override
         public Long nextProductListingTaskId() {
             return nextTaskId++;
         }
-
         @Override
         public int insertDraft(ProductListingDraftRecord draft) {
             drafts.put(draft.getId(), draft);
             return 1;
         }
-
         @Override
         public int updateDraft(ProductListingDraftRecord draft) {
             drafts.put(draft.getId(), draft);
             return 1;
         }
-
         @Override
         public ProductListingDraftRecord selectDraftById(Long draftId, Long ownerUserId) {
             ProductListingDraftRecord draft = drafts.get(draftId);
@@ -312,12 +183,14 @@ final class ProductListingTestFixtures {
             }
             return draft;
         }
-
+        @Override
+        public ProductListingDraftRecord selectDraftByIdForUpdate(Long draftId, Long ownerUserId) {
+            return selectDraftById(draftId, ownerUserId);
+        }
         @Override
         public Long findActiveDraftId(Long ownerUserId, String storeCode, String sourceType, Long sourceRefId) {
             return null;
         }
-
         @Override
         public List<ProductListingDraftRecord> selectRecentDrafts(Long ownerUserId, String storeCode, int limit) {
             List<ProductListingDraftRecord> result = new ArrayList<>();
@@ -334,14 +207,12 @@ final class ProductListingTestFixtures {
             }
             return new ArrayList<>(result.subList(0, limit));
         }
-
         @Override
         public int insertTask(ProductListingTaskRecord task) {
             insertedTask = task;
             tasks.put(task.getId(), task);
             return 1;
         }
-
         @Override
         public ProductListingTaskRecord selectTaskById(Long taskId, Long ownerUserId) {
             ProductListingTaskRecord task = tasks.get(taskId);
@@ -350,12 +221,14 @@ final class ProductListingTestFixtures {
             }
             return task;
         }
-
+        @Override
+        public ProductListingTaskRecord selectTaskByIdForUpdate(Long taskId, Long ownerUserId) {
+            return selectTaskById(taskId, ownerUserId);
+        }
         @Override
         public ProductListingTaskRecord selectTaskByIdForWorker(Long taskId) {
             return tasks.get(taskId);
         }
-
         @Override
         public List<ProductListingTaskRecord> selectRecentTasks(Long ownerUserId, String storeCode, int limit) {
             List<ProductListingTaskRecord> result = new ArrayList<>();
@@ -366,7 +239,6 @@ final class ProductListingTestFixtures {
             }
             return result;
         }
-
         @Override
         public List<ProductListingTaskRecord> selectRecentTasksByDraftId(
                 Long ownerUserId,
@@ -379,7 +251,97 @@ final class ProductListingTestFixtures {
                     .limit(limit)
                     .collect(java.util.stream.Collectors.toList());
         }
-
+        @Override
+        public ProductListingTaskRecord selectCurrentRealRunTaskByDraftId(Long ownerUserId, Long draftId) {
+            ProductListingTaskRecord current = null;
+            int currentPriority = Integer.MAX_VALUE;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (!ownerUserId.equals(task.getOwnerUserId())
+                        || !draftId.equals(task.getDraftId())
+                        || !"REAL_RUN".equals(task.getMode())
+                        || isExplicitlyReopenedNotStarted(task)) {
+                    continue;
+                }
+                int priority = workflowRealRunPriority(task);
+                if (current == null
+                        || priority < currentPriority
+                        || (priority == currentPriority && task.getId() > current.getId())) {
+                    current = task;
+                    currentPriority = priority;
+                }
+            }
+            return current;
+        }
+        @Override
+        public ProductListingTaskRecord selectLatestDryRunTaskByDraftId(Long ownerUserId, Long draftId) {
+            ProductListingTaskRecord latest = null;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (ownerUserId.equals(task.getOwnerUserId())
+                        && draftId.equals(task.getDraftId())
+                        && "DRY_RUN".equals(task.getMode())
+                        && (latest == null || task.getId() > latest.getId())) {
+                    latest = task;
+                }
+            }
+            return latest;
+        }
+        @Override
+        public int markValidatedDryRunSuperseded(Long taskId, Long ownerUserId) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !"DRY_RUN".equals(task.getMode())
+                    || !List.of("validated", "validation_failed").contains(task.getStatus())) {
+                return 0;
+            }
+            task.setStatus("superseded");
+            task.setFailureCategory("workflow");
+            task.setFailureCode("review_reopened");
+            return 1;
+        }
+        @Override
+        public int persistRecoveredCreateReference(
+                Long taskId,
+                Long ownerUserId,
+                String expectedNoonResultJson,
+                String newNoonResultJson
+        ) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !Objects.equals(expectedNoonResultJson, task.getNoonResultJson())) {
+                return 0;
+            }
+            task.setNoonResultJson(newNoonResultJson);
+            return 1;
+        }
+        @Override
+        public int markCreateOutcomeLookupAuthenticationRequired(
+                Long taskId,
+                Long ownerUserId,
+                String expectedNoonResultJson,
+                String newNoonResultJson
+        ) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !Objects.equals(expectedNoonResultJson, task.getNoonResultJson())) {
+                return 0;
+            }
+            task.setNoonResultJson(newNoonResultJson);
+            task.setFailureCategory("authentication");
+            task.setFailureCode("noon_auth_required");
+            return 1;
+        }
+        @Override
+        public int claimRealRunAttempt(Long ownerUserId, Long sourceTaskId, Long attemptTaskId) {
+            String key = ownerUserId + ":" + sourceTaskId;
+            if (realRunAttemptClaims.containsKey(key)) {
+                return 0;
+            }
+            realRunAttemptClaims.put(key, attemptTaskId);
+            return 1;
+        }
         @Override
         public ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(Long ownerUserId, Long sourceTaskId) {
             for (ProductListingTaskRecord task : tasks.values()) {
@@ -392,7 +354,6 @@ final class ProductListingTestFixtures {
             }
             return null;
         }
-
         @Override
         public ProductListingTaskRecord selectListedPartnerSkuTask(Long ownerUserId, String storeCode, String partnerSku) {
             ProductListingTaskRecord latest = null;
@@ -400,7 +361,7 @@ final class ProductListingTestFixtures {
                 if (!ownerUserId.equals(task.getOwnerUserId())
                         || !storeCode.equals(task.getStoreCode())
                         || !"REAL_RUN".equals(task.getMode())
-                        || !isKnownListedPartnerSkuTask(task)
+                        || !isReservedIdentityTask(task, false)
                         || !normalize(partnerSku).equalsIgnoreCase(normalize(readPartnerSku(task)))) {
                     continue;
                 }
@@ -410,7 +371,6 @@ final class ProductListingTestFixtures {
             }
             return latest;
         }
-
         @Override
         public ProductListingTaskRecord selectReservedBarcodeTask(Long ownerUserId, String storeCode, String barcode) {
             ProductListingTaskRecord latest = null;
@@ -418,7 +378,7 @@ final class ProductListingTestFixtures {
                 if (!ownerUserId.equals(task.getOwnerUserId())
                         || !storeCode.equals(task.getStoreCode())
                         || !"REAL_RUN".equals(task.getMode())
-                        || !List.of("submitted", "running", "succeeded", "written_verify_failed").contains(task.getStatus())
+                        || !isReservedIdentityTask(task, true)
                         || !normalize(barcode).equalsIgnoreCase(normalize(readBarcode(task)))) {
                     continue;
                 }
@@ -428,17 +388,14 @@ final class ProductListingTestFixtures {
             }
             return latest;
         }
-
         @Override
         public Integer acquireIdentityLock(String lockKey, int timeoutSeconds) {
             return 1;
         }
-
         @Override
         public Integer releaseIdentityLock(String lockKey) {
             return 1;
         }
-
         @Override
         public Long selectLocalProductIdByPartnerSku(
                 Long ownerUserId,
@@ -448,7 +405,6 @@ final class ProductListingTestFixtures {
         ) {
             return null;
         }
-
         @Override
         public Long selectLocalProductIdByBarcode(
                 Long ownerUserId,
@@ -458,7 +414,6 @@ final class ProductListingTestFixtures {
         ) {
             return null;
         }
-
         @Override
         public ProductListingTaskRecord selectLatestRealRunTaskByDraftSource(
                 Long ownerUserId,
@@ -483,7 +438,6 @@ final class ProductListingTestFixtures {
             }
             return latest;
         }
-
         @Override
         public List<ProductListingTaskRecord> selectRunnableRealRunTasks(int limit) {
             List<ProductListingTaskRecord> result = new ArrayList<>();
@@ -498,81 +452,129 @@ final class ProductListingTestFixtures {
             }
             return new ArrayList<>(result.subList(0, limit));
         }
-
         @Override
         public int recoverStaleRunningRealRunTasks(java.time.LocalDateTime staleBefore) {
-            int recovered = 0;
-            for (ProductListingTaskRecord task : tasks.values()) {
-                if ("REAL_RUN".equals(task.getMode())
-                        && "running".equals(task.getStatus())
-                        && task.getStartedAt() != null
-                        && task.getStartedAt().isBefore(staleBefore)) {
-                    task.setStatus("written_verify_failed");
-                    task.setFailureCategory("recovery");
-                    task.setFailureCode("real_run_interrupted");
-                    task.setFailureMessage("真实上架任务执行中断，需人工核对。");
-                    task.setCompletedAt(java.time.LocalDateTime.now());
-                    recovered++;
-                }
-            }
-            return recovered;
+            return leaseSupport.recoverStale(staleBefore);
         }
-
         @Override
         public int updateTaskResult(ProductListingTaskRecord task) {
             updatedTask = task;
+            leaseSupport.release(task.getId());
             tasks.put(task.getId(), task);
             return 1;
         }
-
         @Override
-        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
+        public int updateRunningTaskResult(ProductListingTaskRecord task) {
+            return updateTaskResult(task);
+        }
+        @Override
+        public int heartbeatRunningRealRunTask(Long taskId, java.time.LocalDateTime startedAt) {
             ProductListingTaskRecord task = tasks.get(taskId);
             if (task == null
                     || !"REAL_RUN".equals(task.getMode())
-                    || !"submitted".equals(task.getStatus())) {
+                    || !"running".equals(task.getStatus())
+                    || !java.util.Objects.equals(task.getStartedAt(), startedAt)) {
                 return 0;
             }
-            task.setStatus("running");
-            task.setStartedAt(startedAt);
-            tasks.put(taskId, task);
+            task.setGmtUpdated(java.time.LocalDateTime.now());
             return 1;
         }
-
+        @Override
+        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
+            return leaseSupport.markRunning(taskId, startedAt);
+        }
+        @Override
+        public int markTaskRecoveryRunning(
+                Long taskId, Long ownerUserId, String expectedStatus,
+                java.time.LocalDateTime startedAt
+        ) {
+            return leaseSupport.markRecovery(taskId, ownerUserId, expectedStatus, startedAt);
+        }
+        @Override
+        public int heartbeatRunningTask(
+                Long taskId, Long ownerUserId, java.time.LocalDateTime startedAt) {
+            return leaseSupport.heartbeat(taskId, ownerUserId, startedAt);
+        }
+        @Override
+        public int checkpointRunningTaskNoonResult(
+                Long taskId, Long ownerUserId, String noonResultJson, java.time.LocalDateTime startedAt) {
+            return leaseSupport.checkpoint(taskId, ownerUserId, noonResultJson, startedAt);
+        }
+        @Override
+        public int completeRunningTaskResult(
+                ProductListingTaskRecord task, java.time.LocalDateTime expectedStartedAt) {
+            int completed = leaseSupport.complete(task, expectedStartedAt);
+            if (completed == 1) {
+                updatedTask = task;
+            }
+            return completed;
+        }
         ProductListingTaskRecord insertedTask() {
             return insertedTask;
         }
-
         ProductListingTaskRecord updatedTask() {
             return updatedTask;
         }
-
         void forceRunning(Long taskId, java.time.LocalDateTime startedAt) {
-            ProductListingTaskRecord task = tasks.get(taskId);
-            if (task == null) {
-                throw new IllegalArgumentException("Task not found: " + taskId);
-            }
-            task.setStatus("running");
-            task.setStartedAt(startedAt);
-            tasks.put(taskId, task);
+            leaseSupport.forceRunning(taskId, startedAt);
         }
-
+        void forceLeaseLoss(Long taskId) {
+            leaseSupport.forceLoss(taskId);
+        }
         private boolean isRealWriteAttemptLocked(ProductListingTaskRecord task) {
-            return "running".equals(task.getStatus())
-                    || "submitted".equals(task.getStatus())
-                    || "succeeded".equals(task.getStatus())
-                    || "written_verify_failed".equals(task.getStatus())
-                    || ("failed".equals(task.getStatus())
-                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+            return !"real_run_already_active".equals(task.getFailureCode())
+                    && !"real_run_already_attempted".equals(task.getFailureCode());
         }
-
-        private boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {
-            return "succeeded".equals(task.getStatus())
-                    || "written_verify_failed".equals(task.getStatus())
-                    || ("failed".equals(task.getStatus())
-                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+        private int workflowRealRunPriority(ProductListingTaskRecord task) {
+            if (List.of("submitted", "running", "written_verify_failed").contains(task.getStatus())) {
+                return 0;
+            }
+            if ("succeeded".equals(task.getStatus())) {
+                return 1;
+            }
+            return 2;
         }
-
+        private boolean isExplicitlyReopenedNotStarted(ProductListingTaskRecord task) {
+            ProductListingTaskRecord source = tasks.get(task.getSourceTaskId());
+            if (source == null || !"superseded".equals(source.getStatus())) {
+                return false;
+            }
+            ProductListingTaskView view = new ProductListingTaskView();
+            view.setMode(task.getMode());
+            view.setStatus(task.getStatus());
+            view.setFailureCategory(task.getFailureCategory());
+            view.setFailureCode(task.getFailureCode());
+            view.setFailureMessage(task.getFailureMessage());
+            if (task.getNoonResultJson() != null && !task.getNoonResultJson().isBlank()) {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode root =
+                            objectMapper.readTree(task.getNoonResultJson());
+                    com.fasterxml.jackson.databind.JsonNode success = root.get("success");
+                    com.fasterxml.jackson.databind.JsonNode steps = root.get("steps");
+                    if (!root.isObject()
+                            || (success != null && !success.isBoolean())
+                            || (steps != null && !steps.isArray())) {
+                        return false;
+                    }
+                    view.setNoonResult(objectMapper.treeToValue(
+                            root, ProductListingNoonWriteResult.class));
+                } catch (Exception exception) {
+                    return false;
+                }
+            }
+            ProductListingWorkflowView workflow =
+                    new ProductListingWorkflowProjector().project(null, null, view);
+            return ("failed".equals(task.getStatus()) || "rejected".equals(task.getStatus()))
+                    && workflow.getWriteCertainty()
+                    == ProductListingWorkflowView.WriteCertainty.NOT_STARTED;
+        }
+        private boolean isReservedIdentityTask(ProductListingTaskRecord task, boolean barcode) {
+            return List.of("submitted", "running", "succeeded", "written_verify_failed")
+                    .contains(task.getStatus())
+                    || ("failed".equals(task.getStatus())
+                    && (ProductListingWriteAuthRecovery.FAILURE_CODE.equals(task.getFailureCode())
+                    || (!barcode && "partner_sku_already_exists".equals(task.getFailureCode()))));
+        }
         private String readPartnerSku(ProductListingTaskRecord task) {
             try {
                 ProductListingDraftCommand command = objectMapper.readValue(
@@ -584,7 +586,6 @@ final class ProductListingTestFixtures {
                 throw new IllegalStateException("Failed to read test partner SKU.", exception);
             }
         }
-
         private String readBarcode(ProductListingTaskRecord task) {
             try {
                 return normalize(objectMapper.readValue(
@@ -594,7 +595,6 @@ final class ProductListingTestFixtures {
                 throw new IllegalStateException("Failed to read test barcode.", exception);
             }
         }
-
         private String normalize(String value) {
             return value == null ? "" : value.trim();
         }

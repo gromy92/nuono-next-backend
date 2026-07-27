@@ -10,6 +10,9 @@ on:
       - develop
       - master
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -38,6 +41,13 @@ jobs:
           python -m unittest discover -s scripts/tests -p 'test_source_size_gate.py'
           python scripts/source_size_gate.py
 
+      - name: Verify single-scheduler release cutover
+        run: >-
+          python -m unittest
+          scripts/tests/test_release_cutover_maintenance.py
+          scripts/tests/test_release_database_idle.py
+          scripts/tests/test_release_schema_cutover.py
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -45,5 +55,26 @@ jobs:
           java-version: "17"
           cache: maven
 
-      - name: Test
-        run: mvn -q test
+      - name: Release artifact contract tests
+        run: python3 -m unittest scripts/ci/test_package_release_artifact.py
+
+      - name: Test and package
+        run: mvn -q package
+
+      - name: Prepare master release artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          RELEASE_ARTIFACT_NAME: nuono-next-backend-${{ github.sha }}
+        run: >-
+          python3 scripts/ci/package_release_artifact.py
+          --output-dir "$RUNNER_TEMP/backend-release-artifact"
+
+      - name: Upload master release artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuono-next-backend-${{ github.sha }}
+          path: ${{ runner.temp }}/backend-release-artifact/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0

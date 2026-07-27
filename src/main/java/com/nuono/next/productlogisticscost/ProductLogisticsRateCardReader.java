@@ -4,6 +4,8 @@ import com.nuono.next.infrastructure.mapper.ProductLogisticsCostMapper;
 import com.nuono.next.infrastructure.mapper.PublishedProductLogisticsRateCardMapper;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.RateCardRow;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.RateCardView;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +40,14 @@ public class ProductLogisticsRateCardReader {
                 transportMode
         ));
         RateCardView view = new RateCardView();
-        view.items.addAll(rowsBySlot.values());
+        List<RateCardRow> rows = new ArrayList<>(rowsBySlot.values());
+        rows.sort(Comparator
+                .comparing((RateCardRow row) -> text(row.siteCode))
+                .thenComparing(row -> text(row.forwarderCode))
+                .thenComparing(row -> text(row.transportMode))
+                .thenComparing(row -> text(row.cargoCategoryCode))
+                .thenComparing(row -> text(row.chargeUnit)));
+        view.items.addAll(rows);
         return view;
     }
 
@@ -46,7 +55,39 @@ public class ProductLogisticsRateCardReader {
         if (rows == null) {
             return;
         }
-        rows.forEach(row -> rowsBySlot.putIfAbsent(slot(row), row));
+        rows.forEach(row -> {
+            normalizePublishedEtCategory(row);
+            RateCardRow existing = rowsBySlot.putIfAbsent(slot(row), row);
+            if (existing != null) {
+                inheritPublishedCategoryDescription(existing, row);
+            }
+        });
+    }
+
+    private void inheritPublishedCategoryDescription(RateCardRow preferred, RateCardRow fallback) {
+        if (preferred == null
+                || fallback == null
+                || !text(preferred.cargoCategoryDescription).isEmpty()
+                || !"PUBLISHED_FORWARDER_QUOTE".equals(text(fallback.sourceType))) {
+            return;
+        }
+        preferred.cargoCategoryDescription = fallback.cargoCategoryDescription;
+    }
+
+    private void normalizePublishedEtCategory(RateCardRow row) {
+        if (row == null
+                || !"ET".equals(text(row.forwarderCode))
+                || !"PUBLISHED_FORWARDER_QUOTE".equals(text(row.sourceType))) {
+            return;
+        }
+        String categoryCode = text(row.cargoCategoryCode);
+        int marker = categoryCode.lastIndexOf("-CAT-");
+        String normalizedCode = marker < 0 ? "" : categoryCode.substring(marker + 5);
+        if (normalizedCode.length() != 1 || !Character.isLetterOrDigit(normalizedCode.charAt(0))) {
+            return;
+        }
+        row.cargoCategoryCode = normalizedCode;
+        row.cargoCategoryName = normalizedCode + "类别运费";
     }
 
     private String slot(RateCardRow row) {

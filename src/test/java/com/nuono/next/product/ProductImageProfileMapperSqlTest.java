@@ -4,6 +4,7 @@ import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsIncl
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
+import com.nuono.next.infrastructure.mapper.ProductImagePublishWorkflowMapper;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +16,68 @@ import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
 
 class ProductImageProfileMapperSqlTest {
+
+    @Test
+    void publishCheckpointAndManualRetryShouldUsePublishingAndFailedStateFences() throws Exception {
+        Method checkpointMethod = ProductImagePublishWorkflowMapper.class.getMethod(
+                "updateSuitePublishManifest",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String checkpointSql = String.join(
+                " ",
+                checkpointMethod.getAnnotation(Update.class).value()
+        ).replaceAll("\\s+", " ");
+        assertThat(checkpointSql)
+                .contains("publish_manifest_json = JSON_SET(")
+                .contains("#{manifestJson}")
+                .contains("suite_status = 'PUBLISHING'")
+                .contains("'$.attemptId'")
+                .contains("= #{attemptId}")
+                .contains("'$.executionToken'")
+                .contains("= #{executionToken}");
+
+        Method retryMethod = ProductImagePublishWorkflowMapper.class.getMethod(
+                "retryFailedSuitePublishWorkflow",
+                Long.class,
+                Long.class,
+                String.class,
+                Long.class
+        );
+        String retrySql = String.join(
+                " ",
+                retryMethod.getAnnotation(Update.class).value()
+        ).replaceAll("\\s+", " ");
+        assertThat(retrySql)
+                .contains("suite_status = 'PUBLISHING'")
+                .contains("publish_manifest_json = #{manifestJson}")
+                .contains("suite_status = 'FAILED'")
+                .contains("profile_id = #{profileId}");
+
+        Method failPublishMethod = ProductImagePublishWorkflowMapper.class.getMethod(
+                "failPublishingSuiteWorkflow",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+        String failPublishSql = String.join(
+                " ",
+                failPublishMethod.getAnnotation(Update.class).value()
+        ).replaceAll("\\s+", " ");
+        assertThat(failPublishSql)
+                .contains("suite_status = 'FAILED'")
+                .contains("suite_status = 'PUBLISHING'")
+                .contains("'$.attemptId'")
+                .contains("= #{attemptId}")
+                .contains("'$.executionToken'")
+                .contains("= #{executionToken}");
+    }
 
     @Test
     void profileIdentityLookupUsesLogicalStoreScopeAndCanonicalAssetRichRecord() throws Exception {

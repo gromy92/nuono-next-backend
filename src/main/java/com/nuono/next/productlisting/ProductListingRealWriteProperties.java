@@ -90,6 +90,8 @@ public class ProductListingRealWriteProperties {
                 "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/pbarcode/upsert";
         public static final String DEFAULT_OFFER_LIST_URL =
                 NoonCatalogApiRoutes.OFFER_LIST_NOON;
+        public static final String DEFAULT_PRICING_INFORMATION_URL =
+                NoonCatalogApiRoutes.PRICING_INFORMATION;
 
         private String createProductUrl = DEFAULT_CREATE_PRODUCT_URL;
         private String skuCacheUrl = DEFAULT_SKU_CACHE_URL;
@@ -105,6 +107,7 @@ public class ProductListingRealWriteProperties {
         private String upsertIsActiveUrl = DEFAULT_UPSERT_IS_ACTIVE_URL;
         private String upsertBarcodeUrl = DEFAULT_UPSERT_BARCODE_URL;
         private String offerListUrl = DEFAULT_OFFER_LIST_URL;
+        private String pricingInformationUrl = DEFAULT_PRICING_INFORMATION_URL;
 
         public String getCreateProductUrl() {
             return createProductUrl;
@@ -216,6 +219,14 @@ public class ProductListingRealWriteProperties {
 
         public void setOfferListUrl(String offerListUrl) {
             this.offerListUrl = offerListUrl;
+        }
+
+        public String getPricingInformationUrl() {
+            return pricingInformationUrl;
+        }
+
+        public void setPricingInformationUrl(String pricingInformationUrl) {
+            this.pricingInformationUrl = pricingInformationUrl;
         }
     }
 }

@@ -176,17 +176,16 @@ public class ProductAttributeTemplateService {
         selectFields.put("attributeGroup", true);
         selectFields.putArray("attributeProperties");
         selectFields.putArray("attributeSpecs");
-
         try {
             return postJson(session, FULLTYPE_ATTRS_URL, body);
         } catch (IllegalStateException exception) {
+            ProductWriteAuthRequiredException.rethrowIfPresent(exception);
             if (warnings != null) {
                 warnings.add("读取 fulltype 模板失败：" + noonFailureMessage(exception));
             }
             return MissingNode.getInstance();
         }
     }
-
     @Scheduled(
             initialDelayString = "${nuono.product-management.attribute-template.scheduler.initial-delay-ms:900000}",
             fixedDelayString = "${nuono.product-management.attribute-template.scheduler.fixed-delay-ms:604800000}"

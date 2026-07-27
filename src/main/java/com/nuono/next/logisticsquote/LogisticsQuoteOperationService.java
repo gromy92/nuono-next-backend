@@ -13,8 +13,6 @@ import org.springframework.util.StringUtils;
 @Service
 public class LogisticsQuoteOperationService {
 
-    private static final long SYSTEM_USER_ID = 1L;
-
     private static final int REQUIRED_OPERATION_TABLE_COUNT = 9;
 
     private final ObjectProvider<LogisticsQuoteMapper> logisticsQuoteMapperProvider;
@@ -68,8 +66,10 @@ public class LogisticsQuoteOperationService {
 
     @Transactional
     public LogisticsQuoteOperationPriceAdjustmentView savePriceAdjustment(
-            LogisticsQuoteOperationPriceAdjustmentCommand command
-    ) {
+            Long operatorUserId, LogisticsQuoteOperationPriceAdjustmentCommand command) {
+        if (operatorUserId == null || operatorUserId <= 0) {
+            throw new IllegalArgumentException("缺少有效的当前登录用户。");
+        }
         LogisticsQuoteMapper mapper = requireOperationPersistence();
         if (command == null) {
             throw new IllegalArgumentException("请先选择要调整的报价明细。");
@@ -101,7 +101,6 @@ public class LogisticsQuoteOperationService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("未找到可调整的报价数值，请刷新列表后重试。"));
 
-        Long operatorUserId = command.getOperatorUserId() == null ? SYSTEM_USER_ID : command.getOperatorUserId();
         String actionType = Boolean.TRUE.equals(targetItem.getHasAdjustment()) ? "UPDATE" : "CREATE";
         Double beforeValue = targetItem.getEffectiveValue() == null
                 ? targetItem.getStandardValue()

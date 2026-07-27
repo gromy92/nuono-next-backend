@@ -3,6 +3,7 @@ package com.nuono.next.productlisting;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +39,7 @@ public class RealProductListingOfferStockWriteAdapter implements ProductListingO
         step.setStepKey("upsert_offer");
         List<String> written = new ArrayList<>();
         boolean hasUnsupportedWarehouseStock = hasWarehouseStockFields(request);
+        boolean providerCallStarted = false;
         try {
             if (request == null || session == null) {
                 throw new IllegalArgumentException("Product listing offer/stock write request and session are required.");
@@ -45,19 +47,23 @@ public class RealProductListingOfferStockWriteAdapter implements ProductListingO
             ProductListingRealWriteProperties.Endpoints resolvedEndpoints =
                     endpoints == null ? new ProductListingRealWriteProperties.Endpoints() : endpoints;
             if (request.getOfferNote() != null) {
+                ObjectNode body = offerNoteBody(request);
+                providerCallStarted = true;
                 postOfferStep(
                         session,
                         resolvedEndpoints.getUpsertOfferNoteUrl(),
-                        offerNoteBody(request),
+                        body,
                         headers
                 );
                 written.add("offer_note");
             }
             if (request.getIsActive() != null) {
+                ObjectNode body = activationBody(request);
+                providerCallStarted = true;
                 postOfferStep(
                         session,
                         resolvedEndpoints.getUpsertIsActiveUrl(),
-                        activationBody(request),
+                        body,
                         headers
                 );
                 written.add("is_active");
@@ -78,10 +84,24 @@ public class RealProductListingOfferStockWriteAdapter implements ProductListingO
             return step;
         } catch (RuntimeException exception) {
             step.setStatus("failed");
-            step.setFailureCode("noon_offer_stock_write_failed");
+            step.preserveOriginalFailure(exception);
+            boolean authenticationFailure =
+                    NoonAuthenticationFailureClassifier
+                            .isAuthenticationFailure(exception)
+                            || ProductListingNoonCallGuard
+                            .isAuthEnvelopeFailure(exception);
+            step.setFailureCode(
+                    authenticationFailure
+                            ? "noon_auth_required"
+                            : "noon_offer_stock_write_failed"
+            );
             step.setFailureMessage(StringUtils.hasText(exception.getMessage())
                     ? exception.getMessage()
                     : "Noon offer split write failed.");
+            step.setWriteMayHaveOccurred(!written.isEmpty()
+                    || (providerCallStarted
+                    && !ProductListingNoonCallGuard.isAuthEnvelopeFailure(exception)
+                    && !ProductListingNoonWriteRequest.isExecutionLeaseLost(exception)));
             return step;
         }
     }
@@ -92,7 +112,8 @@ public class RealProductListingOfferStockWriteAdapter implements ProductListingO
             ObjectNode body,
             Map<String, String> headers
     ) {
-        JsonNode response = session.postWriteJson(url, body, false, headers);
+        JsonNode response = ProductListingNoonCallGuard.requireAuthorized(
+                session.postWriteJson(url, body, false, headers));
         String failureMessage = failureMessage(response);
         if (StringUtils.hasText(failureMessage)) {
             throw new IllegalStateException(failureMessage);
