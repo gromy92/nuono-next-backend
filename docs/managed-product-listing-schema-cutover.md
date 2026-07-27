@@ -74,15 +74,47 @@ shared production lock namespace. The entry must prove before maintenance:
   full-table store-identity postcheck;
 - the old global unique `(barcode)` index and absence of the new store index;
 - no orphan, null-store, store-mismatch, or projected duplicate barcode;
-- listing, publish, delete, rebuild, image, pull, auth-recovery, reauth, and
-  lease work is drained.
+- schema-touching listing, publish, delete, rebuild, image, Noon PRODUCT pull,
+  auth-recovery, reauth, and lease work is drained.
+
+The drain is deliberately a writer/lease gate, not a demand that every durable
+operational backlog row become terminal. It blocks:
+
+- active listing, publish, delete, rebuild, and image work already covered by
+  their governed task states and locks;
+- a non-deleted Noon PRODUCT task that is `RUNNING` or still has `locked_by`,
+  because PRODUCT projection can write `product_variant` and
+  `product_barcode`;
+- an active/leased task with a null or unknown data domain. Only the known
+  non-product domains SALES, ORDER, FINANCE_TRANSACTION, NOON_ADVERTISING,
+  OFFICIAL_WAREHOUSE_INVENTORY, and OFFICIAL_WAREHOUSE_FBN_RECEIVED are
+  eligible for preservation;
+- a live auth-recovery lease, malformed lease evidence, a recovery item in
+  `VALIDATING`, or a listing reauthentication attempt in `VERIFYING`.
+
+It preserves without updating or deleting:
+
+- Noon `QUEUED` and `BLOCKED_AUTH` backlog that is not currently executing;
+- non-PRODUCT `RUNNING` backlog, including report exports with persisted export
+  identity and queued sales, order, finance, advertising, or inventory work;
+- inactive pending auth-recovery items and listing reauthentication attempts;
+- an expired auth-recovery lease whose owner/token shape is internally
+  consistent and can no longer pass the application write fence.
+
+The entry emits `SCHEMA_WRITE_BLOCKERS`, `PRESERVED_NOON_BACKLOG`, and the
+backward-compatible `DRAIN_BLOCKERS` value. The last value is equal to
+`SCHEMA_WRITE_BLOCKERS`; a non-zero preserved backlog is expected and is not a
+release failure. This classification does not mark tasks complete, clear
+locks, delete exports, or otherwise mutate backlog state.
 
 The managed sequence is:
 
 1. Start loopback JSON 503 and verify the same 503 externally.
-2. Recheck the drain.
+2. Recheck the schema-writer/lease drain while leaving unrelated durable Noon
+   backlog intact.
 3. Stop the only already-new backend JVM.
-4. Recheck both application ports and the drain. Query accessible
+4. Recheck both application ports and the schema-writer/lease drain. The
+   stopped JVM prevents its scheduler from claiming preserved backlog. Query accessible
    `information_schema` activity and optional `performance_schema` lock-wait
    evidence. If `performance_schema` is denied, that absence is not green
    evidence.
@@ -117,7 +149,8 @@ entry.
 ## Evidence and rehearsal
 
 Preserve the generated plan, manifest, migration hashes, state/action emitted
-for 182, drain counts, maintenance checks, Jar/PID/port results, and every
-postcheck. Test environments that are single-instance rather than managed
+for 182, schema-write blocker and preserved-backlog counts, maintenance checks,
+Jar/PID/port results, and every postcheck. Test environments that are
+single-instance rather than managed
 blue-green may validate migration idempotency and generated scripts, but must
 fail closed instead of pretending to rehearse the production topology.

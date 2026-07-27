@@ -64,7 +64,7 @@ db_scalar() {
 apply_migration() {
   mysql --defaults-extra-file="$MYSQL_CNF" < "$1"
 }
-drain_blocker_count() {
+schema_write_blocker_count() {
   db_scalar "
     SELECT
       (SELECT COUNT(*) FROM product_listing_task
@@ -105,21 +105,56 @@ drain_blocker_count() {
            'PENDING_GENERATION', 'GENERATING', 'REGENERATING', 'PUBLISHING'
          ))
       + (SELECT COUNT(*) FROM noon_pull_task
-         WHERE status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH'))
+         WHERE is_deleted = b'0'
+           AND (status = 'RUNNING' OR locked_by IS NOT NULL)
+           AND (
+             data_domain = 'PRODUCT'
+             OR data_domain IS NULL
+             OR data_domain NOT IN (
+               'SALES', 'ORDER', 'FINANCE_TRANSACTION', 'NOON_ADVERTISING',
+               'OFFICIAL_WAREHOUSE_INVENTORY',
+               'OFFICIAL_WAREHOUSE_FBN_RECEIVED'
+             )
+           ))
       + (SELECT COUNT(*) FROM noon_auth_identity_recovery
-         WHERE status NOT IN ('COMPLETED', 'FAILED_FINAL', 'CANCELLED')
-            OR lease_owner IS NOT NULL
-            OR lease_token IS NOT NULL
-            OR lease_until > NOW())
+         WHERE lease_until > NOW()
+            OR (lease_owner IS NULL) <> (lease_token IS NULL)
+            OR (
+              lease_until IS NULL
+              AND (lease_owner IS NOT NULL OR lease_token IS NOT NULL)
+            ))
       + (SELECT COUNT(*) FROM noon_auth_identity_recovery_item
-         WHERE status IN ('PENDING', 'VALIDATING'))
+         WHERE status = 'VALIDATING')
       + (SELECT COUNT(*) FROM product_listing_reauthentication_attempt
-         WHERE status IN ('PENDING', 'VERIFYING'));
+         WHERE status = 'VERIFYING');
+  "
+}
+preserved_noon_backlog_count() {
+  db_scalar "
+    SELECT COUNT(*)
+    FROM noon_pull_task
+    WHERE is_deleted = b'0'
+      AND status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')
+      AND NOT (
+        (status = 'RUNNING' OR locked_by IS NOT NULL)
+        AND (
+          data_domain = 'PRODUCT'
+          OR data_domain IS NULL
+          OR data_domain NOT IN (
+            'SALES', 'ORDER', 'FINANCE_TRANSACTION', 'NOON_ADVERTISING',
+            'OFFICIAL_WAREHOUSE_INVENTORY',
+            'OFFICIAL_WAREHOUSE_FBN_RECEIVED'
+          )
+        )
+      );
   "
 }
 assert_drained() {
-  local blockers
-  blockers="$(drain_blocker_count)"
+  local blockers preserved_noon_backlog
+  blockers="$(schema_write_blocker_count)"
+  preserved_noon_backlog="$(preserved_noon_backlog_count)"
+  emit SCHEMA_WRITE_BLOCKERS "$blockers"
+  emit PRESERVED_NOON_BACKLOG "$preserved_noon_backlog"
   emit DRAIN_BLOCKERS "$blockers"
   [ "$blockers" = 0 ]
 }
