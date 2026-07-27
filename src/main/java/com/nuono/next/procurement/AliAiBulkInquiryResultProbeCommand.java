@@ -1,6 +1,6 @@
 package com.nuono.next.procurement;
 
-public class AliAiBulkInquiryResultProbeCommand {
+public class AliAiBulkInquiryResultProbeCommand extends ProcurementAutoInquiryProbeCommand {
 
     private Long taskId;
     private String resultUrl;
@@ -8,8 +8,6 @@ public class AliAiBulkInquiryResultProbeCommand {
     private String sampleText;
     private Boolean openIfMissing;
     private Boolean persistResult;
-    private Long operatorUserId;
-
     public Long getTaskId() {
         return taskId;
     }
@@ -58,11 +56,4 @@ public class AliAiBulkInquiryResultProbeCommand {
         this.persistResult = persistResult;
     }
 
-    public Long getOperatorUserId() {
-        return operatorUserId;
-    }
-
-    public void setOperatorUserId(Long operatorUserId) {
-        this.operatorUserId = operatorUserId;
-    }
 }

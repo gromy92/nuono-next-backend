@@ -40,6 +40,17 @@ public class BusinessAccessGuard {
         return context;
     }
 
+    public Long requireOwnerUserId(BusinessAccessContext context, Long requestedOwnerUserId) {
+        requireBusinessAccount(context);
+        Long ownerUserId = requestedOwnerUserId == null
+                ? context.getBusinessOwnerUserId()
+                : requestedOwnerUserId;
+        if (!context.canAccessOwner(ownerUserId)) {
+            throw new BusinessAccessDeniedException("当前账号不能操作该业务归属。");
+        }
+        return ownerUserId;
+    }
+
     public BusinessAccessContext requireBusinessAccount(BusinessAccessContext context) {
         if (context == null) {
             throw new BusinessAccessDeniedException("缺少业务访问上下文。");

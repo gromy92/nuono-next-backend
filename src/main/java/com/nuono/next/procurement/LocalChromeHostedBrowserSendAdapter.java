@@ -12,11 +12,10 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StreamUtils;
 import org.springframework.util.StringUtils;
 
 @Component
@@ -24,15 +23,25 @@ import org.springframework.util.StringUtils;
 public class LocalChromeHostedBrowserSendAdapter {
 
     private static final String ENDPOINT_PREFIX = "chrome-local://";
-    private static final String CHAT_URL_TEMPLATE =
-            "https://air.1688.com/app/ocms-fusion-components-1688/def_cbu_web_im/index.html?offerId=%s#/";
+    private static final String UNTRUSTED_REDIRECT_PAYLOAD =
+            "{\"ok\":false,\"failureCode\":\"UNTRUSTED_BROWSER_REDIRECT\","
+                    + "\"failureMessage\":\"1688 浏览器标签已跳转到其他地址。\"}";
 
     private final ChromeAppleScriptClient chromeClient;
     private final ChromeProbeResultParser probeResultParser;
+    private final Ali1688BrowserUrlPolicy urlPolicy;
+    private final Ali1688HostedBrowserNavigator browserNavigator;
 
-    public LocalChromeHostedBrowserSendAdapter(ChromeAppleScriptClient chromeClient, ChromeProbeResultParser probeResultParser) {
+    public LocalChromeHostedBrowserSendAdapter(
+            ChromeAppleScriptClient chromeClient,
+            ChromeProbeResultParser probeResultParser,
+            Ali1688BrowserUrlPolicy urlPolicy,
+            Ali1688HostedBrowserNavigator browserNavigator
+    ) {
         this.chromeClient = chromeClient;
         this.probeResultParser = probeResultParser;
+        this.urlPolicy = urlPolicy;
+        this.browserNavigator = browserNavigator;
     }
 
     public boolean supports(String endpoint) {
@@ -49,7 +58,7 @@ public class LocalChromeHostedBrowserSendAdapter {
             return failurePreparation("MISSING_INPUT_PAYLOAD", "当前任务还没有输入内容，暂时不能继续真实发送准备。");
         }
 
-        ChatTabSelection selection = resolveReadyChatTab(task);
+        ChatTabSelection selection = browserNavigator.resolveReadyChatTab(task);
         if (!selection.ok) {
             return failurePreparation(
                     firstNonBlank(selection.failureCode, "CHAT_TAB_NOT_FOUND"),
@@ -58,7 +67,7 @@ public class LocalChromeHostedBrowserSendAdapter {
         }
         ChromeTab chatTab = selection.tab;
         chromeClient.sleep(900L);
-        ComposerProbe probe = fillComposer(chatTab, payload);
+        ComposerProbe probe = fillComposer(chatTab, payload, offerId);
         if (!probe.ok) {
             return failurePreparation(
                     firstNonBlank(probe.failureCode, "INPUT_NOT_FOUND"),
@@ -84,7 +93,7 @@ public class LocalChromeHostedBrowserSendAdapter {
             return failureSend("MISSING_INPUT_PAYLOAD", "当前任务还没有输入内容，暂时不能继续真实发送。");
         }
 
-        ChatTabSelection selection = resolveReadyChatTab(task);
+        ChatTabSelection selection = browserNavigator.resolveReadyChatTab(task);
         if (!selection.ok) {
             return failureSend(
                     firstNonBlank(selection.failureCode, "CHAT_TAB_NOT_FOUND"),
@@ -93,9 +102,9 @@ public class LocalChromeHostedBrowserSendAdapter {
         }
         ChromeTab chatTab = selection.tab;
         chromeClient.sleep(900L);
-        ComposerProbe beforeProbe = inspectComposer(chatTab);
+        ComposerProbe beforeProbe = inspectComposer(chatTab, offerId);
         if (!beforeProbe.ok || !StringUtils.hasText(beforeProbe.editorText)) {
-            beforeProbe = fillComposer(chatTab, payload);
+            beforeProbe = fillComposer(chatTab, payload, offerId);
         }
         if (!beforeProbe.ok) {
             return failureSend(
@@ -104,7 +113,7 @@ public class LocalChromeHostedBrowserSendAdapter {
             );
         }
 
-        SendTriggerResult triggerResult = triggerSend(chatTab, payload);
+        SendTriggerResult triggerResult = triggerSend(chatTab, payload, offerId);
         if (!triggerResult.ok) {
             return failureSend(
                     firstNonBlank(triggerResult.failureCode, "SEND_TRIGGER_FAILED"),
@@ -113,7 +122,13 @@ public class LocalChromeHostedBrowserSendAdapter {
         }
 
         chromeClient.sleep(1500L);
-        ComposerProbe afterProbe = inspectComposer(chatTab);
+        ComposerProbe afterProbe = inspectComposer(chatTab, offerId);
+        if (!afterProbe.ok) {
+            return failureSend(
+                    firstNonBlank(afterProbe.failureCode, "SEND_CONFIRMATION_UNAVAILABLE"),
+                    firstNonBlank(afterProbe.failureMessage, "发送后未能在同一 1688 询价线程确认结果。")
+            );
+        }
         String normalizedPayload = normalizeForCompare(payload);
         String normalizedAfter = normalizeForCompare(afterProbe.editorText);
         boolean inputCleared = !StringUtils.hasText(normalizedAfter) || !normalizedAfter.contains(normalizedPayload);
@@ -133,148 +148,56 @@ public class LocalChromeHostedBrowserSendAdapter {
         return result;
     }
 
-    private ChatTabSelection resolveReadyChatTab(AutoInquiryTaskView task) {
-        String offerId = normalize(task == null ? null : task.getTargetOfferId());
-        String supplierIdentity = normalize(task == null ? null : task.getTargetSupplierIdentity());
-        if (!StringUtils.hasText(offerId)) {
-            return ChatTabSelection.failure("MISSING_OFFER_ID", "当前任务还没有有效 offerId。");
-        }
-        ChromeTab chatTab = resolveChatTab(offerId);
-        if (chatTab == null) {
-            return ChatTabSelection.failure("CHAT_TAB_NOT_FOUND", "还没有找到可用的 1688 聊天页。");
-        }
-        if (chatTab.isLoginPage()) {
-            return ChatTabSelection.failure("LOGIN_REQUIRED", "本机 Chrome 的 1688 托管会话当前未登录。");
-        }
+    private ComposerProbe fillComposer(ChromeTab tab, String message, String offerId) {
+        return probeResultParser.parseComposerProbe(executeTrusted(
+                tab,
+                Ali1688BrowserUrlPolicy.PageKind.CHAT,
+                offerId,
+                buildFillComposerJavascript(message)
+        ));
+    }
 
-        chromeClient.focusTab(chatTab);
-        ContactSelectionResult selection = ensureContactSelected(chatTab, supplierIdentity);
-        if (selection.ok) {
-            return ChatTabSelection.success(chatTab, selection);
-        }
+    private ComposerProbe inspectComposer(ChromeTab tab, String offerId) {
+        return probeResultParser.parseComposerProbe(executeTrusted(
+                tab,
+                Ali1688BrowserUrlPolicy.PageKind.CHAT,
+                offerId,
+                buildInspectComposerJavascript()
+        ));
+    }
 
-        ChromeTab bootstrappedTab = bootstrapChatTabFromEntry(task, offerId);
-        if (bootstrappedTab != null) {
-            chromeClient.focusTab(bootstrappedTab);
-            ContactSelectionResult retriedSelection = ensureContactSelected(bootstrappedTab, supplierIdentity);
-            if (retriedSelection.ok) {
-                return ChatTabSelection.success(bootstrappedTab, retriedSelection);
-            }
-            selection = retriedSelection;
-        }
+    private SendTriggerResult triggerSend(ChromeTab tab, String message, String offerId) {
+        return probeResultParser.parseSendTriggerResult(executeTrusted(
+                tab,
+                Ali1688BrowserUrlPolicy.PageKind.CHAT,
+                offerId,
+                buildSendJavascript(message)
+        ));
+    }
 
-        return ChatTabSelection.failure(
-                firstNonBlank(selection.failureCode, "SUPPLIER_THREAD_NOT_FOUND"),
-                firstNonBlank(selection.failureMessage, "当前聊天页还没有命中正确联系人。")
+    private String executeTrusted(
+            ChromeTab tab,
+            Ali1688BrowserUrlPolicy.PageKind pageKind,
+            String offerId,
+            String javascript
+    ) {
+        ChromeTab readyTab = ChromeTab.findCurrent(chromeClient.listChromeTabs(), tab);
+        if (readyTab == null || !urlPolicy.matchesOfferId(readyTab.url, pageKind, offerId)) {
+            return UNTRUSTED_REDIRECT_PAYLOAD;
+        }
+        tab.url = readyTab.url;
+        tab.title = readyTab.title;
+        String payload = chromeClient.executeTabJavascript(
+                tab,
+                urlPolicy.guardJavascript(pageKind, tab.url, javascript)
         );
-    }
-
-    private ChromeTab resolveChatTab(String offerId) {
-        ChromeTab existingChatTab = findMatchingChatTab(offerId);
-        if (existingChatTab != null) {
-            return existingChatTab;
+        ChromeTab observedTab = ChromeTab.findCurrent(chromeClient.listChromeTabs(), tab);
+        if (observedTab == null || !urlPolicy.matchesOfferId(observedTab.url, pageKind, offerId)) {
+            return UNTRUSTED_REDIRECT_PAYLOAD;
         }
-
-        chromeClient.openTab(String.format(Locale.ROOT, CHAT_URL_TEMPLATE, offerId));
-        chromeClient.sleep(2500L);
-
-        ChromeTab chatTab = findMatchingChatTab(offerId);
-        if (chatTab != null) {
-            return chatTab;
-        }
-
-        ChromeTab offerRelatedTab = findLatestOfferRelatedTab(offerId);
-        if (offerRelatedTab != null) {
-            return offerRelatedTab;
-        }
-
-        return findLatestLoginTab();
-    }
-
-    private ChromeTab bootstrapChatTabFromEntry(AutoInquiryTaskView task, String offerId) {
-        String entryUrl = normalize(task == null ? null : task.getTargetEntryUrl());
-        if (!StringUtils.hasText(entryUrl)) {
-            return null;
-        }
-
-        ChromeTab entryTab = findDetailTab(offerId);
-        if (entryTab == null) {
-            chromeClient.openTab(entryUrl);
-            chromeClient.sleep(3200L);
-            entryTab = findDetailTab(offerId);
-        }
-        if (entryTab == null || entryTab.isLoginPage()) {
-            return null;
-        }
-
-        chromeClient.focusTab(entryTab);
-        ServiceEntryResult openChatResult = openCustomerService(entryTab);
-        if (!openChatResult.ok) {
-            return null;
-        }
-        chromeClient.sleep(2600L);
-        return findMatchingChatTab(offerId);
-    }
-
-    private ChromeTab findMatchingChatTab(String offerId) {
-        return chromeClient.listChromeTabs().stream()
-                .filter(tab -> tab.url != null
-                        && tab.url.contains(offerId)
-                        && tab.url.contains("air.1688.com/app/ocms-fusion-components-1688/def_cbu_web_im/"))
-                .max(Comparator
-                        .comparingInt((ChromeTab tab) -> chatTabSpecificity(tab, offerId))
-                        .thenComparingInt(tab -> tab.windowIndex)
-                        .thenComparingInt(tab -> tab.tabIndex))
-                .orElse(null);
-    }
-
-    private ChromeTab findDetailTab(String offerId) {
-        return chromeClient.listChromeTabs().stream()
-                .filter(tab -> tab.url != null
-                        && tab.url.contains("detail.1688.com/offer/")
-                        && tab.url.contains(offerId))
-                .max(Comparator.comparingInt((ChromeTab tab) -> tab.windowIndex)
-                        .thenComparingInt(tab -> tab.tabIndex))
-                .orElse(null);
-    }
-
-    private ChromeTab findLatestOfferRelatedTab(String offerId) {
-        return chromeClient.listChromeTabs().stream()
-                .filter(tab -> tab.url != null && tab.url.contains(offerId))
-                .max(Comparator.comparingInt((ChromeTab tab) -> tab.windowIndex)
-                        .thenComparingInt(tab -> tab.tabIndex))
-                .orElse(null);
-    }
-
-    private ChromeTab findLatestLoginTab() {
-        return chromeClient.listChromeTabs().stream()
-                .filter(ChromeTab::isLoginPage)
-                .max(Comparator.comparingInt((ChromeTab tab) -> tab.windowIndex)
-                        .thenComparingInt(tab -> tab.tabIndex))
-                .orElse(null);
-    }
-
-    private ComposerProbe fillComposer(ChromeTab tab, String message) {
-        return probeResultParser.parseComposerProbe(chromeClient.executeTabJavascript(tab, buildFillComposerJavascript(message)));
-    }
-
-    private ComposerProbe inspectComposer(ChromeTab tab) {
-        return probeResultParser.parseComposerProbe(chromeClient.executeTabJavascript(tab, buildInspectComposerJavascript()));
-    }
-
-    private ContactSelectionResult ensureContactSelected(ChromeTab tab, String supplierIdentity) {
-        if (!StringUtils.hasText(supplierIdentity)) {
-            return ContactSelectionResult.success(true, null, null, null);
-        }
-        return probeResultParser.parseContactSelectionResult(chromeClient.executeTabJavascript(tab, buildEnsureContactJavascript(supplierIdentity)));
-    }
-
-    private ServiceEntryResult openCustomerService(ChromeTab tab) {
-        return probeResultParser.parseServiceEntryResult(chromeClient.executeTabJavascript(tab, buildOpenCustomerServiceJavascript()));
-    }
-
-    private SendTriggerResult triggerSend(ChromeTab tab, String message) {
-        return probeResultParser.parseSendTriggerResult(chromeClient.executeTabJavascript(tab, buildSendJavascript(message)));
+        tab.url = observedTab.url;
+        tab.title = observedTab.title;
+        return payload;
     }
 
     private String buildFillComposerJavascript(String message) {
@@ -284,15 +207,6 @@ public class LocalChromeHostedBrowserSendAdapter {
 
     private String buildInspectComposerJavascript() {
         return loadJavascriptResource("inspect-composer.js");
-    }
-
-    private String buildEnsureContactJavascript(String supplierIdentity) {
-        String supplierBase64 = Base64.getEncoder().encodeToString(supplierIdentity.getBytes(StandardCharsets.UTF_8));
-        return loadJavascriptResource("ensure-contact.js").replace("__SUPPLIER_BASE64__", supplierBase64);
-    }
-
-    private String buildOpenCustomerServiceJavascript() {
-        return loadJavascriptResource("open-customer-service.js");
     }
 
     private String buildSendJavascript(String message) {
@@ -440,27 +354,6 @@ public class LocalChromeHostedBrowserSendAdapter {
         return null;
     }
 
-    private int chatTabSpecificity(ChromeTab tab, String offerId) {
-        String url = normalize(tab == null ? null : tab.url);
-        if (url == null) {
-            return 0;
-        }
-        int score = 0;
-        if (url.contains("offerId=" + offerId)) {
-            score += 40;
-        }
-        if (url.contains("touid=")) {
-            score += 200;
-        }
-        if (url.contains("sourceValue=")) {
-            score += 200;
-        }
-        if (url.contains("status=1")) {
-            score += 20;
-        }
-        return score;
-    }
-
     private String loadJavascriptResource(String resourceName) {
         try (InputStream inputStream = LocalChromeHostedBrowserSendAdapter.class.getResourceAsStream(
                 "/procurement-browser/" + resourceName
@@ -468,7 +361,7 @@ public class LocalChromeHostedBrowserSendAdapter {
             if (inputStream == null) {
                 throw new IllegalStateException("缺少浏览器执行脚本资源：" + resourceName);
             }
-            return chromeClient.readFully(inputStream);
+            return StreamUtils.copyToString(inputStream, StandardCharsets.UTF_8);
         } catch (IOException exception) {
             throw new IllegalStateException("读取浏览器执行脚本资源失败：" + resourceName, exception);
         }

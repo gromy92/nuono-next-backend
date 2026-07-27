@@ -139,9 +139,7 @@ public interface ProcurementRequirementConfirmationMapper {
             "LEFT JOIN `user` buyer ON buyer.id = di.assigned_buyer_id AND buyer.is_deleted = 0",
             "WHERE di.is_deleted = b'0'",
             "  AND COALESCE(po.source_type, '') &lt;&gt; 'VALIDATION_SAMPLE'",
-            "  <if test='ownerUserId != null'>",
             "    AND po.owner_user_id = #{ownerUserId}",
-            "  </if>",
             "  <if test='status != null and status != \"\"'>",
             "    AND (pool.status = #{status} OR di.status = #{status})",
             "  </if>",
@@ -184,9 +182,7 @@ public interface ProcurementRequirementConfirmationMapper {
             ")",
             "WHERE di.is_deleted = b'0'",
             "  AND COALESCE(po.source_type, '') &lt;&gt; 'VALIDATION_SAMPLE'",
-            "  <if test='ownerUserId != null'>",
             "    AND po.owner_user_id = #{ownerUserId}",
-            "  </if>",
             "  <if test='status != null and status != \"\"'>",
             "    AND (pool.status = #{status} OR di.status = #{status})",
             "  </if>",
@@ -208,7 +204,6 @@ public interface ProcurementRequirementConfirmationMapper {
     );
 
     @Select({
-            "<script>",
             "SELECT",
             "  di.id AS demand_item_id,",
             "  po.id AS order_id,",
@@ -245,11 +240,8 @@ public interface ProcurementRequirementConfirmationMapper {
             "LEFT JOIN `user` buyer ON buyer.id = di.assigned_buyer_id AND buyer.is_deleted = 0",
             "WHERE di.id = #{demandItemId}",
             "  AND di.is_deleted = b'0'",
-            "  <if test='ownerUserId != null'>",
-            "    AND po.owner_user_id = #{ownerUserId}",
-            "  </if>",
-            "LIMIT 1",
-            "</script>"
+            "  AND po.owner_user_id = #{ownerUserId}",
+            "LIMIT 1"
     })
     DemandDetailRow selectDemandDetail(
             @Param("demandItemId") Long demandItemId,
@@ -403,9 +395,12 @@ public interface ProcurementRequirementConfirmationMapper {
             "  candidate.reasons_text,",
             "  candidate.warnings_text",
             "FROM procurement_candidate_pool_item item",
+            "JOIN procurement_candidate_pool pool ON pool.id = item.pool_id AND pool.is_deleted = b'0'",
             "JOIN procurement_candidate candidate ON candidate.id = item.candidate_id AND candidate.is_deleted = b'0'",
             "LEFT JOIN procurement_auto_inquiry_task task ON task.id = item.inquiry_task_id AND task.is_deleted = b'0'",
             "WHERE item.pool_id = #{poolId}",
+            "  AND item.owner_user_id = pool.owner_user_id",
+            "  AND item.demand_item_id = pool.demand_item_id",
             "  AND item.is_current = b'1'",
             "  AND item.is_deleted = b'0'",
             "  AND item.status <> 'REMOVED_TERMINATED'",
@@ -518,7 +513,6 @@ public interface ProcurementRequirementConfirmationMapper {
     Long nextAutoInquiryTaskId();
 
     @Select({
-            "<script>",
             "SELECT",
             "  di.id AS demand_item_id,",
             "  po.id AS order_id,",
@@ -555,12 +549,9 @@ public interface ProcurementRequirementConfirmationMapper {
             "LEFT JOIN `user` buyer ON buyer.id = di.assigned_buyer_id AND buyer.is_deleted = 0",
             "WHERE di.id = #{demandItemId}",
             "  AND di.is_deleted = b'0'",
-            "  <if test='ownerUserId != null'>",
-            "    AND po.owner_user_id = #{ownerUserId}",
-            "  </if>",
+            "  AND po.owner_user_id = #{ownerUserId}",
             "LIMIT 1",
-            "FOR UPDATE",
-            "</script>"
+            "FOR UPDATE"
     })
     DemandDetailRow selectDemandDetailForUpdate(
             @Param("demandItemId") Long demandItemId,
@@ -586,6 +577,7 @@ public interface ProcurementRequirementConfirmationMapper {
             "  pool.candidate_source_limit",
             "FROM procurement_candidate_pool pool",
             "JOIN procurement_demand_item di ON di.id = #{demandItemId} AND di.is_deleted = b'0'",
+            "JOIN procurement_order po ON po.id = di.order_id AND po.is_deleted = b'0'",
             "WHERE pool.id = COALESCE(",
             "  di.current_pool_id,",
             "  (",
@@ -598,6 +590,8 @@ public interface ProcurementRequirementConfirmationMapper {
             "  )",
             ")",
             "  AND pool.is_deleted = b'0'",
+            "  AND pool.demand_item_id = di.id",
+            "  AND pool.owner_user_id = po.owner_user_id",
             "LIMIT 1",
             "FOR UPDATE"
     })
@@ -616,8 +610,11 @@ public interface ProcurementRequirementConfirmationMapper {
             "  item.join_source,",
             "  item.inquiry_task_id",
             "FROM procurement_candidate_pool_item item",
+            "JOIN procurement_candidate_pool pool ON pool.id = item.pool_id AND pool.is_deleted = b'0'",
             "WHERE item.pool_id = #{poolId}",
             "  AND item.id = #{poolItemId}",
+            "  AND item.owner_user_id = pool.owner_user_id",
+            "  AND item.demand_item_id = pool.demand_item_id",
             "  AND item.is_deleted = b'0'",
             "LIMIT 1",
             "FOR UPDATE"
@@ -640,7 +637,9 @@ public interface ProcurementRequirementConfirmationMapper {
             "  item.join_source,",
             "  item.inquiry_task_id",
             "FROM procurement_candidate_pool_item item",
+            "JOIN procurement_candidate_pool pool ON pool.id = item.pool_id AND pool.is_deleted = b'0'",
             "WHERE item.pool_id = #{poolId}",
+            "  AND item.owner_user_id = pool.owner_user_id AND item.demand_item_id = pool.demand_item_id",
             "  AND item.is_current = b'1'",
             "  AND item.is_deleted = b'0'",
             "  AND item.status <> 'REMOVED_TERMINATED'",

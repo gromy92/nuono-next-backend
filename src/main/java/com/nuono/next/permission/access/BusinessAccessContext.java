@@ -93,6 +93,14 @@ public final class BusinessAccessContext {
         return normalized != null && storeCodes.contains(normalized);
     }
 
+    public boolean canAccessOwner(Long ownerUserId) {
+        if (ownerUserId == null || ownerUserId <= 0) {
+            return false;
+        }
+        return ownerUserId.equals(businessOwnerUserId)
+                || storeOwnerUserIds.containsValue(ownerUserId);
+    }
+
     public Long resolveOwnerUserIdForStore(String storeCode) {
         String normalized = normalizeStoreCode(storeCode);
         if (normalized == null) {
