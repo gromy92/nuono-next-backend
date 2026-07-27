@@ -176,7 +176,7 @@ src/main/java/com/nuono/next/product/ProductGroupProjectionService.java	440
 src/main/java/com/nuono/next/product/ProductGroupPublishService.java	343
 src/main/java/com/nuono/next/product/ProductImageMetadataService.java	407
 src/main/java/com/nuono/next/product/ProductImageProfileController.java	766
-src/main/java/com/nuono/next/product/ProductImageProfileService.java	2245
+src/main/java/com/nuono/next/product/ProductImageProfileService.java	2220
 src/main/java/com/nuono/next/product/ProductKeyAttributeBuilder.java	551
 src/main/java/com/nuono/next/product/ProductListProjectionRecord.java	466
 src/main/java/com/nuono/next/product/ProductListSummaryView.java	567

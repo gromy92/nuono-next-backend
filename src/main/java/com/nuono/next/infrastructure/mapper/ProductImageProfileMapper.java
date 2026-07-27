@@ -25,8 +25,8 @@ import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProductImageProfileMapper extends ProductImageProfileSummaryMapper,
-        ProductImagePublishWorkflowMapper, ProductImageSuiteAssetMutationMapper {
+public interface ProductImageProfileMapper extends ProductImageProfileSummaryMapper, ProductImagePublishWorkflowMapper,
+        ProductImageSuiteAssetMutationMapper, ProductImageSuiteWorkflowMapper {
 
     @Results(id = "productImageProfileMap", value = {
             @Result(column = "id", property = "id"),
