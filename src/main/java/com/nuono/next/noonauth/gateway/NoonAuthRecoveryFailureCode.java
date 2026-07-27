@@ -9,6 +9,8 @@ public enum NoonAuthRecoveryFailureCode {
     MAILBOX_AUTH_FAILED(false, true),
     MAILBOX_UNAVAILABLE(false, false),
     IDENTITY_AUTH_FAILED(false, true),
+    PROVIDER_TRANSIENT_FAILURE(false, false),
+    PROJECT_TRANSIENT_RETRY_EXHAUSTED(false, true),
     INTERNAL_FAILURE(false, false);
 
     private final boolean resendEligible;

@@ -3,6 +3,7 @@ package com.nuono.next.noonauth;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -17,85 +18,28 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
+import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureStage;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureCode;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryGateway;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult;
+import com.nuono.next.noonauth.gateway.NoonAuthTransientFailure;
+import com.nuono.next.noonauth.gateway.NoonTransientErrorType;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.InOrder;
 
-class NoonAuthRecoveryWorkerTest {
-    private NoonAuthRecoveryRepository repository;
-    private NoonAuthRecoveryGateway gateway;
-    private NoonAuthRecoveryProperties properties;
-    private NoonAuthRecoveryWorker worker;
-
-    @BeforeEach
-    void setUp() {
-        repository = mock(NoonAuthRecoveryRepository.class);
-        gateway = mock(NoonAuthRecoveryGateway.class);
-        properties = new NoonAuthRecoveryProperties();
-        properties.setEnabled(true);
-        properties.setCoalesceSeconds(0);
-        properties.setMinResendSeconds(60);
-        properties.setTrustedSenderDomains("noon.com");
-        worker = new NoonAuthRecoveryWorker(
-                repository,
-                properties,
-                gateway,
-                Clock.fixed(Instant.parse("2026-07-16T05:00:00Z"), ZoneOffset.UTC),
-                "worker-test",
-                "shared@example.com",
-                "imap-secret"
-        );
-        when(repository.tryClaimRecovery(
-                anyLong(), any(), anyLong(), anyString(), anyString(), any(), any()
-        )).thenReturn(true);
-        when(repository.transitionRecovery(
-                anyLong(), any(), any(), anyLong(), anyString(), any(), any(), any(), any(),
-                org.mockito.ArgumentMatchers.anyBoolean(), any()
-        )).thenReturn(true);
-        when(repository.recordSendIntent(anyLong(), any(), anyLong(), anyString(), any(), any())).thenReturn(true);
-        when(repository.renewLease(anyLong(), any(), anyLong(), anyString(), any(), any())).thenReturn(true);
-        when(repository.recordMailboxCorrelation(
-                anyLong(), any(), anyLong(), anyString(), any(), any(), any()
-        )).thenReturn(true);
-        when(repository.completeRecoveryIfDrained(
-                anyLong(), any(), anyLong(), anyString(), any(), any(), any(), any(), any()
-        )).thenReturn(true);
-        when(repository.persistRecoveredProjectCookieCas(
-                anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(),
-                anyString(), anyLong(), any()
-        )).thenReturn(true);
-        when(repository.markProjectRecovering(
-                anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(), any()
-        )).thenReturn(true);
-        when(repository.markProjectRecoveryFailed(
-                anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(),
-                any(), anyString(), any(), any()
-        )).thenReturn(true);
-        when(repository.transitionProjectItems(
-                anyLong(), anyLong(), anyString(), anyLong(), any(), anyLong(), anyString(),
-                any(), anyString(), any(), any(), any()
-        )).thenReturn(1);
-        when(repository.failBlockedTaskAfterRecovery(
-                anyLong(), anyLong(), any(), anyLong(), anyString(), anyString(), any(), any()
-        )).thenReturn(true);
-        when(repository.requeueBlockedTaskAfterRecoveryCas(
-                anyLong(), anyLong(), any(), anyLong(), anyString(), any()
-        )).thenReturn(true);
-        when(repository.transitionRecoveryItem(
-                anyLong(), anyLong(), any(), any(), any(), anyLong(), anyString(),
-                any(), any(), any(), any()
-        )).thenReturn(true);
-    }
+class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSupport {
 
     @Test
     void identitySendInsideFiveMinuteWindowWaitsUntilExactBoundary() {
@@ -276,6 +220,7 @@ class NoonAuthRecoveryWorkerTest {
                 anyLong(), anyLong(), anyString(), anyLong(), any(), anyLong(), anyString(),
                 any(), anyString(), any(), any(), any()
         );
+        verify(transientBackoffRepository, never()).incrementFailure(any(), any(), any());
     }
 
     @Test
@@ -810,6 +755,12 @@ class NoonAuthRecoveryWorkerTest {
                 eq(9501L), eq(95L), eq(NoonAuthRecoveryStatus.AUTHENTICATING),
                 anyLong(), anyString(), any()
         );
+        verify(transientBackoffRepository).resetForRecovery(
+                eq(7001L),
+                eq(95L),
+                any(NoonAuthTransientBackoffWriteFence.class),
+                any()
+        );
         verify(repository).completeRecoveryIfDrained(
                 eq(95L), eq(NoonAuthRecoveryStatus.AUTHENTICATING),
                 anyLong(), anyString(), any(), any(), any(), any(), any()
@@ -1135,62 +1086,4 @@ class NoonAuthRecoveryWorkerTest {
         assertEquals(600L, properties.leaseDuration().getSeconds());
     }
 
-    private NoonAuthRecoveryAttemptCommand reserveOtpSend(InvocationOnMock invocation) {
-        NoonAuthRecoveryAttemptCommand command = invocation.getArgument(0);
-        command.beforeOtpSendOrThrow();
-        return command;
-    }
-
-    private NoonAuthIdentityRecoveryRecord recovery(
-            Long id,
-            NoonAuthRecoveryStatus status,
-            Long version,
-            int sendCount,
-            int generation
-    ) {
-        NoonAuthIdentityRecoveryRecord recovery = new NoonAuthIdentityRecoveryRecord();
-        recovery.setId(id);
-        recovery.setIdentityKey(NoonAuthIdentityKey.fromEmail("shared@example.com"));
-        recovery.setStatus(status);
-        recovery.setVersionNo(version);
-        recovery.setSendAttemptCount(sendCount);
-        recovery.setGenerationNo(generation);
-        return recovery;
-    }
-
-    private NoonAuthRecoveryItemRecord item(
-            Long id,
-            Long recoveryId,
-            Long ownerUserId,
-            String projectCode,
-            String storeCode,
-            Long sourceTaskId,
-            Long authVersion
-    ) {
-        NoonAuthRecoveryItemRecord item = new NoonAuthRecoveryItemRecord();
-        item.setId(id);
-        item.setRecoveryId(recoveryId);
-        item.setOwnerUserId(ownerUserId);
-        item.setProjectCode(projectCode);
-        item.setStoreCode(storeCode);
-        item.setSourceTaskId(sourceTaskId);
-        item.setExpectedAuthVersion(authVersion);
-        item.setStatus(NoonAuthRecoveryItemStatus.PENDING);
-        return item;
-    }
-
-    private NoonProjectAuthStateRecord blockedState(
-            Long ownerUserId,
-            String projectCode,
-            Long recoveryId,
-            Long authVersion
-    ) {
-        NoonProjectAuthStateRecord state = new NoonProjectAuthStateRecord();
-        state.setOwnerUserId(ownerUserId);
-        state.setProjectCode(projectCode);
-        state.setActiveRecoveryId(recoveryId);
-        state.setAuthVersion(authVersion);
-        state.setStatus(NoonProjectAuthStatus.REAUTH_REQUIRED);
-        return state;
-    }
 }
