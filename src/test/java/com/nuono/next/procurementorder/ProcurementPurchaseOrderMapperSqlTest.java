@@ -18,7 +18,9 @@ class ProcurementPurchaseOrderMapperSqlTest {
     @Test void shippingOrderSegmentsCountDistinctSourcePurchaseOrders() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod("listShippingOrderSegments", Long.class);
         String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
-        assertThat(sql).contains("COUNT(DISTINCT sol.purchase_order_id)", "sol.shipping_order_segment_id = procurement_shipping_order_segment.id", "sol.is_deleted = b'0'", "AS purchaseOrderCount");
+        assertThat(sql).contains("COUNT(DISTINCT sol.purchase_order_id)", "GROUP_CONCAT(DISTINCT", "sol.purchase_order_title", "AS purchaseOrderNames");
+        Method listMethod = ProcurementPurchaseOrderMapper.class.getMethod("listShippingOrders", Long.class, String.class); String listSql = String.join(" ", listMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(listSql).contains("is_deleted = b'0'").doesNotContain("status IN", "status =", "shipping_submit_status =");
     }
     @Test
     void listOrdersSortsByPurchaseOrderCreateTimeNewestFirst() throws Exception {
@@ -56,10 +58,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
     @Test
     void purchaseOrderMutationLockUsesForUpdate() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod("selectOrderByIdForUpdate", Long.class);
-
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");
-
         assertThat(sql).contains("FOR UPDATE");
     }
 

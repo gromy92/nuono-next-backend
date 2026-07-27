@@ -204,7 +204,7 @@ public final class ProcurementPurchaseOrderViews {
         public String routeCode;
         public String routeName;
         public String serviceCode;
-        public String serviceName;
+        public String serviceName, purchaseOrderNames;
         public String quoteStatus;
         public String shippingSubmitStatus;
         public Integer purchaseOrderCount = 0;
