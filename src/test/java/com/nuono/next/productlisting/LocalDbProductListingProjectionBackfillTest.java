@@ -29,7 +29,6 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 class LocalDbProductListingProjectionBackfillTest {
-
     @Mock
     private ProductProjectionPersistenceService projectionPersistenceService;
 
@@ -54,7 +53,6 @@ class LocalDbProductListingProjectionBackfillTest {
                 productManagementMapper
         );
     }
-
     @Test
     void shouldPersistDraftSnapshotProjectionWhenDraftHasPsku() {
         ProductListingStoreProjectionContext storeContext = new ProductListingStoreProjectionContext();
@@ -72,6 +70,8 @@ class LocalDbProductListingProjectionBackfillTest {
         record.setDraftNo("PLD-10001");
         ProductListingDraftCommand draft = ProductListingTestFixtures.validCommand();
         draft.setProductTitleCn("本地草稿中文标题");
+        draft.setFbp(true);
+        draft.setQuantity(100);
 
         backfill.backfillDraftListing(record, draft);
 
