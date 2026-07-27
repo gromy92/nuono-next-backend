@@ -393,8 +393,7 @@ public final class ProcurementPurchaseOrderRecords {
         public String shippingOrderNo;
         public String title;
         public String status;
-        public Integer purchaseOrderCount;
-        public Integer lineCount;
+        public Integer purchaseOrderCount, lineCount;
         public Integer skuCount;
         public Integer totalQuantity;
         public Integer missingYiteMaterialCount;

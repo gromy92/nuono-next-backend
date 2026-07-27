@@ -1943,8 +1943,7 @@ public class LocalDbProcurementPurchaseOrderService {
         view.serviceCode = segment.serviceCode;
         view.serviceName = segment.serviceName;
         view.quoteStatus = normalizeLogisticsQuoteStatus(segment.quoteStatus);
-        view.shippingSubmitStatus = normalizeShippingSubmitStatus(segment.shippingSubmitStatus);
-        view.purchaseOrderCount = nonNull(segment.purchaseOrderCount);
+        view.shippingSubmitStatus = normalizeShippingSubmitStatus(segment.shippingSubmitStatus); view.purchaseOrderCount = nonNull(segment.purchaseOrderCount);
         view.lineCount = nonNull(segment.lineCount);
         view.skuCount = nonNull(segment.skuCount);
         view.totalQuantity = nonNull(segment.totalQuantity);

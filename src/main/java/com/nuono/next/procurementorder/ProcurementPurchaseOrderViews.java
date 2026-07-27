@@ -177,8 +177,7 @@ public final class ProcurementPurchaseOrderViews {
         public String shippingOrderNo;
         public String title;
         public String status;
-        public Integer purchaseOrderCount = 0;
-        public Integer lineCount = 0;
+        public Integer purchaseOrderCount = 0, lineCount = 0;
         public Integer skuCount = 0;
         public Integer totalQuantity = 0;
         public Integer missingYiteMaterialCount = 0;
