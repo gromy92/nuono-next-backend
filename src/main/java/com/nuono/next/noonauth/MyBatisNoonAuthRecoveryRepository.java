@@ -371,6 +371,7 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
                 projectCode
         );
         if (bindingEpochAlreadyQueued(
+                target,
                 state,
                 sourceLessItem,
                 recoveryId,
@@ -480,6 +481,7 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     }
 
     private boolean bindingEpochAlreadyQueued(
+            NoonAuthIdentityRecoveryRecord target,
             NoonProjectAuthStateRecord state,
             NoonAuthRecoveryItemRecord sourceLessItem,
             Long recoveryId,
@@ -487,7 +489,9 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
             String bindingFingerprint,
             String configFingerprint
     ) {
-        return state != null
+        return target != null
+                && target.getStatus() != NoonAuthRecoveryStatus.MANUAL_HOLD
+                && state != null
                 && state.getStatus() != null
                 && state.getStatus().blocksProviderCalls()
                 && recoveryId.equals(state.getActiveRecoveryId())

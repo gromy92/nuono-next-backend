@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
 import java.util.ArrayList;
 import java.util.List;
@@ -64,6 +65,31 @@ class RealProductListingOfferStockWriteAdapterTest {
         assertEquals(0, session.calls.size());
     }
 
+    @Test
+    void authenticationFailureIsPreservedForListingRecovery() {
+        FakeSession session = new FakeSession();
+        session.failure = new NoonHttpException(
+                401,
+                "provider response is intentionally hidden",
+                "/offer"
+        );
+        ProductListingOfferStockWriteRequest request = request();
+        request.setOfferNote("Launch note");
+
+        ProductListingNoonWriteStepResult step =
+                new RealProductListingOfferStockWriteAdapter(
+                        new ObjectMapper()
+                ).writeOfferStock(
+                        request,
+                        session,
+                        new ProductListingRealWriteProperties.Endpoints(),
+                        headers()
+                );
+
+        assertEquals("failed", step.getStatus());
+        assertEquals("noon_auth_required", step.getFailureCode());
+    }
+
     private ProductListingOfferStockWriteRequest request() {
         ProductListingOfferStockWriteRequest request = new ProductListingOfferStockWriteRequest();
         request.setStoreCode("STR245027-NSA");
@@ -87,6 +113,7 @@ class RealProductListingOfferStockWriteAdapterTest {
     private static class FakeSession implements NoonPullGatewaySession {
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final List<Call> calls = new ArrayList<>();
+        private RuntimeException failure;
 
         @Override
         public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
@@ -96,6 +123,9 @@ class RealProductListingOfferStockWriteAdapterTest {
         @Override
         public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
             calls.add(new Call(url, body, withProject, extraHeaders));
+            if (failure != null) {
+                throw failure;
+            }
             return objectMapper.createObjectNode();
         }
 

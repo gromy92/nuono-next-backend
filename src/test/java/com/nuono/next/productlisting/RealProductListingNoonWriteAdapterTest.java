@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonAuthenticationRequiredException;
+import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noonpull.NoonInterfacePullRequest;
 import com.nuono.next.noonpull.NoonPullDataDomain;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
@@ -256,11 +258,39 @@ class RealProductListingNoonWriteAdapterTest {
     }
 
     @Test
+    void taxonomyAuthenticationFailureRemainsAReauthenticationActionBeforeCreate() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.taxonomyFailure =
+                new NoonAuthenticationRequiredException("Project authorization recovery is pending.");
+        RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
+                new ObjectMapper(),
+                new FakeBindingResolver(),
+                sessionFactory,
+                new ProductListingRealWriteProperties(),
+                new FakeImageDownloader()
+        );
+        ProductListingNoonWriteRequest request = writeRequest();
+        request.getDraft().setProductFullType(
+                "electronic_accessories-phone_accessories-phone_cases"
+        );
+
+        ProductListingNoonWriteResult result = adapter.execute(request);
+
+        assertFalse(result.isSuccess());
+        assertEquals("authentication", result.getFailureCategory());
+        assertEquals("noon_auth_required", result.getFailureCode());
+        assertEquals("pre_create", result.getSteps().get(0).getStepKey());
+    }
+
+    @Test
     void realAdapterDelegatesOfferStockWriteWhenEnabled() {
         FakeOfferStockWriteAdapter offerStockWriteAdapter = new FakeOfferStockWriteAdapter();
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
         ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
         properties.setOfferUpsertEnabled(true);
+        properties.setOfferSplitWriteEnabled(true);
+        sessionFactory.session.readBackOfferNote = "Launch offer.";
+        sessionFactory.session.readBackIsActive = Boolean.TRUE;
         RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
                 new ObjectMapper(),
                 new FakeBindingResolver(),
@@ -276,6 +306,7 @@ class RealProductListingNoonWriteAdapterTest {
         writeRequest.getDraft().setSalePrice(new BigDecimal("39.90"));
         writeRequest.getDraft().setSaleStart("2026-07-02T00:00:00+08:00");
         writeRequest.getDraft().setSaleEnd("2026-07-31 23:59:59");
+        writeRequest.getDraft().setOfferNote("Launch offer.");
 
         ProductListingNoonWriteResult result = adapter.execute(writeRequest);
 
@@ -299,10 +330,12 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals(new BigDecimal("39.90"), request.getSalePrice());
         assertEquals("2026-07-02T00:00:00+08:00", request.getSaleStart());
         assertEquals("2026-07-31 23:59:59", request.getSaleEnd());
-        assertEquals(true, request.getFbp());
-        assertEquals("73001", request.getWarehouseId());
-        assertEquals("W00752151SA", request.getWarehouseCode());
-        assertEquals(100, request.getQuantity());
+        assertEquals(null, request.getFbp());
+        assertEquals(null, request.getWarehouseId());
+        assertEquals(null, request.getWarehouseCode());
+        assertEquals(null, request.getQuantity());
+        assertEquals(Boolean.TRUE, request.getIsActive());
+        assertEquals("Launch offer.", request.getOfferNote());
 
         JsonNode price = sessionFactory.session.calls.get(5).body;
         assertEquals(49.90, price.at("/price").asDouble());
@@ -334,10 +367,7 @@ class RealProductListingNoonWriteAdapterTest {
         );
 
         ProductListingNoonWriteRequest writeRequest = writeRequest();
-        writeRequest.getDraft().setFbp(null);
-        writeRequest.getDraft().setWarehouseId(null);
-        writeRequest.getDraft().setWarehouseCode(null);
-        writeRequest.getDraft().setQuantity(null);
+        writeRequest.getDraft().setIsActive(null);
         writeRequest.getDraft().setPriceMin(new BigDecimal("45.00"));
         writeRequest.getDraft().setPriceMax(new BigDecimal("59.00"));
         writeRequest.getDraft().setSalePrice(new BigDecimal("39.90"));
@@ -483,29 +513,102 @@ class RealProductListingNoonWriteAdapterTest {
     }
 
     @Test
-    void realAdapterDoesNotFailWhenNoonOmitsProductFullTypeReadBack() {
+    void realAdapterFailsClosedWhenNoonOmitsProductFullTypeReadBack() {
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
         sessionFactory.session.readBackProductFullType = null;
         sessionFactory.session.readBackProductFullTypeCode = null;
+        ProductListingRealWriteProperties properties =
+                new ProductListingRealWriteProperties();
+        properties.setReadBackMaxAttempts(1);
+        properties.setReadBackRetryDelayMillis(0L);
         RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
                 new ObjectMapper(),
                 new FakeBindingResolver(),
                 sessionFactory,
-                new ProductListingRealWriteProperties(),
+                properties,
                 new FakeImageDownloader()
         );
 
         ProductListingNoonWriteResult result = adapter.execute(writeRequest());
 
-        assertTrue(result.isSuccess());
+        assertTrue(!result.isSuccess());
         ProductListingNoonWriteStepResult readBack = result.getSteps().get(result.getSteps().size() - 1);
         assertEquals("verify_noon_readback", readBack.getStepKey());
-        assertEquals("succeeded", readBack.getStatus());
+        assertEquals("failed", readBack.getStatus());
+        assertEquals("noon_listing_readback_incomplete", readBack.getFailureCode());
+        assertTrue(readBack.getFailureMessage().contains("product_fulltype"));
+    }
+
+    @Test
+    void realAdapterFailsClosedWhenNoonOmitsRichContentOrDetailedAttributes() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.omitReadBackRichContent = true;
+        ProductListingRealWriteProperties properties =
+                new ProductListingRealWriteProperties();
+        properties.setReadBackMaxAttempts(1);
+        properties.setReadBackRetryDelayMillis(0L);
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        new FakeBindingResolver(),
+                        sessionFactory,
+                        properties,
+                        new FakeImageDownloader()
+                );
+        ProductListingNoonWriteRequest request = writeRequest();
+        request.getDraft().setProductDescriptionEn("Verified description");
+        request.getDraft().setProductHighlightsEn(List.of("Verified feature"));
+        request.getDraft().setKeyAttributes(List.of(Map.of(
+                "code",
+                "base_material",
+                "commonValue",
+                "pvc"
+        )));
+
+        ProductListingNoonWriteResult result = adapter.execute(request);
+
+        assertTrue(!result.isSuccess());
+        ProductListingNoonWriteStepResult readBack =
+                result.getSteps().get(result.getSteps().size() - 1);
+        assertEquals("noon_listing_readback_incomplete", readBack.getFailureCode());
+        assertTrue(readBack.getFailureMessage().contains("long_description_en"));
+        assertTrue(readBack.getFailureMessage().contains("feature_bullet_en_1"));
+        assertTrue(readBack.getFailureMessage().contains("attribute_en_base_material"));
+    }
+
+    @Test
+    void realAdapterFailsClosedWhenOfferPriceWarrantyAndBarcodeCannotBeReadBack() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.omitReadBackPricing = true;
+        sessionFactory.session.omitReadBackBarcode = true;
+        ProductListingRealWriteProperties properties =
+                new ProductListingRealWriteProperties();
+        properties.setReadBackMaxAttempts(1);
+        properties.setReadBackRetryDelayMillis(0L);
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        new FakeBindingResolver(),
+                        sessionFactory,
+                        properties,
+                        new FakeImageDownloader()
+                );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        ProductListingNoonWriteStepResult readBack =
+                result.getSteps().get(result.getSteps().size() - 1);
+        assertEquals("noon_listing_readback_incomplete", readBack.getFailureCode());
+        assertTrue(readBack.getFailureMessage().contains("price"));
+        assertTrue(readBack.getFailureMessage().contains("id_warranty"));
+        assertTrue(readBack.getFailureMessage().contains("barcode"));
     }
 
     @Test
     void realAdapterReadBackOnlyDoesNotCallNoonWriteEndpoints() {
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.standaloneReadBackSeeded = true;
         ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
         properties.setReadBackMaxAttempts(1);
         properties.setReadBackRetryDelayMillis(0L);
@@ -547,7 +650,7 @@ class RealProductListingNoonWriteAdapterTest {
 
         assertTrue(!result.isSuccess());
         assertEquals("noon_api", result.getFailureCategory());
-        assertEquals("noon_write_failed", result.getFailureCode());
+        assertEquals("noon_write_rejected", result.getFailureCode());
         assertTrue(result.getFailureMessage().contains("fulltype"));
         assertEquals(List.of("create_product", "sku_cache", "upsert_zsku_base"), result.getSteps().stream()
                 .map(ProductListingNoonWriteStepResult::getStepKey)
@@ -555,6 +658,124 @@ class RealProductListingNoonWriteAdapterTest {
         ProductListingNoonWriteStepResult failedStep = result.getSteps().get(2);
         assertEquals("failed", failedStep.getStatus());
         assertTrue(failedStep.getFailureMessage().contains("partner_error"));
+    }
+
+    @Test
+    void createBusinessRejectionIsDecisivelyNotStarted() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.createReturnsInvalid = true;
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        new FakeBindingResolver(),
+                        sessionFactory,
+                        new ProductListingRealWriteProperties(),
+                        new FakeImageDownloader()
+                );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        assertEquals("noon_create_rejected", result.getFailureCode());
+        assertEquals("noon_create_rejected", result.getSteps().get(0).getFailureCode());
+    }
+
+    @Test
+    void createAuthenticationRedirectIsDecisivelyNotStartedAndRequiresReauthentication() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.failCreateAuthentication = true;
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        new FakeBindingResolver(),
+                        sessionFactory,
+                        new ProductListingRealWriteProperties(),
+                        new FakeImageDownloader()
+                );
+
+        ProductListingNoonWriteResult result =
+                adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        assertEquals("noon_auth_required", result.getFailureCode());
+        assertEquals(
+                "noon_auth_required",
+                result.getSteps().get(0).getFailureCode()
+        );
+    }
+
+    @Test
+    void preCreateAuthenticationFailureIsStructurallyClassifiedAsNotStarted() {
+        FakeBindingResolver bindingResolver = new FakeBindingResolver();
+        bindingResolver.failure = new NoonHttpException(
+                401,
+                "provider response is intentionally hidden",
+                "/catalog"
+        );
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        bindingResolver,
+                        new FakeSessionFactory(),
+                        new ProductListingRealWriteProperties(),
+                        new FakeImageDownloader()
+                );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        assertEquals("authentication", result.getFailureCategory());
+        assertEquals("noon_auth_required", result.getFailureCode());
+        assertEquals("pre_create", result.getSteps().get(0).getStepKey());
+    }
+
+    @Test
+    void catalogAuthenticationFailureStopsBeforeCreateWrite() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        sessionFactory.session.failOfferListAuthentication = true;
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        new FakeBindingResolver(),
+                        sessionFactory,
+                        new ProductListingRealWriteProperties(),
+                        new FakeImageDownloader()
+                );
+
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
+
+        assertTrue(!result.isSuccess());
+        assertEquals("authentication", result.getFailureCategory());
+        assertEquals("noon_auth_required", result.getFailureCode());
+        assertEquals("pre_create", result.getSteps().get(0).getStepKey());
+        assertEquals(0, sessionFactory.session.calls.size());
+        assertEquals(1, sessionFactory.session.offerListCallCount);
+    }
+
+    @Test
+    void adapterRejectsUnsupportedWarehouseStockBeforeAnyNoonCall() {
+        FakeSessionFactory sessionFactory = new FakeSessionFactory();
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        new FakeBindingResolver(),
+                        sessionFactory,
+                        new ProductListingRealWriteProperties(),
+                        new FakeImageDownloader()
+                );
+        ProductListingNoonWriteRequest request = writeRequest();
+        request.getDraft().setQuantity(100);
+
+        ProductListingNoonWriteResult result = adapter.execute(request);
+
+        assertTrue(!result.isSuccess());
+        assertEquals("validation", result.getFailureCategory());
+        assertEquals(
+                "noon_warehouse_stock_not_supported",
+                result.getFailureCode()
+        );
+        assertEquals(0, sessionFactory.session.calls.size());
+        assertEquals(0, sessionFactory.session.retrieveCallCount);
     }
 
     @Test
@@ -614,6 +835,30 @@ class RealProductListingNoonWriteAdapterTest {
         assertEquals("skuParent=ZPARENT;pskuCode=PSKU_CODE_1", result.getExternalReference());
     }
 
+    @Test
+    void createReferenceLookupAuthenticationFailureIsStructurallyClassified() {
+        FakeBindingResolver bindingResolver = new FakeBindingResolver();
+        bindingResolver.failure = new NoonHttpException(
+                401,
+                "provider response is intentionally hidden",
+                "/catalog"
+        );
+        RealProductListingNoonWriteAdapter adapter =
+                new RealProductListingNoonWriteAdapter(
+                        new ObjectMapper(),
+                        bindingResolver,
+                        new FakeSessionFactory(),
+                        new ProductListingRealWriteProperties(),
+                        new FakeImageDownloader()
+                );
+
+        ProductListingNoonWriteStepResult result =
+                adapter.resolveCreateReference(writeRequest());
+
+        assertEquals("failed", result.getStatus());
+        assertEquals("noon_auth_required", result.getFailureCode());
+    }
+
     private ProductListingNoonWriteRequest writeRequest() {
         ProductListingNoonWriteRequest request = new ProductListingNoonWriteRequest();
         request.setOwnerUserId(10002L);
@@ -629,6 +874,7 @@ class RealProductListingNoonWriteAdapterTest {
 
     private static class FakeBindingResolver extends NoonPullStoreBindingResolver {
         private NoonInterfacePullRequest request;
+        private RuntimeException failure;
 
         FakeBindingResolver() {
             super(null);
@@ -637,6 +883,9 @@ class RealProductListingNoonWriteAdapterTest {
         @Override
         public NoonPullStoreBinding resolve(NoonInterfacePullRequest request) {
             this.request = request;
+            if (failure != null) {
+                throw failure;
+            }
             return new NoonPullStoreBinding(
                     request.getOwnerUserId(),
                     "PRJ240053",
@@ -667,6 +916,7 @@ class RealProductListingNoonWriteAdapterTest {
         private int retrieveCallCount;
         private int readBackImagesAvailableAfterAttempt = 1;
         private boolean baseUpsertReturnsInvalid;
+        private boolean createReturnsInvalid;
         private int zskuUpsertCount;
         private String readBackBrand = "Generic";
         private String readBackProductFullType = "electronic_accessories-headphones-wired_headphones";
@@ -676,26 +926,98 @@ class RealProductListingNoonWriteAdapterTest {
         private String taxonomyProductTypeNameEn = "Headphones";
         private String taxonomyProductSubTypeNameEn = "Wired Headphones";
         private boolean failOnIdProductFullTypeLookup;
+        private RuntimeException taxonomyFailure;
         private boolean failCreateTransport;
+        private boolean failCreateAuthentication;
         private boolean createResponseMissingReferences;
         private boolean offerListContainsProduct;
+        private boolean failOfferListAuthentication;
+        private int offerListCallCount;
+        private boolean standaloneReadBackSeeded;
+        private boolean omitReadBackRichContent;
+        private boolean omitReadBackBarcode;
+        private boolean omitReadBackPricing;
+        private String readBackOfferNote;
+        private Boolean readBackIsActive;
 
         @Override
         public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            retrieveCallCount++;
             if (ProductListingRealWriteProperties.Endpoints.DEFAULT_OFFER_LIST_URL.equals(url)) {
+                offerListCallCount++;
+                if (failOfferListAuthentication) {
+                    throw new NoonHttpException(
+                            307,
+                            "Catalog session expired before create",
+                            url
+                    );
+                }
                 ObjectNode root = objectMapper.createObjectNode();
                 ObjectNode data = root.putObject("data");
                 ArrayNode hits = data.putArray("hits");
-                if (offerListContainsProduct) {
-                    hits.addObject()
+                if (offerListContainsProduct || standaloneReadBackSeeded || hasWriteCall(
+                        ProductListingRealWriteProperties.Endpoints.DEFAULT_CREATE_PRODUCT_URL
+                )) {
+                    ObjectNode hit = hits.addObject()
                             .put("partner_sku", "NN-TEST-PSKU")
                             .put("zsku_parent", "ZPARENT")
                             .put("psku_code", "PSKU_CODE_1");
+                    JsonNode barcodeBody = latestWriteBody(
+                            ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_BARCODE_URL
+                    );
+                    if (!omitReadBackBarcode && barcodeBody != null
+                            && barcodeBody.at("/pbarcodeUpsert/0/partnerBarcode").isTextual()) {
+                        hit.putArray("partner_barcodes").add(
+                                barcodeBody.at("/pbarcodeUpsert/0/partnerBarcode").asText()
+                        );
+                    } else if (!omitReadBackBarcode && standaloneReadBackSeeded) {
+                        hit.putArray("partner_barcodes").add("6290000000001");
+                    }
                 }
                 data.put("total", hits.size());
                 return root;
             }
+            if (ProductListingRealWriteProperties.Endpoints.DEFAULT_PRICING_INFORMATION_URL.equals(url)) {
+                ObjectNode root = objectMapper.createObjectNode();
+                ObjectNode pricing = root.putArray("data").addObject();
+                if (!omitReadBackPricing) {
+                    copyFields(
+                            latestWriteBody(
+                                    ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_PRICE_URL
+                            ),
+                            pricing
+                    );
+                    copyFields(
+                            latestWriteBody(
+                                    ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_WARRANTY_URL
+                            ),
+                            pricing
+                    );
+                    copyFields(
+                            latestWriteBody(
+                                    ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_OFFER_NOTE_URL
+                            ),
+                            pricing
+                    );
+                    copyFields(
+                            latestWriteBody(
+                                    ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_IS_ACTIVE_URL
+                            ),
+                            pricing
+                    );
+                }
+                if (readBackOfferNote != null) {
+                    pricing.put("offer_note", readBackOfferNote);
+                }
+                if (readBackIsActive != null) {
+                    pricing.put("is_active", readBackIsActive);
+                }
+                if (!omitReadBackPricing && standaloneReadBackSeeded) {
+                    pricing.put("price", "49.90");
+                    pricing.put("id_warranty", 24);
+                }
+                return root;
+            }
+            retrieveCallCount++;
             ObjectNode root = objectMapper.createObjectNode();
             ObjectNode product = root.putObject("ZPARENT");
             ObjectNode attributes = product.putObject("attributes");
@@ -708,21 +1030,115 @@ class RealProductListingNoonWriteAdapterTest {
                 common.put("product_fulltype_code", readBackProductFullTypeCode);
             }
             if (retrieveCallCount >= readBackImagesAvailableAfterAttempt) {
-                common.put("image_url_1", "noon-uploaded/sku-main.jpg");
+                JsonNode contentEn = latestContentBody("en");
+                if (contentEn != null) {
+                    contentEn.path("attributes").fields().forEachRemaining(entry -> {
+                        if (entry.getKey().startsWith("image_url_")) {
+                            common.set(entry.getKey(), entry.getValue());
+                        }
+                    });
+                } else if (standaloneReadBackSeeded) {
+                    common.put("image_url_1", "noon-uploaded/sku-main.jpg");
+                }
             }
-            attributes.putObject("en").put("product_title", "Wired headphones with microphone");
-            attributes.putObject("ar").put("product_title", "Arabic wired headphones title");
+            ObjectNode en = attributes.putObject("en");
+            copyFields(
+                    latestContentBody("en") == null
+                            ? null
+                            : latestContentBody("en").path("attributes"),
+                    en
+            );
+            if (standaloneReadBackSeeded) {
+                en.put("product_title", "Wired headphones with microphone");
+            }
+            if (omitReadBackRichContent) {
+                en.remove(List.of(
+                        "long_description",
+                        "feature_bullet_1",
+                        "base_material"
+                ));
+            }
+            ObjectNode ar = attributes.putObject("ar");
+            copyFields(
+                    latestContentBody("ar") == null
+                            ? null
+                            : latestContentBody("ar").path("attributes"),
+                    ar
+            );
+            if (standaloneReadBackSeeded) {
+                ar.put("product_title", "Arabic wired headphones title");
+            }
+            if (omitReadBackRichContent) {
+                ar.remove(List.of(
+                        "long_description",
+                        "feature_bullet_1",
+                        "base_material"
+                ));
+            }
             return root;
+        }
+
+        private boolean hasWriteCall(String url) {
+            return latestWriteBody(url) != null;
+        }
+
+        private JsonNode latestWriteBody(String url) {
+            for (int index = calls.size() - 1; index >= 0; index--) {
+                Call call = calls.get(index);
+                if (url.equals(call.url)) {
+                    return call.body;
+                }
+            }
+            return null;
+        }
+
+        private JsonNode latestContentBody(String lang) {
+            for (int index = calls.size() - 1; index >= 0; index--) {
+                Call call = calls.get(index);
+                if (ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_ZSKU_URL.equals(
+                        call.url
+                )
+                        && lang.equals(call.body.path("lang").asText())
+                        && call.body.path("attributes").has("product_title")) {
+                    return call.body;
+                }
+            }
+            return null;
+        }
+
+        private void copyFields(JsonNode source, ObjectNode target) {
+            if (source == null || !source.isObject()) {
+                return;
+            }
+            source.fields().forEachRemaining(entry ->
+                    target.set(toSnakeCase(entry.getKey()), entry.getValue()));
+        }
+
+        private String toSnakeCase(String value) {
+            return value.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toLowerCase();
         }
 
         @Override
         public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
             calls.add(new Call(url, body, withProject, extraHeaders));
             if (ProductListingRealWriteProperties.Endpoints.DEFAULT_CREATE_PRODUCT_URL.equals(url)) {
+                if (failCreateAuthentication) {
+                    throw new NoonHttpException(
+                            307,
+                            "authentication expired after request write",
+                            url
+                    );
+                }
                 if (failCreateTransport) {
                     throw new IllegalStateException("connection reset after request write");
                 }
                 ObjectNode response = objectMapper.createObjectNode();
+                if (createReturnsInvalid) {
+                    response.put("invalid", 1);
+                    response.putObject("error")
+                            .put("partner_error", "create payload rejected");
+                    return response;
+                }
                 if (createResponseMissingReferences) {
                     return response;
                 }
@@ -762,6 +1178,9 @@ class RealProductListingNoonWriteAdapterTest {
 
         @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
+            if (taxonomyFailure != null) {
+                throw taxonomyFailure;
+            }
             if (failOnIdProductFullTypeLookup && url != null && url.contains("id_product_fulltype")) {
                 throw new AssertionError("stale id_product_fulltype lookup should not be used");
             }

@@ -1,6 +1,7 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -10,12 +11,16 @@ import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccountType;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -58,6 +63,51 @@ class ProductListingServiceTest {
     }
 
     @Test
+    void saveDraftKeepsMissingImageDimensionsEligibleForAutomaticDryRunEnrichment() {
+        CountingImageDownloader downloader = new CountingImageDownloader(jpeg(660, 900));
+        service = new ProductListingService(
+                mapper,
+                new ObjectMapper(),
+                new ProductListingValidator(),
+                new ProductListingImageMetadataEnricher(downloader)
+        );
+        BusinessAccessContext context =
+                businessContext(10002L, 90001L, "STR245027-NAE");
+        ProductListingDraftCommand listing = validCommand();
+        listing.setImageAssetMetadata(List.of());
+        ProductListingDraftView draft = service.saveDraft(context, listing);
+        ProductListingDraftView reloadedAfterSave =
+                service.loadDraft(context, draft.getDraftId());
+        ProductListingDryRunSubmitCommand command =
+                new ProductListingDryRunSubmitCommand();
+        command.setDraftId(draft.getDraftId());
+        command.setStoreCode("STR245027-NAE");
+
+        ProductListingTaskView firstTask = service.submitDryRun(context, command);
+        ProductListingTaskView secondTask = service.submitDryRun(context, command);
+        ProductListingDraftView reloaded =
+                service.loadDraft(context, draft.getDraftId());
+
+        assertEquals("ready_for_dry_run", draft.getStatus());
+        assertTrue(draft.getValidationIssues().stream()
+                .anyMatch(issue -> "noon_image_dimension_missing".equals(issue.getCode())));
+        assertTrue(reloadedAfterSave.getDraft().getImageAssetMetadata().isEmpty());
+        assertEquals("validated", firstTask.getStatus());
+        assertEquals("validated", secondTask.getStatus());
+        assertEquals(1, downloader.downloadCount);
+        assertEquals(
+                660,
+                reloaded.getDraft().getImageAssetMetadata().get(0).get("width")
+        );
+        assertEquals(
+                900,
+                reloaded.getDraft().getImageAssetMetadata().get(0).get("height")
+        );
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"width\":660"));
+        assertTrue(mapper.insertedTask().getInputSnapshotJson().contains("\"height\":900"));
+    }
+
+    @Test
     void dryRunWarnsWhenOfferPriceOrSplitFieldsAreDisabledButDoesNotBlockValidation() {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand listing = validCommand();
@@ -78,10 +128,8 @@ class ProductListingServiceTest {
         assertEquals("validated", task.getStatus());
         assertWarning(task, "offerPrice", "offer_price_not_written");
         assertWarning(task, "offerSplit", "offer_note_active_not_written");
-        assertWarning(task, "warehouseStock", "warehouse_stock_not_written");
         assertTrue(mapper.insertedTask().getValidationJson().contains("offer_price_not_written"));
         assertTrue(mapper.insertedTask().getValidationJson().contains("offer_note_active_not_written"));
-        assertTrue(mapper.insertedTask().getValidationJson().contains("warehouse_stock_not_written"));
     }
 
     @Test
@@ -92,10 +140,6 @@ class ProductListingServiceTest {
         service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand listing = validCommand();
-        listing.setFbp(null);
-        listing.setWarehouseId(null);
-        listing.setWarehouseCode(null);
-        listing.setQuantity(null);
         listing.setPriceMin(new BigDecimal("45.00"));
         listing.setPriceMax(new BigDecimal("59.00"));
         listing.setSalePrice(new BigDecimal("47.50"));
@@ -113,28 +157,39 @@ class ProductListingServiceTest {
         assertEquals("validated", task.getStatus());
         assertNoWarning(task, "offer_price_not_written");
         assertNoWarning(task, "offer_note_active_not_written");
-        assertNoWarning(task, "warehouse_stock_not_written");
         assertNoWarning(task, "offer_stock_not_written");
     }
 
     @Test
-    void dryRunKeepsWarehouseStockWarningEvenWhenSplitOfferWriteIsEnabled() {
+    void dryRunBlocksUnsupportedWarehouseStockEvenWhenSplitOfferWriteIsEnabled() {
         ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
         properties.setOfferUpsertEnabled(true);
         properties.setOfferSplitWriteEnabled(true);
         service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
-        ProductListingDraftView draft = service.saveDraft(context, validCommand());
+        ProductListingDraftCommand listing = validCommand();
+        listing.setFbp(Boolean.TRUE);
+        listing.setWarehouseCode("W00752151SA");
+        listing.setQuantity(100);
+        ProductListingDraftView draft = service.saveDraft(context, listing);
         ProductListingDryRunSubmitCommand command = new ProductListingDryRunSubmitCommand();
         command.setDraftId(draft.getDraftId());
         command.setStoreCode("STR245027-NAE");
 
         ProductListingTaskView task = service.submitDryRun(context, command);
 
-        assertEquals("validated", task.getStatus());
-        assertWarning(task, "warehouseStock", "warehouse_stock_not_written");
-        assertNoWarning(task, "offer_price_not_written");
-        assertNoWarning(task, "offer_note_active_not_written");
+        assertEquals("validation_failed", task.getStatus());
+        assertIssue(task.getValidationIssues(), "fbp", "noon_fbp_not_supported");
+        assertIssue(
+                task.getValidationIssues(),
+                "warehouseStock",
+                "noon_warehouse_not_supported"
+        );
+        assertIssue(
+                task.getValidationIssues(),
+                "quantity",
+                "noon_stock_quantity_not_supported"
+        );
     }
 
     @Test
@@ -364,6 +419,83 @@ class ProductListingServiceTest {
     }
 
     @Test
+    void loadActiveSourceDraftUsesExactOwnerStoreAndSourceBusinessKey() {
+        BusinessAccessContext ownerContext = businessContext(
+                10002L,
+                90001L,
+                Set.of("STR245027-NAE", "STR245027-NSA")
+        );
+        ProductListingDraftCommand command = validCommand();
+        command.setSourceType("manual_selection_group");
+        command.setSourceRefId(91002L);
+        ProductListingDraftView created = service.saveDraft(ownerContext, command);
+
+        ProductListingDraftView recovered = service.loadActiveSourceDraft(
+                ownerContext,
+                "STR245027-NAE",
+                " manual_selection_group ",
+                91002L
+        );
+
+        assertEquals(created.getDraftId(), recovered.getDraftId());
+        assertEquals(created.getDraft().getPsku(), recovered.getDraft().getPsku());
+        assertNull(service.loadActiveSourceDraft(
+                ownerContext,
+                "STR245027-NAE",
+                "manual_selection_group",
+                91003L
+        ));
+        assertNull(service.loadActiveSourceDraft(
+                ownerContext,
+                "STR245027-NSA",
+                "manual_selection_group",
+                91002L
+        ));
+        BusinessAccessContext otherOwner =
+                businessContext(10003L, 90002L, "STR245027-NAE");
+        assertNull(service.loadActiveSourceDraft(
+                otherOwner,
+                "STR245027-NAE",
+                "manual_selection_group",
+                91002L
+        ));
+    }
+
+    @Test
+    void loadActiveSourceDraftRejectsMalformedBusinessKeyAndStoreOutsideScope() {
+        BusinessAccessContext context =
+                businessContext(10002L, 90001L, "STR245027-NAE");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.loadActiveSourceDraft(
+                        context,
+                        "STR245027-NAE",
+                        " ",
+                        91002L
+                )
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.loadActiveSourceDraft(
+                        context,
+                        "STR245027-NAE",
+                        "manual_selection_group",
+                        0L
+                )
+        );
+        assertThrows(
+                BusinessAccessDeniedException.class,
+                () -> service.loadActiveSourceDraft(
+                        context,
+                        "STR245027-NSA",
+                        "manual_selection_group",
+                        91002L
+                )
+        );
+    }
+
+    @Test
     void listDraftsReturnsCurrentStoreEditableDraftsWithPayload() {
         BusinessAccessContext aeContext = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand first = validCommand();
@@ -413,7 +545,7 @@ class ProductListingServiceTest {
     }
 
     @Test
-    void dryRunTaskFailsWhenHardIssuesExist() {
+    void dryRunTaskAllowsMissingPurchaseCost() {
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         ProductListingDraftCommand invalid = validCommand();
         invalid.setPurchasePrice(null);
@@ -424,9 +556,9 @@ class ProductListingServiceTest {
 
         ProductListingTaskView task = service.submitDryRun(context, command);
 
-        assertEquals("validation_failed", task.getStatus());
+        assertEquals("validated", task.getStatus());
         assertTrue(task.getValidationIssues().stream()
-                .anyMatch(issue -> "purchasePrice".equals(issue.getFieldKey())));
+                .noneMatch(issue -> "purchasePrice".equals(issue.getFieldKey())));
     }
 
     @Test
@@ -688,9 +820,6 @@ class ProductListingServiceTest {
         command.setSupplyEvidenceType("1688_OFFER");
         command.setSupplyEvidenceRefId(43101L);
         command.setOptionalPurchaseOrderId(70001L);
-        command.setFbp(true);
-        command.setWarehouseId("W00752151SA");
-        command.setQuantity(100);
         command.setIdWarranty(24);
         command.setBarcode("6290000000001");
         return command;
@@ -702,6 +831,38 @@ class ProductListingServiceTest {
         command.setSourceRefId(productMasterId);
         command.setRebuildSourceProductMasterId(productMasterId);
         return command;
+    }
+
+    private static byte[] jpeg(int width, int height) {
+        try {
+            BufferedImage image =
+                    new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            ImageIO.write(image, "jpg", output);
+            return output.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static final class CountingImageDownloader
+            implements ProductListingImageDownloader {
+        private final byte[] imageBytes;
+        private int downloadCount;
+
+        private CountingImageDownloader(byte[] imageBytes) {
+            this.imageBytes = imageBytes;
+        }
+
+        @Override
+        public ProductListingImageDownload download(String imageUrl) {
+            downloadCount++;
+            return new ProductListingImageDownload(
+                    "test.jpg",
+                    "image/jpeg",
+                    imageBytes
+            );
+        }
     }
 
     private BusinessAccessContext businessContext(Long ownerUserId, Long sessionUserId, String storeCode) {
@@ -753,6 +914,7 @@ class ProductListingServiceTest {
         private long nextTaskId = 20001L;
         private final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
         private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
+        private final Map<String, Long> realRunAttemptClaims = new LinkedHashMap<>();
         private final Map<String, Long> localPartnerSkuProducts = new LinkedHashMap<>();
         private final Map<String, Long> localBarcodeProducts = new LinkedHashMap<>();
         private final Map<Long, Long> localProductListingDraftIds = new LinkedHashMap<>();
@@ -816,6 +978,11 @@ class ProductListingServiceTest {
         }
 
         @Override
+        public ProductListingDraftRecord selectDraftByIdForUpdate(Long draftId, Long ownerUserId) {
+            return selectDraftById(draftId, ownerUserId);
+        }
+
+        @Override
         public Long findActiveDraftId(Long ownerUserId, String storeCode, String sourceType, Long sourceRefId) {
             Long latest = null;
             for (ProductListingDraftRecord draft : drafts.values()) {
@@ -867,6 +1034,11 @@ class ProductListingServiceTest {
         }
 
         @Override
+        public ProductListingTaskRecord selectTaskByIdForUpdate(Long taskId, Long ownerUserId) {
+            return selectTaskById(taskId, ownerUserId);
+        }
+
+        @Override
         public ProductListingTaskRecord selectTaskByIdForWorker(Long taskId) {
             return tasks.get(taskId);
         }
@@ -893,6 +1065,86 @@ class ProductListingServiceTest {
                     .filter(task -> draftId.equals(task.getDraftId()))
                     .limit(limit)
                     .collect(java.util.stream.Collectors.toList());
+        }
+
+        @Override
+        public ProductListingTaskRecord selectCurrentRealRunTaskByDraftId(Long ownerUserId, Long draftId) {
+            return tasks.values().stream()
+                    .filter(task -> ownerUserId.equals(task.getOwnerUserId()))
+                    .filter(task -> draftId.equals(task.getDraftId()))
+                    .filter(task -> "REAL_RUN".equals(task.getMode()))
+                    .filter(task -> !isExplicitlyReopenedNotStarted(task))
+                    .max(java.util.Comparator.comparing(ProductListingTaskRecord::getId))
+                    .orElse(null);
+        }
+
+        @Override
+        public ProductListingTaskRecord selectLatestDryRunTaskByDraftId(Long ownerUserId, Long draftId) {
+            return tasks.values().stream()
+                    .filter(task -> ownerUserId.equals(task.getOwnerUserId()))
+                    .filter(task -> draftId.equals(task.getDraftId()))
+                    .filter(task -> "DRY_RUN".equals(task.getMode()))
+                    .max(java.util.Comparator.comparing(ProductListingTaskRecord::getId))
+                    .orElse(null);
+        }
+
+        @Override
+        public int markValidatedDryRunSuperseded(Long taskId, Long ownerUserId) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !"DRY_RUN".equals(task.getMode())
+                    || !List.of("validated", "validation_failed").contains(task.getStatus())) {
+                return 0;
+            }
+            task.setStatus("superseded");
+            return 1;
+        }
+
+        @Override
+        public int persistRecoveredCreateReference(
+                Long taskId,
+                Long ownerUserId,
+                String expectedNoonResultJson,
+                String newNoonResultJson
+        ) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !java.util.Objects.equals(expectedNoonResultJson, task.getNoonResultJson())) {
+                return 0;
+            }
+            task.setNoonResultJson(newNoonResultJson);
+            return 1;
+        }
+
+        @Override
+        public int markCreateOutcomeLookupAuthenticationRequired(
+                Long taskId,
+                Long ownerUserId,
+                String expectedNoonResultJson,
+                String newNoonResultJson
+        ) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !java.util.Objects.equals(expectedNoonResultJson, task.getNoonResultJson())) {
+                return 0;
+            }
+            task.setNoonResultJson(newNoonResultJson);
+            task.setFailureCategory("authentication");
+            task.setFailureCode("noon_auth_required");
+            return 1;
+        }
+
+        @Override
+        public int claimRealRunAttempt(Long ownerUserId, Long sourceTaskId, Long attemptTaskId) {
+            String key = ownerUserId + ":" + sourceTaskId;
+            if (realRunAttemptClaims.containsKey(key)) {
+                return 0;
+            }
+            realRunAttemptClaims.put(key, attemptTaskId);
+            return 1;
         }
 
         @Override
@@ -1033,7 +1285,9 @@ class ProductListingServiceTest {
                 if ("REAL_RUN".equals(task.getMode())
                         && "running".equals(task.getStatus())
                         && task.getStartedAt() != null
-                        && task.getStartedAt().isBefore(staleBefore)) {
+                        && (task.getGmtUpdated() == null
+                        ? task.getStartedAt()
+                        : task.getGmtUpdated()).isBefore(staleBefore)) {
                     task.setStatus("written_verify_failed");
                     task.setFailureCategory("recovery");
                     task.setFailureCode("real_run_interrupted");
@@ -1052,6 +1306,24 @@ class ProductListingServiceTest {
         }
 
         @Override
+        public int updateRunningTaskResult(ProductListingTaskRecord task) {
+            return updateTaskResult(task);
+        }
+
+        @Override
+        public int heartbeatRunningRealRunTask(Long taskId, java.time.LocalDateTime startedAt) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !"REAL_RUN".equals(task.getMode())
+                    || !"running".equals(task.getStatus())
+                    || !java.util.Objects.equals(task.getStartedAt(), startedAt)) {
+                return 0;
+            }
+            task.setGmtUpdated(java.time.LocalDateTime.now());
+            return 1;
+        }
+
+        @Override
         public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
             ProductListingTaskRecord task = tasks.get(taskId);
             if (task == null
@@ -1061,6 +1333,7 @@ class ProductListingServiceTest {
             }
             task.setStatus("running");
             task.setStartedAt(startedAt);
+            task.setGmtUpdated(startedAt);
             tasks.put(taskId, task);
             return 1;
         }
@@ -1082,12 +1355,43 @@ class ProductListingServiceTest {
         }
 
         private boolean isRealWriteAttemptLocked(ProductListingTaskRecord task) {
-            return "running".equals(task.getStatus())
-                    || "submitted".equals(task.getStatus())
-                    || "succeeded".equals(task.getStatus())
-                    || "written_verify_failed".equals(task.getStatus())
-                    || ("failed".equals(task.getStatus())
-                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+            return !"real_run_already_active".equals(task.getFailureCode())
+                    && !"real_run_already_attempted".equals(task.getFailureCode());
+        }
+
+        private boolean isExplicitlyReopenedNotStarted(ProductListingTaskRecord task) {
+            ProductListingTaskRecord source = tasks.get(task.getSourceTaskId());
+            if (source == null || !"superseded".equals(source.getStatus())) {
+                return false;
+            }
+            ProductListingTaskView view = new ProductListingTaskView();
+            view.setMode(task.getMode());
+            view.setStatus(task.getStatus());
+            view.setFailureCategory(task.getFailureCategory());
+            view.setFailureCode(task.getFailureCode());
+            view.setFailureMessage(task.getFailureMessage());
+            if (task.getNoonResultJson() != null && !task.getNoonResultJson().isBlank()) {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode root =
+                            objectMapper.readTree(task.getNoonResultJson());
+                    com.fasterxml.jackson.databind.JsonNode success = root.get("success");
+                    com.fasterxml.jackson.databind.JsonNode steps = root.get("steps");
+                    if (!root.isObject()
+                            || (success != null && !success.isBoolean())
+                            || (steps != null && !steps.isArray())) {
+                        return false;
+                    }
+                    view.setNoonResult(objectMapper.treeToValue(
+                            root, ProductListingNoonWriteResult.class));
+                } catch (Exception exception) {
+                    return false;
+                }
+            }
+            ProductListingWorkflowView workflow =
+                    new ProductListingWorkflowProjector().project(null, null, view);
+            return ("failed".equals(task.getStatus()) || "rejected".equals(task.getStatus()))
+                    && workflow.getWriteCertainty()
+                    == ProductListingWorkflowView.WriteCertainty.NOT_STARTED;
         }
 
         private boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {

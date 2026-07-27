@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -116,11 +117,8 @@ final class ProductListingTestFixtures {
         command.setSupplyEvidenceType("1688_OFFER");
         command.setSupplyEvidenceRefId(43101L);
         command.setOptionalPurchaseOrderId(70001L);
-        command.setFbp(true);
-        command.setWarehouseId("73001");
-        command.setWarehouseCode("W00752151SA");
-        command.setQuantity(100);
         command.setIdWarranty(24);
+        command.setIsActive(Boolean.TRUE);
         command.setBarcode("6290000000001");
         return command;
     }
@@ -274,6 +272,7 @@ final class ProductListingTestFixtures {
         private final ObjectMapper objectMapper = new ObjectMapper();
         private final Map<Long, ProductListingDraftRecord> drafts = new LinkedHashMap<>();
         private final Map<Long, ProductListingTaskRecord> tasks = new LinkedHashMap<>();
+        private final Map<String, Long> realRunAttemptClaims = new LinkedHashMap<>();
         private ProductListingTaskRecord insertedTask;
         private ProductListingTaskRecord updatedTask;
 
@@ -311,6 +310,11 @@ final class ProductListingTestFixtures {
                 return null;
             }
             return draft;
+        }
+
+        @Override
+        public ProductListingDraftRecord selectDraftByIdForUpdate(Long draftId, Long ownerUserId) {
+            return selectDraftById(draftId, ownerUserId);
         }
 
         @Override
@@ -352,6 +356,11 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public ProductListingTaskRecord selectTaskByIdForUpdate(Long taskId, Long ownerUserId) {
+            return selectTaskById(taskId, ownerUserId);
+        }
+
+        @Override
         public ProductListingTaskRecord selectTaskByIdForWorker(Long taskId) {
             return tasks.get(taskId);
         }
@@ -378,6 +387,103 @@ final class ProductListingTestFixtures {
                     .filter(task -> draftId.equals(task.getDraftId()))
                     .limit(limit)
                     .collect(java.util.stream.Collectors.toList());
+        }
+
+        @Override
+        public ProductListingTaskRecord selectCurrentRealRunTaskByDraftId(Long ownerUserId, Long draftId) {
+            ProductListingTaskRecord current = null;
+            int currentPriority = Integer.MAX_VALUE;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (!ownerUserId.equals(task.getOwnerUserId())
+                        || !draftId.equals(task.getDraftId())
+                        || !"REAL_RUN".equals(task.getMode())
+                        || isExplicitlyReopenedNotStarted(task)) {
+                    continue;
+                }
+                int priority = workflowRealRunPriority(task);
+                if (current == null
+                        || priority < currentPriority
+                        || (priority == currentPriority && task.getId() > current.getId())) {
+                    current = task;
+                    currentPriority = priority;
+                }
+            }
+            return current;
+        }
+
+        @Override
+        public ProductListingTaskRecord selectLatestDryRunTaskByDraftId(Long ownerUserId, Long draftId) {
+            ProductListingTaskRecord latest = null;
+            for (ProductListingTaskRecord task : tasks.values()) {
+                if (ownerUserId.equals(task.getOwnerUserId())
+                        && draftId.equals(task.getDraftId())
+                        && "DRY_RUN".equals(task.getMode())
+                        && (latest == null || task.getId() > latest.getId())) {
+                    latest = task;
+                }
+            }
+            return latest;
+        }
+
+        @Override
+        public int markValidatedDryRunSuperseded(Long taskId, Long ownerUserId) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !"DRY_RUN".equals(task.getMode())
+                    || !List.of("validated", "validation_failed").contains(task.getStatus())) {
+                return 0;
+            }
+            task.setStatus("superseded");
+            task.setFailureCategory("workflow");
+            task.setFailureCode("review_reopened");
+            return 1;
+        }
+
+        @Override
+        public int persistRecoveredCreateReference(
+                Long taskId,
+                Long ownerUserId,
+                String expectedNoonResultJson,
+                String newNoonResultJson
+        ) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !Objects.equals(expectedNoonResultJson, task.getNoonResultJson())) {
+                return 0;
+            }
+            task.setNoonResultJson(newNoonResultJson);
+            return 1;
+        }
+
+        @Override
+        public int markCreateOutcomeLookupAuthenticationRequired(
+                Long taskId,
+                Long ownerUserId,
+                String expectedNoonResultJson,
+                String newNoonResultJson
+        ) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !ownerUserId.equals(task.getOwnerUserId())
+                    || !Objects.equals(expectedNoonResultJson, task.getNoonResultJson())) {
+                return 0;
+            }
+            task.setNoonResultJson(newNoonResultJson);
+            task.setFailureCategory("authentication");
+            task.setFailureCode("noon_auth_required");
+            return 1;
+        }
+
+        @Override
+        public int claimRealRunAttempt(Long ownerUserId, Long sourceTaskId, Long attemptTaskId) {
+            String key = ownerUserId + ":" + sourceTaskId;
+            if (realRunAttemptClaims.containsKey(key)) {
+                return 0;
+            }
+            realRunAttemptClaims.put(key, attemptTaskId);
+            return 1;
         }
 
         @Override
@@ -506,7 +612,9 @@ final class ProductListingTestFixtures {
                 if ("REAL_RUN".equals(task.getMode())
                         && "running".equals(task.getStatus())
                         && task.getStartedAt() != null
-                        && task.getStartedAt().isBefore(staleBefore)) {
+                        && (task.getGmtUpdated() == null
+                        ? task.getStartedAt()
+                        : task.getGmtUpdated()).isBefore(staleBefore)) {
                     task.setStatus("written_verify_failed");
                     task.setFailureCategory("recovery");
                     task.setFailureCode("real_run_interrupted");
@@ -526,6 +634,24 @@ final class ProductListingTestFixtures {
         }
 
         @Override
+        public int updateRunningTaskResult(ProductListingTaskRecord task) {
+            return updateTaskResult(task);
+        }
+
+        @Override
+        public int heartbeatRunningRealRunTask(Long taskId, java.time.LocalDateTime startedAt) {
+            ProductListingTaskRecord task = tasks.get(taskId);
+            if (task == null
+                    || !"REAL_RUN".equals(task.getMode())
+                    || !"running".equals(task.getStatus())
+                    || !java.util.Objects.equals(task.getStartedAt(), startedAt)) {
+                return 0;
+            }
+            task.setGmtUpdated(java.time.LocalDateTime.now());
+            return 1;
+        }
+
+        @Override
         public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
             ProductListingTaskRecord task = tasks.get(taskId);
             if (task == null
@@ -535,6 +661,7 @@ final class ProductListingTestFixtures {
             }
             task.setStatus("running");
             task.setStartedAt(startedAt);
+            task.setGmtUpdated(startedAt);
             tasks.put(taskId, task);
             return 1;
         }
@@ -558,12 +685,53 @@ final class ProductListingTestFixtures {
         }
 
         private boolean isRealWriteAttemptLocked(ProductListingTaskRecord task) {
-            return "running".equals(task.getStatus())
-                    || "submitted".equals(task.getStatus())
-                    || "succeeded".equals(task.getStatus())
-                    || "written_verify_failed".equals(task.getStatus())
-                    || ("failed".equals(task.getStatus())
-                    && "partner_sku_already_exists".equals(task.getFailureCode()));
+            return !"real_run_already_active".equals(task.getFailureCode())
+                    && !"real_run_already_attempted".equals(task.getFailureCode());
+        }
+
+        private int workflowRealRunPriority(ProductListingTaskRecord task) {
+            if (List.of("submitted", "running", "written_verify_failed").contains(task.getStatus())) {
+                return 0;
+            }
+            if ("succeeded".equals(task.getStatus())) {
+                return 1;
+            }
+            return 2;
+        }
+
+        private boolean isExplicitlyReopenedNotStarted(ProductListingTaskRecord task) {
+            ProductListingTaskRecord source = tasks.get(task.getSourceTaskId());
+            if (source == null || !"superseded".equals(source.getStatus())) {
+                return false;
+            }
+            ProductListingTaskView view = new ProductListingTaskView();
+            view.setMode(task.getMode());
+            view.setStatus(task.getStatus());
+            view.setFailureCategory(task.getFailureCategory());
+            view.setFailureCode(task.getFailureCode());
+            view.setFailureMessage(task.getFailureMessage());
+            if (task.getNoonResultJson() != null && !task.getNoonResultJson().isBlank()) {
+                try {
+                    com.fasterxml.jackson.databind.JsonNode root =
+                            objectMapper.readTree(task.getNoonResultJson());
+                    com.fasterxml.jackson.databind.JsonNode success = root.get("success");
+                    com.fasterxml.jackson.databind.JsonNode steps = root.get("steps");
+                    if (!root.isObject()
+                            || (success != null && !success.isBoolean())
+                            || (steps != null && !steps.isArray())) {
+                        return false;
+                    }
+                    view.setNoonResult(objectMapper.treeToValue(
+                            root, ProductListingNoonWriteResult.class));
+                } catch (Exception exception) {
+                    return false;
+                }
+            }
+            ProductListingWorkflowView workflow =
+                    new ProductListingWorkflowProjector().project(null, null, view);
+            return ("failed".equals(task.getStatus()) || "rejected".equals(task.getStatus()))
+                    && workflow.getWriteCertainty()
+                    == ProductListingWorkflowView.WriteCertainty.NOT_STARTED;
         }
 
         private boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {

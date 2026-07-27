@@ -54,6 +54,7 @@ public interface StoreSyncMapper {
             "  u.company_name,",
             "  project_credential.noon_partner_user,",
             "  project_credential.noon_partner_project_user,",
+            "  project_credential.noon_partner_user_code,",
             "  project_credential.noon_partner_pwd,",
             "  project_credential.noon_partner_mail_auth_code,",
             "  project_credential.noon_partner_cookie,",
@@ -66,6 +67,7 @@ public interface StoreSyncMapper {
             "    user_id,",
             "    MAX(NULLIF(noon_partner_user, '')) AS noon_partner_user,",
             "    MAX(NULLIF(noon_partner_project_user, '')) AS noon_partner_project_user,",
+            "    MAX(NULLIF(noon_partner_user_code, '')) AS noon_partner_user_code,",
             "    MAX(NULLIF(noon_partner_pwd, '')) AS noon_partner_pwd,",
             "    MAX(NULLIF(noon_partner_mail_auth_code, '')) AS noon_partner_mail_auth_code,",
             "    MAX(NULLIF(noon_partner_cookie, '')) AS noon_partner_cookie,",
@@ -90,6 +92,7 @@ public interface StoreSyncMapper {
             "  project_code,",
             "  noon_partner_user,",
             "  noon_partner_project_user,",
+            "  noon_partner_user_code,",
             "  noon_partner_pwd,",
             "  noon_partner_mail_auth_code,",
             "  noon_partner_cookie,",
@@ -113,6 +116,7 @@ public interface StoreSyncMapper {
             "  up.project_code,",
             "  up.noon_partner_user,",
             "  up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -150,6 +154,7 @@ public interface StoreSyncMapper {
             "  us.project_code,",
             "  up.noon_partner_user,",
             "  up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -176,6 +181,7 @@ public interface StoreSyncMapper {
             "    us.project_code,",
             "    up.noon_partner_user,",
             "    up.noon_partner_project_user,",
+            "    up.noon_partner_user_code,",
             "    up.noon_partner_pwd,",
             "    up.noon_partner_mail_auth_code,",
             "    up.noon_partner_cookie,",
@@ -231,6 +237,7 @@ public interface StoreSyncMapper {
             "  ls.project_code,",
             "  up.noon_partner_user,",
             "  up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -274,6 +281,7 @@ public interface StoreSyncMapper {
             "  us.project_code,",
             "  up.noon_partner_user,",
             "  up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -309,6 +317,7 @@ public interface StoreSyncMapper {
             "  ls.project_code,",
             "  up.noon_partner_user,",
             "  up.noon_partner_project_user,",
+            "  up.noon_partner_user_code,",
             "  up.noon_partner_pwd,",
             "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
@@ -457,6 +466,27 @@ public interface StoreSyncMapper {
     int updateProjectConnectionSuccess(
             @Param("projectId") Long projectId,
             @Param("ownerUserId") Long ownerUserId,
+            @Param("cookie") String cookie,
+            @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE user_project",
+            "SET noon_partner_user_code = COALESCE(NULLIF(#{noonUserCode}, ''), noon_partner_user_code),",
+            "    noon_partner_cookie = #{cookie},",
+            "    cookie_generate_time = NOW(),",
+            "    bind_status = 1,",
+            "    is_authorized = 1,",
+            "    updated_by = #{updatedBy},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{projectId}",
+            "  AND user_id = #{ownerUserId}",
+            "  AND is_deleted = 0"
+    })
+    int updateProjectReauthenticationSuccess(
+            @Param("projectId") Long projectId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("noonUserCode") String noonUserCode,
             @Param("cookie") String cookie,
             @Param("updatedBy") Long updatedBy
     );

@@ -21,13 +21,11 @@ final class ProductListingDraftRequirement {
             text("productFullType", ProductListingDraftCommand::getProductFullType),
             text("productTitleEn", ProductListingDraftCommand::getProductTitleEn),
             amount("price", ProductListingDraftCommand::getPrice),
-            amount("purchasePrice", ProductListingDraftCommand::getPurchasePrice),
             text("supplyEvidenceType", ProductListingDraftCommand::getSupplyEvidenceType)
     );
 
-    private static final List<ProductListingDraftRequirement> OPTIONAL_POSITIVE_REQUIREMENTS = List.of(
-            optionalPositiveInteger("quantity", ProductListingDraftCommand::getQuantity)
-    );
+    private static final List<ProductListingDraftRequirement> OPTIONAL_POSITIVE_REQUIREMENTS =
+            List.of();
 
     private final String fieldKey;
     private final Kind kind;
@@ -87,10 +85,4 @@ final class ProductListingDraftRequirement {
         return new ProductListingDraftRequirement(fieldKey, Kind.AMOUNT, valueAccessor);
     }
 
-    private static ProductListingDraftRequirement optionalPositiveInteger(
-            String fieldKey,
-            Function<ProductListingDraftCommand, Object> valueAccessor
-    ) {
-        return new ProductListingDraftRequirement(fieldKey, Kind.OPTIONAL_POSITIVE_INTEGER, valueAccessor);
-    }
 }

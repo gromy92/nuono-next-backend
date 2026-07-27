@@ -802,7 +802,11 @@ public interface ProductSelectionMapper {
             "GROUP BY grp.id, grp.group_no, grp.owner_user_id, grp.logical_store_id, grp.site_code,",
             "  grp.group_name, grp.status, grp.created_by, grp.updated_by",
             "HAVING COUNT(source.id) > 0",
-            "ORDER BY grp.gmt_create DESC, grp.id DESC",
+            "ORDER BY",
+            "  MAX(CASE WHEN source.id IS NOT NULL THEN material.gmt_create END) DESC,",
+            "  MAX(CASE WHEN source.id IS NOT NULL THEN material.id END) DESC,",
+            "  grp.gmt_create DESC,",
+            "  grp.id DESC",
             "LIMIT #{limit}"
     })
     List<ProductSelectionGroupRow> listSelectionGroups(

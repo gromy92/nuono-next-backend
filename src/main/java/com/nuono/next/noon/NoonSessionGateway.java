@@ -329,6 +329,41 @@ public class NoonSessionGateway {
             String requestedProjectCode,
             String storeCode
     ) {
+        return authorizeMerchantLogin(
+                ownerUserId,
+                noonUser,
+                noonPassword,
+                requestedProjectCode,
+                storeCode,
+                true
+        );
+    }
+
+    public MerchantAuthorization authorizeMerchantLoginCandidate(
+            Long ownerUserId,
+            String noonUser,
+            String noonPassword,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        return authorizeMerchantLogin(
+                ownerUserId,
+                noonUser,
+                noonPassword,
+                requestedProjectCode,
+                storeCode,
+                false
+        );
+    }
+
+    private MerchantAuthorization authorizeMerchantLogin(
+            Long ownerUserId,
+            String noonUser,
+            String noonPassword,
+            String requestedProjectCode,
+            String storeCode,
+            boolean persistSessionCookie
+    ) {
         String normalizedUser = normalizeUser(noonUser);
         if (!StringUtils.hasText(normalizedUser)) {
             throw new IllegalArgumentException("缺少 Noon 登录账号。");
@@ -345,24 +380,29 @@ public class NoonSessionGateway {
                     normalizedUser,
                     noonPassword,
                     normalizedProjectCode,
-                    normalizedStoreCode
+                    normalizedStoreCode,
+                    persistSessionCookie
             );
         }
 
         if (!StringUtils.hasText(normalizedProjectCode)) {
             throw new IllegalStateException("Noon login-alt 未启用时无法读取 Project 列表，请先选择 Project。");
         }
-        NoonSession session = login(
+        AuthSessionState state = createSigninState(
                 ownerUserId,
                 normalizedUser,
                 noonPassword,
-                null,
                 normalizedProjectCode,
                 normalizedStoreCode
         );
+        String cookie = state.exportAuthCookieHeader();
+        if (persistSessionCookie) {
+            persistCookie(ownerUserId, normalizedProjectCode, cookie);
+        }
         return MerchantAuthorization.authorized(
                 new MerchantProject(normalizedProjectCode, normalizedProjectCode, null, null),
-                session.exportAuthCookieHeader()
+                cookie,
+                normalizedUser
         );
     }
 
@@ -372,6 +412,24 @@ public class NoonSessionGateway {
             String mailAuthCode,
             String requestedProjectCode,
             String storeCode
+    ) {
+        return authorizeMerchantEmailLogin(
+                ownerUserId,
+                noonEmail,
+                mailAuthCode,
+                requestedProjectCode,
+                storeCode,
+                true
+        );
+    }
+
+    private MerchantAuthorization authorizeMerchantEmailLogin(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String requestedProjectCode,
+            String storeCode,
+            boolean persistSessionCookie
     ) {
         requireLegacyDirectEmailOtpEnabled();
         String normalizedEmail = normalizeUser(noonEmail);
@@ -390,7 +448,8 @@ public class NoonSessionGateway {
                 normalizedEmail,
                 normalizedMailAuthCode,
                 normalize(requestedProjectCode),
-                normalize(storeCode)
+                normalize(storeCode),
+                persistSessionCookie
         );
     }
 
@@ -1118,7 +1177,8 @@ public class NoonSessionGateway {
             String noonUser,
             String noonPassword,
             String requestedProjectCode,
-            String storeCode
+            String storeCode,
+            boolean persistSessionCookie
     ) {
         try {
             AuthSessionState state = newSessionState(noonUser, noonPassword);
@@ -1142,8 +1202,14 @@ public class NoonSessionGateway {
             );
             state.applyContextCookies(selectedProject.getProjectCode(), storeCode);
             String cookie = state.exportAuthCookieHeader();
-            persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
-            return MerchantAuthorization.authorized(selectedProject, cookie);
+            if (persistSessionCookie) {
+                persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
+            }
+            return MerchantAuthorization.authorized(
+                    selectedProject,
+                    cookie,
+                    user.getUserCode()
+            );
         } catch (IllegalStateException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -1156,7 +1222,8 @@ public class NoonSessionGateway {
             String noonEmail,
             String mailAuthCode,
             String requestedProjectCode,
-            String storeCode
+            String storeCode,
+            boolean persistSessionCookie
     ) {
         try {
             AuthSessionState state = newSessionState(noonEmail, "");
@@ -1188,8 +1255,14 @@ public class NoonSessionGateway {
             );
             state.applyContextCookies(selectedProject.getProjectCode(), storeCode);
             String cookie = state.exportAuthCookieHeader();
-            persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
-            return MerchantAuthorization.authorized(selectedProject, cookie);
+            if (persistSessionCookie) {
+                persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
+            }
+            return MerchantAuthorization.authorized(
+                    selectedProject,
+                    cookie,
+                    user.getUserCode()
+            );
         } catch (IllegalStateException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -1888,7 +1961,7 @@ public class NoonSessionGateway {
         }
 
         public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            return executeWriteWithAuthRefresh(
+            return executeWriteWithoutReplay(
                     () -> state.postJson(
                             projectCode,
                             storeCode,
@@ -1910,7 +1983,7 @@ public class NoonSessionGateway {
                 boolean withProject,
                 Map<String, String> extraHeaders
         ) {
-            return executeWriteWithAuthRefresh(
+            return executeWriteWithoutReplay(
                     () -> state.postMultipartFile(
                             projectCode,
                             storeCode,
@@ -1955,18 +2028,19 @@ public class NoonSessionGateway {
             }
         }
 
-        private JsonNode executeWriteWithAuthRefresh(SessionCall sessionCall) {
-            boolean authRefreshed = false;
-            while (true) {
-                try {
-                    return sessionCall.execute();
-                } catch (SessionExpiredException exception) {
-                    if (authRefreshed) {
-                        throw exception.toHttpException();
-                    }
-                    state = refreshAuthenticatedState(null, true);
-                    authRefreshed = true;
-                }
+        private JsonNode executeWriteWithoutReplay(SessionCall sessionCall) {
+            try {
+                return sessionCall.execute();
+            } catch (SessionExpiredException exception) {
+                // A write may have reached Noon even when the response is an
+                // authentication redirect. Never refresh and replay the same
+                // create/upload/upsert request inside the transport layer.
+                throw cookieAuthRequired(
+                        projectCode,
+                        storeCode,
+                        safeCookieFailureReason(exception),
+                        exception
+                );
             }
         }
 
@@ -2167,26 +2241,43 @@ public class NoonSessionGateway {
         private final boolean success;
         private final MerchantProject selectedProject;
         private final String cookie;
+        private final String userCode;
         private final List<MerchantProject> projectList;
 
         private MerchantAuthorization(
                 boolean success,
                 MerchantProject selectedProject,
                 String cookie,
+                String userCode,
                 List<MerchantProject> projectList
         ) {
             this.success = success;
             this.selectedProject = selectedProject;
             this.cookie = cookie;
+            this.userCode = userCode;
             this.projectList = projectList == null ? List.of() : List.copyOf(projectList);
         }
 
         public static MerchantAuthorization authorized(MerchantProject selectedProject, String cookie) {
-            return new MerchantAuthorization(true, selectedProject, cookie, List.of());
+            return authorized(selectedProject, cookie, null);
+        }
+
+        public static MerchantAuthorization authorized(
+                MerchantProject selectedProject,
+                String cookie,
+                String userCode
+        ) {
+            return new MerchantAuthorization(
+                    true,
+                    selectedProject,
+                    cookie,
+                    userCode,
+                    List.of()
+            );
         }
 
         public static MerchantAuthorization projectSelectionRequired(List<MerchantProject> projectList) {
-            return new MerchantAuthorization(false, null, null, projectList);
+            return new MerchantAuthorization(false, null, null, null, projectList);
         }
 
         public boolean isSuccess() {
@@ -2203,6 +2294,10 @@ public class NoonSessionGateway {
 
         public String getCookie() {
             return cookie;
+        }
+
+        public String getUserCode() {
+            return userCode;
         }
 
         public List<MerchantProject> getProjectList() {

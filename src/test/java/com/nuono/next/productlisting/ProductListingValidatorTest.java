@@ -21,14 +21,14 @@ class ProductListingValidatorTest {
     }
 
     @Test
-    void blocksMissingCostAndSupplyEvidence() {
+    void doesNotBlockMissingPurchaseCostButStillBlocksMissingSupplyEvidence() {
         ProductListingDraftCommand command = validCommand();
         command.setPurchasePrice(null);
         command.setSupplyEvidenceType(null);
 
         List<ProductListingValidationIssue> issues = validator.validate(command);
 
-        assertIssue(issues, "purchasePrice", "required");
+        assertNoIssue(issues, "purchasePrice", "required");
         assertIssue(issues, "supplyEvidenceType", "required");
     }
 
@@ -141,14 +141,28 @@ class ProductListingValidatorTest {
     void blocksZeroOrNegativeNumbers() {
         ProductListingDraftCommand command = validCommand();
         command.setPrice(BigDecimal.ZERO);
-        command.setPurchasePrice(new BigDecimal("-1.00"));
         command.setQuantity(0);
 
         List<ProductListingValidationIssue> issues = validator.validate(command);
 
         assertIssue(issues, "price", "invalid_number");
-        assertIssue(issues, "purchasePrice", "invalid_number");
-        assertIssue(issues, "quantity", "invalid_number");
+        assertNoIssue(issues, "purchasePrice", "invalid_number");
+        assertIssue(issues, "quantity", "noon_stock_quantity_not_supported");
+    }
+
+    @Test
+    void blocksWarehouseStockFieldsThatTheListingWriterCannotPersist() {
+        ProductListingDraftCommand command = validCommand();
+        command.setFbp(Boolean.FALSE);
+        command.setWarehouseId("73001");
+        command.setWarehouseCode("W00752151SA");
+        command.setQuantity(100);
+
+        List<ProductListingValidationIssue> issues = validator.validate(command);
+
+        assertIssue(issues, "fbp", "noon_fbp_not_supported");
+        assertIssue(issues, "warehouseStock", "noon_warehouse_not_supported");
+        assertIssue(issues, "quantity", "noon_stock_quantity_not_supported");
     }
 
     @Test
@@ -211,10 +225,9 @@ class ProductListingValidatorTest {
                 "productFullType",
                 "productTitleEn",
                 "price",
-                "purchasePrice",
                 "supplyEvidenceType"
         )));
-        assertTrue(ProductListingDraftRequirement.optionalPositiveFieldKeys().contains("quantity"));
+        assertTrue(!ProductListingDraftRequirement.optionalPositiveFieldKeys().contains("quantity"));
     }
 
     private ProductListingDraftCommand validCommand() {
@@ -228,7 +241,6 @@ class ProductListingValidatorTest {
         command.setPurchasePrice(new BigDecimal("19.90"));
         command.setSupplyEvidenceType("1688_OFFER");
         command.setOptionalPurchaseOrderId(70001L);
-        command.setQuantity(100);
         setImageAssetMetadataIfSupported(command, List.of(Map.of(
                 "imageUrl", "https://example.test/images/sku-main.jpg",
                 "width", 1247,

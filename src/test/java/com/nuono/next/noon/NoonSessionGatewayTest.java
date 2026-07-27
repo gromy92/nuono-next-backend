@@ -469,6 +469,32 @@ class NoonSessionGatewayTest {
     }
 
     @Test
+    void candidateMerchantSessionReturnsCanonicalUserCodeWithoutPersistingCookie() throws Exception {
+        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
+        try (AuthRefreshServer server = new AuthRefreshServer(
+                "{\"projects\":[{\"projectCode\":\"PRJ8001\",\"projectName\":\"另一个店铺\"}]}",
+                "sid=candidate; Path=/"
+        )) {
+            NoonSessionGateway gateway = identityGateway(mapper, server);
+
+            NoonSessionGateway.MerchantAuthorization result =
+                    gateway.authorizeMerchantLoginCandidate(
+                            10001L,
+                            "merchant@example.com",
+                            "password",
+                            "PRJ8001",
+                            "STR8001-NAE"
+                    );
+
+            assertTrue(result.isSuccess());
+            assertEquals("merchant@example.com", result.getUserCode());
+            assertTrue(result.getCookie().contains("sid=candidate"));
+            assertEquals(1, server.sessionCreateCount());
+            verifyNoInteractions(mapper);
+        }
+    }
+
+    @Test
     void shouldCreateMerchantEmailOtpSessionForSelectedProjectAndPersistCookie() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         try (AuthRefreshServer server = new AuthRefreshServer(
@@ -761,6 +787,54 @@ class NoonSessionGatewayTest {
             );
 
             assertEquals(429, exception.getStatusCode());
+            assertEquals(1, writeCount.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void shouldNeverRefreshAndReplayAuthenticationFailedWriteRequest()
+            throws Exception {
+        AtomicInteger writeCount = new AtomicInteger();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
+                0
+        );
+        server.createContext("/", exchange -> {
+            if ("/whoami".equals(exchange.getRequestURI().getPath())) {
+                AuthRefreshServer.sendJson(
+                        exchange, 200, "{\"ok\":true}", null);
+                return;
+            }
+            writeCount.incrementAndGet();
+            AuthRefreshServer.sendJson(
+                    exchange, 401, "{\"error\":\"expired\"}", null);
+        });
+        server.start();
+        try {
+            String baseUrl =
+                    "http://127.0.0.1:" + server.getAddress().getPort();
+            NoonSessionGateway gateway =
+                    directGateway(baseUrl + "/whoami");
+            NoonSessionGateway.NoonSession session = gateway.login(
+                    10001L,
+                    "merchant@example.com",
+                    "password",
+                    "sid=existing",
+                    "PRJ1",
+                    "STORE1"
+            );
+
+            assertThrows(
+                    NoonSessionGateway.NoonCookieAuthRequiredException.class,
+                    () -> session.postWriteJson(
+                            baseUrl + "/write",
+                            objectMapper.createObjectNode(),
+                            false
+                    )
+            );
+
             assertEquals(1, writeCount.get());
         } finally {
             server.stop(0);

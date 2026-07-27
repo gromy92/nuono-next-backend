@@ -98,6 +98,22 @@ public interface ProductListingMapper {
             "  optional_purchase_order_id, status, draft_json, validation_json,",
             "  created_by, updated_by, gmt_create, gmt_updated",
             "FROM product_listing_draft",
+            "WHERE id = #{draftId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    ProductListingDraftRecord selectDraftByIdForUpdate(
+            @Param("draftId") Long draftId,
+            @Param("ownerUserId") Long ownerUserId
+    );
+
+    @Select({
+            "SELECT",
+            "  id, owner_user_id, store_code, draft_no, source_type, source_ref_id,",
+            "  optional_purchase_order_id, status, draft_json, validation_json,",
+            "  created_by, updated_by, gmt_create, gmt_updated",
+            "FROM product_listing_draft",
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND store_code = #{storeCode}",
             "  AND status IN ('draft', 'validation_failed', 'ready_for_dry_run')",
@@ -118,7 +134,7 @@ public interface ProductListingMapper {
             "  AND source_type = #{sourceType}",
             "  AND source_ref_id = #{sourceRefId}",
             "  AND status IN ('draft', 'validation_failed', 'ready_for_dry_run')",
-            "ORDER BY gmt_updated DESC",
+            "ORDER BY gmt_updated DESC, id DESC",
             "LIMIT 1"
     })
     Long findActiveDraftId(
@@ -157,6 +173,23 @@ public interface ProductListingMapper {
             "LIMIT 1"
     })
     ProductListingTaskRecord selectTaskById(
+            @Param("taskId") Long taskId,
+            @Param("ownerUserId") Long ownerUserId
+    );
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE id = #{taskId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    ProductListingTaskRecord selectTaskByIdForUpdate(
             @Param("taskId") Long taskId,
             @Param("ownerUserId") Long ownerUserId
     );
@@ -213,6 +246,183 @@ public interface ProductListingMapper {
 
     @Select({
             "SELECT",
+            "  real_run.id, real_run.draft_id, real_run.owner_user_id, real_run.store_code,",
+            "  real_run.task_no, real_run.mode, real_run.status, real_run.source_task_id,",
+            "  real_run.input_snapshot_json, real_run.validation_json, real_run.confirmation_json,",
+            "  real_run.noon_result_json, real_run.failure_category, real_run.failure_code,",
+            "  real_run.failure_message, real_run.submitted_by, real_run.submitted_at,",
+            "  real_run.started_at, real_run.completed_at, real_run.gmt_create, real_run.gmt_updated",
+            "FROM product_listing_task real_run",
+            "LEFT JOIN product_listing_task source_dry_run",
+            "  ON source_dry_run.id = real_run.source_task_id",
+            " AND source_dry_run.owner_user_id = real_run.owner_user_id",
+            " AND source_dry_run.draft_id = real_run.draft_id",
+            " AND source_dry_run.mode = 'DRY_RUN'",
+            "WHERE real_run.owner_user_id = #{ownerUserId}",
+            "  AND real_run.draft_id = #{draftId}",
+            "  AND real_run.mode = 'REAL_RUN'",
+            "  AND NOT (",
+            "    COALESCE(source_dry_run.status, '') = 'superseded'",
+            "    AND real_run.status IN ('failed', 'rejected')",
+            "    AND (",
+            "      real_run.noon_result_json IS NULL",
+            "      OR TRIM(real_run.noon_result_json) = ''",
+            "      OR CASE",
+            "        WHEN JSON_VALID(real_run.noon_result_json) THEN",
+            "          JSON_TYPE(JSON_EXTRACT(real_run.noon_result_json, '$')) = 'OBJECT'",
+            "          AND (",
+            "            JSON_EXTRACT(real_run.noon_result_json, '$.success') IS NULL",
+            "            OR JSON_TYPE(JSON_EXTRACT(real_run.noon_result_json, '$.success')) = 'BOOLEAN'",
+            "          )",
+            "          AND (",
+            "            JSON_EXTRACT(real_run.noon_result_json, '$.steps') IS NULL",
+            "            OR JSON_TYPE(JSON_EXTRACT(real_run.noon_result_json, '$.steps')) = 'ARRAY'",
+            "          )",
+            "        ELSE FALSE",
+            "      END",
+            "    )",
+            "    AND COALESCE(CASE",
+            "          WHEN JSON_VALID(real_run.noon_result_json)",
+            "          THEN JSON_UNQUOTE(JSON_EXTRACT(",
+            "               real_run.noon_result_json, '$.success'))",
+            "          ELSE 'false'",
+            "        END, 'false') <> 'true'",
+            "    AND NOT (",
+            "      LOWER(COALESCE(real_run.noon_result_json, '')) LIKE '%skuparent=%'",
+            "      AND LOWER(COALESCE(real_run.noon_result_json, '')) LIKE '%pskucode=%'",
+            "    )",
+            "    AND COALESCE(real_run.failure_code, '')",
+            "        NOT IN ('noon_create_outcome_unknown', 'real_run_interrupted')",
+            "    AND (",
+            "      real_run.status = 'rejected'",
+            "      OR (",
+            "        real_run.status = 'failed'",
+            "        AND COALESCE(real_run.failure_code, '') NOT IN (",
+            "          'noon_write_exception', 'noon_write_outcome_unknown'",
+            "        )",
+            "        AND (",
+            "          LOWER(COALESCE(real_run.failure_category, '')) IN ('validation', 'guard')",
+            "          OR LOWER(COALESCE(real_run.failure_code, '')) IN (",
+            "            'noon_auth_required',",
+            "            'noon_pre_create_failed',",
+            "            'noon_create_rejected',",
+            "            'noon_create_not_found_confirmed',",
+            "            'noon_warehouse_stock_not_supported',",
+            "            'partner_sku_already_exists',",
+            "            'barcode_already_exists'",
+            "          )",
+            "        )",
+            "      )",
+            "    )",
+            "  )",
+            "ORDER BY CASE",
+            "  WHEN real_run.status IN ('submitted', 'running', 'written_verify_failed') THEN 0",
+            "  WHEN real_run.status = 'succeeded' THEN 1",
+            "  ELSE 2",
+            "END, real_run.submitted_at DESC, real_run.id DESC",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectCurrentRealRunTaskByDraftId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("draftId") Long draftId
+    );
+
+    @Select({
+            "SELECT",
+            "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
+            "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
+            "  noon_result_json, failure_category, failure_code, failure_message,",
+            "  submitted_by, submitted_at, started_at, completed_at, gmt_create, gmt_updated",
+            "FROM product_listing_task",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND draft_id = #{draftId}",
+            "  AND mode = 'DRY_RUN'",
+            "ORDER BY submitted_at DESC, id DESC",
+            "LIMIT 1"
+    })
+    ProductListingTaskRecord selectLatestDryRunTaskByDraftId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("draftId") Long draftId
+    );
+
+    @Update({
+            "UPDATE product_listing_task dry_run",
+            "SET dry_run.status = 'superseded',",
+            "    dry_run.failure_category = 'workflow',",
+            "    dry_run.failure_code = 'review_reopened',",
+            "    dry_run.failure_message = '用户返回修改，原上架检查已失效。',",
+            "    dry_run.completed_at = COALESCE(dry_run.completed_at, NOW()),",
+            "    dry_run.gmt_updated = NOW()",
+            "WHERE dry_run.id = #{taskId}",
+            "  AND dry_run.owner_user_id = #{ownerUserId}",
+            "  AND dry_run.mode = 'DRY_RUN'",
+            "  AND dry_run.status IN ('validated', 'validation_failed')"
+    })
+    int markValidatedDryRunSuperseded(
+            @Param("taskId") Long taskId,
+            @Param("ownerUserId") Long ownerUserId
+    );
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET noon_result_json = #{newNoonResultJson},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status = 'written_verify_failed'",
+            "  AND failure_code IN ('noon_create_outcome_unknown', 'real_run_interrupted')",
+            "  AND (",
+            "    (noon_result_json IS NULL AND #{expectedNoonResultJson} IS NULL)",
+            "    OR noon_result_json = #{expectedNoonResultJson}",
+            "  )"
+    })
+    int persistRecoveredCreateReference(
+            @Param("taskId") Long taskId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("expectedNoonResultJson") String expectedNoonResultJson,
+            @Param("newNoonResultJson") String newNoonResultJson
+    );
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET noon_result_json = #{newNoonResultJson},",
+            "    failure_category = 'authentication',",
+            "    failure_code = 'noon_auth_required',",
+            "    failure_message = '核对 Noon 创建结果时授权已失效；请重新授权后继续只读核对，禁止重复创建。',",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status = 'written_verify_failed'",
+            "  AND failure_code IN ('noon_create_outcome_unknown', 'real_run_interrupted')",
+            "  AND (",
+            "    (noon_result_json IS NULL AND #{expectedNoonResultJson} IS NULL)",
+            "    OR noon_result_json = #{expectedNoonResultJson}",
+            "  )"
+    })
+    int markCreateOutcomeLookupAuthenticationRequired(
+            @Param("taskId") Long taskId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("expectedNoonResultJson") String expectedNoonResultJson,
+            @Param("newNoonResultJson") String newNoonResultJson
+    );
+
+    @Insert({
+            "INSERT IGNORE INTO product_listing_real_run_attempt_claim (",
+            "  owner_user_id, source_task_id, attempt_task_id, claimed_at, gmt_updated",
+            ") VALUES (",
+            "  #{ownerUserId}, #{sourceTaskId}, #{attemptTaskId}, NOW(), NOW()",
+            ")"
+    })
+    int claimRealRunAttempt(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("sourceTaskId") Long sourceTaskId,
+            @Param("attemptTaskId") Long attemptTaskId
+    );
+
+    @Select({
+            "SELECT",
             "  id, draft_id, owner_user_id, store_code, task_no, mode, status,",
             "  source_task_id, input_snapshot_json, validation_json, confirmation_json,",
             "  noon_result_json, failure_category, failure_code, failure_message,",
@@ -221,11 +431,10 @@ public interface ProductListingMapper {
             "WHERE owner_user_id = #{ownerUserId}",
             "  AND source_task_id = #{sourceTaskId}",
             "  AND mode = 'REAL_RUN'",
-            "  AND (",
-            "    status IN ('running', 'submitted', 'succeeded', 'written_verify_failed')",
-            "    OR (status = 'failed' AND failure_code = 'partner_sku_already_exists')",
-            "  )",
-            "ORDER BY submitted_at DESC",
+            "ORDER BY CASE",
+            "  WHEN COALESCE(failure_code, '') IN ('real_run_already_active', 'real_run_already_attempted') THEN 1",
+            "  ELSE 0",
+            "END, submitted_at DESC, id DESC",
             "LIMIT 1"
     })
     ProductListingTaskRecord selectRealWriteAttemptTaskBySourceTaskId(
@@ -300,13 +509,13 @@ public interface ProductListingMapper {
             @Param("barcode") String barcode
     );
 
-    @Select("SELECT GET_LOCK(CONCAT('product-listing:', SHA2(#{lockKey}, 256)), #{timeoutSeconds})")
+    @Select("SELECT GET_LOCK(SHA2(CONCAT('product-listing:', #{lockKey}), 256), #{timeoutSeconds})")
     Integer acquireIdentityLock(
             @Param("lockKey") String lockKey,
             @Param("timeoutSeconds") int timeoutSeconds
     );
 
-    @Select("SELECT RELEASE_LOCK(CONCAT('product-listing:', SHA2(#{lockKey}, 256)))")
+    @Select("SELECT RELEASE_LOCK(SHA2(CONCAT('product-listing:', #{lockKey}), 256))")
     Integer releaseIdentityLock(@Param("lockKey") String lockKey);
 
     @Select({
@@ -472,7 +681,7 @@ public interface ProductListingMapper {
             "WHERE mode = 'REAL_RUN'",
             "  AND status = 'running'",
             "  AND started_at IS NOT NULL",
-            "  AND started_at < #{staleBefore}"
+            "  AND gmt_updated < #{staleBefore}"
     })
     int recoverStaleRunningRealRunTasks(@Param("staleBefore") LocalDateTime staleBefore);
 
@@ -489,6 +698,36 @@ public interface ProductListingMapper {
             @Param("taskId") Long taskId,
             @Param("startedAt") LocalDateTime startedAt
     );
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status = 'running'",
+            "  AND started_at = #{startedAt}"
+    })
+    int heartbeatRunningRealRunTask(
+            @Param("taskId") Long taskId,
+            @Param("startedAt") LocalDateTime startedAt
+    );
+
+    @Update({
+            "UPDATE product_listing_task",
+            "SET status = #{task.status},",
+            "    noon_result_json = #{task.noonResultJson},",
+            "    failure_category = #{task.failureCategory},",
+            "    failure_code = #{task.failureCode},",
+            "    failure_message = #{task.failureMessage},",
+            "    completed_at = #{task.completedAt},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{task.id}",
+            "  AND owner_user_id = #{task.ownerUserId}",
+            "  AND mode = 'REAL_RUN'",
+            "  AND status = 'running'",
+            "  AND started_at = #{task.startedAt}"
+    })
+    int updateRunningTaskResult(@Param("task") ProductListingTaskRecord task);
 
     @Update({
             "UPDATE product_listing_task",
