@@ -15,10 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,13 +41,6 @@ public class ProductListingService {
     private static final String REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED = "written_verify_failed";
     private static final String PARTNER_SKU_ALREADY_EXISTS_CODE = "partner_sku_already_exists";
     private static final int IDENTITY_LOCK_TIMEOUT_SECONDS = 5;
-    private static final long REAL_RUN_HEARTBEAT_SECONDS = 10L;
-    private static final ScheduledExecutorService REAL_RUN_HEARTBEAT_EXECUTOR =
-            Executors.newSingleThreadScheduledExecutor(runnable -> {
-                Thread thread = new Thread(runnable, "product-listing-real-run-heartbeat");
-                thread.setDaemon(true);
-                return thread;
-            });
     private static final Pattern PARTNER_SKU_ALREADY_EXISTS_PATTERN = Pattern.compile(
             "Partner skus? already exists:\\s*\\[\\[\\s*['\"]?([^'\"\\],\\[]+)",
             Pattern.CASE_INSENSITIVE
@@ -66,6 +56,7 @@ public class ProductListingService {
     private final ProductListingImageMetadataEnricher imageMetadataEnricher;
     private final ProductListingDryRunFreshness dryRunFreshness;
     private final ProductListingWorkflowGuard workflowGuard;
+    private final ProductListingRealRunHeartbeat realRunHeartbeat;
 
     @Autowired
     public ProductListingService(
@@ -97,6 +88,7 @@ public class ProductListingService {
                 : imageMetadataEnricher;
         this.dryRunFreshness = new ProductListingDryRunFreshness(objectMapper);
         this.workflowGuard = new ProductListingWorkflowGuard(mapper, objectMapper);
+        this.realRunHeartbeat = new ProductListingRealRunHeartbeat(mapper);
     }
 
     public ProductListingService(
@@ -130,7 +122,6 @@ public class ProductListingService {
     ) {
         this(mapper, objectMapper, validator, realWriteProperties, noonWriteAdapter, eventPublisher, null);
     }
-
     public ProductListingService(
             ProductListingMapper mapper,
             ObjectMapper objectMapper,
@@ -140,7 +131,6 @@ public class ProductListingService {
     ) {
         this(mapper, objectMapper, validator, realWriteProperties, noonWriteAdapter, null);
     }
-
     public ProductListingService(
             ProductListingMapper mapper,
             ObjectMapper objectMapper,
@@ -149,7 +139,6 @@ public class ProductListingService {
     ) {
         this(mapper, objectMapper, validator, realWriteProperties, new UnavailableProductListingNoonWriteAdapter());
     }
-
     public ProductListingService(
             ProductListingMapper mapper,
             ObjectMapper objectMapper,
@@ -157,7 +146,6 @@ public class ProductListingService {
     ) {
         this(mapper, objectMapper, validator, new ProductListingRealWriteProperties());
     }
-
     ProductListingService(
             ProductListingMapper mapper,
             ObjectMapper objectMapper,
@@ -175,7 +163,6 @@ public class ProductListingService {
                 imageMetadataEnricher
         );
     }
-
     @Transactional
     public ProductListingDraftView saveDraft(
             BusinessAccessContext context,
@@ -187,7 +174,6 @@ public class ProductListingService {
         requireStoreAccess(context, storeCode);
         Long ownerUserId = resolveOwnerUserId(context, storeCode);
         Long operatorUserId = requireOperatorUserId(context);
-
         ProductListingDraftRecord existing = null;
         Long draftId = safeCommand.getDraftId();
         if (draftId == null) {
@@ -227,7 +213,6 @@ public class ProductListingService {
         preserveExistingStableDraftFields(safeCommand, existing);
         List<ProductListingValidationIssue> issues = validateWithRuntimeWarnings(safeCommand, ownerUserId, storeCode);
         String status = validator.hasBlockingDraftIssues(issues) ? "draft" : "ready_for_dry_run";
-
         ProductListingDraftRecord record = new ProductListingDraftRecord();
         record.setId(draftId);
         record.setOwnerUserId(ownerUserId);
@@ -245,7 +230,6 @@ public class ProductListingService {
         record.setValidationJson(writeJson(issues));
         record.setCreatedBy(existing == null ? operatorUserId : existing.getCreatedBy());
         record.setUpdatedBy(operatorUserId);
-
         if (existing == null) {
             mapper.insertDraft(record);
         } else {
@@ -260,9 +244,7 @@ public class ProductListingService {
             String storeCode,
             ProductListingDraftCommand command
     ) {
-        if (!StringUtils.hasText(command.getSourceType()) || command.getSourceRefId() == null) {
-            return null;
-        }
+        if (!StringUtils.hasText(command.getSourceType()) || command.getSourceRefId() == null){ return null; }
         return mapper.findActiveDraftId(
                 ownerUserId,
                 storeCode,
@@ -315,9 +297,7 @@ public class ProductListingService {
                 sourceType.trim(),
                 sourceRefId
         );
-        if (draftId == null) {
-            return null;
-        }
+        if (draftId == null){ return null; }
         ProductListingDraftRecord record = mapper.selectDraftById(draftId, ownerUserId);
         return record == null
                 ? null
@@ -441,9 +421,7 @@ public class ProductListingService {
         dryRunCommand.setDraftId(draftView.getDraftId());
         dryRunCommand.setStoreCode(draftView.getStoreCode());
         ProductListingTaskView dryRun = submitDryRun(context, dryRunCommand);
-        if (dryRun == null || !"validated".equalsIgnoreCase(dryRun.getStatus())) {
-            return new ProductListingRealRunSubmission(draftView, dryRun, null);
-        }
+        if (dryRun == null || !"validated".equalsIgnoreCase(dryRun.getStatus())){ return new ProductListingRealRunSubmission(draftView, dryRun, null); }
 
         ProductListingRealRunCommand realRunCommand = new ProductListingRealRunCommand();
         realRunCommand.setConfirmRealNoonWrite(true);
@@ -510,9 +488,7 @@ public class ProductListingService {
                     ownerUserId,
                     dryRunTask.getId()
             );
-            if (existingAttempt != null) {
-                return taskView(existingAttempt, readIssues(existingAttempt.getValidationJson()));
-            }
+            if (existingAttempt != null){ return taskView(existingAttempt, readIssues(existingAttempt.getValidationJson())); }
             if (!dryRunFreshness.matches(
                     currentDraft.getDraftJson(), dryRunTask.getInputSnapshotJson())) {
                 return insertRejectedRealRunTask(
@@ -605,9 +581,7 @@ public class ProductListingService {
                     null
             );
             ProductListingTaskView existingAfterClaim = claimAttemptOrLoadExisting(task);
-            if (existingAfterClaim != null) {
-                return existingAfterClaim;
-            }
+            if (existingAfterClaim != null){ return existingAfterClaim; }
             try {
                 mapper.insertTask(task);
             } catch (DuplicateKeyException exception) {
@@ -640,30 +614,24 @@ public class ProductListingService {
         if (!REAL_RUN_MODE.equals(task.getMode())) {
             throw new IllegalArgumentException("Only product listing real-run tasks can be executed.");
         }
-        if (!"submitted".equals(task.getStatus())) {
-            return taskView(task, readIssues(task.getValidationJson()));
-        }
+        if (!"submitted".equals(task.getStatus())){ return taskView(task, readIssues(task.getValidationJson())); }
         LocalDateTime startedAt = LocalDateTime.now();
         int claimed = mapper.markTaskRunning(task.getId(), startedAt);
         task = mapper.selectTaskByIdForWorker(realRunTaskId);
         if (task == null) {
             throw new IllegalArgumentException("Product listing real-run task not found.");
         }
-        if (claimed == 0) {
-            return taskView(task, readIssues(task.getValidationJson()));
-        }
+        if (claimed == 0){ return taskView(task, readIssues(task.getValidationJson())); }
         task.setStatus("running");
         if (task.getStartedAt() == null) {
             task.setStartedAt(startedAt);
         }
         LocalDateTime claimedStartedAt = task.getStartedAt();
-        ScheduledFuture<?> heartbeat = startRealRunHeartbeat(task.getId(), claimedStartedAt);
+        ScheduledFuture<?> heartbeat = realRunHeartbeat.start(task.getId(), claimedStartedAt);
         try {
             ProductListingNoonWriteResult result = executeNoonWrite(task);
             applyNoonWriteResult(task, result);
-            if (mapper.updateRunningTaskResult(task) == 1) {
-                return taskView(task, readIssues(task.getValidationJson()));
-            }
+            if (mapper.updateRunningTaskResult(task) == 1){ return taskView(task, readIssues(task.getValidationJson())); }
             ProductListingTaskRecord latest = mapper.selectTaskByIdForWorker(realRunTaskId);
             if (latest == null) {
                 throw new IllegalArgumentException("Product listing real-run task not found.");
@@ -684,30 +652,6 @@ public class ProductListingService {
                 : maxRunningAge;
         LocalDateTime staleBefore = LocalDateTime.now().minus(safeMaxRunningAge);
         return mapper.recoverStaleRunningRealRunTasks(staleBefore);
-    }
-
-    private ScheduledFuture<?> startRealRunHeartbeat(Long taskId, LocalDateTime startedAt) {
-        return REAL_RUN_HEARTBEAT_EXECUTOR.scheduleAtFixedRate(
-                () -> {
-                    try {
-                        if (mapper.heartbeatRunningRealRunTask(taskId, startedAt) != 1) {
-                            LOGGER.warn(
-                                    "Product-listing real-run heartbeat lost its claim: taskId={}",
-                                    taskId
-                            );
-                        }
-                    } catch (RuntimeException exception) {
-                        LOGGER.warn(
-                                "Product-listing real-run heartbeat failed: taskId={}",
-                                taskId,
-                                exception
-                        );
-                    }
-                },
-                REAL_RUN_HEARTBEAT_SECONDS,
-                REAL_RUN_HEARTBEAT_SECONDS,
-                TimeUnit.SECONDS
-        );
     }
 
     private List<String> acquireIdentityLocks(
@@ -786,9 +730,7 @@ public class ProductListingService {
     public List<ProductListingTaskView> executeRunnableRealRunTasks(int limit) {
         int safeLimit = Math.max(1, limit);
         List<ProductListingTaskRecord> tasks = mapper.selectRunnableRealRunTasks(safeLimit);
-        if (tasks == null || tasks.isEmpty()) {
-            return List.of();
-        }
+        if (tasks == null || tasks.isEmpty()){ return List.of(); }
         List<ProductListingTaskView> executed = new ArrayList<>();
         for (ProductListingTaskRecord task : tasks) {
             if (task == null || task.getId() == null) {
@@ -934,9 +876,7 @@ public class ProductListingService {
         );
         task.setCompletedAt(task.getSubmittedAt());
         ProductListingTaskView existingAfterClaim = claimAttemptOrLoadExisting(task);
-        if (existingAfterClaim != null) {
-            return existingAfterClaim;
-        }
+        if (existingAfterClaim != null){ return existingAfterClaim; }
         mapper.insertTask(task);
         return taskView(task, readIssues(task.getValidationJson()));
     }
@@ -1100,9 +1040,7 @@ public class ProductListingService {
         if (safeContinuation.getSteps() != null) {
             steps.addAll(safeContinuation.getSteps());
         }
-        if (safeContinuation.isSuccess()) {
-            return ProductListingNoonWriteResult.succeeded(steps);
-        }
+        if (safeContinuation.isSuccess()){ return ProductListingNoonWriteResult.succeeded(steps); }
         return ProductListingNoonWriteResult.failed(
                 StringUtils.hasText(safeContinuation.getFailureCategory())
                         ? safeContinuation.getFailureCategory()
@@ -1235,9 +1173,7 @@ public class ProductListingService {
                 && ProductListingWorkflowEvidence.hasConfirmedCreate(result);
     }
 
-    private boolean isCreateOutcomeUnknown(ProductListingNoonWriteResult result) {
-        return ProductListingWorkflowEvidence.hasUnresolvedCreateOutcome(result);
-    }
+    private boolean isCreateOutcomeUnknown(ProductListingNoonWriteResult result){ return ProductListingWorkflowEvidence.hasUnresolvedCreateOutcome(result); }
 
     private ProductListingDraftView draftView(
             ProductListingDraftRecord record,
@@ -1306,16 +1242,12 @@ public class ProductListingService {
     }
 
     private String resolveSourceType(ProductListingDraftCommand command, ProductListingDraftRecord existing) {
-        if (StringUtils.hasText(command.getSourceType())) {
-            return command.getSourceType().trim();
-        }
+        if (StringUtils.hasText(command.getSourceType())){ return command.getSourceType().trim(); }
         return existing == null ? null : existing.getSourceType();
     }
 
     private Long resolveSourceRefId(ProductListingDraftCommand command, ProductListingDraftRecord existing) {
-        if (command.getSourceRefId() != null) {
-            return command.getSourceRefId();
-        }
+        if (command.getSourceRefId() != null){ return command.getSourceRefId(); }
         return existing == null ? null : existing.getSourceRefId();
     }
 
@@ -1360,15 +1292,11 @@ public class ProductListingService {
     }
 
     private boolean sameStableText(String left, String right) {
-        if (!StringUtils.hasText(left) || !StringUtils.hasText(right)) {
-            return false;
-        }
+        if (!StringUtils.hasText(left) || !StringUtils.hasText(right)){ return false; }
         return left.trim().equalsIgnoreCase(right.trim());
     }
 
-    private boolean looksLikeProductFullTypeCode(String value) {
-        return StringUtils.hasText(value) && value.contains("-") && value.contains("_");
-    }
+    private boolean looksLikeProductFullTypeCode(String value){ return StringUtils.hasText(value) && value.contains("-") && value.contains("_"); }
 
     private void requireStoreAccess(BusinessAccessContext context, String storeCode) {
         if (!context.canAccessStore(storeCode)) {
@@ -1538,13 +1466,9 @@ public class ProductListingService {
         }
     }
 
-    private ProductListingValidationIssue warning(String fieldKey, String code, String message) {
-        return new ProductListingValidationIssue(fieldKey, "warning", code, message);
-    }
+    private ProductListingValidationIssue warning(String fieldKey, String code, String message){ return new ProductListingValidationIssue(fieldKey, "warning", code, message); }
 
-    private ProductListingValidationIssue error(String fieldKey, String code, String message) {
-        return new ProductListingValidationIssue(fieldKey, "error", code, message);
-    }
+    private ProductListingValidationIssue error(String fieldKey, String code, String message){ return new ProductListingValidationIssue(fieldKey, "error", code, message); }
 
     private boolean hasOfferPriceFields(ProductListingDraftCommand command) {
         return command != null
@@ -1565,9 +1489,7 @@ public class ProductListingService {
             ProductListingTaskRecord task,
             ProductListingNoonWriteResult result
     ) {
-        if (result == null || result.isSuccess() || !isPartnerSkuAlreadyExistsFailure(result)) {
-            return result;
-        }
+        if (result == null || result.isSuccess() || !isPartnerSkuAlreadyExistsFailure(result)){ return result; }
         String partnerSku = extractPartnerSkuAlreadyExists(result);
         if (!StringUtils.hasText(partnerSku) && task != null) {
             partnerSku = readPartnerSku(task.getInputSnapshotJson());
@@ -1591,9 +1513,7 @@ public class ProductListingService {
     }
 
     private boolean isPartnerSkuAlreadyExistsFailure(ProductListingNoonWriteResult result) {
-        if (result == null) {
-            return false;
-        }
+        if (result == null){ return false; }
         if (containsPartnerSkuAlreadyExists(result.getFailureCode())
                 || containsPartnerSkuAlreadyExists(result.getFailureMessage())) {
             return true;
@@ -1605,9 +1525,7 @@ public class ProductListingService {
     }
 
     private boolean containsPartnerSkuAlreadyExists(String value) {
-        if (!StringUtils.hasText(value)) {
-            return false;
-        }
+        if (!StringUtils.hasText(value)){ return false; }
         String normalized = value.toLowerCase(Locale.ROOT);
         return normalized.contains("partner skus already exists")
                 || normalized.contains("partner sku already exists")
@@ -1616,53 +1534,37 @@ public class ProductListingService {
 
     private String extractPartnerSkuAlreadyExists(ProductListingNoonWriteResult result) {
         String fromResult = extractPartnerSkuAlreadyExists(result == null ? null : result.getFailureMessage());
-        if (StringUtils.hasText(fromResult)) {
-            return fromResult;
-        }
-        if (result == null || result.getSteps() == null) {
-            return null;
-        }
+        if (StringUtils.hasText(fromResult)){ return fromResult; }
+        if (result == null || result.getSteps() == null){ return null; }
         for (ProductListingNoonWriteStepResult step : result.getSteps()) {
             String fromStep = extractPartnerSkuAlreadyExists(step == null ? null : step.getFailureMessage());
-            if (StringUtils.hasText(fromStep)) {
-                return fromStep;
-            }
+            if (StringUtils.hasText(fromStep)){ return fromStep; }
         }
         return null;
     }
 
     private String extractPartnerSkuAlreadyExists(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
+        if (!StringUtils.hasText(value)){ return null; }
         Matcher matcher = PARTNER_SKU_ALREADY_EXISTS_PATTERN.matcher(value);
-        if (!matcher.find()) {
-            return null;
-        }
+        if (!matcher.find()){ return null; }
         return normalizeText(matcher.group(1));
     }
 
     private String partnerSkuAlreadyExistsMessage(String partnerSku) {
         String normalized = normalizeText(partnerSku);
-        if (StringUtils.hasText(normalized)) {
-            return "PSKU 已存在，不能重复创建：" + normalized + "。请更换新的 PSKU，或到商品详情中编辑已有商品。";
-        }
+        if (StringUtils.hasText(normalized)){ return "PSKU 已存在，不能重复创建：" + normalized + "。请更换新的 PSKU，或到商品详情中编辑已有商品。"; }
         return "PSKU 已存在，不能重复创建。请更换新的 PSKU，或到商品详情中编辑已有商品。";
     }
 
     private String localPartnerSkuAlreadyExistsMessage(String partnerSku) {
         String normalized = normalizeText(partnerSku);
-        if (StringUtils.hasText(normalized)) {
-            return "当前本地店铺已存在相同 PSKU：" + normalized + "。请更换新的 PSKU，或到商品详情中编辑已有商品。";
-        }
+        if (StringUtils.hasText(normalized)){ return "当前本地店铺已存在相同 PSKU：" + normalized + "。请更换新的 PSKU，或到商品详情中编辑已有商品。"; }
         return "当前本地店铺已存在相同 PSKU。请更换新的 PSKU，或到商品详情中编辑已有商品。";
     }
 
     private String barcodeAlreadyExistsMessage(String barcode) {
         String normalized = normalizeText(barcode);
-        if (StringUtils.hasText(normalized)) {
-            return "当前本地店铺已存在相同 Barcode：" + normalized + "。请更换新的 Barcode，或到商品详情中编辑已有商品。";
-        }
+        if (StringUtils.hasText(normalized)){ return "当前本地店铺已存在相同 Barcode：" + normalized + "。请更换新的 Barcode，或到商品详情中编辑已有商品。"; }
         return "当前本地店铺已存在相同 Barcode。请更换新的 Barcode，或到商品详情中编辑已有商品。";
     }
 
@@ -1674,12 +1576,8 @@ public class ProductListingService {
     }
 
     private boolean isProductRebuildDraft(ProductListingDraftCommand command) {
-        if (command == null) {
-            return false;
-        }
-        if (command.getRebuildSourceProductMasterId() != null) {
-            return true;
-        }
+        if (command == null){ return false; }
+        if (command.getRebuildSourceProductMasterId() != null){ return true; }
         return "PRODUCT_REBUILD".equalsIgnoreCase(normalizeText(command.getSourceType()));
     }
 
@@ -1698,17 +1596,11 @@ public class ProductListingService {
         return existingPartnerSkuTask.getId() < dryRunTask.getId();
     }
 
-    private String normalizeText(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
-    }
+    private String normalizeText(String value){ return StringUtils.hasText(value) ? value.trim() : null; }
 
-    private String draftNo(Long draftId) {
-        return "PLD-" + draftId;
-    }
+    private String draftNo(Long draftId){ return "PLD-" + draftId; }
 
-    private String taskNo(Long taskId) {
-        return "PLT-" + taskId;
-    }
+    private String taskNo(Long taskId){ return "PLT-" + taskId; }
 
     private String writeJson(Object value) {
         try {
@@ -1727,9 +1619,7 @@ public class ProductListingService {
     }
 
     private ProductListingRealRunCommand readConfirmation(String json) {
-        if (!StringUtils.hasText(json)) {
-            return null;
-        }
+        if (!StringUtils.hasText(json)){ return null; }
         try {
             return objectMapper.readValue(json, ProductListingRealRunCommand.class);
         } catch (JsonProcessingException exception) {
@@ -1738,17 +1628,13 @@ public class ProductListingService {
     }
 
     private String readPartnerSku(String json) {
-        if (!StringUtils.hasText(json)) {
-            return null;
-        }
+        if (!StringUtils.hasText(json)){ return null; }
         ProductListingDraftCommand draft = readDraft(json);
         return StringUtils.hasText(draft.getPsku()) ? draft.getPsku().trim() : null;
     }
 
     private List<ProductListingValidationIssue> readIssues(String json) {
-        if (!StringUtils.hasText(json)) {
-            return Collections.emptyList();
-        }
+        if (!StringUtils.hasText(json)){ return Collections.emptyList(); }
         try {
             return objectMapper.readValue(json, new TypeReference<List<ProductListingValidationIssue>>() {
             });
@@ -1758,9 +1644,7 @@ public class ProductListingService {
     }
 
     private ProductListingNoonWriteResult readNoonResult(String json) {
-        if (!StringUtils.hasText(json)) {
-            return null;
-        }
+        if (!StringUtils.hasText(json)){ return null; }
         try {
             return objectMapper.readValue(json, ProductListingNoonWriteResult.class);
         } catch (JsonProcessingException exception) {
@@ -1789,9 +1673,7 @@ public class ProductListingService {
 
     private Map<String, String> externalReferenceParts(String value) {
         Map<String, String> parts = new LinkedHashMap<>();
-        if (!StringUtils.hasText(value)) {
-            return parts;
-        }
+        if (!StringUtils.hasText(value)){ return parts; }
         String[] tokens = value.split(";");
         for (String token : tokens) {
             int separator = token.indexOf('=');

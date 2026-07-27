@@ -54,6 +54,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     private final ProductListingImageDownloader imageDownloader;
     private final ProductListingOfferStockWriteAdapter offerStockWriteAdapter;
     private final ProductListingNoonReadBackVerifier readBackVerifier;
+    private final ProductListingNoonWriteFailureSupport failureSupport;
 
     @Autowired
     public RealProductListingNoonWriteAdapter(
@@ -110,6 +111,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 : offerStockWriteAdapter;
         this.readBackVerifier =
                 new ProductListingNoonReadBackVerifier(objectMapper, this.properties);
+        this.failureSupport = new ProductListingNoonWriteFailureSupport();
     }
 
     @Override
@@ -118,10 +120,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         try {
             ProductListingDraftCommand draft = requireDraft(request);
             ProductListingNoonWriteResult unsupported =
-                    unsupportedWarehouseStockResult(draft);
-            if (unsupported != null) {
-                return unsupported;
-            }
+                    failureSupport.unsupportedWarehouseStockResult(draft);
+            if (unsupported != null){ return unsupported; }
             NoonPullStoreBinding binding = bindingResolver.resolve(interfaceRequest(request));
             NoonPullGatewaySession session = requireSessionFactory().login(binding);
             Map<String, String> headers = ProductListingNoonHeaders.writeHeaders(binding);
@@ -150,17 +150,16 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
 
             return writeAfterCreate(request, draft, binding, session, endpoints, headers, fullTypeLabels, skuParent, pskuCode, steps);
         } catch (RuntimeException exception) {
-            if (steps.isEmpty()) {
-                return preCreateFailure(exception);
-            }
+            if (steps.isEmpty()){ return failureSupport.preCreateFailure(exception); }
             boolean authenticationFailure =
                     NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception);
             if (authenticationFailure) {
-                markLastFailedStepAuthenticationRequired(steps, exception.getMessage());
+                failureSupport.markLastFailedStepAuthenticationRequired(
+                        steps, exception.getMessage());
             }
             String failureCode = authenticationFailure
                     ? "noon_auth_required"
-                    : failedStepCode(steps, "noon_write_failed");
+                    : failureSupport.failedStepCode(steps, "noon_write_failed");
             return ProductListingNoonWriteResult.failed(
                     authenticationFailure ? "authentication" : "noon_api",
                     failureCode,
@@ -170,56 +169,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                     steps
             );
         }
-    }
-
-    private ProductListingNoonWriteResult unsupportedWarehouseStockResult(
-            ProductListingDraftCommand draft
-    ) {
-        if (draft == null
-                || (draft.getFbp() == null
-                && !StringUtils.hasText(draft.getWarehouseId())
-                && !StringUtils.hasText(draft.getWarehouseCode())
-                && draft.getQuantity() == null)) {
-            return null;
-        }
-        ProductListingNoonWriteStepResult step =
-                new ProductListingNoonWriteStepResult();
-        step.setStepKey("pre_create");
-        step.setStatus("failed");
-        step.setFailureCode("noon_warehouse_stock_not_supported");
-        step.setFailureMessage(
-                "当前上架流程不会写入 Noon FBP、仓库或库存数量；"
-                        + "请清空这些字段后重新检查。"
-        );
-        return ProductListingNoonWriteResult.failed(
-                "validation",
-                step.getFailureCode(),
-                step.getFailureMessage(),
-                List.of(step)
-        );
-    }
-
-    private ProductListingNoonWriteResult preCreateFailure(
-            RuntimeException exception
-    ) {
-        boolean authenticationFailure =
-                NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception);
-        ProductListingNoonWriteStepResult step =
-                new ProductListingNoonWriteStepResult();
-        step.setStepKey("pre_create");
-        step.setStatus("failed");
-        step.setFailureCode(authenticationFailure
-                ? "noon_auth_required"
-                : "noon_pre_create_failed");
-        step.setFailureMessage(StringUtils.hasText(exception.getMessage())
-                ? exception.getMessage()
-                : "Noon create preflight failed before any write started.");
-        return ProductListingNoonWriteResult.failed(
-                authenticationFailure ? "authentication" : "noon_pre_create",
-                step.getFailureCode(),
-                step.getFailureMessage(),
-                List.of(step)
-        );
     }
 
     private void verifyCatalogSessionBeforeCreate(
@@ -347,20 +296,22 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             boolean authenticationFailure =
                     NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception);
             if (steps.isEmpty()) {
-                steps.add(continuationPreflightFailure(
+                steps.add(failureSupport.continuationPreflightFailure(
                         skuParent,
                         pskuCode,
                         authenticationFailure,
                         exception.getMessage()
                 ));
             } else if (authenticationFailure) {
-                markLastFailedStepAuthenticationRequired(steps, exception.getMessage());
+                failureSupport.markLastFailedStepAuthenticationRequired(
+                        steps, exception.getMessage());
             }
             return ProductListingNoonWriteResult.failed(
                     authenticationFailure ? "authentication" : "noon_api",
                     authenticationFailure
                             ? "noon_auth_required"
-                            : failedStepCode(steps, "noon_write_continuation_failed"),
+                            : failureSupport.failedStepCode(
+                                    steps, "noon_write_continuation_failed"),
                     StringUtils.hasText(exception.getMessage())
                             ? exception.getMessage()
                             : "Product listing Noon write continuation failed.",
@@ -738,9 +689,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private String normalizeBrand(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
+        if (!StringUtils.hasText(value)){ return ""; }
         return value.trim()
                 .toLowerCase()
                 .replaceAll("[^a-z0-9]+", "_")
@@ -750,12 +699,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     private boolean sameText(String expected, String actual, boolean ignoreCase) {
         String normalizedExpected = normalize(expected);
         String normalizedActual = normalize(actual);
-        if (!StringUtils.hasText(normalizedExpected)) {
-            return true;
-        }
-        if (!StringUtils.hasText(normalizedActual)) {
-            return false;
-        }
+        if (!StringUtils.hasText(normalizedExpected)){ return true; }
+        if (!StringUtils.hasText(normalizedActual)){ return false; }
         return ignoreCase
                 ? normalizedExpected.equalsIgnoreCase(normalizedActual)
                 : normalizedExpected.equals(normalizedActual);
@@ -829,71 +774,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         }
     }
 
-    private String failedStepCode(List<ProductListingNoonWriteStepResult> steps, String fallback) {
-        if (steps != null) {
-            for (int index = steps.size() - 1; index >= 0; index--) {
-                ProductListingNoonWriteStepResult step = steps.get(index);
-                if (step != null && "failed".equals(step.getStatus()) && StringUtils.hasText(step.getFailureCode())) {
-                    return step.getFailureCode();
-                }
-            }
-        }
-        return fallback;
-    }
-
-    private ProductListingNoonWriteStepResult continuationPreflightFailure(
-            String skuParent,
-            String pskuCode,
-            boolean authenticationFailure,
-            String failureMessage
-    ) {
-        ProductListingNoonWriteStepResult step =
-                new ProductListingNoonWriteStepResult();
-        step.setStepKey("continue_after_create_preflight");
-        step.setStatus("failed");
-        step.setExternalReference(externalReference(skuParent, pskuCode));
-        step.setFailureCode(authenticationFailure
-                ? "noon_auth_required"
-                : "noon_write_continuation_failed");
-        step.setFailureMessage(StringUtils.hasText(failureMessage)
-                ? failureMessage
-                : "Product listing Noon write continuation preflight failed.");
-        return step;
-    }
-
-    private void markLastFailedStepAuthenticationRequired(
-            List<ProductListingNoonWriteStepResult> steps,
-            String failureMessage
-    ) {
-        if (steps == null) {
-            return;
-        }
-        for (int index = steps.size() - 1; index >= 0; index--) {
-            ProductListingNoonWriteStepResult step = steps.get(index);
-            if (step == null || !"failed".equalsIgnoreCase(step.getStatus())) {
-                continue;
-            }
-            if ("create_product".equalsIgnoreCase(step.getStepKey())) {
-                // An explicit 401/403/3xx response is Noon rejecting the request
-                // at the authentication boundary, so create did not start.
-                // Transport failures without an HTTP response remain UNKNOWN.
-                if (!"noon_auth_required".equalsIgnoreCase(
-                        step.getFailureCode())) {
-                    step.setFailureCode("noon_create_outcome_unknown");
-                }
-                if (StringUtils.hasText(failureMessage)) {
-                    step.setFailureMessage(failureMessage);
-                }
-                return;
-            }
-            step.setFailureCode("noon_auth_required");
-            if (StringUtils.hasText(failureMessage)) {
-                step.setFailureMessage(failureMessage);
-            }
-            return;
-        }
-    }
-
     private List<String> uploadImages(
             List<ProductListingNoonWriteStepResult> steps,
             NoonPullGatewaySession session,
@@ -963,19 +843,11 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     private String uploadFileName(ProductListingImageDownload download) {
         String fileType = supportedUploadFileType(download);
         String fileName = download == null ? "" : normalize(download.fileName);
-        if (!StringUtils.hasText(fileName)) {
-            return "image." + fileType;
-        }
+        if (!StringUtils.hasText(fileName)){ return "image." + fileType; }
         String lower = fileName.toLowerCase();
-        if ("png".equals(fileType) && !lower.endsWith(".png")) {
-            return stripKnownImageExtension(fileName) + ".png";
-        }
-        if ("jpg".equals(fileType) && !(lower.endsWith(".jpg") || lower.endsWith(".jpeg"))) {
-            return stripKnownImageExtension(fileName) + ".jpg";
-        }
-        if ("jpg".equals(fileType) && lower.endsWith(".jpeg")) {
-            return fileName.substring(0, fileName.length() - 5) + ".jpg";
-        }
+        if ("png".equals(fileType) && !lower.endsWith(".png")){ return stripKnownImageExtension(fileName) + ".png"; }
+        if ("jpg".equals(fileType) && !(lower.endsWith(".jpg") || lower.endsWith(".jpeg"))){ return stripKnownImageExtension(fileName) + ".jpg"; }
+        if ("jpg".equals(fileType) && lower.endsWith(".jpeg")){ return fileName.substring(0, fileName.length() - 5) + ".jpg"; }
         return fileName;
     }
 
@@ -988,9 +860,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         String normalized = normalize(fileName);
         String lower = normalized.toLowerCase();
         for (String extension : List.of(".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif")) {
-            if (lower.endsWith(extension)) {
-                return normalized.substring(0, normalized.length() - extension.length());
-            }
+            if (lower.endsWith(extension)){ return normalized.substring(0, normalized.length() - extension.length()); }
         }
         return StringUtils.hasText(normalized) ? normalized : "image";
     }
@@ -999,9 +869,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         String fileName = download == null ? "" : normalize(download.fileName);
         String contentType = download == null ? "" : normalize(download.contentType).toLowerCase();
         String normalizedName = fileName.toLowerCase();
-        if (normalizedName.endsWith(".png") || contentType.contains("png")) {
-            return "png";
-        }
+        if (normalizedName.endsWith(".png") || contentType.contains("png")){ return "png"; }
         if (normalizedName.endsWith(".jpg")
                 || normalizedName.endsWith(".jpeg")
                 || contentType.contains("jpeg")
@@ -1159,9 +1027,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private Object firstLocalizedAttributeValue(Object localizedValue, Object commonValue) {
-        if (isScalarAttributeValue(localizedValue) && StringUtils.hasText(textValue(localizedValue))) {
-            return localizedValue;
-        }
+        if (isScalarAttributeValue(localizedValue) && StringUtils.hasText(textValue(localizedValue))){ return localizedValue; }
         return commonValue;
     }
 
@@ -1188,9 +1054,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return StringUtils.hasText(text) ? text.trim() : "";
     }
 
-    private String textValue(Object value) {
-        return value == null ? "" : String.valueOf(value).trim();
-    }
+    private String textValue(Object value){ return value == null ? "" : String.valueOf(value).trim(); }
 
     private boolean isCoreAttribute(String code) {
         String normalized = code == null ? "" : code.trim().toLowerCase(Locale.ROOT);
@@ -1206,17 +1070,11 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private boolean isBarcodeAttribute(String code) {
-        if (!StringUtils.hasText(code)) {
-            return false;
-        }
+        if (!StringUtils.hasText(code)){ return false; }
         String normalized = code.trim().toLowerCase(Locale.ROOT);
-        if (normalized.contains("barcode")) {
-            return true;
-        }
+        if (normalized.contains("barcode")){ return true; }
         for (String token : normalized.split("[^a-z0-9]+")) {
-            if ("gtin".equals(token) || "ean".equals(token) || "upc".equals(token)) {
-                return true;
-            }
+            if ("gtin".equals(token) || "ean".equals(token) || "upc".equals(token)){ return true; }
         }
         return false;
     }
@@ -1247,44 +1105,32 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private BigDecimal priceMinForNoon(ProductListingDraftCommand draft) {
-        if (draft.getPriceMin() != null) {
-            return draft.getPriceMin();
-        }
+        if (draft.getPriceMin() != null){ return draft.getPriceMin(); }
         return draft.getPrice();
     }
 
     private BigDecimal priceMaxForNoon(ProductListingDraftCommand draft) {
-        if (draft.getPriceMax() != null) {
-            return draft.getPriceMax();
-        }
+        if (draft.getPriceMax() != null){ return draft.getPriceMax(); }
         return draft.getPrice();
     }
 
     private String saleStartForPrice(ProductListingDraftCommand draft) {
         String explicitSaleStart = normalizeOfferDateForNoon(draft.getSaleStart());
-        if (StringUtils.hasText(explicitSaleStart)) {
-            return explicitSaleStart;
-        }
-        if (draft.getSalePrice() == null) {
-            return null;
-        }
+        if (StringUtils.hasText(explicitSaleStart)){ return explicitSaleStart; }
+        if (draft.getSalePrice() == null){ return null; }
         return LocalDate.now().format(NOON_OFFER_DATE_FORMATTER);
     }
 
     private String saleEndForPrice(ProductListingDraftCommand draft) {
         String explicitSaleEnd = normalizeOfferDateForNoon(draft.getSaleEnd());
-        if (StringUtils.hasText(explicitSaleEnd)) {
-            return explicitSaleEnd;
-        }
+        if (StringUtils.hasText(explicitSaleEnd)){ return explicitSaleEnd; }
         String explicitSaleStart = normalizeOfferDateForNoon(draft.getSaleStart());
         if (StringUtils.hasText(explicitSaleStart)) {
             return parseNoonOfferDate(explicitSaleStart)
                     .plusYears(DEFAULT_SALE_WINDOW_YEARS)
                     .format(NOON_OFFER_DATE_FORMATTER);
         }
-        if (draft.getSalePrice() == null) {
-            return null;
-        }
+        if (draft.getSalePrice() == null){ return null; }
         return LocalDate.now().plusYears(DEFAULT_SALE_WINDOW_YEARS).format(NOON_OFFER_DATE_FORMATTER);
     }
 
@@ -1313,9 +1159,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private String normalizeOfferDateForNoon(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
+        if (!StringUtils.hasText(value)){ return null; }
         String text = value.trim();
         try {
             return OffsetDateTime.parse(text).toLocalDate().format(NOON_OFFER_DATE_FORMATTER);
@@ -1386,13 +1230,9 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             Map<String, String> headers
     ) {
         ProductFullTypeParts parts = productFullTypeParts(draft);
-        if (parts.looksLikeLabels()) {
-            return new ProductFullTypeLabels(parts.family, parts.productType, parts.productSubType);
-        }
+        if (parts.looksLikeLabels()){ return new ProductFullTypeLabels(parts.family, parts.productType, parts.productSubType); }
         ProductFullTypeLabels labels = fetchProductFullTypeLabels(session, endpoints, draft, headers);
-        if (labels.complete()) {
-            return labels;
-        }
+        if (labels.complete()){ return labels; }
         throw new IllegalStateException("Noon product fulltype taxonomy labels missing for "
                 + normalize(draft.getProductFullType()) + ".");
     }
@@ -1411,9 +1251,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 byte[] bytes = session.getBytes(url, false, taxonomyHeaders(headers));
                 JsonNode root = objectMapper.readTree(bytes);
                 ProductFullTypeLabels labels = labelsFromTaxonomy(root, draft);
-                if (labels.complete()) {
-                    return labels;
-                }
+                if (labels.complete()){ return labels; }
                 if (!bestPartial.hasAny() && labels.hasAny()) {
                     bestPartial = labels;
                 }
@@ -1474,9 +1312,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private String humanizeCode(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
+        if (!StringUtils.hasText(value)){ return ""; }
         return value.trim().replace('_', ' ');
     }
 
@@ -1516,9 +1352,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private String noonWriteFailureMessage(JsonNode response) {
-        if (response == null || response.isNull() || response.isMissingNode()) {
-            return "";
-        }
+        if (response == null || response.isNull() || response.isMissingNode()){ return ""; }
         int invalid = response.path("invalid").asInt(0);
         JsonNode error = response.path("error");
         if (invalid > 0 || hasNonEmptyError(error)) {
@@ -1530,12 +1364,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private boolean hasNonEmptyError(JsonNode error) {
-        if (error == null || error.isMissingNode() || error.isNull()) {
-            return false;
-        }
-        if (error.isObject() || error.isArray()) {
-            return error.size() > 0;
-        }
+        if (error == null || error.isMissingNode() || error.isNull()){ return false; }
+        if (error.isObject() || error.isArray()){ return error.size() > 0; }
         return StringUtils.hasText(error.asText(""));
     }
 
@@ -1575,9 +1405,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             );
             return sameText(expectedFullType, actualFullType, false);
         }
-        if (draft.getIdProductFullType() == null) {
-            return false;
-        }
+        if (draft.getIdProductFullType() == null){ return false; }
         String expectedId = String.valueOf(draft.getIdProductFullType());
         String actualId = firstNonBlank(
                 text(candidate, "id_product_fulltype"),
@@ -1619,18 +1447,12 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         step.setExternalReference(null);
     }
 
-    private String externalReference(String skuParent, String pskuCode) {
-        return "skuParent=" + normalize(skuParent) + ";pskuCode=" + normalize(pskuCode);
-    }
+    private String externalReference(String skuParent, String pskuCode){ return "skuParent=" + normalize(skuParent) + ";pskuCode=" + normalize(pskuCode); }
 
     private String firstNonBlank(String... values) {
-        if (values == null) {
-            return "";
-        }
+        if (values == null){ return ""; }
         for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
+            if (StringUtils.hasText(value)){ return value.trim(); }
         }
         return "";
     }
@@ -1648,9 +1470,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private boolean hasMeaningfulText(String value) {
-        if (!StringUtils.hasText(value)) {
-            return false;
-        }
+        if (!StringUtils.hasText(value)){ return false; }
         String plainText = value
                 .replace("&nbsp;", " ")
                 .replace("&#160;", " ")
@@ -1661,23 +1481,15 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
 
     private String text(JsonNode node, String field) {
-        if (node == null || !StringUtils.hasText(field)) {
-            return "";
-        }
+        if (node == null || !StringUtils.hasText(field)){ return ""; }
         JsonNode value = node.path(field);
-        if (value.isMissingNode() || value.isNull()) {
-            return "";
-        }
+        if (value.isMissingNode() || value.isNull()){ return ""; }
         return normalize(value.asText(""));
     }
 
-    private String normalize(String value) {
-        return StringUtils.hasText(value) ? value.trim() : "";
-    }
+    private String normalize(String value){ return StringUtils.hasText(value) ? value.trim() : ""; }
 
-    private String upper(String value) {
-        return ProductListingNoonHeaders.upper(value);
-    }
+    private String upper(String value){ return ProductListingNoonHeaders.upper(value); }
 
     private static class ProductFullTypeParts {
         private final String family;
@@ -1690,13 +1502,9 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             this.productSubType = productSubType;
         }
 
-        private boolean looksLikeLabels() {
-            return looksLikeLabel(family) && looksLikeLabel(productType) && looksLikeLabel(productSubType);
-        }
+        private boolean looksLikeLabels(){ return looksLikeLabel(family) && looksLikeLabel(productType) && looksLikeLabel(productSubType); }
 
-        private static boolean looksLikeLabel(String value) {
-            return StringUtils.hasText(value) && !value.contains("_");
-        }
+        private static boolean looksLikeLabel(String value){ return StringUtils.hasText(value) && !value.contains("_"); }
     }
 
     private static class ProductFullTypeLabels {
@@ -1710,9 +1518,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             this.productSubType = productSubType;
         }
 
-        private static ProductFullTypeLabels empty() {
-            return new ProductFullTypeLabels("", "", "");
-        }
+        private static ProductFullTypeLabels empty(){ return new ProductFullTypeLabels("", "", ""); }
 
         private boolean complete() {
             return StringUtils.hasText(family)

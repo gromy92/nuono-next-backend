@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-
 class ProductListingAiFactLedgerTest {
 
     @Test
@@ -20,14 +19,12 @@ class ProductListingAiFactLedgerTest {
                         fact("F003", "MATERIAL", "金属", "metal", "معدني")
                 )
         ));
-
         assertTrue(ledger.validateSource(draft).isEmpty());
         assertTrue(ledger.validateOutput(Map.of(
                 "productTitleEn", "Blue Metal Desk Organizer for Daily Accessories",
                 "productTitleAr", "منظم مكتب معدني أزرق للإكسسوارات اليومية"
         )).isEmpty());
     }
-
     @Test
     void shouldBlockFactThatCannotBeTracedBackToOriginalInput() {
         ProductListingDraftCommand draft = new ProductListingDraftCommand();
@@ -43,10 +40,8 @@ class ProductListingAiFactLedgerTest {
                         "titleRequired", true
                 ))
         ));
-
         assertTrue(ledger.validateSource(draft).stream().anyMatch(item -> item.contains("无法回指")));
     }
-
     @Test
     void shouldBlockGeneratedTitleThatOmitsAnyRequiredFact() {
         ProductListingDraftCommand draft = new ProductListingDraftCommand();
@@ -73,14 +68,12 @@ class ProductListingAiFactLedgerTest {
                         )
                 )
         ));
-
         assertTrue(ledger.validateSource(draft).isEmpty());
         assertTrue(ledger.validateOutput(Map.of(
                 "productTitleEn", "Practical Desk Organizer for Daily Accessories",
                 "productTitleAr", "منظم مكتب عملي للإكسسوارات اليومية"
         )).stream().anyMatch(item -> item.contains("F002")));
     }
-
     @Test
     void shouldTraceFactsReturnedFromKeyAttributesInputField() {
         ProductListingDraftCommand draft = new ProductListingDraftCommand();
@@ -120,10 +113,8 @@ class ProductListingAiFactLedgerTest {
                         )
                 )
         ));
-
         assertTrue(ledger.validateSource(draft).isEmpty());
     }
-
     @Test
     void shouldTraceSelectedAttributeJsonFragmentsButRejectUnselectedOptionFragments() {
         ProductListingDraftCommand draft = new ProductListingDraftCommand();
@@ -157,9 +148,7 @@ class ProductListingAiFactLedgerTest {
                         )
                 )
         ));
-
         List<String> issues = ledger.validateSource(draft);
-
         assertEquals(1, issues.size());
         assertTrue(issues.get(0).contains("F18"));
     }
@@ -178,7 +167,6 @@ class ProductListingAiFactLedgerTest {
                         "titleRequired", true
                 ))
         ));
-
         assertTrue(ledger.validateOutput(Map.of(
                 "productTitleEn", "Galaxy LED Projector with Bedroom Night Light",
                 "productTitleAr", "جهاز عرض للمجرة مع مصباح ليلي LED"
@@ -219,9 +207,7 @@ class ProductListingAiFactLedgerTest {
                         )
                 )
         ));
-
         ProductListingAiFactLedger sanitized = ledger.withoutUntraceableOptionalFacts(draft);
-
         assertEquals(2, sanitized.promptFacts().size());
         assertEquals("F001", sanitized.promptFacts().get(0).get("factId"));
         assertEquals("F015", sanitized.promptFacts().get(1).get("factId"));
@@ -261,13 +247,11 @@ class ProductListingAiFactLedgerTest {
                         )
                 )
         ));
-
         assertTrue(ledger.validateOutput(Map.of(
                 "productTitleEn", "Galaxy Projector with Large Area, Solar System Discs and Night Light",
                 "productTitleAr", "جهاز عرض المجرة بمساحة عرض كبيرة ومصباح ليلي ونجوم واقعية ونظام شمسي"
         )).isEmpty());
     }
-
     @Test
     void shouldNotRequireVagueBasicStyleLabelInGeneratedTitles() {
         ProductListingDraftCommand draft = new ProductListingDraftCommand();
@@ -278,7 +262,6 @@ class ProductListingAiFactLedgerTest {
                         fact("F002", "STYLE", "基础款", "basic style", "تصميم أساسي")
                 )
         ));
-
         assertTrue(ledger.validateSource(draft).isEmpty());
         assertTrue(ledger.validateOutput(Map.of(
                 "productTitleEn", "Transparent Protective Phone Case for Everyday Use",
@@ -286,7 +269,6 @@ class ProductListingAiFactLedgerTest {
         )).isEmpty());
         assertEquals(false, ledger.promptFacts().get(1).get("titleRequired"));
     }
-
     private Map<String, Object> fact(
             String id,
             String type,
@@ -304,7 +286,6 @@ class ProductListingAiFactLedgerTest {
                 "titleRequired", true
         );
     }
-
     private Map<String, Object> attributeFact(String id, String sourceText) {
         return Map.of(
                 "factId", id,

@@ -16,28 +16,21 @@ class ProductListingValidatorTest {
     void doesNotRequirePurchaseOrderForReadyDraft() {
         ProductListingDraftCommand command = validCommand();
         command.setOptionalPurchaseOrderId(null);
-
         assertTrue(validator.validate(command).isEmpty());
     }
-
     @Test
     void doesNotBlockMissingPurchaseCostButStillBlocksMissingSupplyEvidence() {
         ProductListingDraftCommand command = validCommand();
         command.setPurchasePrice(null);
         command.setSupplyEvidenceType(null);
-
         List<ProductListingValidationIssue> issues = validator.validate(command);
-
         assertNoIssue(issues, "purchasePrice", "required");
         assertIssue(issues, "supplyEvidenceType", "required");
     }
-
     @Test
     void blocksMissingNoonListingFields() {
         ProductListingDraftCommand command = new ProductListingDraftCommand();
-
         List<ProductListingValidationIssue> issues = validator.validate(command);
-
         assertIssue(issues, "storeCode", "required");
         assertIssue(issues, "psku", "required");
         assertIssue(issues, "productFullType", "required");
@@ -45,22 +38,17 @@ class ProductListingValidatorTest {
         assertNoIssue(issues, "imageUrls", "required");
         assertIssue(issues, "price", "required");
     }
-
     @Test
     void blocksDisplayCategoryNameAsProductFulltype() {
         ProductListingDraftCommand command = validCommand();
         command.setProductFullType("Kitchen Utensils & Gadgets");
-
         List<ProductListingValidationIssue> issues = validator.validate(command);
-
         assertIssue(issues, "productFullType", "invalid_product_fulltype");
     }
-
     @Test
     void acceptsOfficialNoonProductFulltypeCode() {
         ProductListingDraftCommand command = validCommand();
         command.setProductFullType("kitchen-utensils_gadgets-kitchen_tools");
-
         List<ProductListingValidationIssue> issues = validator.validate(command);
 
         assertNoIssue(issues, "productFullType", "invalid_product_fulltype");

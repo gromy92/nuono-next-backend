@@ -371,14 +371,8 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
                 projectCode
         );
         if (bindingEpochAlreadyQueued(
-                target,
-                state,
-                sourceLessItem,
-                recoveryId,
-                identityKey,
-                bindingFingerprint,
-                configFingerprint
-        )) {
+                target, state, sourceLessItem, recoveryId, identityKey,
+                bindingFingerprint, configFingerprint)) {
             return state.getAuthVersion();
         }
 
