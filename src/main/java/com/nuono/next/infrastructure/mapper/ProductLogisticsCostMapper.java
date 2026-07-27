@@ -302,7 +302,7 @@ public interface ProductLogisticsCostMapper {
             "<script>",
             "SELECT id, owner_user_id AS ownerUserId, site_code AS siteCode, forwarder_code AS forwarderCode,",
             "forwarder_name AS forwarderName, transport_mode AS transportMode, fee_type AS feeType,",
-            "cargo_category_code AS cargoCategoryCode, cargo_category_name AS cargoCategoryName,",
+            "cargo_category_code AS cargoCategoryCode, cargo_category_name AS cargoCategoryName, remark AS cargoCategoryDescription,",
             "charge_unit AS chargeUnit, unit_cost_cny AS unitCostCny, currency_code AS currencyCode,",
             "source_type AS sourceType, source_reference AS sourceReference, effective_at AS effectiveAt,",
             "remark, evidence_json AS evidenceJson",
@@ -326,7 +326,7 @@ public interface ProductLogisticsCostMapper {
     @Select({
             "SELECT id, owner_user_id AS ownerUserId, site_code AS siteCode, forwarder_code AS forwarderCode,",
             "forwarder_name AS forwarderName, transport_mode AS transportMode, fee_type AS feeType,",
-            "cargo_category_code AS cargoCategoryCode, cargo_category_name AS cargoCategoryName,",
+            "cargo_category_code AS cargoCategoryCode, cargo_category_name AS cargoCategoryName, remark AS cargoCategoryDescription,",
             "charge_unit AS chargeUnit, unit_cost_cny AS unitCostCny, currency_code AS currencyCode,",
             "source_type AS sourceType, source_reference AS sourceReference, effective_at AS effectiveAt,",
             "remark, evidence_json AS evidenceJson",
