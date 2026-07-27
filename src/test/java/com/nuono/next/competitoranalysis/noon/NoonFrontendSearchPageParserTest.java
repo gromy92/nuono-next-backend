@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class NoonFrontendSearchPageParserTest {
 
     @Test
-    void parsesFixtureAndKeepsEarliestSponsoredDuplicateRank() throws Exception {
+    void parsesFixtureAndKeepsSponsoredAndOrganicRanksIndependent() throws Exception {
         NoonFrontendSearchPageParser parser = new NoonFrontendSearchPageParser(new ObjectMapper());
         String html = Files.readString(Path.of(
                 "src",
@@ -23,13 +23,14 @@ class NoonFrontendSearchPageParserTest {
 
         NoonSearchPage page = parser.parse(html, "https://www.noon.com/saudi-en/search?q=laundry%20basket", 200);
 
-        assertEquals("noon-search-html-v1", page.getParserVersion());
+        assertEquals("noon-search-html-v2", page.getParserVersion());
         assertEquals(200, page.getProviderHttpStatus());
-        assertEquals(2, page.getResults().size());
+        assertEquals(3, page.getResults().size());
 
         NoonSearchResult sponsored = page.getResults().get(0);
         assertEquals("Z11111111AD", sponsored.getNoonProductCode());
         assertEquals(1, sponsored.getPosition());
+        assertEquals(1, sponsored.getRankPosition());
         assertTrue(sponsored.isSponsored());
         assertEquals("HomePro", sponsored.getBrand());
         assertEquals("SAR", sponsored.getCurrencyCode());
@@ -37,8 +38,13 @@ class NoonFrontendSearchPageParserTest {
         NoonSearchResult natural = page.getResults().get(1);
         assertEquals("N22222222NAT", natural.getNoonProductCode());
         assertEquals(2, natural.getPosition());
+        assertEquals(1, natural.getRankPosition());
         assertEquals("Natural foldable hamper", natural.getTitle());
         assertEquals(88, natural.getReviewCount());
+        NoonSearchResult duplicateNatural = page.getResults().get(2);
+        assertEquals("Z11111111AD", duplicateNatural.getNoonProductCode());
+        assertEquals(3, duplicateNatural.getPosition());
+        assertEquals(2, duplicateNatural.getRankPosition());
     }
 
     @Test
@@ -76,7 +82,7 @@ class NoonFrontendSearchPageParserTest {
                 200
         );
 
-        assertEquals("noon-search-catalog-v1", page.getParserVersion());
+        assertEquals("noon-search-catalog-v2", page.getParserVersion());
         assertEquals(2, page.getResults().size());
         NoonSearchResult first = page.getResults().get(0);
         assertEquals(1, first.getPosition());
@@ -134,15 +140,22 @@ class NoonFrontendSearchPageParserTest {
                 200
         );
 
-        assertEquals(2, page.getResults().size());
-        NoonSearchResult sponsored = page.getResults().get(0);
-        assertEquals("Z11111111AD", sponsored.getNoonProductCode());
-        assertEquals(1, sponsored.getPosition());
-        assertTrue(sponsored.isSponsored());
+        assertEquals(3, page.getResults().size());
+        NoonSearchResult duplicateNatural = page.getResults().get(0);
+        assertEquals("Z11111111AD", duplicateNatural.getNoonProductCode());
+        assertEquals(1, duplicateNatural.getPosition());
+        assertEquals(1, duplicateNatural.getRankPosition());
 
         NoonSearchResult natural = page.getResults().get(1);
         assertEquals("N22222222NAT", natural.getNoonProductCode());
         assertEquals(2, natural.getPosition());
+        assertEquals(2, natural.getRankPosition());
+
+        NoonSearchResult sponsored = page.getResults().get(2);
+        assertEquals("Z11111111AD", sponsored.getNoonProductCode());
+        assertEquals(3, sponsored.getPosition());
+        assertEquals(1, sponsored.getRankPosition());
+        assertTrue(sponsored.isSponsored());
     }
 
     @Test
@@ -193,7 +206,7 @@ class NoonFrontendSearchPageParserTest {
                 200
         );
 
-        assertEquals("noon-search-customer-catalog-v3", page.getParserVersion());
+        assertEquals("noon-search-customer-catalog-v3-rank-channel-v2", page.getParserVersion());
         assertEquals(3, page.getResults().size());
         NoonSearchResult first = page.getResults().get(0);
         assertEquals("ZF47007A9D75977AB9A83Z", first.getNoonProductCode());

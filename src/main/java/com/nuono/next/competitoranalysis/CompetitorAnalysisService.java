@@ -10,23 +10,27 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class CompetitorAnalysisService {
-
     private static final Pattern COLLAPSED_WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern NOON_CODE_PATTERN = Pattern.compile("(?i)(^|/)([ZN][A-Z0-9]{4,79})(/|\\?|$)");
+    private static final java.time.ZoneId BUSINESS_ZONE = java.time.ZoneId.of("Asia/Shanghai");
 
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorProductChangeService productChangeService;
+    private final CompetitorBrowserSearchEvidenceWriter browserSearchEvidenceWriter;
+    private final CompetitorBrowserRankFactWriter browserRankFactWriter;
     private ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer;
 
     @Autowired
@@ -36,6 +40,8 @@ public class CompetitorAnalysisService {
     ) {
         this.mapper = mapper;
         this.productChangeService = productChangeService;
+        this.browserSearchEvidenceWriter = new CompetitorBrowserSearchEvidenceWriter(mapper);
+        this.browserRankFactWriter = new CompetitorBrowserRankFactWriter(mapper);
     }
 
     public CompetitorAnalysisService(CompetitorAnalysisMapper mapper) {
@@ -122,7 +128,7 @@ public class CompetitorAnalysisService {
         Long ownerUserId = ownerUserId(context, normalizedStoreCode);
         int normalizedDays = normalizeDashboardDays(days);
         String normalizedRankDirection = normalizeRankDirection(rankDirection);
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(BUSINESS_ZONE);
         LocalDate fromDate = today.minusDays(normalizedDays - 1L);
         LocalDate requestedRankToDate = normalizedDays == 1 ? today : today.minusDays(1L);
         LocalDate latestRankFactDate = mapper.selectLatestRankFactDate(
@@ -570,7 +576,7 @@ public class CompetitorAnalysisService {
                         partnerSku,
                         keyword,
                         status,
-                        LocalDateTime.now(),
+                        LocalDateTime.now(BUSINESS_ZONE),
                         actorUserId
                 )
         );
@@ -617,7 +623,7 @@ public class CompetitorAnalysisService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_SCOPE_MISMATCH");
         }
         int normalizedRangeDays = normalizeHistoryRangeDays(rangeDays);
-        LocalDateTime fromTime = LocalDate.now().minusDays(normalizedRangeDays - 1L).atStartOfDay();
+        LocalDateTime fromTime = LocalDate.now(BUSINESS_ZONE).minusDays(normalizedRangeDays - 1L).atStartOfDay();
         return CompetitorRankHistoryView.fromRows(mapper.listRankHistoryByWatchProductIdAndKeywordId(
                 watchProduct.getId(),
                 keyword.getKeywordId(),
@@ -637,6 +643,7 @@ public class CompetitorAnalysisService {
         return productChangeService.productChanges(context, watchProductId, limit);
     }
 
+    @Transactional
     public CompetitorBrowserObservationResultView applyBrowserObservations(
             BusinessAccessContext context,
             Long keywordId,
@@ -648,6 +655,7 @@ public class CompetitorAnalysisService {
         if (latestRun == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_NO_LATEST_RUN");
         }
+        browserSearchEvidenceWriter.lockFreshRun(latestRun);
         CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(keyword.getWatchProductId());
         if (watchProduct == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "COMPETITOR_WATCH_PRODUCT_NOT_FOUND");
@@ -659,20 +667,22 @@ public class CompetitorAnalysisService {
         result.setObservedCount(command == null ? 0 : command.getItems().size());
         Map<String, CompetitorBrowserObservationItem> sponsoredItems = normalizeSponsoredObservationItems(command);
         result.setSponsoredObservedCount(sponsoredItems.size());
-
+        Map<String, Integer> sponsoredRanksByCode = new LinkedHashMap<>();
         for (CompetitorBrowserObservationItem item : sponsoredItems.values()) {
             String noonCode = normalizeNoonCode(item.getNoonProductCode());
-            int updatedSearchResultCount = mapper.markSearchResultSponsored(latestRun.getId(), noonCode, actorUserId);
-            if (updatedSearchResultCount > 0) {
-                result.setSearchResultUpdatedCount(result.getSearchResultUpdatedCount() + updatedSearchResultCount);
-            } else {
-                mapper.insertSearchResult(buildBrowserObservedSearchResult(latestRun, item, noonCode, actorUserId));
-                result.setSearchResultInsertedCount(result.getSearchResultInsertedCount() + 1);
-            }
-
-            result.setRankFactUpdatedCount(result.getRankFactUpdatedCount()
-                    + mapper.markRankFactSponsored(latestRun.getId(), noonCode, actorUserId));
+            boolean firstRankObservation = !sponsoredRanksByCode.containsKey(noonCode);
+            int sponsoredRank = sponsoredRanksByCode.computeIfAbsent(
+                    noonCode, ignored -> sponsoredRanksByCode.size() + 1);
+            CompetitorBrowserSearchEvidenceWriter.Result evidence =
+                    browserSearchEvidenceWriter.persist(latestRun, item, noonCode, actorUserId);
+            result.setSearchResultInsertedCount(result.getSearchResultInsertedCount() + evidence.insertedCount());
+            result.setSearchResultUpdatedCount(result.getSearchResultUpdatedCount() + evidence.updatedCount());
             if (noonCode.equals(selfCode)) {
+                if (firstRankObservation) {
+                    result.setRankFactUpdatedCount(result.getRankFactUpdatedCount() + browserRankFactWriter.reconcile(
+                            latestRun, keyword, watchProduct, item, null, evidence.sourceResultId(),
+                            sponsoredRank, actorUserId));
+                }
                 continue;
             }
 
@@ -713,11 +723,17 @@ public class CompetitorAnalysisService {
                     actorUserId
             ));
             result.setRelationUpsertedCount(result.getRelationUpsertedCount() + 1);
+            if (firstRankObservation) {
+                result.setRankFactUpdatedCount(result.getRankFactUpdatedCount() + browserRankFactWriter.reconcile(
+                        latestRun, keyword, watchProduct, item, product, evidence.sourceResultId(),
+                        sponsoredRank, actorUserId));
+            }
         }
 
         return result;
     }
 
+    @Transactional
     public CompetitorBrowserObservationResultView applyBrowserObservationsByKeyword(
             BusinessAccessContext context,
             Long watchProductId,
@@ -744,9 +760,9 @@ public class CompetitorAnalysisService {
     private Map<String, CompetitorBrowserObservationItem> normalizeSponsoredObservationItems(
             CompetitorBrowserObservationCommand command
     ) {
-        Map<String, CompetitorBrowserObservationItem> itemsByCode = new LinkedHashMap<>();
+        Map<String, CompetitorBrowserObservationItem> itemsByObservationKey = new TreeMap<>();
         if (command == null || command.getItems() == null) {
-            return itemsByCode;
+            return itemsByObservationKey;
         }
         for (CompetitorBrowserObservationItem item : command.getItems()) {
             if (item == null || !Boolean.TRUE.equals(item.getSponsored())) {
@@ -757,36 +773,10 @@ public class CompetitorAnalysisService {
                 continue;
             }
             item.setNoonProductCode(noonCode);
-            itemsByCode.putIfAbsent(noonCode, item);
+            String key = String.format(Locale.ROOT, "%03d|%s", normalizeObservedPosition(item.getPosition()), noonCode);
+            itemsByObservationKey.putIfAbsent(key, item);
         }
-        return itemsByCode;
-    }
-
-    private CompetitorSearchResultInsertCommand buildBrowserObservedSearchResult(
-            CompetitorKeywordRunRow latestRun,
-            CompetitorBrowserObservationItem item,
-            String noonCode,
-            Long actorUserId
-    ) {
-        CompetitorSearchResultInsertCommand insert = new CompetitorSearchResultInsertCommand();
-        insert.setId(mapper.nextSearchResultId());
-        insert.setKeywordRunId(latestRun.getId());
-        insert.setResultPosition(normalizeObservedPosition(item.getPosition()));
-        insert.setNoonProductCode(noonCode);
-        insert.setCodeType(resolveNoonCodeType(noonCode));
-        insert.setCanonicalUrl(normalizeText(item.getCanonicalUrl()));
-        insert.setTitleSnapshot(normalizeText(item.getTitle()));
-        insert.setBrandSnapshot(normalizeText(item.getBrand()));
-        insert.setImageUrlSnapshot(normalizeText(item.getImageUrl()));
-        insert.setPriceAmount(item.getPriceAmount());
-        insert.setCurrencyCode(normalizeText(item.getCurrencyCode()));
-        insert.setRating(item.getRating());
-        insert.setReviewCount(item.getReviewCount());
-        insert.setSponsored(true);
-        insert.setRawResultJson(browserObservationRawJson(noonCode));
-        insert.setCapturedAt(latestRun.getCapturedAt() == null ? LocalDateTime.now() : latestRun.getCapturedAt());
-        insert.setActorUserId(actorUserId);
-        return insert;
+        return itemsByObservationKey;
     }
 
     private CompetitorProductInsertCommand buildBrowserObservedProductInsert(
@@ -840,14 +830,6 @@ public class CompetitorAnalysisService {
             return 999;
         }
         return Math.min(position, 999);
-    }
-
-    private String browserObservationRawJson(String noonCode) {
-        return "{\"source\":\"browser-observation\",\"noonProductCode\":\"" + escapeJson(noonCode) + "\"}";
-    }
-
-    private String escapeJson(String value) {
-        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private CompetitorWatchProductRow requireWatchProduct(BusinessAccessContext context, Long watchProductId) {
