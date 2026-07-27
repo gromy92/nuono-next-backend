@@ -30,7 +30,7 @@ public interface ProductRebuildWorkflowMapper {
             "ORDER BY COALESCE(finished_at, gmt_updated, gmt_create), id",
             "LIMIT #{limit}"
     })
-    @ResultMap("ProductPublishTaskRecordMap")
+    @ResultMap("com.nuono.next.infrastructure.mapper.ProductManagementMapper.ProductPublishTaskRecordMap")
     List<ProductPublishTaskRecord> selectProductRebuildDeleteTasksReadyForListing(
             @Param("staleBefore") LocalDateTime staleBefore,
             @Param("limit") int limit
@@ -52,7 +52,7 @@ public interface ProductRebuildWorkflowMapper {
             "ORDER BY COALESCE(gmt_updated, gmt_create), id",
             "LIMIT #{limit}"
     })
-    @ResultMap("ProductPublishTaskRecordMap")
+    @ResultMap("com.nuono.next.infrastructure.mapper.ProductManagementMapper.ProductPublishTaskRecordMap")
     List<ProductPublishTaskRecord> selectProductRebuildDeleteTasksPendingListingReconciliation(
             @Param("limit") int limit
     );

@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
@@ -8,9 +9,30 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
 
 class ProductRebuildWorkflowMapperSqlTest {
+
+    @Test
+    void inheritedRebuildQueriesResolveTheSharedPublishTaskResultMap() {
+        Configuration parentFirst = new Configuration();
+        assertDoesNotThrow(() -> parentFirst.addMapper(ProductManagementMapper.class));
+        assertDoesNotThrow(() -> parentFirst.addMapper(ProductRebuildWorkflowMapper.class));
+        assertRebuildStatementResolves(parentFirst);
+
+        Configuration childFirst = new Configuration();
+        assertDoesNotThrow(() -> childFirst.addMapper(ProductRebuildWorkflowMapper.class));
+        assertDoesNotThrow(() -> childFirst.addMapper(ProductManagementMapper.class));
+        assertRebuildStatementResolves(childFirst);
+    }
+
+    private void assertRebuildStatementResolves(Configuration configuration) {
+        assertDoesNotThrow(() -> configuration.getMappedStatement(
+                ProductRebuildWorkflowMapper.class.getName()
+                        + ".selectProductRebuildDeleteTasksReadyForListing"
+        ));
+    }
 
     @Test
     void readyLookupAndClaimAllowOnlyExpiredRunningLeaseToBeTakenOver() {
