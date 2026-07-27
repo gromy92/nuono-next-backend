@@ -153,6 +153,8 @@ class ProductListingRealRunSubmissionServiceTest extends ProductListingServiceTe
         service = new ProductListingService(mapper, new ObjectMapper(), new ProductListingValidator(), properties);
         BusinessAccessContext context = businessContext(10002L, 90001L, "STR245027-NAE");
         mapper.seedSuccessfulRealRun(10002L, "STR245027-NAE", validCommand());
+        mapper.seedSuccessfulProductDelete(
+                10002L, "STR245027-NAE", "NN-TEST-PSKU");
         ProductListingDraftView draft = service.saveDraft(context, validProductRebuildCommand(60004L));
         ProductListingDryRunSubmitCommand dryRunCommand = new ProductListingDryRunSubmitCommand();
         dryRunCommand.setDraftId(draft.getDraftId());

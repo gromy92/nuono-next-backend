@@ -34,8 +34,9 @@ class ProductListingContinuationEligibilityTest {
                 context, dryRun.getTaskId(), ProductListingTestFixtures.confirmedCommand()
         );
 
-        assertEquals("rejected", duplicate.getStatus());
-        assertEquals("real_run_already_attempted", duplicate.getFailureCode());
+        assertEquals(submitted.getTaskId(), duplicate.getTaskId());
+        assertEquals("written_verify_failed", duplicate.getStatus());
+        assertEquals("real_run_interrupted", duplicate.getFailureCode());
         assertEquals(0, adapter.resolveCreateReferenceCallCount());
         assertEquals(0, adapter.continueAfterCreateCallCount());
     }

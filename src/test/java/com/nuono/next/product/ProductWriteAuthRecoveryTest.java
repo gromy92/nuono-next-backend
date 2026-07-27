@@ -13,6 +13,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noon.NoonAuthenticationRequiredException;
+import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.noon.NoonProductError;
@@ -69,6 +71,78 @@ class ProductWriteAuthRecoveryTest {
         assertTrue(exception.isWriteMayHaveOccurred());
         assertTrue(exception.getMessage().contains("recoveryId=991"));
         verify(recoveryQueue).enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+    }
+
+    @Test
+    void dedicatedAuthenticationFailuresAndExplicit401ShouldNotNeedMessageMarkers() {
+        when(recoveryQueue.enqueueProject(307L, "PRJ-1", "STR108065-NAE"))
+                .thenReturn(Optional.of(991L));
+
+        for (RuntimeException failure : new RuntimeException[] {
+                new NoonAuthenticationRequiredException(
+                        "Project authorization recovery is pending."),
+                new NoonHttpException(401, "", "/catalog")
+        }) {
+            ProductWriteAuthRequiredException exception = recovery.suspendIfAuthFailure(
+                    307L,
+                    "PRJ-1",
+                    "STR108065-NAE",
+                    failure,
+                    false
+            );
+
+            assertNotNull(exception);
+            assertFalse(exception.isWriteMayHaveOccurred());
+        }
+        verify(recoveryQueue, times(2))
+                .enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+    }
+
+    @Test
+    void bareRedirectAndForbiddenStatusesShouldNotProveAuthorizationFailure() {
+        for (int status : new int[] {302, 307, 403}) {
+            assertNull(recovery.suspendIfAuthFailure(
+                    307L,
+                    "PRJ-1",
+                    "STR108065-NAE",
+                    new NoonHttpException(status, "", "/catalog/create"),
+                    false
+            ));
+        }
+        verify(recoveryQueue, never())
+                .enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+    }
+
+    @Test
+    void permanentCredentialAndProjectFailuresShouldAlwaysVetoRecovery() {
+        for (String marker : new String[] {
+                "invalid username or password",
+                "account does not contain current project PRJ-404",
+                "账号不包含当前项目",
+                "project_access_denied",
+                "project access denied",
+                "noon_project_scope_missing",
+                "project scope missing",
+                "current-project mismatch",
+                "current project mismatch"
+        }) {
+            assertNull(recovery.suspendIfAuthFailure(
+                    307L,
+                    "PRJ-1",
+                    "STR108065-NAE",
+                    new NoonHttpException(401, marker, "/catalog"),
+                    false
+            ));
+            assertNull(recovery.suspendIfAuthFailure(
+                    307L,
+                    "PRJ-1",
+                    "STR108065-NAE",
+                    new IllegalStateException("auth_required: " + marker),
+                    false
+            ));
+        }
+        verify(recoveryQueue, never())
+                .enqueueProject(307L, "PRJ-1", "STR108065-NAE");
     }
 
     @Test

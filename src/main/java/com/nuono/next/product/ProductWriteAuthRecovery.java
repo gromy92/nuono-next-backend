@@ -1,13 +1,14 @@
 package com.nuono.next.product;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
+import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noonauth.NoonAuthRecoveryTriggerPolicy;
 import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.noon.NoonProductErrorCode;
 import com.nuono.next.product.noon.NoonProductException;
 import com.nuono.next.store.StoreSyncStoreRecord;
-import java.util.Locale;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
@@ -97,7 +98,13 @@ public class ProductWriteAuthRecovery {
     }
 
     public boolean isExplicitAuthFailure(Throwable failure) {
-        boolean authFailure = false;
+        if (NoonAuthenticationFailureClassifier
+                .hasPermanentAuthenticationFailureEvidence(failure)) {
+            return false;
+        }
+        boolean authFailure =
+                NoonAuthenticationFailureClassifier.isAuthenticationFailure(failure);
+        boolean ambiguousHttpStatus = false;
         StringBuilder details = new StringBuilder();
         Throwable current = failure;
         while (current != null) {
@@ -111,27 +118,23 @@ public class ProductWriteAuthRecovery {
                     authFailure = true;
                 }
             }
+            if (current instanceof NoonHttpException) {
+                NoonHttpException httpFailure = (NoonHttpException) current;
+                if (httpFailure.getStatusCode() != 401) {
+                    ambiguousHttpStatus = true;
+                }
+                if (StringUtils.hasText(httpFailure.getResponseBody())) {
+                    details.append(' ').append(httpFailure.getResponseBody());
+                }
+            }
             if (StringUtils.hasText(current.getMessage())) {
                 details.append(' ').append(current.getMessage());
             }
             current = current.getCause();
         }
-        String normalizedDetails = details.toString().toLowerCase(Locale.ROOT);
-        if (containsAny(
-                normalizedDetails,
-                "account does not contain current project",
-                "account does not include current project",
-                "账号不包含当前项目",
-                "project_access_denied",
-                "invalid username or password",
-                "password validate",
-                "invalid password",
-                "bad credentials",
-                "账号或密码错误"
-        )) {
-            return false;
-        }
-        return authFailure || NoonAuthRecoveryTriggerPolicy.isExplicitAuthExpiry(details.toString());
+        return authFailure
+                || (!ambiguousHttpStatus
+                && NoonAuthRecoveryTriggerPolicy.isExplicitAuthExpiry(details.toString()));
     }
 
     private String canonicalProjectCode(Long ownerUserId, String projectCode, String storeCode) {
@@ -153,15 +156,6 @@ public class ProductWriteAuthRecovery {
             throw new IllegalStateException("无法校验 Noon 授权范围：本地店铺映射不存在。");
         }
         return localProject.getProjectCode().trim();
-    }
-
-    private boolean containsAny(String value, String... candidates) {
-        for (String candidate : candidates) {
-            if (value.contains(candidate)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private ProductWriteAuthRequiredException pendingException(

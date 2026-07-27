@@ -84,9 +84,14 @@ public class RealProductListingOfferStockWriteAdapter implements ProductListingO
             return step;
         } catch (RuntimeException exception) {
             step.setStatus("failed");
-            step.setFailureCode(
+            step.preserveOriginalFailure(exception);
+            boolean authenticationFailure =
                     NoonAuthenticationFailureClassifier
                             .isAuthenticationFailure(exception)
+                            || ProductListingNoonCallGuard
+                            .isAuthEnvelopeFailure(exception);
+            step.setFailureCode(
+                    authenticationFailure
                             ? "noon_auth_required"
                             : "noon_offer_stock_write_failed"
             );

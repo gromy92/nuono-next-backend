@@ -9,6 +9,7 @@ public class ProductListingNoonWriteStepResult {
     private String failureMessage;
     private Long recoveryId;
     private Boolean writeMayHaveOccurred;
+    private transient RuntimeException originalFailure;
 
     public String getStepKey() {
         return stepKey;
@@ -64,5 +65,13 @@ public class ProductListingNoonWriteStepResult {
 
     public void setWriteMayHaveOccurred(Boolean writeMayHaveOccurred) {
         this.writeMayHaveOccurred = writeMayHaveOccurred;
+    }
+
+    RuntimeException originalFailure() {
+        return originalFailure;
+    }
+
+    void preserveOriginalFailure(RuntimeException originalFailure) {
+        this.originalFailure = originalFailure;
     }
 }

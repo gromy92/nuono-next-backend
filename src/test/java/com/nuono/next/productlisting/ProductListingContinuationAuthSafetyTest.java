@@ -3,6 +3,7 @@ package com.nuono.next.productlisting;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -40,13 +41,14 @@ class ProductListingContinuationAuthSafetyTest {
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, authPending.getFailureCode());
         assertTrue(mapper.updatedTask().getNoonResultJson().contains("\"writeMayHaveOccurred\":true"));
         assertTrue(mapper.updatedTask().getNoonResultJson().contains("\"recoveryId\":991"));
-        assertEquals("rejected", duplicate.getStatus());
-        assertEquals("real_run_already_attempted", duplicate.getFailureCode());
+        assertEquals(submitted.getTaskId(), duplicate.getTaskId());
+        assertEquals("written_verify_failed", duplicate.getStatus());
+        assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, duplicate.getFailureCode());
         assertEquals(1, adapter.callCount());
     }
 
     @Test
-    void failedReferenceLookupMustLeaveClaimedTaskInSafeTerminalState() {
+    void failedReadOnlyReferenceLookupKeepsUnknownTaskWithoutContinuationWrite() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
         ProductListingNoonWriteStepResult lookupFailure = step(
@@ -60,6 +62,9 @@ class ProductListingContinuationAuthSafetyTest {
                         unknownCreateResult(), null, null
                 ).withCreateReferenceStep(lookupFailure);
         ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        ProductListingCreateOutcomeService outcomeService =
+                new ProductListingCreateOutcomeService(
+                        mapper, service, adapter, new ObjectMapper());
         BusinessAccessContext context = ProductListingTestFixtures.businessContext(
                 10002L, 90001L, "STR245027-NAE"
         );
@@ -69,10 +74,12 @@ class ProductListingContinuationAuthSafetyTest {
         );
         ProductListingTaskView uncertain = service.executeSubmittedRealRunTask(submitted.getTaskId());
 
-        ProductListingTaskView checked = service.continueRealRunAfterCreate(
-                context, uncertain.getTaskId()
-        );
+        ProductListingCreateOutcomeVerificationView verification =
+                outcomeService.verify(context, uncertain.getTaskId());
+        ProductListingTaskView checked =
+                service.loadTask(context, uncertain.getTaskId());
 
+        assertEquals("not_found", verification.getStatus());
         assertEquals("written_verify_failed", checked.getStatus());
         assertEquals("noon_create_outcome_unknown", checked.getFailureCode());
         assertEquals(1, adapter.resolveCreateReferenceCallCount());
@@ -112,16 +119,22 @@ class ProductListingContinuationAuthSafetyTest {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper() {
                     @Override
-                    public int checkpointRunningTaskNoonResult(
+                    public int persistRecoveredCreateReference(
                             Long taskId,
                             Long ownerUserId,
-                            String noonResultJson,
-                            java.time.LocalDateTime startedAt
+                            String expectedNoonResultJson,
+                            String newNoonResultJson
                     ) {
-                        checkpointed[0] = noonResultJson.contains("resolve_create_reference");
-                        return super.checkpointRunningTaskNoonResult(
-                                taskId, ownerUserId, noonResultJson, startedAt
+                        int persisted = super.persistRecoveredCreateReference(
+                                taskId,
+                                ownerUserId,
+                                expectedNoonResultJson,
+                                newNoonResultJson
                         );
+                        checkpointed[0] = persisted == 1
+                                && newNoonResultJson.contains(
+                                "resolve_create_reference");
+                        return persisted;
                     }
                 };
         ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
@@ -138,6 +151,9 @@ class ProductListingContinuationAuthSafetyTest {
                 };
         adapter.withCreateReferenceStep(successfulCreateReference());
         ProductListingService service = ProductListingTestFixtures.service(mapper, true, adapter);
+        ProductListingCreateOutcomeService outcomeService =
+                new ProductListingCreateOutcomeService(
+                        mapper, service, adapter, new ObjectMapper());
         BusinessAccessContext context = ProductListingTestFixtures.businessContext(
                 10002L, 90001L, "STR245027-NAE"
         );
@@ -147,12 +163,12 @@ class ProductListingContinuationAuthSafetyTest {
         );
         ProductListingTaskView uncertain = service.executeSubmittedRealRunTask(submitted.getTaskId());
 
-        ProductListingTaskView referenceRecovered =
-                service.continueRealRunAfterCreate(context, uncertain.getTaskId());
+        ProductListingCreateOutcomeVerificationView referenceRecovered =
+                outcomeService.verify(context, uncertain.getTaskId());
         ProductListingTaskView recovered =
                 service.continueRealRunAfterCreate(context, uncertain.getTaskId());
 
-        assertEquals("written_verify_failed", referenceRecovered.getStatus());
+        assertEquals("found", referenceRecovered.getStatus());
         assertEquals("succeeded", recovered.getStatus());
         assertTrue(checkpointed[0]);
         assertEquals(1, adapter.continueAfterCreateCallCount());

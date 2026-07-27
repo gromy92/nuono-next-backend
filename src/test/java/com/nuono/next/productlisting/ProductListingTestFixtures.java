@@ -361,7 +361,7 @@ final class ProductListingTestFixtures {
                 if (!ownerUserId.equals(task.getOwnerUserId())
                         || !storeCode.equals(task.getStoreCode())
                         || !"REAL_RUN".equals(task.getMode())
-                        || !isKnownListedPartnerSkuTask(task)
+                        || !isReservedIdentityTask(task, false)
                         || !normalize(partnerSku).equalsIgnoreCase(normalize(readPartnerSku(task)))) {
                     continue;
                 }
@@ -378,7 +378,7 @@ final class ProductListingTestFixtures {
                 if (!ownerUserId.equals(task.getOwnerUserId())
                         || !storeCode.equals(task.getStoreCode())
                         || !"REAL_RUN".equals(task.getMode())
-                        || !isRealWriteAttemptLocked(task)
+                        || !isReservedIdentityTask(task, true)
                         || !normalize(barcode).equalsIgnoreCase(normalize(readBarcode(task)))) {
                     continue;
                 }
@@ -568,12 +568,12 @@ final class ProductListingTestFixtures {
                     && workflow.getWriteCertainty()
                     == ProductListingWorkflowView.WriteCertainty.NOT_STARTED;
         }
-        private boolean isKnownListedPartnerSkuTask(ProductListingTaskRecord task) {
+        private boolean isReservedIdentityTask(ProductListingTaskRecord task, boolean barcode) {
             return List.of("submitted", "running", "succeeded", "written_verify_failed")
                     .contains(task.getStatus())
                     || ("failed".equals(task.getStatus())
-                    && List.of("partner_sku_already_exists", ProductListingWriteAuthRecovery.FAILURE_CODE)
-                    .contains(task.getFailureCode()));
+                    && (ProductListingWriteAuthRecovery.FAILURE_CODE.equals(task.getFailureCode())
+                    || (!barcode && "partner_sku_already_exists".equals(task.getFailureCode()))));
         }
         private String readPartnerSku(ProductListingTaskRecord task) {
             try {

@@ -78,7 +78,7 @@ src/test/java/com/nuono/next/product/ProductVariantSpecServiceTest.java	400
 src/test/java/com/nuono/next/product/publish/ProductPublishCommandServiceTest.java	342
 src/test/java/com/nuono/next/productkeyword/ProductKeywordServiceTest.java	456
 src/test/java/com/nuono/next/productlisting/LocalDbProductListingProjectionBackfillTest.java	482
-src/test/java/com/nuono/next/productlisting/ProductListingServiceTest.java	747
+src/test/java/com/nuono/next/productlisting/ProductListingServiceTest.java	743
 src/test/java/com/nuono/next/productlisting/ProductListingTestFixtures.java	602
 src/test/java/com/nuono/next/productlisting/ProductListingValidatorTest.java	303
 src/test/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapterTest.java	438

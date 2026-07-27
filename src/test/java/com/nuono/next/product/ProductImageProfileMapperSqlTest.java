@@ -4,6 +4,7 @@ import static com.nuono.next.schema.DbInitScriptAssertions.assertInitScriptsIncl
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
+import com.nuono.next.infrastructure.mapper.ProductImagePublishWorkflowMapper;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,9 +19,10 @@ class ProductImageProfileMapperSqlTest {
 
     @Test
     void publishCheckpointAndManualRetryShouldUsePublishingAndFailedStateFences() throws Exception {
-        Method checkpointMethod = ProductImageProfileMapper.class.getMethod(
+        Method checkpointMethod = ProductImagePublishWorkflowMapper.class.getMethod(
                 "updateSuitePublishManifest",
                 Long.class,
+                String.class,
                 String.class,
                 String.class,
                 Long.class
@@ -30,12 +32,15 @@ class ProductImageProfileMapperSqlTest {
                 checkpointMethod.getAnnotation(Update.class).value()
         ).replaceAll("\\s+", " ");
         assertThat(checkpointSql)
-                .contains("publish_manifest_json = #{manifestJson}")
+                .contains("publish_manifest_json = JSON_SET(")
+                .contains("#{manifestJson}")
                 .contains("suite_status = 'PUBLISHING'")
                 .contains("'$.attemptId'")
-                .contains("= #{attemptId}");
+                .contains("= #{attemptId}")
+                .contains("'$.executionToken'")
+                .contains("= #{executionToken}");
 
-        Method retryMethod = ProductImageProfileMapper.class.getMethod(
+        Method retryMethod = ProductImagePublishWorkflowMapper.class.getMethod(
                 "retryFailedSuitePublishWorkflow",
                 Long.class,
                 Long.class,
@@ -52,9 +57,10 @@ class ProductImageProfileMapperSqlTest {
                 .contains("suite_status = 'FAILED'")
                 .contains("profile_id = #{profileId}");
 
-        Method failPublishMethod = ProductImageProfileMapper.class.getMethod(
+        Method failPublishMethod = ProductImagePublishWorkflowMapper.class.getMethod(
                 "failPublishingSuiteWorkflow",
                 Long.class,
+                String.class,
                 String.class,
                 String.class,
                 String.class,
@@ -68,7 +74,9 @@ class ProductImageProfileMapperSqlTest {
                 .contains("suite_status = 'FAILED'")
                 .contains("suite_status = 'PUBLISHING'")
                 .contains("'$.attemptId'")
-                .contains("= #{attemptId}");
+                .contains("= #{attemptId}")
+                .contains("'$.executionToken'")
+                .contains("= #{executionToken}");
     }
 
     @Test

@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 class ProductListingAuthRetrySafetyTest {
 
     @Test
-    void preWriteAuthFailureKeepsTheSameTaskReservedAndCannotEnterCreateContinuation() {
+    void preWriteAuthFailureReturnsTheSameReservedTaskAndCannotEnterCreateContinuation() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
         ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
@@ -35,8 +35,9 @@ class ProductListingAuthRetrySafetyTest {
         assertEquals("failed", failed.getStatus());
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, failed.getFailureCode());
         assertEquals(Boolean.FALSE, failed.getNoonResult().getWriteMayHaveOccurred());
-        assertEquals("rejected", duplicate.getStatus());
-        assertEquals("real_run_already_attempted", duplicate.getFailureCode());
+        assertEquals(firstAttempt.getTaskId(), duplicate.getTaskId());
+        assertEquals("failed", duplicate.getStatus());
+        assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, duplicate.getFailureCode());
         assertThrows(
                 IllegalArgumentException.class,
                 () -> service.continueRealRunAfterCreate(context, failed.getTaskId())
@@ -45,7 +46,7 @@ class ProductListingAuthRetrySafetyTest {
     }
 
     @Test
-    void possibleWriteKeepsIdentityReservedAndRejectsAnotherConfirmedRealRun() {
+    void possibleWriteReturnsTheSameReservedTaskForAnotherConfirmation() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
         ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
@@ -64,8 +65,9 @@ class ProductListingAuthRetrySafetyTest {
         assertEquals("written_verify_failed", uncertain.getStatus());
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, uncertain.getFailureCode());
         assertEquals(Boolean.TRUE, uncertain.getNoonResult().getWriteMayHaveOccurred());
-        assertEquals("rejected", duplicate.getStatus());
-        assertEquals("real_run_already_attempted", duplicate.getFailureCode());
+        assertEquals(firstAttempt.getTaskId(), duplicate.getTaskId());
+        assertEquals("written_verify_failed", duplicate.getStatus());
+        assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, duplicate.getFailureCode());
         assertEquals(1, adapter.callCount());
     }
 

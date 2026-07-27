@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 class NoonAuthenticationFailureClassifierTest {
 
     @Test
-    void structuredHttpAuthenticationAndRedirectFailuresAreRecognizedThroughCauseChain() {
+    void typedAuthenticationAndExplicit401AreRecognizedThroughCauseChain() {
         assertTrue(NoonAuthenticationFailureClassifier.isAuthenticationFailure(
                 new IllegalStateException(
                         "wrapped",
@@ -16,35 +16,49 @@ class NoonAuthenticationFailureClassifierTest {
                 )
         ));
         assertTrue(NoonAuthenticationFailureClassifier.isAuthenticationFailure(
-                new NoonHttpException(307, "", "/offer/list/noon")
-        ));
-        assertTrue(NoonAuthenticationFailureClassifier.isAuthenticationFailure(
                 new IllegalStateException(
                         "wrapped",
                         new NoonAuthenticationRequiredException("Project authorization recovery is pending.")
                 )
         ));
-    }
-
-    @Test
-    void messageTextAloneNeverClassifiesAuthentication() {
-        assertFalse(NoonAuthenticationFailureClassifier.isAuthenticationFailure(
-                new IllegalStateException("auth cookie session unauthorized 307")
-        ));
-        assertFalse(NoonAuthenticationFailureClassifier.isAuthenticationFailure(
-                new NoonHttpException(500, "unauthorized", "/offer/list/noon")
-        ));
-    }
-
-    @Test
-    void explicitAuthenticationRejectionRequiresARealHttpAuthenticationResponse() {
         assertTrue(NoonAuthenticationFailureClassifier
                 .isExplicitAuthenticationRejection(
-                        new IllegalStateException(
-                                "wrapped",
-                                new NoonHttpException(307, "", "/create")
-                        )
+                        new NoonHttpException(401, "", "/offer/list/noon")
                 ));
+    }
+
+    @Test
+    void bareRedirectAndForbiddenStatusesNeverProveAuthentication() {
+        for (int status : new int[] {301, 302, 303, 307, 308, 403}) {
+            NoonHttpException failure =
+                    new NoonHttpException(status, "auth_required", "/create");
+            assertFalse(NoonAuthenticationFailureClassifier
+                    .isAuthenticationFailure(failure));
+            assertFalse(NoonAuthenticationFailureClassifier
+                    .isExplicitAuthenticationRejection(failure));
+        }
+    }
+
+    @Test
+    void permanent401CredentialAndProjectFailuresVetoAuthentication() {
+        NoonHttpException invalidCredential = new NoonHttpException(
+                401, "invalid username or password", "/catalog");
+        IllegalStateException projectMismatch = new IllegalStateException(
+                "current project mismatch",
+                new NoonHttpException(401, "", "/catalog")
+        );
+        assertFalse(NoonAuthenticationFailureClassifier
+                .isAuthenticationFailure(invalidCredential));
+        assertFalse(NoonAuthenticationFailureClassifier
+                .isExplicitAuthenticationRejection(invalidCredential));
+        assertFalse(NoonAuthenticationFailureClassifier
+                .isAuthenticationFailure(projectMismatch));
+        assertFalse(NoonAuthenticationFailureClassifier
+                .isExplicitAuthenticationRejection(projectMismatch));
+    }
+
+    @Test
+    void typedSignalsRemainDistinctFromExplicitHttpRejectionAndMessageText() {
         assertFalse(NoonAuthenticationFailureClassifier
                 .isExplicitAuthenticationRejection(
                         new NoonAuthenticationRequiredException(
@@ -52,10 +66,12 @@ class NoonAuthenticationFailureClassifierTest {
                         )
                 ));
         assertFalse(NoonAuthenticationFailureClassifier
-                .isExplicitAuthenticationRejection(
+                .isAuthenticationFailure(
                         new IllegalStateException(
-                                "connection reset after request write"
-                        )
-                ));
+                                "auth cookie session unauthorized 307")));
+        assertFalse(NoonAuthenticationFailureClassifier
+                .isAuthenticationFailure(
+                        new NoonHttpException(
+                                500, "unauthorized", "/offer/list/noon")));
     }
 }

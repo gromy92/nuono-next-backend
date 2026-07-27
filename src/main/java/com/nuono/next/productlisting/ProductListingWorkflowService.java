@@ -203,7 +203,7 @@ public class ProductListingWorkflowService {
         ProductListingWorkflowView attemptWorkflow =
                 projector.project(null, null, attempt);
         boolean recoverableAttempt =
-                isTerminalNotStarted(attemptWorkflow, attempt);
+                isTerminalReopenable(attemptWorkflow, attempt);
         if (superseded) {
             if (recoverableAttempt) {
                 return loadWorkflow(context, dryRun.getDraftId());
@@ -236,10 +236,10 @@ public class ProductListingWorkflowService {
             ProductListingTaskView attempt,
             boolean persistedSuperseded
     ) {
-        return persistedSuperseded && isTerminalNotStarted(projected, attempt);
+        return persistedSuperseded && isTerminalReopenable(projected, attempt);
     }
 
-    private boolean isTerminalNotStarted(
+    private boolean isTerminalReopenable(
             ProductListingWorkflowView projected,
             ProductListingTaskView attempt
     ) {
@@ -247,7 +247,11 @@ public class ProductListingWorkflowService {
                 && ("failed".equalsIgnoreCase(attempt.getStatus())
                 || "rejected".equalsIgnoreCase(attempt.getStatus()))
                 && projected.getWriteCertainty()
-                == ProductListingWorkflowView.WriteCertainty.NOT_STARTED;
+                == ProductListingWorkflowView.WriteCertainty.NOT_STARTED
+                && (projected.getNextAction()
+                == ProductListingWorkflowView.NextAction.REVIEW_DRAFT
+                || projected.getNextAction()
+                == ProductListingWorkflowView.NextAction.EDIT_DRAFT);
     }
 
     private ProductListingTaskRecord sourceDryRun(

@@ -178,9 +178,13 @@ class RealProductListingNoonWriteFailureTest extends RealProductListingNoonWrite
         ProductListingNoonWriteResult result = adapter.execute(request);
 
         assertFalse(result.isSuccess());
-        assertEquals("authentication", result.getFailureCategory());
+        assertEquals("authorization", result.getFailureCategory());
         assertEquals("noon_auth_required", result.getFailureCode());
-        assertEquals("pre_create", result.getSteps().get(0).getStepKey());
+        ProductListingNoonWriteStepResult recovery = result.getSteps().stream()
+                .filter(step -> "authorization_recovery".equals(step.getStepKey()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(Boolean.FALSE, recovery.getWriteMayHaveOccurred());
     }
 
     @Test

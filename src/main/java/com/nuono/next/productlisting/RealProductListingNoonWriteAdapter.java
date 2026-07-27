@@ -414,7 +414,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         if ("failed".equals(step.getStatus())) {
             throw new IllegalStateException(StringUtils.hasText(step.getFailureMessage())
                     ? step.getFailureMessage()
-                    : "Product listing offer/stock write failed.");
+                    : "Product listing offer/stock write failed.", step.originalFailure());
         }
     }
     private ProductListingOfferStockWriteRequest offerStockWriteRequest(
