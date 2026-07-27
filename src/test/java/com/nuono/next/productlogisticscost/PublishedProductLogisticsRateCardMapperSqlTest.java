@@ -29,6 +29,11 @@ class PublishedProductLogisticsRateCardMapperSqlTest {
         assertThat(sql).contains("version.status = 'PUBLISHED'");
         assertThat(sql).contains("JOIN forwarder_quote_base_price price");
         assertThat(sql).contains("price.price_status = 'NORMAL'");
+        assertThat(sql).contains("LEFT JOIN forwarder_quote_cargo_category category");
+        assertThat(sql).contains("category.product_examples");
+        assertThat(sql).contains("AS cargoCategoryDescription");
+        assertThat(sql).contains("price.source_row_or_locator REGEXP '^自[0-9]{4}-[0-9]{2}-[0-9]{2}起$'");
+        assertThat(sql).contains("STR_TO_DATE(SUBSTRING(price.source_row_or_locator, 2, 10), '%Y-%m-%d')");
         assertThat(sql).contains("route.active_for_purchase_order = b'1'");
         assertThat(sql).contains("route.site_code = #{siteCode}");
         assertThat(sql).contains("route.forwarder_code = #{forwarderCode}");
@@ -37,5 +42,11 @@ class PublishedProductLogisticsRateCardMapperSqlTest {
         assertThat(sql).contains("'PUBLISHED_FORWARDER_QUOTE' AS sourceType");
         assertThat(sql).contains("version.version_no AS sourceReference");
         assertThat(sql).doesNotContain("version.quote_version_code");
+        String orderBy = sql.substring(sql.indexOf("ORDER BY"));
+        assertThat(orderBy)
+                .contains("ORDER BY route.site_code, forwarderCode, route.transport_mode")
+                .contains("cargoCategoryCode, price.id")
+                .doesNotContain("price.cargo_category_name")
+                .doesNotContain("route.forwarder_code");
     }
 }

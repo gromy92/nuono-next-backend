@@ -1,44 +1,35 @@
 package com.nuono.next.productlisting;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.ai.AiCapabilityService;
 import com.nuono.next.ai.AiResultStatus;
-import com.nuono.next.ai.AiStructuredTextCommand;
 import com.nuono.next.ai.AiStructuredTextResult;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StreamUtils;
 import org.springframework.util.StringUtils;
 
 @Service
 public class ProductListingAiListingService {
 
-    static final String RULE_VERSION = "v3.2";
-    static final String RULE_RESOURCE = "ai/product-listing/noon-listing-v3_2.md";
+    static final String RULE_VERSION = "v3.3";
+    static final String RULE_RESOURCE = "ai/product-listing/noon-listing-v3_3.md";
 
     private final ObjectProvider<AiCapabilityService> aiCapabilityServiceProvider;
-    private final ObjectMapper objectMapper;
-    private final String rulebook;
+    private final ProductListingAiRequestFactory requestFactory;
+    private final ProductListingAiFactExtractionFactory factExtractionFactory;
 
     public ProductListingAiListingService(
             ObjectProvider<AiCapabilityService> aiCapabilityServiceProvider,
             ObjectMapper objectMapper
     ) {
         this.aiCapabilityServiceProvider = aiCapabilityServiceProvider;
-        this.objectMapper = objectMapper;
-        this.rulebook = loadRulebook();
+        this.requestFactory = new ProductListingAiRequestFactory(objectMapper);
+        this.factExtractionFactory = new ProductListingAiFactExtractionFactory(objectMapper);
     }
 
     public ProductListingAiListingView generate(BusinessAccessContext context, ProductListingAiListingCommand command) {
@@ -51,119 +42,154 @@ public class ProductListingAiListingService {
                 normalizedCommand.getCompetitorMaterials()
         );
         if (!hasDraftFacts(draft) && competitorMaterials.isEmpty()) {
-            throw new IllegalArgumentException("商品上架 AI 整合需要先填写商品标题、类目、描述、卖点或竞品材料。");
+            throw new IllegalArgumentException("商品上架 AI 整合需要先填写商品标题、描述、卖点、已验证属性或竞品材料。");
         }
 
-        AiStructuredTextResult aiResult = generateWithAi(context, normalizedCommand, draft, competitorMaterials);
-        if (aiResult != null && aiResult.isSuccess() && aiResult.getParsedJson() != null) {
-            return ProductListingAiListingView.of(RULE_VERSION, aiResult.getParsedJson(), "ai", warningsFrom(aiResult));
+        AiCapabilityService aiCapabilityService = aiCapabilityServiceProvider.getIfAvailable();
+        if (aiCapabilityService == null) {
+            AiStructuredTextResult missing = AiStructuredTextResult.failure(
+                    AiResultStatus.AI_DISABLED,
+                    "AI_SERVICE_MISSING",
+                    "AI service is not available"
+            );
+            return unavailable("商品上架 AI 整合暂时不可用：", missing, warningsFrom(missing));
         }
 
+        AiStructuredTextResult factResult = aiCapabilityService.createStructuredText(
+                factExtractionFactory.create(context, draft)
+        );
+        if (!usable(factResult)) {
+            factResult = aiCapabilityService.createStructuredText(
+                    factExtractionFactory.create(context, draft)
+            );
+        }
+        if (!usable(factResult)) {
+            return ProductListingAiListingView.unavailable(
+                    RULE_VERSION,
+                    "ai",
+                    "AI 暂时未能完成商品事实提取，请稍后重新生成。",
+                    warningsFrom(factResult)
+            );
+        }
+        ProductListingAiFactLedger factLedger = ProductListingAiFactLedger.from(factResult.getParsedJson())
+                .withoutUntraceableOptionalFacts(draft);
+        List<String> factIssues = factLedger.validateSource(draft);
+        if (!factIssues.isEmpty()) {
+            AiStructuredTextResult repairedFactResult = aiCapabilityService.createStructuredText(
+                    factExtractionFactory.createRepair(
+                            context,
+                            draft,
+                            factResult.getParsedJson(),
+                            factIssues
+                    )
+            );
+            if (repairedFactResult == null
+                    || !repairedFactResult.isSuccess()
+                    || repairedFactResult.getParsedJson() == null) {
+                return unavailable("商品事实自动校正暂时不可用：", repairedFactResult, warningsFrom(repairedFactResult));
+            }
+            factResult = repairedFactResult;
+            factLedger = ProductListingAiFactLedger.from(repairedFactResult.getParsedJson())
+                    .withoutUntraceableOptionalFacts(draft);
+            factIssues = factLedger.validateSource(draft);
+            if (!factIssues.isEmpty()) {
+                return ProductListingAiListingView.unavailable(
+                        RULE_VERSION,
+                        "ai",
+                        "AI 未能从现有商品资料建立可靠事实依据，请稍后重新生成。",
+                        List.of()
+                );
+            }
+        }
+
+        AiStructuredTextResult aiResult = aiCapabilityService.createStructuredText(
+                requestFactory.create(context, normalizedCommand, draft, competitorMaterials, factLedger)
+        );
+        if (!usable(aiResult)) {
+            aiResult = aiCapabilityService.createStructuredText(
+                    requestFactory.create(context, normalizedCommand, draft, competitorMaterials, factLedger)
+            );
+        }
+        if (usable(aiResult)) {
+            ProductListingAiValidationResult validationResult = ProductListingAiDraftValidator.inspect(
+                    draft,
+                    factLedger,
+                    aiResult.getParsedJson()
+            );
+            if (validationResult.isReady()) {
+                return ProductListingAiListingView.of(
+                        RULE_VERSION,
+                        aiResult.getParsedJson(),
+                        "ai",
+                        warningsFrom(aiResult)
+                );
+            }
+
+            AiStructuredTextResult repairResult = aiCapabilityService.createStructuredText(
+                    requestFactory.createRepair(
+                            context,
+                            normalizedCommand,
+                            draft,
+                            competitorMaterials,
+                            factLedger,
+                            aiResult.getParsedJson(),
+                            validationResult
+                    )
+            );
+            if (repairResult == null || !repairResult.isSuccess() || repairResult.getParsedJson() == null) {
+                return unavailable("AI Listing 自动修复暂时不可用：", repairResult, warningsFrom(repairResult));
+            }
+            ProductListingAiValidationResult repairedValidation = ProductListingAiDraftValidator.inspect(
+                    draft,
+                    factLedger,
+                    repairResult.getParsedJson()
+            );
+            if (repairedValidation.isReady()) {
+                return ProductListingAiListingView.of(
+                        RULE_VERSION,
+                        repairResult.getParsedJson(),
+                        "ai",
+                        warningsFrom(repairResult)
+                );
+            }
+            if (repairedValidation.hasHardConflicts()) {
+                return hardConflict();
+            }
+            return ProductListingAiListingView.unavailable(
+                    RULE_VERSION,
+                    "ai",
+                    "AI 未能根据现有商品资料生成可用 Listing，请稍后重新生成。",
+                    List.of()
+            );
+        }
+
+        return unavailable("商品上架 AI 整合暂时不可用：", aiResult, warningsFrom(aiResult));
+    }
+
+    private boolean usable(AiStructuredTextResult result) {
+        return result != null && result.isSuccess() && result.getParsedJson() != null;
+    }
+
+    private ProductListingAiListingView hardConflict() {
         return ProductListingAiListingView.unavailable(
                 RULE_VERSION,
                 "ai",
-                "商品上架 AI 整合暂时不可用：" + aiErrorMessage(aiResult),
-                warningsFrom(aiResult)
+                "现有商品资料存在互相冲突的核心事实，AI 无法可靠生成 Listing。",
+                List.of()
         );
     }
 
-    private AiStructuredTextResult generateWithAi(
-            BusinessAccessContext context,
-            ProductListingAiListingCommand command,
-            ProductListingDraftCommand draft,
-            List<ProductListingAiCompetitorMaterial> competitorMaterials
+    private ProductListingAiListingView unavailable(
+            String prefix,
+            AiStructuredTextResult aiResult,
+            List<String> warnings
     ) {
-        AiCapabilityService aiCapabilityService = aiCapabilityServiceProvider.getIfAvailable();
-        if (aiCapabilityService == null) {
-            return AiStructuredTextResult.failure(AiResultStatus.AI_DISABLED, "AI_SERVICE_MISSING", "AI service is not available");
-        }
-
-        AiStructuredTextCommand aiCommand = new AiStructuredTextCommand();
-        aiCommand.setFeatureCode("product-listing");
-        aiCommand.setOperationCode("noon_listing_bilingual_generate");
-        aiCommand.setOperatorUserId(context == null ? null : context.getSessionUserId());
-        aiCommand.setSchemaName("nuono_product_listing_noon_bilingual_v3_2");
-        aiCommand.setSchema(outputSchema());
-        aiCommand.setReasoningEffort("medium");
-        aiCommand.setMaxOutputTokens(7000);
-        aiCommand.setTimeoutSeconds(120);
-        aiCommand.setInstructions(String.join("\n\n",
-                rulebook,
-                "Return JSON only. The `noonUploadDraft` object is the only text that may be copied into Noon upload fields.",
-                "Do not submit, publish, call tools, or claim that a Noon write has happened."
-        ));
-        aiCommand.setPrompt(prompt(command, draft, competitorMaterials));
-        aiCommand.setMetadata(Map.of(
-                "feature", "product-listing",
-                "operation", "noon_listing_bilingual_generate",
-                "ruleVersion", RULE_VERSION
-        ));
-        return aiCapabilityService.createStructuredText(aiCommand);
-    }
-
-    private String prompt(
-            ProductListingAiListingCommand command,
-            ProductListingDraftCommand draft,
-            List<ProductListingAiCompetitorMaterial> competitorMaterials
-    ) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("ruleVersion", RULE_VERSION);
-        payload.put("operatorRequirement", text(command.getOperatorRequirement()));
-        payload.put("storeCode", text(draft.getStoreCode()));
-        payload.put("site", siteFromStoreCode(draft.getStoreCode()));
-        payload.put("draftFacts", draftFacts(draft));
-        payload.put("competitorReferenceMaterials", competitorMaterials.stream()
-                .map(this::competitorMaterial)
-                .collect(Collectors.toList()));
-        try {
-            return objectMapper.writeValueAsString(payload);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("商品上架 AI 整合请求序列化失败。", exception);
-        }
-    }
-
-    private Map<String, Object> draftFacts(ProductListingDraftCommand draft) {
-        Map<String, Object> facts = new LinkedHashMap<>();
-        facts.put("psku", text(draft.getPsku()));
-        facts.put("productFullType", text(draft.getProductFullType()));
-        facts.put("family", text(draft.getFamily()));
-        facts.put("productType", text(draft.getProductType()));
-        facts.put("productSubType", text(draft.getProductSubType()));
-        facts.put("brand", text(draft.getProductBrand()));
-        facts.put("brandCode", text(draft.getProductBrandCode()));
-        facts.put("titleCn", text(draft.getProductTitleCn()));
-        facts.put("titleEn", text(draft.getProductTitleEn()));
-        facts.put("titleAr", text(draft.getProductTitleAr()));
-        facts.put("descriptionCn", text(draft.getProductDescriptionCn()));
-        facts.put("descriptionEn", text(draft.getProductDescriptionEn()));
-        facts.put("descriptionAr", text(draft.getProductDescriptionAr()));
-        facts.put("highlightsCn", normalizeTexts(draft.getProductHighlightsCn()));
-        facts.put("highlightsEn", normalizeTexts(draft.getProductHighlightsEn()));
-        facts.put("highlightsAr", normalizeTexts(draft.getProductHighlightsAr()));
-        facts.put("keyAttributes", draft.getKeyAttributes() == null ? List.of() : draft.getKeyAttributes());
-        facts.put("imageCount", draft.getImageUrls() == null ? 0 : normalizeTexts(draft.getImageUrls()).size());
-        facts.put("price", decimalText(draft.getPrice()));
-        facts.put("priceMin", decimalText(draft.getPriceMin()));
-        facts.put("priceMax", decimalText(draft.getPriceMax()));
-        facts.put("salePrice", decimalText(draft.getSalePrice()));
-        facts.put("barcode", text(draft.getBarcode()));
-        return facts;
-    }
-
-    private Map<String, Object> competitorMaterial(ProductListingAiCompetitorMaterial material) {
-        Map<String, Object> item = new LinkedHashMap<>();
-        item.put("id", text(material.getId()));
-        item.put("url", text(material.getUrl()));
-        item.put("note", text(material.getNote()));
-        item.put("sourceHost", text(material.getSourceHost()));
-        item.put("fetchedAt", text(material.getFetchedAt()));
-        item.put("titleEn", text(material.getTitleEn()));
-        item.put("titleAr", text(material.getTitleAr()));
-        item.put("descriptionEn", text(material.getDescriptionEn()));
-        item.put("descriptionAr", text(material.getDescriptionAr()));
-        item.put("sellingPointsEn", normalizeTexts(material.getSellingPointsEn()));
-        item.put("sellingPointsAr", normalizeTexts(material.getSellingPointsAr()));
-        return item;
+        return ProductListingAiListingView.unavailable(
+                RULE_VERSION,
+                "ai",
+                prefix + aiErrorMessage(aiResult),
+                warnings
+        );
     }
 
     private boolean hasDraftFacts(ProductListingDraftCommand draft) {
@@ -176,11 +202,19 @@ public class ProductListingAiListingService {
                 || !normalizeTexts(draft.getProductHighlightsCn()).isEmpty()
                 || !normalizeTexts(draft.getProductHighlightsEn()).isEmpty()
                 || !normalizeTexts(draft.getProductHighlightsAr()).isEmpty()
-                || StringUtils.hasText(draft.getProductFullType())
-                || StringUtils.hasText(draft.getFamily())
-                || StringUtils.hasText(draft.getProductType())
-                || StringUtils.hasText(draft.getProductSubType())
-                || StringUtils.hasText(draft.getProductBrand());
+                || hasVerifiedAttributeFacts(draft.getKeyAttributes());
+    }
+
+    private boolean hasVerifiedAttributeFacts(List<Map<String, Object>> attributes) {
+        if (attributes == null) {
+            return false;
+        }
+        return attributes.stream().anyMatch(attribute -> attribute != null && List.of(
+                "commonValue", "enValue", "arValue"
+        ).stream().anyMatch(field -> {
+            Object value = attribute.get(field);
+            return value != null && StringUtils.hasText(String.valueOf(value));
+        }));
     }
 
     private List<ProductListingAiCompetitorMaterial> usefulCompetitorMaterials(List<ProductListingAiCompetitorMaterial> materials) {
@@ -202,139 +236,6 @@ public class ProductListingAiListingService {
                 || StringUtils.hasText(material.getDescriptionAr())
                 || !normalizeTexts(material.getSellingPointsEn()).isEmpty()
                 || !normalizeTexts(material.getSellingPointsAr()).isEmpty();
-    }
-
-    private Map<String, Object> outputSchema() {
-        Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("inputCompleteness", objectSchema(
-                List.of("summary", "missingCritical", "missingOptional"),
-                Map.of(
-                        "summary", stringSchema(),
-                        "missingCritical", stringArraySchema(),
-                        "missingOptional", stringArraySchema()
-                )
-        ));
-        properties.put("productUnderstanding", objectSchema(
-                List.of("productType", "buyerUseCases", "confirmedFacts"),
-                Map.of(
-                        "productType", stringSchema(),
-                        "buyerUseCases", stringArraySchema(),
-                        "confirmedFacts", stringArraySchema()
-                )
-        ));
-        properties.put("styleDecision", objectSchema(
-                List.of("style", "rationale"),
-                Map.of(
-                        "style", stringSchema(),
-                        "rationale", stringSchema()
-                )
-        ));
-        properties.put("keywords", objectSchema(
-                List.of("english", "arabic"),
-                Map.of(
-                        "english", stringArraySchema(),
-                        "arabic", stringArraySchema()
-                )
-        ));
-        properties.put("attributeGuardrails", objectSchema(
-                List.of("confirmedAttributes", "usableSellingPoints", "forbiddenClaims"),
-                Map.of(
-                        "confirmedAttributes", stringArraySchema(),
-                        "usableSellingPoints", stringArraySchema(),
-                        "forbiddenClaims", stringArraySchema()
-                )
-        ));
-        properties.put("listingStrategy", objectSchema(
-                List.of("english", "arabic"),
-                Map.of(
-                        "english", stringSchema(),
-                        "arabic", stringSchema()
-                )
-        ));
-        properties.put("englishListing", listingSchema());
-        properties.put("arabicListing", listingSchema());
-        properties.put("qualityCheck", objectSchema(
-                List.of("score", "findings", "uploadNotes", "removeMarkdownBeforeUpload"),
-                Map.of(
-                        "score", integerSchema(),
-                        "findings", stringArraySchema(),
-                        "uploadNotes", stringArraySchema(),
-                        "removeMarkdownBeforeUpload", booleanSchema()
-                )
-        ));
-        properties.put("warnings", stringArraySchema());
-        properties.put("needsHumanConfirmation", stringArraySchema());
-        properties.put("noonUploadDraft", noonUploadDraftSchema());
-        return objectSchema(
-                List.of(
-                        "inputCompleteness",
-                        "productUnderstanding",
-                        "styleDecision",
-                        "keywords",
-                        "attributeGuardrails",
-                        "listingStrategy",
-                        "englishListing",
-                        "arabicListing",
-                        "qualityCheck",
-                        "warnings",
-                        "needsHumanConfirmation",
-                        "noonUploadDraft"
-                ),
-                properties
-        );
-    }
-
-    private Map<String, Object> listingSchema() {
-        return objectSchema(
-                List.of("title", "bullets", "longDescription"),
-                Map.of(
-                        "title", stringSchema(),
-                        "bullets", stringArraySchema(),
-                        "longDescription", stringSchema()
-                )
-        );
-    }
-
-    private Map<String, Object> noonUploadDraftSchema() {
-        return objectSchema(
-                List.of("productTitleEn", "productTitleAr", "productHighlightsEn", "productHighlightsAr", "productDescriptionEn", "productDescriptionAr"),
-                Map.of(
-                        "productTitleEn", stringSchema(),
-                        "productTitleAr", stringSchema(),
-                        "productHighlightsEn", stringArraySchema(),
-                        "productHighlightsAr", stringArraySchema(),
-                        "productDescriptionEn", stringSchema(),
-                        "productDescriptionAr", stringSchema()
-                )
-        );
-    }
-
-    private Map<String, Object> objectSchema(List<String> required, Map<String, Object> properties) {
-        Map<String, Object> schema = new LinkedHashMap<>();
-        schema.put("type", "object");
-        schema.put("additionalProperties", false);
-        schema.put("required", required);
-        schema.put("properties", properties);
-        return schema;
-    }
-
-    private Map<String, Object> stringArraySchema() {
-        Map<String, Object> schema = new LinkedHashMap<>();
-        schema.put("type", "array");
-        schema.put("items", stringSchema());
-        return schema;
-    }
-
-    private Map<String, Object> stringSchema() {
-        return Map.of("type", "string");
-    }
-
-    private Map<String, Object> integerSchema() {
-        return Map.of("type", "integer");
-    }
-
-    private Map<String, Object> booleanSchema() {
-        return Map.of("type", "boolean");
     }
 
     private List<String> warningsFrom(AiStructuredTextResult aiResult) {
@@ -361,15 +262,6 @@ public class ProductListingAiListingService {
         return "AI 未返回可用 Listing 结果。";
     }
 
-    private String loadRulebook() {
-        ClassPathResource resource = new ClassPathResource(RULE_RESOURCE);
-        try {
-            return StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8);
-        } catch (IOException exception) {
-            throw new IllegalStateException("商品上架 AI 规则材料缺失：" + RULE_RESOURCE, exception);
-        }
-    }
-
     private List<String> normalizeTexts(List<String> values) {
         if (values == null) {
             return List.of();
@@ -381,24 +273,4 @@ public class ProductListingAiListingService {
                 .collect(Collectors.toList());
     }
 
-    private String text(String value) {
-        return value == null ? "" : value.trim();
-    }
-
-    private String decimalText(BigDecimal value) {
-        return value == null ? "" : value.stripTrailingZeros().toPlainString();
-    }
-
-    private String siteFromStoreCode(String storeCode) {
-        String normalized = text(storeCode).toUpperCase(Locale.ROOT);
-        int marker = normalized.lastIndexOf("-N");
-        if (marker >= 0 && normalized.length() >= marker + 4) {
-            return normalized.substring(marker + 2, marker + 4);
-        }
-        int dash = normalized.lastIndexOf('-');
-        if (dash >= 0 && normalized.length() >= dash + 3) {
-            return normalized.substring(dash + 1, dash + 3);
-        }
-        return "";
-    }
 }

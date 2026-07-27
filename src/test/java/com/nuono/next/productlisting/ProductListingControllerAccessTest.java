@@ -1,6 +1,7 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -32,6 +33,9 @@ class ProductListingControllerAccessTest {
     private ProductListingService service;
 
     @Mock
+    private ProductListingWorkflowService workflowService;
+
+    @Mock
     private BusinessAccessResolver businessAccessResolver;
 
     @Mock
@@ -41,10 +45,20 @@ class ProductListingControllerAccessTest {
     private ProductListingAiListingService aiListingService;
 
     private ProductListingController controller;
+    private ProductListingDraftLookupController draftLookupController;
 
     @BeforeEach
     void setUp() {
-        controller = new ProductListingController(service, businessAccessResolver, aiListingServiceProvider);
+        controller = new ProductListingController(
+                service,
+                workflowService,
+                businessAccessResolver,
+                aiListingServiceProvider
+        );
+        draftLookupController = new ProductListingDraftLookupController(
+                service,
+                businessAccessResolver
+        );
     }
 
     @Test
@@ -65,6 +79,98 @@ class ProductListingControllerAccessTest {
 
         assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
         verify(service, never()).saveDraft(any(), any());
+    }
+
+    @Test
+    void listDraftsIncludesWorkflowSummariesWhenRequested() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(90002L)
+                .businessOwnerUserId(10002L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .storeCodes(Set.of("STR245027-NSA"))
+                .storeOwnerUserIds(Map.of("STR245027-NSA", 10002L))
+                .menuPaths(Set.of("/purchase/listing"))
+                .build();
+        List<ProductListingDraftView> drafts = List.of(new ProductListingDraftView());
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_LISTING,
+                "STR245027-NSA"
+        )).thenReturn(context);
+        when(service.listDrafts(context, "STR245027-NSA", 30)).thenReturn(drafts);
+        when(workflowService.attachWorkflowSummaries(context, drafts)).thenReturn(drafts);
+
+        List<ProductListingDraftView> actual =
+                controller.drafts("STR245027-NSA", 30, true, request);
+
+        assertSame(drafts, actual);
+        verify(workflowService).attachWorkflowSummaries(context, drafts);
+    }
+
+    @Test
+    void activeDraftBySourceUsesStoreAccessAndReturnsZeroOrOneItem() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        BusinessAccessContext context = BusinessAccessContext.builder()
+                .sessionUserId(90002L)
+                .businessOwnerUserId(10002L)
+                .accountType(BusinessAccountType.OPERATOR)
+                .storeCodes(Set.of("STR245027-NSA"))
+                .storeOwnerUserIds(Map.of("STR245027-NSA", 10002L))
+                .menuPaths(Set.of("/purchase/listing"))
+                .build();
+        ProductListingDraftView expected = new ProductListingDraftView();
+        expected.setDraftId(10069L);
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_LISTING,
+                "STR245027-NSA"
+        )).thenReturn(context);
+        when(service.loadActiveSourceDraft(
+                context,
+                "STR245027-NSA",
+                "manual_selection_group",
+                91004L
+        )).thenReturn(expected);
+
+        List<ProductListingDraftView> found = draftLookupController.activeDraftBySource(
+                "STR245027-NSA",
+                "manual_selection_group",
+                91004L,
+                request
+        );
+        List<ProductListingDraftView> missing = draftLookupController.activeDraftBySource(
+                "STR245027-NSA",
+                "manual_selection_group",
+                91005L,
+                request
+        );
+
+        assertEquals(List.of(expected), found);
+        assertEquals(List.of(), missing);
+    }
+
+    @Test
+    void activeDraftBySourceMapsStoreScopeRejectionToForbidden() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        when(businessAccessResolver.requireStoreAccess(
+                request,
+                BusinessCapability.PRODUCT_LISTING,
+                "STR245027-NSA"
+        )).thenThrow(new BusinessAccessDeniedException("当前账号不能操作该店铺。"));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> draftLookupController.activeDraftBySource(
+                        "STR245027-NSA",
+                        "manual_selection_group",
+                        91004L,
+                        request
+                )
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
+        verify(service, never()).loadActiveSourceDraft(any(), any(), any(), any());
     }
 
     @Test

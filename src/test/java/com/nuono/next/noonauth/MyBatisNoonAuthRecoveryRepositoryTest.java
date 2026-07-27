@@ -14,7 +14,6 @@ import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 class MyBatisNoonAuthRecoveryRepositoryTest {
-
     @Test
     void explicitBindingRebasesActiveRecoveryProjectAndEveryEligibleItemInRecoveryFirstOrder() {
         NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
@@ -169,6 +168,7 @@ class MyBatisNoonAuthRecoveryRepositoryTest {
                 org.mockito.ArgumentMatchers.any()
         );
     }
+
 
     @Test
     void successorBindingEpochDoesNotResetItsActivePredecessor() {

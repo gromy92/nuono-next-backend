@@ -69,11 +69,13 @@ public class NoonPullStoreBindingResolver {
         );
         String storeNoonUser = firstNonBlank(
                 store.getNoonPartnerUser(),
-                store.getNoonPartnerProjectUser()
+                store.getNoonPartnerProjectUser(),
+                store.getNoonPartnerUserCode()
         );
         String ownerNoonUser = firstNonBlank(
                 owner == null ? null : owner.getNoonPartnerUser(),
-                owner == null ? null : owner.getNoonPartnerProjectUser()
+                owner == null ? null : owner.getNoonPartnerProjectUser(),
+                owner == null ? null : owner.getNoonPartnerUserCode()
         );
         boolean allowOwnerCredentialFallback = !StringUtils.hasText(storeNoonUser)
                 || sameLoginUser(storeNoonUser, ownerNoonUser);
@@ -81,6 +83,17 @@ public class NoonPullStoreBindingResolver {
                 storeNoonUser,
                 ownerNoonUser,
                 configuredMerchantEmailLoginAvailable ? configuredMerchantEmail : null
+        );
+        String sessionProjectUser = firstNonBlank(
+                store.getNoonPartnerProjectUser(),
+                store.getNoonPartnerUserCode(),
+                allowOwnerCredentialFallback && owner != null
+                        ? owner.getNoonPartnerProjectUser()
+                        : null,
+                allowOwnerCredentialFallback && owner != null
+                        ? owner.getNoonPartnerUserCode()
+                        : null,
+                noonUser
         );
         String noonEmailAuthCode = firstNonBlank(
                 store.getNoonPartnerMailAuthCode(),
@@ -97,7 +110,13 @@ public class NoonPullStoreBindingResolver {
         requireText(siteCode, "missing Noon siteCode");
         requireText(partnerId, "missing Noon partnerId");
         requireText(noonUser, "missing Noon login account");
-        requireNoonLoginCredential(noonEmailAuthCode, noonPassword, configuredMerchantEmailLoginAvailable);
+        requireNoonSessionOrRecoveryCredential(
+                persistedCookie,
+                sessionProjectUser,
+                noonEmailAuthCode,
+                noonPassword,
+                configuredMerchantEmailLoginAvailable
+        );
 
         return new NoonPullStoreBinding(
                 ownerUserId,
@@ -106,6 +125,7 @@ public class NoonPullStoreBindingResolver {
                 siteCode.toUpperCase(Locale.ROOT),
                 partnerId,
                 noonUser,
+                sessionProjectUser,
                 noonPassword,
                 noonEmailAuthCode,
                 persistedCookie
@@ -192,15 +212,23 @@ public class NoonPullStoreBindingResolver {
         }
     }
 
-    private static void requireNoonLoginCredential(
+    private static void requireNoonSessionOrRecoveryCredential(
+            String persistedCookie,
+            String sessionProjectUser,
             String noonEmailAuthCode,
             String noonPassword,
             boolean configuredMerchantEmailLoginAvailable
     ) {
+        if (StringUtils.hasText(persistedCookie)
+                && StringUtils.hasText(sessionProjectUser)) {
+            return;
+        }
         if (!StringUtils.hasText(noonEmailAuthCode)
                 && !configuredMerchantEmailLoginAvailable
                 && !StringUtils.hasText(noonPassword)) {
-            throw providerNotConfigured("missing Noon email auth code or legacy login password");
+            throw providerNotConfigured(
+                    "missing persisted Noon project session or recoverable login credential"
+            );
         }
     }
 
