@@ -161,14 +161,15 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
 @Select({
             "SELECT COUNT(1)",
             "FROM warehouse_outbound_order_line_source source",
-            "LEFT JOIN procurement_purchase_order_logistics_quote_line quote",
-            "  ON quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
-            " AND quote.is_deleted = b'0'",
             "WHERE source.outbound_order_id = #{outboundOrderId}",
             "  AND source.is_deleted = b'0'",
-            "  AND (quote.id IS NULL",
-            "       OR quote.quote_status != 'CONFIRMED'",
-            "       OR quote.shipping_submit_status != 'SUBMITTED')"
+            "  AND NOT EXISTS (",
+            "      SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
+            "      WHERE quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
+            "        AND quote.quote_status = 'CONFIRMED'",
+            "        AND quote.shipping_submit_status = 'SUBMITTED'",
+            "        AND quote.is_deleted = b'0'",
+            "  )"
     })
     int countBlockingOutboundOrderLogisticsQuotes(@Param("outboundOrderId") Long outboundOrderId);
 }

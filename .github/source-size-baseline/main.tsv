@@ -44,7 +44,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitLogisticsClosur
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitMapper.java	1160
 src/main/java/com/nuono/next/infrastructure/mapper/PreOrderProfitMapper.java	310
 src/main/java/com/nuono/next/infrastructure/mapper/ProcurementMapper.java	1180
-src/main/java/com/nuono/next/infrastructure/mapper/ProcurementPurchaseOrderMapper.java	2915
+src/main/java/com/nuono/next/infrastructure/mapper/ProcurementPurchaseOrderMapper.java	2914
 src/main/java/com/nuono/next/infrastructure/mapper/ProcurementRequirementConfirmationMapper.java	1204
 src/main/java/com/nuono/next/infrastructure/mapper/ProductAttributeTemplateMapper.java	322
 src/main/java/com/nuono/next/infrastructure/mapper/ProductGroupMapper.java	520
@@ -165,7 +165,7 @@ src/main/java/com/nuono/next/procurement/aliorder/Ali1688SkuPurchaseBatchView.ja
 src/main/java/com/nuono/next/procurement/aliorder/Ali1688SkuPurchaseHistoryView.java	751
 src/main/java/com/nuono/next/procurement/aliorder/HttpAli1688HistoricalOrderProvider.java	592
 src/main/java/com/nuono/next/procurement/aliorder/LocalDbAli1688HistoricalOrderService.java	3422
-src/main/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderService.java	6487
+src/main/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderService.java	6425
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderController.java	612
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderRecords.java	649
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderViews.java	437
