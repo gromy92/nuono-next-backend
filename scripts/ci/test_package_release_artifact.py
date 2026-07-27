@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+
+MODULE_PATH = Path(__file__).with_name("package_release_artifact.py")
+
+
+def load_module():
+    spec = importlib.util.spec_from_file_location("package_release_artifact", MODULE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def github_env() -> dict[str, str]:
+    return {
+        "GITHUB_SHA": "a" * 40,
+        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_REF": "refs/heads/master",
+        "GITHUB_REPOSITORY": "gromy92/nuono-next-backend",
+        "GITHUB_WORKFLOW": "Backend CI",
+        "GITHUB_RUN_ID": "123",
+        "GITHUB_RUN_ATTEMPT": "2",
+    }
+
+
+class PackageReleaseArtifactTest(unittest.TestCase):
+    def test_packages_one_jar_and_binds_it_to_the_workflow(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "target"
+            target.mkdir()
+            (target / "nuono-next-backend-0.0.1-SNAPSHOT.jar").write_bytes(b"jar")
+            manifest_path = module.package_release_artifact(
+                target,
+                root / "out",
+                "nuono-next-backend-" + "a" * 40,
+                github_env(),
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["commit"], "a" * 40)
+            self.assertEqual(manifest["run_id"], 123)
+            self.assertTrue(manifest["deployable"])
+            self.assertEqual(manifest["files"][0]["path"], "nuono-next-backend.jar")
+            self.assertEqual(
+                manifest["files"][0]["sha256"],
+                module.sha256_file(root / "out" / "nuono-next-backend.jar"),
+            )
+
+    def test_rejects_non_master_artifact(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact = Path(tmp) / "nuono-next-backend.jar"
+            artifact.write_bytes(b"jar")
+            env = github_env()
+            env["GITHUB_EVENT_NAME"] = "pull_request"
+            with self.assertRaisesRegex(module.ArtifactError, "push to master"):
+                module.build_manifest(artifact, "artifact", env)
+
+    def test_rejects_ambiguous_jar(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            (target / "nuono-next-backend-a.jar").write_bytes(b"a")
+            (target / "nuono-next-backend-b.jar").write_bytes(b"b")
+            with self.assertRaisesRegex(module.ArtifactError, "exactly one"):
+                module.select_runnable_jar(target)
+
+
+if __name__ == "__main__":
+    unittest.main()
