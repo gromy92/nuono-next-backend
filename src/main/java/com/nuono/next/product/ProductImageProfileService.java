@@ -1213,23 +1213,43 @@ public class ProductImageProfileService {
         );
 
         LocalDateTime now = LocalDateTime.now();
-        ProductImageSuiteRecord suite = new ProductImageSuiteRecord();
-        suite.setProfileId(profile.getId());
-        suite.setRevisionNo(1);
-        suite.setSuiteName(buildDraftSuiteName(profile, now));
-        suite.setSkinId(activeSkin.skin().getId());
-        suite.setSkinName(activeSkin.skin().getSkinName());
-        suite.setGenerationTaskId(buildDraftTaskId(profile, now));
-        suite.setDraftPackageJson(draftPackageJson);
-        suite.setDraftPromptText(draftPromptText);
-        suite.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
-        suite.setCreatedBy(operatorUserId);
-        suite.setUpdatedBy(operatorUserId);
-        suite.setCreatedAt(now);
-        suite.setUpdatedAt(now);
-        suite.setDeleted(false);
-        if (mapper.insertSuite(suite) == 0 || suite.getId() == null) {
-            throw new IllegalStateException("AI 套图任务保存失败。");
+        String suiteName = buildCanonicalSuiteName(profile);
+        String generationTaskId = buildDraftTaskId(profile, now);
+        ProductImageSuiteRecord suite = mapper.selectLatestSuiteForUpdate(profile.getId());
+        if (suite == null) {
+            suite = new ProductImageSuiteRecord();
+            suite.setProfileId(profile.getId());
+            suite.setRevisionNo(1);
+            suite.setSuiteName(suiteName);
+            suite.setSkinId(activeSkin.skin().getId());
+            suite.setSkinName(activeSkin.skin().getSkinName());
+            suite.setGenerationTaskId(generationTaskId);
+            suite.setDraftPackageJson(draftPackageJson);
+            suite.setDraftPromptText(draftPromptText);
+            suite.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
+            suite.setCreatedBy(operatorUserId);
+            suite.setUpdatedBy(operatorUserId);
+            suite.setCreatedAt(now);
+            suite.setUpdatedAt(now);
+            suite.setDeleted(false);
+            if (mapper.insertSuite(suite) == 0 || suite.getId() == null) {
+                throw new IllegalStateException("AI 套图任务保存失败。");
+            }
+        } else {
+            if (mapper.restartSuiteGeneration(
+                    suite.getId(), profile.getId(),
+                    suiteName,
+                    activeSkin.skin().getId(),
+                    activeSkin.skin().getSkinName(),
+                    generationTaskId,
+                    draftPackageJson,
+                    draftPromptText,
+                    operatorUserId
+            ) == 0) {
+                throw new IllegalArgumentException("当前套图正在处理，请完成后再申请做图。");
+            }
+            mapper.deleteReviewTargets(suite.getId());
+            mapper.insertReviewTarget(suite.getId(), "SUITE", null, null, null, operatorUserId);
         }
         eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
                 suite.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
@@ -1283,11 +1303,13 @@ public class ProductImageProfileService {
         if (!wholeSuite && sourceAssets.stream().filter(asset -> selectedIds.contains(asset.getId())).count() != selectedIds.size()) {
             throw new IllegalArgumentException("选择的返工图片不属于当前套图。");
         }
-        if (mapper.reviewSuite(
-                suiteId, profile.getId(), ProductImageSuiteStatus.HISTORICAL, comment, operatorUserId
+        LocalDateTime now = LocalDateTime.now();
+        if (mapper.restartSuiteForRework(
+                suiteId, profile.getId(), buildDraftTaskId(profile, now), comment, operatorUserId
         ) == 0) {
             throw new IllegalArgumentException("只有待审核或当前采用套图可以驳回返工。");
         }
+        mapper.deleteReviewTargets(suiteId);
         if (wholeSuite) {
             mapper.insertReviewTarget(suiteId, "SUITE", null, null, null, operatorUserId);
         } else {
@@ -1299,37 +1321,8 @@ public class ProductImageProfileService {
                 }
             }
         }
-
-        LocalDateTime now = LocalDateTime.now();
-        ProductImageSuiteRecord revision = new ProductImageSuiteRecord();
-        revision.setProfileId(profile.getId());
-        revision.setParentSuiteId(source.getId());
-        revision.setRevisionNo((source.getRevisionNo() == null ? 1 : source.getRevisionNo()) + 1);
-        revision.setSuiteName(source.getSuiteName() + " 返工版" + revision.getRevisionNo());
-        revision.setSkinId(source.getSkinId());
-        revision.setSkinName(source.getSkinName());
-        revision.setGenerationTaskId(buildDraftTaskId(profile, now));
-        revision.setDraftPackageJson(source.getDraftPackageJson());
-        revision.setDraftPromptText(source.getDraftPromptText());
-        revision.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
-        revision.setReviewComment(comment);
-        revision.setCreatedBy(operatorUserId);
-        revision.setUpdatedBy(operatorUserId);
-        revision.setCreatedAt(now);
-        revision.setUpdatedAt(now);
-        revision.setDeleted(false);
-        if (mapper.insertSuite(revision) == 0 || revision.getId() == null) throw new IllegalStateException("返工任务保存失败。");
-        for (ProductImageSuiteAssetRecord sourceAsset : sourceAssets) {
-            if (wholeSuite || selectedIds.contains(sourceAsset.getId())) continue;
-            ProductImageSuiteAssetRecord retained = copySuiteAsset(
-                    sourceAsset,
-                    revision.getId(),
-                    sourceAsset.getSortOrder() == null ? 10 : sourceAsset.getSortOrder()
-            );
-            mapper.insertSuiteAsset(retained);
-        }
         eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
-                revision.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+                source.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
         ));
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
@@ -1561,23 +1554,6 @@ public class ProductImageProfileService {
         view.setImageUrl(record.getImageUrl());
         view.setSortOrder(record.getSortOrder());
         return view;
-    }
-
-    private ProductImageSuiteAssetRecord copySuiteAsset(
-            ProductImageSuiteAssetRecord source,
-            Long targetSuiteId,
-            int sortOrder
-    ) {
-        ProductImageSuiteAssetRecord target = new ProductImageSuiteAssetRecord();
-        target.setSuiteId(targetSuiteId);
-        target.setImageRole(source.getImageRole());
-        target.setRoleOrdinal(source.getRoleOrdinal() == null ? 1 : source.getRoleOrdinal());
-        target.setImageUrl(source.getImageUrl());
-        target.setContentType(source.getContentType());
-        target.setSizeBytes(source.getSizeBytes());
-        target.setSha256(source.getSha256());
-        target.setSortOrder(sortOrder);
-        return target;
     }
 
     private List<ProductImageSectionRecord> normalizeSections(
@@ -1829,10 +1805,9 @@ public class ProductImageProfileService {
         return index < 0 ? Integer.MAX_VALUE : index;
     }
 
-    private String buildDraftSuiteName(ProductImageProfileRecord profile, LocalDateTime now) {
+    private String buildCanonicalSuiteName(ProductImageProfileRecord profile) {
         String pskuCode = trimToNull(profile.getPskuCode());
-        String prefix = pskuCode == null ? "AI 套图草稿" : pskuCode + " AI 套图草稿";
-        return prefix + " " + TASK_TIME_FORMATTER.format(now);
+        return pskuCode == null ? "通用 V1" : pskuCode + " 通用 V1";
     }
 
     private String buildDraftTaskId(ProductImageProfileRecord profile, LocalDateTime now) {

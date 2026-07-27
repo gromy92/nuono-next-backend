@@ -50,7 +50,9 @@ class ProductImageWorkflowService {
     void generate(Long suiteId, Long ownerUserId, String storeCode, Long operatorUserId) {
         ProductImageSuiteRecord suite = requireSuite(suiteId);
         ProductImageProfileRecord profile = requireProfile(suite, ownerUserId, storeCode);
-        boolean rework = suite.getParentSuiteId() != null;
+        List<ProductImageSuiteReviewTargetRecord> reviewTargets = mapper.selectReviewTargets(suiteId);
+        if (reviewTargets == null) reviewTargets = List.of();
+        boolean rework = suite.getParentSuiteId() != null || !reviewTargets.isEmpty();
         mapper.updateSuiteWorkflowStatus(
                 suiteId,
                 rework ? ProductImageSuiteStatus.REGENERATING : ProductImageSuiteStatus.GENERATING,
@@ -60,10 +62,11 @@ class ProductImageWorkflowService {
         );
         try {
             List<ProductImageSuiteAssetRecord> existing = mapper.selectSuiteAssets(suiteId);
+            List<String> baseReferences = baseReferences(profile);
+            replaceReviewTargets(suite, reviewTargets, existing, baseReferences, storeCode);
             Set<ProductImageSuiteAssetRole> completed = existing.stream()
                     .map(ProductImageSuiteAssetRecord::getImageRole)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
-            List<String> baseReferences = baseReferences(profile);
             for (int roleIndex = 0; roleIndex < REQUIRED_ROLES.size(); roleIndex++) {
                 ProductImageSuiteAssetRole role = REQUIRED_ROLES.get(roleIndex);
                 if (completed.contains(role)) continue;
@@ -80,6 +83,43 @@ class ProductImageWorkflowService {
                     suiteId, ProductImageSuiteStatus.FAILED, "GENERATION", safeMessage(exception), operatorUserId
             );
             throw exception;
+        }
+    }
+
+    private void replaceReviewTargets(
+            ProductImageSuiteRecord suite,
+            List<ProductImageSuiteReviewTargetRecord> reviewTargets,
+            List<ProductImageSuiteAssetRecord> existing,
+            List<String> baseReferences,
+            String storeCode
+    ) {
+        if (reviewTargets.isEmpty() || existing.isEmpty()) return;
+        boolean wholeSuite = reviewTargets.stream()
+                .anyMatch(target -> "SUITE".equalsIgnoreCase(target.getTargetScope()));
+        Set<Long> selectedIds = reviewTargets.stream()
+                .map(ProductImageSuiteReviewTargetRecord::getAssetId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (ProductImageSuiteAssetRecord asset : existing) {
+            if (!wholeSuite && !selectedIds.contains(asset.getId())) continue;
+            List<String> references = new ArrayList<>(baseReferences);
+            if (StringUtils.hasText(asset.getImageUrl())) references.add(0, asset.getImageUrl());
+            GeneratedProductImage image = generator.generate(rolePrompt(suite, asset.getImageRole()), references);
+            ProductImageSuiteAssetRecord replacement = saveGeneratedImage(
+                    suite,
+                    asset.getImageRole(),
+                    image,
+                    storeCode,
+                    asset.getSortOrder() == null ? 10 : asset.getSortOrder()
+            );
+            mapper.updateSuiteAssetContent(
+                    suite.getId(),
+                    asset.getId(),
+                    replacement.getImageUrl(),
+                    replacement.getContentType(),
+                    replacement.getSizeBytes(),
+                    replacement.getSha256()
+            );
         }
     }
 
