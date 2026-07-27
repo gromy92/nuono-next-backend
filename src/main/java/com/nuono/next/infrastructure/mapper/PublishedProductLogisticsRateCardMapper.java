@@ -16,7 +16,7 @@ public interface PublishedProductLogisticsRateCardMapper {
             "  route.transport_mode AS transportMode, 'HEADHAUL' AS feeType,",
             "  price.cargo_category_code AS cargoCategoryCode, price.cargo_category_name AS cargoCategoryName,",
             "  price.billing_unit AS chargeUnit, price.unit_price AS unitCostCny, price.currency AS currencyCode,",
-            "  'PUBLISHED_FORWARDER_QUOTE' AS sourceType, version.quote_version_code AS sourceReference,",
+            "  'PUBLISHED_FORWARDER_QUOTE' AS sourceType, version.version_no AS sourceReference,",
             "  price.gmt_updated AS effectiveAt, price.remark, NULL AS evidenceJson",
             "FROM forwarder_quote_route_template route",
             "JOIN forwarder_quote_route_template_segment segment",

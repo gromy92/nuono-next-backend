@@ -35,5 +35,7 @@ class PublishedProductLogisticsRateCardMapperSqlTest {
         assertThat(sql).contains("#{forwarderCode} = 'YITE' AND route.forwarder_code = 'YT'");
         assertThat(sql).contains("route.transport_mode = #{transportMode}");
         assertThat(sql).contains("'PUBLISHED_FORWARDER_QUOTE' AS sourceType");
+        assertThat(sql).contains("version.version_no AS sourceReference");
+        assertThat(sql).doesNotContain("version.quote_version_code");
     }
 }
