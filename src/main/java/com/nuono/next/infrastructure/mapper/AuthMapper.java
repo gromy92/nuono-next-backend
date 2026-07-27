@@ -2,7 +2,7 @@ package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.auth.AuthGrantedMenu;
 import com.nuono.next.auth.AuthLoginAccount;
-import com.nuono.next.auth.AuthSampleAccount;
+import com.nuono.next.auth.AuthSessionState;
 import com.nuono.next.auth.AuthUserStore;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
@@ -16,6 +16,7 @@ public interface AuthMapper {
             "  u.id AS user_id,",
             "  u.account_no,",
             "  u.password AS stored_password,",
+            "  u.credential_version,",
             "  u.real_name,",
             "  u.role_id,",
             "  r.name AS role_name,",
@@ -62,6 +63,7 @@ public interface AuthMapper {
             "  u.id AS user_id,",
             "  u.account_no,",
             "  u.password AS stored_password,",
+            "  u.credential_version,",
             "  u.real_name,",
             "  u.role_id,",
             "  r.name AS role_name,",
@@ -148,32 +150,67 @@ public interface AuthMapper {
     })
     List<AuthGrantedMenu> selectGrantedMenus(@Param("userId") Long userId);
 
+    @Select({
+            "SELECT",
+            "  u.credential_version,",
+            "  u.role_id,",
+            "  COALESCE(r.level, u.level) AS level",
+            "FROM `user` u",
+            "JOIN role r ON r.id = u.role_id AND r.is_deleted = 0",
+            "WHERE u.id = #{userId}",
+            "  AND u.is_deleted = 0",
+            "  AND u.status = 1",
+            "  AND (u.effective_time IS NULL OR u.effective_time <= NOW())",
+            "  AND (u.expired_time IS NULL OR u.expired_time >= NOW())",
+            "LIMIT 1"
+    })
+    AuthSessionState selectSessionState(@Param("userId") Long userId);
+
+    @Select({
+            "SELECT u.password",
+            "FROM `user` u",
+            "WHERE u.id = #{userId}",
+            "  AND u.is_deleted = 0",
+            "  AND u.status = 1",
+            "  AND (u.effective_time IS NULL OR u.effective_time <= NOW())",
+            "  AND (u.expired_time IS NULL OR u.expired_time >= NOW())",
+            "LIMIT 1"
+    })
+    String selectCurrentPasswordCredential(@Param("userId") Long userId);
+
     @Update({
             "UPDATE `user`",
-            "SET password = #{newPassword},",
+            "SET password = #{passwordCredential},",
+            "    credential_version = credential_version + 1,",
             "    updated_by = #{userId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{userId}",
-            "  AND is_deleted = 0"
+            "  AND is_deleted = 0",
+            "  AND status = 1",
+            "  AND (effective_time IS NULL OR effective_time <= NOW())",
+            "  AND (expired_time IS NULL OR expired_time >= NOW())",
+            "  AND credential_version = #{expectedCredentialVersion}",
+            "  AND BINARY password = BINARY #{expectedStoredCredential}"
     })
     int updateCurrentUserPassword(
             @Param("userId") Long userId,
-            @Param("newPassword") String newPassword
+            @Param("expectedCredentialVersion") Long expectedCredentialVersion,
+            @Param("expectedStoredCredential") String expectedStoredCredential,
+            @Param("passwordCredential") String passwordCredential
     );
 
-    @Select({
-            "SELECT",
-            "  u.account_no,",
-            "  u.password,",
-            "  u.real_name,",
-            "  r.name AS role_name",
-            "FROM `user` u",
-            "LEFT JOIN role r ON r.id = u.role_id AND r.is_deleted = 0",
-            "WHERE u.is_deleted = 0",
-            "  AND u.status = 1",
-            "  AND NOT (CHAR_LENGTH(COALESCE(u.password, '')) = 32 AND LOWER(u.password) REGEXP '^[0-9a-f]{32}$')",
-            "ORDER BY u.id ASC",
-            "LIMIT 6"
+    @Update({
+            "UPDATE `user`",
+            "SET password = #{newPasswordCredential},",
+            "    updated_by = #{userId},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{userId}",
+            "  AND is_deleted = 0",
+            "  AND BINARY password = BINARY #{expectedStoredCredential}"
     })
-    List<AuthSampleAccount> listSampleAccounts();
+    int upgradePasswordIfUnchanged(
+            @Param("userId") Long userId,
+            @Param("expectedStoredCredential") String expectedStoredCredential,
+            @Param("newPasswordCredential") String newPasswordCredential
+    );
 }

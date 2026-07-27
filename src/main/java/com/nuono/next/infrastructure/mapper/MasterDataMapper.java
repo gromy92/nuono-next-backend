@@ -567,7 +567,7 @@ public interface MasterDataMapper {
             "  id, phone, email, account_no, password, role, role_id, account_type, real_name, company_name, level,",
             "  status, effective_time, expired_time, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{phone}, #{email}, #{accountNo}, #{password}, #{roleCode}, #{roleId}, #{accountType}, #{realName}, #{companyName}, #{level},",
+            "  #{id}, #{phone}, #{email}, #{accountNo}, #{passwordCredential}, #{roleCode}, #{roleId}, #{accountType}, #{realName}, #{companyName}, #{level},",
             "  #{status}, NOW(), #{expiredTime}, 0, #{updatedBy}, #{updatedBy}, NOW(), NOW()",
             ")"
     })
@@ -576,7 +576,7 @@ public interface MasterDataMapper {
             @Param("phone") String phone,
             @Param("email") String email,
             @Param("accountNo") String accountNo,
-            @Param("password") String password,
+            @Param("passwordCredential") String passwordCredential,
             @Param("roleCode") String roleCode,
             @Param("roleId") Long roleId,
             @Param("accountType") String accountType,
@@ -676,10 +676,9 @@ public interface MasterDataMapper {
             @Param("status") Integer status,
             @Param("updatedBy") Long updatedBy
     );
-
     @Update({
             "UPDATE `user`",
-            "SET password = #{password},",
+            "SET password = #{passwordCredential}, credential_version = credential_version + 1,",
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE id = #{userId}",
@@ -687,7 +686,7 @@ public interface MasterDataMapper {
     })
     int updateUserPassword(
             @Param("userId") Long userId,
-            @Param("password") String password,
+            @Param("passwordCredential") String passwordCredential,
             @Param("updatedBy") Long updatedBy
     );
 

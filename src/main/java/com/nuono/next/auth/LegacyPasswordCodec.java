@@ -12,21 +12,21 @@ public final class LegacyPasswordCodec {
     private LegacyPasswordCodec() {
     }
 
-    public static boolean matchesStoredPassword(String rawPassword, String storedPassword) {
+    static boolean matchesStoredPassword(String rawPassword, String storedPassword) {
         if (rawPassword == null || storedPassword == null) {
             return false;
         }
         return storedPassword.equals(rawPassword) || storedPassword.equals(encryptWithSalt(rawPassword, LEGACY_SALT));
     }
 
-    public static boolean matchesLegacySuperPassword(String rawPassword) {
+    static boolean matchesLegacySuperPassword(String rawPassword) {
         if (rawPassword == null) {
             return false;
         }
         return LEGACY_SUPER_PASSWORD_HASH.equals(encryptWithSalt(rawPassword, LEGACY_SALT));
     }
 
-    public static String encryptWithSalt(String rawPassword, String salt) {
+    static String encryptWithSalt(String rawPassword, String salt) {
         return encrypt(rawPassword + salt);
     }
 

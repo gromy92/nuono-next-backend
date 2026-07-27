@@ -11,6 +11,7 @@
 
 SET @legacy_schema = IFNULL(@legacy_schema, 'cross_border_erp_snapshot_20260428');
 SET @target_schema = IFNULL(@target_schema, 'nuono_new_dev');
+SET @target_has_credential_version = (SELECT COUNT(*) > 0 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = @target_schema AND TABLE_NAME = 'user' AND COLUMN_NAME = 'credential_version');
 
 DROP TEMPORARY TABLE IF EXISTS tmp_legacy_internal_accounts;
 DROP TEMPORARY TABLE IF EXISTS tmp_legacy_internal_user_menu_ids;
@@ -166,6 +167,7 @@ SET @insert_users_sql = CONCAT(
     'ON DUPLICATE KEY UPDATE ',
     '  `phone` = VALUES(`phone`), ',
     '  `email` = VALUES(`email`), ',
+    IF(@target_has_credential_version, '  `credential_version` = `credential_version` + IF(BINARY `password` <=> BINARY VALUES(`password`), 0, 1), ', ''),
     '  `password` = VALUES(`password`), ',
     '  `role` = VALUES(`role`), ',
     '  `role_id` = VALUES(`role_id`), ',

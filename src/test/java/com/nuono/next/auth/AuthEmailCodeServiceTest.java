@@ -51,7 +51,10 @@ class AuthEmailCodeServiceTest {
         properties.setTtlSeconds(300);
         properties.setCooldownSeconds(60);
         properties.setMaxAttempts(5);
-        localDbAuthService = new LocalDbAuthService(authMapper);
+        localDbAuthService = new LocalDbAuthService(
+                authMapper,
+                new UserPasswordService(4, new java.security.SecureRandom())
+        );
         service = new AuthEmailCodeService(
                 challengeMapper,
                 sender,

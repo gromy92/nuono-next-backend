@@ -1,11 +1,13 @@
 package com.nuono.next.auth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +62,15 @@ class AuthControllerTest {
     }
 
     @Test
+    void shouldNotExposeCredentialVersionInLoginResponse() throws Exception {
+        AuthLoginResult login = new AuthLoginResult();
+        login.setUserId(10001L);
+        login.setCredentialVersion(9L);
+
+        assertFalse(new ObjectMapper().writeValueAsString(login).contains("credentialVersion"));
+    }
+
+    @Test
     void shouldRequestEmailCode() {
         AuthEmailCodeRequestCommand command = new AuthEmailCodeRequestCommand();
         command.setEmail("login@example.com");
@@ -91,19 +102,49 @@ class AuthControllerTest {
     @Test
     void shouldChangeOnlyAuthenticatedUserPassword() {
         MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
         AuthChangePasswordCommand command = new AuthChangePasswordCommand();
         command.setUserId(99999L);
+        command.setCurrentPassword("Current123!");
         command.setNewPassword("Next123!");
 
         when(authServiceProvider.getIfAvailable()).thenReturn(authService);
-        when(sessionTokenService.requireSession(request)).thenReturn(new AuthenticatedSession(10001L, 1L, 0));
+        when(sessionTokenService.requireSession(request)).thenReturn(
+                new AuthenticatedSession(10001L, 1L, 0, 7L)
+        );
         when(authService.changePassword(command)).thenReturn("密码修改成功");
 
-        assertEquals("密码修改成功", controller.changePassword(command, request).get("message"));
+        assertEquals("密码修改成功", controller.changePassword(command, request, response).get("message"));
 
         ArgumentCaptor<AuthChangePasswordCommand> captor = ArgumentCaptor.forClass(AuthChangePasswordCommand.class);
         verify(authService).changePassword(captor.capture());
         assertEquals(10001L, captor.getValue().getUserId());
+        assertEquals(7L, captor.getValue().getExpectedCredentialVersion());
+        assertEquals("Current123!", captor.getValue().getCurrentPassword());
+        assertTrue(response.getHeader(HttpHeaders.SET_COOKIE).contains("Max-Age=0"));
+    }
+
+    @Test
+    void shouldClearCookieAndReturnUnauthorizedWhenPasswordChangeLosesTheVersionRace() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AuthChangePasswordCommand command = new AuthChangePasswordCommand();
+        command.setCurrentPassword("Current123!");
+        command.setNewPassword("Next123!");
+
+        when(authServiceProvider.getIfAvailable()).thenReturn(authService);
+        when(sessionTokenService.requireSession(request)).thenReturn(
+                new AuthenticatedSession(10001L, 1L, 0, 7L)
+        );
+        when(authService.changePassword(command)).thenThrow(new AuthSessionChangedException());
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.changePassword(command, request, response)
+        );
+
+        assertEquals(HttpStatus.UNAUTHORIZED, error.getStatus());
+        assertTrue(response.getHeader(HttpHeaders.SET_COOKIE).contains("Max-Age=0"));
     }
 
     @Test

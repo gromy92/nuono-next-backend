@@ -10,6 +10,8 @@ public class AuthLoginAccount {
 
     private String storedPassword;
 
+    private Long credentialVersion = 0L;
+
     private String realName;
 
     private Long roleId;
@@ -54,6 +56,14 @@ public class AuthLoginAccount {
 
     public void setStoredPassword(String storedPassword) {
         this.storedPassword = storedPassword;
+    }
+
+    public Long getCredentialVersion() {
+        return credentialVersion;
+    }
+
+    public void setCredentialVersion(Long credentialVersion) {
+        this.credentialVersion = credentialVersion;
     }
 
     public String getRealName() {

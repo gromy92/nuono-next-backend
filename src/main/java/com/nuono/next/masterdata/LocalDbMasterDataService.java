@@ -1,5 +1,6 @@
 package com.nuono.next.masterdata;
 
+import com.nuono.next.auth.UserPasswordService;
 import com.nuono.next.foundation.FoundationUserDetail;
 import com.nuono.next.foundation.FoundationUserScopeSummary;
 import com.nuono.next.foundation.FoundationUserStoreLink;
@@ -15,6 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,7 @@ import org.springframework.util.StringUtils;
 
 @Service
 @Profile("local-db")
+@RequiredArgsConstructor
 public class LocalDbMasterDataService {
 
     private static final LocalDateTime DEFAULT_EXPIRED_TIME = LocalDateTime.of(2099, 12, 31, 23, 59, 59);
@@ -57,14 +60,7 @@ public class LocalDbMasterDataService {
 
     private final MasterDataMapper masterDataMapper;
     private final LocalDbFoundationOverviewService foundationOverviewService;
-
-    public LocalDbMasterDataService(
-            MasterDataMapper masterDataMapper,
-            LocalDbFoundationOverviewService foundationOverviewService
-    ) {
-        this.masterDataMapper = masterDataMapper;
-        this.foundationOverviewService = foundationOverviewService;
-    }
+    private final UserPasswordService passwordService;
 
     public List<MasterDataUserView> listUsers(Long operatorUserId, Integer operatorRoleLevel, String view) {
         List<MasterDataUserView> users = new ArrayList<>(masterDataMapper.listUsers());
@@ -396,7 +392,7 @@ public class LocalDbMasterDataService {
                 trimToNull(command.getPhone()),
                 trimToNull(command.getEmail()),
                 accountNo,
-                requireText(command.getPassword(), "请设置初始密码。"),
+                passwordService.encode(requireText(command.getPassword(), "请设置初始密码。")),
                 roleCode(role),
                 role.getId(),
                 normalizeAccountType(command.getAccountType()),
@@ -440,7 +436,7 @@ public class LocalDbMasterDataService {
                 operatorUserId
         );
         if (StringUtils.hasText(command.getPassword())) {
-            masterDataMapper.updateUserPassword(userId, command.getPassword().trim(), operatorUserId);
+            masterDataMapper.updateUserPassword(userId, passwordService.encode(command.getPassword().trim()), operatorUserId);
         }
         if (command.getRoleId() != null && !command.getRoleId().equals(existing.getRoleId())) {
             MasterDataRoleAssignmentSeed role = requireRoleSeed(command.getRoleId());
@@ -487,11 +483,14 @@ public class LocalDbMasterDataService {
         }
         Long operatorUserId = defaultOperator(command != null ? command.getOperatorUserId() : null);
         ensureOperatorCanManageUser(operatorUserId, userId);
-        String password = command != null && StringUtils.hasText(command.getPassword())
-                ? command.getPassword().trim()
-                : "123456";
-        masterDataMapper.updateUserPassword(userId, password, operatorUserId);
-        return "已把账号 " + existing.getAccountNo() + " 的密码重置为 " + password + "。";
+        boolean generatedTemporaryPassword = command == null || !StringUtils.hasText(command.getPassword());
+        String rawPassword = generatedTemporaryPassword ? passwordService.generateTemporaryPassword() : command.getPassword().trim();
+        masterDataMapper.updateUserPassword(userId, passwordService.encode(rawPassword), operatorUserId);
+        if (generatedTemporaryPassword) {
+            return "已重置账号 " + existing.getAccountNo()
+                    + " 的密码。临时密码（仅显示一次）：" + rawPassword + "。";
+        }
+        return "已重置账号 " + existing.getAccountNo() + " 的密码。";
     }
 
     @Transactional

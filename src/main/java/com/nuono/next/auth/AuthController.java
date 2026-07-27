@@ -66,7 +66,8 @@ public class AuthController {
     @PostMapping("/change-password")
     public Map<String, Object> changePassword(
             @RequestBody AuthChangePasswordCommand command,
-            HttpServletRequest request
+            HttpServletRequest request,
+            HttpServletResponse response
     ) {
         LocalDbAuthService authService = localDbAuthServiceProvider.getIfAvailable();
         if (authService == null) {
@@ -79,11 +80,16 @@ public class AuthController {
                 command = new AuthChangePasswordCommand();
             }
             command.setUserId(session.getUserId());
+            command.setExpectedCredentialVersion(session.getCredentialVersion());
             String message = authService.changePassword(command);
+            response.addHeader(HttpHeaders.SET_COOKIE, clearSessionCookie().toString());
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("success", true);
             payload.put("message", message);
             return payload;
+        } catch (AuthSessionChangedException exception) {
+            response.addHeader(HttpHeaders.SET_COOKIE, clearSessionCookie().toString());
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, exception.getMessage(), exception);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         }

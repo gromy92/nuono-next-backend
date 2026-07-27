@@ -18,8 +18,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -115,6 +117,22 @@ class MasterDataControllerTest {
 
         when(masterDataService.deleteMenu(26L, 10001L)).thenReturn("已删除菜单 菜单维护。");
         assertEquals("已删除菜单 菜单维护。", controller.deleteMenu(26L, 99999L, request).get("message"));
+    }
+
+    @Test
+    void shouldUseSessionOperatorAndPreventPasswordResetResponseCaching() {
+        MockHttpServletRequest request = authenticatedRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MasterDataResetPasswordCommand command = new MasterDataResetPasswordCommand();
+        command.setOperatorUserId(99999L);
+        when(masterDataServiceProvider.getIfAvailable()).thenReturn(masterDataService);
+        when(masterDataService.resetUserPassword(10004L, command)).thenReturn("密码已重置");
+
+        Map<String, Object> payload = controller.resetUserPassword(10004L, command, request, response);
+
+        assertEquals(Boolean.TRUE, payload.get("success"));
+        assertEquals(10001L, command.getOperatorUserId());
+        assertEquals("no-store", response.getHeader(HttpHeaders.CACHE_CONTROL));
     }
 
     @Test

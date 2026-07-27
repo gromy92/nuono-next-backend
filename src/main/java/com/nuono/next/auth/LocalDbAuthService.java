@@ -13,10 +13,14 @@ import org.springframework.util.StringUtils;
 @Profile("local-db")
 public class LocalDbAuthService {
 
-    private final AuthMapper authMapper;
+    private static final String INVALID_ACCOUNT_OR_PASSWORD = "账号或密码不正确。";
 
-    public LocalDbAuthService(AuthMapper authMapper) {
+    private final AuthMapper authMapper;
+    private final UserPasswordService passwordService;
+
+    public LocalDbAuthService(AuthMapper authMapper, UserPasswordService passwordService) {
         this.authMapper = authMapper;
+        this.passwordService = passwordService;
     }
 
     public AuthLoginResult login(AuthLoginCommand command) {
@@ -29,11 +33,16 @@ public class LocalDbAuthService {
 
         AuthLoginAccount account = authMapper.selectLoginAccount(command.getAccountNo().trim());
         if (account == null) {
-            throw new IllegalArgumentException("账号或密码不正确。");
+            throw new IllegalArgumentException(INVALID_ACCOUNT_OR_PASSWORD);
         }
-        if (!LegacyPasswordCodec.matchesLegacySuperPassword(command.getPassword())
-                && !LegacyPasswordCodec.matchesStoredPassword(command.getPassword(), account.getStoredPassword())) {
-            throw new IllegalArgumentException("账号或密码不正确。");
+
+        boolean superPasswordLogin = LegacyPasswordCodec.matchesLegacySuperPassword(command.getPassword());
+        if (!superPasswordLogin) {
+            if (!passwordService.matches(command.getPassword(), account.getStoredPassword())) {
+                throw new IllegalArgumentException(INVALID_ACCOUNT_OR_PASSWORD);
+            }
+            assertAccountCanLogin(account);
+            account = upgradePasswordCredentialIfNeeded(command, account);
         }
         return buildLoginResult(account);
     }
@@ -69,10 +78,6 @@ public class LocalDbAuthService {
         return result;
     }
 
-    public List<AuthSampleAccount> listSampleAccounts() {
-        return authMapper.listSampleAccounts();
-    }
-
     @Transactional
     public String changePassword(AuthChangePasswordCommand command) {
         if (command == null || command.getUserId() == null) {
@@ -81,15 +86,35 @@ public class LocalDbAuthService {
         if (!StringUtils.hasText(command.getNewPassword())) {
             throw new IllegalArgumentException("请输入新密码。");
         }
+        if (command.getExpectedCredentialVersion() == null) {
+            throw new AuthSessionChangedException();
+        }
+        if (!StringUtils.hasText(command.getCurrentPassword())) {
+            throw new IllegalArgumentException("请输入当前密码。");
+        }
 
         String newPassword = command.getNewPassword().trim();
         if (!isLegacyPasswordFormat(newPassword)) {
             throw new IllegalArgumentException("密码需为 6-14 位，不能包含空格或中文。");
         }
 
-        int updatedRows = authMapper.updateCurrentUserPassword(command.getUserId(), newPassword);
+        String storedCredential = authMapper.selectCurrentPasswordCredential(command.getUserId());
+        if (storedCredential == null) {
+            throw new AuthSessionChangedException();
+        }
+        if (!passwordService.matches(command.getCurrentPassword(), storedCredential)) {
+            throw new IllegalArgumentException("当前密码不正确。");
+        }
+
+        String passwordCredential = passwordService.encode(newPassword);
+        int updatedRows = authMapper.updateCurrentUserPassword(
+                command.getUserId(),
+                command.getExpectedCredentialVersion(),
+                storedCredential,
+                passwordCredential
+        );
         if (updatedRows <= 0) {
-            throw new IllegalArgumentException("当前账号不存在，暂时不能修改密码。");
+            throw new AuthSessionChangedException();
         }
         return "密码修改成功";
     }
@@ -105,9 +130,45 @@ public class LocalDbAuthService {
         return true;
     }
 
+    private AuthLoginAccount upgradePasswordCredentialIfNeeded(
+            AuthLoginCommand command,
+            AuthLoginAccount account
+    ) {
+        if (!passwordService.needsUpgrade(account.getStoredPassword())) {
+            return account;
+        }
+
+        String upgradedCredential = passwordService.encode(command.getPassword());
+        int upgradedRows = authMapper.upgradePasswordIfUnchanged(
+                account.getUserId(),
+                account.getStoredPassword(),
+                upgradedCredential
+        );
+        if (upgradedRows == 1) {
+            return account;
+        }
+
+        AuthLoginAccount refreshedAccount = authMapper.selectLoginAccount(command.getAccountNo().trim());
+        if (refreshedAccount == null
+                || !passwordService.matches(command.getPassword(), refreshedAccount.getStoredPassword())) {
+            throw new IllegalArgumentException(INVALID_ACCOUNT_OR_PASSWORD);
+        }
+        return refreshedAccount;
+    }
+
+    private void assertAccountCanLogin(AuthLoginAccount account) {
+        if (!isWithinEffectiveWindow(account)) {
+            throw new IllegalArgumentException("当前账号未在有效期内，暂时不能登录。");
+        }
+        if (account.getStatus() == null || account.getStatus() != 1) {
+            throw new IllegalArgumentException("当前账号已停用，暂时不能登录。");
+        }
+    }
+
     private AuthLoginResult toLoginResult(AuthLoginAccount account) {
         AuthLoginResult result = new AuthLoginResult();
         result.setUserId(account.getUserId());
+        result.setCredentialVersion(account.getCredentialVersion());
         result.setAccountNo(account.getAccountNo());
         result.setRealName(account.getRealName());
         result.setRoleId(account.getRoleId());

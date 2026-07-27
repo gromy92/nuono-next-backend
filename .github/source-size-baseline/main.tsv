@@ -30,7 +30,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/InTransitFreightCostMapper.ja
 src/main/java/com/nuono/next/infrastructure/mapper/InTransitGoodsLineMapper.java	472
 src/main/java/com/nuono/next/infrastructure/mapper/InTransitSuperSearchMapper.java	388
 src/main/java/com/nuono/next/infrastructure/mapper/LogisticsQuoteMapper.java	883
-src/main/java/com/nuono/next/infrastructure/mapper/MasterDataMapper.java	1062
+src/main/java/com/nuono/next/infrastructure/mapper/MasterDataMapper.java	1061
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAdvertisingMapper.java	628
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1347
 src/main/java/com/nuono/next/infrastructure/mapper/NoonFinanceTransactionMapper.java	602
@@ -75,8 +75,8 @@ src/main/java/com/nuono/next/logisticsquote/LogisticsQuoteFactPublisher.java	600
 src/main/java/com/nuono/next/logisticsquote/LogisticsQuoteOperationService.java	314
 src/main/java/com/nuono/next/logisticsquote/LogisticsQuoteWorkbenchService.java	1156
 src/main/java/com/nuono/next/logisticsquote/LogisticsQuoteWorkbenchView.java	1086
-src/main/java/com/nuono/next/masterdata/LocalDbMasterDataService.java	1436
-src/main/java/com/nuono/next/masterdata/MasterDataController.java	464
+src/main/java/com/nuono/next/masterdata/LocalDbMasterDataService.java	1435
+src/main/java/com/nuono/next/masterdata/MasterDataController.java	462
 src/main/java/com/nuono/next/mobile/LocalDbMobileAuthService.java	312
 src/main/java/com/nuono/next/mobile/LocalDbMobileWorkbenchService.java	717
 src/main/java/com/nuono/next/noon/ChromeNoonCookieSupport.java	344

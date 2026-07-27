@@ -1,6 +1,6 @@
 # Source-size debt ceilings: historical SQL. Keep paths sorted.
 # Format: repository-relative path<TAB>physical-line ceiling.
-src/main/resources/db/init/000_local_dev_bootstrap.sql	1547
+src/main/resources/db/init/000_local_dev_bootstrap.sql	1546
 src/main/resources/db/init/029_product_management_official_detail_alignment.sql	561
 src/main/resources/db/init/030_logistics_quote_operations_v1.sql	881
 src/main/resources/db/init/035_align_supported_permission_menus.sql	382

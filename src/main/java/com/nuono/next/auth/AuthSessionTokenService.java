@@ -1,15 +1,19 @@
 package com.nuono.next.auth;
 
+import com.nuono.next.infrastructure.mapper.AuthMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.UUID;
+import java.util.function.LongFunction;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -26,18 +30,39 @@ public class AuthSessionTokenService {
     private static final String LOCAL_DEV_USER_HEADER = "X-Nuono-Dev-Session-User-Id";
     private static final String LOCAL_DEV_ROLE_HEADER = "X-Nuono-Dev-Session-Role-Id";
     private static final String LOCAL_DEV_LEVEL_HEADER = "X-Nuono-Dev-Session-Level";
+    private static final String TOKEN_FORMAT_V2 = "v2";
+    private static final long LEGACY_CREDENTIAL_VERSION = 0L;
     private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
 
     private final byte[] secret;
     private final long ttlSeconds;
+    private final LongFunction<AuthSessionState> sessionStateReader;
 
+    @Autowired
     public AuthSessionTokenService(
             @Value("${nuono.auth.session-secret:}") String configuredSecret,
-            @Value("${nuono.auth.session-ttl-seconds:28800}") long ttlSeconds
+            @Value("${nuono.auth.session-ttl-seconds:28800}") long ttlSeconds,
+            ObjectProvider<AuthMapper> authMapperProvider
+    ) {
+        this(
+                configuredSecret,
+                ttlSeconds,
+                userId -> {
+                    AuthMapper authMapper = authMapperProvider.getIfAvailable();
+                    return authMapper == null ? null : authMapper.selectSessionState(userId);
+                }
+        );
+    }
+
+    AuthSessionTokenService(
+            String configuredSecret,
+            long ttlSeconds,
+            LongFunction<AuthSessionState> sessionStateReader
     ) {
         this.secret = resolveSecret(configuredSecret);
         this.ttlSeconds = Math.max(300L, ttlSeconds);
+        this.sessionStateReader = sessionStateReader;
     }
 
     public long getTtlSeconds() {
@@ -48,10 +73,14 @@ public class AuthSessionTokenService {
         if (session == null || session.getUserId() == null) {
             throw new IllegalArgumentException("缺少登录账号信息，不能创建会话。");
         }
+        Long credentialVersion = session.getCredentialVersion();
+        if (credentialVersion == null || credentialVersion < 0L) {
+            throw new IllegalStateException("缺少账号凭据版本，不能创建会话。");
+        }
         long expiresAt = Instant.now().getEpochSecond() + ttlSeconds;
-        String payload = session.getUserId()
-                + ":" + nullableLong(session.getRoleId())
-                + ":" + nullableInteger(session.getLevel())
+        String payload = TOKEN_FORMAT_V2
+                + ":" + session.getUserId()
+                + ":" + credentialVersion
                 + ":" + expiresAt
                 + ":" + UUID.randomUUID();
         return encode(payload.getBytes(StandardCharsets.UTF_8)) + "." + encode(sign(payload));
@@ -107,19 +136,41 @@ public class AuthSessionTokenService {
         if (!MessageDigest.isEqual(sign(payload), signature)) {
             return null;
         }
-        String[] fields = payload.split(":", -1);
-        if (fields.length != 5) {
-            return null;
-        }
         try {
-            Long userId = Long.valueOf(fields[0]);
-            Long roleId = parseNullableLong(fields[1]);
-            Integer level = parseNullableInteger(fields[2]);
+            String[] fields = payload.split(":", -1);
+            boolean versionTwoToken = fields.length == 5 && TOKEN_FORMAT_V2.equals(fields[0]);
+            boolean legacyToken = fields.length == 5 && !versionTwoToken;
+            if (!legacyToken && !versionTwoToken) {
+                return null;
+            }
+            Long userId = Long.valueOf(fields[versionTwoToken ? 1 : 0]);
+            long credentialVersion = legacyToken
+                    ? LEGACY_CREDENTIAL_VERSION
+                    : Long.parseLong(fields[2]);
             long expiresAt = Long.parseLong(fields[3]);
+            if (credentialVersion < 0L) {
+                return null;
+            }
             if (expiresAt < Instant.now().getEpochSecond()) {
                 return null;
             }
-            return new AuthenticatedSession(userId, roleId, level);
+            AuthSessionState sessionState;
+            try {
+                sessionState = sessionStateReader.apply(userId);
+            } catch (RuntimeException error) {
+                throw sessionStateUnavailable(error);
+            }
+            if (sessionState == null
+                    || sessionState.getCredentialVersion() == null
+                    || sessionState.getCredentialVersion() != credentialVersion) {
+                return null;
+            }
+            return new AuthenticatedSession(
+                    userId,
+                    sessionState.getRoleId(),
+                    sessionState.getLevel(),
+                    credentialVersion
+            );
         } catch (NumberFormatException error) {
             return null;
         }
@@ -168,14 +219,6 @@ public class AuthSessionTokenService {
         return URL_ENCODER.encodeToString(value);
     }
 
-    private static String nullableLong(Long value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
-    private static String nullableInteger(Integer value) {
-        return value == null ? "" : String.valueOf(value);
-    }
-
     private static Long parseNullableLong(String value) {
         return StringUtils.hasText(value) ? Long.valueOf(value) : null;
     }
@@ -186,6 +229,14 @@ public class AuthSessionTokenService {
 
     private static ResponseStatusException unauthorized() {
         return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录后再继续操作。");
+    }
+
+    private static ResponseStatusException sessionStateUnavailable(RuntimeException error) {
+        return new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "暂时无法校验登录状态，请稍后重试。",
+                error
+        );
     }
 
     private static boolean isLocalDevRequest(HttpServletRequest request) {

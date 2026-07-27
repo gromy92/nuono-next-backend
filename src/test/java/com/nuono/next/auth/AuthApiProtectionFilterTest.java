@@ -15,7 +15,12 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 class AuthApiProtectionFilterTest {
 
-    private final AuthSessionTokenService sessionTokenService = new AuthSessionTokenService("test-secret", 600);
+    private final AuthSessionTokenService sessionTokenService =
+            new AuthSessionTokenService("test-secret", 600, ignored -> {
+                AuthSessionState state = new AuthSessionState();
+                state.setCredentialVersion(0L);
+                return state;
+            });
     private final AuthApiProtectionFilter filter = new AuthApiProtectionFilter(
             sessionTokenService,
             new AuthApiProtectionProperties()
