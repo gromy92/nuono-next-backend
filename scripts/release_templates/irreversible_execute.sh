@@ -6,6 +6,7 @@ assert_drained
 stop_pid "$ACTIVE_PID"
 [ -z "$(pid_for_port "$ACTIVE_PORT")" ]
 [ -z "$(pid_for_port "$STANDBY_PORT")" ]
+[ "$(backend_jvm_count)" = 0 ]
 RUNTIME_STOPPED=1
 assert_drained
 assert_database_idle

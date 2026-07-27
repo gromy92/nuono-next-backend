@@ -194,6 +194,7 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
         self.assertIn('ACTIVE_JAR="$ACTIVE_RUN_DIR/$JAR_NAME"', script)
         self.assertIn('"$(sha256_file "$ACTIVE_JAR")" = "$EXPECTED_JAR_SHA256"', restart_function)
         self.assertIn('process_uses_jar "$NEW_PID" "$ACTIVE_JAR"', restart_function)
+        self.assertIn('"$(backend_jvm_count)" = 1', restart_function)
         self.assertLess(postcheck, restart)
         self.assertLess(restart, active_switch)
 

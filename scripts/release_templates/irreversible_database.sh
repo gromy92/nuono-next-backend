@@ -240,6 +240,7 @@ validate_irreversible_cutover() {
   [ "$(current_upstream_port)" = "$ACTIVE_PORT" ]
   [ -z "$(pid_for_port "$STANDBY_PORT")" ]
   [ -z "$(pid_for_port "$MAINTENANCE_PORT")" ]
+  [ "$(backend_jvm_count)" = 1 ]
   ACTIVE_PID="$(pid_for_port "$ACTIVE_PORT")"
   [ -n "$ACTIVE_PID" ]
   [ "$(health_status "$ACTIVE_PORT")" = UP ]

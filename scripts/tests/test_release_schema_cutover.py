@@ -100,6 +100,7 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         self.assertLess(validation, maintenance)
         self.assertLess(maintenance, runtime_stop)
         self.assertIn("postcheck_migration_182", script)
+        self.assertIn('"$(backend_jvm_count)" = 0', execution)
 
     def test_database_credentials_use_a_mode_0600_client_file_and_are_cleaned(self):
         for script in (self.additive_script(), self.irreversible_script()):

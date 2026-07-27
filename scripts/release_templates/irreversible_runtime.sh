@@ -22,6 +22,14 @@ sha256_file() { sha256sum "$1" | awk '{print $1}'; }
 cleanup_mysql_client() { [ ! -f "$MYSQL_CNF" ] || rm -f -- "$MYSQL_CNF"; }
 trap cleanup_mysql_client EXIT
 pid_for_port() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -n 1 || true; }
+backend_jvm_count() {
+  ps -eo args= |
+    awk -v jar_prefix="-jar $APP_DIR/" \
+      '$1 ~ /(^|\/)java$/ && index($0, jar_prefix) > 0 {
+         count += 1
+       }
+       END { print count + 0 }'
+}
 health_status() {
   local body=""
   body="$(curl -fsS --max-time 5 "http://127.0.0.1:$1/actuator/health" 2>/dev/null || true)"
@@ -172,6 +180,7 @@ restart_same_new_runtime() {
   process_uses_jar "$NEW_PID" "$ACTIVE_JAR"
   [ "$(sha256_file "$ACTIVE_JAR")" = "$EXPECTED_JAR_SHA256" ]
   [ -z "$(pid_for_port "$STANDBY_PORT")" ]
+  [ "$(backend_jvm_count)" = 1 ]
   RUNTIME_STOPPED=0
 }
 handle_irreversible_failure() {
