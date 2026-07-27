@@ -163,6 +163,8 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
         self.assertIn("noon_pull_task", script)
         self.assertIn("noon_auth_identity_recovery", script)
         self.assertIn("lease_owner IS NOT NULL", script)
+        self.assertIn("information_schema.processlist", script)
+        self.assertIn("id <> CONNECTION_ID()", script)
 
     def test_migration_or_postcheck_failure_enters_repair_forward_with_503_held(self):
         script = self.build_irreversible_script()

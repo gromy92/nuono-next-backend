@@ -130,7 +130,11 @@ assert_database_idle() {
       (SELECT COUNT(*) FROM information_schema.innodb_trx)
       + (SELECT COUNT(*) FROM performance_schema.metadata_locks
          WHERE lock_status = 'PENDING')
-      + (SELECT COUNT(*) FROM performance_schema.data_lock_waits);
+      + (SELECT COUNT(*) FROM performance_schema.data_lock_waits)
+      + (SELECT COUNT(*) FROM information_schema.processlist
+         WHERE id <> CONNECTION_ID()
+           AND db = DATABASE()
+           AND command <> 'Sleep');
   ")"
   emit DATABASE_LOCK_BLOCKERS "$blockers"
   [ "$blockers" = 0 ]
