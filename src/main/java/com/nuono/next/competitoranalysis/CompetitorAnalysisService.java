@@ -31,32 +31,32 @@ public class CompetitorAnalysisService {
     private final CompetitorProductChangeService productChangeService;
     private final CompetitorBrowserSearchEvidenceWriter browserSearchEvidenceWriter;
     private final CompetitorBrowserRankFactWriter browserRankFactWriter;
+    private final java.time.Clock businessClock;
     private ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer;
 
     @Autowired
-    public CompetitorAnalysisService(
-            CompetitorAnalysisMapper mapper,
-            CompetitorProductChangeService productChangeService
-    ) {
+    public CompetitorAnalysisService(CompetitorAnalysisMapper mapper, CompetitorProductChangeService productChangeService) {
+        this(mapper, productChangeService, java.time.Clock.system(BUSINESS_ZONE));
+    }
+
+    CompetitorAnalysisService(CompetitorAnalysisMapper mapper,
+                              CompetitorProductChangeService productChangeService,
+                              java.time.Clock businessClock) {
         this.mapper = mapper;
         this.productChangeService = productChangeService;
         this.browserSearchEvidenceWriter = new CompetitorBrowserSearchEvidenceWriter(mapper);
         this.browserRankFactWriter = new CompetitorBrowserRankFactWriter(mapper);
+        this.businessClock = (businessClock == null ? java.time.Clock.system(BUSINESS_ZONE) : businessClock).withZone(BUSINESS_ZONE);
     }
 
-    public CompetitorAnalysisService(CompetitorAnalysisMapper mapper) {
-        this(mapper, null);
-    }
+    public CompetitorAnalysisService(CompetitorAnalysisMapper mapper) { this(mapper, null); }
 
     @Autowired(required = false)
     public void setProductKeywordCompetitorIndexer(ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer) {
         this.productKeywordCompetitorIndexer = productKeywordCompetitorIndexer;
     }
 
-    public CompetitorWatchProductListView listWatchProducts(
-            BusinessAccessContext context,
-            CompetitorWatchProductQuery query
-    ) {
+    public CompetitorWatchProductListView listWatchProducts(BusinessAccessContext context, CompetitorWatchProductQuery query) {
         CompetitorWatchProductQuery resolvedQuery = query == null
                 ? CompetitorWatchProductQuery.fromRequest(null, null, null, null, null, null, null, null)
                 : query;
@@ -72,10 +72,7 @@ public class CompetitorAnalysisService {
         return CompetitorWatchProductListView.fromRows(rows, resolvedQuery, total);
     }
 
-    public CompetitorWatchProductListView listProductBaselines(
-            BusinessAccessContext context,
-            CompetitorWatchProductQuery query
-    ) {
+    public CompetitorWatchProductListView listProductBaselines(BusinessAccessContext context, CompetitorWatchProductQuery query) {
         CompetitorWatchProductQuery resolvedQuery = query == null
                 ? CompetitorWatchProductQuery.fromRequest(null, null, null, null, null, null, null, null)
                 : query;
@@ -128,7 +125,7 @@ public class CompetitorAnalysisService {
         Long ownerUserId = ownerUserId(context, normalizedStoreCode);
         int normalizedDays = normalizeDashboardDays(days);
         String normalizedRankDirection = normalizeRankDirection(rankDirection);
-        LocalDate today = LocalDate.now(BUSINESS_ZONE);
+        LocalDate today = LocalDate.now(businessClock);
         LocalDate fromDate = today.minusDays(normalizedDays - 1L);
         LocalDate requestedRankToDate = normalizedDays == 1 ? today : today.minusDays(1L);
         LocalDate latestRankFactDate = mapper.selectLatestRankFactDate(
@@ -576,7 +573,7 @@ public class CompetitorAnalysisService {
                         partnerSku,
                         keyword,
                         status,
-                        LocalDateTime.now(BUSINESS_ZONE),
+                        LocalDateTime.now(businessClock),
                         actorUserId
                 )
         );
@@ -623,7 +620,7 @@ public class CompetitorAnalysisService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "COMPETITOR_KEYWORD_SCOPE_MISMATCH");
         }
         int normalizedRangeDays = normalizeHistoryRangeDays(rangeDays);
-        LocalDateTime fromTime = LocalDate.now(BUSINESS_ZONE).minusDays(normalizedRangeDays - 1L).atStartOfDay();
+        LocalDateTime fromTime = LocalDate.now(businessClock).minusDays(normalizedRangeDays - 1L).atStartOfDay();
         return CompetitorRankHistoryView.fromRows(mapper.listRankHistoryByWatchProductIdAndKeywordId(
                 watchProduct.getId(),
                 keyword.getKeywordId(),

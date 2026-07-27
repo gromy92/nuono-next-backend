@@ -513,12 +513,12 @@ class CompetitorAnalysisServiceTest {
         assertEquals("RANKED", view.getCompetitorAttributeChanges().get(0).getSelfLatestRankStatus());
         assertEquals(3, view.getCompetitorAttributeChanges().get(0).getSelfLatestRankNo());
         assertEquals(100, view.getCompetitorAttributeChanges().get(0).getSelfLatestScanDepth());
-        assertEquals(LocalDate.now().minusDays(29L), view.getCompetitorAttributeChangeDate());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(29L), view.getCompetitorAttributeChangeDate());
         assertEquals(9L, view.getCompetitorAttributeSnapshotCount());
-        assertEquals(LocalDate.now().minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(0));
-        assertEquals(LocalDate.now().minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(1));
-        assertEquals(LocalDate.now().minusDays(30L), rankFromDateCaptor.getValue());
-        assertEquals(LocalDate.now().minusDays(1L), rankToDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(0));
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(1));
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(30L), rankFromDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1L), rankToDateCaptor.getValue());
     }
 
     @Test
@@ -561,18 +561,18 @@ class CompetitorAnalysisServiceTest {
         CompetitorDashboardView view = service.dashboard(operatorContext(), "STR108065-NSA", "SA", 1, "up");
 
         assertEquals(1, view.getDays());
-        assertEquals(LocalDate.now().minusDays(1L), rankFromDateCaptor.getValue());
-        assertEquals(LocalDate.now(), rankToDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1L), rankFromDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")), rankToDateCaptor.getValue());
     }
 
     @Test
     void dashboardUsesLatestAvailableRankDateWhenRequestedEndpointHasNoRankFacts() {
-        LocalDate latestRankDate = LocalDate.now().minusDays(2L);
+        LocalDate latestRankDate = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(2L);
         when(mapper.selectLatestRankFactDate(
                 eq(501L),
                 eq("STR108065-NSA"),
                 eq("SA"),
-                eq(LocalDate.now().minusDays(1L))
+                eq(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1L))
         )).thenReturn(latestRankDate);
         ArgumentCaptor<LocalDate> rankFromDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         ArgumentCaptor<LocalDate> rankToDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
