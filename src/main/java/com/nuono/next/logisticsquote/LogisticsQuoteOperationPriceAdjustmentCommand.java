@@ -1,5 +1,8 @@
 package com.nuono.next.logisticsquote;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties("operatorUserId")
 public class LogisticsQuoteOperationPriceAdjustmentCommand {
 
     private String targetType;
@@ -11,8 +14,6 @@ public class LogisticsQuoteOperationPriceAdjustmentCommand {
     private Double adjustedValue;
 
     private String reason;
-
-    private Long operatorUserId;
 
     public String getTargetType() {
         return targetType;
@@ -52,13 +53,5 @@ public class LogisticsQuoteOperationPriceAdjustmentCommand {
 
     public void setReason(String reason) {
         this.reason = reason;
-    }
-
-    public Long getOperatorUserId() {
-        return operatorUserId;
-    }
-
-    public void setOperatorUserId(Long operatorUserId) {
-        this.operatorUserId = operatorUserId;
     }
 }

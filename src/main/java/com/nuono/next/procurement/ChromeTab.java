@@ -1,6 +1,6 @@
 package com.nuono.next.procurement;
 
-import java.util.Locale;
+import java.util.List;
 
 class ChromeTab {
 
@@ -9,11 +9,15 @@ class ChromeTab {
     String title;
     String url;
 
-    boolean isLoginPage() {
-        String normalizedUrl = url == null ? "" : url.toLowerCase(Locale.ROOT);
-        String normalizedTitle = title == null ? "" : title.toLowerCase(Locale.ROOT);
-        return normalizedUrl.contains("login.taobao.com")
-                || normalizedUrl.contains("login.1688.com")
-                || normalizedTitle.contains("采购批发平台");
+    static ChromeTab findCurrent(List<ChromeTab> tabs, ChromeTab selectedTab) {
+        if (tabs == null || selectedTab == null) {
+            return null;
+        }
+        return tabs.stream()
+                .filter(tab -> tab != null
+                        && tab.windowIndex == selectedTab.windowIndex
+                        && tab.tabIndex == selectedTab.tabIndex)
+                .findFirst()
+                .orElse(null);
     }
 }

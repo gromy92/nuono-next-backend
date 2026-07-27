@@ -1,5 +1,9 @@
 package com.nuono.next.procurement;
 
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessResolver;
+import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.permission.access.RequiredBusinessAccess;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,36 +19,24 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProcurementController {
 
     private final ObjectProvider<LocalDbProcurementService> localDbProcurementServiceProvider;
-    private final ObjectProvider<LocalDbProcurementAutoInquiryService> localDbProcurementAutoInquiryServiceProvider;
-    private final ObjectProvider<LocalDbAliAiBulkInquiryReadService> localDbAliAiBulkInquiryReadServiceProvider;
-    private final ObjectProvider<LocalDbAliAiBulkInquiryCreateService> localDbAliAiBulkInquiryCreateServiceProvider;
-    private final ObjectProvider<LocalDbAliAiBulkInquiryCreatePageProbeService>
-            localDbAliAiBulkInquiryCreatePageProbeServiceProvider;
-    private final ObjectProvider<LocalDbAliUnpaidOrderCreateService> localDbAliUnpaidOrderCreateServiceProvider;
+    private final BusinessAccessResolver accessResolver;
 
     public ProcurementController(
             ObjectProvider<LocalDbProcurementService> localDbProcurementServiceProvider,
-            ObjectProvider<LocalDbProcurementAutoInquiryService> localDbProcurementAutoInquiryServiceProvider,
-            ObjectProvider<LocalDbAliAiBulkInquiryReadService> localDbAliAiBulkInquiryReadServiceProvider,
-            ObjectProvider<LocalDbAliAiBulkInquiryCreateService> localDbAliAiBulkInquiryCreateServiceProvider,
-            ObjectProvider<LocalDbAliAiBulkInquiryCreatePageProbeService>
-                    localDbAliAiBulkInquiryCreatePageProbeServiceProvider,
-            ObjectProvider<LocalDbAliUnpaidOrderCreateService> localDbAliUnpaidOrderCreateServiceProvider
+            BusinessAccessResolver accessResolver
     ) {
         this.localDbProcurementServiceProvider = localDbProcurementServiceProvider;
-        this.localDbProcurementAutoInquiryServiceProvider = localDbProcurementAutoInquiryServiceProvider;
-        this.localDbAliAiBulkInquiryReadServiceProvider = localDbAliAiBulkInquiryReadServiceProvider;
-        this.localDbAliAiBulkInquiryCreateServiceProvider = localDbAliAiBulkInquiryCreateServiceProvider;
-        this.localDbAliAiBulkInquiryCreatePageProbeServiceProvider =
-                localDbAliAiBulkInquiryCreatePageProbeServiceProvider;
-        this.localDbAliUnpaidOrderCreateServiceProvider = localDbAliUnpaidOrderCreateServiceProvider;
+        this.accessResolver = accessResolver;
     }
 
     @GetMapping("/candidate-pool")
     public ProcurementCandidatePoolView candidatePool(
             @RequestParam Long ownerUserId,
-            @RequestParam(required = false) String orderNo
+            @RequestParam(required = false) String orderNo,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
     ) {
+        Long authorizedOwnerUserId = accessResolver.requireOwnerUserId(context, ownerUserId);
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementCandidatePoolView view = new ProcurementCandidatePoolView();
@@ -55,14 +47,23 @@ public class ProcurementController {
         }
 
         try {
-            return procurementService.buildCandidatePool(ownerUserId, orderNo);
+            return procurementService.buildCandidatePool(authorizedOwnerUserId, orderNo);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         }
     }
 
     @PostMapping("/select-candidate")
-    public ProcurementCandidatePoolView selectCandidate(@RequestBody ProcurementDecisionCommand command) {
+    public ProcurementCandidatePoolView selectCandidate(
+            @RequestBody ProcurementDecisionCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
+    ) {
+        ProcurementCandidatePoolWriteContext writeContext =
+                authorizeWrite(context, command == null ? null : command.getOwnerUserId());
+        if (command != null) {
+            command.setOwnerUserId(writeContext.ownerUserId);
+        }
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementCandidatePoolView view = new ProcurementCandidatePoolView();
@@ -73,7 +74,7 @@ public class ProcurementController {
         }
 
         try {
-            return procurementService.selectCandidate(command);
+            return procurementService.selectCandidate(writeContext, command);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
@@ -82,7 +83,16 @@ public class ProcurementController {
     }
 
     @PostMapping("/review-candidate")
-    public ProcurementCandidatePoolView reviewCandidate(@RequestBody ProcurementCandidateReviewCommand command) {
+    public ProcurementCandidatePoolView reviewCandidate(
+            @RequestBody ProcurementCandidateReviewCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
+    ) {
+        ProcurementCandidatePoolWriteContext writeContext =
+                authorizeWrite(context, command == null ? null : command.getOwnerUserId());
+        if (command != null) {
+            command.setOwnerUserId(writeContext.ownerUserId);
+        }
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementCandidatePoolView view = new ProcurementCandidatePoolView();
@@ -93,7 +103,7 @@ public class ProcurementController {
         }
 
         try {
-            return procurementService.saveCandidateReview(command);
+            return procurementService.saveCandidateReview(writeContext, command);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
@@ -102,7 +112,16 @@ public class ProcurementController {
     }
 
     @PostMapping("/run-auto-selection")
-    public ProcurementCandidatePoolView runAutoSelection(@RequestBody ProcurementAutoSelectionCommand command) {
+    public ProcurementCandidatePoolView runAutoSelection(
+            @RequestBody ProcurementAutoSelectionCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
+    ) {
+        ProcurementCandidatePoolWriteContext writeContext =
+                authorizeWrite(context, command == null ? null : command.getOwnerUserId());
+        if (command != null) {
+            command.setOwnerUserId(writeContext.ownerUserId);
+        }
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementCandidatePoolView view = new ProcurementCandidatePoolView();
@@ -113,7 +132,7 @@ public class ProcurementController {
         }
 
         try {
-            return procurementService.runAutoSelection(command);
+            return procurementService.runAutoSelection(writeContext, command);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
@@ -122,7 +141,11 @@ public class ProcurementController {
     }
 
     @PostMapping("/preview-extraction")
-    public ProcurementExtractionPreviewView previewExtraction(@RequestBody ProcurementExtractionPreviewCommand command) {
+    public ProcurementExtractionPreviewView previewExtraction(
+            @RequestBody ProcurementExtractionPreviewCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
+    ) {
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementExtractionPreviewView view = new ProcurementExtractionPreviewView();
@@ -139,7 +162,11 @@ public class ProcurementController {
     }
 
     @PostMapping("/preview-search-page")
-    public ProcurementSearchPagePreviewView previewSearchPage(@RequestBody ProcurementSearchPagePreviewCommand command) {
+    public ProcurementSearchPagePreviewView previewSearchPage(
+            @RequestBody ProcurementSearchPagePreviewCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
+    ) {
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementSearchPagePreviewView view = new ProcurementSearchPagePreviewView();
@@ -156,7 +183,16 @@ public class ProcurementController {
     }
 
     @PostMapping("/import-search-page")
-    public ProcurementCandidatePoolView importSearchPage(@RequestBody ProcurementImportSearchPageCommand command) {
+    public ProcurementCandidatePoolView importSearchPage(
+            @RequestBody ProcurementImportSearchPageCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
+    ) {
+        ProcurementCandidatePoolWriteContext writeContext =
+                authorizeWrite(context, command == null ? null : command.getOwnerUserId());
+        if (command != null) {
+            command.setOwnerUserId(writeContext.ownerUserId);
+        }
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementCandidatePoolView view = new ProcurementCandidatePoolView();
@@ -167,7 +203,7 @@ public class ProcurementController {
         }
 
         try {
-            return procurementService.importSearchPageCandidates(command);
+            return procurementService.importSearchPageCandidates(writeContext, command);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
@@ -176,7 +212,16 @@ public class ProcurementController {
     }
 
     @PostMapping("/backfill-candidates")
-    public ProcurementCandidatePoolView backfillCandidates(@RequestBody ProcurementManualCandidateBackfillCommand command) {
+    public ProcurementCandidatePoolView backfillCandidates(
+            @RequestBody ProcurementManualCandidateBackfillCommand command,
+            @RequiredBusinessAccess(capability = BusinessCapability.PROCUREMENT)
+            BusinessAccessContext context
+    ) {
+        ProcurementCandidatePoolWriteContext writeContext =
+                authorizeWrite(context, command == null ? null : command.getOwnerUserId());
+        if (command != null) {
+            command.setOwnerUserId(writeContext.ownerUserId);
+        }
         LocalDbProcurementService procurementService = localDbProcurementServiceProvider.getIfAvailable();
         if (procurementService == null) {
             ProcurementCandidatePoolView view = new ProcurementCandidatePoolView();
@@ -187,7 +232,7 @@ public class ProcurementController {
         }
 
         try {
-            return procurementService.backfillManualCandidates(command);
+            return procurementService.backfillManualCandidates(writeContext, command);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
@@ -195,136 +240,13 @@ public class ProcurementController {
         }
     }
 
-    @GetMapping("/auto-inquiry/workbench")
-    public ProcurementAutoInquiryWorkbenchView autoInquiryWorkbench(
-            @RequestParam Long ownerUserId,
-            @RequestParam Long demandItemId,
-            @RequestParam(required = false) Long candidateId
+    private ProcurementCandidatePoolWriteContext authorizeWrite(
+            BusinessAccessContext context,
+            Long requestedOwnerUserId
     ) {
-        LocalDbProcurementAutoInquiryService autoInquiryService = localDbProcurementAutoInquiryServiceProvider.getIfAvailable();
-        if (autoInquiryService == null) {
-            ProcurementAutoInquiryWorkbenchView view = new ProcurementAutoInquiryWorkbenchView();
-            view.setMode("bootstrap-only");
-            view.setReady(false);
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可读取自动询价工作台。");
-            return view;
-        }
-
-        try {
-            return autoInquiryService.buildWorkbench(ownerUserId, demandItemId, candidateId);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        }
-    }
-
-    @PostMapping("/auto-inquiry/start")
-    public ProcurementAutoInquiryWorkbenchView startAutoInquiry(@RequestBody ProcurementAutoInquiryStartCommand command) {
-        LocalDbProcurementAutoInquiryService autoInquiryService = localDbProcurementAutoInquiryServiceProvider.getIfAvailable();
-        if (autoInquiryService == null) {
-            ProcurementAutoInquiryWorkbenchView view = new ProcurementAutoInquiryWorkbenchView();
-            view.setMode("bootstrap-only");
-            view.setReady(false);
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可创建自动询价任务。");
-            return view;
-        }
-
-        try {
-            return autoInquiryService.startAutoInquiry(command);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
-        }
-    }
-
-    @PostMapping("/auto-inquiry/ali-ai/result/probe")
-    public AliAiBulkInquiryResultView probeAliAiBulkInquiryResult(
-            @RequestBody(required = false) AliAiBulkInquiryResultProbeCommand command
-    ) {
-        LocalDbAliAiBulkInquiryReadService readService = localDbAliAiBulkInquiryReadServiceProvider.getIfAvailable();
-        if (readService == null) {
-            AliAiBulkInquiryResultView view = new AliAiBulkInquiryResultView();
-            view.setReady(false);
-            view.setReadable(false);
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可只读验证 1688 智能询盘结果。");
-            return view;
-        }
-
-        try {
-            return readService.probeResult(command);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
-        }
-    }
-
-    @PostMapping("/auto-inquiry/ali-ai/create/probe")
-    public AliAiBulkInquiryCreateProbeView probeAliAiBulkInquiryCreate(
-            @RequestBody(required = false) AliAiBulkInquiryCreateProbeCommand command
-    ) {
-        LocalDbAliAiBulkInquiryCreateService createService = localDbAliAiBulkInquiryCreateServiceProvider.getIfAvailable();
-        if (createService == null) {
-            AliAiBulkInquiryCreateProbeView view = new AliAiBulkInquiryCreateProbeView();
-            view.setReady(false);
-            view.setDryRun(true);
-            view.setCreationAllowed(false);
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可验证 1688 智能询盘创建计划。");
-            return view;
-        }
-
-        try {
-            return createService.probeCreate(command);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
-        }
-    }
-
-    @PostMapping("/auto-inquiry/ali-ai/create/page-probe")
-    public AliAiBulkInquiryCreatePageProbeView probeAliAiBulkInquiryCreatePage(
-            @RequestBody(required = false) AliAiBulkInquiryCreatePageProbeCommand command
-    ) {
-        LocalDbAliAiBulkInquiryCreatePageProbeService pageProbeService =
-                localDbAliAiBulkInquiryCreatePageProbeServiceProvider.getIfAvailable();
-        if (pageProbeService == null) {
-            AliAiBulkInquiryCreatePageProbeView view = new AliAiBulkInquiryCreatePageProbeView();
-            view.setReady(false);
-            view.setReadable(false);
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可只读验证 1688 智能询盘创建页结构。");
-            return view;
-        }
-
-        try {
-            return pageProbeService.probePage(command);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
-        }
-    }
-
-    @PostMapping("/auto-inquiry/ali-unpaid-order/create/probe")
-    public AliUnpaidOrderCreateProbeView probeAliUnpaidOrderCreate(
-            @RequestBody(required = false) AliUnpaidOrderCreateProbeCommand command
-    ) {
-        LocalDbAliUnpaidOrderCreateService createService = localDbAliUnpaidOrderCreateServiceProvider.getIfAvailable();
-        if (createService == null) {
-            AliUnpaidOrderCreateProbeView view = new AliUnpaidOrderCreateProbeView();
-            view.setReady(false);
-            view.setDryRun(true);
-            view.setCreationAllowed(false);
-            view.setMessage("当前仍在无数据库骨架模式。切换到 local-db profile 后可验证 1688 拍下未付款订单计划。");
-            return view;
-        }
-
-        try {
-            return createService.probeCreate(command);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage(), exception);
-        }
+        Long ownerUserId = accessResolver.requireOwnerUserId(context, requestedOwnerUserId);
+        Long operatorUserId = context == null ? null : context.getSessionUserId();
+        String operatorRole = context == null ? null : context.getRoleName();
+        return new ProcurementCandidatePoolWriteContext(ownerUserId, operatorUserId, operatorRole);
     }
 }
