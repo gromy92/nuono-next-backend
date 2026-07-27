@@ -90,6 +90,22 @@ class ReleaseSchemaDrainTest(unittest.TestCase):
 
         self.assertEqual(4, self.noon_schema_blocker_count(rows))
 
+    def test_known_non_product_backlog_is_not_schema_writing_work(self):
+        rows = [
+            (status, domain, "historical-or-report-worker")
+            for domain in (
+                "SALES",
+                "ORDER",
+                "FINANCE_TRANSACTION",
+                "NOON_ADVERTISING",
+                "OFFICIAL_WAREHOUSE_INVENTORY",
+                "OFFICIAL_WAREHOUSE_FBN_RECEIVED",
+            )
+            for status in ("QUEUED", "RUNNING")
+        ]
+
+        self.assertEqual(0, self.noon_schema_blocker_count(rows))
+
     def test_non_product_noon_backlog_is_preserved_without_becoming_a_schema_blocker(self):
         contract = self.drain_contract()
 
