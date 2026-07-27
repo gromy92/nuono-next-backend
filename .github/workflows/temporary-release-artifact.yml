@@ -1,0 +1,33 @@
+name: Temporary Backend Release Artifact
+
+on:
+  push:
+    branches:
+      - codex/release-artifact-backend-20260727-1855
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout frozen master
+        uses: actions/checkout@v4
+        with:
+          ref: 39ed7531e7d40a94778d20dc7b209997f31887df
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Package
+        run: mvn -q -DskipTests package
+
+      - name: Upload release Jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuono-next-backend-39ed7531
+          path: target/nuono-next-backend-0.0.1-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 1
