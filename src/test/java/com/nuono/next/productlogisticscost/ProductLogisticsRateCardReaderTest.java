@@ -65,6 +65,8 @@ class ProductLogisticsRateCardReaderTest {
                 .read(307L, "SA", "ET", "SEA");
 
         assertThat(view.items).containsExactly(manualA, publishedG);
+        assertThat(publishedA.cargoCategoryCode).isEqualTo("A");
+        assertThat(publishedA.cargoCategoryName).isEqualTo("A类别运费");
         assertThat(publishedG.cargoCategoryCode).isEqualTo("G");
         assertThat(publishedG.cargoCategoryName).isEqualTo("G类别运费");
     }
