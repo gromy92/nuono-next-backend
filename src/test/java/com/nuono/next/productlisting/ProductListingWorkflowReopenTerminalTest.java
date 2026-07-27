@@ -1,7 +1,5 @@
 package com.nuono.next.productlisting;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -16,24 +14,17 @@ import org.junit.jupiter.api.Test;
 class ProductListingWorkflowReopenTerminalTest {
 
     @Test
-    void authenticationFailureCanExplicitlySupersedeItsSourceDryRun() {
+    void authenticationFailureCannotSupersedeItsSourceDryRun() {
         Fixture fixture = fixture("failed", "noon_auth_required", "cookie expired");
-        ProductListingTaskRecord superseded =
-                taskRecord(20001L, "DRY_RUN", "superseded", null, null, null);
-        when(fixture.mapper.markValidatedDryRunSuperseded(20001L, 10002L)).thenReturn(1);
-        when(fixture.mapper.selectLatestDryRunTaskByDraftId(10002L, 10001L))
-                .thenReturn(superseded);
-        when(fixture.listingService.loadTask(fixture.context, 20001L))
-                .thenReturn(taskView(fixture.dryRun), taskView(superseded));
 
-        ProductListingWorkflowView view =
-                fixture.workflowService.reopenReview(fixture.context, 20001L);
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> fixture.workflowService.reopenReview(
+                        fixture.context, 20001L)
+        );
 
-        assertEquals(ProductListingWorkflowView.Phase.EDITING, view.getPhase());
-        assertEquals(ProductListingWorkflowView.NextAction.REVIEW_DRAFT, view.getNextAction());
-        assertNotNull(view.getRealRunTask());
-        assertEquals("noon_auth_required", view.getRealRunTask().getFailureCode());
-        verify(fixture.mapper).markValidatedDryRunSuperseded(20001L, 10002L);
+        verify(fixture.mapper, never())
+                .markValidatedDryRunSuperseded(20001L, 10002L);
     }
 
     @Test

@@ -32,7 +32,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProductManagementMapper {
+public interface ProductManagementMapper extends ProductPublishRetryMapper, ProductRebuildWorkflowMapper {
 
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -536,84 +536,6 @@ public interface ProductManagementMapper {
     @ResultMap("ProductPublishTaskRecordMap")
     List<ProductPublishTaskRecord> selectRunnableProductPublishTasks(@Param("limit") int limit);
 
-    @Select({
-            "SELECT *",
-            "FROM product_publish_task",
-            "WHERE is_deleted = 0",
-            "  AND task_type = 'product-delete'",
-            "  AND status = 'synced'",
-            "  AND JSON_VALID(request_json)",
-            "  AND JSON_UNQUOTE(JSON_EXTRACT(request_json, '$.rebuildAction')) = 'product-rebuild'",
-            "  AND (",
-            "    result_json IS NULL",
-            "    OR NOT JSON_VALID(result_json)",
-            "    OR JSON_EXTRACT(result_json, '$.rebuild.status') IS NULL",
-            "  )",
-            "ORDER BY COALESCE(finished_at, gmt_updated, gmt_create), id",
-            "LIMIT #{limit}"
-    })
-    @ResultMap("ProductPublishTaskRecordMap")
-    List<ProductPublishTaskRecord> selectProductRebuildDeleteTasksReadyForListing(@Param("limit") int limit);
-
-    @Select({
-            "SELECT *",
-            "FROM product_publish_task",
-            "WHERE is_deleted = 0",
-            "  AND task_type = 'product-delete'",
-            "  AND status = 'synced'",
-            "  AND JSON_VALID(request_json)",
-            "  AND JSON_UNQUOTE(JSON_EXTRACT(request_json, '$.rebuildAction')) = 'product-rebuild'",
-            "  AND JSON_VALID(result_json)",
-            "  AND JSON_UNQUOTE(JSON_EXTRACT(result_json, '$.rebuild.status')) IN (",
-            "    'listing_submitted', 'listing_running', 'listing_already_submitted'",
-            "  )",
-            "ORDER BY COALESCE(gmt_updated, gmt_create), id",
-            "LIMIT #{limit}"
-    })
-    @ResultMap("ProductPublishTaskRecordMap")
-    List<ProductPublishTaskRecord> selectProductRebuildDeleteTasksPendingListingReconciliation(@Param("limit") int limit);
-
-    @Update({
-            "UPDATE product_publish_task",
-            "SET result_json = #{resultJson},",
-            "    updated_by = #{ownerUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{id}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND task_type = 'product-delete'",
-            "  AND status = 'synced'",
-            "  AND JSON_VALID(request_json)",
-            "  AND JSON_UNQUOTE(JSON_EXTRACT(request_json, '$.rebuildAction')) = 'product-rebuild'",
-            "  AND (",
-            "    result_json IS NULL",
-            "    OR NOT JSON_VALID(result_json)",
-            "    OR JSON_EXTRACT(result_json, '$.rebuild.status') IS NULL",
-            "  )",
-            "  AND is_deleted = 0"
-    })
-    int claimProductRebuildDeleteTaskForListing(
-            @Param("id") Long id,
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("resultJson") String resultJson
-    );
-
-    @Update({
-            "UPDATE product_publish_task",
-            "SET result_json = #{resultJson},",
-            "    updated_by = #{ownerUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{id}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND task_type = 'product-delete'",
-            "  AND status = 'synced'",
-            "  AND is_deleted = 0"
-    })
-    int updateProductRebuildDeleteTaskResult(
-            @Param("id") Long id,
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("resultJson") String resultJson
-    );
-
     @Update({
             "UPDATE product_publish_task t",
             "JOIN (",
@@ -645,73 +567,9 @@ public interface ProductManagementMapper {
     );
 
     @Update({
-            "<script>",
-            "UPDATE product_publish_task t",
-            "JOIN (",
-            "  SELECT MAX(candidate.id) AS id",
-            "  FROM product_publish_task candidate",
-            "  WHERE candidate.is_deleted = 0",
-            "    AND candidate.status = 'failed'",
-            "    AND candidate.error_code IN ('noon_write_failed', 'publish_task_failed', 'noon_request_failed')",
-            "    AND candidate.locked_at IS NULL",
-            "    AND COALESCE(candidate.retry_count, 0) &lt; COALESCE(candidate.max_retry_count, 3)",
-            "    AND COALESCE(candidate.finished_at, candidate.gmt_updated, candidate.gmt_create) &gt;= DATE_SUB(NOW(), INTERVAL #{lookbackHours} HOUR)",
-            "    AND (",
-            "      candidate.error_message REGEXP 'HTTP[[:space:]]+(408|429|500|502|503|504)'",
-            "      OR (",
-            "        LOWER(candidate.error_message) LIKE '%http 403%'",
-            "        AND LOWER(candidate.error_message) LIKE '%access denied%'",
-            "        AND LOWER(candidate.error_message) LIKE '%you don''t have permission to access%'",
-            "      )",
-            "    )",
-            "    AND candidate.id = (",
-            "      SELECT MAX(latest.id)",
-            "      FROM product_publish_task latest",
-            "      WHERE latest.product_master_id = candidate.product_master_id",
-            "        AND latest.is_deleted = 0",
-            "    )",
-            "    AND NOT EXISTS (",
-            "      SELECT 1",
-            "      FROM product_publish_task active",
-            "      WHERE active.product_master_id = candidate.product_master_id",
-            "        AND active.is_deleted = 0",
-            "        AND active.status IN (",
-            "          'queued', 'running', 'submitted', 'verifying', 'pending_effective', 'write_unknown', 'verify_timeout', 'write_retry_scheduled',",
-            "          'product_delete_queued', 'product_delete_running', 'product_delete_submitted', 'product_delete_verifying',",
-            "          'product_delete_pending_effective', 'product_delete_verify_timeout', 'product_delete_write_retry_scheduled'",
-            "        )",
-            "    )",
-            "  GROUP BY candidate.product_master_id",
-            ") recoverable ON recoverable.id = t.id",
-            "SET t.status = CASE",
-            "      WHEN t.task_type = 'product-delete' THEN 'product_delete_write_retry_scheduled'",
-            "      ELSE 'write_retry_scheduled'",
-            "    END,",
-            "    t.error_code = CASE",
-            "      WHEN t.error_code IN ('publish_task_failed', 'noon_request_failed') THEN 'noon_request_failed'",
-            "      ELSE t.error_code",
-            "    END,",
-            "    t.error_message = 'Noon 发布接口暂时不可用，系统将后台自动核对并重试。',",
-            "    t.next_run_at = NOW(),",
-            "    t.finished_at = NULL,",
-            "    t.retry_count = COALESCE(t.retry_count, 0) + 1,",
-            "    t.active_lock_key = CONCAT('product:', t.product_master_id),",
-            "    t.locked_by = NULL,",
-            "    t.locked_at = NULL,",
-            "    t.version_no = t.version_no + 1,",
-            "    t.updated_by = #{updatedBy},",
-            "    t.gmt_updated = NOW()",
-            "</script>"
-    })
-    int recoverRetryableFailedNoonWriteProductPublishTasks(
-            @Param("lookbackHours") int lookbackHours,
-            @Param("updatedBy") Long updatedBy
-    );
-
-    @Update({
-            "UPDATE product_publish_task",
+            "UPDATE product_publish_task target",
             "SET status = CASE",
-            "      WHEN task_type = 'product-delete' THEN 'product_delete_running'",
+            "      WHEN " + ProductPublishRetryMapper.DELETE_TASK_PREDICATE + " THEN 'product_delete_running'",
             "      ELSE 'running'",
             "    END,",
             "    locked_by = #{lockedBy},",
@@ -819,27 +677,6 @@ public interface ProductManagementMapper {
             @Param("errorMessage") String errorMessage,
             @Param("updatedBy") Long updatedBy
     );
-
-    @Update({
-            "UPDATE product_publish_task",
-            "SET status = CASE",
-            "        WHEN task_type = 'product-delete' THEN 'product_delete_queued'",
-            "        ELSE 'queued'",
-            "    END,",
-            "    retry_count = retry_count + 1,",
-            "    next_run_at = NOW(),",
-            "    error_code = NULL,",
-            "    error_message = NULL,",
-            "    result_json = NULL,",
-            "    active_lock_key = CONCAT('product:', product_master_id),",
-            "    updated_by = #{updatedBy},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{id}",
-            "  AND status IN ('failed', 'pending_manual_check')",
-            "  AND retry_count < max_retry_count",
-            "  AND is_deleted = 0"
-    })
-    int retryProductPublishTask(@Param("id") Long id, @Param("updatedBy") Long updatedBy);
 
     @Update({
             "UPDATE product_publish_task",
@@ -3221,28 +3058,28 @@ public interface ProductManagementMapper {
     @Select({
             "SELECT id",
             "FROM product_barcode",
-            "WHERE barcode = #{barcode}",
+            "WHERE logical_store_id = #{logicalStoreId} AND barcode = #{barcode}",
             "  AND is_deleted = 0",
             "LIMIT 1"
     })
-    Long selectProductBarcodeIdByBarcode(@Param("barcode") String barcode);
+    Long selectProductBarcodeIdByBarcode(@Param("logicalStoreId") Long logicalStoreId, @Param("barcode") String barcode);
 
     @Select({
             "SELECT product_master_id",
             "FROM product_barcode",
-            "WHERE barcode = #{barcode}",
+            "WHERE logical_store_id = #{logicalStoreId} AND barcode = #{barcode}",
             "  AND is_deleted = 0",
             "LIMIT 1"
     })
-    Long selectProductBarcodeProductMasterIdByBarcode(@Param("barcode") String barcode);
+    Long selectProductBarcodeProductMasterIdByBarcode(@Param("logicalStoreId") Long logicalStoreId, @Param("barcode") String barcode);
 
     @Select({
             "SELECT id",
             "FROM product_barcode",
-            "WHERE barcode = #{barcode}",
+            "WHERE logical_store_id = #{logicalStoreId} AND barcode = #{barcode}",
             "LIMIT 1"
     })
-    Long selectProductBarcodeIdByBarcodeIncludingDeleted(@Param("barcode") String barcode);
+    Long selectProductBarcodeIdByBarcodeIncludingDeleted(@Param("logicalStoreId") Long logicalStoreId, @Param("barcode") String barcode);
 
     @Update({
             "UPDATE product_barcode",

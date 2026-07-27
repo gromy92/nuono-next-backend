@@ -54,15 +54,13 @@ public class ProductImageProfileService {
     private final ProductPublicDetailMapper productPublicDetailMapper;
     private final AiCapabilityService aiCapabilityService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ProductImageSuiteRetryCoordinator suiteRetryCoordinator;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final NoonImageTechnicalComplianceEvaluator noonComplianceEvaluator = new NoonImageTechnicalComplianceEvaluator();
-
     @Autowired
     public ProductImageProfileService(
-            ProductImageProfileMapper mapper,
-            OperationsSkinMapper operationsSkinMapper,
-            ProductPublicDetailMapper productPublicDetailMapper,
-            AiCapabilityService aiCapabilityService,
+            ProductImageProfileMapper mapper, OperationsSkinMapper operationsSkinMapper,
+            ProductPublicDetailMapper productPublicDetailMapper, AiCapabilityService aiCapabilityService,
             ApplicationEventPublisher eventPublisher
     ) {
         this.mapper = mapper;
@@ -71,8 +69,13 @@ public class ProductImageProfileService {
         this.productPublicDetailMapper = productPublicDetailMapper;
         this.aiCapabilityService = aiCapabilityService;
         this.eventPublisher = eventPublisher == null ? event -> { } : eventPublisher;
+        this.suiteRetryCoordinator = new ProductImageSuiteRetryCoordinator(mapper, this.eventPublisher, objectMapper);
     }
 
+    @Autowired(required = false)
+    void setProductWriteAuthRecovery(ProductWriteAuthRecovery authRecovery) {
+        suiteRetryCoordinator.setProductWriteAuthRecovery(authRecovery);
+    }
     ProductImageProfileService(
             ProductImageProfileMapper mapper,
             OperationsSkinMapper operationsSkinMapper,
@@ -85,7 +88,6 @@ public class ProductImageProfileService {
     ProductImageProfileService(ProductImageProfileMapper mapper, OperationsSkinMapper operationsSkinMapper) {
         this(mapper, operationsSkinMapper, null, null, null);
     }
-
     @Transactional
     public ProductImageProfileListView list(ProductImageProfileListCommand command) {
         Long ownerUserId = requireOwnerUserId(command == null ? null : command.getOwnerUserId());
@@ -1068,7 +1070,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         mapper.markAdoptedSuitesHistorical(profile.getId(), operatorUserId);
         if (mapper.updateSuiteStatus(suiteId, profile.getId(), ProductImageSuiteStatus.ADOPTED, operatorUserId) == 0) {
             throw notFound();
@@ -1087,7 +1090,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         if (mapper.updateSuiteStatus(suiteId, profile.getId(), ProductImageSuiteStatus.DISCARDED, operatorUserId) == 0) {
             throw notFound();
         }
@@ -1105,7 +1109,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         if (mapper.softDeleteSuite(suiteId, profile.getId(), operatorUserId) == 0) {
             throw notFound();
         }
@@ -1124,7 +1129,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         requireSuiteAsset(suiteId, assetId);
         if (mapper.deleteSuiteAsset(suiteId, assetId) == 0) {
             throw notFound();
@@ -1152,6 +1158,8 @@ public class ProductImageProfileService {
                 ? sourceSuite.getId()
                 : command.getTargetSuiteId();
         ProductImageSuiteRecord targetSuite = requireSuite(profile.getId(), targetSuiteId);
+        ProductImageSuiteMutationGuard.requireMutable(sourceSuite);
+        ProductImageSuiteMutationGuard.requireMutable(targetSuite);
         int targetIndex = command == null || command.getTargetIndex() == null ? Integer.MAX_VALUE : command.getTargetIndex();
 
         if (!Objects.equals(sourceSuite.getId(), targetSuite.getId())) {
@@ -1244,19 +1252,13 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
-        if (safeList(mapper.selectSuiteAssets(suiteId)).isEmpty()) throw new IllegalArgumentException("套图没有可发布的图片。");
-        if (!StringUtils.hasText(mapper.selectSkuParentByProductMasterId(profile.getProductMasterId()))) {
-            throw new IllegalArgumentException("该商品尚未在 Noon 上线，不能发布图片。");
-        }
-        if (mapper.reviewSuite(
-                suiteId, profile.getId(), ProductImageSuiteStatus.PUBLISHING, null, operatorUserId
-        ) == 0) {
-            throw new IllegalArgumentException("只有待审核或当前采用套图可以审核通过。");
-        }
-        eventPublisher.publishEvent(new ProductImagePublishSubmittedEvent(
-                suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
-        ));
+        suiteRetryCoordinator.approve(
+                profile,
+                suiteId,
+                resolvedOwnerUserId,
+                normalizedStoreCode,
+                operatorUserId
+        );
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
 
@@ -1341,19 +1343,9 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
-        if (suite.getSuiteStatus() != ProductImageSuiteStatus.FAILED) throw new IllegalArgumentException("只有失败任务可以重试。");
-        if ("PUBLISH".equalsIgnoreCase(suite.getFailureStage())) {
-            mapper.updateSuiteWorkflowStatus(suiteId, ProductImageSuiteStatus.PUBLISHING, null, null, operatorUserId);
-            eventPublisher.publishEvent(new ProductImagePublishSubmittedEvent(
-                    suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
-            ));
-        } else {
-            mapper.updateSuiteWorkflowStatus(suiteId, ProductImageSuiteStatus.PENDING_GENERATION, null, null, operatorUserId);
-            eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
-                    suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
-            ));
-        }
+        suiteRetryCoordinator.retry(
+                profile, suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+        );
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
 

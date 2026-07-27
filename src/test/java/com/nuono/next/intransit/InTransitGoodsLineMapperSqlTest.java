@@ -22,11 +22,13 @@ class InTransitGoodsLineMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql)
-                .contains("pb.logical_store_id AS logicalStoreId")
-                .contains("pb.partner_sku AS partnerSku")
+                .contains("MIN(pb.logical_store_id) AS logicalStoreId")
+                .contains("MIN(pb.partner_sku) AS partnerSku")
                 .contains("WHERE pb.barcode = #{barcode}")
                 .contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'")
                 .contains("ls.owner_user_id = #{ownerUserId}")
+                .contains("HAVING COUNT(DISTINCT pb.logical_store_id) = 1")
+                .doesNotContain("LIMIT 1")
                 .doesNotContain("product_variant")
                 .doesNotContain("variant_id");
     }

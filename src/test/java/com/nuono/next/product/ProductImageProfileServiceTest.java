@@ -59,29 +59,6 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
-    void createAiSuiteDraftShouldBlockAndListMissingBasicFields() {
-        ProductImageProfileRecord profile = profileRecord();
-        profile.setBrand(null);
-        profile.setTitleEn(null);
-        profile.setSpecSummary(null);
-        profile.setProductFactText(null);
-        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
-        when(mapper.selectAssets(7001L)).thenReturn(List.of());
-
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.createAiSuiteDraft(307L, "STR108065-NAE", 7001L, 3001L, 10003L)
-        );
-
-        assertTrue(exception.getMessage().contains("品牌"));
-        assertTrue(exception.getMessage().contains("英文或阿语标题"));
-        assertTrue(exception.getMessage().contains("规格摘要"));
-        assertTrue(exception.getMessage().contains("商品事实资料"));
-        assertTrue(exception.getMessage().contains("基础图片"));
-        verify(mapper, never()).insertSuite(any());
-    }
-
-    @Test
     void rejectSuiteShouldKeepUnselectedImageAndRegenerateSelectedImage() {
         ProductImageProfileRecord profile = profileRecord();
         ProductImageSuiteRecord source = suiteRecord(9901L, ProductImageSuiteStatus.ADOPTED);

@@ -77,7 +77,6 @@ nuono:
       enabled: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_ENABLED:false}
       stale-after-minutes: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_STALE_AFTER_MINUTES:360}
     publish-task:
-      async-enabled: ${NUONO_PRODUCT_PUBLISH_TASK_ASYNC_ENABLED:true}
       scheduler:
         enabled: ${NUONO_PRODUCT_PUBLISH_TASK_SCHEDULER_ENABLED:true}
     attribute-template:

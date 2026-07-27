@@ -115,6 +115,34 @@ class ProductListingCreateOutcomeVerificationTest extends ProductListingCreateOu
     }
 
     @Test
+    void mismatchedPreCreateProofFailsClosedBeforeNoonLookup() throws Exception {
+        ProductListingMapper mapper = mock(ProductListingMapper.class);
+        ProductListingService listingService = mock(ProductListingService.class);
+        ProductListingNoonWriteAdapter adapter = mock(ProductListingNoonWriteAdapter.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        ProductListingCreateOutcomeService service = new ProductListingCreateOutcomeService(
+                mapper, listingService, adapter, objectMapper
+        );
+        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
+                10002L, 90001L, "STR245027-NAE"
+        );
+        ProductListingTaskRecord record = uncertainTaskRecord(objectMapper);
+        record.setStoreCode("STR-OTHER");
+        ProductListingTaskView authorized = taskView();
+        authorized.setStoreCode("STR-OTHER");
+        when(listingService.loadTask(context, 20002L)).thenReturn(authorized);
+        when(mapper.selectTaskById(20002L, 10002L)).thenReturn(record);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.verify(context, 20002L)
+        );
+
+        verify(adapter, never()).resolveCreateReference(any());
+        verify(mapper, never()).persistRecoveredCreateReference(any(), any(), any(), any());
+    }
+
+    @Test
     void repeatedReliableNotFoundChecksArePersistedBeforeSafeExitIsOffered()
             throws Exception {
         ProductListingMapper mapper = mock(ProductListingMapper.class);
