@@ -9,7 +9,6 @@ import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
-import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -192,7 +191,7 @@ public class CompetitorProductDetailRefreshService {
         detail.setAvailabilityStatus(normalizeText(detail.getAvailabilityStatus()));
         detail.setSnapshotHash(firstNonBlank(detail.getSnapshotHash(), snapshotHash(detail)));
         if (detail.getCapturedAt() == null) {
-            detail.setCapturedAt(LocalDateTime.now(clock));
+            detail.setCapturedAt(com.nuono.next.noon.NoonShanghaiBusinessTime.now(clock));
         }
     }
 

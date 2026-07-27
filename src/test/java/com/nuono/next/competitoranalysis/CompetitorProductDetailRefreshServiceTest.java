@@ -104,6 +104,38 @@ class CompetitorProductDetailRefreshServiceTest {
     }
 
     @Test
+    void fillsMissingCapturedAtWithShanghaiBusinessTime() {
+        service = new CompetitorProductDetailRefreshService(
+                mapper,
+                detailAdapter,
+                snapshotService,
+                Clock.fixed(Instant.parse("2026-07-26T18:00:00Z"), ZoneOffset.UTC)
+        );
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        NoonProductDetail detail = detail("ZSELF001");
+        detail.setCapturedAt(null);
+        when(detailAdapter.fetch(any(NoonProductDetailRequest.class))).thenReturn(detail);
+        when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L)).thenReturn(List.of());
+
+        CompetitorProductDetailRefreshResult result =
+                service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
+
+        assertEquals(1, result.getSucceededCount());
+        ArgumentCaptor<NoonProductDetail> detailCaptor = ArgumentCaptor.forClass(NoonProductDetail.class);
+        verify(snapshotService).recordProductDetailSnapshot(
+                org.mockito.ArgumentMatchers.eq(watchProduct),
+                org.mockito.ArgumentMatchers.isNull(),
+                detailCaptor.capture(),
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(601L)
+        );
+        assertEquals(
+                LocalDateTime.parse("2026-07-27T02:00:00"),
+                detailCaptor.getValue().getCapturedAt()
+        );
+    }
+
+    @Test
     void doesNotRecordSearchDiscoveryAsDetailWhenDetailFetchFails() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorProductRow confirmed = confirmedProduct(200010L, "ZCOMP001", "https://www.noon.com/saudi-en/sample/ZCOMP001/p/");
