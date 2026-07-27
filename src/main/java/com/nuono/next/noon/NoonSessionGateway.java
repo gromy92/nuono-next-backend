@@ -329,6 +329,41 @@ public class NoonSessionGateway {
             String requestedProjectCode,
             String storeCode
     ) {
+        return authorizeMerchantLogin(
+                ownerUserId,
+                noonUser,
+                noonPassword,
+                requestedProjectCode,
+                storeCode,
+                true
+        );
+    }
+
+    public MerchantAuthorization authorizeMerchantLoginCandidate(
+            Long ownerUserId,
+            String noonUser,
+            String noonPassword,
+            String requestedProjectCode,
+            String storeCode
+    ) {
+        return authorizeMerchantLogin(
+                ownerUserId,
+                noonUser,
+                noonPassword,
+                requestedProjectCode,
+                storeCode,
+                false
+        );
+    }
+
+    private MerchantAuthorization authorizeMerchantLogin(
+            Long ownerUserId,
+            String noonUser,
+            String noonPassword,
+            String requestedProjectCode,
+            String storeCode,
+            boolean persistSessionCookie
+    ) {
         String normalizedUser = normalizeUser(noonUser);
         if (!StringUtils.hasText(normalizedUser)) {
             throw new IllegalArgumentException("缺少 Noon 登录账号。");
@@ -345,24 +380,29 @@ public class NoonSessionGateway {
                     normalizedUser,
                     noonPassword,
                     normalizedProjectCode,
-                    normalizedStoreCode
+                    normalizedStoreCode,
+                    persistSessionCookie
             );
         }
 
         if (!StringUtils.hasText(normalizedProjectCode)) {
             throw new IllegalStateException("Noon login-alt 未启用时无法读取 Project 列表，请先选择 Project。");
         }
-        NoonSession session = login(
+        AuthSessionState state = createSigninState(
                 ownerUserId,
                 normalizedUser,
                 noonPassword,
-                null,
                 normalizedProjectCode,
                 normalizedStoreCode
         );
+        String cookie = state.exportAuthCookieHeader();
+        if (persistSessionCookie) {
+            persistCookie(ownerUserId, normalizedProjectCode, cookie);
+        }
         return MerchantAuthorization.authorized(
                 new MerchantProject(normalizedProjectCode, normalizedProjectCode, null, null),
-                session.exportAuthCookieHeader()
+                cookie,
+                normalizedUser
         );
     }
 
@@ -372,6 +412,24 @@ public class NoonSessionGateway {
             String mailAuthCode,
             String requestedProjectCode,
             String storeCode
+    ) {
+        return authorizeMerchantEmailLogin(
+                ownerUserId,
+                noonEmail,
+                mailAuthCode,
+                requestedProjectCode,
+                storeCode,
+                true
+        );
+    }
+
+    private MerchantAuthorization authorizeMerchantEmailLogin(
+            Long ownerUserId,
+            String noonEmail,
+            String mailAuthCode,
+            String requestedProjectCode,
+            String storeCode,
+            boolean persistSessionCookie
     ) {
         requireLegacyDirectEmailOtpEnabled();
         String normalizedEmail = normalizeUser(noonEmail);
@@ -390,7 +448,8 @@ public class NoonSessionGateway {
                 normalizedEmail,
                 normalizedMailAuthCode,
                 normalize(requestedProjectCode),
-                normalize(storeCode)
+                normalize(storeCode),
+                persistSessionCookie
         );
     }
 
@@ -729,9 +788,7 @@ public class NoonSessionGateway {
     }
 
     private boolean isSensitiveAuthRequest(HttpRequest request) {
-        if (request == null || request.uri() == null) {
-            return false;
-        }
+        if (request == null || request.uri() == null){ return false; }
         String url = request.uri().toString();
         return sameEndpoint(url, identityUserLookupUrl)
                 || sameEndpoint(url, identityPkceUrl)
@@ -751,45 +808,19 @@ public class NoonSessionGateway {
     }
 
     private String resolveRequestMetricKey(String url) {
-        if (!StringUtils.hasText(url)) {
-            return "unknown";
-        }
-        if (url.contains("/public/auth/signin")) {
-            return "auth.signin";
-        }
-        if (url.contains("/public/user/lookup")) {
-            return "auth.identity.lookup";
-        }
-        if (url.contains("/public/client/pkce")) {
-            return "auth.identity.pkce";
-        }
-        if (url.contains("/public/user/credential/generate")) {
-            return "auth.identity.generate";
-        }
-        if (url.contains("/public/user/validate")) {
-            return "auth.identity.validate";
-        }
-        if (url.contains("/public/user/project/list")) {
-            return "auth.identity.project-list";
-        }
-        if (url.contains("/public/user/session/create")) {
-            return "auth.identity.session-create";
-        }
-        if (url.contains("/auth-v1/whoami")) {
-            return "auth.whoami";
-        }
-        if (url.contains("/project/list")) {
-            return "project.list";
-        }
-        if (url.contains("/noon/store/list")) {
-            return "store.list";
-        }
-        if (url.contains("/offer/list/noon")) {
-            return "offer.list";
-        }
-        if (url.contains("/zsku/retrieve")) {
-            return "zsku.retrieve";
-        }
+        if (!StringUtils.hasText(url)){ return "unknown"; }
+        if (url.contains("/public/auth/signin")){ return "auth.signin"; }
+        if (url.contains("/public/user/lookup")){ return "auth.identity.lookup"; }
+        if (url.contains("/public/client/pkce")){ return "auth.identity.pkce"; }
+        if (url.contains("/public/user/credential/generate")){ return "auth.identity.generate"; }
+        if (url.contains("/public/user/validate")){ return "auth.identity.validate"; }
+        if (url.contains("/public/user/project/list")){ return "auth.identity.project-list"; }
+        if (url.contains("/public/user/session/create")){ return "auth.identity.session-create"; }
+        if (url.contains("/auth-v1/whoami")){ return "auth.whoami"; }
+        if (url.contains("/project/list")){ return "project.list"; }
+        if (url.contains("/noon/store/list")){ return "store.list"; }
+        if (url.contains("/offer/list/noon")){ return "offer.list"; }
+        if (url.contains("/zsku/retrieve")){ return "zsku.retrieve"; }
         try {
             return URI.create(url).getPath();
         } catch (Exception ignored) {
@@ -808,9 +839,7 @@ public class NoonSessionGateway {
     ) {
         synchronized (accountLocks.computeIfAbsent(noonUser, key -> new Object())) {
             AuthSessionState existing = sessionCache.get(noonUser);
-            if (!forceRefresh && existing != null && !existing.isExpired() && existing.matchesPassword(noonPassword)) {
-                return existing;
-            }
+            if (!forceRefresh && existing != null && !existing.isExpired() && existing.matchesPassword(noonPassword)){ return existing; }
 
             AuthSessionState created = createAuthenticatedState(
                     ownerUserId,
@@ -837,9 +866,7 @@ public class NoonSessionGateway {
         String cacheKey = "emailotp:" + noonEmail + ":" + normalize(projectCode);
         synchronized (accountLocks.computeIfAbsent(cacheKey, key -> new Object())) {
             AuthSessionState existing = sessionCache.get(cacheKey);
-            if (!forceRefresh && existing != null && !existing.isExpired() && existing.matchesPassword(mailAuthCode)) {
-                return existing;
-            }
+            if (!forceRefresh && existing != null && !existing.isExpired() && existing.matchesPassword(mailAuthCode)){ return existing; }
 
             AuthSessionState created = createEmailOtpAuthenticatedState(
                     ownerUserId,
@@ -936,9 +963,7 @@ public class NoonSessionGateway {
                 projectCode,
                 storeCode
         );
-        if (cookieState != null) {
-            return cookieState;
-        }
+        if (cookieState != null){ return cookieState; }
 
         IllegalStateException partnerIdentityFailure = null;
         if (partnerIdentityLoginEnabled) {
@@ -1016,9 +1041,7 @@ public class NoonSessionGateway {
                 projectCode,
                 storeCode
         );
-        if (cookieState != null) {
-            return cookieState;
-        }
+        if (cookieState != null){ return cookieState; }
         if (!partnerIdentityLoginEnabled) {
             throw new IllegalStateException("Noon 邮箱登录需要启用 login-alt 身份链路。");
         }
@@ -1122,7 +1145,8 @@ public class NoonSessionGateway {
             String noonUser,
             String noonPassword,
             String requestedProjectCode,
-            String storeCode
+            String storeCode,
+            boolean persistSessionCookie
     ) {
         try {
             AuthSessionState state = newSessionState(noonUser, noonPassword);
@@ -1130,9 +1154,7 @@ public class NoonSessionGateway {
             PkcePair pkce = createPkcePair(state);
             String accessToken = validatePartnerIdentityPassword(state, user.getUserCode(), noonUser, noonPassword, pkce);
             List<MerchantProject> projects = listPartnerIdentityProjects(state, user.getUserCode(), accessToken);
-            if (!StringUtils.hasText(requestedProjectCode) && projects.size() > 1) {
-                return MerchantAuthorization.projectSelectionRequired(projects);
-            }
+            if (!StringUtils.hasText(requestedProjectCode) && projects.size() > 1){ return MerchantAuthorization.projectSelectionRequired(projects); }
 
             MerchantProject selectedProject = StringUtils.hasText(requestedProjectCode)
                     ? selectMerchantProject(projects, requestedProjectCode)
@@ -1146,8 +1168,14 @@ public class NoonSessionGateway {
             );
             state.applyContextCookies(selectedProject.getProjectCode(), storeCode);
             String cookie = state.exportAuthCookieHeader();
-            persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
-            return MerchantAuthorization.authorized(selectedProject, cookie);
+            if (persistSessionCookie) {
+                persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
+            }
+            return MerchantAuthorization.authorized(
+                    selectedProject,
+                    cookie,
+                    user.getUserCode()
+            );
         } catch (IllegalStateException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -1160,7 +1188,8 @@ public class NoonSessionGateway {
             String noonEmail,
             String mailAuthCode,
             String requestedProjectCode,
-            String storeCode
+            String storeCode,
+            boolean persistSessionCookie
     ) {
         try {
             AuthSessionState state = newSessionState(noonEmail, "");
@@ -1176,9 +1205,7 @@ public class NoonSessionGateway {
                     pkce
             );
             List<MerchantProject> projects = listPartnerIdentityProjects(state, user.getUserCode(), accessToken);
-            if (!StringUtils.hasText(requestedProjectCode) && projects.size() > 1) {
-                return MerchantAuthorization.projectSelectionRequired(projects);
-            }
+            if (!StringUtils.hasText(requestedProjectCode) && projects.size() > 1){ return MerchantAuthorization.projectSelectionRequired(projects); }
 
             MerchantProject selectedProject = StringUtils.hasText(requestedProjectCode)
                     ? selectMerchantProject(projects, requestedProjectCode)
@@ -1192,8 +1219,14 @@ public class NoonSessionGateway {
             );
             state.applyContextCookies(selectedProject.getProjectCode(), storeCode);
             String cookie = state.exportAuthCookieHeader();
-            persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
-            return MerchantAuthorization.authorized(selectedProject, cookie);
+            if (persistSessionCookie) {
+                persistCookie(ownerUserId, selectedProject.getProjectCode(), cookie);
+            }
+            return MerchantAuthorization.authorized(
+                    selectedProject,
+                    cookie,
+                    user.getUserCode()
+            );
         } catch (IllegalStateException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -1228,9 +1261,7 @@ public class NoonSessionGateway {
             String projectCode,
             String storeCode
     ) {
-        if (!StringUtils.hasText(persistedCookie)) {
-            return null;
-        }
+        if (!StringUtils.hasText(persistedCookie)){ return null; }
         try {
             CookieManager cookieManager = new CookieManager();
             cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
@@ -1259,9 +1290,7 @@ public class NoonSessionGateway {
     }
 
     private static String cookieFingerprint(String cookie) {
-        if (!StringUtils.hasText(cookie)) {
-            return "missing";
-        }
+        if (!StringUtils.hasText(cookie)){ return "missing"; }
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return Base64.getUrlEncoder().withoutPadding().encodeToString(
@@ -1273,9 +1302,7 @@ public class NoonSessionGateway {
     }
 
     private static String safeCookieFailureReason(Throwable throwable) {
-        if (throwable == null || !StringUtils.hasText(throwable.getMessage())) {
-            return "cookie_rejected";
-        }
+        if (throwable == null || !StringUtils.hasText(throwable.getMessage())){ return "cookie_rejected"; }
         String normalized = throwable.getMessage().replace('\r', ' ').replace('\n', ' ').trim();
         return normalized.length() <= 180 ? normalized : normalized.substring(0, 180);
     }
@@ -1476,9 +1503,7 @@ public class NoonSessionGateway {
             String storeCode,
             IllegalStateException exception
     ) {
-        if (!chromeCookieFallbackEnabled || !isRateLimitedMessage(exception.getMessage())) {
-            return null;
-        }
+        if (!chromeCookieFallbackEnabled || !isRateLimitedMessage(exception.getMessage())){ return null; }
         try {
             CookieManager cookieManager = new CookieManager();
             cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
@@ -1515,13 +1540,9 @@ public class NoonSessionGateway {
         }
     }
 
-    static PartnerIdentityUser extractPartnerIdentityUser(JsonNode root) {
-        return extractPartnerIdentityUser(root, "password", "请先在 Noon 后台为该账号启用密码登录。");
-    }
+    static PartnerIdentityUser extractPartnerIdentityUser(JsonNode root){ return extractPartnerIdentityUser(root, "password", "请先在 Noon 后台为该账号启用密码登录。"); }
 
-    static PartnerIdentityUser extractPartnerIdentityEmailOtpUser(JsonNode root) {
-        return extractPartnerIdentityUser(root, "emailotp", "该 Noon 商家后台账号未启用邮箱验证码登录。");
-    }
+    static PartnerIdentityUser extractPartnerIdentityEmailOtpUser(JsonNode root){ return extractPartnerIdentityUser(root, "emailotp", "该 Noon 商家后台账号未启用邮箱验证码登录。"); }
 
     private static PartnerIdentityUser extractPartnerIdentityUser(
             JsonNode root,
@@ -1556,9 +1577,7 @@ public class NoonSessionGateway {
     static String selectPartnerIdentityProjectCode(JsonNode root, String requestedProjectCode) {
         List<MerchantProject> projects = extractPartnerIdentityProjects(root);
         String normalizedRequested = normalize(requestedProjectCode);
-        if (StringUtils.hasText(normalizedRequested)) {
-            return selectMerchantProject(projects, normalizedRequested).getProjectCode();
-        }
+        if (StringUtils.hasText(normalizedRequested)){ return selectMerchantProject(projects, normalizedRequested).getProjectCode(); }
         return projects.get(0).getProjectCode();
     }
 
@@ -1618,22 +1637,16 @@ public class NoonSessionGateway {
     }
 
     private static String normalize(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
+        if (!StringUtils.hasText(value)){ return null; }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
+        if (values == null){ return null; }
         for (String value : values) {
             String normalized = normalize(value);
-            if (StringUtils.hasText(normalized)) {
-                return normalized;
-            }
+            if (StringUtils.hasText(normalized)){ return normalized; }
         }
         return null;
     }
@@ -1649,40 +1662,28 @@ public class NoonSessionGateway {
     }
 
     private static String text(JsonNode node, String fieldName) {
-        if (node == null || !StringUtils.hasText(fieldName)) {
-            return null;
-        }
+        if (node == null || !StringUtils.hasText(fieldName)){ return null; }
         JsonNode value = node.path(fieldName);
-        if (value.isMissingNode() || value.isNull()) {
-            return null;
-        }
+        if (value.isMissingNode() || value.isNull()){ return null; }
         String text = value.asText(null);
         return normalize(text);
     }
 
     private static String firstText(JsonNode node, String... fieldNames) {
-        if (fieldNames == null) {
-            return null;
-        }
+        if (fieldNames == null){ return null; }
         for (String fieldName : fieldNames) {
             String value = text(node, fieldName);
-            if (StringUtils.hasText(value)) {
-                return value;
-            }
+            if (StringUtils.hasText(value)){ return value; }
         }
         return null;
     }
 
     private static String partnerIdentityError(JsonNode root) {
-        if (root == null || root.isMissingNode() || root.isNull()) {
-            return "empty response";
-        }
+        if (root == null || root.isMissingNode() || root.isNull()){ return "empty response"; }
         JsonNode err = root.path("err");
         if (err.isArray() && err.size() > 0) {
             String value = normalize(err.get(0).asText(null));
-            if (StringUtils.hasText(value)) {
-                return value;
-            }
+            if (StringUtils.hasText(value)){ return value; }
         }
         String value = firstText(root, "err", "error", "message", "errorMessage", "error_message");
         return StringUtils.hasText(value) ? value : "provider response indicated failure";
@@ -1698,9 +1699,7 @@ public class NoonSessionGateway {
     }
 
     private static String shrinkBody(String body) {
-        if (!StringUtils.hasText(body)) {
-            return "empty response";
-        }
+        if (!StringUtils.hasText(body)){ return "empty response"; }
         String normalized = body.replaceAll("\\s+", " ").trim();
         return normalized.length() > 220 ? normalized.substring(0, 220) + "..." : normalized;
     }
@@ -1727,16 +1726,10 @@ public class NoonSessionGateway {
     }
 
     private Proxy resolveProxy() {
-        if (!proxyEnabled) {
-            return null;
-        }
+        if (!proxyEnabled){ return null; }
         Proxy.Type resolvedProxyType = "SOCKS".equalsIgnoreCase(proxyType) ? Proxy.Type.SOCKS : Proxy.Type.HTTP;
-        if (StringUtils.hasText(proxyProviderUrl)) {
-            return loadProxyFromProvider(resolvedProxyType);
-        }
-        if (StringUtils.hasText(proxyHost) && proxyPort > 0) {
-            return new Proxy(resolvedProxyType, new InetSocketAddress(proxyHost, proxyPort));
-        }
+        if (StringUtils.hasText(proxyProviderUrl)){ return loadProxyFromProvider(resolvedProxyType); }
+        if (StringUtils.hasText(proxyHost) && proxyPort > 0){ return new Proxy(resolvedProxyType, new InetSocketAddress(proxyHost, proxyPort)); }
         throw new IllegalStateException("Noon 代理已启用但未配置 provider-url 或 host/port；请检查生产 .env 是否被正确加载。");
     }
 
@@ -1855,44 +1848,26 @@ public class NoonSessionGateway {
             );
         }
 
-        public String getProjectCode() {
-            return projectCode;
-        }
+        public String getProjectCode(){ return projectCode; }
 
-        public JsonNode getJson(String url, boolean withProject) {
-            return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, null));
-        }
+        public JsonNode getJson(String url, boolean withProject){ return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, null)); }
 
-        public JsonNode getJson(String url, boolean withProject, Map<String, String> extraHeaders) {
-            return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, extraHeaders));
-        }
+        public JsonNode getJson(String url, boolean withProject, Map<String, String> extraHeaders){ return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, extraHeaders)); }
 
-        public String getText(String url, boolean withProject, Map<String, String> extraHeaders) {
-            return executeTextWithRefresh(() -> state.getText(projectCode, storeCode, url, withProject, extraHeaders));
-        }
+        public String getText(String url, boolean withProject, Map<String, String> extraHeaders){ return executeTextWithRefresh(() -> state.getText(projectCode, storeCode, url, withProject, extraHeaders)); }
 
-        public String postText(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            return executeTextWithRefresh(() -> state.postText(projectCode, storeCode, url, body, withProject, extraHeaders));
-        }
+        public String postText(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders){ return executeTextWithRefresh(() -> state.postText(projectCode, storeCode, url, body, withProject, extraHeaders)); }
 
-        public byte[] postBytes(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            return executeBytesWithRefresh(() -> state.postBytes(projectCode, storeCode, url, body, withProject, extraHeaders));
-        }
+        public byte[] postBytes(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders){ return executeBytesWithRefresh(() -> state.postBytes(projectCode, storeCode, url, body, withProject, extraHeaders)); }
 
-        public JsonNode postJson(String url, JsonNode body, boolean withProject) {
-            return postJson(url, body, withProject, null);
-        }
+        public JsonNode postJson(String url, JsonNode body, boolean withProject){ return postJson(url, body, withProject, null); }
 
-        public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            return executeWithRefresh(() -> state.postJson(projectCode, storeCode, url, body, withProject, extraHeaders));
-        }
+        public JsonNode postJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders){ return executeWithRefresh(() -> state.postJson(projectCode, storeCode, url, body, withProject, extraHeaders)); }
 
-        public JsonNode postWriteJson(String url, JsonNode body, boolean withProject) {
-            return postWriteJson(url, body, withProject, null);
-        }
+        public JsonNode postWriteJson(String url, JsonNode body, boolean withProject){ return postWriteJson(url, body, withProject, null); }
 
         public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
-            return executeWriteWithAuthRefresh(
+            return executeWriteWithoutReplay(
                     () -> state.postJson(
                             projectCode,
                             storeCode,
@@ -1914,7 +1889,7 @@ public class NoonSessionGateway {
                 boolean withProject,
                 Map<String, String> extraHeaders
         ) {
-            return executeWriteWithAuthRefresh(
+            return executeWriteWithoutReplay(
                     () -> state.postMultipartFile(
                             projectCode,
                             storeCode,
@@ -1929,9 +1904,7 @@ public class NoonSessionGateway {
             );
         }
 
-        public String exportAuthCookieHeader() {
-            return state.exportAuthCookieHeader();
-        }
+        public String exportAuthCookieHeader(){ return state.exportAuthCookieHeader(); }
 
         private JsonNode executeWithRefresh(SessionCall sessionCall) {
             boolean authRefreshed = false;
@@ -1959,18 +1932,19 @@ public class NoonSessionGateway {
             }
         }
 
-        private JsonNode executeWriteWithAuthRefresh(SessionCall sessionCall) {
-            boolean authRefreshed = false;
-            while (true) {
-                try {
-                    return sessionCall.execute();
-                } catch (SessionExpiredException exception) {
-                    if (authRefreshed) {
-                        throw exception.toHttpException();
-                    }
-                    state = refreshAuthenticatedState(null, true);
-                    authRefreshed = true;
-                }
+        private JsonNode executeWriteWithoutReplay(SessionCall sessionCall) {
+            try {
+                return sessionCall.execute();
+            } catch (SessionExpiredException exception) {
+                // A write may have reached Noon even when the response is an
+                // authentication redirect. Never refresh and replay the same
+                // create/upload/upsert request inside the transport layer.
+                throw cookieAuthRequired(
+                        projectCode,
+                        storeCode,
+                        safeCookieFailureReason(exception),
+                        exception
+                );
             }
         }
 
@@ -2067,9 +2041,7 @@ public class NoonSessionGateway {
     }
 
     private boolean shouldRefreshAfterTransientTransportFailure(IllegalStateException exception) {
-        if (!proxyEnabled || exception == null) {
-            return false;
-        }
+        if (!proxyEnabled || exception == null){ return false; }
         String message = throwableMessage(exception).toLowerCase(Locale.ROOT);
         return message.contains("http/1.1 header parser received no bytes")
                 || message.contains("connection reset")
@@ -2111,9 +2083,7 @@ public class NoonSessionGateway {
             this.current = current;
         }
 
-        public Map<String, Integer> snapshot() {
-            return current == null ? Map.of() : new LinkedHashMap<>(current);
-        }
+        public Map<String, Integer> snapshot(){ return current == null ? Map.of() : new LinkedHashMap<>(current); }
 
         @Override
         public void close() {
@@ -2132,9 +2102,7 @@ public class NoonSessionGateway {
             this.userCode = userCode;
         }
 
-        String getUserCode() {
-            return userCode;
-        }
+        String getUserCode(){ return userCode; }
     }
 
     public static final class MerchantProject {
@@ -2150,68 +2118,65 @@ public class NoonSessionGateway {
             this.orgName = orgName;
         }
 
-        public String getProjectCode() {
-            return projectCode;
-        }
+        public String getProjectCode(){ return projectCode; }
 
-        public String getProjectName() {
-            return projectName;
-        }
+        public String getProjectName(){ return projectName; }
 
-        public String getOrgCode() {
-            return orgCode;
-        }
+        public String getOrgCode(){ return orgCode; }
 
-        public String getOrgName() {
-            return orgName;
-        }
+        public String getOrgName(){ return orgName; }
     }
 
     public static final class MerchantAuthorization {
         private final boolean success;
         private final MerchantProject selectedProject;
         private final String cookie;
+        private final String userCode;
         private final List<MerchantProject> projectList;
 
         private MerchantAuthorization(
                 boolean success,
                 MerchantProject selectedProject,
                 String cookie,
+                String userCode,
                 List<MerchantProject> projectList
         ) {
             this.success = success;
             this.selectedProject = selectedProject;
             this.cookie = cookie;
+            this.userCode = userCode;
             this.projectList = projectList == null ? List.of() : List.copyOf(projectList);
         }
 
-        public static MerchantAuthorization authorized(MerchantProject selectedProject, String cookie) {
-            return new MerchantAuthorization(true, selectedProject, cookie, List.of());
+        public static MerchantAuthorization authorized(MerchantProject selectedProject, String cookie){ return authorized(selectedProject, cookie, null); }
+
+        public static MerchantAuthorization authorized(
+                MerchantProject selectedProject,
+                String cookie,
+                String userCode
+        ) {
+            return new MerchantAuthorization(
+                    true,
+                    selectedProject,
+                    cookie,
+                    userCode,
+                    List.of()
+            );
         }
 
-        public static MerchantAuthorization projectSelectionRequired(List<MerchantProject> projectList) {
-            return new MerchantAuthorization(false, null, null, projectList);
-        }
+        public static MerchantAuthorization projectSelectionRequired(List<MerchantProject> projectList){ return new MerchantAuthorization(false, null, null, null, projectList); }
 
-        public boolean isSuccess() {
-            return success;
-        }
+        public boolean isSuccess(){ return success; }
 
-        public boolean isProjectSelectionRequired() {
-            return !success && !projectList.isEmpty();
-        }
+        public boolean isProjectSelectionRequired(){ return !success && !projectList.isEmpty(); }
 
-        public MerchantProject getSelectedProject() {
-            return selectedProject;
-        }
+        public MerchantProject getSelectedProject(){ return selectedProject; }
 
-        public String getCookie() {
-            return cookie;
-        }
+        public String getCookie(){ return cookie; }
 
-        public List<MerchantProject> getProjectList() {
-            return projectList;
-        }
+        public String getUserCode(){ return userCode; }
+
+        public List<MerchantProject> getProjectList(){ return projectList; }
     }
 
     static final class EmailOtpGeneration {
@@ -2260,18 +2225,12 @@ public class NoonSessionGateway {
             this.state = state;
         }
 
-        MerchantProject getProject() {
-            return project;
-        }
+        MerchantProject getProject(){ return project; }
 
         String getCookie() {
-            if (state == null || project == null) {
-                return cookie;
-            }
+            if (state == null || project == null){ return cookie; }
             String currentCookie = state.exportAuthCookieHeader();
-            if (!StringUtils.hasText(currentCookie)) {
-                return cookie;
-            }
+            if (!StringUtils.hasText(currentCookie)){ return cookie; }
             return appendProjectContextCookie(currentCookie, project.getProjectCode());
         }
     }
@@ -2285,13 +2244,9 @@ public class NoonSessionGateway {
             this.pkceKey = pkceKey;
         }
 
-        private String getCodeVerifier() {
-            return codeVerifier;
-        }
+        private String getCodeVerifier(){ return codeVerifier; }
 
-        private String getPkceKey() {
-            return pkceKey;
-        }
+        private String getPkceKey(){ return pkceKey; }
     }
 
     private interface SessionCall {
@@ -2364,13 +2319,9 @@ public class NoonSessionGateway {
             addCookie("projectUser", noonUser);
         }
 
-        private boolean matchesPassword(String value) {
-            return noonPassword.equals(value);
-        }
+        private boolean matchesPassword(String value){ return noonPassword.equals(value); }
 
-        private boolean isExpired() {
-            return createdAt.plus(SESSION_TTL).isBefore(Instant.now());
-        }
+        private boolean isExpired(){ return createdAt.plus(SESSION_TTL).isBefore(Instant.now()); }
 
         private JsonNode getJson(
                 String projectCode,
@@ -2695,9 +2646,7 @@ public class NoonSessionGateway {
                         );
                     }
                     recordAttempt(request, response.statusCode(), responseBody, startedNanos, "SUCCESS", null, null);
-                    if (!StringUtils.hasText(responseBody)) {
-                        return MissingNode.getInstance();
-                    }
+                    if (!StringUtils.hasText(responseBody)){ return MissingNode.getInstance(); }
                     return objectMapper.readTree(responseBody);
                 } catch (InterruptedException exception) {
                     Thread.currentThread().interrupt();
@@ -2924,9 +2873,7 @@ public class NoonSessionGateway {
             );
         }
 
-        private boolean shouldRetryRateLimit(int statusCode, String responseBody, int attempt) {
-            return attempt <= MAX_RATE_LIMIT_RETRIES && isRateLimitedResponse(statusCode, responseBody);
-        }
+        private boolean shouldRetryRateLimit(int statusCode, String responseBody, int attempt){ return attempt <= MAX_RATE_LIMIT_RETRIES && isRateLimitedResponse(statusCode, responseBody); }
 
         private void sleepForRateLimit(int attempt) throws InterruptedException {
             long delay = Math.min(
@@ -2943,9 +2890,7 @@ public class NoonSessionGateway {
                     && isTransientResponseStatus(statusCode);
         }
 
-        private boolean shouldRetryTransientException(boolean retryTransientReadFailures, int attempt) {
-            return retryTransientReadFailures && attempt <= MAX_TRANSIENT_READ_RETRIES;
-        }
+        private boolean shouldRetryTransientException(boolean retryTransientReadFailures, int attempt){ return retryTransientReadFailures && attempt <= MAX_TRANSIENT_READ_RETRIES; }
 
         private boolean isTransientResponseStatus(int statusCode) {
             return statusCode == 408
@@ -2965,12 +2910,8 @@ public class NoonSessionGateway {
         }
 
         private boolean isRateLimitedResponse(int statusCode, String responseBody) {
-            if (statusCode == 429 || statusCode == 418) {
-                return true;
-            }
-            if (!StringUtils.hasText(responseBody)) {
-                return false;
-            }
+            if (statusCode == 429 || statusCode == 418){ return true; }
+            if (!StringUtils.hasText(responseBody)){ return false; }
             String normalized = responseBody.toLowerCase(Locale.ROOT);
             return normalized.contains("too many requests")
                     || normalized.contains("ip_channel")
@@ -2979,28 +2920,20 @@ public class NoonSessionGateway {
 
         private String decodeResponseBody(HttpResponse<byte[]> response) throws IOException {
             byte[] body = decodeResponseBytes(response);
-            if (body == null || body.length == 0) {
-                return "";
-            }
+            if (body == null || body.length == 0){ return ""; }
 
             return new String(body, StandardCharsets.UTF_8);
         }
 
         private byte[] decodeResponseBytes(HttpResponse<byte[]> response) throws IOException {
             byte[] body = response.body();
-            if (body == null || body.length == 0) {
-                return new byte[0];
-            }
+            if (body == null || body.length == 0){ return new byte[0]; }
             String contentEncoding = response.headers().firstValue("content-encoding").orElse("");
             boolean gzipEncoded = contentEncoding.toLowerCase(Locale.ROOT).contains("gzip")
                     || looksLikeGzip(body);
-            if (!gzipEncoded) {
-                return body;
-            }
+            if (!gzipEncoded){ return body; }
 
-            try (InputStream inputStream = new GZIPInputStream(new ByteArrayInputStream(body))) {
-                return inputStream.readAllBytes();
-            }
+            try (InputStream inputStream = new GZIPInputStream(new ByteArrayInputStream(body))){ return inputStream.readAllBytes(); }
         }
 
         private boolean looksLikeGzip(byte[] body) {
@@ -3010,9 +2943,7 @@ public class NoonSessionGateway {
         }
 
         private URI buildUri(String url, boolean withProject, String projectCode) {
-            if (!withProject || !StringUtils.hasText(projectCode)) {
-                return URI.create(url);
-            }
+            if (!withProject || !StringUtils.hasText(projectCode)){ return URI.create(url); }
             String separator = url.contains("?") ? "&" : "?";
             return URI.create(url + separator + "project=" + projectCode);
         }
@@ -3064,9 +2995,7 @@ public class NoonSessionGateway {
 
         private Map<String, String> parseCookieHeader(String cookieHeader) {
             Map<String, String> cookies = new LinkedHashMap<>();
-            if (!StringUtils.hasText(cookieHeader)) {
-                return cookies;
-            }
+            if (!StringUtils.hasText(cookieHeader)){ return cookies; }
             String[] segments = cookieHeader.split(";");
             for (String rawSegment : segments) {
                 String segment = rawSegment == null ? "" : rawSegment.trim();
@@ -3084,9 +3013,7 @@ public class NoonSessionGateway {
             return cookies;
         }
 
-        private String exportAuthCookieHeader() {
-            return authCookieExport.exportAuthCookieHeader();
-        }
+        private String exportAuthCookieHeader(){ return authCookieExport.exportAuthCookieHeader(); }
     }
 
     private static final class SessionExpiredException extends IllegalStateException {
@@ -3101,9 +3028,7 @@ public class NoonSessionGateway {
             this.requestPath = requestPath;
         }
 
-        private NoonHttpException toHttpException() {
-            return new NoonHttpException(statusCode, responseBody, requestPath);
-        }
+        private NoonHttpException toHttpException(){ return new NoonHttpException(statusCode, responseBody, requestPath); }
     }
 
     public static final class NoonCookieAuthRequiredException extends IllegalStateException {
@@ -3128,9 +3053,7 @@ public class NoonSessionGateway {
         }
 
         @Override
-        public java.util.List<Proxy> select(URI uri) {
-            return java.util.Collections.singletonList(proxy);
-        }
+        public java.util.List<Proxy> select(URI uri){ return java.util.Collections.singletonList(proxy); }
 
         @Override
         public void connectFailed(URI uri, java.net.SocketAddress sa, IOException ioe) {
@@ -3139,9 +3062,7 @@ public class NoonSessionGateway {
     }
 
     private static String buildOrigin(URI uri) {
-        if (uri == null || !StringUtils.hasText(uri.getScheme()) || !StringUtils.hasText(uri.getHost())) {
-            return null;
-        }
+        if (uri == null || !StringUtils.hasText(uri.getScheme()) || !StringUtils.hasText(uri.getHost())){ return null; }
         return uri.getScheme() + "://" + uri.getHost();
     }
 

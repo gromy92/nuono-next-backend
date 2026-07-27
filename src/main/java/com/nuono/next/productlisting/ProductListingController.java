@@ -22,15 +22,18 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProductListingController {
 
     private final ProductListingService service;
+    private final ProductListingWorkflowService workflowService;
     private final BusinessAccessResolver businessAccessResolver;
     private final ObjectProvider<ProductListingAiListingService> aiListingServiceProvider;
 
     public ProductListingController(
             ProductListingService service,
+            ProductListingWorkflowService workflowService,
             BusinessAccessResolver businessAccessResolver,
             ObjectProvider<ProductListingAiListingService> aiListingServiceProvider
     ) {
         this.service = service;
+        this.workflowService = workflowService;
         this.businessAccessResolver = businessAccessResolver;
         this.aiListingServiceProvider = aiListingServiceProvider;
     }
@@ -58,6 +61,7 @@ public class ProductListingController {
     public List<ProductListingDraftView> drafts(
             @RequestParam String storeCode,
             @RequestParam(defaultValue = "30") int limit,
+            @RequestParam(defaultValue = "false") boolean includeWorkflow,
             HttpServletRequest request
     ) {
         try {
@@ -66,7 +70,10 @@ public class ProductListingController {
                     BusinessCapability.PRODUCT_LISTING,
                     storeCode
             );
-            return service.listDrafts(context, storeCode, limit);
+            List<ProductListingDraftView> drafts = service.listDrafts(context, storeCode, limit);
+            return includeWorkflow
+                    ? workflowService.attachWorkflowSummaries(context, drafts)
+                    : drafts;
         } catch (BusinessAccessDeniedException exception) {
             throw forbidden(exception);
         } catch (IllegalArgumentException exception) {

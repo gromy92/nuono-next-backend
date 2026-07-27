@@ -7,6 +7,7 @@ public class NoonPullStoreBinding {
     private final String siteCode;
     private final String partnerId;
     private final String noonUser;
+    private final String sessionProjectUser;
     private final String noonPassword;
     private final String noonEmailAuthCode;
     private final String persistedCookie;
@@ -22,12 +23,39 @@ public class NoonPullStoreBinding {
             String noonEmailAuthCode,
             String persistedCookie
     ) {
+        this(
+                ownerUserId,
+                projectCode,
+                storeCode,
+                siteCode,
+                partnerId,
+                noonUser,
+                noonUser,
+                noonPassword,
+                noonEmailAuthCode,
+                persistedCookie
+        );
+    }
+
+    public NoonPullStoreBinding(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            String siteCode,
+            String partnerId,
+            String noonUser,
+            String sessionProjectUser,
+            String noonPassword,
+            String noonEmailAuthCode,
+            String persistedCookie
+    ) {
         this.ownerUserId = ownerUserId;
         this.projectCode = projectCode;
         this.storeCode = storeCode;
         this.siteCode = siteCode;
         this.partnerId = partnerId;
         this.noonUser = noonUser;
+        this.sessionProjectUser = sessionProjectUser;
         this.noonPassword = noonPassword;
         this.noonEmailAuthCode = noonEmailAuthCode;
         this.persistedCookie = persistedCookie;
@@ -55,6 +83,10 @@ public class NoonPullStoreBinding {
 
     public String getNoonUser() {
         return noonUser;
+    }
+
+    public String getSessionProjectUser() {
+        return sessionProjectUser;
     }
 
     public String getNoonPassword() {
