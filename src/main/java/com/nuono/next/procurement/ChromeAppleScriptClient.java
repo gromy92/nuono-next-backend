@@ -6,7 +6,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -86,6 +85,7 @@ class ChromeAppleScriptClient {
                         + "  activate\n"
                         + "end tell"
         );
+        tab.windowIndex = 1;
         sleep(300L);
     }
 
@@ -102,17 +102,19 @@ class ChromeAppleScriptClient {
     }
 
     String executeTabJavascript(ChromeTab tab, String javascript) {
-        String payload = Base64.getEncoder().encodeToString(javascript.getBytes(StandardCharsets.UTF_8));
-        return runAppleScript(
-                "tell application \"Google Chrome\"\n"
-                        + "  tell tab " + tab.tabIndex + " of window " + tab.windowIndex + "\n"
-                        + "    return execute javascript " + quoted("eval(atob('" + payload + "'))") + "\n"
-                        + "  end tell\n"
-                        + "end tell"
-        );
+        return runAppleScript(buildExecuteTabJavascriptAppleScript(tab, javascript));
     }
 
-    String readFully(InputStream inputStream) throws IOException {
+    String buildExecuteTabJavascriptAppleScript(ChromeTab tab, String javascript) {
+        return
+                "tell application \"Google Chrome\"\n"
+                        + "  tell tab " + tab.tabIndex + " of window " + tab.windowIndex + "\n"
+                        + "    return execute javascript " + multilineQuoted(javascript) + "\n"
+                        + "  end tell\n"
+                        + "end tell";
+    }
+
+    private String readFully(InputStream inputStream) throws IOException {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[4096];
             int readBytes;
@@ -132,7 +134,7 @@ class ChromeAppleScriptClient {
         }
     }
 
-    private String runAppleScript(String script) {
+    String runAppleScript(String script) {
         Process process = null;
         try {
             process = new ProcessBuilder("/usr/bin/osascript", "-")
@@ -162,6 +164,12 @@ class ChromeAppleScriptClient {
 
     private String quoted(String value) {
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+    }
+
+    private String multilineQuoted(String value) {
+        String normalized = value.replace("\r\n", "\n").replace('\r', '\n');
+        String escaped = normalized.replace("\\", "\\\\").replace("\"", "\\\"");
+        return "\"" + escaped.replace("\n", "\" & linefeed & \"") + "\"";
     }
 
     private int parseInt(String rawValue) {

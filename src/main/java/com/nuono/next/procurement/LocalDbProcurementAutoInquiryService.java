@@ -110,16 +110,20 @@ public class LocalDbProcurementAutoInquiryService {
     }
 
     @Transactional
-    public ProcurementAutoInquiryWorkbenchView startAutoInquiry(ProcurementAutoInquiryStartCommand command) {
-        if (command == null || command.getOwnerUserId() == null) {
+    public ProcurementAutoInquiryWorkbenchView startAutoInquiry(
+            Long ownerUserId, Long operatorUserId, ProcurementAutoInquiryStartCommand command) {
+        if (ownerUserId == null || ownerUserId <= 0) {
             throw new IllegalArgumentException("缺少老板上下文，暂时不能创建自动询价任务。");
+        }
+        if (operatorUserId == null || operatorUserId <= 0) {
+            throw new IllegalArgumentException("缺少有效的当前登录用户。");
+        }
+        if (command == null) {
+            throw new IllegalArgumentException("缺少自动询价请求。");
         }
         if (command.getDemandItemId() == null || command.getCandidateId() == null) {
             throw new IllegalArgumentException("请先明确要自动询价的需求和候选商品。");
         }
-
-        Long ownerUserId = command.getOwnerUserId();
-        Long operatorUserId = resolveOperatorUserId(command);
 
         DemandItemView demandItem = procurementMapper.selectOwnedDemandItem(ownerUserId, command.getDemandItemId());
         if (demandItem == null) {
@@ -307,13 +311,6 @@ public class LocalDbProcurementAutoInquiryService {
             return "当前需求下还没有可用于自动询价的候选商品。";
         }
         return "当前候选已准备好，可创建服务端自动询价任务。";
-    }
-
-    private Long resolveOperatorUserId(ProcurementAutoInquiryStartCommand command) {
-        if (command.getOperatorUserId() != null) {
-            return command.getOperatorUserId();
-        }
-        return command.getOwnerUserId();
     }
 
     @SuppressWarnings("unused")

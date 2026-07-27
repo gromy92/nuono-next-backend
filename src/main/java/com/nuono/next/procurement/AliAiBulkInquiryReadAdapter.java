@@ -11,19 +11,32 @@ import org.springframework.util.StringUtils;
 @Profile("local-db")
 class AliAiBulkInquiryReadAdapter {
 
-    private static final String INQUIRY_RESULT_URL_PREFIX =
-            "https://air.1688.com/kapp/1688-pc-front/ai-avatar/inquiryResult";
-
     private final ChromeAppleScriptClient chromeClient;
     private final ObjectMapper objectMapper;
+    private final Ali1688BrowserUrlPolicy urlPolicy;
 
-    AliAiBulkInquiryReadAdapter(ChromeAppleScriptClient chromeClient, ObjectMapper objectMapper) {
+    AliAiBulkInquiryReadAdapter(
+            ChromeAppleScriptClient chromeClient,
+            ObjectMapper objectMapper,
+            Ali1688BrowserUrlPolicy urlPolicy
+    ) {
         this.chromeClient = chromeClient;
         this.objectMapper = objectMapper;
+        this.urlPolicy = urlPolicy;
     }
 
     AliAiBulkInquiryPageSnapshot readResultPage(String resultUrl, boolean openIfMissing) {
-        String normalizedUrl = normalize(resultUrl);
+        String normalizedUrl = urlPolicy.validateRequestedUrl(
+                resultUrl,
+                Ali1688BrowserUrlPolicy.PageKind.INQUIRY_RESULT
+        );
+        if (!StringUtils.hasText(normalizedUrl)) {
+            AliAiBulkInquiryPageSnapshot snapshot = new AliAiBulkInquiryPageSnapshot();
+            snapshot.setOk(false);
+            snapshot.setFailureCode("ALI_AI_RESULT_URL_REQUIRED");
+            snapshot.setFailureMessage("读取 1688 智能询盘结果页时必须提供明确的受信任地址。");
+            return snapshot;
+        }
         ChromeTab resultTab = findResultTab(normalizedUrl);
         if (resultTab == null && openIfMissing && StringUtils.hasText(normalizedUrl)) {
             chromeClient.openTab(normalizedUrl);
@@ -40,36 +53,49 @@ class AliAiBulkInquiryReadAdapter {
         }
 
         chromeClient.focusTab(resultTab);
-        String payload = chromeClient.executeTabJavascript(resultTab, buildReadResultJavascript());
+        String payload = chromeClient.executeTabJavascript(
+                resultTab,
+                urlPolicy.guardJavascript(
+                        Ali1688BrowserUrlPolicy.PageKind.INQUIRY_RESULT,
+                        normalizedUrl,
+                        buildReadResultJavascript()
+                )
+        );
+        ChromeTab observedTab = ChromeTab.findCurrent(chromeClient.listChromeTabs(), resultTab);
+        if (observedTab == null || !urlPolicy.matchesRequestedPage(
+                observedTab.url,
+                normalizedUrl,
+                Ali1688BrowserUrlPolicy.PageKind.INQUIRY_RESULT
+        )) {
+            return failure(
+                    "ALI_AI_RESULT_UNTRUSTED_REDIRECT",
+                    "1688 智能询盘结果页已跳转到其他地址，未读取页面内容。",
+                    observedTab == null ? resultTab : observedTab
+            );
+        }
         try {
             AliAiBulkInquiryPageSnapshot snapshot = objectMapper.readValue(payload, AliAiBulkInquiryPageSnapshot.class);
             if (snapshot == null) {
-                return failure("ALI_AI_RESULT_EMPTY", "1688 智能询盘结果页没有返回可读快照。", resultTab);
+                return failure("ALI_AI_RESULT_EMPTY", "1688 智能询盘结果页没有返回可读快照。", observedTab);
             }
-            snapshot.setUrl(firstNonBlank(snapshot.getUrl(), resultTab.url));
-            snapshot.setTitle(firstNonBlank(snapshot.getTitle(), resultTab.title));
+            snapshot.setUrl(observedTab.url);
+            snapshot.setTitle(firstNonBlank(snapshot.getTitle(), observedTab.title));
             return snapshot;
         } catch (JsonProcessingException exception) {
-            return failure("ALI_AI_RESULT_PARSE_FAILED", "1688 智能询盘结果页快照无法解析。", resultTab);
+            return failure("ALI_AI_RESULT_PARSE_FAILED", "1688 智能询盘结果页快照无法解析。", observedTab);
         }
     }
 
-    private ChromeTab findResultTab(String resultUrl) {
+    private ChromeTab findResultTab(String requestedUrl) {
         return chromeClient.listChromeTabs().stream()
-                .filter(tab -> isInquiryResultTab(tab, resultUrl))
+                .filter(tab -> tab != null && urlPolicy.matchesRequestedPage(
+                        tab.url,
+                        requestedUrl,
+                        Ali1688BrowserUrlPolicy.PageKind.INQUIRY_RESULT
+                ))
                 .max(Comparator.comparingInt((ChromeTab tab) -> tab.windowIndex)
                         .thenComparingInt(tab -> tab.tabIndex))
                 .orElse(null);
-    }
-
-    private boolean isInquiryResultTab(ChromeTab tab, String resultUrl) {
-        if (tab == null || !StringUtils.hasText(tab.url)) {
-            return false;
-        }
-        if (StringUtils.hasText(resultUrl) && tab.url.startsWith(resultUrl)) {
-            return true;
-        }
-        return tab.url.startsWith(INQUIRY_RESULT_URL_PREFIX);
     }
 
     private AliAiBulkInquiryPageSnapshot failure(String code, String message, ChromeTab tab) {

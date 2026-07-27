@@ -1,9 +1,6 @@
 package com.nuono.next.procurement;
 
 import com.nuono.next.procurement.ProcurementCandidatePoolView.CandidateView;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.context.annotation.Profile;
@@ -16,6 +13,12 @@ public class ProcurementAutoInquiryTargetResolver {
 
     private static final Pattern OFFER_ID_PATH_PATTERN = Pattern.compile("/offer/(\\d+)\\.html", Pattern.CASE_INSENSITIVE);
     private static final Pattern OFFER_ID_QUERY_PATTERN = Pattern.compile("[?&](?:offerId|offer_id|id)=(\\d+)", Pattern.CASE_INSENSITIVE);
+
+    private final Ali1688BrowserUrlPolicy urlPolicy;
+
+    public ProcurementAutoInquiryTargetResolver(Ali1688BrowserUrlPolicy urlPolicy) {
+        this.urlPolicy = urlPolicy;
+    }
 
     public TargetResolution resolve(CandidateView candidate) {
         if (candidate == null) {
@@ -31,18 +34,23 @@ public class ProcurementAutoInquiryTargetResolver {
 
         String candidateUrl = normalize(candidate.getCandidateUrl());
         String supplierIdentity = normalizeSupplier(candidate.getSupplierName());
-        String offerId = extractOfferId(candidateUrl);
         if (candidateUrl == null) {
             return TargetResolution.failure("MISSING_TARGET_URL", "候选商品缺少详情链接，暂时不能命中聊天目标。");
         }
         if (supplierIdentity == null) {
             return TargetResolution.failure("MISSING_SUPPLIER", "候选商品缺少供应商主体，暂时不能校验聊天目标。");
         }
+        try {
+            candidateUrl = urlPolicy.validateRequestedUrl(
+                    candidateUrl,
+                    Ali1688BrowserUrlPolicy.PageKind.OFFER_DETAIL
+            );
+        } catch (IllegalArgumentException exception) {
+            return TargetResolution.failure("INVALID_1688_URL", "当前候选链接不是稳定的 1688 详情页地址，暂时不能继续自动询价。");
+        }
+        String offerId = extractOfferId(candidateUrl);
         if (offerId == null) {
             return TargetResolution.failure("MISSING_OFFER_ID", "当前详情链接里还没有稳定 offerId，暂时不能安全命中聊天线程。");
-        }
-        if (!looksLike1688Url(candidateUrl)) {
-            return TargetResolution.failure("INVALID_1688_URL", "当前候选链接不是稳定的 1688 详情页地址，暂时不能继续自动询价。");
         }
 
         TargetResolution resolution = new TargetResolution();
@@ -53,20 +61,6 @@ public class ProcurementAutoInquiryTargetResolver {
         resolution.setEntryUrl(candidateUrl);
         resolution.setLocatorText("offerId=" + offerId + "；supplier=" + supplierIdentity + "；entry=" + candidateUrl);
         return resolution;
-    }
-
-    private boolean looksLike1688Url(String candidateUrl) {
-        try {
-            URI uri = new URI(candidateUrl);
-            String host = uri.getHost();
-            if (!StringUtils.hasText(host)) {
-                return false;
-            }
-            String normalizedHost = host.toLowerCase(Locale.ROOT);
-            return normalizedHost.endsWith("1688.com");
-        } catch (URISyntaxException exception) {
-            return false;
-        }
     }
 
     private String extractOfferId(String candidateUrl) {
