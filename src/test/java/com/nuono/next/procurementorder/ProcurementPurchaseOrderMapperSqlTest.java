@@ -15,7 +15,13 @@ import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class ProcurementPurchaseOrderMapperSqlTest {
-
+    @Test void shippingOrderSegmentsCountDistinctSourcePurchaseOrders() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod("listShippingOrderSegments", Long.class);
+        String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(sql).contains("COUNT(DISTINCT sol.purchase_order_id)", "GROUP_CONCAT(DISTINCT", "sol.purchase_order_title", "AS purchaseOrderNames");
+        Method listMethod = ProcurementPurchaseOrderMapper.class.getMethod("listShippingOrders", Long.class, String.class); String listSql = String.join(" ", listMethod.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(listSql).contains("is_deleted = b'0'").doesNotContain("status IN", "status =", "shipping_submit_status =");
+    }
     @Test
     void listOrdersSortsByPurchaseOrderCreateTimeNewestFirst() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
@@ -26,14 +32,11 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 Boolean.class,
                 Integer.class
         );
-
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");
-
         assertThat(sql).contains("ORDER BY po.gmt_create DESC, po.id DESC");
         assertThat(sql).doesNotContain("ORDER BY po.gmt_updated DESC");
     }
-
     @Test
     void listOrdersCanFilterSubmittedOrdersForShippingOrderSelection() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
@@ -45,7 +48,6 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 Boolean.class,
                 Integer.class
         );
-
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");
 
@@ -56,10 +58,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
     @Test
     void purchaseOrderMutationLockUsesForUpdate() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod("selectOrderByIdForUpdate", Long.class);
-
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");
-
         assertThat(sql).contains("FOR UPDATE");
     }
 
