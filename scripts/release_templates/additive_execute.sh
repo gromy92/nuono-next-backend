@@ -1,0 +1,13 @@
+validate_additive_migrations
+ensure_migration_182
+require_migration_190
+apply_migration "$MIGRATION_204"
+postcheck_migration_204
+apply_migration "$MIGRATION_205"
+postcheck_migration_205
+emit ADDITIVE_SCHEMA_RESULT PASS
+emit EXPECTED_COMMIT "$EXPECTED_COMMIT"
+emit MIGRATION_182_SHA256 "$EXPECTED_182_SHA256"
+emit MIGRATION_190_SHA256 "$EXPECTED_190_SHA256"
+emit MIGRATION_204_SHA256 "$EXPECTED_204_SHA256"
+emit MIGRATION_205_SHA256 "$EXPECTED_205_SHA256"

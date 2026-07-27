@@ -14,6 +14,15 @@ class ArtifactError(RuntimeError):
     pass
 
 
+MANAGED_MIGRATIONS = (
+    "182_product_barcode_psku_identity.sql",
+    "190_noon_shared_email_auth_recovery.sql",
+    "204_product_listing_workflow_attempt_claim.sql",
+    "205_product_listing_reauthentication_attempt.sql",
+    "206_product_barcode_store_uniqueness.sql",
+)
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -46,6 +55,7 @@ def build_manifest(
     artifact_path: Path,
     artifact_name: str,
     env: dict[str, str],
+    migration_dir: Path | None = None,
 ) -> dict[str, object]:
     commit = required_env("GITHUB_SHA", env)
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
@@ -56,7 +66,7 @@ def build_manifest(
     deployable = event == "push" and ref == "refs/heads/master"
     if not deployable:
         raise ArtifactError("release artifacts may only be produced by a push to master")
-    return {
+    manifest: dict[str, object] = {
         "schema_version": 1,
         "component": "backend",
         "repository": repository,
@@ -76,6 +86,21 @@ def build_manifest(
             }
         ],
     }
+    if migration_dir is not None:
+        descriptors: list[dict[str, object]] = []
+        for name in MANAGED_MIGRATIONS:
+            path = migration_dir / name
+            if not path.is_file():
+                raise ArtifactError(f"managed migration is missing: {path}")
+            descriptors.append(
+                {
+                    "path": name,
+                    "sha256": sha256_file(path),
+                    "size": path.stat().st_size,
+                }
+            )
+        manifest["migrations"] = descriptors
+    return manifest
 
 
 def package_release_artifact(
@@ -83,12 +108,13 @@ def package_release_artifact(
     output_dir: Path,
     artifact_name: str,
     env: dict[str, str],
+    migration_dir: Path | None = None,
 ) -> Path:
     jar = select_runnable_jar(target_dir)
     output_dir.mkdir(parents=True, exist_ok=False)
     artifact_path = output_dir / "nuono-next-backend.jar"
     shutil.copyfile(jar, artifact_path)
-    manifest = build_manifest(artifact_path, artifact_name, env)
+    manifest = build_manifest(artifact_path, artifact_name, env, migration_dir)
     manifest_path = output_dir / "release-manifest.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -101,6 +127,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Package the deployable backend CI artifact.")
     parser.add_argument("--target-dir", default="target")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--migration-dir", default="src/main/resources/db/init")
     return parser.parse_args()
 
 
@@ -113,6 +140,7 @@ def main() -> int:
         Path(args.output_dir).resolve(),
         artifact_name,
         env,
+        Path(args.migration_dir).resolve(),
     )
     print(manifest_path)
     return 0

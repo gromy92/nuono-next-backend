@@ -31,6 +31,37 @@ def github_env() -> dict[str, str]:
 
 
 class PackageReleaseArtifactTest(unittest.TestCase):
+    def test_manifest_binds_managed_migration_hashes(self):
+        module = load_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            artifact = root / "nuono-next-backend.jar"
+            artifact.write_bytes(b"jar")
+            migration_dir = root / "db" / "init"
+            migration_dir.mkdir(parents=True)
+            names = [
+                "182_product_barcode_psku_identity.sql",
+                "190_noon_shared_email_auth_recovery.sql",
+                "204_product_listing_workflow_attempt_claim.sql",
+                "205_product_listing_reauthentication_attempt.sql",
+                "206_product_barcode_store_uniqueness.sql",
+            ]
+            for name in names:
+                (migration_dir / name).write_text(f"-- {name}\n", encoding="utf-8")
+
+            manifest = module.build_manifest(
+                artifact,
+                "nuono-next-backend-" + "a" * 40,
+                github_env(),
+                migration_dir,
+            )
+
+            self.assertEqual(names, [item["path"] for item in manifest["migrations"]])
+            self.assertEqual(
+                [module.sha256_file(migration_dir / name) for name in names],
+                [item["sha256"] for item in manifest["migrations"]],
+            )
+
     def test_packages_one_jar_and_binds_it_to_the_workflow(self):
         module = load_module()
         with tempfile.TemporaryDirectory() as tmp:
