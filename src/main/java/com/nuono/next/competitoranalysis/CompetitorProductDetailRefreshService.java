@@ -71,6 +71,9 @@ public class CompetitorProductDetailRefreshService {
         CompetitorProductDetailRefreshResult result = CompetitorProductDetailRefreshResult.empty();
         String selfCode = normalizeCode(watchProduct.getSelfNoonProductCode());
         refreshSelfDetail(watchProduct, selfCode, searchRunId, taskId, actorUserId, result);
+        if (result.hasRiskBackoffFailure()) {
+            return result;
+        }
         List<CompetitorProductRow> confirmedProducts =
                 mapper.listConfirmedCompetitorProductsByWatchProductId(watchProduct.getId());
         Map<String, CompetitorProductRow> productsByCode = new LinkedHashMap<>();
@@ -106,6 +109,9 @@ public class CompetitorProductDetailRefreshService {
                         exception.getMessage(),
                         exception
                 );
+                if (result.hasRiskBackoffFailure()) {
+                    break;
+                }
             }
         }
         return result;

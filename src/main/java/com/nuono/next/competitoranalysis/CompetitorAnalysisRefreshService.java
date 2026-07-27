@@ -579,13 +579,10 @@ public class CompetitorAnalysisRefreshService {
             if (detailResult.getFailedCount() > 0) {
                 firstErrorCode = detailResult.getFirstErrorCode();
                 firstErrorMessage = detailResult.getFirstErrorMessage();
-                if (isRiskBackoffFailure(firstErrorCode)) {
-                    riskBackoffHold = recordRiskBackoff(
-                            watchProduct,
-                            taskId,
-                            firstErrorCode,
-                            firstErrorMessage
-                    );
+                if (detailResult.hasRiskBackoffFailure()) {
+                    firstErrorCode = detailResult.getRiskErrorCode();
+                    firstErrorMessage = detailResult.getRiskErrorMessage();
+                    riskBackoffHold = recordRiskBackoff(watchProduct, taskId, firstErrorCode, firstErrorMessage);
                 }
             }
             List<CompetitorKeywordRow> keywords = safeMode.runsRank() && riskBackoffHold == null

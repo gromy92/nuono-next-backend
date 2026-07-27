@@ -31,4 +31,15 @@ class CompetitorRefreshRunResultSupportTest {
         assertTrue(resultJson.contains("\"detailFailed\":1"));
         assertTrue(resultJson.contains("\"keywordFailed\":0"));
     }
+
+    @Test
+    void detailResultPreservesEverySupportedRiskBackoffCode() {
+        for (String errorCode : new String[]{"RATE_LIMITED", "BLOCKED_BY_RISK_CONTROL", "CAPTCHA_REQUIRED"}) {
+            CompetitorProductDetailRefreshResult detailResult = CompetitorProductDetailRefreshResult.empty();
+            detailResult.recordFailure(errorCode, "risk");
+
+            assertTrue(detailResult.hasRiskBackoffFailure());
+            assertEquals(errorCode, detailResult.getRiskErrorCode());
+        }
+    }
 }

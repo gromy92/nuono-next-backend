@@ -8,6 +8,8 @@ public class CompetitorProductDetailRefreshResult {
     private int failedCount;
     private String firstErrorCode;
     private String firstErrorMessage;
+    private String riskErrorCode;
+    private String riskErrorMessage;
 
     public static CompetitorProductDetailRefreshResult empty() {
         return new CompetitorProductDetailRefreshResult();
@@ -36,6 +38,10 @@ public class CompetitorProductDetailRefreshResult {
         if (!StringUtils.hasText(firstErrorMessage)) {
             firstErrorMessage = errorMessage;
         }
+        if (!StringUtils.hasText(riskErrorCode) && isRiskBackoffFailure(errorCode)) {
+            riskErrorCode = errorCode;
+            riskErrorMessage = errorMessage;
+        }
     }
 
     public int getAttemptedCount() {
@@ -56,5 +62,23 @@ public class CompetitorProductDetailRefreshResult {
 
     public String getFirstErrorMessage() {
         return firstErrorMessage;
+    }
+
+    public boolean hasRiskBackoffFailure() {
+        return StringUtils.hasText(riskErrorCode);
+    }
+
+    public String getRiskErrorCode() {
+        return riskErrorCode;
+    }
+
+    public String getRiskErrorMessage() {
+        return riskErrorMessage;
+    }
+
+    private boolean isRiskBackoffFailure(String errorCode) {
+        return "RATE_LIMITED".equalsIgnoreCase(errorCode)
+                || "BLOCKED_BY_RISK_CONTROL".equalsIgnoreCase(errorCode)
+                || "CAPTCHA_REQUIRED".equalsIgnoreCase(errorCode);
     }
 }
