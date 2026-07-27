@@ -37,5 +37,9 @@ class PublishedProductLogisticsRateCardMapperSqlTest {
         assertThat(sql).contains("'PUBLISHED_FORWARDER_QUOTE' AS sourceType");
         assertThat(sql).contains("version.version_no AS sourceReference");
         assertThat(sql).doesNotContain("version.quote_version_code");
+        String orderBy = sql.substring(sql.indexOf("ORDER BY"));
+        assertThat(orderBy)
+                .contains("ORDER BY route.site_code, forwarderCode, route.transport_mode")
+                .doesNotContain("route.forwarder_code");
     }
 }

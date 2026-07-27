@@ -49,7 +49,7 @@ public interface PublishedProductLogisticsRateCardMapper {
             "<if test='transportMode != null and transportMode != \"\"'>",
             "  AND route.transport_mode = #{transportMode}",
             "</if>",
-            "ORDER BY route.site_code, route.forwarder_code, route.transport_mode,",
+            "ORDER BY route.site_code, forwarderCode, route.transport_mode,",
             "         price.cargo_category_name, price.id",
             "</script>"
     })
