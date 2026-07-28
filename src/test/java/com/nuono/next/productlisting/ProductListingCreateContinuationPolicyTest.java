@@ -101,6 +101,84 @@ class ProductListingCreateContinuationPolicyTest {
         assertThrows(IllegalArgumentException.class, () -> requireRecoverable(result));
     }
 
+    @Test
+    void partialSuccessfulCreateReferenceCannotEnterContinuation() {
+        ProductListingNoonWriteStepResult partial =
+                step("create_product", "succeeded", null, "skuParent=ZPARENT");
+        ProductListingNoonWriteResult result =
+                ProductListingNoonWriteResult.failed(
+                        "projection",
+                        "projection_failed",
+                        "projection failed",
+                        List.of(partial)
+                );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> requireContinuationWriteAllowed(result)
+        );
+
+        ProductListingNoonWriteResult empty =
+                ProductListingNoonWriteResult.failed(
+                        "projection",
+                        "projection_failed",
+                        "projection failed",
+                        List.of(step(
+                                "create_product",
+                                "succeeded",
+                                null,
+                                "skuParent= ;pskuCode="
+                        ))
+                );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> requireContinuationWriteAllowed(empty)
+        );
+    }
+
+    @Test
+    void partialResolveAndSplitCreateReferencesCannotUnlockUnknownCreate() {
+        ProductListingNoonWriteStepResult unknown = unknownCreate();
+        ProductListingNoonWriteStepResult partialResolve = step(
+                "resolve_create_reference",
+                "succeeded",
+                null,
+                "pskuCode=PCODE"
+        );
+        ProductListingNoonWriteResult partial = ProductListingNoonWriteResult.failed(
+                "noon_uncertain_write",
+                "noon_create_outcome_unknown",
+                "unknown",
+                List.of(
+                        absenceProof(TASK_ID, STORE_CODE, PARTNER_SKU),
+                        unknown,
+                        partialResolve
+                )
+        );
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> requireContinuationWriteAllowed(partial)
+        );
+
+        ProductListingNoonWriteStepResult splitCreate = step(
+                "create_product",
+                "succeeded",
+                null,
+                "skuParent=ZPARENT"
+        );
+        ProductListingNoonWriteResult split = ProductListingNoonWriteResult.failed(
+                "projection",
+                "projection_failed",
+                "projection failed",
+                List.of(splitCreate, partialResolve)
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> requireContinuationWriteAllowed(split)
+        );
+    }
+
     private void requireRecoverable(ProductListingNoonWriteResult result) {
         ProductListingCreateContinuationPolicy.requireRecoverable(
                 result, TASK_ID, STORE_CODE, PARTNER_SKU);

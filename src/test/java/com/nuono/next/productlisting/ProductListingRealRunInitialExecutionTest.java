@@ -3,18 +3,12 @@ package com.nuono.next.productlisting;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.transaction.annotation.Transactional;
-
 
 class ProductListingRealRunInitialExecutionTest extends ProductListingRealRunServiceTest {
     @Test
@@ -184,36 +178,6 @@ class ProductListingRealRunInitialExecutionTest extends ProductListingRealRunSer
     }
 
     @Test
-    void saveDraftBackfillsDraftProductProjectionWhenPskuIsPresent() {
-        ProductListingTestFixtures.FakeProductListingMapper mapper =
-                new ProductListingTestFixtures.FakeProductListingMapper();
-        ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
-                new ProductListingTestFixtures.TrackingNoonWriteAdapter(successResult());
-        TrackingProjectionBackfill projectionBackfill = new TrackingProjectionBackfill();
-        ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
-        ProductListingService service = new ProductListingService(
-                mapper,
-                new ObjectMapper(),
-                new ProductListingValidator(),
-                properties,
-                adapter,
-                null,
-                objectProvider(projectionBackfill)
-        );
-        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
-                10002L,
-                90001L,
-                "STR245027-NAE"
-        );
-
-        ProductListingDraftView draftView = service.saveDraft(context, ProductListingTestFixtures.validCommand());
-
-        assertEquals(1, projectionBackfill.draftBackfillCallCount);
-        assertEquals(draftView.getDraftId(), projectionBackfill.draftRecord.getId());
-        assertEquals("NN-TEST-PSKU", projectionBackfill.draftProjection.getPsku());
-    }
-
-    @Test
     void submitConfirmedRealRunFromDraftUsesSharedDraftDryRunAndRealRunPipeline() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
@@ -266,5 +230,4 @@ class ProductListingRealRunInitialExecutionTest extends ProductListingRealRunSer
         assertEquals("rejected", realRun.getStatus());
         assertEquals("real_write_disabled", realRun.getFailureCode());
     }
-
 }

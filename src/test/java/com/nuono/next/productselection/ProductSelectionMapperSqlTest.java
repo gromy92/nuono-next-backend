@@ -75,6 +75,24 @@ class ProductSelectionMapperSqlTest {
     }
 
     @Test
+    void profitAuthorizationResolvesSitesFromTheTargetLogicalStore() throws Exception {
+        Method method = ProductSelectionMapper.class.getMethod(
+                "listLogicalStoreSiteCodes",
+                Long.class,
+                String.class
+        );
+        Select select = method.getAnnotation(Select.class);
+        String sql = String.join("\n", select.value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("lss.logical_store_id = #{logicalStoreId}")
+                .contains("END = #{siteCode}")
+                .contains("lss.is_deleted = b'0'")
+                .contains("ls.is_deleted = b'0'")
+                .doesNotContain("LIMIT 1");
+    }
+
+    @Test
     void pluginIngestRetryLookupIsScopedToBatchItemAndNeverUpdatesHistoricalProducts() throws Exception {
         Method selectMethod = ProductSelectionPluginIngestMapper.class.getMethod(
                 "selectByBatchItem",

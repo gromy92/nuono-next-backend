@@ -161,6 +161,9 @@ public final class ProductListingWorkflowProjector {
             } else if (rejected && requiresDraftEdit(realRunTask)) {
                 view.setNextAction(ProductListingWorkflowView.NextAction.EDIT_DRAFT);
                 view.setMessage("本次确认已被拒绝，请修改草稿并生成新的 dry-run。");
+            } else if (rejected && canReviewRejectedAttempt(realRunTask)) {
+                view.setNextAction(ProductListingWorkflowView.NextAction.REVIEW_DRAFT);
+                view.setMessage("本次写入未开始，请重新检查草稿后生成新的 dry-run。");
             } else if (!rejected) {
                 view.setNextAction(ProductListingWorkflowView.NextAction.REVIEW_DRAFT);
                 view.setMessage("本次写入未开始，请重新检查草稿后生成新的 dry-run。");
@@ -228,24 +231,9 @@ public final class ProductListingWorkflowProjector {
     }
 
     private boolean hasCreateReferences(ProductListingTaskView task) {
-        ProductListingNoonWriteResult result = task == null ? null : task.getNoonResult();
-        if (result == null || result.getSteps() == null) {
-            return false;
-        }
-        boolean skuParent = false;
-        boolean pskuCode = false;
-        for (ProductListingNoonWriteStepResult step : result.getSteps()) {
-            String reference = step == null ? null : step.getExternalReference();
-            if (reference == null) {
-                continue;
-            }
-            for (String token : reference.split(";")) {
-                String value = token.trim();
-                skuParent = skuParent || value.matches("(?i)skuParent=.+");
-                pskuCode = pskuCode || value.matches("(?i)pskuCode=.+");
-            }
-        }
-        return skuParent && pskuCode;
+        return ProductListingWorkflowEvidence.hasConfirmedCreate(
+                task == null ? null : task.getNoonResult()
+        );
     }
 
     private String upperOrDefault(String value, String fallback) {
@@ -295,5 +283,12 @@ public final class ProductListingWorkflowProjector {
                 || "noon_warehouse_stock_not_supported".equalsIgnoreCase(code)
                 || "partner_sku_already_exists".equalsIgnoreCase(code)
                 || "barcode_already_exists".equalsIgnoreCase(code);
+    }
+
+    private boolean canReviewRejectedAttempt(ProductListingTaskView task) {
+        String code = task == null ? null : task.getFailureCode();
+        return "real_write_disabled".equalsIgnoreCase(code)
+                || "dry_run_stale".equalsIgnoreCase(code)
+                || "confirmation_required".equalsIgnoreCase(code);
     }
 }

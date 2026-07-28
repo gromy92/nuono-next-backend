@@ -217,7 +217,7 @@ public class ProductReadModelService {
             if ("draft".equals(syncStatus)) {
                 draftCount++;
             } else if ("conflict".equals(syncStatus)) {
-                draftCount++;
+                conflictCount++;
             } else if ("failed".equals(syncStatus)) {
                 failedCount++;
             } else {

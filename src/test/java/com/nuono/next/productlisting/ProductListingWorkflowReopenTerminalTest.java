@@ -1,5 +1,6 @@
 package com.nuono.next.productlisting;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -10,6 +11,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ProductListingWorkflowReopenTerminalTest {
 
@@ -41,6 +44,29 @@ class ProductListingWorkflowReopenTerminalTest {
         );
 
         verify(fixture.mapper, never()).markValidatedDryRunSuperseded(20001L, 10002L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "real_write_disabled",
+            "dry_run_stale",
+            "confirmation_required"
+    })
+    void explicitNotStartedRejectionCanReopenReview(String failureCode) {
+        Fixture fixture = fixture("rejected", failureCode, "write did not start");
+        when(fixture.mapper.markValidatedDryRunSuperseded(20001L, 10002L))
+                .thenReturn(1);
+
+        ProductListingWorkflowView view = fixture.workflowService.reopenReview(
+                fixture.context,
+                20001L
+        );
+
+        verify(fixture.mapper).markValidatedDryRunSuperseded(20001L, 10002L);
+        assertEquals(
+                ProductListingWorkflowView.NextAction.REVIEW_DRAFT,
+                view.getNextAction()
+        );
     }
 
     private Fixture fixture(String status, String failureCode, String failureMessage) {
