@@ -148,7 +148,9 @@ final class CompetitorDetailRetryJsonSupport {
         String text = value == null
                 ? ""
                 : value instanceof LocalDateTime
-                        ? DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(value)
+                        ? DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(
+                                (LocalDateTime) value
+                        )
                         : String.valueOf(value);
         return text.length() + ":" + text;
     }

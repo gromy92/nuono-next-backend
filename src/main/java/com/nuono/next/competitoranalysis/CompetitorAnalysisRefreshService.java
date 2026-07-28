@@ -247,7 +247,7 @@ public class CompetitorAnalysisRefreshService {
                 refreshTaskFactory,
                 refreshTaskDispatcher,
                 (task, watchProduct) -> detailRetryCoordinator.isReady(task)
-                        && currentNoonRiskBackoff(watchProduct).isEmpty(),
+                        && riskBackoff.current(watchProduct).isEmpty(),
                 this::runRefresh, this.clock
         );
         this.taskRecovery = new CompetitorAnalysisTaskRecovery(
