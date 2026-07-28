@@ -189,10 +189,11 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{balanceId}",
+            "  AND #{quantity} > 0",
             "  AND reserved_quantity >= #{quantity}",
             "  AND is_deleted = b'0'"
     })
-    void moveReservedToLogisticsHandoff(
+    int moveReservedToLogisticsHandoff(
             @Param("balanceId") Long balanceId,
             @Param("quantity") Integer quantity,
             @Param("operatorUserId") Long operatorUserId

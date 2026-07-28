@@ -82,6 +82,23 @@ class WarehouseDispatchMapperSqlTest {
     }
 
     @Test
+    void logisticsHandoffBalanceTransitionReportsAffectedRowsAndRequiresPositiveQuantity() throws Exception {
+        Method method = WarehouseDispatchMapper.class.getMethod(
+                "moveReservedToLogisticsHandoff",
+                Long.class,
+                Integer.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(method.getReturnType()).isEqualTo(int.class);
+        assertThat(sql).contains("#{quantity} > 0");
+        assertThat(sql).contains("reserved_quantity >= #{quantity}");
+    }
+
+    @Test
     void preApplicationInventoryReadsAli1688SpecsOnly() {
         String sql = WarehouseDispatchMapper.BALANCE_SELECT.replaceAll("\\s+", " ");
 

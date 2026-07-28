@@ -192,6 +192,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().markLogisticsHandoffSuccess(access(request), handoffRequestNo);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (IllegalStateException exception) {
+            throw conflict(exception);
         }
     }
 
